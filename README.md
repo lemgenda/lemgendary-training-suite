@@ -16,11 +16,10 @@ The easiest way to manage your AI workflow is via the **LemGendary Hub**.
    ```
 
 ### Menu Options
-1. **Prepare Python Environment**: Automatically creates a `.venv_training` enclosure and installs all dependencies (PyTorch 2.4.1+cu121, DirectML, YOLO, etc.).
-2. **Optimize Hardware Utilization**: Profiles your CPU threads and GPUs. Configures "Extreme" mode to use **NVIDIA (CUDA)** for training and **AMD/Intel (DirectML)** for real-time synthesis.
-3. **Standardize Models**: Guided conversion of raw `.pth` or `.onnx` weights into the LemGendary format.
-4. **Standardize Datasets**: Guided processing of raw images into clean/degraded training pairs.
-5. **Train Models**: Launches the unified training suite to select models and begin the learning process.
+1. **Initialize/Fix Environment**: Installs Python 3.10 natively and creates the `.venv` enclosure. Upgrades pip, then installs PyTorch 2.4.1+cu121 alongside all other mathematical dependencies for inference.
+2. **Train Individual Model**: Launches the interactive LemGendary Unified Training Suite, empowering singular network selection for localized structural training loops natively.
+3. **Global Orchestration**: Automates sequential continuous execution of **all 21 models** on your local hardware architecture uninterrupted.
+4. **Exit**: Terminate hub.
 
 ---
 
@@ -48,21 +47,21 @@ All exports are consolidated in **`trained-models/`**.
 
 ---
 
-## 5. Model Inventory
-- **Diagnostic Eyes**: YOLOv8n (Detection), NIMA (Aesthetic/Technical Scoring).
-- **Core Hands**: Professional Multi-Task Restorer, UPN v2 (AI Auto-Fix), Universal Film Restorer.
-- **Surgical Tools**: CodeFormer (Face), NAFNet (Denoise), FFANet (Dehaze), MIRNet (Exposure).
-- **UltraZoom**: Real-ESRGAN based x2/x3/x4/x8 upscalers.
+## 5. Processing Pipeline
+- **Diagnostic Eyes**: YOLOv8n (Detection, Pose, Classification), NIMA Aesthetic Scorer, NIMA Technical Scorer.
+- **Core Hands**: Professional Multi-Task Restorer, UPN v2 (AI Auto-Fix Parameter Predictor), Universal Film Restorer.
+- **Surgical Tools**: CodeFormer (Face), ParseNet (Face Parsing), NAFNet (Denoise/Deblur), MPRNet (Deraining), MIRNet v2 (Low-Light/Exposure), FFANet (Dehaze Indoor/Outdoor), RetinaFace (MobileNet/ResNet).
+- **UltraZoom**: UltraZoom x2, UltraZoom x3, UltraZoom x4, UltraZoom x8.
 
 ---
 
-## 6. GPU Benchmark (NVIDIA GTX 1650)
-| Metric | Baseline | Optimized (Extreme) |
-| :--- | :--- | :--- |
-| **Throughput** | ~4.5 hrs / epoch | **~45 mins / epoch** |
-| **Speedup** | 1x | **5.3x faster** |
-| **VRAM Usage** | ~2.5 GB | **3.5 GB (87%)** |
-| **Precision** | 32-bit (FP32) | **Mixed Precision (AMP)** |
+## 6. Neural Convergence Benchmarks (SOTA Targets)
+| Category / Task | Key Metrics | Acceptable | Excellent | State-of-the-Art (SOTA) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Restoration** (SuperRes, Noise, LowLight, Degradation) | PSNR / SSIM / LPIPS | ~28.0 dB / ~0.82 / ~0.15 | >30.5 dB / >0.89 / <0.10 | **>32.5 dB / >0.94 / <0.06** |
+| **Face Restoration** | PSNR / SSIM / FID | ~28.0 dB / ~0.80 / ~15.0 | >31.0 dB / >0.88 / <12.0 | **>33.0 dB / >0.92 / <8.0** |
+| **Detection / Pose** | mAP@0.5 | ~0.450 | >0.650 | **>0.850** |
+| **Quality Assessment** | PLCC / SRCC | ~0.85 / ~0.80 | >0.90 / >0.85 | **>0.95 / >0.90** |
 
 *Stay Lemgendary.* verified syntax OK.
 
@@ -94,14 +93,13 @@ All exports are consolidated in **`trained-models/`**.
 
 ## 8. Dataset Inventory Detail
 
-| DataSetName | Category | OriginalDataSet Sources | Purpose | Associated Models |
-| :--- | :--- | :--- | :--- | :--- |
-| LemGendizedQualityDataset | Quality | AVA, LIVE, TID2013, PIPAL | Aesthetic/Technical mathematical evaluation | NIMA Aesthetic, NIMA Technical |
-| LemGendizedFaceDataset | Face | CelebAMask-HQ, FFHQ, Helen, WiderFace | High-fidelity face restoration, parsing, detection | YOLOv8n Unified |
-| LemGendizedDegradationDataset | Restoration | GoPro, HIDE, RESIDE, Rain100 | Image Dehaze, Derain, and Deblur | Professional MultiTask Restorer |
-| LemGendizedSuperResDataset | Restoration | DIV2K, Flickr2K, Urban100, LSDIR, REDS | High-Fidelity Super-Resolution | UltraZoom, Professional MultiTask Restorer |
-| LemGendizedLowLightDataset | Restoration | DarkFace, ExposureCorrection, LOL, SIDD, SICE, ImageExposure | Extreme Low-Light and Exposure manipulation | Professional MultiTask Restorer |
-| LemGendizedNoiseDataset | Restoration | DND, SIDD, Synthetic | Advanced Neural Denoising | Professional MultiTask Restorer |
-| LemGendizedDetectionDataset | Detection | COCO, Objects365, OpenImages | Universal Object Detection, Pose, and Classification | YOLOv8n Unified |
-| ArtImages | Restoration | Art_Dataset_Clear (User Uploaded) | Art restoration | Professional MultiTask Restorer |
-
+| DataSetName | Category | OriginalDataSet Sources | Kaggle Source | Purpose | Associated Models |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **LemGendizedQualityDataset** | Quality | AVA, LIVE, TID2013, PIPAL, DPED | [Source](https://www.kaggle.com/datasets/lemtreursi/lemgendized-quality-dataset) | Aesthetic/Technical mathematical evaluation | NIMA Aesthetic, NIMA Technical |
+| **LemGendizedFaceDataset** | Face | FFHQ, CelebAMask, Helen, WFLW, AffectNet | [Source](https://www.kaggle.com/datasets/lemtreursi/lemgendized-face-dataset) | High-fidelity face restoration, parsing, detection | YOLOv8n, CodeFormer, ParseNet, RetinaFace (MobileNet), RetinaFace (ResNet) |
+| **LemGendizedDegradationDataset** | Restoration | HIDE, Rain100L, RealBlur, REDS, RESIDE | [Source](https://www.kaggle.com/datasets/lemtreursi/lemgendized-degradation-dataset) | Image Dehaze, Derain, and Deblur | Professional MultiTask Restorer, Universal Film Restorer, UPN v2, FFANet (Indoor), FFANet (Outdoor), MPRNet, NAFNet (Debluring) |
+| **LemGendizedSuperResDataset** | Restoration | DIV2K, Flickr2K, Urban100, LSDIR, REDS | [Source](https://www.kaggle.com/datasets/lemtreursi/lemgendized-superres-dataset) | High-Fidelity Super-Resolution | Professional MultiTask Restorer, Universal Film Restorer, UPN v2, NAFNet (Debluring), UltraZoom (x2, x3, x4, x8) |
+| **LemGendizedLowLightDataset** | Restoration | LOL, SICE, ExposureCorrection, ImageExposure | [Source](https://www.kaggle.com/datasets/lemtreursi/lemgendized-lowlight-dataset) | Extreme Low-Light and Exposure manipulation | Professional MultiTask Restorer, Universal Film Restorer, UPN v2, MIRNet (Low-Light), MIRNet (Exposure) |
+| **LemGendizedNoiseDataset** | Restoration | SIDD, DND, MultiNoises | [Source](https://www.kaggle.com/datasets/lemtreursi/lemgendized-noise-dataset) | Advanced Neural Denoising | Professional MultiTask Restorer, Universal Film Restorer, UPN v2, NAFNet (Denoising) |
+| **LemGendizedDetectionDataset** | Detection | COCO, Objects365, OpenImages | [Source](https://www.kaggle.com/datasets/lemtreursi/lemgendized-detection-dataset) | Universal Object Detection, Pose, and Classification | YOLOv8n, RetinaFace (MobileNet), RetinaFace (ResNet) |
+| ArtImages | Restoration | Art_Dataset_Clear (User Uploaded) | | Art restoration | Professional MultiTask Restorer |
