@@ -31,9 +31,9 @@ The easiest way to manage your AI workflow is via the **LemGendary Hub**.
   - **Auxiliary (AMD/Intel)**: Offloads the real-time image synthesis (Blur, Noise, Haze).
 
 ### Smart Termination Logic
-To ensure "Excellent" results without wasting compute:
-1. **Target Reached**: If the strict mathematical threshold (`PLCC > 0.85 / SRCC > 0.82` for Quality, `PSNR > 32.0` for Restoration) is breached, the orchestrator triggers dynamic Early-Stopping.
-2. **Reinforcement Buffer**: The suite automatically mathematically enforces exactly **2 final reinforcement epochs** instantly upon breaching the array threshold to perfectly stabilize the tensor weights before executing `.onnx` compilation.
+To ensure State-of-the-Art (SOTA) results without wasting compute:
+1. **Target Reached**: If the strict mathematical SOTA threshold (`PLCC > 0.95 / SRCC > 0.90` for Quality, `PSNR > 32.5` for Restoration) is breached, the orchestrator triggers dynamic Early-Stopping.
+2. **Cooldown Buffer**: The suite automatically mathematically enforces exactly **1 final cooldown epoch** instantly upon breaching the array threshold to perfectly stabilize the tensor weights before executing `.onnx` compilation.
 3. **Max 50 Epochs**: Absolute safety hard-cap to violently terminate if convergence plateaus.
 
 ---
@@ -62,8 +62,6 @@ All exports are consolidated in **`trained-models/`**.
 | **Face Restoration** | PSNR / SSIM / FID | ~28.0 dB / ~0.80 / ~15.0 | >31.0 dB / >0.88 / <12.0 | **>33.0 dB / >0.92 / <8.0** |
 | **Detection / Pose** | mAP@0.5 | ~0.450 | >0.650 | **>0.850** |
 | **Quality Assessment** | PLCC / SRCC | ~0.85 / ~0.80 | >0.90 / >0.85 | **>0.95 / >0.90** |
-
-*Stay Lemgendary.* verified syntax OK.
 
 ## 7. Model Inventory Detail
 
