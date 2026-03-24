@@ -166,8 +166,10 @@ def main():
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True)
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False)
     
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=config.get("num_workers", 4))
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
+    import os
+    num_workers = config.get("num_workers", 0 if os.name == 'nt' else 4)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=num_workers > 0)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=num_workers > 0)
 
     # Optimizer & Scheduler
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4) # pyre-ignore
@@ -200,7 +202,7 @@ def main():
     if os.path.exists(latest_ckpt):
         try:
             print(f"Resuming training from checkpoint: {latest_ckpt}")
-            ckpt = torch.load(latest_ckpt, map_location=device)  # pyre-ignore
+            ckpt = torch.load(latest_ckpt, map_location=device, weights_only=False)  # pyre-ignore
             if 'model_state' in ckpt:
                 model.load_state_dict(ckpt['model_state'])
                 if 'optimizer_state' in ckpt: optimizer.load_state_dict(ckpt['optimizer_state'])
