@@ -166,7 +166,6 @@ def main():
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True)
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False)
     
-    import os
     num_workers = config.get("num_workers", 0 if os.name == 'nt' else 4)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=num_workers > 0)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=num_workers > 0)
