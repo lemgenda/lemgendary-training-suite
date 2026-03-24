@@ -111,7 +111,7 @@ while ($true) {
         }
         '4' {
             Write-Host "`nGoodbye!" -ForegroundColor Yellow
-            break
+            return
         }
         default {
             Write-Host "`nInvalid selection. Please try again." -ForegroundColor Red
