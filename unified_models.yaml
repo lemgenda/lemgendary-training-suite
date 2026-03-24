@@ -1,0 +1,420 @@
+nima_aesthetic:
+  name: LemGendary NIMA Aesthetic Scorer
+  class_name: NIMA_Model
+  category: enhance
+  filename: NIMAAesthetic
+  checkpoint: NIMAAestheticWeights_FP32.pth
+  input_size:
+  - 3
+  - 224
+  - 224
+  batch_size: 80
+  learning_rate: 3.0e-05
+  loss_fn: emd
+  dataset_type: quality
+  optimal_key: nima_aesthetic
+  description: Aesthetic quality scorer trained on AVA dataset
+  datasets:
+  - LemGendizedQualityDataset
+nima_technical:
+  name: LemGendary NIMA Technical Scorer
+  class_name: NIMA_Model
+  category: enhance
+  filename: NIMATechnical
+  checkpoint: NIMATechnicalWeights_FP32.pth
+  input_size:
+  - 3
+  - 224
+  - 224
+  batch_size: 80
+  learning_rate: 3.0e-05
+  loss_fn: emd
+  dataset_type: quality
+  optimal_key: nima_technical
+  description: Technical quality scorer trained on LIVE+TID2013
+  datasets:
+  - LemGendizedQualityDataset
+upn_v2:
+  name: LemGendary UPN v2 Parameter Predictor
+  class_name: UPN_v2_Model
+  category: enhance
+  filename: UPN(v2)Modular
+  checkpoint: UPN(v2)ModularWeights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 16
+  learning_rate: 0.0001
+  loss_fn: mse
+  dataset_type: restoration
+  needs_synthesis: true
+  output_names:
+  - deg
+  - theta
+  - conf
+  optimal_key: upn_v2
+  description: Universal parameter predictor for image restoration
+  datasets:
+  - LemGendizedSuperResDataset
+  - LemGendizedLowLightDataset
+  - LemGendizedDegradationDataset
+  - LemGendizedNoiseDataset
+film_restorer:
+  name: LemGendary Universal Film Restorer
+  class_name: UniversalFilmRestorer
+  category: enhance
+  filename: UniversalFilmRestorer
+  checkpoint: UniversalFilmRestorerWeights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 8
+  learning_rate: 0.0001
+  loss_fn: l1
+  dataset_type: restoration
+  needs_synthesis: true
+  optimal_key: film_restorer
+  description: Universal image restoration autoencoder
+  datasets:
+  - LemGendizedSuperResDataset
+  - LemGendizedLowLightDataset
+  - LemGendizedDegradationDataset
+  - LemGendizedNoiseDataset
+codeformer:
+  name: LemGendary CodeFormer Face Restoration
+  class_name: CodeFormerMock
+  category: face
+  filename: CodeFormer-FaceRestoration
+  checkpoint: CodeFormer-FaceRestorationWeights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 32
+  learning_rate: 0.0005
+  loss_fn: mse
+  dataset_type: face
+  needs_synthesis: true
+  optimal_key: codeformer
+  description: Face restoration model
+  datasets:
+  - LemGendizedFaceDataset
+parsenet:
+  name: LemGendary ParseNet Face Parsing
+  class_name: ParseNetMock
+  category: face
+  filename: ParseNet-Parsing
+  checkpoint: ParseNet-ParsingWeights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 32
+  learning_rate: 0.0005
+  loss_fn: cross_entropy
+  dataset_type: segmentation
+  num_classes: 19
+  optimal_key: parsenet
+  description: Face parsing model for segmentation
+  datasets:
+  - LemGendizedFaceDataset
+retinaface_mobilenet:
+  name: LemGendary RetinaFace MobileNet Detection
+  class_name: RetinaFaceMock
+  category: face
+  filename: MobileNet0.25-Detection
+  checkpoint: MobileNet0.25-DetectionWeights_FP32.pth
+  input_size:
+  - 3
+  - 224
+  - 224
+  batch_size: 80
+  learning_rate: 0.0005
+  loss_fn: retinaface
+  dataset_type: face_detection
+  output_names:
+  - output
+  - output2
+  - output3
+  optimal_key: retinaface_mobilenet
+  description: MobileNet-based face detection
+  datasets:
+  - LemGendizedFaceDataset
+  - LemGendizedDetectionDataset
+retinaface_resnet:
+  name: LemGendary RetinaFace ResNet Detection
+  class_name: RetinaFaceMock
+  category: face
+  filename: RESNet50-Detection
+  checkpoint: RESNet50-DetectionWeights_FP32.pth
+  input_size:
+  - 3
+  - 224
+  - 224
+  batch_size: 64
+  learning_rate: 0.0005
+  loss_fn: retinaface
+  dataset_type: face_detection
+  output_names:
+  - output
+  - output2
+  - output3
+  optimal_key: retinaface_resnet
+  description: ResNet-based face detection
+  datasets:
+  - LemGendizedFaceDataset
+  - LemGendizedDetectionDataset
+ffanet_indoor:
+  name: LemGendary FFANet Dehazing (Indoor)
+  class_name: GenericRestorationMock
+  category: restoration
+  filename: FFANet-Dehazing(Indoor)
+  checkpoint: FFANet-Dehazing(Indoor)Weights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 16
+  learning_rate: 5.0e-05
+  loss_fn: l1
+  dataset_type: restoration
+  optimal_key: ffanet_indoor
+  description: FFANet indoor dehazing restoration
+  datasets:
+  - LemGendizedDegradationDataset
+ffanet_outdoor:
+  name: LemGendary FFANet Dehazing (Outdoor)
+  class_name: GenericRestorationMock
+  category: restoration
+  filename: FFANet-Dehazing(Outdoor)
+  checkpoint: FFANet-Dehazing(Outdoor)Weights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 16
+  learning_rate: 5.0e-05
+  loss_fn: l1
+  dataset_type: restoration
+  optimal_key: ffanet_outdoor
+  description: FFANet outdoor dehazing restoration
+  datasets:
+  - LemGendizedDegradationDataset
+mirnet_lowlight:
+  name: LemGendary MIRNet v2 Low-Light Enhancement
+  class_name: GenericRestorationMock
+  category: restoration
+  filename: MIRNet(v2)-LowLight
+  checkpoint: MIRNet(v2)-LowLightWeights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 8
+  learning_rate: 5.0e-05
+  loss_fn: l1
+  dataset_type: restoration
+  optimal_key: mirnet_lowlight
+  description: MIRNet v2 low-light image enhancement
+  datasets:
+  - LemGendizedLowLightDataset
+mirnet_exposure:
+  name: LemGendary MIRNet v2 Exposure Correction
+  class_name: GenericRestorationMock
+  category: restoration
+  filename: MIRNet(v2)-Exposure
+  checkpoint: MIRNet(v2)-ExposureWeights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 8
+  learning_rate: 5.0e-05
+  loss_fn: l1
+  dataset_type: restoration
+  optimal_key: mirnet_exposure
+  description: MIRNet v2 for overexposure correction and dynamic range adjustment
+  datasets:
+  - LemGendizedLowLightDataset
+mprnet_deraining:
+  name: LemGendary MPRNet Deraining
+  class_name: GenericRestorationMock
+  category: restoration
+  filename: MPRNet-Deraining
+  checkpoint: MPRNet-DerainingWeights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 16
+  learning_rate: 5.0e-05
+  loss_fn: l1
+  dataset_type: restoration
+  optimal_key: mprnet_deraining
+  description: MPRNet image deraining
+  datasets:
+  - LemGendizedDegradationDataset
+nafnet_debluring:
+  name: LemGendary NAFNet Debluring
+  class_name: GenericRestorationMock
+  category: restoration
+  filename: NAFNet-Debluring
+  checkpoint: NAFNet-DebluringWeights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 4
+  learning_rate: 5.0e-05
+  loss_fn: l1
+  dataset_type: restoration
+  optimal_key: nafnet_debluring
+  description: NAFNet image debluring
+  datasets:
+  - LemGendizedSuperResDataset
+  - LemGendizedDegradationDataset
+nafnet_denoising:
+  name: LemGendary NAFNet Denoising
+  class_name: GenericRestorationMock
+  category: restoration
+  filename: NAFNet-Denoising
+  checkpoint: NAFNet-DenoisingWeights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 4
+  learning_rate: 5.0e-05
+  loss_fn: l1
+  dataset_type: restoration
+  optimal_key: nafnet_denoising
+  description: NAFNet image denoising
+  datasets:
+  - LemGendizedNoiseDataset
+ultrazoom_x2:
+  name: LemGendary UltraZoom 2x Super-Resolution
+  class_name: UltraZoomModel
+  category: ultrazoom
+  filename: UltraZoom(x2)
+  checkpoint: UltraZoom(x2)Weights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 32
+  learning_rate: 0.0005
+  loss_fn: mse
+  dataset_type: restoration
+  optimal_key: ultrazoom_x2
+  description: 2x super-resolution model
+  kwargs:
+    scale_factor: 2
+  datasets:
+  - LemGendizedSuperResDataset
+ultrazoom_x3:
+  name: LemGendary UltraZoom 3x Super-Resolution
+  class_name: UltraZoomModel
+  category: ultrazoom
+  filename: UltraZoom(x3)
+  checkpoint: UltraZoom(x3)Weights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 32
+  learning_rate: 0.0005
+  loss_fn: mse
+  dataset_type: restoration
+  optimal_key: ultrazoom_x3
+  description: 3x super-resolution model
+  kwargs:
+    scale_factor: 3
+  datasets:
+  - LemGendizedSuperResDataset
+ultrazoom_x4:
+  name: LemGendary UltraZoom 4x Super-Resolution
+  class_name: UltraZoomModel
+  category: ultrazoom
+  filename: UltraZoom(x4)
+  checkpoint: UltraZoom(x4)Weights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 32
+  learning_rate: 0.0005
+  loss_fn: mse
+  dataset_type: restoration
+  optimal_key: ultrazoom_x4
+  description: 4x super-resolution model
+  kwargs:
+    scale_factor: 4
+  datasets:
+  - LemGendizedSuperResDataset
+ultrazoom_x8:
+  name: LemGendary UltraZoom 8x Super-Resolution
+  class_name: UltraZoomModel
+  category: ultrazoom
+  filename: UltraZoom(x8)
+  checkpoint: UltraZoom(x8)Weights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 16
+  learning_rate: 0.0005
+  loss_fn: mse
+  dataset_type: restoration
+  optimal_key: ultrazoom_x8
+  description: 8x super-resolution model
+  kwargs:
+    scale_factor: 8
+  datasets:
+  - LemGendizedSuperResDataset
+yolov8n:
+  name: LemGendary YOLOv8n Multi-Task Model
+  class_name: YOLO
+  category: yolo
+  filename: YOLOv8n-Unified
+  checkpoint: yolov8n.pt
+  input_size:
+  - 3
+  - 640
+  - 640
+  batch_size: 32
+  learning_rate: 0.01
+  loss_fn: yolo
+  dataset_type:
+  - detection
+  - classification
+  - pose
+  optimal_key: yolov8n
+  description: Unified YOLOv8n for classification, detection, and pose
+  datasets:
+  - LemGendizedDetectionDataset
+  - LemGendizedFaceDataset
+professional_multitask_restoration:
+  name: LemGendary Professional Multi-Task Restoration Model
+  class_name: MultiTaskRestorer
+  category: restoration
+  filename: ProfessionalMultiRestorer
+  checkpoint: ProfessionalMultiRestorerWeights_FP32.pth
+  input_size:
+  - 3
+  - 256
+  - 256
+  batch_size: 4
+  learning_rate: 0.0001
+  loss_fn: hybrid_restoration
+  dataset_type: restoration
+  needs_synthesis: true
+  optimal_key: professional_multitask_restoration
+  description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze,
+    and Low-Light
+  datasets:
+  - LemGendizedSuperResDataset
+  - LemGendizedLowLightDataset
+  - LemGendizedDegradationDataset
+  - LemGendizedNoiseDataset

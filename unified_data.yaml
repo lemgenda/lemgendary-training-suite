@@ -1,0 +1,36 @@
+datasets:
+  restoration:
+    LemGendizedDegradationDataset:
+      path: C:\Development\webapps\react\image-lemgendizer-old\training\lemgendary-training-suite\data\datasets\LemGendizedDegradationDataset
+      count: 36280
+      source: cli-standardized
+      last_processed: '2026-03-18T04:00:12.490498'
+    LemGendizedLowLightDataset:
+      path: C:\Development\webapps\react\image-lemgendizer-old\training\lemgendary-training-suite\data\datasets\LemGendizedLowLightDataset
+      count: 23612
+      source: filesystem
+    LemGendizedNoiseDataset:
+      path: C:\Development\webapps\react\image-lemgendizer-old\training\lemgendary-training-suite\data\datasets\LemGendizedNoiseDataset
+      count: 1885
+      source: cli-standardized
+      last_processed: '2026-03-18T03:43:57.230564'
+    LemGendizedSuperResDataset:
+      path: C:\Development\webapps\react\image-lemgendizer-old\training\lemgendary-training-suite\data\datasets\LemGendizedSuperResDataset
+      count: 157590
+      source: filesystem
+  detection:
+    LemGendizedDetectionDataset:
+      path: C:\Development\webapps\react\image-lemgendizer-old\training\lemgendary-training-suite\data\datasets\LemGendizedDetectionDataset
+      count: 1169629
+      source: filesystem
+  face:
+    LemGendizedFaceDataset:
+      path: C:\Development\webapps\react\image-lemgendizer-old\training\lemgendary-training-suite\data\datasets\LemGendizedFaceDataset
+      count: 108871
+      source: cli-standardized
+      last_processed: '2026-03-18T03:24:25.858160'
+  quality:
+    LemGendizedQualityDataset:
+      path: C:\Development\webapps\react\image-lemgendizer-old\training\lemgendary-training-suite\data\datasets\LemGendizedQualityDataset
+      count: 2000873
+      source: filesystem
