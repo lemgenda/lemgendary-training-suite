@@ -25,6 +25,15 @@ def check_kaggle_auth():
     if 'KAGGLE_API_TOKEN' in os.environ or 'KAGGLE_USERNAME' in os.environ:
         return # Natively authenticated via modern system environment variables
         
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    local_token_path = os.path.join(base_dir, ".kaggle_token")
+    if os.path.exists(local_token_path):
+        with open(local_token_path, "r") as f:
+            token = f.read().strip()
+            if token:
+                os.environ['KAGGLE_API_TOKEN'] = token
+                return # Structurally injected from local repository cache
+                
     if os.name == 'nt': kaggle_dir = os.path.join(os.environ['USERPROFILE'], '.kaggle')
     else: kaggle_dir = os.path.join(os.path.expanduser('~'), '.kaggle')
     if not os.path.exists(os.path.join(kaggle_dir, 'kaggle.json')):
