@@ -412,9 +412,20 @@ def main():
     
     try:
         model.eval()  # pyre-ignore
-        dummy_input = torch.randn(1, 3, config.get("input_size", 512), config.get("input_size", 512)).to(device)  # pyre-ignore
         
-        model_filename = unified_models_registry.get(args.model, {}).get("filename", args.model)
+        model_info = unified_models_registry.get(args.model, {})
+        size_raw = model_info.get("input_size", config.get("default_img_size", 256))
+        if isinstance(size_raw, list):
+            if len(size_raw) == 3:
+                h, w = int(size_raw[1]), int(size_raw[2])
+            else:
+                h, w = int(size_raw[0]), int(size_raw[1])
+        else:
+            h, w = int(size_raw), int(size_raw)
+            
+        dummy_input = torch.randn(1, 3, h, w).to(device)
+        
+        model_filename = model_info.get("filename", args.model)
         base_name = f"LemGendary{model_filename}"
         
         fp32_path = os.path.join(export_dir, f"{base_name}_FP32.onnx")
