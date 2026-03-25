@@ -44,6 +44,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--env", type=str, default="local", choices=["local", "kaggle"], help="Execution environment")
+    parser.add_argument("--prefetch_datasets", type=str, default="", help="Comma separated kaggle endpoint list natively executed asynchronously sequentially upon passing SOTA.")
     args = parser.parse_args()
 
     # Load config structures explicitly securely
@@ -101,6 +102,15 @@ def main():
                     print(f"\n🌟 [ACHIEVEMENT UNLOCKED] State-of-the-Art Detection Baseline (mAP@0.5 > 0.85, mAP@0.5:0.95 > 0.65) breached! Engaging 1-Epoch Reinforcement Countdown...")
                     trainer.excellent_achieved = True
                     trainer.excellent_countdown = 1
+                    
+                    if args.prefetch_datasets:
+                        import subprocess
+                        print(f"\n[Zero-Latency Pre-Fetch] Triggering parallel background data streams natively for next workflow phase!")
+                        base_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "prefetch_worker.py"), args.prefetch_datasets, os.path.join(os.path.dirname(__file__), "..", "data", "datasets")]
+                        if os.name == 'nt':
+                            subprocess.Popen(base_cmd, creationflags=0x08000000) # CREATE_NO_WINDOW
+                        else:
+                            subprocess.Popen(base_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     
             achieved = getattr(trainer, 'excellent_achieved', False)
             countdown = getattr(trainer, 'excellent_countdown', 1)
@@ -398,6 +408,15 @@ def main():
             print(f"\n🌟 [ACHIEVEMENT UNLOCKED] {msg} mathematically breached! Engaging 1-Epoch Reinforcement SOTA Countdown...")
             sota_baseline_achieved = True
             sota_countdown = 1
+            
+            if args.prefetch_datasets:
+                import subprocess
+                print(f"\n[Zero-Latency Pre-Fetch] Triggering parallel background data streams natively for next workflow phase!")
+                base_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "prefetch_worker.py"), args.prefetch_datasets, os.path.join(os.path.dirname(__file__), "..", "data", "datasets")]
+                if os.name == 'nt':
+                    subprocess.Popen(base_cmd, creationflags=0x08000000) # CREATE_NO_WINDOW
+                else:
+                    subprocess.Popen(base_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
         if sota_baseline_achieved:
             if sota_countdown <= 0:
