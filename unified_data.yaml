@@ -21,7 +21,7 @@ datasets:
   detection:
     LemGendizedDetectionDataset:
       path: C:\Development\webapps\react\image-lemgendizer-old\training\lemgendary-training-suite\data\datasets\LemGendizedDetectionDataset
-      count: 1169629
+      count: 1141848
       source: filesystem
   face:
     LemGendizedFaceDataset:
