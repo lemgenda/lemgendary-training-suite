@@ -1,8 +1,13 @@
 import yaml  # pyre-ignore
 import subprocess
 import os
+import argparse
 
 def main():
+    parser = argparse.ArgumentParser(description="Global Orchestration")
+    parser.add_argument("--env", type=str, default="local", choices=["local", "kaggle"])
+    args = parser.parse_args()
+
     print("🚀 Initializing Global LemGendary Training Suite Orchestration")
     
     # Kaggle Dependency Verification
@@ -17,22 +22,25 @@ def main():
     }
     
     missing_any = False
-    print("🔍 Executing Kaggle Array Dependency Verification...")
-    for ds_name, link in expected_datasets.items():
-        ds_path = os.path.join(os.path.dirname(__file__), "data", "datasets", ds_name)
-        if not os.path.exists(ds_path):
-            print(f"❌ CRITICAL MISSING DEPENDENCY: '{ds_name}' is not structurally attached!")
-            print(f"   👉 Download / Link from Kaggle natively: {link}")
-            missing_any = True
-            
-    if missing_any:
-        print("\n⚠️ Warning: One or more unified datasets are missing from data/datasets/. Training sequences relying strictly on these arrays will throw FileNotFoundError exceptions loop natively!")
-        ans = input("Do you structurally want to proceed violently anyway? [y/N]: ")
-        if ans.lower().strip() != 'y':
-            print("🛑 Aborting orchestration to prevent native exceptions.\n")
-            return
+    if args.env == "local":
+        print("🔍 Executing Local Array Dependency Verification...")
+        for ds_name, link in expected_datasets.items():
+            ds_path = os.path.join(os.path.dirname(__file__), "data", "datasets", ds_name)
+            if not os.path.exists(ds_path):
+                print(f"❌ CRITICAL MISSING DEPENDENCY: '{ds_name}' is not structurally attached!")
+                print(f"   👉 Download / Link from Kaggle natively: {link}")
+                missing_any = True
+                
+        if missing_any:
+            print("\n⚠️ Warning: One or more unified datasets are missing from data/datasets/.")
+            ans = input("Do you structurally want to proceed violently anyway? [y/N]: ")
+            if ans.lower().strip() != 'y':
+                print("🛑 Aborting orchestration to prevent native exceptions.\n")
+                return
+        else:
+            print("✅ All 7 physical datasets structurally mapping verified completely!\n")
     else:
-        print("✅ All 7 physical datasets structurally mapping verified completely!\n")
+        print("☁️ Kaggle Environment Detected: Bypassing local physical dataset structure verification.\n")
     
     # Load unified_models
     unified_models_path = os.path.join(os.path.dirname(__file__), "unified_models.yaml")
@@ -73,7 +81,8 @@ def main():
             "--model", model_key,
             "--epochs", "50",
             "--batch_size", str(batch_size),
-            "--lr", str(learning_rate)
+            "--lr", str(learning_rate),
+            "--env", args.env
         ]
         
         try:

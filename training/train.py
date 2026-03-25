@@ -43,6 +43,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--env", type=str, default="local", choices=["local", "kaggle"], help="Execution environment")
     args = parser.parse_args()
 
     # Load config structures explicitly securely
@@ -163,8 +164,8 @@ def main():
     lr = args.lr or config.get("default_lr", 1e-4)
 
     # Dataset & DataLoader
-    train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True)
-    val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False)
+    train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env)
+    val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
     
     num_workers = config.get("num_workers", 0 if os.name == 'nt' else 4)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=num_workers > 0)

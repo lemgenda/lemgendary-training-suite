@@ -14,8 +14,9 @@ class MultiTaskDataset(Dataset):
     Automatically handles Restoration, Detection, and Quality tasks 
     based on unified_models.yaml and unified_data.yaml.
     """
-    def __init__(self, config, model_key=None, is_train=True):
+    def __init__(self, config, model_key=None, is_train=True, env="local"):
         self.is_train = is_train
+        self.env = env
         self.split = "train" if is_train else "validate"
         self.data_root = config.get("datasets_dir", "../data/datasets")
         
@@ -51,7 +52,7 @@ class MultiTaskDataset(Dataset):
         self.samples = []
         dataset_names = self.model_info.get("datasets", [])
         
-        kaggle_links = {
+        self.kaggle_links = {
             "LemGendizedQualityDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-quality-dataset",
             "LemGendizedNoiseDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-noise-dataset",
             "LemGendizedLowLightDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-lowlight-dataset",
@@ -61,11 +62,13 @@ class MultiTaskDataset(Dataset):
             "LemGendizedSuperResDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-superres-dataset"
         }
         for ds_name in dataset_names:
-            img_dir = os.path.join(self.data_root, ds_name, "images", self.split)
+            ds_path = self.get_dataset_path(ds_name)
+            img_dir = os.path.join(ds_path, "images", self.split)
             if not os.path.exists(img_dir):
-                link = kaggle_links.get(ds_name, f"https://www.kaggle.com/datasets/lemtreursi/{ds_name.lower()}")
+                link = self.kaggle_links.get(ds_name, f"https://www.kaggle.com/datasets/lemtreursi/{ds_name.lower()}")
                 print(f"\n❌ CRITICAL: The required isolated '{ds_name}' dataset topological array was structurally NOT FOUND!")
-                print(f"   👉 You must securely download and map it natively from Kaggle: {link}\n")
+                print(f"   👉 You must securely download and map it natively from Kaggle: {link}")
+                print(f"      Mapped Path Checked: {img_dir}\n")
                 continue
                 
             files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
@@ -82,6 +85,13 @@ class MultiTaskDataset(Dataset):
 
     def __len__(self):
         return len(self.samples)
+
+    def get_dataset_path(self, ds_name):
+        if getattr(self, 'env', 'local') == 'kaggle':
+            # Kaggle mounts match the end of the URL
+            k_name = self.kaggle_links.get(ds_name, "").split('/')[-1]
+            return f"/kaggle/input/{k_name}"
+        return os.path.join(self.data_root, ds_name)
 
     def load_image(self, img_path):
         # Tell PIL to be strict and fail aggressively on truncated images
@@ -109,7 +119,8 @@ class MultiTaskDataset(Dataset):
         
         for _ in range(50):
             ds_name, fname = self.samples[current_idx]
-            img_path = os.path.join(self.data_root, ds_name, "images", self.split, fname)
+            ds_path = self.get_dataset_path(ds_name)
+            img_path = os.path.join(ds_path, "images", self.split, fname)
             
             img = self.load_image(img_path)
             if img is not None:
@@ -131,11 +142,12 @@ class MultiTaskDataset(Dataset):
             img = np.zeros((self.size[0], self.size[1], 3), dtype=np.uint8)
         
         if self.task_type in ["restoration", "enhancement"]:
-            tgt_path = os.path.join(self.data_root, ds_name, "targets", self.split, fname)
+            ds_path = self.get_dataset_path(ds_name)
+            tgt_path = os.path.join(ds_path, "targets", self.split, fname)
             if not os.path.exists(tgt_path):
                 base_name = os.path.splitext(fname)[0]
                 for ext in ['.png', '.jpg', '.jpeg']:
-                    alt_path = os.path.join(self.data_root, ds_name, "targets", self.split, base_name + ext)
+                    alt_path = os.path.join(ds_path, "targets", self.split, base_name + ext)
                     if os.path.exists(alt_path):
                         tgt_path = alt_path
                         break
@@ -147,7 +159,8 @@ class MultiTaskDataset(Dataset):
             return self.transform(img), self.transform(target), self.task_type
             
         elif self.task_type == "quality":
-            label_path = os.path.join(self.data_root, ds_name, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
+            ds_path = self.get_dataset_path(ds_name)
+            label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
             if os.path.exists(label_path):
                 with open(label_path, 'r') as f:
                     try:
@@ -162,7 +175,8 @@ class MultiTaskDataset(Dataset):
             return self.transform(img), torch.zeros(10), "quality"
             
         elif self.task_type == "detection":
-            label_path = os.path.join(self.data_root, ds_name, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
+            ds_path = self.get_dataset_path(ds_name)
+            label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
             labels = []
             if os.path.exists(label_path):
                 with open(label_path, 'r') as f:
