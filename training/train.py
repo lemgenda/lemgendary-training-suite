@@ -209,6 +209,10 @@ def main():
     
     # Auto-Resume Logic
     latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
+    
+    sota_baseline_achieved = False
+    sota_countdown = 1
+    
     if os.path.exists(latest_ckpt):
         try:
             print(f"Resuming training from checkpoint: {latest_ckpt}")
@@ -219,14 +223,18 @@ def main():
                 if 'scheduler_state' in ckpt: scheduler.load_state_dict(ckpt['scheduler_state'])
                 if 'epoch' in ckpt: start_epoch = ckpt['epoch']
                 if 'best_val_loss' in ckpt: best_val_loss = ckpt['best_val_loss']
+                if ckpt.get('sota_achieved', False):
+                    print(f"\n🌟 [SOTA SNAPSHOT DETECTED] This native mathematical checkpoint already achieved State-of-the-Art Baseline metrics!")
+                    ans = input("  Do you want to instantly trigger the final native 1-Epoch Cooldown sequence to export ONNX? (y/N): ")
+                    if ans.strip().lower() == 'y':
+                        sota_baseline_achieved = True
+                        sota_countdown = 1
+                        print("  ✅ Engaging 1-Epoch SOTA termination bypass natively.")
             else:
                 model.load_state_dict(ckpt)
                 print("Loaded raw legacy weights successfully.")
         except Exception as e:
             print(f"Failed to load checkpoint: {e}")
-    
-    sota_baseline_achieved = False
-    sota_countdown = 1
     
     for epoch in range(start_epoch, epochs):
         model.train()  # pyre-ignore
@@ -369,7 +377,8 @@ def main():
             'model_state': model.state_dict(),  # pyre-ignore
             'optimizer_state': optimizer.state_dict(),
             'scheduler_state': scheduler.state_dict(),
-            'best_val_loss': best_val_loss
+            'best_val_loss': best_val_loss,
+            'sota_achieved': sota_baseline_achieved
         }
         torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth"))  # pyre-ignore
         if avg_val_loss < best_val_loss:
