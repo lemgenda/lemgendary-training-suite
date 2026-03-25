@@ -71,13 +71,14 @@ function Show-Menu {
     Write-Host "  1. Initialize/Fix Environment  (Installs Python 3.10 and PyTorch 2.4.1)"
     Write-Host "  2. Train Individual Model      (Launches LemGendary Training Suite)"
     Write-Host "  3. Global Orchestration        (Automated sequential multi-model run)"
-    Write-Host "  4. Exit"
+    Write-Host "  4. Deploy to Kaggle Cloud      (Generate Cloud Instructions)"
+    Write-Host "  5. Exit"
     Write-Host ""
 }
 
 while ($true) {
     Show-Menu
-    $choice = Read-Host "Select an option (1-4)"
+    $choice = Read-Host "Select an option (1-5)"
 
     switch ($choice) {
         '1' {
@@ -110,6 +111,22 @@ while ($true) {
             Read-Host "`nPress Enter to return to menu..."
         }
         '4' {
+            Write-Header "DEPLOY TO KAGGLE CLOUD"
+            Write-Host "  [DESCRIPTION]" -ForegroundColor White
+            Write-Host "  The LemGendary Neural Architecture is 100% prepared for native"
+            Write-Host "  Cloud-GPU training on Kaggle. Python Jupyter Notebooks are"
+            Write-Host "  already explicitly compiled in your root directory."
+            Write-Host ""
+            Write-Host "  [INSTRUCTIONS]" -ForegroundColor Cyan
+            Write-Host "  1. Open Kaggle -> Create Notebook -> File -> Import Notebook."
+            Write-Host "  2. Select one of the 'Kaggle_Train_Solo...' or 'Kaggle_Train_Multi...' files."
+            Write-Host "  3. Click 'Add Data' in Kaggle and mount the explicitly requested datasets."
+            Write-Host "  4. Go to 'Session Options' and set Accelerator to 'GPU T4 x2' or 'P100'."
+            Write-Host "  5. Click 'Run All'."
+            Write-Host ""
+            Read-Host "Press Enter to return to menu..."
+        }
+        '5' {
             Write-Host "`nGoodbye!" -ForegroundColor Yellow
             return
         }
