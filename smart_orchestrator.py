@@ -22,10 +22,14 @@ PHASES: List[PhaseDef] = [
 ]
 
 def check_kaggle_auth():
+    if 'KAGGLE_API_TOKEN' in os.environ or 'KAGGLE_USERNAME' in os.environ:
+        return # Natively authenticated via modern system environment variables
+        
     if os.name == 'nt': kaggle_dir = os.path.join(os.environ['USERPROFILE'], '.kaggle')
     else: kaggle_dir = os.path.join(os.path.expanduser('~'), '.kaggle')
     if not os.path.exists(os.path.join(kaggle_dir, 'kaggle.json')):
-        print("❌ CRITICAL ERROR: Kaggle API credentials not found!")
+        print("❌ CRITICAL ERROR: Kaggle API credentials entirely missing!")
+        print("Please place kaggle.json in ~/.kaggle/ OR heavily set the KAGGLE_API_TOKEN environment variable natively.")
         sys.exit(1)
 
 def get_future_datasets(current_idx):
