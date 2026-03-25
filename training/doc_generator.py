@@ -14,20 +14,20 @@ def build_model_readme(model_key, unified_models, unified_data, epochs_trained, 
     
     if task == "quality":
         eval_str = f"**PLCC**: {metrics.get('plcc', 'N/A')} | **SRCC**: {metrics.get('srcc', 'N/A')}"
-        excel = "PLCC > 0.85 | SRCC > 0.82"
+        excel = "PLCC > 0.95 | SRCC > 0.90"
     elif task == "face":
         eval_str = f"**FID**: {metrics.get('fid', 'N/A')} | **LPIPS**: {metrics.get('lpips', 'N/A')} | **PSNR**: {metrics.get('psnr', 'N/A')}"
-        excel = "FID < 12.0 | LPIPS < 0.12 | PSNR > 31.0"
+        excel = "FID < 8.0 | LPIPS < 0.08 | PSNR > 33.0"
     else:
         eval_str = f"**PSNR**: {metrics.get('psnr', 'N/A')} | **SSIM**: {metrics.get('ssim', 'N/A')} | **LPIPS**: {metrics.get('lpips', 'N/A')}"
-        excel = "PSNR > 30.5 dB | SSIM > 0.89 | LPIPS < 0.10"
+        excel = "PSNR > 32.5 dB | SSIM > 0.94 | LPIPS < 0.06"
         
     yolo_blurb = ""
     orig_architecture = model_info.get("class_name", "Base Pytorch")
     
     if "yolo" in model_key.lower():
         eval_str = "Dynamically handled via CLI mAP scores during local evaluation bounds."
-        excel = "mAP@0.5 > 0.65 | mAP@0.5:0.95 > 0.45"
+        excel = "mAP@0.5 > 0.85 | mAP@0.5:0.95 > 0.65"
         yolo_blurb = "This module incorporates Ultralytics bounding-box anchors and keypoint tensors structurally."
         orig_architecture = "Ultralytics YOLO Architecture Engine"
         
@@ -43,7 +43,7 @@ This framework natively relies structurally on the **{orig_architecture}** back-
 {ds_str}
 
 ## 3. Evaluation Mathematics
-The orchestration pipeline dynamically halts its internal epoch evaluations entirely against target **Excellent Baseline Thresholds** rather than raw Epoch completion cycles. Raw loss algorithms usually misrepresent visual outputs locally.
+The orchestration pipeline dynamically halts its internal epoch evaluations entirely against target **State-of-the-Art (SOTA) Baseline Thresholds** rather than raw Epoch completion cycles. Raw loss algorithms usually misrepresent visual outputs locally.
 - **Achieved Post-Validation Metrics**: {eval_str}
 - **Mandated Early Stopping Baselines**: {excel}
 - **Execution Lifecycle**: Successfully mapped across {epochs_trained} total epoch evaluations securely.
