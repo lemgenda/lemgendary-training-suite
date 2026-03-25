@@ -15,3 +15,4 @@ tqdm>=4.64.0
 torch-directml
 tensorflow-cpu>=2.10.0
 ultralytics>=8.0.0
+kaggle>=1.5.12

@@ -72,13 +72,14 @@ function Show-Menu {
     Write-Host "  2. Train Individual Model      (Launches LemGendary Training Suite)"
     Write-Host "  3. Global Orchestration        (Automated sequential multi-model run)"
     Write-Host "  4. Deploy to Kaggle Cloud      (Generate Cloud Instructions)"
-    Write-Host "  5. Exit"
+    Write-Host "  5. Smart Cloud Orchestration   (Local GPU + Dynamic Kaggle Streams)"
+    Write-Host "  6. Exit"
     Write-Host ""
 }
 
 while ($true) {
     Show-Menu
-    $choice = Read-Host "Select an option (1-5)"
+    $choice = Read-Host "Select an option (1-6)"
 
     switch ($choice) {
         '1' {
@@ -127,6 +128,21 @@ while ($true) {
             Read-Host "Press Enter to return to menu..."
         }
         '5' {
+            Write-Header "SMART CLOUD ORCHESTRATION"
+            Write-Host "  [DESCRIPTION]" -ForegroundColor White
+            Write-Host "  This mathematically optimizes PyTorch training by automatically downloading"
+            Write-Host "  isolated datasets from Kaggle Native API, training cross-dependent computational"
+            Write-Host "  topologies locally, and then aggressively PURGING them from your Windows SSD"
+            Write-Host "  immediately to preserve hard drive bounds while maximizing local GPUs."
+            Write-Host ""
+            if (Test-Environment) {
+                Push-Location $script:HUB_DIR
+                & "$script:VENV_DIR\Scripts\python.exe" "smart_orchestrator.py"
+                Pop-Location
+            }
+            Read-Host "`nPress Enter to return to menu..."
+        }
+        '6' {
             Write-Host "`nGoodbye!" -ForegroundColor Yellow
             return
         }
