@@ -19,7 +19,8 @@ The easiest way to manage your AI workflow is via the **LemGendary Hub**.
 1. **Initialize/Fix Environment**: Installs Python 3.10 natively and creates the `.venv` enclosure. Upgrades pip, then installs PyTorch 2.4.1+cu121 alongside all other mathematical dependencies for inference.
 2. **Train Individual Model**: Launches the interactive LemGendary Unified Training Suite, empowering singular network selection for localized structural training loops natively.
 3. **Global Orchestration**: Automates sequential continuous execution of **all 21 models** on your local hardware architecture uninterrupted.
-4. **Exit**: Terminate hub.
+4. **Deploy to Kaggle Cloud**: Outputs physical instructions on how to push the pre-generated Jupyter topologies to Kaggle's T4 instances instantly.
+5. **Exit**: Terminate hub.
 
 ---
 
@@ -45,9 +46,22 @@ All exports are consolidated in **`trained-models/`**.
 - **`ModelName.onnx`** (FP16): Production-ready for WebGPU. Dynamically automatically routed directly into your Next.js `public/models/restoration/` web directory for instant UI rendering.
 - **`ModelName_FP32.onnx`** (FP32): Reference model for precision debugging. Weights are stored in an external `.onnx.data` sidecar.
 
+## 5. Kaggle Cloud Integration
+The LemGendary Training Suite natively supports 100% cloud-based dataset training via Kaggle without downloading the 200GB topological arrays locally. The mathematical engine is perfectly tuned to support `--env kaggle` dataset interceptions.
+
+### How to Launch a Cloud Training Node:
+1. Open your local repository folder. I dynamically generated all 9 `.ipynb` deployment Jupyter Notebooks based strictly on their internal `unified_models.yaml` dataset dependencies:
+   - **Solo Notebooks**: Topologies reliant solely upon exactly one environment (e.g. `Kaggle_Train_Solo_LemGendizedQualityDataset.ipynb`).
+   - **Multi-Mount Notebooks**: Cross-domain models demanding multiple concurrent topologies (e.g. `Kaggle_Train_Multi_Universal_Restoration.ipynb`).
+2. Navigate to your Kaggle profile and click **Create -> Notebook**.
+3. In the top toolbar, select **File -> Import Notebook**. Select the `.ipynb` file of your choice.
+4. Click **Add Data** on the right-hand interface. Search for and mount **exactly** the dataset(s) explicitly requested via comments at the top of the imported code cell.
+5. In **Session Options**, mathematically assign the **Accelerator** natively to **GPU T4 x2** or **GPU P100**. *Do not use CPU or TPU.*
+6. Click **Run All**. The notebook will securely clone this repository, align pathing natively against `/kaggle/input/`, and begin executing the epochs directly into your browser!
+
 ---
 
-## 5. Processing Pipeline
+## 6. Processing Pipeline
 - **Diagnostic Eyes**: YOLOv8n (Detection, Pose, Classification), NIMA Aesthetic Scorer, NIMA Technical Scorer.
 - **Core Hands**: Professional Multi-Task Restorer, UPN v2 (AI Auto-Fix Parameter Predictor), Universal Film Restorer.
 - **Surgical Tools**: CodeFormer (Face), ParseNet (Face Parsing), NAFNet (Denoise/Deblur), MPRNet (Deraining), MIRNet v2 (Low-Light/Exposure), FFANet (Dehaze Indoor/Outdoor), RetinaFace (MobileNet/ResNet).
@@ -55,15 +69,15 @@ All exports are consolidated in **`trained-models/`**.
 
 ---
 
-## 6. Neural Convergence Benchmarks (SOTA Targets)
+## 7. Neural Convergence Benchmarks (SOTA Targets)
 | Category / Task | Key Metrics | Acceptable | Excellent | State-of-the-Art (SOTA) |
 | :--- | :--- | :--- | :--- | :--- |
 | **Restoration** (SuperRes, Noise, LowLight, Degradation) | PSNR / SSIM / LPIPS | ~28.0 dB / ~0.82 / ~0.15 | >30.5 dB / >0.89 / <0.10 | **>32.5 dB / >0.94 / <0.06** |
 | **Face Restoration** | PSNR / SSIM / FID | ~28.0 dB / ~0.80 / ~15.0 | >31.0 dB / >0.88 / <12.0 | **>33.0 dB / >0.92 / <8.0** |
-| **Detection / Pose** | mAP@0.5 | ~0.450 | >0.650 | **>0.850** |
+| **Detection / Pose** | mAP@0.5:0.95 | ~0.300 | >0.450 | **>0.650** |
 | **Quality Assessment** | PLCC / SRCC | ~0.85 / ~0.80 | >0.90 / >0.85 | **>0.95 / >0.90** |
 
-## 7. Model Inventory Detail
+## 8. Model Inventory Detail
 
 | Model Name | Category | Base Architecture | Source Framework | Core Computational Purpose | Target Evaluation Topology |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -89,7 +103,7 @@ All exports are consolidated in **`trained-models/`**.
 | **LemGendary YOLOv8n Multi-Task Model** | Yolo | YOLOv8n | [ultralytics/ultralytics](https://github.com/ultralytics/ultralytics) | Unified YOLOv8n for classification, detection, and pose | LemGendizedDetectionDataset, LemGendizedFaceDataset |
 | **LemGendary Professional Multi-Task Restoration Model** | Restoration | LemGenda Native | [Internal Native Architecture] | Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze, and Low-Light | LemGendizedSuperResDataset, LemGendizedLowLightDataset, LemGendizedDegradationDataset, LemGendizedNoiseDataset |
 
-## 8. Dataset Inventory Detail
+## 9. Dataset Inventory Detail
 
 | DataSetName | Category | OriginalDataSet Sources | Kaggle Source | Purpose | Associated Models |
 | :--- | :--- | :--- | :--- | :--- | :--- |
