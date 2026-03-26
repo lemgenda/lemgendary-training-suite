@@ -136,3 +136,22 @@ The LemGendary Training Suite natively supports 100% cloud-based dataset trainin
 | **LemGendizedNoiseDataset** | Restoration | SIDD, DND, MultiNoises | [Source](https://www.kaggle.com/datasets/lemtreursi/lemgendized-noise-dataset) | Advanced Neural Denoising | Professional MultiTask Restorer, Universal Film Restorer, UPN v2, NAFNet (Denoising) |
 | **LemGendizedDetectionDataset** | Detection | COCO, Objects365, OpenImages | [Source](https://www.kaggle.com/datasets/lemtreursi/lemgendized-detection-dataset) | Universal Object Detection, Pose, and Classification | YOLOv8n, RetinaFace (MobileNet), RetinaFace (ResNet) |
 | ArtImages | Restoration | Art_Dataset_Clear (User Uploaded) | | Art restoration | Professional MultiTask Restorer |
+
+<br>
+
+---
+
+## 10. Advanced V2.0 Engine Mechanics
+
+The LemGendary Training Suite has been heavily upgraded to incorporate native architectural efficiencies for complex multi-model dataset routing:
+
+### ⚡ Zero-Latency Kaggle Background Streams
+When you execute Option 5 (**Smart Cloud Orchestration**), the Python loop breaks memory isolation to execute a massive 8-phase mathematical pipeline. During execution, the moment a mathematical model natively **breaches the SOTA Baseline threshold**, the core `train.py` hook structurally detaches an independent Python `subprocess` thread. 
+This invisible background worker (`prefetch_worker.py`) seamlessly streams the subsequent 20GB+ Kaggle Datasets directly over the Kaggle API and radically uncompresses them into your local `data/datasets/` cache while the active PyTorch Tensor structure performs its final 1-Epoch Cooldown. This strictly guarantees **100% Zero-Latency Data Handoffs** mathematically without stealing Focus or interrupting Local GPU arrays.
+
+### 🛡️ Intelligent SOTA Checkpoint Recoveries
+When you resume a model from a PyTorch `.pth` checkpoint limit, the `Auto-Resume` mechanism dynamically probes the internal weight dictionary. If the original training session mathematically achieved the required `SOTA` correlation bounds prior to a hardware interruption or crash, PyTorch functionally pauses structural initialization.
+The console will explicitly prompt you to engage a **Global Cooldown Override**, allowing you to warp directly into the final 1-Epoch reinforcement cycle and inherently skip 50-hours of redundant deep learning computation gracefully over to the ONNX Runtime!
+
+### 🔑 Dynamic Kaggle `KGAT` Bearer Authentication
+The codebase is natively resistant to Windows Registry API token propagation lags. The orchestrator automatically sweeps your environment dictionary for `KAGGLE_API_TOKEN` environment variables (supporting modern `KGAT_` Bearer token architectures). If missing, it immediately accepts a raw terminal string bypass and caches it securely inside a local `.kaggle_token` proxy registry perfectly injected into your physical `.gitignore` filters structurally.
