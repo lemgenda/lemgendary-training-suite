@@ -18,7 +18,27 @@ The easiest way to manage your AI workflow is via the **LemGendary Hub**.
 ### Menu Options
 1. **Initialize/Fix Environment**: Installs Python 3.10 natively and creates the `.venv` enclosure. Upgrades pip, then installs PyTorch 2.4.1+cu121 alongside all other mathematical dependencies for inference.
 2. **Train Individual Model**: Launches the interactive LemGendary Unified Training Suite, empowering singular network selection for localized structural training loops natively.
-3. **Global Orchestration**: Automates sequential continuous execution of **all 21 models** on your local hardware architecture uninterrupted.
+3. **Global Orchestration**:- `data/datasets/` - Local caches for Kaggle streaming layers
+- `trained-models/` - Dynamic WebGPU ONNX/FP32 architecture output arrays.
+
+<br>
+
+---
+
+## 5. Advanced V2.0 Engine Mechanics
+
+The LemGendary Training Suite has been heavily upgraded to incorporate native architectural efficiencies for complex multi-model dataset routing:
+
+### ⚡ Zero-Latency Kaggle Background Streams
+When you execute Option 5 (**Smart Cloud Orchestration**), the Python loop breaks memory isolation to execute a massive 8-phase mathematical pipeline. During execution, the moment a mathematical model natively **breaches the SOTA Baseline threshold**, the core `train.py` hook structurally detaches an independent Python `subprocess` thread. 
+This invisible background worker (`prefetch_worker.py`) seamlessly streams the subsequent 20GB+ Kaggle Datasets directly over the Kaggle API and radically uncompresses them into your local `data/datasets/` cache while the active PyTorch Tensor structure performs its final 1-Epoch Cooldown. This strictly guarantees **100% Zero-Latency Data Handoffs** mathematically without stealing Focus or interrupting Local GPU arrays.
+
+### 🛡️ Intelligent SOTA Checkpoint Recoveries
+When you resume a model from a PyTorch `.pth` checkpoint limit, the `Auto-Resume` mechanism dynamically probes the internal weight dictionary. If the original training session mathematically achieved the required `SOTA` correlation bounds prior to a hardware interruption or crash, PyTorch functionally pauses structural initialization.
+The console will explicitly prompt you to engage a **Global Cooldown Override**, allowing you to warp directly into the final 1-Epoch reinforcement cycle and inherently skip 50-hours of redundant deep learning computation gracefully over to the ONNX Runtime!
+
+### 🔑 Dynamic Kaggle `KGAT` Bearer Authentication
+The codebase is natively resistant to Windows Registry API token propagation lags. The orchestrator automatically sweeps your environment dictionary for `KAGGLE_API_TOKEN` environment variables (supporting modern `KGAT_` Bearer token architectures). If missing, it immediately accepts a raw terminal string bypass and caches it securely inside a local `.kaggle_token` proxy registry perfectly injected into your physical `.gitignore` filters structurally.upted.
 4. **Deploy to Kaggle Cloud**: Outputs physical instructions on how to push the pre-generated Jupyter topologies to Kaggle's T4 instances instantly.
 5. **Smart Cloud Orchestration**: Uses your `C:\` local GPU to mathematically train all 21 models natively by streaming specific datasets through Kaggle explicitly via the API, executing Python loops, and instantly **purging the cache** iteratively. This strictly locks local peak SSD consumption below `~220GB`.
 6. **Exit**: Terminate hub.
