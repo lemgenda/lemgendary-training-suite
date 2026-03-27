@@ -56,23 +56,12 @@ function Initialize-Environment {
     Write-Host "  [2/4] Upgrading pip..." -ForegroundColor Cyan
     & "$script:VENV_DIR\Scripts\python.exe" -m pip install --upgrade pip
 
-    Write-Host "  [3/4] Checking GPU hardware to install appropriate PyTorch version..." -ForegroundColor Cyan
-    $nvGpu = Get-WmiObject Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "NVIDIA" }
-    $amdGpu = Get-WmiObject Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "AMD" -or $_.Name -match "Radeon" -or $_.Name -match "Advanced Micro Devices" }
-    
-    if ($null -ne $nvGpu) {
-        Write-Host "        [+] NVIDIA GPU found! Installing CUDA 12.1 support..." -ForegroundColor Green
-        & "$script:VENV_DIR\Scripts\python.exe" -m pip install torch==2.4.1+cu121 torchvision==0.19.1+cu121 --index-url https://download.pytorch.org/whl/cu121
-    } elseif ($null -ne $amdGpu) {
-        Write-Host "        [+] ATI/AMD GPU found! Installing DirectML support for Radeon..." -ForegroundColor Green
-        & "$script:VENV_DIR\Scripts\python.exe" -m pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cpu
-        & "$script:VENV_DIR\Scripts\python.exe" -m pip install torch-directml
-    } else {
-        Write-Host "        [-] No dedicated GPU detected. Installing PyTorch CPU version..." -ForegroundColor Yellow
-        & "$script:VENV_DIR\Scripts\python.exe" -m pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cpu
-    }
+    Write-Host "  [3/4] Synchronizing AI Core (PyTorch + Hardware Backends)..." -ForegroundColor Cyan
+    # torchruntime automatically detects NVIDIA (CUDA) vs AMD (ROCm/DirectML) vs CPU
+    & "$script:VENV_DIR\Scripts\python.exe" -m pip install --upgrade torchruntime
+    & "$script:VENV_DIR\Scripts\python.exe" -m torchruntime install --auto
 
-    Write-Host "  [4/4] Installing Auxiliary libraries (AMD/Intel/ONNX)..." -ForegroundColor Cyan
+    Write-Host "  [4/4] Installing Auxiliary libraries (Datasets/ONNX/YOLO)..." -ForegroundColor Cyan
     & "$script:VENV_DIR\Scripts\python.exe" -m pip install -r $script:REQ_FILE
 
     Write-Host "`n  [SUCCESS] Environment is ready! You can now use all LemGendary tools." -ForegroundColor Green
@@ -165,7 +154,7 @@ while ($true) {
             Write-Host ""
             if (Test-Environment) {
                 Push-Location $script:HUB_DIR
-                & "$script:VENV_DIR\Scripts\python.exe" "train_all.py" --epochs 1
+                & "$script:VENV_DIR\Scripts\python.exe" "train_all.py" --epochs 1 --yes
                 Pop-Location
             }
             Read-Host "`nPress Enter to return to menu..."
