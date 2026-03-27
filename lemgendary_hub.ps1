@@ -42,7 +42,7 @@ function Initialize-Environment {
         Write-Host "  [!] Python is not installed or not in PATH." -ForegroundColor Yellow
         Write-Host "  [+] Attempting silent autonomous installation via winget..." -ForegroundColor Cyan
         try {
-            winget install --id Python.Python.3.10 -e --silent --accept-package-agreements --accept-source-agreements
+            winget install --id Python.Python.3.10 -e --scope user --silent --accept-package-agreements --accept-source-agreements
             $env:Path += ";C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python310"
         } catch {
             Write-Host "  [ERROR] Auto-install failed. Please install Python 3.10 manually." -ForegroundColor Red
