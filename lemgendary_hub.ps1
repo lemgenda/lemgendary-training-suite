@@ -145,7 +145,14 @@ function Initialize-Environment {
     }
 
     Write-Host "  [2/4] Initializing environment (pip upgrade)..." -ForegroundColor Cyan
-    & "$script:VENV_DIR\Scripts\python.exe" -m pip install --upgrade pip
+    $venvPy = "$script:VENV_DIR\Scripts\python.exe"
+    try {
+        & $venvPy -m pip install --upgrade pip -ErrorAction Stop
+    } catch {
+        Write-Host "  [!] Pip not found in venv. Attempting repair via ensurepip..." -ForegroundColor Yellow
+        & $venvPy -m ensurepip --default-pip
+        & $venvPy -m pip install --upgrade pip
+    }
 
     Write-Host "  [3/4] Synchronizing AI Core (PyTorch + Hardware Backends)..." -ForegroundColor Cyan
     # torchruntime automatically detects NVIDIA (CUDA) vs AMD (ROCm/DirectML) vs CPU
@@ -174,11 +181,19 @@ function Initialize-Environment {
         Write-Host "  [!] Node.js/npm not found. Skipping web app synchronization." -ForegroundColor Yellow
     }
 
-    # 4. Session Environment Alignment
-    $env:Path = "$script:VENV_DIR\Scripts;$env:Path"
-    if (-not (Get-Command kaggle -ErrorAction SilentlyContinue)) {
-        $kgPath = "$script:VENV_DIR\Scripts\python.exe"
-        function global:kaggle { & $kgPath -m kaggle @args }
+    # 5. Pre-Flight Audit (Environment Integrity Verification)
+    Write-Header "ENVIRONMENT INTEGRITY AUDIT"
+    Write-Host "  [*] Verifying core library specialization (PyYAML / Torch / DirectML)..." -ForegroundColor Gray
+    $auditCmd = "import yaml; print('YAML: ' + str(hasattr(yaml, 'safe_load'))); import torch; print('Torch: ' + torch.__version__)"
+    $auditResult = & "$script:VENV_DIR\Scripts\python.exe" -c $auditCmd 2>&1
+    
+    if ($auditResult -match "YAML: True" -and $auditResult -match "Torch:") {
+        Write-Host "  [PASS] Integrity Audit Successful. Environment is healthy." -ForegroundColor Green
+    } else {
+        Write-Host "  [FAIL] Integrity Audit Failed! Some core libraries are missing or corrupted." -ForegroundColor Red
+        Write-Host "  [!] Audit Log: $auditResult" -ForegroundColor Yellow
+        Write-Host "  Suggested Fix: Run Option 1 again or manually run 'pip install pyyaml torchruntime' in the venv." -ForegroundColor White
+        return
     }
 
     Write-Host "`n  [SUCCESS] All LemGendary 2026 Systems are Synchronized!" -ForegroundColor Green
