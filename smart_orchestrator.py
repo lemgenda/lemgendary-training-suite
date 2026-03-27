@@ -106,9 +106,9 @@ def run_orchestrator():
                 
             if not os.path.exists(ds_path):
                 print(f"  [CACHE MISS] Dynamically downloading '{ds}' via Fallback Synchronous API...")
-                cmd = f"kaggle datasets download -d lemtreursi/{ds.lower()} -p \"{data_dir}\" --unzip"
+                cmd = [sys.executable, "-m", "kaggle", "datasets", "download", "-d", f"lemtreursi/{ds.lower()}", "-p", data_dir, "--unzip"]
                 try:
-                    subprocess.run(cmd, shell=True, check=True)
+                    subprocess.run(cmd, check=True)
                 except subprocess.CalledProcessError as e:
                     print(f"  ❌ FAILED to stream Kaggle dataset {ds} (Exit Code: {e.returncode})")
                     sys.exit(1)

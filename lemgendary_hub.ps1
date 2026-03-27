@@ -35,25 +35,59 @@ function Test-Environment {
 }
 
 function Initialize-Environment {
-    Write-Header "PREPARING PYTHON ENVIRONMENT"
+    Write-Header "PREPARING PYTHON 3.12 ENVIRONMENT"
+    $targetPython = "3.12"
+    $pythonId = "Python.Python.3.12"
+
+    # 1. Advanced Discovery: Search for 3.12 binary if 'python' is old/missing
+    $pyPath = Get-Command python -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+    if ($null -eq $pyPath -or (& $pyPath --version) -notmatch $targetPython -or -not (Test-Path $pyPath)) {
+        $searchPath = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
+        if (Test-Path $searchPath) {
+            $pyPath = $searchPath
+            Write-Host "  [+] Found Python 3.12 at $pyPath" -ForegroundColor Cyan
+        } else {
+            Write-Host "  [!] Python 3.12 not found. Attempting install via winget..." -ForegroundColor Yellow
+            try {
+                winget install --id $pythonId -e --scope user --silent --accept-package-agreements --accept-source-agreements
+                if (Test-Path $searchPath) { 
+                    $pyPath = $searchPath 
+                    # In-session path refresh
+                    $env:Path = "$([System.IO.Path]::GetDirectoryName($searchPath));$env:Path"
+                } else {
+                    # Final fallback check Program Files
+                    $pgmPath = "C:\Program Files\Python312\python.exe"
+                    if (Test-Path $pgmPath) { $pyPath = $pgmPath }
+                }
+            } catch {
+                Write-Host "  [ERROR] Auto-install failed. Please install Python 3.12 manually." -ForegroundColor Red
+                return
+            }
+        }
+    }
     
-    # Check for Python, install if missing
-    if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-        Write-Host "  [!] Python is not installed or not in PATH." -ForegroundColor Yellow
-        Write-Host "  [+] Attempting silent autonomous installation via winget..." -ForegroundColor Cyan
-        try {
-            winget install --id Python.Python.3.10 -e --scope user --silent --accept-package-agreements --accept-source-agreements
-            $env:Path += ";C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python310"
-        } catch {
-            Write-Host "  [ERROR] Auto-install failed. Please install Python 3.10 manually." -ForegroundColor Red
-            return
+    # Final validation of $pyPath
+    if (-not (Test-Path $pyPath)) {
+        Write-Host "  [ERROR] Fatal: Python 3.12 binary remains elusive even after search/install." -ForegroundColor Red
+        return
+    }
+
+    # 2. VENV Integrity Check: wipe if stale/drifted
+    if (Test-Path $script:VENV_DIR) {
+        $venvCfg = Join-Path $script:VENV_DIR "pyvenv.cfg"
+        if (Test-Path $venvCfg) {
+            $versionMatch = Get-Content $venvCfg | Select-String "version = $targetPython"
+            if (-not $versionMatch) {
+                Write-Host "  [!] Version Drift detected (not $targetPython). Wiping existing .venv..." -ForegroundColor Magenta
+                Remove-Item -Path $script:VENV_DIR -Recurse -Force
+            }
         }
     }
 
-    Write-Host "  [1/4] Creating virtual environment ($script:VENV_DIR)..." -ForegroundColor Cyan
-    python -m venv $script:VENV_DIR
+    Write-Host "  [1/4] Constructing virtual environment ($script:VENV_DIR)..." -ForegroundColor Cyan
+    & $pyPath -m venv $script:VENV_DIR
 
-    Write-Host "  [2/4] Upgrading pip..." -ForegroundColor Cyan
+    Write-Host "  [2/4] Initializing environment (pip upgrade)..." -ForegroundColor Cyan
     & "$script:VENV_DIR\Scripts\python.exe" -m pip install --upgrade pip
 
     Write-Host "  [3/4] Synchronizing AI Core (PyTorch + Hardware Backends)..." -ForegroundColor Cyan
@@ -61,16 +95,42 @@ function Initialize-Environment {
     & "$script:VENV_DIR\Scripts\python.exe" -m pip install --upgrade torchruntime
     & "$script:VENV_DIR\Scripts\python.exe" -m torchruntime install --auto
 
+    # Explicitly ensure onnxruntime-directml for AMD users in 2026
+    if ((& "$script:VENV_DIR\Scripts\python.exe" -c "import torch; print(torch.cuda.is_available())") -eq "False") {
+        Write-Host "  [+] Non-CUDA hardware detected. Strengthening ONNX DirectML support..." -ForegroundColor Cyan
+        & "$script:VENV_DIR\Scripts\python.exe" -m pip install onnxruntime-directml
+    }
+
     Write-Host "  [4/4] Installing Auxiliary libraries (Datasets/ONNX/YOLO)..." -ForegroundColor Cyan
     & "$script:VENV_DIR\Scripts\python.exe" -m pip install -r $script:REQ_FILE
 
-    Write-Host "`n  [SUCCESS] Environment is ready! You can now use all LemGendary tools." -ForegroundColor Green
+    # 3. Web App Context Sync (Node.js)
+    Write-Header "SYNCHRONIZING WEB APP (VITE/NODE.JS)"
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        if (Test-Path "$PARENT_DIR\package.json") {
+            Write-Host "  [+] Node project detected in ROOT. Running npm install..." -ForegroundColor Cyan
+            Push-Location $PARENT_DIR
+            npm install
+            Pop-Location
+        }
+    } else {
+        Write-Host "  [!] Node.js/npm not found. Skipping web app synchronization." -ForegroundColor Yellow
+    }
+
+    # 4. Session Environment Alignment
+    $env:Path = "$script:VENV_DIR\Scripts;$env:Path"
+    if (-not (Get-Command kaggle -ErrorAction SilentlyContinue)) {
+        Set-Alias -Name kaggle -Value (& "$script:VENV_DIR\Scripts\python.exe" -c "import sys; print(sys.executable)") -ArgumentList "-m", "kaggle"
+    }
+
+    Write-Host "`n  [SUCCESS] All LemGendary 2026 Systems are Synchronized!" -ForegroundColor Green
 }
 
 function Show-Menu {
     Clear-Host
-    Write-Header "LEMGENDARY MASTER HUB & ENVIRONMENT SUITE"
-    Write-Host "  1. Initialize/Fix Environment  (Installs Python 3.10 and PyTorch 2.4.1)"
+    Write-Header "LEMGENDARY AI TRAINING SUITE (2026 SPECIALIZATION)"
+    Write-Host " [ENVIRONMENT: $(if ($env:VIRTUAL_ENV) { 'VIRTUAL' } else { 'GLOBAL' })]" -ForegroundColor Gray
+    Write-Host "  1. Initialize/Fix All Systems (Python + Node.js + Specialized GPUs)"
     Write-Host "  2. Train Individual Model      (Launches LemGendary Training Suite)"
     Write-Host "  3. Global Orchestration        (Automated sequential multi-model run)"
     Write-Host "  4. Deploy to Kaggle Cloud      (Generate Cloud Instructions)"

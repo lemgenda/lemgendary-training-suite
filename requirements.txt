@@ -1,3 +1,4 @@
+# LemGendary AI Training Suite - PyTorch 2.11+ / Python 3.12
 torchruntime>=2.7.0
 torchmetrics>=1.4.0
 pillow>=10.0.0
