@@ -154,8 +154,15 @@ function Initialize-Environment {
         Write-Host "  [!] Pip Binary Missing (Internal Corruption). Executing System-Level Reconstruction..." -ForegroundColor Red
         Nuke-Environment
         & $pyPath -m venv --clear --upgrade-deps $script:VENV_DIR
-        if ($LastExitCode -ne 0) {
-            Write-Host "  [ERROR] Fatal: System-level bootstrap failed. Check permissions on $script:VENV_DIR" -ForegroundColor Red
+        
+        # Immediate fallback: force-inject pip if missing after clear
+        if (-not (Test-Path $venvPip)) {
+            Write-Host "  [+] Forced Bootstrapping via ensurepip..." -ForegroundColor Yellow
+            & "$script:VENV_DIR\Scripts\python.exe" -m ensurepip --default-pip
+        }
+
+        if ($LastExitCode -ne 0 -and -not (Test-Path $venvPip)) {
+            Write-Host "  [ERROR] Fatal: System-level bootstrap failed to produce pip.exe." -ForegroundColor Red
             return
         }
     }
