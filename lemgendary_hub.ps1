@@ -73,13 +73,14 @@ function Show-Menu {
     Write-Host "  3. Global Orchestration        (Automated sequential multi-model run)"
     Write-Host "  4. Deploy to Kaggle Cloud      (Generate Cloud Instructions)"
     Write-Host "  5. Smart Cloud Orchestration   (Local GPU + Dynamic Kaggle Streams)"
-    Write-Host "  6. Exit"
+    Write-Host "  6. Single-Epoch Unit Test      (Diagnostic 1-Epoch pass for ALL models)"
+    Write-Host "  7. Exit"
     Write-Host ""
 }
 
 while ($true) {
     Show-Menu
-    $choice = Read-Host "Select an option (1-6)"
+    $choice = Read-Host "Select an option (1-7)"
 
     switch ($choice) {
         '1' {
@@ -143,6 +144,20 @@ while ($true) {
             Read-Host "`nPress Enter to return to menu..."
         }
         '6' {
+            Write-Header "SINGLE-EPOCH UNIT TEST (ALL MODELS)"
+            Write-Host "  [DESCRIPTION]" -ForegroundColor White
+            Write-Host "  This initiates a fully rigorous automated structural diagnostic test,"
+            Write-Host "  forcing all 21 models natively to train precisely 1 single epoch."
+            Write-Host "  Perfect for completely validating memory buffers cleanly."
+            Write-Host ""
+            if (Test-Environment) {
+                Push-Location $script:HUB_DIR
+                & "$script:VENV_DIR\Scripts\python.exe" "train_all.py" --epochs 1
+                Pop-Location
+            }
+            Read-Host "`nPress Enter to return to menu..."
+        }
+        '7' {
             Write-Host "`nGoodbye!" -ForegroundColor Yellow
             return
         }

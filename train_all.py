@@ -6,6 +6,7 @@ import argparse
 def main():
     parser = argparse.ArgumentParser(description="Global Orchestration")
     parser.add_argument("--env", type=str, default="local", choices=["local", "kaggle"])
+    parser.add_argument("--epochs", type=int, default=50, help="Force override SOTA iterations mathematically natively.")
     args = parser.parse_args()
 
     print("🚀 Initializing Global LemGendary Training Suite Orchestration")
@@ -75,11 +76,11 @@ def main():
         print(f"      Configuration > Batch Size: {batch_size} | LR: {learning_rate}")
         print(f"=======================================================\n")
         
-        # Execute the newly optimized Universal Trainer for 50 epochs (will early-stop if plateaued)
+        # Execute the newly optimized Universal Trainer for N epochs (will early-stop if plateaued)
         cmd = [
             "python", "training/train.py",
             "--model", model_key,
-            "--epochs", "50",
+            "--epochs", str(args.epochs),
             "--batch_size", str(batch_size),
             "--lr", str(learning_rate),
             "--env", args.env
