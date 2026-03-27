@@ -106,7 +106,8 @@ def run_orchestrator():
                 
             if not os.path.exists(ds_path):
                 print(f"  [CACHE MISS] Dynamically downloading '{ds}' via Fallback Synchronous API...")
-                cmd = [sys.executable, "-m", "kaggle", "datasets", "download", "-d", f"lemtreursi/{ds.lower()}", "-p", data_dir, "--unzip"]
+                kaggle_exe = os.path.join(os.path.dirname(sys.executable), "kaggle.exe" if os.name == 'nt' else "kaggle")
+                cmd = [kaggle_exe, "datasets", "download", "-d", f"lemtreursi/{ds.lower()}", "-p", data_dir, "--unzip"]
                 try:
                     subprocess.run(cmd, check=True)
                 except subprocess.CalledProcessError as e:
