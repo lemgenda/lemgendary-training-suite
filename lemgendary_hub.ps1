@@ -14,6 +14,17 @@ $VENV_LOCAL = Join-Path $script:HUB_DIR ".venv"
 $script:VENV_DIR = if (Test-Path $VENV_ROOT) { $VENV_ROOT } else { $VENV_LOCAL }
 $script:REQ_FILE = Join-Path $script:HUB_DIR "requirements.txt"
 
+function Unlock-Environment {
+    Write-Host "  [*] Checking for active environment locks..." -ForegroundColor Gray
+    $lockedProcs = Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*$script:VENV_DIR*" }
+    if ($lockedProcs) {
+        Write-Host "  [!] WARNING: Active Python processes are locking the .venv!" -ForegroundColor Yellow
+        Write-Host "  Please close all other terminals or training runs using this environment." -ForegroundColor Red
+        $lockedProcs | ForEach-Object { Write-Host "      -> PID: $($_.Id) | Path: $($_.Path)" -ForegroundColor Gray }
+        Read-Host "  Press Enter once you have closed the conflicting apps to continue..."
+    }
+}
+
 function Write-Header($text) {
     Write-Host "`n================================================================================" -ForegroundColor Cyan
     Write-Host "  $text" -ForegroundColor White
@@ -79,13 +90,26 @@ function Initialize-Environment {
             $versionMatch = Get-Content $venvCfg | Select-String "version = $targetPython"
             if (-not $versionMatch) {
                 Write-Host "  [!] Version Drift detected (not $targetPython). Wiping existing .venv..." -ForegroundColor Magenta
-                Remove-Item -Path $script:VENV_DIR -Recurse -Force
+                Unlock-Environment
+                try {
+                    Remove-Item -Path $script:VENV_DIR -Recurse -Force -ErrorAction Stop
+                } catch {
+                    Write-Host "  [ERROR] Permission Denied: Could not remove .venv folder." -ForegroundColor Red
+                    Write-Host "  Manual action required: Run 'Remove-Item -Path $script:VENV_DIR -Recurse -Force' after closing all apps." -ForegroundColor White
+                    return
+                }
             }
         }
     }
 
     Write-Host "  [1/4] Constructing virtual environment ($script:VENV_DIR)..." -ForegroundColor Cyan
-    & $pyPath -m venv $script:VENV_DIR
+    try {
+        & $pyPath -m venv $script:VENV_DIR -ErrorAction Stop
+    } catch {
+        Write-Host "  [ERROR] Bootstrap failure: Virtual environment creation failed." -ForegroundColor Red
+        Write-Host "  Ensure no other apps are using the folder: $script:VENV_DIR" -ForegroundColor Yellow
+        return
+    }
 
     Write-Host "  [2/4] Initializing environment (pip upgrade)..." -ForegroundColor Cyan
     & "$script:VENV_DIR\Scripts\python.exe" -m pip install --upgrade pip
@@ -120,7 +144,8 @@ function Initialize-Environment {
     # 4. Session Environment Alignment
     $env:Path = "$script:VENV_DIR\Scripts;$env:Path"
     if (-not (Get-Command kaggle -ErrorAction SilentlyContinue)) {
-        Set-Alias -Name kaggle -Value (& "$script:VENV_DIR\Scripts\python.exe" -c "import sys; print(sys.executable)") -ArgumentList "-m", "kaggle"
+        $kgPath = "$script:VENV_DIR\Scripts\python.exe"
+        function global:kaggle { & $kgPath -m kaggle @args }
     }
 
     Write-Host "`n  [SUCCESS] All LemGendary 2026 Systems are Synchronized!" -ForegroundColor Green
