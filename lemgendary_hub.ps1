@@ -56,8 +56,21 @@ function Initialize-Environment {
     Write-Host "  [2/4] Upgrading pip..." -ForegroundColor Cyan
     & "$script:VENV_DIR\Scripts\python.exe" -m pip install --upgrade pip
 
-    Write-Host "  [3/4] Installing CUDA Core (NVIDIA Support)..." -ForegroundColor Cyan
-    & "$script:VENV_DIR\Scripts\python.exe" -m pip install torch==2.4.1+cu121 torchvision==0.19.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+    Write-Host "  [3/4] Checking GPU hardware to install appropriate PyTorch version..." -ForegroundColor Cyan
+    $nvGpu = Get-WmiObject Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "NVIDIA" }
+    $amdGpu = Get-WmiObject Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "AMD" -or $_.Name -match "Radeon" -or $_.Name -match "Advanced Micro Devices" }
+    
+    if ($null -ne $nvGpu) {
+        Write-Host "        [+] NVIDIA GPU found! Installing CUDA 12.1 support..." -ForegroundColor Green
+        & "$script:VENV_DIR\Scripts\python.exe" -m pip install torch==2.4.1+cu121 torchvision==0.19.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+    } elseif ($null -ne $amdGpu) {
+        Write-Host "        [+] ATI/AMD GPU found! Installing DirectML support for Radeon..." -ForegroundColor Green
+        & "$script:VENV_DIR\Scripts\python.exe" -m pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cpu
+        & "$script:VENV_DIR\Scripts\python.exe" -m pip install torch-directml
+    } else {
+        Write-Host "        [-] No dedicated GPU detected. Installing PyTorch CPU version..." -ForegroundColor Yellow
+        & "$script:VENV_DIR\Scripts\python.exe" -m pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cpu
+    }
 
     Write-Host "  [4/4] Installing Auxiliary libraries (AMD/Intel/ONNX)..." -ForegroundColor Cyan
     & "$script:VENV_DIR\Scripts\python.exe" -m pip install -r $script:REQ_FILE
