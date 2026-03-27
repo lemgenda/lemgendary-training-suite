@@ -30,8 +30,14 @@ class CombinedLoss(nn.Module):
             tgt_f = target.float()
             t_probs = tgt_f / torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=1e-6)
             p_probs = F.softmax(pred_f, dim=-1)
-            cdf_p = torch.cumsum(p_probs, dim=-1)
-            cdf_t = torch.cumsum(t_probs, dim=-1)
+            
+            # DirectML gracefully crashes on torch.cumsum backward pass on Windows
+            # Mathematically equivalent upper-triangular dot-product bypass
+            C = p_probs.shape[-1]
+            M = torch.triu(torch.ones(C, C, device=p_probs.device, dtype=p_probs.dtype))
+            cdf_p = p_probs @ M
+            cdf_t = t_probs @ M
+            
             return torch.mean((cdf_p - cdf_t) ** 2)
         elif self.task_type == "classification":
             return self.ce(pred, target)
@@ -56,10 +62,23 @@ def main():
     with open(unified_models_path, 'r') as f: unified_models_registry = yaml.safe_load(f)
     with open(unified_data_path, 'r') as f: unified_data_registry = yaml.safe_load(f)
 
-    device = torch.device(config.get("device", "cuda") if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device(config.get("device", "cuda"))
+    else:
+        try:
+            import torch_directml
+            if torch_directml.is_available():
+                device = torch_directml.device()
+            else:
+                device = torch.device("cpu")
+        except ImportError:
+            device = torch.device("cpu")
+
+    cudnn_benchmark = False
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True
-    print(f"Using device: {device} (cuDNN Benchmark: {torch.backends.cudnn.benchmark})")
+        cudnn_benchmark = True
+    print(f"Using device: {device} (cuDNN Benchmark: {cudnn_benchmark})")
 
     # Load model
     if "yolo" in args.model.lower():
@@ -125,7 +144,7 @@ def main():
 
         model.add_callback("on_fit_epoch_end", on_fit_epoch_end)
         
-        model.train(data=yaml_path, epochs=epochs, batch=batch_size, device=device.type if device.type != "cpu" else "cpu")
+        model.train(data=yaml_path, epochs=epochs, batch=batch_size, device=str(device) if str(device) != "cpu" else "cpu")
         
         import shutil
         base_export = config.get("export_dir", os.path.join("trained-models", "models"))

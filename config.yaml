@@ -6,7 +6,7 @@ unified_data: "unified_data.yaml"
 
 # Global Training Defaults (can be overridden by model-specific config)
 device: "cuda" # or "cpu"
-num_workers: 4 # Strict Windows IPC limit to prevent thread-thrashing overhead
+num_workers: 2 # Strict Windows IPC limit to prevent thread-thrashing overhead
 pin_memory: true
 
 # Base paths (relative to training/lemgendary-training-suite/)
