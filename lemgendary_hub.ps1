@@ -147,12 +147,20 @@ function Initialize-Environment {
 
     Write-Host "  [2/4] Initializing environment (pip upgrade)..." -ForegroundColor Cyan
     $venvPy = "$script:VENV_DIR\Scripts\python.exe"
-    & $venvPy -m pip install --upgrade pip
-    if ($LastExitCode -ne 0) {
-        Write-Host "  [!] Pip not found in venv. Attempting repair via ensurepip..." -ForegroundColor Yellow
-        & $venvPy -m ensurepip --default-pip
-        & $venvPy -m pip install --upgrade pip
+    $venvPip = "$script:VENV_DIR\Scripts\pip.exe"
+    
+    # Check if venv is fundamentally broken
+    if (-not (Test-Path $venvPip)) {
+        Write-Host "  [!] Pip Binary Missing (Internal Corruption). Executing System-Level Reconstruction..." -ForegroundColor Red
+        Nuke-Environment
+        & $pyPath -m venv --clear --upgrade-deps $script:VENV_DIR
+        if ($LastExitCode -ne 0) {
+            Write-Host "  [ERROR] Fatal: System-level bootstrap failed. Check permissions on $script:VENV_DIR" -ForegroundColor Red
+            return
+        }
     }
+
+    & $venvPy -m pip install --upgrade pip
 
     Write-Host "  [3/4] Synchronizing AI Core (PyTorch + Hardware Backends)..." -ForegroundColor Cyan
     # torchruntime automatically detects NVIDIA (CUDA) vs AMD (ROCm/DirectML) vs CPU
