@@ -12,6 +12,16 @@ def main():
 
     print("🚀 Initializing Global LemGendary Training Suite Orchestration")
     
+    # Environment Pre-Flight Audit (2026 specialization)
+    try:
+        if not hasattr(yaml, "safe_load"):
+            raise AttributeError("Incomplete environment detected.")
+    except (NameError, AttributeError):
+        print("\n❌ [CRITICAL] Environment Integrity Audit FAILED!")
+        print("   -> Your virtual environment is missing specialized PyYAML binaries.")
+        print("   -> Fix: Please run 'Option 1' in the LemGendary Hub to synchronize your dependencies.")
+        return
+    
     # Kaggle Dependency Verification
     expected_datasets = {
         "LemGendizedQualityDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-quality-dataset",
