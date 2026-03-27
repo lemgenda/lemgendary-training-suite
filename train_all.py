@@ -7,6 +7,7 @@ def main():
     parser = argparse.ArgumentParser(description="Global Orchestration")
     parser.add_argument("--env", type=str, default="local", choices=["local", "kaggle"])
     parser.add_argument("--epochs", type=int, default=50, help="Force override SOTA iterations mathematically natively.")
+    parser.add_argument("--yes", action="store_true", help="Automatically bypass interactive prompts for 2026 unit-test orchestration.")
     args = parser.parse_args()
 
     print("🚀 Initializing Global LemGendary Training Suite Orchestration")
@@ -34,7 +35,12 @@ def main():
                 
         if missing_any:
             print("\n⚠️ Warning: One or more unified datasets are missing from data/datasets/.")
-            ans = input("Do you structurally want to proceed violently anyway? [y/N]: ")
+            if args.yes:
+                print("   👉 --yes flag detected: Force-proceeding violently as requested by 2026 orchestrator.")
+                ans = 'y'
+            else:
+                ans = input("Do you structurally want to proceed violently anyway? [y/N]: ")
+                
             if ans.lower().strip() != 'y':
                 print("🛑 Aborting orchestration to prevent native exceptions.\n")
                 return
@@ -66,7 +72,13 @@ def main():
             print(f"\n=======================================================")
             print(f"✨ Model '{model_name}' has already fully structurally converged to State-of-the-Art (SOTA) baseline!")
             print(f"   Artifact found: {final_onnx_path}")
-            ans = input("Do you want to SKIP training this model? [Y/n]: ")
+            
+            if args.yes:
+                print("   👉 --yes flag detected: Re-training for verification as requested by 2026 orchestrator.")
+                ans = 'n'
+            else:
+                ans = input("Do you want to SKIP training this model? [Y/n]: ")
+                
             if ans.lower().strip() != 'n':
                 print(f"⏭  Skipping {model_name}...")
                 continue
