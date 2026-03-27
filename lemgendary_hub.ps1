@@ -21,8 +21,27 @@ function Unlock-Environment {
         Write-Host "  [!] WARNING: Active Python processes are locking the .venv!" -ForegroundColor Yellow
         Write-Host "  Please close all other terminals or training runs using this environment." -ForegroundColor Red
         $lockedProcs | ForEach-Object { Write-Host "      -> PID: $($_.Id) | Path: $($_.Path)" -ForegroundColor Gray }
-        Read-Host "  Press Enter once you have closed the conflicting apps to continue..."
+        $choice = Read-Host "  Would you like me to attempt a FORCE KILL (Nuke) to release locks? (Y/N)"
+        if ($choice -eq 'Y' -or $choice -eq 'y') {
+            Nuke-Environment
+        } else {
+            Read-Host "  Press Enter once you have closed the conflicting apps manually to continue..."
+        }
     }
+}
+
+function Nuke-Environment {
+    Write-Host "  [!] EXECUTING INDESTRUCTIBLE NUKE SEQUENCE..." -ForegroundColor Magenta
+    $lockedProcs = Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*$script:VENV_DIR*" }
+    foreach ($proc in $lockedProcs) {
+        try {
+            Write-Host "      -> Terminanting locked PID: $($proc.Id)..." -ForegroundColor Gray
+            Stop-Process -Id $proc.Id -Force -ErrorAction Stop
+        } catch {
+            Write-Host "      [!] Failed to terminate PID: $($proc.Id). Elevate to Admin if persistence remains." -ForegroundColor Yellow
+        }
+    }
+    Start-Sleep -Seconds 1
 }
 
 function Write-Header($text) {
@@ -107,8 +126,22 @@ function Initialize-Environment {
         & $pyPath -m venv $script:VENV_DIR -ErrorAction Stop
     } catch {
         Write-Host "  [ERROR] Bootstrap failure: Virtual environment creation failed." -ForegroundColor Red
-        Write-Host "  Ensure no other apps are using the folder: $script:VENV_DIR" -ForegroundColor Yellow
-        return
+        Write-Host "  [!] Transitioning to Aggressive Nuke Sequence and retrying..." -ForegroundColor Yellow
+        Nuke-Environment
+        & $pyPath -m venv $script:VENV_DIR
+    }
+
+    # 1.5/4 Sanity Check (AMD Binary Elution prevention)
+    $venvPy = "$script:VENV_DIR\Scripts\python.exe"
+    if (-not (Test-Path $venvPy)) {
+        Write-Host "  [!] Sanity Check FAILED: Binary Elution detected (python.exe missing)." -ForegroundColor Yellow
+        Write-Host "  [+] Attempting Legacy Bootstrap repair..." -ForegroundColor Cyan
+        try {
+            & $pyPath -m venv --copies --clear $script:VENV_DIR
+        } catch {
+            Write-Host "  [ERROR] Critical Venv Reconstruction Failure. Your antivirus may be blocking Scripts\python.exe." -ForegroundColor Red
+            return
+        }
     }
 
     Write-Host "  [2/4] Initializing environment (pip upgrade)..." -ForegroundColor Cyan
