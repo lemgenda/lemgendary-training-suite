@@ -105,8 +105,16 @@ def run_orchestrator():
                 print(f"  ✅ '{ds}' stream mathematically resolved in the background!")
                 
             if not os.path.exists(ds_path):
+                # Robust Entry Point Resolution (2026 specialization)
+                scripts_dir = os.path.dirname(sys.executable)
+                kaggle_bin = os.path.join(scripts_dir, "kaggle.exe" if os.name == "nt" else "kaggle")
+                
+                # Fallback to system-path if venv-local binary is not visible
+                if not os.path.exists(kaggle_bin):
+                    kaggle_bin = "kaggle"
+
                 print(f"  [CACHE MISS] Dynamically downloading '{ds}' via Fallback Synchronous API...")
-                cmd = [sys.executable, "-m", "kaggle", "datasets", "download", "-d", f"lemtreursi/{ds.lower()}", "-p", data_dir, "--unzip"]
+                cmd = [kaggle_bin, "datasets", "download", "-d", f"lemtreursi/{ds.lower()}", "-p", data_dir, "--unzip"]
                 try:
                     subprocess.run(cmd, check=True)
                 except subprocess.CalledProcessError as e:

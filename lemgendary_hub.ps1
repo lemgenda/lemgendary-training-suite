@@ -123,12 +123,14 @@ function Initialize-Environment {
 
     Write-Host "  [1/4] Constructing virtual environment ($script:VENV_DIR)..." -ForegroundColor Cyan
     try {
-        & $pyPath -m venv $script:VENV_DIR -ErrorAction Stop
+        & $pyPath -m venv $script:VENV_DIR
+        if ($LastExitCode -ne 0) { throw "NukeRequired" }
     } catch {
         Write-Host "  [ERROR] Bootstrap failure: Virtual environment creation failed." -ForegroundColor Red
         Write-Host "  [!] Transitioning to Aggressive Nuke Sequence and retrying..." -ForegroundColor Yellow
         Nuke-Environment
         & $pyPath -m venv $script:VENV_DIR
+        if ($LastExitCode -ne 0) { return }
     }
 
     # 1.5/4 Sanity Check (AMD Binary Elution prevention)
@@ -136,9 +138,8 @@ function Initialize-Environment {
     if (-not (Test-Path $venvPy)) {
         Write-Host "  [!] Sanity Check FAILED: Binary Elution detected (python.exe missing)." -ForegroundColor Yellow
         Write-Host "  [+] Attempting Legacy Bootstrap repair..." -ForegroundColor Cyan
-        try {
-            & $pyPath -m venv --copies --clear $script:VENV_DIR
-        } catch {
+        & $pyPath -m venv --copies --clear $script:VENV_DIR
+        if (-not (Test-Path $venvPy)) {
             Write-Host "  [ERROR] Critical Venv Reconstruction Failure. Your antivirus may be blocking Scripts\python.exe." -ForegroundColor Red
             return
         }
@@ -146,9 +147,8 @@ function Initialize-Environment {
 
     Write-Host "  [2/4] Initializing environment (pip upgrade)..." -ForegroundColor Cyan
     $venvPy = "$script:VENV_DIR\Scripts\python.exe"
-    try {
-        & $venvPy -m pip install --upgrade pip -ErrorAction Stop
-    } catch {
+    & $venvPy -m pip install --upgrade pip
+    if ($LastExitCode -ne 0) {
         Write-Host "  [!] Pip not found in venv. Attempting repair via ensurepip..." -ForegroundColor Yellow
         & $venvPy -m ensurepip --default-pip
         & $venvPy -m pip install --upgrade pip
