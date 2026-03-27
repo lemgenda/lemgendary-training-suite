@@ -21,7 +21,8 @@ The easiest way to manage your AI workflow is via the **LemGendary Hub**.
 3. **Global Orchestration**: Automates sequential continuous execution of **all 21 models** on your local hardware architecture uninterrupted.
 4. **Deploy to Kaggle Cloud**: Outputs physical instructions on how to push the pre-generated Jupyter topologies to Kaggle's T4 instances instantly.
 5. **Smart Cloud Orchestration**: Uses your `C:\` local GPU to mathematically train all 21 models natively by streaming specific datasets through Kaggle explicitly via the API, executing Python loops, and instantly **purging the cache** iteratively. This strictly locks local peak SSD consumption below `~220GB`.
-6. **Exit**: Terminate hub.
+6. **Single-Epoch Unit Test**: Initiates a massive forced override across all 21 core neural networks, executing precisely **1 automated functional epoch per model** to strictly validate local memory arrays and buffer structural constraints flawlessly without committing to a 50-hour cycle.
+7. **Exit**: Terminate hub.
 
 ---
 
