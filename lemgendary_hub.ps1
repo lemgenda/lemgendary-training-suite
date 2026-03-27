@@ -153,12 +153,13 @@ function Initialize-Environment {
     if (-not (Test-Path $venvPip)) {
         Write-Host "  [!] Pip Binary Missing (Internal Corruption). Executing System-Level Reconstruction..." -ForegroundColor Red
         Nuke-Environment
-        & $pyPath -m venv --clear --upgrade-deps $script:VENV_DIR
+        & $pyPath -m venv --clear --upgrade-deps --with-pip $script:VENV_DIR
         
-        # Immediate fallback: force-inject pip if missing after clear
+        # Immediate fallback: force-inject pip using SYSTEM python if missing after clear
         if (-not (Test-Path $venvPip)) {
-            Write-Host "  [+] Forced Bootstrapping via ensurepip..." -ForegroundColor Yellow
-            & "$script:VENV_DIR\Scripts\python.exe" -m ensurepip --default-pip
+            Write-Host "  [+] Forced Bootstrapping via System ensurepip..." -ForegroundColor Yellow
+            $venvRoot = (Get-Item $script:VENV_DIR).FullName
+            & $pyPath -m ensurepip --root $venvRoot
         }
 
         if ($LastExitCode -ne 0 -and -not (Test-Path $venvPip)) {
@@ -175,7 +176,8 @@ function Initialize-Environment {
     & "$script:VENV_DIR\Scripts\python.exe" -m torchruntime install --auto
 
     # Explicitly ensure onnxruntime-directml for AMD users in 2026
-    if ((& "$script:VENV_DIR\Scripts\python.exe" -c "import torch; print(torch.cuda.is_available())") -eq "False") {
+    $cudaCheck = & "$script:VENV_DIR\Scripts\python.exe" -c "import torch; print(torch.cuda.is_available())"
+    if ($cudaCheck -eq "False") {
         Write-Host "  [+] Non-CUDA hardware detected. Strengthening ONNX DirectML support..." -ForegroundColor Cyan
         & "$script:VENV_DIR\Scripts\python.exe" -m pip install onnxruntime-directml
     }
