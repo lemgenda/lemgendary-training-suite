@@ -203,6 +203,27 @@ function Get-ModelSelection {
     return $null
 }
 
+function Invoke-BootstrapCheck {
+    # Lightweight, silent scan for Python 3.12 (Proactive 2026 Discovery)
+    $pyPath = Get-Command python -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike "*\.venv\*" } | Select-Object -First 1 -ExpandProperty Source
+    $knownPath = "C:\Users\lemtr\AppData\Local\Programs\Python\Python312\python.exe"
+    
+    if ($null -eq $pyPath -and -not (Test-Path $knownPath)) {
+        Write-Host "`n********************************************************************************" -ForegroundColor Red
+        Write-Host "  [!] CRITICAL: Python 3.12 Core not detected on this system." -ForegroundColor Red
+        Write-Host "********************************************************************************" -ForegroundColor Yellow
+        Write-Host "  The LemGendary Hub requires a system-level Python 3.12 to bootstrap natively." -ForegroundColor White
+        $choice = Read-Host "  👉 Would you like me to attempt an AUTOMATIC installation now? (y/n)"
+        if ($choice -eq 'y' -or $choice -eq 'Y') {
+            Initialize-Environment
+        } else {
+            Write-Host "  🛑 Python absolute requirement failed. Aborting Hub launch..." -ForegroundColor Red
+            Start-Sleep -Seconds 2
+            exit
+        }
+    }
+}
+
 function Show-Menu {
     Clear-Host
     Write-Header "LEMGENDARY AI TRAINING SUITE (2026 SPECIALIZATION)"
@@ -216,6 +237,9 @@ function Show-Menu {
     Write-Host "  7. Exit"
     Write-Host ""
 }
+
+# Pre-Flight Bootstrap Python check (Silent if found)
+Invoke-BootstrapCheck
 
 while ($true) {
     Show-Menu
