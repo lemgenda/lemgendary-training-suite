@@ -1,17 +1,40 @@
 import os
 import sys
-import yaml  # pyre-ignore
 import argparse
-import torch  # pyre-ignore
-import torch.nn as nn  # pyre-ignore
-from torch.utils.data import DataLoader  # pyre-ignore
-from tqdm import tqdm  # pyre-ignore
+
+# --- Hyper-Verbose Path Defense (2026 Specialization) ---
+# Anchor the search path to the script's own folder to bypass "Ghost Python" hijacking.
+script_dir = os.path.dirname(os.path.abspath(__file__))
+workspace_root = os.path.dirname(script_dir)
+venv_site_pkgs = os.path.normpath(os.path.join(workspace_root, ".venv", "Lib", "site-packages"))
+
+if os.path.exists(venv_site_pkgs):
+    sys.path.insert(0, venv_site_pkgs)
+
+try:
+    import yaml
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader
+    from tqdm import tqdm
+except ImportError as e:
+    print(f"\n--- LemGendary Crash Diagnostics ---")
+    print(f"Executable: {sys.executable}")
+    print(f"Script Location: {__file__}")
+    print(f"Project Root: {workspace_root}")
+    print(f"Looking for venv site-packages at: {venv_site_pkgs} (Exists: {os.path.exists(venv_site_pkgs)})")
+    print(f"Current Path (sys.path[0]): {sys.path[0]}")
+    print(f"Full sys.path: {sys.path}")
+    print(f"\n❌ [CRITICAL] Dependency Error: {e}")
+    print("  [!] Your LemGendary environment is incomplete or corrupted.")
+    print("  [!] Fix: Run the 'lemgendary_hub.ps1' script and select Option 1.")
+    sys.exit(1)
 
 # Add parent directory to sys.path to allow importing from data and models
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from data.dataset import MultiTaskDataset  # pyre-ignore
-from models.factory import get_model  # pyre-ignore
+from data.dataset import MultiTaskDataset
+from models.factory import get_model
 
 class CombinedLoss(nn.Module):
     def __init__(self, task_type="restoration"):
@@ -56,9 +79,20 @@ def main():
     with open(unified_models_path, 'r') as f: unified_models_registry = yaml.safe_load(f)
     with open(unified_data_path, 'r') as f: unified_data_registry = yaml.safe_load(f)
 
-    device = torch.device(config.get("device", "cuda") if torch.cuda.is_available() else "cpu")
-    if device.type == "cuda":
+    # --- Device Discovery (2026 Hardware Acceleration) ---
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        device = torch.device("cuda")
         torch.backends.cudnn.benchmark = True
+        print(f"🚀 [HARDWARE] NVIDIA GPU Detected: {gpu_name}")
+        print(f"🔗 [BACKEND] CUDA Version: {torch.version.cuda}")
+    elif hasattr(torch, "dml") and torch.dml.is_available():
+        device = torch.device("dml")
+        print(f"🚀 [HARDWARE] DirectML (AMD/Intel) Detected")
+    else:
+        device = torch.device("cpu")
+        print(f"⚠️ [WARNING] No GPU Acceleration found. Defaulting to CPU.")
+
     print(f"Using device: {device} (cuDNN Benchmark: {torch.backends.cudnn.benchmark})")
 
     # Load model

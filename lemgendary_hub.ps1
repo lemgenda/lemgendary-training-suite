@@ -1,17 +1,11 @@
-# training/lemgendary_hub.ps1
+# training/lemgendary_hub.ps1 [Refresh: 2026-03-27_23:50]
 # Master Orchestration Script for LemGendary AI Training & Management
 
-$script:HUB_DIR = Split-Path -Parent $MyInvocation.MyCommand.Definition
-if (-not $script:HUB_DIR) { $script:HUB_DIR = $PSScriptRoot }
+$script:HUB_DIR = $PSScriptRoot
 if (-not $script:HUB_DIR) { $script:HUB_DIR = Get-Location }
 
 # PowerShell 5.1 compatibility for Join-Path
-$PARENT_DIR = Split-Path -Parent $script:HUB_DIR
-$VENV_ROOT = Join-Path $PARENT_DIR ".venv"
-$VENV_LOCAL = Join-Path $script:HUB_DIR ".venv"
-
-# Default to local if neither exists
-$script:VENV_DIR = if (Test-Path $VENV_ROOT) { $VENV_ROOT } else { $VENV_LOCAL }
+$script:VENV_DIR = Join-Path $script:HUB_DIR ".venv"
 $script:REQ_FILE = Join-Path $script:HUB_DIR "requirements.txt"
 
 function Unlock-Environment {
@@ -23,15 +17,15 @@ function Unlock-Environment {
         $lockedProcs | ForEach-Object { Write-Host "      -> PID: $($_.Id) | Path: $($_.Path)" -ForegroundColor Gray }
         $choice = Read-Host "  Would you like me to attempt a FORCE KILL (Nuke) to release locks? (Y/N)"
         if ($choice -eq 'Y' -or $choice -eq 'y') {
-            Nuke-Environment
+            Clear-EnvironmentLocks
         } else {
             Read-Host "  Press Enter once you have closed the conflicting apps manually to continue..."
         }
     }
 }
 
-function Nuke-Environment {
-    Write-Host "  [!] EXECUTING INDESTRUCTIBLE NUKE SEQUENCE..." -ForegroundColor Magenta
+function Clear-EnvironmentLocks {
+    Write-Host "  [!] EXECUTING INDESTRUCTIBLE LOCK CLEARANCE..." -ForegroundColor Magenta
     $lockedProcs = Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*$script:VENV_DIR*" }
     foreach ($proc in $lockedProcs) {
         try {
@@ -55,163 +49,105 @@ function Test-Environment {
         Write-Host "  [!] Virtual environment not detected at $script:VENV_DIR" -ForegroundColor Yellow
         $choice = Read-Host "  Would you like to create it in the training folder? (Y/N)"
         if ($choice -eq 'Y' -or $choice -eq 'y') {
-            $script:VENV_DIR = $VENV_LOCAL
             Initialize-Environment
             return $true
         }
         return $false
     }
-    return $true
+
+    # Pre-Flight Audit
+    Write-Header "ENVIRONMENT INTEGRITY AUDIT"
+    Write-Host "  [*] Verifying core library specialization (PyYAML / Torch / DirectML)..." -ForegroundColor Gray
+    $auditCmd = "import yaml; print('YAML_PATH: ' + yaml.__file__); import torch; print('Torch: ' + torch.__version__); print('CUDA Ready: ' + str(torch.cuda.is_available())); print('Device: ' + (torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'))"
+    $auditResult = & "$script:VENV_DIR\Scripts\python.exe" -c $auditCmd 2>&1
+    
+    $venvBase = Split-Path $script:VENV_DIR -Leaf
+    if ($auditResult -match "YAML_PATH: .*$venvBase" -and $auditResult -match "Torch:") {
+        Write-Host "  [PASS] Integrity Audit Successful. Environment is healthy." -ForegroundColor Green
+        if ($auditResult -match "CUDA Ready: True") {
+            Write-Host "  [ACCELERATED] NVIDIA Hardware detected and linked." -ForegroundColor Cyan
+        } else {
+            Write-Host "  [WARNING] Running in CPU mode. Check NVIDIA drivers." -ForegroundColor Yellow
+        }
+        return $true
+    } else {
+        Write-Host "  [FAIL] Integrity Audit Failed! Core libraries missing or corrupted." -ForegroundColor Red
+        Write-Host "  Suggested Fix: Run Option 1 again." -ForegroundColor White
+        return $false
+    }
 }
 
 function Initialize-Environment {
     Write-Header "PREPARING PYTHON 3.12 ENVIRONMENT"
     $targetPython = "3.12"
-    $pythonId = "Python.Python.3.12"
-
-    # 1. Advanced Discovery: Search for 3.12 binary if 'python' is old/missing
-    $pyPath = Get-Command python -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-    if ($null -eq $pyPath -or (& $pyPath --version) -notmatch $targetPython -or -not (Test-Path $pyPath)) {
-        $searchPath = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
-        if (Test-Path $searchPath) {
-            $pyPath = $searchPath
-            Write-Host "  [+] Found Python 3.12 at $pyPath" -ForegroundColor Cyan
-        } else {
-            Write-Host "  [!] Python 3.12 not found. Attempting install via winget..." -ForegroundColor Yellow
-            try {
-                winget install --id $pythonId -e --scope user --silent --accept-package-agreements --accept-source-agreements
-                if (Test-Path $searchPath) { 
-                    $pyPath = $searchPath 
-                    # In-session path refresh
-                    $env:Path = "$([System.IO.Path]::GetDirectoryName($searchPath));$env:Path"
-                } else {
-                    # Final fallback check Program Files
-                    $pgmPath = "C:\Program Files\Python312\python.exe"
-                    if (Test-Path $pgmPath) { $pyPath = $pgmPath }
-                }
-            } catch {
-                Write-Host "  [ERROR] Auto-install failed. Please install Python 3.12 manually." -ForegroundColor Red
-                return
-            }
-        }
-    }
     
-    # Final validation of $pyPath
-    if (-not (Test-Path $pyPath)) {
-        Write-Host "  [ERROR] Fatal: Python 3.12 binary remains elusive even after search/install." -ForegroundColor Red
-        return
-    }
+    # 1. Advanced Discovery: Find SYSTEM Python (Skip .venv paths)
+    $pyPath = Get-Command python -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike "*\.venv\*" } | Select-Object -First 1 -ExpandProperty Source
+    $knownSystemPath = "C:\Users\lemtr\AppData\Local\Programs\Python\Python312\python.exe"
 
-    # 2. VENV Integrity Check: wipe if stale/drifted
-    if (Test-Path $script:VENV_DIR) {
-        $venvCfg = Join-Path $script:VENV_DIR "pyvenv.cfg"
-        if (Test-Path $venvCfg) {
-            $versionMatch = Get-Content $venvCfg | Select-String "version = $targetPython"
-            if (-not $versionMatch) {
-                Write-Host "  [!] Version Drift detected (not $targetPython). Wiping existing .venv..." -ForegroundColor Magenta
-                Unlock-Environment
+    if ($null -eq $pyPath -or (& $pyPath --version) -notmatch $targetPython) {
+        if (Test-Path $knownSystemPath) {
+            $pyPath = $knownSystemPath
+            Write-Host "  [+] Recovered System Python at $pyPath" -ForegroundColor Cyan
+        } else {
+            $searchPath = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
+            if (Test-Path $searchPath) {
+                $pyPath = $searchPath
+            } else {
+                Write-Host "  [!] Python 3.12 not found. Attempting winget install..." -ForegroundColor Yellow
                 try {
-                    Remove-Item -Path $script:VENV_DIR -Recurse -Force -ErrorAction Stop
+                    winget install --id "Python.Python.3.12" -e --scope user --silent --accept-package-agreements --accept-source-agreements
+                    if (Test-Path $searchPath) { $pyPath = $searchPath }
                 } catch {
-                    Write-Host "  [ERROR] Permission Denied: Could not remove .venv folder." -ForegroundColor Red
-                    Write-Host "  Manual action required: Run 'Remove-Item -Path $script:VENV_DIR -Recurse -Force' after closing all apps." -ForegroundColor White
+                    Write-Host "  [ERROR] Auto-install failed. Please install manually." -ForegroundColor Red
                     return
                 }
             }
         }
     }
-
-    Write-Host "  [1/4] Constructing virtual environment ($script:VENV_DIR)..." -ForegroundColor Cyan
-    try {
-        & $pyPath -m venv $script:VENV_DIR
-        if ($LastExitCode -ne 0) { throw "NukeRequired" }
-    } catch {
-        Write-Host "  [ERROR] Bootstrap failure: Virtual environment creation failed." -ForegroundColor Red
-        Write-Host "  [!] Transitioning to Aggressive Nuke Sequence and retrying..." -ForegroundColor Yellow
-        Nuke-Environment
-        & $pyPath -m venv $script:VENV_DIR
-        if ($LastExitCode -ne 0) { return }
-    }
-
-    # 1.5/4 Sanity Check (AMD Binary Elution prevention)
-    $venvPy = "$script:VENV_DIR\Scripts\python.exe"
-    if (-not (Test-Path $venvPy)) {
-        Write-Host "  [!] Sanity Check FAILED: Binary Elution detected (python.exe missing)." -ForegroundColor Yellow
-        Write-Host "  [+] Attempting Legacy Bootstrap repair..." -ForegroundColor Cyan
-        & $pyPath -m venv --copies --clear $script:VENV_DIR
-        if (-not (Test-Path $venvPy)) {
-            Write-Host "  [ERROR] Critical Venv Reconstruction Failure. Your antivirus may be blocking Scripts\python.exe." -ForegroundColor Red
-            return
-        }
-    }
-
-    Write-Host "  [2/4] Initializing environment (pip upgrade)..." -ForegroundColor Cyan
-    $venvPy = "$script:VENV_DIR\Scripts\python.exe"
-    $venvPip = "$script:VENV_DIR\Scripts\pip.exe"
     
-    # Check if venv is fundamentally broken
-    if (-not (Test-Path $venvPip)) {
-        Write-Host "  [!] Pip Binary Missing (Internal Corruption). Executing System-Level Reconstruction..." -ForegroundColor Red
-        Nuke-Environment
-        & $pyPath -m venv --clear --upgrade-deps --with-pip $script:VENV_DIR
-        
-        # Immediate fallback: force-inject pip using SYSTEM python if missing after clear
-        if (-not (Test-Path $venvPip)) {
-            Write-Host "  [+] Forced Bootstrapping via System ensurepip..." -ForegroundColor Yellow
-            $venvRoot = (Get-Item $script:VENV_DIR).FullName
-            & $pyPath -m ensurepip --root $venvRoot
-        }
-
-        if ($LastExitCode -ne 0 -and -not (Test-Path $venvPip)) {
-            Write-Host "  [ERROR] Fatal: System-level bootstrap failed to produce pip.exe." -ForegroundColor Red
-            return
-        }
-    }
-
-    & $venvPy -m pip install --upgrade pip
-
-    Write-Host "  [3/4] Synchronizing AI Core (PyTorch + Hardware Backends)..." -ForegroundColor Cyan
-    # torchruntime automatically detects NVIDIA (CUDA) vs AMD (ROCm/DirectML) vs CPU
-    & "$script:VENV_DIR\Scripts\python.exe" -m pip install --upgrade torchruntime
-    & "$script:VENV_DIR\Scripts\python.exe" -m torchruntime install --auto
-
-    # Explicitly ensure onnxruntime-directml for AMD users in 2026
-    $cudaCheck = & "$script:VENV_DIR\Scripts\python.exe" -c "import torch; print(torch.cuda.is_available())"
-    if ($cudaCheck -eq "False") {
-        Write-Host "  [+] Non-CUDA hardware detected. Strengthening ONNX DirectML support..." -ForegroundColor Cyan
-        & "$script:VENV_DIR\Scripts\python.exe" -m pip install onnxruntime-directml
-    }
-
-    Write-Host "  [4/4] Installing Auxiliary libraries (Datasets/ONNX/YOLO)..." -ForegroundColor Cyan
-    & "$script:VENV_DIR\Scripts\python.exe" -m pip install -r $script:REQ_FILE
-
-    # 3. Web App Context Sync (Node.js)
-    Write-Header "SYNCHRONIZING WEB APP (VITE/NODE.JS)"
-    if (Get-Command npm -ErrorAction SilentlyContinue) {
-        if (Test-Path "$PARENT_DIR\package.json") {
-            Write-Host "  [+] Node project detected in ROOT. Running npm install..." -ForegroundColor Cyan
-            Push-Location $PARENT_DIR
-            npm install
-            Pop-Location
-        }
-    } else {
-        Write-Host "  [!] Node.js/npm not found. Skipping web app synchronization." -ForegroundColor Yellow
-    }
-
-    # 5. Pre-Flight Audit (Environment Integrity Verification)
-    Write-Header "ENVIRONMENT INTEGRITY AUDIT"
-    Write-Host "  [*] Verifying core library specialization (PyYAML / Torch / DirectML)..." -ForegroundColor Gray
-    $auditCmd = "import yaml; print('YAML: ' + str(hasattr(yaml, 'safe_load'))); import torch; print('Torch: ' + torch.__version__)"
-    $auditResult = & "$script:VENV_DIR\Scripts\python.exe" -c $auditCmd 2>&1
-    
-    if ($auditResult -match "YAML: True" -and $auditResult -match "Torch:") {
-        Write-Host "  [PASS] Integrity Audit Successful. Environment is healthy." -ForegroundColor Green
-    } else {
-        Write-Host "  [FAIL] Integrity Audit Failed! Some core libraries are missing or corrupted." -ForegroundColor Red
-        Write-Host "  [!] Audit Log: $auditResult" -ForegroundColor Yellow
-        Write-Host "  Suggested Fix: Run Option 1 again or manually run 'pip install pyyaml torchruntime' in the venv." -ForegroundColor White
+    if (-not (Test-Path $pyPath)) {
+        Write-Host "  [ERROR] Fatal: Could not identify a valid System Python binary." -ForegroundColor Red
         return
     }
+
+    # Construction Reset
+    if (Test-Path $script:VENV_DIR) {
+        Write-Host "  [!] NUKING stale environment to ensure structural integrity..." -ForegroundColor Magenta
+        $retryCount = 0
+        while ($retryCount -lt 5) {
+            try { Remove-Item -Path $script:VENV_DIR -Recurse -Force -ErrorAction Stop; break }
+            catch { $retryCount++; Clear-EnvironmentLocks; Start-Sleep -Seconds 1 }
+        }
+    }
+
+    Write-Host "  [1/4] Constructing virtual environment (using System Python)..." -ForegroundColor Cyan
+    & $pyPath -m venv $script:VENV_DIR
+    $venvPy = "$script:VENV_DIR\Scripts\python.exe"
+    if (-not (Test-Path $venvPy)) { return }
+
+    Write-Host "  [2/4] Initializing environment (pip upgrade)..." -ForegroundColor Cyan
+    & $venvPy -m pip install --upgrade pip
+    
+    Write-Host "  [3/4] Synchronizing AI Core (PyTorch + Hardware Backends)..." -ForegroundColor Cyan
+    # Detect NVIDIA vs AMD for optimized index selection
+    $isNvidia = (Get-CimInstance Win32_VideoController | Where-Object { $_.Name -like "*NVIDIA*" })
+    
+    if ($null -ne $isNvidia) {
+        Write-Host "  [+] NVIDIA GPU Detected: GTX/RTX hardware optimization active." -ForegroundColor Green
+        & $venvPy -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 --force-reinstall
+        & $venvPy -m pip install onnxruntime-gpu --force-reinstall
+    } else {
+        & $venvPy -m pip install --upgrade torchruntime
+        & $venvPy -m torchruntime install --auto
+        if ((& $venvPy -c "import torch; print(torch.cuda.is_available())") -eq "False") {
+            & $venvPy -m pip install onnxruntime-directml
+        }
+    }
+
+    Write-Host "  [4/4] Installing Auxiliary libraries (PyYAML/Datasets/ONNX)..." -ForegroundColor Cyan
+    & $venvPy -m pip install --force-reinstall pyyaml
+    & $venvPy -m pip install -r $script:REQ_FILE
 
     Write-Host "`n  [SUCCESS] All LemGendary 2026 Systems are Synchronized!" -ForegroundColor Green
 }
@@ -233,89 +169,46 @@ function Show-Menu {
 while ($true) {
     Show-Menu
     $choice = Read-Host "Select an option (1-7)"
-
     switch ($choice) {
-        '1' {
-            Initialize-Environment
-            Read-Host "`nPress Enter to return to menu..."
-        }
+        '1' { Initialize-Environment; Read-Host "Press Enter to return..." }
         '2' {
-            Write-Header "TRAIN INDIVIDUAL MODEL"
-            Write-Host "  [DESCRIPTION]" -ForegroundColor White
-            Write-Host "  Runs the LemGendary Unified Training Suite individually."
-            Write-Host ""
             if (Test-Environment) {
-                Push-Location $script:HUB_DIR
-                & "$script:VENV_DIR\Scripts\python.exe" "training/train.py"
-                Pop-Location
+                $env:PYTHONPATH=""; $env:PYTHONHOME=""
+                $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
+                Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "training/train.py"; Pop-Location
             }
-            Read-Host "`nPress Enter to return to menu..."
+            Read-Host "Press Enter to return..."
         }
         '3' {
-            Write-Header "GLOBAL ORCHESTRATION"
-            Write-Host "  [DESCRIPTION]" -ForegroundColor White
-            Write-Host "  This initiates the massive chronological sequence executing"
-            Write-Host "  all 21 models directly on your hardware flawlessly."
-            Write-Host ""
             if (Test-Environment) {
-                Push-Location $script:HUB_DIR
-                & "$script:VENV_DIR\Scripts\python.exe" "train_all.py"
-                Pop-Location
+                $env:PYTHONPATH=""; $env:PYTHONHOME=""
+                $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
+                Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "train_all.py"; Pop-Location
             }
-            Read-Host "`nPress Enter to return to menu..."
+            Read-Host "Press Enter to return..."
         }
         '4' {
             Write-Header "DEPLOY TO KAGGLE CLOUD"
-            Write-Host "  [DESCRIPTION]" -ForegroundColor White
-            Write-Host "  The LemGendary Neural Architecture is 100% prepared for native"
-            Write-Host "  Cloud-GPU training on Kaggle. Python Jupyter Notebooks are"
-            Write-Host "  already explicitly compiled in your root directory."
-            Write-Host ""
-            Write-Host "  [INSTRUCTIONS]" -ForegroundColor Cyan
-            Write-Host "  1. Open Kaggle -> Create Notebook -> File -> Import Notebook."
-            Write-Host "  2. Select one of the 'Kaggle_Train_Solo...' or 'Kaggle_Train_Multi...' files."
-            Write-Host "  3. Click 'Add Data' in Kaggle and mount the explicitly requested datasets."
-            Write-Host "  4. Go to 'Session Options' and set Accelerator to 'GPU T4 x2' or 'P100'."
-            Write-Host "  5. Click 'Run All'."
-            Write-Host ""
-            Read-Host "Press Enter to return to menu..."
+            Write-Host "  Open Kaggle -> Create Notebook -> File -> Import Notebook."
+            Read-Host "Press Enter to return..."
         }
         '5' {
-            Write-Header "SMART CLOUD ORCHESTRATION"
-            Write-Host "  [DESCRIPTION]" -ForegroundColor White
-            Write-Host "  This mathematically optimizes PyTorch training by automatically downloading"
-            Write-Host "  isolated datasets from Kaggle Native API, training cross-dependent computational"
-            Write-Host "  topologies locally, and then aggressively PURGING them from your Windows SSD"
-            Write-Host "  immediately to preserve hard drive bounds while maximizing local GPUs."
-            Write-Host ""
             if (Test-Environment) {
-                Push-Location $script:HUB_DIR
-                & "$script:VENV_DIR\Scripts\python.exe" "smart_orchestrator.py"
-                Pop-Location
+                $env:PYTHONPATH=""; $env:PYTHONHOME=""
+                $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
+                Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "smart_orchestrator.py"; Pop-Location
             }
-            Read-Host "`nPress Enter to return to menu..."
+            Read-Host "Press Enter to return..."
         }
         '6' {
-            Write-Header "SINGLE-EPOCH UNIT TEST (ALL MODELS)"
-            Write-Host "  [DESCRIPTION]" -ForegroundColor White
-            Write-Host "  This initiates a fully rigorous automated structural diagnostic test,"
-            Write-Host "  forcing all 21 models natively to train precisely 1 single epoch."
-            Write-Host "  Perfect for completely validating memory buffers cleanly."
-            Write-Host ""
             if (Test-Environment) {
-                Push-Location $script:HUB_DIR
-                & "$script:VENV_DIR\Scripts\python.exe" "train_all.py" --epochs 1 --yes
-                Pop-Location
+                $env:PYTHONPATH=""; $env:PYTHONHOME=""
+                $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
+                Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "train_all.py" --epochs 1 --yes; Pop-Location
             }
-            Read-Host "`nPress Enter to return to menu..."
+            Read-Host "Press Enter to return..."
         }
-        '7' {
-            Write-Host "`nGoodbye!" -ForegroundColor Yellow
-            return
-        }
-        default {
-            Write-Host "`nInvalid selection. Please try again." -ForegroundColor Red
-            Start-Sleep -Seconds 1
-        }
+        '7' { return }
+        default { Write-Host "Invalid selection."; Start-Sleep -Seconds 1 }
     }
 }
