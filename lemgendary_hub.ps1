@@ -57,12 +57,12 @@ function Test-Environment {
 
     # Pre-Flight Audit
     Write-Header "ENVIRONMENT INTEGRITY AUDIT"
-    Write-Host "  [*] Verifying core library specialization (PyYAML / Torch / DirectML)..." -ForegroundColor Gray
-    $auditCmd = "import yaml; print('YAML_PATH: ' + yaml.__file__); import torch; print('Torch: ' + torch.__version__); print('CUDA Ready: ' + str(torch.cuda.is_available())); print('Device: ' + (torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'))"
+    Write-Host "  [*] Verifying core library specialization (PyYAML / Torch / OpenCV / DirectML)..." -ForegroundColor Gray
+    $auditCmd = "import yaml; print('YAML_PATH: ' + yaml.__file__); import torch; print('Torch: ' + torch.__version__); import cv2; print('OpenCV: ' + cv2.__version__); print('CUDA Ready: ' + str(torch.cuda.is_available())); print('Device: ' + (torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'))"
     $auditResult = & "$script:VENV_DIR\Scripts\python.exe" -c $auditCmd 2>&1
     
     $venvBase = Split-Path $script:VENV_DIR -Leaf
-    if ($auditResult -match "YAML_PATH: .*$venvBase" -and $auditResult -match "Torch:") {
+    if ($auditResult -match "YAML_PATH: .*$venvBase" -and $auditResult -match "Torch:" -and $auditResult -match "OpenCV:") {
         Write-Host "  [PASS] Integrity Audit Successful. Environment is healthy." -ForegroundColor Green
         if ($auditResult -match "CUDA Ready: True") {
             Write-Host "  [ACCELERATED] NVIDIA Hardware detected and linked." -ForegroundColor Cyan
@@ -152,6 +152,41 @@ function Initialize-Environment {
     Write-Host "`n  [SUCCESS] All LemGendary 2026 Systems are Synchronized!" -ForegroundColor Green
 }
 
+function Get-ModelSelection {
+    Write-Header "SELECT MODEL CATEGORY"
+    Write-Host "  1. Quality Assessment  (NIMA, Aesthetics)" -ForegroundColor Cyan
+    Write-Host "  2. Face & Detection    (RetinaFace, YOLOv8, CodeFormer)" -ForegroundColor Cyan
+    Write-Host "  3. Super-Resolution    (UltraZoom x2/x3/x4/x8)" -ForegroundColor Cyan
+    Write-Host "  4. Image Restoration   (NAFNet, MIRNet, FFANet, MPRNet)" -ForegroundColor Cyan
+    Write-Host "  5. Universal Hybrid    (UPN v2, Multi-Restorer, Film)" -ForegroundColor Cyan
+    Write-Host "  6. Cancel" -ForegroundColor Gray
+    Write-Host ""
+    
+    $catChoice = Read-Host "Select a category (1-6)"
+    $modelList = @()
+    switch ($catChoice) {
+        '1' { $modelList = @("nima_aesthetic", "nima_technical") }
+        '2' { $modelList = @("codeformer", "parsenet", "retinaface_mobilenet", "retinaface_resnet", "yolov8n") }
+        '3' { $modelList = @("ultrazoom_x2", "ultrazoom_x3", "ultrazoom_x4", "ultrazoom_x8") }
+        '4' { $modelList = @("ffanet_indoor", "ffanet_outdoor", "mprnet_deraining", "mirnet_lowlight", "mirnet_exposure", "nafnet_debluring", "nafnet_denoising") }
+        '5' { $modelList = @("upn_v2", "professional_multitask_restoration", "film_restorer") }
+        default { return $null }
+    }
+
+    Write-Header "SELECT SPECIFIC MODEL"
+    for ($i=0; $i -lt $modelList.Count; $i++) {
+        Write-Host "  $($i+1). $($modelList[$i])" -ForegroundColor Green
+    }
+    Write-Host "  $($modelList.Count + 1). Back" -ForegroundColor Gray
+    Write-Host ""
+    
+    $modelChoice = Read-Host "Select a model (1-$($modelList.Count + 1))"
+    if ($modelChoice -as [int] -and [int]$modelChoice -ge 1 -and [int]$modelChoice -le $modelList.Count) {
+        return $modelList[[int]$modelChoice - 1]
+    }
+    return $null
+}
+
 function Show-Menu {
     Clear-Host
     Write-Header "LEMGENDARY AI TRAINING SUITE (2026 SPECIALIZATION)"
@@ -173,15 +208,19 @@ while ($true) {
         '1' { Initialize-Environment; Read-Host "Press Enter to return..." }
         '2' {
             if (Test-Environment) {
-                $env:PYTHONPATH=""; $env:PYTHONHOME=""
-                $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
-                Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "training/train.py"; Pop-Location
+                $selectedModel = Get-ModelSelection
+                if ($null -ne $selectedModel) {
+                    Write-Host "  [🚀] Launching Training Matrix for >> $selectedModel <<..." -ForegroundColor Green
+                    $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
+                    $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
+                    Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "training/train.py" --model $selectedModel; Pop-Location
+                }
             }
             Read-Host "Press Enter to return..."
         }
         '3' {
             if (Test-Environment) {
-                $env:PYTHONPATH=""; $env:PYTHONHOME=""
+                $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
                 $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
                 Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "train_all.py"; Pop-Location
             }
@@ -194,7 +233,7 @@ while ($true) {
         }
         '5' {
             if (Test-Environment) {
-                $env:PYTHONPATH=""; $env:PYTHONHOME=""
+                $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
                 $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
                 Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "smart_orchestrator.py"; Pop-Location
             }
@@ -202,7 +241,7 @@ while ($true) {
         }
         '6' {
             if (Test-Environment) {
-                $env:PYTHONPATH=""; $env:PYTHONHOME=""
+                $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
                 $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
                 Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "train_all.py" --epochs 1 --yes; Pop-Location
             }

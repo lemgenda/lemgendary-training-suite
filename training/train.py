@@ -1,6 +1,14 @@
 import os
 import sys
 import argparse
+import warnings
+
+# --- 2026 Hardware Acceleration & Stability Patch ---
+# Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
+sys.setrecursionlimit(2000)
+
+# Suppress noisy Triton CUDA discovery fails on Windows (non-critical for GTX/RTX training)
+warnings.filterwarnings("ignore", category=UserWarning, module="triton")
 
 # --- Hyper-Verbose Path Defense (2026 Specialization) ---
 # Anchor the search path to the script's own folder to bypass "Ghost Python" hijacking.
@@ -211,9 +219,9 @@ def main():
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env)
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
     
-    num_workers = config.get("num_workers", 0 if os.name == 'nt' else 4)
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=num_workers > 0)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=num_workers > 0)
+    num_workers = config.get("num_workers", 1 if os.name == 'nt' else 4)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True if device.type=='cuda' else False)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True if device.type=='cuda' else False)
 
     # Optimizer & Scheduler
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4) # pyre-ignore
@@ -287,7 +295,7 @@ def main():
 
             optimizer.zero_grad()
             # Suppress inherently corrupted FP16 backpropagations for notoriously unstable inverted-residual structs globally
-            use_fp16 = str(device) == 'cuda' and 'nima' not in args.model.lower()
+            use_fp16 = str(device) == 'cuda'
             
             with torch.amp.autocast('cuda', enabled=use_fp16): # pyre-ignore
                 preds = model(inputs)
@@ -426,6 +434,9 @@ def main():
             if epochs_no_improve >= patience:
                 print(f"\n[Early Stopping] Model reached peak optimal quality convergence! Halting training to prevent overfitting.")
                 break
+        
+        # Aggressive memory cleanup for low-VRAM 4GB cards (GTX 1650)
+        if torch.cuda.is_available(): torch.cuda.empty_cache()
                 
         # --- CUSTOM SOTA QUALITY EARLY STOPPING ---
         breached = False

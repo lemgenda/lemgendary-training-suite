@@ -26,8 +26,8 @@ nima_technical:
   - 3
   - 224
   - 224
-  batch_size: 80
-  learning_rate: 3.0e-05
+  batch_size: 32
+  learning_rate: 1.0e-05
   loss_fn: emd
   dataset_type: quality
   optimal_key: nima_technical
