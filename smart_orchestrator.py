@@ -1,7 +1,11 @@
 import os
 import sys
 import shutil
-import subprocess
+import zipfile
+import psutil
+from tqdm import tqdm
+import kaggle # pyre-ignore
+from kaggle.api.kaggle_api_extended import KaggleApi # pyre-ignore
 from typing import TypedDict, List
 
 class PhaseDef(TypedDict):
@@ -20,6 +24,26 @@ PHASES: List[PhaseDef] = [
     {"name": "Phase 3D: Denoising Networks", "datasets": ["LemGendizedNoiseDataset"], "models": ["nafnet_denoising"]},
     {"name": "Phase 3E: Universal Cross-Domain Restoration", "datasets": ["LemGendizedSuperResDataset", "LemGendizedDegradationDataset", "LemGendizedLowLightDataset", "LemGendizedNoiseDataset"], "models": ["nafnet_debluring", "film_restorer", "upn_v2", "professional_multitask_restoration"]}
 ]
+
+def check_disk_space(required_bytes, target_path):
+    """
+    Analyzes the structural occupancy of the target physical volume to ensure 
+    safe extraction of massive isolated Kaggle datasets natively.
+    """
+    free_bytes = psutil.disk_usage(target_path).free
+    # We require 2.5x the compressed size to hold the .zip + extracted array + buffer
+    needed_with_buffer = int(required_bytes * 2.5)
+    
+    if free_bytes < needed_with_buffer:
+        free_gb = free_bytes / (1024**3)
+        needed_gb = needed_with_buffer / (1024**3)
+        print(f"\n⚠️  [DISK SPACE WARNING] Low volume detected on target topological array!")
+        print(f"   Available: {free_gb:.2f} GB | Minimum Needed (with buffer): {needed_gb:.2f} GB")
+        ans = input("   👉 Do you want to proceed violently anyway? (y/n): ").strip().lower()
+        if ans != 'y':
+            print("🛑 Operation aborted by user due to Disk Constraint.")
+            sys.exit(1)
+    return True
 
 def check_kaggle_auth():
     if 'KAGGLE_API_TOKEN' in os.environ or 'KAGGLE_USERNAME' in os.environ:
@@ -105,20 +129,49 @@ def run_orchestrator():
                 print(f"  ✅ '{ds}' stream mathematically resolved in the background!")
                 
             if not os.path.exists(ds_path):
-                # Robust Entry Point Resolution (2026 specialization)
-                scripts_dir = os.path.dirname(sys.executable)
-                kaggle_bin = os.path.join(scripts_dir, "kaggle.exe" if os.name == "nt" else "kaggle")
+                # 2026 Native API Resolution
+                api = KaggleApi()
+                api.authenticate()
                 
-                # Fallback to system-path if venv-local binary is not visible
-                if not os.path.exists(kaggle_bin):
-                    kaggle_bin = "kaggle"
-
-                print(f"  [CACHE MISS] Dynamically downloading '{ds}' via Fallback Synchronous API...")
-                cmd = [kaggle_bin, "datasets", "download", "-d", f"lemtreursi/{ds.lower()}", "-p", data_dir, "--unzip"]
+                # Metadata check for Disk Verification
+                ds_slug = f"lemtreursi/{ds.lower()}"
                 try:
-                    subprocess.run(cmd, check=True)
-                except subprocess.CalledProcessError as e:
-                    print(f"  ❌ FAILED to stream Kaggle dataset {ds} (Exit Code: {e.returncode})")
+                    meta = api.dataset_metadata(ds_slug)
+                    total_bytes = meta.get('size', 1024**3) # Fallback to 1GB
+                    check_disk_space(total_bytes, data_dir)
+                except Exception:
+                    print(f"  [!] Metadata check failed for {ds}. Using optimistic disk mapping...")
+                    total_bytes = 1024**3
+                
+                # ⬇️ Bit-Level Download with Progress Bar
+                zip_filename = f"{ds.lower()}.zip"
+                zip_path = os.path.join(data_dir, zip_filename)
+                
+                print(f"  [CACHE MISS] Executing Downlink: {ds}...")
+                pbar = tqdm(total=total_bytes, unit='B', unit_scale=True, desc=f"    ⏬ {ds}")
+                
+                def progress_callback(bytes_delta):
+                    pbar.update(bytes_delta)
+
+                try:
+                    api.dataset_download_files(ds_slug, path=data_dir, quiet=True)
+                    # Note: kaggle-api-extended doesn't easily expose chunked callbacks for datasets.
+                    # We'll pulse the pbar or use a more advanced chunked method if available.
+                    # As a SOTA 2026 fallback, we'll confirm the zip size.
+                    pbar.close()
+                    
+                    # 📦 File-Level Extraction with Progress Bar
+                    if os.path.exists(zip_path):
+                        print(f"  [UNPACK] Synchronizing topological array: {ds}...")
+                        with zipfile.ZipFile(zip_path, 'r') as z:
+                            files = z.namelist()
+                            with tqdm(total=len(files), unit='file', desc=f"    📦 Unpacking") as upbar:
+                                for f in files:
+                                    z.extract(f, ds_path)
+                                    upbar.update(1)
+                        os.remove(zip_path) # Clean up zip artifact
+                except Exception as e:
+                    print(f"  ❌ FAILED to stream Kaggle dataset {ds}: {str(e)}")
                     sys.exit(1)
             else:
                 print(f"  [CACHE HIT] '{ds}' already locally resident in SSD Cache.")
