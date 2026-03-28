@@ -240,6 +240,7 @@ def main():
     
     os.makedirs(config["checkpoint_dir"], exist_ok=True)
     best_val_loss = float('inf')
+    best_quality_score = -1.0 # (PLCC + SRCC) / 2 for quality tasks
     start_epoch = 0
     patience = config.get("early_stopping_patience", 10)
     epochs_no_improve = 0
@@ -423,16 +424,31 @@ def main():
             'sota_achieved': sota_baseline_achieved
         }
         torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth"))  # pyre-ignore
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
+        # 2026 Architectural Shift: Metric-Based Early Stopping for Quality Tasks
+        is_best = False
+        if train_ds.task_type == "quality":
+            # For quality, improvement is defined by correlation coefficients (PLCC/SRCC)
+            current_quality_score = (plcc + srcc) / 2
+            if current_quality_score > best_quality_score:
+                best_quality_score = current_quality_score
+                is_best = True
+                print(f" -> New Best Quality Metric: {best_quality_score:.4f} (PLCC: {plcc:.4f}, SRCC: {srcc:.4f})")
+        else:
+            # For restoration/detection, improvement is still defined by Validation Loss
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                is_best = True
+                print(f" -> Saved new best model (Val Loss: {best_val_loss:.4f})!")
+
+        if is_best:
             epochs_no_improve = 0
             torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth"))  # pyre-ignore
-            print(" -> Saved new best model!")
         else:
             epochs_no_improve += 1  # pyre-ignore
             print(f" -> No improvement for {epochs_no_improve} epoch(s).")
             if epochs_no_improve >= patience:
-                print(f"\n[Early Stopping] Model reached peak optimal quality convergence! Halting training to prevent overfitting.")
+                reason = "Quality Score" if train_ds.task_type == "quality" else "Validation Loss"
+                print(f"\n[Early Stopping] {reason} structurally converged. Halting training to prevent overfitting.")
                 break
         
         # Aggressive memory cleanup for low-VRAM 4GB cards (GTX 1650)
