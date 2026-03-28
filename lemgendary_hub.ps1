@@ -80,6 +80,7 @@ function Test-Environment {
 function Initialize-Environment {
     Write-Header "PREPARING PYTHON 3.12 ENVIRONMENT"
     $targetPython = "3.12"
+    $installSuccess = $false
     
     # 1. Advanced Discovery: Find SYSTEM Python (Skip .venv paths)
     $pyPath = Get-Command python -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike "*\.venv\*" } | Select-Object -First 1 -ExpandProperty Source
@@ -97,7 +98,10 @@ function Initialize-Environment {
                 Write-Host "  [!] Python 3.12 not found. Attempting winget install..." -ForegroundColor Yellow
                 try {
                     winget install --id "Python.Python.3.12" -e --scope user --silent --accept-package-agreements --accept-source-agreements
-                    if (Test-Path $searchPath) { $pyPath = $searchPath }
+                    if (Test-Path $searchPath) { 
+                        $installSuccess = $true 
+                        $pyPath = $searchPath 
+                    }
                 } catch {
                     Write-Host "  [ERROR] Auto-install failed. Please install manually." -ForegroundColor Red
                     return
@@ -106,8 +110,20 @@ function Initialize-Environment {
         }
     }
     
+    # Session Break: If we just installed Python, the current PATH is out of sync.
+    if ($installSuccess) {
+        Write-Host "`n********************************************************************************" -ForegroundColor Yellow
+        Write-Host "  [SUCCESS] Python 3.12 has been mathematically installed by the Hub!" -ForegroundColor Green
+        Write-Host "  [CRITICAL] PowerShell needs to be RESTARTED to recognize the new environment." -ForegroundColor Red
+        Write-Host "********************************************************************************`n" -ForegroundColor Yellow
+        Write-Host "  Please close this terminal, open a new one, and run Option 1 again." -ForegroundColor White
+        Read-Host "  Press Enter to exit the Hub and restart manually..."
+        exit
+    }
+
     if (-not (Test-Path $pyPath)) {
         Write-Host "  [ERROR] Fatal: Could not identify a valid System Python binary." -ForegroundColor Red
+        Write-Host "  Please install Python 3.12 manually from python.org." -ForegroundColor White
         return
     }
 
