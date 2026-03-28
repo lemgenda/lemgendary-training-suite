@@ -6,7 +6,7 @@ unified_data: "unified_data.yaml"
 
 # Global Training Defaults (can be overridden by model-specific config)
 device: "cuda" # or "cpu"
-num_workers: 4 # Strict Windows IPC limit to prevent thread-thrashing overhead
+num_workers: 1 # Optimized for Windows GTX 1650 to prevent thread thrashing
 pin_memory: true
 
 # Base paths (relative to training/lemgendary-training-suite/)
@@ -19,6 +19,7 @@ default_img_size: 256
 default_batch_size: 16
 default_lr: 0.0001
 default_epochs: 50
+early_stopping_patience: 15
 
 # External Repository Deployment Fallbacks
 export_to_external_folder: false
