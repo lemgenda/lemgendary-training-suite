@@ -681,12 +681,19 @@ def main():
                 if config.get("export_to_external_folder", False):
                     shutil.copytree(export_dir, local_dir, dirs_exist_ok=True)
                 
-                trained_models_dir = os.path.join(os.path.dirname(__file__), "..", "trained-models", args.model)
-                os.makedirs(trained_models_dir, exist_ok=True)
-                shutil.copytree(export_dir, trained_models_dir, dirs_exist_ok=True)
+                trained_models_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "trained-models", args.model))
                 
-                sync_success = True
-                print("SUCCESS: Artifacts securely synced to local_models and trained-models.")
+                # --- 2026 Collision Guard (Windows IO Protection) ---
+                # Only sync if the production target is actually different from the export staging area.
+                # This prevents WinError 32 when the config export_dir is already set to 'trained-models'.
+                if os.path.abspath(export_dir) != os.path.abspath(trained_models_dir):
+                    os.makedirs(trained_models_dir, exist_ok=True)
+                    shutil.copytree(export_dir, trained_models_dir, dirs_exist_ok=True)
+                    sync_success = True
+                    print("SUCCESS: Artifacts securely synced to local_models and trained-models.")
+                else:
+                    sync_success = True
+                    print("ℹ️  [INFO] Artifacts are already in the production directory. Skipping redundant sync.")
                 break
             except Exception as e:
                 if attempt == 3:
