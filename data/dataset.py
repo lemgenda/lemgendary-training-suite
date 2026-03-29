@@ -82,10 +82,14 @@ class MultiTaskDataset(Dataset):
             for f in files:
                 self.samples.append((ds_name, f))
                 
-        self.transform = transforms.Compose([
-            transforms.Resize(self.size, interpolation=transforms.InterpolationMode.BILINEAR),
-            transforms.ToTensor()
-        ])
+        # --- 2026: SOTA Rank-Aware Augmentations ---
+        transform_list = [transforms.Resize(self.size, interpolation=transforms.InterpolationMode.BILINEAR)]
+        if self.is_train and self.task_type == "quality":
+            # Inject subtle jitter to force the model to prioritize ranking over exposure
+            transform_list.append(transforms.ColorJitter(brightness=0.1, contrast=0.1))
+        
+        transform_list.append(transforms.ToTensor())
+        self.transform = transforms.Compose(transform_list)
         
         print(f"Loaded {len(self.samples)} samples for {model_key} (Task: {self.task_type}, Split: {self.split})")
 
