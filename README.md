@@ -16,7 +16,7 @@ The easiest way to manage your AI workflow is via the **LemGendary Hub**.
    ```
 
 ### Menu Options
-1. **Initialize/Fix Environment**: Installs Python 3.10 natively and creates the `.venv` enclosure. Upgrades pip, then installs PyTorch 2.4.1+cu121 alongside all other mathematical dependencies for inference.
+1. **Initialize/Fix Environment**: Installs Python 3.12 natively and creates the `.venv` enclosure. Upgrades pip, then installs PyTorch 2.4.1+cu121 alongside all other mathematical dependencies for inference.
 2. **Train Individual Model**: Launches the interactive LemGendary Unified Training Suite, empowering singular network selection for localized structural training loops natively.
 3. **Global Orchestration**: Automates sequential continuous execution of **all 21 models** on your local hardware architecture uninterrupted.
 4. **Deploy to Kaggle Cloud**: Outputs physical instructions on how to push the pre-generated Jupyter topologies to Kaggle's T4 instances instantly.
@@ -139,8 +139,15 @@ When you execute Option 5 (**Smart Cloud Orchestration**), the Python loop break
 This invisible background worker (`prefetch_worker.py`) seamlessly streams the subsequent 20GB+ Kaggle Datasets directly over the Kaggle API and radically uncompresses them into your local `data/datasets/` cache while the active PyTorch Tensor structure performs its final 1-Epoch Cooldown. This strictly guarantees **100% Zero-Latency Data Handoffs** mathematically without stealing Focus or interrupting Local GPU arrays.
 
 ### 🛡️ Intelligent SOTA Checkpoint Recoveries
-When you resume a model from a PyTorch `.pth` checkpoint limit, the `Auto-Resume` mechanism dynamically probes the internal weight dictionary. If the original training session mathematically achieved the required `SOTA` correlation bounds prior to a hardware interruption or crash, PyTorch functionally pauses structural initialization.
-The console will explicitly prompt you to engage a **Global Cooldown Override**, allowing you to warp directly into the final 1-Epoch reinforcement cycle and inherently skip 50-hours of redundant deep learning computation gracefully over to the ONNX Runtime!
+When you resume a model from a PyTorch `.pth` checkpoint, the `Auto-Resume` mechanism dynamically probes the internal weight dictionary. 
+
+- **Metric Persistence**: We have structurally resolved the historical regression bug; the `best_quality_score` (NIMA) and `best_val_loss` (Restoration) are now explicitly persisted inside the `.pth` state, preventing resets to `-1.0` during session restarts.
+- **Global Cooldown Override**: If the original training session mathematically achieved the required `SOTA` correlation bounds prior to a hardware interruption, the console will explicitly prompt you to engage a cooldown override, allowing you to warp directly into the final 1-Epoch reinforcement cycle.
+
+### 🧬 Unified Normalization & Selective Augmentation
+The 2026 Engine now enforces mathematical alignment for pre-trained feature backbones:
+- **ImageNet Normalization**: All Quality tasks (NIMA) now natively apply standard ImageNet mean/std normalization (`[0.485, 0.456, 0.406]`, `[0.229, 0.224, 0.225]`) to ensure 100% architectural compatibility with MobileNetV2 features.
+- **Aesthetic Jittering**: `ColorJitter` is dynamically applied selectively to the **Aesthetic** model only. It is explicitly disabled for the **Technical** model to prevent synthetic contrast/brightness shifts from interfering with its objective assessment of image sensors and signal health.
 
 ### 🔑 Dynamic Kaggle `KGAT` Bearer Authentication
 The codebase is natively resistant to Windows Registry API token propagation lags. The orchestrator automatically sweeps your environment dictionary for `KAGGLE_API_TOKEN` environment variables (supporting modern `KGAT_` Bearer token architectures). If missing, it immediately accepts a raw terminal string bypass and caches it securely inside a local `.kaggle_token` proxy registry perfectly injected into your physical `.gitignore` filters structurally.
