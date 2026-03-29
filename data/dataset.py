@@ -67,11 +67,16 @@ class MultiTaskDataset(Dataset):
             ds_path = self.get_dataset_path(ds_name)
             img_dir = os.path.join(ds_path, "images", self.split)
             if not os.path.exists(img_dir):
-                link = self.kaggle_links.get(ds_name, f"https://www.kaggle.com/datasets/lemtreursi/{ds_name.lower()}")
-                print(f"\n❌ CRITICAL: The required isolated '{ds_name}' dataset topological array was structurally NOT FOUND!")
-                print(f"   👉 You must securely download and map it natively from Kaggle: {link}")
-                print(f"      Mapped Path Checked: {img_dir}\n")
-                continue
+                # 2026 Autonomic Data Recovery Logic
+                from .data_utils import download_and_extract_dataset
+                if not download_and_extract_dataset(ds_name, self.data_root):
+                    link = self.kaggle_links.get(ds_name, f"https://www.kaggle.com/datasets/lemtreursi/{ds_name.lower()}")
+                    print(f"\n❌ CRITICAL: The required isolated '{ds_name}' dataset topological array was structurally NOT FOUND!")
+                    print(f"   👉 You must securely download and map it natively from Kaggle: {link}")
+                    print(f"      Mapped Path Checked: {img_dir}\n")
+                    continue
+                # Re-verify path after recovery
+                if not os.path.exists(img_dir): continue
                 
             files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
             for f in files:
