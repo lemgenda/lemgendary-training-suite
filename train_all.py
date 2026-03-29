@@ -2,6 +2,7 @@ import yaml  # pyre-ignore
 import subprocess
 import os
 import argparse
+from data.data_utils import download_and_extract_dataset
 
 def main():
     parser = argparse.ArgumentParser(description="Global Orchestration")
@@ -36,15 +37,17 @@ def main():
     missing_any = False
     if args.env == "local":
         print("🔍 Executing Local Array Dependency Verification...")
+        data_dir = os.path.join(os.path.dirname(__file__), "data", "datasets")
         for ds_name, link in expected_datasets.items():
-            ds_path = os.path.join(os.path.dirname(__file__), "data", "datasets", ds_name)
+            ds_path = os.path.join(data_dir, ds_name)
             if not os.path.exists(ds_path):
-                print(f"❌ CRITICAL MISSING DEPENDENCY: '{ds_name}' is not structurally attached!")
-                print(f"   👉 Download / Link from Kaggle natively: {link}")
-                missing_any = True
+                print(f"❌ MISSING DEPENDENCY: '{ds_name}' is not structurally attached!")
+                if not download_and_extract_dataset(ds_name, data_dir):
+                    print(f"   👉 Critical recovery failed. Manual download required: {link}")
+                    missing_any = True
                 
         if missing_any:
-            print("\n⚠️ Warning: One or more unified datasets are missing from data/datasets/.")
+            print("\n⚠️ Warning: One or more unified datasets could not be recovered automatically.")
             if args.yes:
                 print("   👉 --yes flag detected: Force-proceeding violently as requested by 2026 orchestrator.")
                 ans = 'y'
@@ -55,7 +58,7 @@ def main():
                 print("🛑 Aborting orchestration to prevent native exceptions.\n")
                 return
         else:
-            print("✅ All 7 physical datasets structurally mapping verified completely!\n")
+            print("✅ All 7 physical datasets structurally mapping verified and recovered!\n")
     else:
         print("☁️ Kaggle Environment Detected: Bypassing local physical dataset structure verification.\n")
     
