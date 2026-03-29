@@ -370,6 +370,19 @@ def main():
     criterion = CombinedLoss(task_type=train_ds.task_type)
     scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
 
+    # --- 2026 Continuity Protocol (SOTA Sentry) ---
+    # Ensure the mission doesn't stall if targets haven't been met.
+    if not sota_baseline_achieved and start_epoch >= epochs:
+        print(f"\n⚠️  [CONTINUITY] Model reached epoch limit ({epochs}) without hitting SOTA benchmarks.")
+        print(f"   -> Dynamically extending training by 20 epochs to ensure convergence...")
+        epochs = start_epoch + 20
+    elif sota_baseline_achieved:
+        print(f"\n✅ [SOTA RECOVERY] Mission accomplished! This model already achieved SOTA targets.")
+        print(f"   -> Fast-forwarding to final reinforcement cycle for ONNX export...")
+        # We set start_epoch to one before completion to trigger the cooldown reinforcement
+        start_epoch = epochs - 1
+        sota_countdown = 1
+
     # --- 2026: SOTA Sentry Configuration ---
     patience = config.get("early_stopping_patience", 10)
     epochs_no_improve = 0
