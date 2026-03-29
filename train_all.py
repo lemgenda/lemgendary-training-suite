@@ -1,6 +1,6 @@
-import yaml  # pyre-ignore
 import subprocess
 import os
+import sys
 import argparse
 from data.data_utils import download_and_extract_dataset
 
@@ -101,13 +101,12 @@ def main():
         print(f"      Configuration > Batch Size: {batch_size} | LR: {learning_rate}")
         print(f"=======================================================\n")
         
-        # Execute the newly optimized Universal Trainer for N epochs (will early-stop if plateaued)
+        # Execute the newly optimized Universal Trainer for N epochs
+        # We delegate batch_size and lr to train.py's internal priority engine for 2026 consistency
         cmd = [
-            "python", "training/train.py",
+            sys.executable, os.path.join(os.path.dirname(__file__), "training", "train.py"),
             "--model", model_key,
             "--epochs", str(args.epochs),
-            "--batch_size", str(batch_size),
-            "--lr", str(learning_rate),
             "--env", args.env
         ]
         
