@@ -342,6 +342,7 @@ def main():
                     optimizer.load_state_dict(ckpt['optimizer_state'])
                 if 'epoch' in ckpt: start_epoch = ckpt['epoch']
                 if 'best_val_loss' in ckpt: best_val_loss = ckpt['best_val_loss']
+                if 'best_quality_score' in ckpt: best_quality_score = ckpt['best_quality_score']
                 if ckpt.get('sota_achieved', False):
                     # SOTA snapshots are handled later during epochs
                     sota_baseline_achieved = True
@@ -538,17 +539,6 @@ def main():
         with open(metrics_csv_path, "a") as f:
             f.write(f"{epoch+1},{avg_train_loss:.6f},{avg_val_loss:.6f},{scheduler.get_last_lr()[0]:.6f},{metrics_str.replace(' | ', '').replace(':', '=')}\n")
             
-        # Save Checkpoint
-        ckpt_state = {
-            'epoch': epoch + 1,
-            'model_state': model.state_dict(),  # pyre-ignore
-            'optimizer_state': optimizer.state_dict(),
-            'scheduler_state': scheduler.state_dict(),
-            'best_val_loss': best_val_loss,
-            'best_quality_score': best_quality_score,
-            'sota_achieved': sota_baseline_achieved
-        }
-        torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth"))  # pyre-ignore
         # 2026 Architectural Shift: Metric-Based Early Stopping for Quality Tasks
         is_best = False
         if train_ds.task_type == "quality":
@@ -565,6 +555,20 @@ def main():
                 is_best = True
                 print(f" -> Saved new best model (Val Loss: {best_val_loss:.4f})!")
 
+        # Finalize Checkpoint State (Capturing latest Metric Shift)
+        ckpt_state = {
+            'epoch': epoch + 1,
+            'model_state': model.state_dict(),  # pyre-ignore
+            'optimizer_state': optimizer.state_dict(),
+            'scheduler_state': scheduler.state_dict(),
+            'best_val_loss': best_val_loss,
+            'best_quality_score': best_quality_score,
+            'sota_achieved': sota_baseline_achieved
+        }
+        
+        # Consistent checkpoint persistence
+        torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth"))  # pyre-ignore
+        
         if is_best:
             epochs_no_improve = 0
             torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth"))  # pyre-ignore
