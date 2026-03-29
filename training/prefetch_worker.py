@@ -1,6 +1,7 @@
-import sys
 import os
 import subprocess
+import time
+import psutil # pyre-ignore
 
 def prefetch():
     """
@@ -16,8 +17,13 @@ def prefetch():
     target_dir = sys.argv[2]
     
     os.makedirs(target_dir, exist_ok=True)
-    
+    parent_pid = os.getppid()
+
     for ds_pair in datasets:
+        # 2026 Process Hygiene: Suicide Check
+        if not psutil.pid_exists(parent_pid):
+            print(f"⚠️ [JANITOR] Parent process {parent_pid} structurally missing. Abortion active.")
+            sys.exit(1)
         if not ds_pair or ':' not in ds_pair: continue
         kaggle_id, folder_name = ds_pair.split(':')
         

@@ -6,7 +6,7 @@ unified_data: "unified_data.yaml"
 
 # Global Training Defaults (can be overridden by model-specific config)
 device: "cuda" # or "cpu"
-num_workers: 1 # Optimized for Windows GTX 1650 to prevent thread thrashing
+num_workers: 4 # Optimized for i7-9750H to prevent bottlenecking the GPU
 pin_memory: true
 
 # Base paths (relative to training/lemgendary-training-suite/)
