@@ -140,15 +140,15 @@ When you execute Option 5 (**Smart Cloud Orchestration**), the Python loop break
 This invisible background worker (`prefetch_worker.py`) seamlessly streams the subsequent 20GB+ Kaggle Datasets directly over the Kaggle API and radically uncompresses them into your local `data/datasets/` cache while the active PyTorch Tensor structure performs its final 1-Epoch Cooldown. This strictly guarantees **100% Zero-Latency Data Handoffs** mathematically without stealing Focus or interrupting Local GPU arrays.
 
 ### 🛡️ Intelligent SOTA Checkpoint Recoveries
-When you resume a model from a PyTorch `.pth` checkpoint, the `Auto-Resume` mechanism dynamically probes the internal weight dictionary. 
+The LemGendary Training Suite (2026 Engine) incorporates a multi-layer state recovery architecture:
 
-- **Metric Persistence**: We have structurally resolved the historical regression bug; the `best_quality_score` (NIMA) and `best_val_loss` (Restoration) are now explicitly persisted inside the `.pth` state, preventing resets to `-1.0` during session restarts.
-- **Global Cooldown Override**: If the original training session mathematically achieved the required `SOTA` correlation bounds prior to a hardware interruption, the console will explicitly prompt you to engage a cooldown override, allowing you to warp directly into the final 1-Epoch reinforcement cycle.
+- **Metric Persistence**: We have structurally resolved the historical `-1.0` regression bug. `best_quality_score` (NIMA) and `best_val_loss` (Restoration) are now explicitly persisted inside the `.pth` state and restored correctly during both `Global Guardrail` probes and `Session Resumption`.
+- **2026 Continuity Protocol**: If you resume a model from a checkpoint that has not yet hit its SOTA targets but has already reached its defining epoch limit, the orchestrator now triggers an **Automated Continuity Extension (+20 Epochs)** to ensure the mission doesn't stall until the benchmarks are breached.
+- **SOTA Bypass (Fast-Forward)**: If a model already achieved its benchmarks in a previous session but the export was interrupted, re-running the Hub will now detect the SOTA flag and **fast-forward directly to the ONNX export phase**, bypassing the 90-minute training loop entirely to save GPU compute.
 
-### 🧬 Unified Normalization & Selective Augmentation
-The 2026 Engine now enforces mathematical alignment for pre-trained feature backbones:
-- **ImageNet Normalization**: All Quality tasks (NIMA) now natively apply standard ImageNet mean/std normalization (`[0.485, 0.456, 0.406]`, `[0.229, 0.224, 0.225]`) to ensure 100% architectural compatibility with MobileNetV2 features.
-- **Aesthetic Jittering**: `ColorJitter` is dynamically applied selectively to the **Aesthetic** model only. It is explicitly disabled for the **Technical** model to prevent synthetic contrast/brightness shifts from interfering with its objective assessment of image sensors and signal health.
+### 🧬 Metric Recovery & Resilient Synchronization
+The deployment chain is now natively optimized for unstable Windows file-system environments:
 
-### 🔑 Dynamic Kaggle `KGAT` Bearer Authentication
-The codebase is natively resistant to Windows Registry API token propagation lags. The orchestrator automatically sweeps your environment dictionary for `KAGGLE_API_TOKEN` environment variables (supporting modern `KGAT_` Bearer token architectures). If missing, it immediately accepts a raw terminal string bypass and caches it securely inside a local `.kaggle_token` proxy registry perfectly injected into your physical `.gitignore` filters structurally.
+- **Metric Recovery Engine (Zero-Guess Documentation)**: During SOTA fast-forwards, the script no longer uses "guestimate" placeholders. It dynamically scrapes your local `metrics.csv` to extract the real-world historical PLCC, SRCC, and PSNR values for the final production `README.md`.
+- **Resilient Artifact Sync (Windows IO Guard)**: The final deployment sync now includes a mandatory **Settle-Period** and a **3-Attempt Retry Loop** to handle Windows `WinError 32` file locks.
+- **Collision Guard**: The sync engine automatically detects if your `export_dir` and production folders are identical. If they are, it skips redundant self-copies, preventing directory-level access conflicts.
