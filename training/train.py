@@ -659,12 +659,35 @@ def main():
         with open(os.path.join(export_dir, "README.md"), "w") as f:
             f.write(readme_text)
             
-        if config.get("export_to_external_folder", False):
-            shutil.copytree(export_dir, local_dir, dirs_exist_ok=True)
-        trained_models_dir = os.path.join(os.path.dirname(__file__), "..", "trained-models", args.model)
-        os.makedirs(trained_models_dir, exist_ok=True)
-        shutil.copytree(export_dir, trained_models_dir, dirs_exist_ok=True)
-        print("SUCCESS: Artifacts securely synced to local_models and trained-models.")
+        # --- 2026 Resilient Artifact Sync (Windows IO Guard) ---
+        # Windows often keeps a lock on newly created ONNX files for several milliseconds.
+        # We implementation a settle-period and retry loop to ensure production sync succeeds.
+        sync_success = False
+        for attempt in range(1, 4):
+            try:
+                if attempt > 1:
+                    print(f"🔄 [RESILIENCY] Sync attempt {attempt}/3... (Waiting for Windows IO recovery)")
+                    time.sleep(2)
+                
+                if config.get("export_to_external_folder", False):
+                    shutil.copytree(export_dir, local_dir, dirs_exist_ok=True)
+                
+                trained_models_dir = os.path.join(os.path.dirname(__file__), "..", "trained-models", args.model)
+                os.makedirs(trained_models_dir, exist_ok=True)
+                shutil.copytree(export_dir, trained_models_dir, dirs_exist_ok=True)
+                
+                sync_success = True
+                print("SUCCESS: Artifacts securely synced to local_models and trained-models.")
+                break
+            except Exception as e:
+                if attempt == 3:
+                    print(f"❌ [CRITICAL] Artifact sync failed after 3 attempts: {e}")
+                else:
+                    time.sleep(1)
+                    
+        if not sync_success:
+            print("⚠️  [WARNING] Model was trained and exported, but final sync failed. Artifacts remain in the export directory.")
+
     except Exception as e:
         print(f"ONNX Export Failure: {e}")
 
