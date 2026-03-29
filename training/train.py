@@ -200,9 +200,9 @@ def main():
             achieved = getattr(trainer, 'excellent_achieved', False)
             countdown = getattr(trainer, 'excellent_countdown', 1)
             
-            if map50 > 0.85 and map50_95 > 0.65:
+            if map50_95 > 0.65:
                 if not achieved:
-                    print(f"\n🌟 [ACHIEVEMENT UNLOCKED] State-of-the-Art Detection Baseline (mAP@0.5 > 0.85, mAP@0.5:0.95 > 0.65) breached! Engaging 1-Epoch Reinforcement Countdown...")
+                    print(f"\n🌟 [ACHIEVEMENT UNLOCKED] State-of-the-Art Detection Baseline (mAP@0.5:0.95 > 0.65) breached! Engaging 1-Epoch Reinforcement Countdown...")
                     trainer.excellent_achieved = True
                     trainer.excellent_countdown = 1
                     
@@ -523,6 +523,7 @@ def main():
             'optimizer_state': optimizer.state_dict(),
             'scheduler_state': scheduler.state_dict(),
             'best_val_loss': best_val_loss,
+            'best_quality_score': best_quality_score,
             'sota_achieved': sota_baseline_achieved
         }
         torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth"))  # pyre-ignore
@@ -560,21 +561,21 @@ def main():
         breached = False
         msg = ""
 
-        if train_ds.task_type == "quality" and plcc > 0.90 and srcc > 0.85:
+        if train_ds.task_type == "quality" and plcc > 0.95 and srcc > 0.90:
             breached = True
-            msg = "State-of-the-Art NIMA Baseline (PLCC > 0.90, SRCC > 0.85)"
-        elif train_ds.task_type == "face" and fid < 8.0 and lpips_val < 0.08 and psnr > 33.0:
+            msg = "State-of-the-Art NIMA Baseline (PLCC > 0.95, SRCC > 0.90)"
+        elif train_ds.task_type == "face" and fid < 8.0 and lpips_val < 0.06 and psnr > 33.0 and ssim_val > 0.92:
             breached = True
-            msg = "State-of-the-Art Face Baseline (FID < 8.0, LPIPS < 0.08, PSNR > 33.0)"
+            msg = "State-of-the-Art Face Baseline (FID < 8.0, LPIPS < 0.06, PSNR > 33.0, SSIM > 0.92)"
         elif train_ds.task_type in ["restoration", "enhancement"] and psnr > 32.5 and ssim_val > 0.94 and lpips_val < 0.06:
             breached = True
             msg = "State-of-the-Art Restoration Baseline (PSNR > 32.5, SSIM > 0.94, LPIPS < 0.06)"
-        elif train_ds.task_type == "face_detection" and avg_val_loss < 0.25:
+        elif train_ds.task_type == "face_detection" and avg_val_loss < 0.15: # Tightened for SOTA
             breached = True
-            msg = "State-of-the-Art Face Detection Baseline (Val Loss < 0.25)"
-        elif train_ds.task_type == "segmentation" and avg_val_loss < 0.15:
+            msg = "State-of-the-Art Face Detection Baseline (Val Loss < 0.15)"
+        elif train_ds.task_type == "segmentation" and avg_val_loss < 0.10: # Tightened for SOTA
             breached = True
-            msg = "State-of-the-Art Segmentation Parsing Baseline (Val Loss < 0.15)"
+            msg = "State-of-the-Art Segmentation Parsing Baseline (Val Loss < 0.10)"
 
         if breached and not sota_baseline_achieved:
             print(f"\n🌟 [ACHIEVEMENT UNLOCKED] {msg} mathematically breached! Engaging 1-Epoch Reinforcement SOTA Countdown...")

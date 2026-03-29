@@ -3,6 +3,7 @@ import sys
 import shutil
 import zipfile
 import psutil
+import subprocess
 from tqdm import tqdm
 import kaggle # pyre-ignore
 from kaggle.api.kaggle_api_extended import KaggleApi # pyre-ignore

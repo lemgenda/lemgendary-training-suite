@@ -2,6 +2,7 @@ import subprocess
 import os
 import sys
 import argparse
+import yaml
 from data.data_utils import download_and_extract_dataset
 
 def main():
