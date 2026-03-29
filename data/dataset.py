@@ -34,6 +34,7 @@ class MultiTaskDataset(Dataset):
             model_key = list(self.unified_models.keys())[0]
             print(f"Warning: No model_key provided to Dataset, defaulting to {model_key}")
             
+        self.model_key = model_key
         self.model_info = self.unified_models.get(model_key)
         if not self.model_info:
             raise ValueError(f"Model {model_key} not found in unified_models.yaml")
@@ -85,10 +86,17 @@ class MultiTaskDataset(Dataset):
         # --- 2026: SOTA Rank-Aware Augmentations ---
         transform_list = [transforms.Resize(self.size, interpolation=transforms.InterpolationMode.BILINEAR)]
         if self.is_train and self.task_type == "quality":
-            # Inject subtle jitter to force the model to prioritize ranking over exposure
-            transform_list.append(transforms.ColorJitter(brightness=0.1, contrast=0.1))
+            # Only apply Jitter to Aesthetic training; Disable for Technical to maintain ground-truth integrity
+            if self.model_key == "nima_aesthetic":
+                transform_list.append(transforms.ColorJitter(brightness=0.1, contrast=0.1))
         
         transform_list.append(transforms.ToTensor())
+        
+        # --- 2026: ImageNet-Handoff Normalization ---
+        # Strictly required for Quality models using pre-trained feature backbones (NIMA)
+        if self.task_type == "quality":
+            transform_list.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+            
         self.transform = transforms.Compose(transform_list)
         
         print(f"Loaded {len(self.samples)} samples for {model_key} (Task: {self.task_type}, Split: {self.split})")
