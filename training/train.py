@@ -2,6 +2,9 @@ import os
 import sys
 import argparse
 import warnings
+import atexit
+import signal
+import subprocess
 
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
@@ -40,6 +43,28 @@ except ImportError as e:
 
 # Add parent directory to sys.path to allow importing from data and models
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# --- 2026 Process Janitor Hooks ---
+_active_processes = []
+
+def cleanup_active_processes(*args):
+    """Indestructible cleanup of all LemGendary project child-processes."""
+    if not _active_processes:
+        return
+    print(f"\n🧹 [JANITOR] Terminating {_active_processes.__len__()} active LemGendary sub-processes...")
+    for p in _active_processes:
+        if p.poll() is None: # Still running
+            try:
+                if os.name == 'nt':
+                    subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True)
+                else:
+                    p.terminate()
+            except Exception: pass
+    _active_processes.clear()
+
+atexit.register(cleanup_active_processes)
+signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
 
 from data.dataset import MultiTaskDataset
 from models.factory import get_model
@@ -220,8 +245,8 @@ def main():
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
     
     num_workers = config.get("num_workers", 1 if os.name == 'nt' else 4)
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True if device.type=='cuda' else False)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True if device.type=='cuda' else False)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True if device.type=='cuda' else False, prefetch_factor=2 if num_workers > 0 else None)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True if device.type=='cuda' else False, prefetch_factor=2 if num_workers > 0 else None)
 
     # Optimizer & Scheduler
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4) # pyre-ignore
@@ -484,9 +509,10 @@ def main():
                 print(f"\n[Zero-Latency Pre-Fetch] Triggering parallel background data streams natively for next workflow phase!")
                 base_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "prefetch_worker.py"), args.prefetch_datasets, os.path.join(os.path.dirname(__file__), "..", "data", "datasets")]
                 if os.name == 'nt':
-                    subprocess.Popen(base_cmd, creationflags=0x08000000) # CREATE_NO_WINDOW
+                    p = subprocess.Popen(base_cmd, creationflags=0x08000000) # CREATE_NO_WINDOW
                 else:
-                    subprocess.Popen(base_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    p = subprocess.Popen(base_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                _active_processes.append(p)
                 
         if sota_baseline_achieved:
             if sota_countdown <= 0:

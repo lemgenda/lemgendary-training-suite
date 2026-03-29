@@ -38,6 +38,33 @@ function Clear-EnvironmentLocks {
     Start-Sleep -Seconds 1
 }
 
+function Invoke-JanitorPurge {
+    Write-Header "ENVIRONMENTAL JANITOR: ORPHAN PURGE"
+    Write-Host "  [*] Scanning for orphaned LemGendary infrastructure..." -ForegroundColor Gray
+    
+    # 2026 Process Hygiene: Kill any Python/PowerShell processes containing the Hub Directory in their command line
+    # We exclude the current process ($PID) to prevent Hub self-termination
+    $targetProcs = Get-WmiObject Win32_Process | Where-Object { 
+        ($_.Name -match "python" -or $_.Name -match "powershell") -and 
+        $_.CommandLine -match [regex]::Escape($script:HUB_DIR) -and 
+        $_.ProcessId -ne $PID 
+    }
+
+    if ($targetProcs) {
+        Write-Host "  [!] Identified $($targetProcs.Count) orphaned system artifacts." -ForegroundColor Yellow
+        foreach ($proc in $targetProcs) {
+            Write-Host "      -> Purging PID: $($proc.ProcessId) | $($proc.Name)..." -ForegroundColor Magenta
+            try { Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+        }
+        Write-Host "  [SUCCESS] All structural orphans de-provisioned." -ForegroundColor Green
+    } else {
+        Write-Host "  [PASS] No environmental orphans detected. Matrix is clean." -ForegroundColor Green
+    }
+    
+    # Also clear VENV locks specifically
+    Clear-EnvironmentLocks
+}
+
 function Write-Header($text) {
     Write-Host "`n================================================================================" -ForegroundColor Cyan
     Write-Host "  $text" -ForegroundColor White
@@ -234,6 +261,7 @@ function Show-Menu {
     Write-Host "  4. Deploy to Kaggle Cloud      (Generate Cloud Instructions)"
     Write-Host "  5. Smart Cloud Orchestration   (Local GPU + Dynamic Kaggle Streams)"
     Write-Host "  6. Single-Epoch Unit Test      (Diagnostic 1-Epoch pass for ALL models)"
+    Write-Host "  9. Run Environmental Janitor   (Force-Purge all project Orphans)" -ForegroundColor Yellow
     Write-Host "  7. Exit"
     Write-Host ""
 }
@@ -251,6 +279,7 @@ while ($true) {
                 $selectedModel = Get-ModelSelection
                 if ($null -ne $selectedModel) {
                     Write-Host "  [🚀] Launching Training Matrix for >> $selectedModel <<..." -ForegroundColor Green
+                    Invoke-JanitorPurge # Ensure clean start
                     $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
                     $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
                     Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "training/train.py" --model $selectedModel; Pop-Location
@@ -281,12 +310,14 @@ while ($true) {
         }
         '6' {
             if (Test-Environment) {
+                Invoke-JanitorPurge
                 $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
                 $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
                 Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "train_all.py" --epochs 1 --yes; Pop-Location
             }
             Read-Host "Press Enter to return..."
         }
+        '9' { Invoke-JanitorPurge; Read-Host "Purge Complete. Press Enter to return..." }
         '7' { return }
         default { Write-Host "Invalid selection."; Start-Sleep -Seconds 1 }
     }
