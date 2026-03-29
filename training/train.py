@@ -235,10 +235,11 @@ def main():
         return
 
     model = get_model(args.model, config).to(device)    
-    # Defaults from config/model
-    epochs = args.epochs or config.get("default_epochs", 50)
-    batch_size = args.batch_size or config.get("default_batch_size", 16)
-    lr = args.lr or config.get("default_lr", 1e-4)
+    # --- 2026 Hyperparameter Priority Engine ---
+    model_info = unified_models_registry.get(args.model, {})
+    epochs = args.epochs or model_info.get("epochs") or config.get("default_epochs", 50)
+    batch_size = args.batch_size or model_info.get("batch_size") or config.get("default_batch_size", 16)
+    lr = args.lr or model_info.get("learning_rate") or config.get("default_lr", 1e-4)
 
     # Dataset & DataLoader
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env)
