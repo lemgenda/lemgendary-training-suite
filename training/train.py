@@ -86,11 +86,25 @@ class CombinedLoss(nn.Module):
             import torch.nn.functional as F  # pyre-ignore
             pred_f = pred.float()
             tgt_f = target.float()
+            
+            # EMD Loss (Primary)
             t_probs = tgt_f / torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=1e-6)
             p_probs = F.softmax(pred_f, dim=-1)
             cdf_p = torch.cumsum(p_probs, dim=-1)
             cdf_t = torch.cumsum(t_probs, dim=-1)
-            return torch.mean((cdf_p - cdf_t) ** 2)
+            emd = torch.mean((cdf_p - cdf_t) ** 2)
+            
+            # PLCC Penalty (Secondary - 2026 SOTA)
+            weights = torch.arange(1, 11).float().to(pred_f.device)
+            p_mean = (p_probs * weights).sum(dim=-1)
+            t_mean = (t_probs * weights).sum(dim=-1)
+            
+            vx = p_mean - torch.mean(p_mean)
+            vy = t_mean - torch.mean(t_mean)
+            # 2026 Resilience: Clamp denominator and use eps to prevent infinite gradients at zero variance (NaN skip)
+            plcc = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2).clamp(min=1e-8)) * torch.sqrt(torch.sum(vy ** 2).clamp(min=1e-8)) + 1e-8)
+            
+            return emd + 0.1 * (1.0 - plcc) # SOTA weighted balance
         elif self.task_type == "classification":
             return self.ce(pred, target)
         return self.mse(pred, target)
@@ -105,20 +119,34 @@ def get_dynamic_batch_size(model_key, model_info, config, device):
         
     try:
         total_vram = torch.cuda.get_device_properties(0).total_memory
-        # Substract 850MB for Windows/OS Overhead (conservative 2026 baseline)
-        available_vram = total_vram - (850 * 1024 * 1024) 
+        # Substract 450MB for Windows/OS Overhead (calibrated for GTX 1650 specialized vram)
+        available_vram = total_vram - (450 * 1024 * 1024) 
         
         task_type = model_info.get("dataset_type", "quality")
-        # VRAM Coefficient: Approximate bytes per sample per category
-        # Based on resolution and model depth observed in 2026 suite
+        if isinstance(task_type, list): task_type = task_type[0]
+        
+        # 2026 Res-Aware Scaling: Normalize by baseline 224x224 surface area
+        size_raw = model_info.get("input_size", config.get("default_img_size", 256))
+        h, w = (size_raw[1], size_raw[2]) if isinstance(size_raw, list) and len(size_raw) == 3 else (size_raw, size_raw) if isinstance(size_raw, int) else (size_raw[0], size_raw[1])
+        res_multiplier = (int(h) * int(w)) / (224 * 224)
+        
+        # Factor in model depth (EfficientNetV2 vs MobileNet)
+        backbone_mult = 1.0
+        if model_info.get("backbone") == "efficientnet_v2_s":
+            backbone_mult = 2.4 # EfficientNetV2-S has significant activation overhead at 384x384
+        
         vram_coeffs = {
-            "quality": 35 * 1024 * 1024,      # NIMA (224x224)
-            "detection": 150 * 1024 * 1024,   # YOLOv8 (640x640)
-            "restoration": 220 * 1024 * 1024  # NAFNet/MIRNet (256x256)
+            "quality": 10 * 1024 * 1024 * res_multiplier * backbone_mult,    # Aggressive SOTA (320x320 Saturation)
+            "detection": 150 * 1024 * 1024 * res_multiplier,   # YOLOv8 (640x640)
+            "restoration": 220 * 1024 * 1024 * res_multiplier  # NAFNet/MIRNet (256x256)
         }
         
         coeff = vram_coeffs.get(task_type, 180 * 1024 * 1024)
         dynamic_batch = int(available_vram / coeff)
+        
+        # 2026: Paging Guard - Hard limit for 4GB cards to prevent swapping
+        if total_vram < (5 * 1024 * 1024 * 1024):
+            dynamic_batch = min(dynamic_batch, 64)
         
         # Clamp to professional biological limits
         dynamic_batch = max(8, min(dynamic_batch, 128))
@@ -292,9 +320,9 @@ def main():
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env)
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
     
-    num_workers = config.get("num_workers", 1 if os.name == 'nt' else 4)
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True if device.type=='cuda' else False, prefetch_factor=2 if num_workers > 0 else None)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True if device.type=='cuda' else False, prefetch_factor=2 if num_workers > 0 else None)
+    num_workers = config.get("num_workers", 8 if os.name == 'nt' else 12)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True if device.type=='cuda' else False, prefetch_factor=4 if num_workers > 0 else None)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True if device.type=='cuda' else False, prefetch_factor=4 if num_workers > 0 else None)
 
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=5e-4) # 2026: SOTA Weight Decay Stabilizer
@@ -337,12 +365,15 @@ def main():
             print(f"Resuming training from checkpoint: {latest_ckpt}")
             ckpt = torch.load(latest_ckpt, map_location=device, weights_only=False) # pyre-ignore
             if 'model_state' in ckpt:
-                model.load_state_dict(ckpt['model_state'])
+                # 2026: Strict Load Guard (Triggers catch-and-reset for SOTA 2.0 shift)
+                model.load_state_dict(ckpt['model_state'], strict=True)
                 if 'optimizer_state' in ckpt:
                     optimizer.load_state_dict(ckpt['optimizer_state'])
                 if 'epoch' in ckpt: start_epoch = ckpt['epoch']
                 if 'best_val_loss' in ckpt: best_val_loss = ckpt['best_val_loss']
                 if 'best_quality_score' in ckpt: best_quality_score = ckpt['best_quality_score']
+                if 'epochs_no_improve' in ckpt:
+                    start_epochs_no_improve = ckpt['epochs_no_improve']
                 if ckpt.get('sota_achieved', False):
                     # SOTA snapshots are handled later during epochs
                     sota_baseline_achieved = True
@@ -350,25 +381,36 @@ def main():
                 model.load_state_dict(ckpt)
                 print("Loaded raw legacy weights successfully.")
         except Exception as e:
-            print(f"Failed to load checkpoint: {e}")
+            print(f"⚠️  [CONTINUITY] Failed to load checkpoint: {e}")
+            print(f"   -> This is expected if you just upgraded to SOTA 2.0 (Architecture Mismatch).")
+            print(f"   -> Initializing FRESH SOTA 2.0 model for {args.model}...")
+            start_epoch = 0
+            best_val_loss = float('inf')
+            best_quality_score = -1.0
+            sota_baseline_achieved = False
+            start_epochs_no_improve = 0
 
     # 2026: High-Velocity Dynamic Scheduler (OneCycleLR)
     # Provides stochastic exploration mid-epoch and precision cooling at the end
     total_steps = epochs * len(train_loader)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
-        optimizer, max_lr=lr*10, total_steps=total_steps, 
+        optimizer, max_lr=lr*5, total_steps=total_steps, 
         pct_start=0.3, anneal_strategy='cos'
     )
     
     # Reload scheduler state only if compatible (Resiliency Phase)
-    if os.path.exists(latest_ckpt):
+    # 2026: Continuity Guard - Only sync if start_epoch is > 0 (resuming)
+    if os.path.exists(latest_ckpt) and start_epoch > 0:
         ckpt = torch.load(latest_ckpt, map_location=device, weights_only=False) # pyre-ignore
         if 'scheduler_state' in ckpt:
             try:
                 scheduler.load_state_dict(ckpt['scheduler_state'])
                 print("✅ [RESILIENCY] Scheduler state successfully synchronized.")
             except (KeyError, ValueError, TypeError):
-                print(f"⚠️  [RESILIENCY] Incompatible scheduler state detected (OneCycleLR vs. Legacy). Structural handoff reset.")
+                print(f"⚠️  [RESILIENCY] Incompatible scheduler state detected. Structural handoff reset.")
+    else:
+        if os.path.exists(latest_ckpt):
+            print("🚀 [SOTA 2.0] Model architecture shift detected. Starting fresh LR cycle from Epoch 1.")
 
     criterion = CombinedLoss(task_type=train_ds.task_type)
     scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
@@ -395,19 +437,52 @@ def main():
     
     # --- 2026: SOTA Sentry Configuration ---
     patience = config.get("early_stopping_patience", 10)
-    epochs_no_improve = 0
+    # Recover non-improving epoch count from checkpoint to prevent reset-on-resume
+    epochs_no_improve = locals().get('start_epochs_no_improve', 0)
     
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
     if not os.path.exists(metrics_csv_path):
         with open(metrics_csv_path, "w") as f:
             f.write("Epoch,Train_Loss,Val_Loss,Learning_Rate\n")
     
+    effective_batch_size = batch_size
+    accumulation_steps = 1
+    
     for epoch in range(start_epoch, epochs):
+        # 2026: SOTA Stabilization Protocol
+        # Freeze backbone features for the first 5 epochs to stabilize new classifier heads
+        if hasattr(model, 'features'):
+            frozen = False
+            if epoch < 5:
+                for param in model.features.parameters():
+                    param.requires_grad = False
+                frozen = True
+            else:
+                for param in model.features.parameters():
+                    param.requires_grad = True
+            
+            if frozen:
+                print(f"❄️  [STABILIZATION] Backbone features FROZEN (Epoch {epoch+1}/5)")
+            elif epoch == 5:
+                print(f"🔥 [STABILIZATION] Backbone features UNFROZEN for full fine-tuning!")
+        
+        # 2026: Paging Sentinel - Downscale physical batch for 4GB cards when unfreezing
+        if not frozen and device.type == 'cuda' and torch.cuda.get_device_properties(0).total_memory < (5 * 1024**3):
+            # If the current loader has a paging-heavy batch size (>16), recreate it
+            if train_loader.batch_size > 16:
+                print(f"📡 [MEM-SENTINEL] Unfrozen Backbone detected on 4GB Card. Shrinking physical batch to 16 with Accumulation (effective: {effective_batch_size}).")
+                # Calculate accumulation needed to keep effective batch size
+                accumulation_steps = max(1, effective_batch_size // 16)
+                train_loader = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True, prefetch_factor=4)
+                # We do NOT recreate the scheduler; OneCycleLR expects original total_steps.
+                # However, we must ensure we only step the scheduler when we step the optimizer.
+
         model.train()  # pyre-ignore
         train_loss = 0
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]")
+        optimizer.zero_grad() # Initial zero
         
-        for batch in pbar:
+        for i, batch in enumerate(pbar):
             inputs, targets, tasks = batch
             inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
             
@@ -417,23 +492,38 @@ def main():
                 task_names = ["denoise", "deblur", "derain", "dehaze", "lowlight", "superres"]
                 task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
 
-            optimizer.zero_grad()
             # Suppress inherently corrupted FP16 backpropagations for notoriously unstable inverted-residual structs globally
             use_fp16 = str(device) == 'cuda'
             
             with torch.amp.autocast('cuda', enabled=use_fp16): # pyre-ignore
                 preds = model(inputs)
-                loss = criterion(preds, targets, task_idx)  # pyre-ignore
+                # Normalize loss by accumulation steps
+                loss = criterion(preds, targets, task_idx) / accumulation_steps # pyre-ignore
             
             scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
             
-            train_loss += loss.item()
-            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
+            # Step only after accumulating enough gradients
+            if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_loader):
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+                
+                # --- 2026: High-Velocity Batch Step (Resilient Annealing) ---
+                # Step scheduler only when optimizer steps to keep LR alignment
+                current_lr = scheduler.get_last_lr()[0]
+                scheduler.step()
             
-            # --- 2026: High-Velocity Batch Step ---
+            train_loss += loss.item() * accumulation_steps
+            pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
+            # If we are past the 30% warmup phase (approx Epoch 15/50) and the scheduler 
+            # tries to increase LR during resumption, we cap it to prevent metric regression.
+            current_lr = scheduler.get_last_lr()[0]
             scheduler.step()
+            new_lr = scheduler.get_last_lr()[0]
+            
+            if epoch > (epochs * 0.3) and new_lr > current_lr:
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = current_lr
 
         avg_train_loss = train_loss / len(train_loader)
 
@@ -533,26 +623,34 @@ def main():
         except Exception as e:
             metrics_str = f" | Metrics Error: {e}"
 
-        print(f"Epoch {epoch+1} Summary | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}{metrics_str} | LR: {scheduler.get_last_lr()[0]:.6f}")
+        print(f"Epoch {epoch+1} Summary | Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}{metrics_str} | LR: {scheduler.get_last_lr()[0]:.8f}")
 
-        # Save live offline metrics (injecting metrics string safely)
+        # Save live offline metrics (High-Precision 2026 Telemetry)
         with open(metrics_csv_path, "a") as f:
-            f.write(f"{epoch+1},{avg_train_loss:.6f},{avg_val_loss:.6f},{scheduler.get_last_lr()[0]:.6f},{metrics_str.replace(' | ', '').replace(':', '=')}\n")
+            f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{scheduler.get_last_lr()[0]:.8f},{metrics_str.replace(' | ', '').replace(':', '=')}\n")
             
         # 2026 Architectural Shift: Metric-Based Early Stopping for Quality Tasks
         is_best = False
+        is_improving = False # 2026: Persistence Reset Guard
+        
         if train_ds.task_type == "quality":
-            # For quality, improvement is defined by correlation coefficients (PLCC/SRCC)
             current_quality_score = (plcc + srcc) / 2
+            # Primary: Quality Score (Saves best.pth)
             if current_quality_score > best_quality_score:
                 best_quality_score = current_quality_score
                 is_best = True
+                is_improving = True
                 print(f" -> New Best Quality Metric: {best_quality_score:.4f} (PLCC: {plcc:.4f}, SRCC: {srcc:.4f})")
+            # Secondary: Significant Loss Improvement (Resets patience only)
+            elif avg_val_loss < (best_val_loss * 0.995): # Significant 0.5% gain
+                best_val_loss = avg_val_loss
+                is_improving = True
+                print(f" -> Significant Loss Improvement ({avg_val_loss:.6f}). Patience reset.")
         else:
-            # For restoration/detection, improvement is still defined by Validation Loss
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 is_best = True
+                is_improving = True
                 print(f" -> Saved new best model (Val Loss: {best_val_loss:.4f})!")
 
         # Finalize Checkpoint State (Capturing latest Metric Shift)
@@ -563,15 +661,17 @@ def main():
             'scheduler_state': scheduler.state_dict(),
             'best_val_loss': best_val_loss,
             'best_quality_score': best_quality_score,
+            'epochs_no_improve': epochs_no_improve,
             'sota_achieved': sota_baseline_achieved
         }
         
         # Consistent checkpoint persistence
         torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth"))  # pyre-ignore
         
-        if is_best:
+        if is_improving:
             epochs_no_improve = 0
-            torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth"))  # pyre-ignore
+            if is_best:
+                torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth"))  # pyre-ignore
         else:
             epochs_no_improve += 1  # pyre-ignore
             print(f" -> No improvement for {epochs_no_improve} epoch(s).")

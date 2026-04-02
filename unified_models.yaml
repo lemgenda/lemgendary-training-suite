@@ -13,25 +13,29 @@ nima_aesthetic:
   loss_fn: emd
   dataset_type: quality
   optimal_key: nima_aesthetic
-  description: Aesthetic quality scorer trained on AVA dataset
+  architecture_type: MobileNetV2 (Global Composition)
+  description: Aesthetic quality scorer trained on AVA dataset, optimized for artistic composition and color harmony.
   datasets:
   - LemGendizedQualityDataset
 nima_technical:
   name: LemGendary NIMA Technical Scorer
   class_name: NIMA_Model
   category: enhance
-  filename: NIMATechnical
-  checkpoint: NIMATechnicalWeights_FP32.pth
+  filename: NIMATechnicalSOTA
+  checkpoint: NIMATechnicalSOTAWeights_FP32.pth
   input_size:
   - 3
-  - 224
-  - 224
+  - 320
+  - 320
   batch_size: auto
-  learning_rate: 1.0e-06
+  learning_rate: 1.0e-05
+  kwargs:
+    backbone: efficientnet_v2_s
   loss_fn: emd
   dataset_type: quality
   optimal_key: nima_technical
-  description: Technical quality scorer trained on LIVE+TID2013
+  architecture_type: EfficientNetV2-S (Spatial Integrity)
+  description: Technical quality scorer trained on LIVE+TID2013, optimized for detecting micro-defects, noise, and artifacts.
   datasets:
   - LemGendizedQualityDataset
 upn_v2:

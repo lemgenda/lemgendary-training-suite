@@ -28,7 +28,7 @@ def get_model(model_key, config=None):
     if model_class_name == "MultiTaskRestorer":
         return MultiTaskRestorer(num_tasks=6)
     elif model_class_name == "NIMA_Model":
-        return NIMA_Model()
+        return NIMA_Model(**kwargs)
     elif model_class_name == "CodeFormerMock":
         return CodeFormerMock()
     elif model_class_name == "ParseNetMock":

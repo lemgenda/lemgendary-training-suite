@@ -32,5 +32,5 @@ datasets:
   quality:
     LemGendizedQualityDataset:
       path: C:\Development\webapps\react\image-lemgendizer-old\training\lemgendary-training-suite\data\datasets\LemGendizedQualityDataset
-      count: 2000873
+      count: 439657
       source: filesystem

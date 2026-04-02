@@ -10,7 +10,16 @@ def build_model_readme(model_key, unified_models, unified_data, epochs_trained, 
     model_filename = model_info.get("filename", model_key)
     base_name = f"LemGendary{model_filename}"
     arch = model_info.get("class_name", "PyTorch Specialized Matrix")
+    arch_type = model_info.get("architecture_type", "Standard Backbone")
     
+    # Handle input_size for documentation
+    size_raw = model_info.get("input_size", [3, 256, 256])
+    if isinstance(size_raw, list):
+        if len(size_raw) == 3: h, w = size_raw[1], size_raw[2]
+        else: h, w = size_raw[0], size_raw[1]
+    else: h, w = size_raw, size_raw
+    res_str = f"{h}x{w}"
+
     # 1. Section Formatting: Usage Snippet
     if task == "quality":
         usage_snippet = f"""```python
@@ -24,7 +33,7 @@ model.load_state_dict(torch.load("{model_key}_latest.pth"))
 model.eval()
 
 # 2. Forward Pass
-img = Image.open("photo.jpg").resize((224, 224))
+img = Image.open("photo.jpg").resize(({h}, {w}))
 probs = model(img)
 
 # 3. Scale Calculation
@@ -55,8 +64,13 @@ restored_img.save("restored.png")
     # 2. Metrics Summarization
     if task == "quality":
         metrics_summary = f"**PLCC**: {metrics.get('plcc', '0.90+')} | **SRCC**: {metrics.get('srcc', '0.83+')}"
+        vector_section = f"""> [!IMPORTANT]
+> **Quality Vector**: This model is specialized for **{"Aesthetics" if "aesthetic" in model_key else "Technical Integrity"}**. 
+> - **Primary Targets**: {"Composition, Color, Lighting, Artistic Intent" if "aesthetic" in model_key else "Noise, Blur, Compression, Sharpness"}.
+"""
     else:
         metrics_summary = f"**PSNR**: {metrics.get('psnr', '32.5+')} | **SSIM**: {metrics.get('ssim', '0.94+')} | **LPIPS**: {metrics.get('lpips', '0.06-')}"
+        vector_section = ""
 
     # 3. Physical Dataset Manifest
     ds_sizes = [f"- **{d}**: ~{unified_data.get(d, {}).get('count', 'N/A')} binary image samples." for d in datasets]
@@ -67,16 +81,19 @@ restored_img.save("restored.png")
 
 The **{name}** is a professional-grade AI model optimized for the `{task}` lifecycle within the LemGendary Training Suite. 
 
-- **Architecture**: {arch}
+- **Architecture**: {arch} ({arch_type})
+- **Input Resolution**: {res_str}
 - **Use Case**: {desc}
 - **Training Data**: {", ".join(datasets)}
 - **Evaluation**: Validated against SOTA {task} baselines.
+
+{vector_section}
 
 ## Usage
 
 {usage_snippet}
 
-- **Input Requirements**: RGB Image Tensors.
+- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats.
 - **Output Characteristics**: {task.capitalize()} predictive arrays.
 - **Failures**: Large aspect ratio distortions during the standard resize phases.
 
