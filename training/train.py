@@ -89,7 +89,8 @@ class CombinedLoss(nn.Module):
             
             # EMD Loss (Primary)
             t_probs = tgt_f / torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=1e-6)
-            p_probs = F.softmax(pred_f, dim=-1)
+            # 2026 Resilience: Clamp logits to prevent softmax overflow/NaN in FP16
+            p_probs = F.softmax(pred_f.clamp(min=-50, max=50), dim=-1)
             cdf_p = torch.cumsum(p_probs, dim=-1)
             cdf_t = torch.cumsum(t_probs, dim=-1)
             emd = torch.mean((cdf_p - cdf_t) ** 2)
@@ -101,8 +102,9 @@ class CombinedLoss(nn.Module):
             
             vx = p_mean - torch.mean(p_mean)
             vy = t_mean - torch.mean(t_mean)
-            # 2026 Resilience: Clamp denominator and use eps to prevent infinite gradients at zero variance (NaN skip)
-            plcc = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2).clamp(min=1e-8)) * torch.sqrt(torch.sum(vy ** 2).clamp(min=1e-8)) + 1e-8)
+            # 2026 Resilience: Increased epsilon and enhanced clamping to prevent infinite gradients at zero variance
+            denom = torch.sqrt(torch.sum(vx ** 2).clamp(min=1e-7)) * torch.sqrt(torch.sum(vy ** 2).clamp(min=1e-7)) + 1e-7
+            plcc = torch.sum(vx * vy) / denom
             
             return emd + 0.1 * (1.0 - plcc) # SOTA weighted balance
         elif self.task_type == "classification":
@@ -360,6 +362,12 @@ def main():
     sota_countdown = 1
     
     latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
+    if not os.path.exists(latest_ckpt):
+        best_fallback = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
+        if os.path.exists(best_fallback):
+            print(f"ℹ️  [CONTINUITY] No 'latest' checkpoint found. Natively promoting SOTA 'best' for resumption.")
+            latest_ckpt = best_fallback
+
     if os.path.exists(latest_ckpt):
         try:
             print(f"Resuming training from checkpoint: {latest_ckpt}")
@@ -500,6 +508,12 @@ def main():
                 # Normalize loss by accumulation steps
                 loss = criterion(preds, targets, task_idx) / accumulation_steps # pyre-ignore
             
+            # --- 2026 Resilience: NaN Shield ---
+            if torch.isnan(loss):
+                print(f"⚠️  [RESILIENCE] NaN detected in iteration {i}! Skipping corrupt batch to protect model weights.")
+                optimizer.zero_grad()
+                continue
+
             scaler.scale(loss).backward()
             
             # Step only after accumulating enough gradients
@@ -508,19 +522,16 @@ def main():
                 scaler.update()
                 optimizer.zero_grad()
                 
-                # --- 2026: High-Velocity Batch Step (Resilient Annealing) ---
-                # Step scheduler only when optimizer steps to keep LR alignment
-                current_lr = scheduler.get_last_lr()[0]
-                scheduler.step()
-            
             train_loss += loss.item() * accumulation_steps
             pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
-            # If we are past the 30% warmup phase (approx Epoch 15/50) and the scheduler 
-            # tries to increase LR during resumption, we cap it to prevent metric regression.
+
+            # --- 2026: High-Velocity Batch Step (Resilient Annealing) ---
+            # Step scheduler exactly once per physical batch to align with total_steps calculation
             current_lr = scheduler.get_last_lr()[0]
             scheduler.step()
             new_lr = scheduler.get_last_lr()[0]
             
+            # Resilience: Prevent metric regression if resuming late in the cycle
             if epoch > (epochs * 0.3) and new_lr > current_lr:
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = current_lr
