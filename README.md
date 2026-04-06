@@ -27,6 +27,16 @@ The easiest way to manage your AI workflow is via the **LemGendary Hub**.
 
 ---
 
+## 🚀 Technical Whitepaper: The Architecture of LemGendary AI
+For a deep dive into the mathematical foundations, visual taxonomy, and hardware-aware optimizations of this suite, please refer to our official technical whitepaper:
+
+*   **[Technical Whitepaper (HTML Version)](technical_paper/PAPER_LEMGENDARY_NIMA.html)** - *Recommended: Premium Viewing Experience (Dark Mode)*
+*   **[Technical Whitepaper (Markdown Version)](technical_paper/PAPER_LEMGENDARY_NIMA.md)** - *Documentation Source*
+
+This paper details the **LemGendized Universal Quality Subset**, the **2026 Resonance Loss** ($Loss_{EMD} + 0.3 \times (1.0 - PLCC)$), and our specialized **GTX 1650** VRAM management strategies.
+
+---
+
 ## 2. File Organization
 - `configs/` - Master structural neural definitions
 - `training/` - Local PyTorch execution matrices

@@ -1,5 +1,9 @@
 # training/lemgendary_hub.ps1 [Refresh: 2026-03-27_23:50]
 # Master Orchestration Script for LemGendary AI Training & Management
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+chcp 65001 | Out-Null
+
 
 $script:HUB_DIR = $PSScriptRoot
 if (-not $script:HUB_DIR) { $script:HUB_DIR = Get-Location }
@@ -278,7 +282,8 @@ while ($true) {
             if (Test-Environment) {
                 $selectedModel = Get-ModelSelection
                 if ($null -ne $selectedModel) {
-                    Write-Host "  [🚀] Launching Training Matrix for >> $selectedModel <<..." -ForegroundColor Green
+                    $rocket = [char]0xD83D + [char]0xDE80
+                    Write-Host "  [$rocket] Launching Training Matrix for >> $selectedModel <<..." -ForegroundColor Green
                     Invoke-JanitorPurge # Ensure clean start
                     $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
                     $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"

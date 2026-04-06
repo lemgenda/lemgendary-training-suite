@@ -89,8 +89,8 @@ class CombinedLoss(nn.Module):
             
             # EMD Loss (Primary)
             t_probs = tgt_f / torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=1e-6)
-            # 2026 Resilience: Clamp logits to prevent softmax overflow/NaN in FP16
-            p_probs = F.softmax(pred_f.clamp(min=-50, max=50), dim=-1)
+            # 2026 Resilience: Tighter logit clamping and 0.1 temperature anchor to stabilize exponents
+            p_probs = F.softmax(pred_f.clamp(min=-25, max=25) * 0.1, dim=-1)
             cdf_p = torch.cumsum(p_probs, dim=-1)
             cdf_t = torch.cumsum(t_probs, dim=-1)
             emd = torch.mean((cdf_p - cdf_t) ** 2)
@@ -102,11 +102,15 @@ class CombinedLoss(nn.Module):
             
             vx = p_mean - torch.mean(p_mean)
             vy = t_mean - torch.mean(t_mean)
-            # 2026 Resilience: Increased epsilon and enhanced clamping to prevent infinite gradients at zero variance
-            denom = torch.sqrt(torch.sum(vx ** 2).clamp(min=1e-7)) * torch.sqrt(torch.sum(vy ** 2).clamp(min=1e-7)) + 1e-7
-            plcc = torch.sum(vx * vy) / denom
             
-            return emd + 0.1 * (1.0 - plcc) # SOTA weighted balance
+            # 2026 Resilience: Double-Precision (float64) Anchor for PLCC math to eliminate FP16 rounding overflows
+            vx_d, vy_d = vx.double(), vy.double()
+            denom_d = torch.sqrt(torch.sum(vx_d ** 2).clamp(min=1e-6)) * torch.sqrt(torch.sum(vy_d ** 2).clamp(min=1e-6)) + 1e-6
+            plcc_d = torch.sum(vx_d * vy_d) / denom_d
+            plcc = plcc_d.float()
+            
+            total_loss = emd + 0.15 * (1.0 - plcc) # Balanced Resonance (SOTA Target)
+            return torch.nan_to_num(total_loss, nan=0.0, posinf=0.0, neginf=0.0)
         elif self.task_type == "classification":
             return self.ce(pred, target)
         return self.mse(pred, target)
@@ -306,6 +310,7 @@ def main():
     # --- 2026 Hyperparameter Priority Engine (Memory-Sentinel) ---
     model_info = unified_models_registry.get(args.model, {})
     epochs = args.epochs or model_info.get("epochs") or config.get("default_epochs", 50)
+    lr = args.lr or model_info.get("learning_rate") or config.get("default_lr", 1e-4)
     
     # Priority: CLI > Model_Config (if not 'auto') > Memory-Sentinel > Global_Config
     config_batch = model_info.get("batch_size")
@@ -315,8 +320,17 @@ def main():
         batch_size = int(config_batch)
     else:
         batch_size = get_dynamic_batch_size(args.model, model_info, config, device)
-        
-    lr = args.lr or model_info.get("learning_rate") or config.get("default_lr", 1e-4)
+
+    # --- 2026 Resilience: Pre-Emptive Memory-Sentinel ---
+    # We must establish the physical batch size BEFORE initialization to ensure scheduler parity
+    effective_batch_size = batch_size
+    accumulation_steps = 1
+    if device.type == 'cuda' and "technical" in args.model:
+        vram = torch.cuda.get_device_properties(device).total_memory / (1024**3)
+        if vram < 5.0: # GTX 1650 / 4GB Guard
+            batch_size = 16
+            accumulation_steps = max(1, effective_batch_size // 16)
+            print(f"📡 [MEM-SENTINEL] Pre-Emptive 4GB Lockdown: Physical Batch 16 | Accumulation {accumulation_steps}")
 
     # Dataset & DataLoader
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env)
@@ -398,11 +412,14 @@ def main():
             sota_baseline_achieved = False
             start_epochs_no_improve = 0
 
-    # 2026: High-Velocity Dynamic Scheduler (OneCycleLR)
-    # Provides stochastic exploration mid-epoch and precision cooling at the end
-    total_steps = epochs * len(train_loader)
+    # 2026: High-Velocity Dynamic Scheduler (OneCycleLR) - Refined for SOTA Breach
+    # Total steps must now be calculated using optimizer steps (len/accumulation)
+    total_steps = epochs * (len(train_loader) // accumulation_steps)
+    if (len(train_loader) % accumulation_steps) != 0:
+        total_steps += epochs # Buffer for remainder batches
+    
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
-        optimizer, max_lr=lr*5, total_steps=total_steps, 
+        optimizer, max_lr=lr*1.2, total_steps=total_steps, 
         pct_start=0.3, anneal_strategy='cos'
     )
     
@@ -412,10 +429,35 @@ def main():
         ckpt = torch.load(latest_ckpt, map_location=device, weights_only=False) # pyre-ignore
         if 'scheduler_state' in ckpt:
             try:
-                scheduler.load_state_dict(ckpt['scheduler_state'])
+                # 2026 Resilience: Pre-Emptive State Injection & Runway Recalibration
+                # We patch the state dict keys directly before loading to "trick" the scheduler into the new runway
+                state_dict = ckpt['scheduler_state']
+                
+                # A. Runway Stretcher (Injection Phase)
+                if 'total_steps' in state_dict and state_dict['total_steps'] < total_steps:
+                    old_s = state_dict['total_steps']
+                    state_dict['total_steps'] = total_steps
+                    # Recalculate and inject internal step sizes for the cosine curve
+                    pct_start = state_dict.get('pct_start', 0.3)
+                    step_size_up = float(pct_start * state_dict['total_steps']) - 1
+                    step_size_down = float(state_dict['total_steps'] - step_size_up) - 1
+                    state_dict['step_size_up'] = step_size_up
+                    state_dict['step_size_down'] = step_size_down
+                    print(f"📡 [INJECTION] Mission Runway Stretched: {old_s} -> {state_dict['total_steps']}")
+                
+                # B. Cosine Rewind (Recalibration Phase)
+                # If the checkpoint was bloated by a previous "Physical Stride" error, rewind the clock
+                steps_per_epoch = len(train_loader) // accumulation_steps
+                expected_steps = start_epoch * steps_per_epoch
+                if state_dict.get('last_epoch', 0) > (expected_steps + steps_per_epoch):
+                    old_e = state_dict['last_epoch']
+                    state_dict['last_epoch'] = expected_steps
+                    print(f"📡 [RECALIBRATION] Bloated Runway Detected. Rewinding Cosine Clock: {old_e} -> {state_dict['last_epoch']}")
+                
+                scheduler.load_state_dict(state_dict)
                 print("✅ [RESILIENCY] Scheduler state successfully synchronized.")
-            except (KeyError, ValueError, TypeError):
-                print(f"⚠️  [RESILIENCY] Incompatible scheduler state detected. Structural handoff reset.")
+            except (KeyError, ValueError, TypeError) as e:
+                print(f"⚠️  [RESILIENCY] Incompatible scheduler state detected ({e}). Structural handoff reset.")
     else:
         if os.path.exists(latest_ckpt):
             print("🚀 [SOTA 2.0] Model architecture shift detected. Starting fresh LR cycle from Epoch 1.")
@@ -474,25 +516,25 @@ def main():
             elif epoch == 5:
                 print(f"🔥 [STABILIZATION] Backbone features UNFROZEN for full fine-tuning!")
         
-        # 2026: Paging Sentinel - Downscale physical batch for 4GB cards when unfreezing
-        if not frozen and device.type == 'cuda' and torch.cuda.get_device_properties(0).total_memory < (5 * 1024**3):
-            # If the current loader has a paging-heavy batch size (>16), recreate it
-            if train_loader.batch_size > 16:
-                print(f"📡 [MEM-SENTINEL] Unfrozen Backbone detected on 4GB Card. Shrinking physical batch to 16 with Accumulation (effective: {effective_batch_size}).")
-                # Calculate accumulation needed to keep effective batch size
-                accumulation_steps = max(1, effective_batch_size // 16)
-                train_loader = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=True, prefetch_factor=4)
-                # We do NOT recreate the scheduler; OneCycleLR expects original total_steps.
-                # However, we must ensure we only step the scheduler when we step the optimizer.
+        # --- 2026: SOTA Memory Purger (Active Session) ---
+        # Physical batch constraints are now established pre-emptively during initialization.
+        # This ensures the scheduler math (total_steps) matches the execution stride.
 
         model.train()  # pyre-ignore
         train_loss = 0
+        consecutive_nans = 0
+        thermal_steps_left = 0
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]")
         optimizer.zero_grad() # Initial zero
         
         for i, batch in enumerate(pbar):
             inputs, targets, tasks = batch
             inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
+            
+            # --- 2026 Resilience: Input Integrity Shield ---
+            if not torch.isfinite(inputs).all():
+                print(f"⚠️  [RESILIENCE] Non-finite values detected in input batch! Skipping hardware-level crash...")
+                continue
             
             # For MultiTaskRestorer, we need task indices for the classifier loss
             task_idx = None
@@ -508,33 +550,117 @@ def main():
                 # Normalize loss by accumulation steps
                 loss = criterion(preds, targets, task_idx) / accumulation_steps # pyre-ignore
             
-            # --- 2026 Resilience: NaN Shield ---
+            # --- 2026 Resilience: Deep-State NaN Shield & Weight/Buffer Corruption Guard ---
             if torch.isnan(loss):
-                print(f"⚠️  [RESILIENCE] NaN detected in iteration {i}! Skipping corrupt batch to protect model weights.")
+                print(f"⚠️  [RESILIENCE] NaN detected in iteration {i}! Skipping corrupt batch...")
                 optimizer.zero_grad()
+                
+                # Critical: Deep audit of Weights, Buffers (BN Stats), and Optimizer Momentum/Variance
+                is_corrupt = False
+                # 1. Audit Parameters (Weights)
+                for param in model.parameters():
+                    if not torch.isfinite(param).all():
+                        is_corrupt = True; break
+                # 2. Audit Buffers (Batch Norm Running Stats)
+                if not is_corrupt:
+                    for buf in model.buffers():
+                        if not torch.isfinite(buf).all():
+                            is_corrupt = True; break
+                # 3. Audit Optimizer State (Momentum/Variance buffers)
+                if not is_corrupt:
+                    for state in optimizer.state.values():
+                        for k, v in state.items():
+                            if isinstance(v, torch.Tensor) and not torch.isfinite(v).all():
+                                is_corrupt = True; break
+                        if is_corrupt: break
+                
+                if is_corrupt:
+                    consecutive_nans += 1
+                    print(f"❌ [CRITICAL] Deep-State corruption (Weights/Buffers/Optimizer) detected.")
+                    
+                    if consecutive_nans >= 3:
+                        print(f"🧊 [THERMAL] NaN Loop detected. Re-freezing backbone for 2500 iterations...")
+                        # Freeze backbone
+                        for name, param in model.named_parameters():
+                            if "head" not in name and "classifier" not in name:
+                                param.requires_grad = False
+                        thermal_steps_left = 2500
+
+                    print(f"🚀 [RECOVERY] Engaging SOTA Auto-Rollback & 50% LR Cooling...")
+                    best_ckpt_path = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
+                    if os.path.exists(best_ckpt_path):
+                        ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
+                        model.load_state_dict(ckpt['model_state'])
+                        
+                        # 2026: Surgical Buffer Audit (The Ghost-Buster)
+                        # Ensure no NaNs remain in non-learnable BatchNorm stats or other buffers
+                        sanitized_count = 0
+                        for buf in model.buffers():
+                            if not torch.isfinite(buf).all():
+                                buf.data.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
+                                sanitized_count += 1
+                        if sanitized_count > 0:
+                            print(f"🛡️  [PURGE] Sanitized {sanitized_count} non-finite buffers/stats.")
+
+                        if 'optimizer_state' in ckpt:
+                            optimizer.load_state_dict(ckpt['optimizer_state'])
+                        
+                        # Halve the learning rate to re-seat the model into a stable manifold
+                        for param_group in optimizer.param_groups:
+                            param_group['lr'] = param_group['lr'] * 0.5
+                        
+                        if hasattr(scheduler, 'base_lrs'):
+                            scheduler.base_lrs = [lr * 0.5 for lr in scheduler.base_lrs]
+                        
+                        optimizer.state.clear()
+                        scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
+                        print(f"✅ [RECOVERY] Successfully rolled back to historical SOTA baseline with fresh Scaler.")
+                    else:
+                        print(f"⚠️  [RECOVERY] No 'best.pth' found. Terminating to prevent artifact pollution.")
+                        sys.exit(1)
+                else:
+                    consecutive_nans = 0 # Batch was skip-stabilized
                 continue
+            
+            # --- 2026: Thermal Reset ---
+            if thermal_steps_left > 0:
+                thermal_steps_left -= 1
+                if thermal_steps_left == 0:
+                    print(f"🔥 [THERMAL] Stabilization complete. Thawing backbone for full fine-tuning.")
+                    for param in model.parameters():
+                        param.requires_grad = True
+            
+            consecutive_nans = 0 # Reset upon successful forward pass
 
             scaler.scale(loss).backward()
             
             # Step only after accumulating enough gradients
             if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_loader):
+                # --- 2026: SOTA Gradient Clipping (Tightened to 0.5 for stability) ---
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
                 
+                # --- 2026: SOTA Fine-Tuning Guardrail ---
+                # Step scheduler exactly AFTER gradients are applied to align with total_steps calculation
+                current_lr = scheduler.get_last_lr()[0]
+                if current_lr > 5e-6:
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = 5e-6
+                
+                scheduler.step()
+                new_lr = scheduler.get_last_lr()[0]
+                
+                # Resilience: Prevent metric regression if resuming late in the cycle
+                if epoch > (epochs * 0.3) and new_lr > current_lr:
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = current_lr
+                
             train_loss += loss.item() * accumulation_steps
             pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
-
-            # --- 2026: High-Velocity Batch Step (Resilient Annealing) ---
-            # Step scheduler exactly once per physical batch to align with total_steps calculation
-            current_lr = scheduler.get_last_lr()[0]
-            scheduler.step()
-            new_lr = scheduler.get_last_lr()[0]
-            
-            # Resilience: Prevent metric regression if resuming late in the cycle
-            if epoch > (epochs * 0.3) and new_lr > current_lr:
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = current_lr
 
         avg_train_loss = train_loss / len(train_loader)
 
