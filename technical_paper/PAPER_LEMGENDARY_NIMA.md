@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NIMA Assessment via Hardware-Aware Optimization
 
 **Author**: Lem Treursić
-**Version**: 1.0.37 - SOTA (2026 Specialization)
+**Version**: 1.0.38 - SOTA (2026 Specialization)
 **Target Hardware**: NVIDIA GeForce GTX 1650 (4GB GDDR5 / Windows 11)
 
 ---

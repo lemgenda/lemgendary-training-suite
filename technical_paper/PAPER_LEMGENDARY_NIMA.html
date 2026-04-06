@@ -312,26 +312,45 @@
         .toc-sidebar {
             position: fixed;
             left: 20px;
-            top: 100px;
+            top: 40px;
             width: 220px;
             padding: 20px;
             background: var(--card-bg);
             border: 1px solid var(--border-color);
             border-radius: 12px;
             backdrop-filter: blur(5px);
-            max-height: 80vh;
+            max-height: calc(100vh - 80px);
             overflow-y: auto;
             z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .toc-brand {
+            display: block;
+            text-align: center;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .toc-brand img {
+            width: 40px;
+            height: auto;
+            opacity: 0.8;
+            transition: opacity 0.3s;
+        }
+
+        .toc-brand img:hover {
+            opacity: 1;
         }
 
         .toc-sidebar h4 {
-            font-size: 0.8rem;
+            font-size: 0.7rem;
             text-transform: uppercase;
             letter-spacing: 0.1em;
             color: var(--text-secondary);
-            margin-bottom: 15px;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 10px;
+            margin-bottom: 5px;
         }
 
         .toc-sidebar ul {
@@ -341,7 +360,7 @@
         }
 
         .toc-sidebar li {
-            margin-bottom: 8px;
+            margin-bottom: 5px;
             font-size: 0.85rem;
         }
 
@@ -351,7 +370,7 @@
             transition: all 0.2s;
             display: block;
             border-left: 2px solid transparent;
-            padding-left: 10px;
+            padding: 5px 0 5px 10px;
         }
 
         .toc-sidebar a:hover, .toc-sidebar a.active {
@@ -360,10 +379,21 @@
             padding-left: 15px;
         }
 
+        /* --- Collapsible Sub-items --- */
         .toc-sidebar .sub-item {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            padding-left: 15px;
             font-size: 0.75rem;
-            padding-left: 20px;
+        }
+
+        .toc-sidebar li:hover > .sub-item,
+        .toc-sidebar li:focus-within > .sub-item,
+        .toc-sidebar li.is-active > .sub-item {
+            max-height: 200px;
             margin-top: 5px;
+            margin-bottom: 10px;
         }
 
         @media (max-width: 600px) {
@@ -380,17 +410,23 @@
 <body>
     <div class="container">
         <header>
+            <a href="https://lemgenda.hr" target="_blank" class="brand-logo">
+                <img src="assets/lemgenda-logo.svg" alt="LemGenda Logo" style="height: 60px; margin-bottom: 20px;">
+            </a>
             <h1>Architecture of LemGendary AI</h1>
             <p class="subtitle">High-Fidelity NIMA Assessment via Hardware-Aware Optimization</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 1.0.37 - SOTA</span>
+                <span>Version: 1.0.38 - SOTA</span>
                 <span>Hardware: GTX 1650 (4GB)</span>
             </div>
         </header>
 
         <nav class="toc-sidebar">
-            <h4>Table of Contents</h4>
+            <a href="https://lemgenda.hr" target="_blank" class="toc-brand">
+                <img src="assets/lemgenda-icon.svg" alt="LemGenda Icon">
+            </a>
+            <h4>Navigation Matrix</h4>
             <ul>
                 <li><a href="#abstract">1. Abstract</a></li>
                 <li><a href="#taxonomy">2. Visual Taxonomy</a>
@@ -414,11 +450,12 @@
                 </li>
                 <li><a href="#benchmarks">5. Benchmarks</a></li>
                 <li><a href="#health">6. Data Pipeline</a></li>
-                <li><a href="#resilience">7. Resilience Architecture</a></li>
+                <li><a href="#resilience">7. Challenges & Resilience</a></li>
                 <li><a href="#onnx">8. ONNX Strategy</a></li>
                 <li><a href="#conclusion">9. Conclusion</a></li>
             </ul>
         </nav>
+
 
         <section id="abstract">
             <h2>1. Abstract</h2>
@@ -777,8 +814,13 @@
                         const tocLink = document.querySelector(`.toc-sidebar a[href="#${id}"]`);
                         
                         if (tocLink) {
+                            // Remove active from all
                             document.querySelectorAll('.toc-sidebar a').forEach(link => link.classList.remove('active'));
+                            document.querySelectorAll('.toc-sidebar li').forEach(li => li.classList.remove('is-active'));
+                            
+                            // Add active to current
                             tocLink.classList.add('active');
+                            tocLink.closest('li').classList.add('is-active');
                         }
                     }
                 });
