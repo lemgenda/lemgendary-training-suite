@@ -378,7 +378,12 @@ def main():
     latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
     if not os.path.exists(latest_ckpt):
         best_fallback = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
-        if os.path.exists(best_fallback):
+        progress_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+        
+        if os.path.exists(progress_ckpt):
+            print(f"📡 [RESILIENCY] Active progress file detected. Prioritizing intra-epoch recovery.")
+            latest_ckpt = progress_ckpt
+        elif os.path.exists(best_fallback):
             print(f"ℹ️  [CONTINUITY] No 'latest' checkpoint found. Natively promoting SOTA 'best' for resumption.")
             latest_ckpt = best_fallback
 
@@ -396,6 +401,9 @@ def main():
                 if 'best_quality_score' in ckpt: best_quality_score = ckpt['best_quality_score']
                 if 'epochs_no_improve' in ckpt:
                     start_epochs_no_improve = ckpt['epochs_no_improve']
+                if 'iteration' in ckpt:
+                    resume_iteration = ckpt['iteration']
+                    print(f"📡 [RESILIENCY] Intra-epoch progress detected. Iteration: {resume_iteration}")
                 if ckpt.get('sota_achieved', False):
                     # SOTA snapshots are handled later during epochs
                     sota_baseline_achieved = True
@@ -488,7 +496,7 @@ def main():
     # --- 2026: SOTA Sentry Configuration ---
     patience = config.get("early_stopping_patience", 10)
     # Recover non-improving epoch count from checkpoint to prevent reset-on-resume
-    epochs_no_improve = locals().get('start_epochs_no_improve', 0)
+    epochs_no_improve = start_epochs_no_improve
     
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
     if not os.path.exists(metrics_csv_path):
@@ -523,11 +531,20 @@ def main():
         model.train()  # pyre-ignore
         train_loss = 0
         consecutive_nans = 0
+        consecutive_singularities = 0
         thermal_steps_left = 0
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]")
-        optimizer.zero_grad() # Initial zero
         
+        # --- 2026: Fast-Forward Resilience ---
+        if epoch == start_epoch and resume_iteration > 0:
+            print(f"📡 [RESILIENCY] Fast-forwarding DataLoader to iteration {resume_iteration}...")
+        
+        optimizer.zero_grad() # Initial zero
         for i, batch in enumerate(pbar):
+            # Fast-forward skip
+            if epoch == start_epoch and i <= resume_iteration:
+                continue
+                
             inputs, targets, tasks = batch
             inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
             
@@ -550,13 +567,33 @@ def main():
                 # Normalize loss by accumulation steps
                 loss = criterion(preds, targets, task_idx) / accumulation_steps # pyre-ignore
             
+            # --- 2026: Singularity Audit (The Truth Seeker) ---
+            # Detecting "Dead Gradients" that have been masked to 0.0 by the Singularity Shield
+            if loss.item() == 0.0:
+                consecutive_singularities += 1
+                if consecutive_singularities >= 5:
+                    print(f"☢️  [NUCLEAR] Infinite Singularity Loop (5 batches). Poisoned state detected. Nuking Latest & Hard-Resetting...")
+                    latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
+                    if os.path.exists(latest_ckpt): 
+                        try: os.remove(latest_ckpt)
+                        except: pass
+                    
+                    # Force a deep rollback to best.pth
+                    is_corrupt = True
+                    consecutive_nans = 5 # Force Thermal Shield
+                    consecutive_singularities = 0 
+                    torch.cuda.empty_cache()
+            else:
+                consecutive_singularities = 0
+
             # --- 2026 Resilience: Deep-State NaN Shield & Weight/Buffer Corruption Guard ---
-            if torch.isnan(loss):
+            is_corrupt = False
+            if torch.isnan(loss) or is_corrupt:
                 print(f"⚠️  [RESILIENCE] NaN detected in iteration {i}! Skipping corrupt batch...")
                 optimizer.zero_grad()
+                is_corrupt = True
                 
-                # Critical: Deep audit of Weights, Buffers (BN Stats), and Optimizer Momentum/Variance
-                is_corrupt = False
+                # Triple-Audit NaN Shield (Weights/Buffers/Optimizer)
                 # 1. Audit Parameters (Weights)
                 for param in model.parameters():
                     if not torch.isfinite(param).all():
@@ -654,6 +691,25 @@ def main():
                 scheduler.step()
                 new_lr = scheduler.get_last_lr()[0]
                 
+                # --- 2026: Intra-Epoch Resilience (The Mitochondrial Pulse) ---
+                # Save progress every X% of batches to safeguard hours of GTX 1650 compute
+                interval_pct = config.get("intra_epoch_checkpoint_pct", 0.1)
+                interval_steps = max(1, int(len(train_loader) * interval_pct))
+                if (i + 1) % interval_steps == 0:
+                    prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+                    torch.save({
+                        'epoch': epoch,
+                        'iteration': i,
+                        'model_state': model.state_dict(),
+                        'optimizer_state': optimizer.state_dict(),
+                        'scheduler_state': scheduler.state_dict(),
+                        'best_val_loss': best_val_loss,
+                        'best_quality_score': best_quality_score,
+                        'epochs_no_improve': epochs_no_improve,
+                        'sota_achieved': sota_baseline_achieved
+                    }, prog_ckpt)
+                    print(f"📡 [RESILIENCY] Milestone reached ({(i+1)/len(train_loader)*100:.0f}%). Progress synchronized.")
+
                 # Resilience: Prevent metric regression if resuming late in the cycle
                 if epoch > (epochs * 0.3) and new_lr > current_lr:
                     for param_group in optimizer.param_groups:

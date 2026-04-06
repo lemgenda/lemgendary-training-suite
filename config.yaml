@@ -20,6 +20,7 @@ default_batch_size: 16
 default_lr: 0.0001
 default_epochs: 50
 early_stopping_patience: 15
+intra_epoch_checkpoint_pct: 0.1
 
 # External Repository Deployment Fallbacks
 export_to_external_folder: false

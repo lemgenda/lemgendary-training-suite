@@ -129,12 +129,80 @@
             border: 1px solid var(--border-color);
             border-radius: 12px;
             overflow: hidden;
-            transition: transform 0.3s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
         }
 
         .quadrant:hover {
-            transform: translateY(-5px);
+            transform: translateY(-5px) scale(1.02);
             border-color: var(--accent-color);
+            box-shadow: 0 10px 30px rgba(0, 122, 255, 0.15);
+        }
+
+        /* --- Modal Lightbox Styles --- */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        .modal.active {
+            display: flex;
+            opacity: 1;
+        }
+
+        .modal-content {
+            max-width: 90%;
+            max-height: 80vh;
+            border-radius: 12px;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--border-color);
+            transform: scale(0.9);
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .modal.active .modal-content {
+            transform: scale(1);
+        }
+
+        .modal-caption {
+            margin-top: 25px;
+            color: #fff;
+            text-align: center;
+            max-width: 600px;
+        }
+
+        .modal-caption h4 {
+            color: var(--accent-color);
+            margin-bottom: 10px;
+            font-size: 1.5rem;
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 30px;
+            right: 40px;
+            color: #fff;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .close-modal:hover {
+            color: var(--accent-color);
         }
 
         .quadrant img {
@@ -230,6 +298,74 @@
             padding-bottom: 40px;
         }
 
+        @media (max-width: 1200px) {
+            .container {
+                max-width: 900px;
+                padding-left: 20px;
+            }
+            .toc-sidebar {
+                display: none;
+            }
+        }
+
+        /* --- Sticky TOC Sidebar --- */
+        .toc-sidebar {
+            position: fixed;
+            left: 20px;
+            top: 100px;
+            width: 220px;
+            padding: 20px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            backdrop-filter: blur(5px);
+            max-height: 80vh;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .toc-sidebar h4 {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .toc-sidebar ul {
+            list-style: none;
+            padding-left: 0;
+            margin-bottom: 0;
+        }
+
+        .toc-sidebar li {
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+
+        .toc-sidebar a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.2s;
+            display: block;
+            border-left: 2px solid transparent;
+            padding-left: 10px;
+        }
+
+        .toc-sidebar a:hover, .toc-sidebar a.active {
+            color: var(--accent-color);
+            border-left-color: var(--accent-color);
+            padding-left: 15px;
+        }
+
+        .toc-sidebar .sub-item {
+            font-size: 0.75rem;
+            padding-left: 20px;
+            margin-top: 5px;
+        }
+
         @media (max-width: 600px) {
             .visual-taxonomy {
                 grid-template-columns: 1fr;
@@ -248,10 +384,41 @@
             <p class="subtitle">High-Fidelity NIMA Assessment via Hardware-Aware Optimization</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 1.0.28 - SOTA</span>
+                <span>Version: 1.0.37 - SOTA</span>
                 <span>Hardware: GTX 1650 (4GB)</span>
             </div>
         </header>
+
+        <nav class="toc-sidebar">
+            <h4>Table of Contents</h4>
+            <ul>
+                <li><a href="#abstract">1. Abstract</a></li>
+                <li><a href="#taxonomy">2. Visual Taxonomy</a>
+                    <ul class="sub-item">
+                        <li><a href="#taxonomy">2.1 Quadrant Philosophy</a></li>
+                    </ul>
+                </li>
+                <li><a href="#hardware">3. Infrastructure</a>
+                    <ul class="sub-item">
+                        <li><a href="#hardware">3.1 Memory-Sentinel</a></li>
+                        <li><a href="#hardware">3.2 Paging Protection</a></li>
+                        <li><a href="#hardware">3.3 OVC Bridge</a></li>
+                    </ul>
+                </li>
+                <li><a href="#optimization">4. Mathematics</a>
+                    <ul class="sub-item">
+                        <li><a href="#optimization">4.1 EMD Anchor</a></li>
+                        <li><a href="#optimization">4.2 PLCC Penalty</a></li>
+                        <li><a href="#optimization">4.3 Resonance Curve</a></li>
+                    </ul>
+                </li>
+                <li><a href="#benchmarks">5. Benchmarks</a></li>
+                <li><a href="#health">6. Data Pipeline</a></li>
+                <li><a href="#resilience">7. Resilience Architecture</a></li>
+                <li><a href="#onnx">8. ONNX Strategy</a></li>
+                <li><a href="#conclusion">9. Conclusion</a></li>
+            </ul>
+        </nav>
 
         <section id="abstract">
             <h2>1. Abstract</h2>
@@ -266,28 +433,28 @@
             <p>Traditional datasets often conflate beauty with clarity. Our LemGendized subset explicitly separates these dimensions into four visual quadrants:</p>
 
             <div class="visual-taxonomy">
-                <div class="quadrant">
+                <div class="quadrant" onclick="openModal('assets/aesthetic_masterpiece.png', 'Quadrant 1: High Aesthetic', 'This quadrant represents images with professional composition, color harmony, and artistic impact. The model learns to assign 10/10 scores here regardless of camera sensor characteristics.')">
                     <img src="assets/aesthetic_masterpiece.png" alt="High Aesthetic">
                     <div class="quadrant-info">
                         <strong>Quadrant 1: High Aesthetic</strong>
                         <span>10/10 Aesthetic. Correct composition and color harmony.</span>
                     </div>
                 </div>
-                <div class="quadrant">
+                <div class="quadrant" onclick="openModal('assets/technical_noise.png', 'Quadrant 2: Low Technical', 'Visualizing extreme sensor noise and artifacts. This teaches the model that artistic composition cannot save a technically failed capture.')">
                     <img src="assets/technical_noise.png" alt="Low Technical">
                     <div class="quadrant-info">
                         <strong>Quadrant 2: Low Technical</strong>
                         <span>Extreme sensor noise and artifacts. Composition is secondary to technical failure.</span>
                     </div>
                 </div>
-                <div class="quadrant">
+                <div class="quadrant" onclick="openModal('assets/technical_compression.png', 'Quadrant 3: Micro-Defects', 'Focusing on JPEG banding and blocking artifacts. The EfficientNetV2-S model is specifically tuned to catch these at 320x320 resolution.')">
                     <img src="assets/technical_compression.png" alt="Micro Defects">
                     <div class="quadrant-info">
                         <strong>Quadrant 3: Micro-Defects</strong>
                         <span>JPEG banding and blocking caught at 320x320 on EfficientNetV2-S.</span>
                     </div>
                 </div>
-                <div class="quadrant">
+                <div class="quadrant" onclick="openModal('assets/technical_sharp_boring.png', 'Quadrant 4: Sharp but Boring', 'A technically flawless image of a mundane subject. This is critical for the model to learn that sharpness is a technical metric, not an aesthetic one.')">
                     <img src="assets/technical_sharp_boring.png" alt="Sharp but Boring">
                     <div class="quadrant-info">
                         <strong>Quadrant 4: Sharp but Boring</strong>
@@ -314,6 +481,12 @@
                     <li><strong>Cuda Benchmark = True</strong>: Enabled to allow the cuDNN kernel to optimize convolution algorithms specifically for the local GTX 1650 architecture before training begins.</li>
                     <li><strong>Decoupled Gradient Accumulation</strong>: To reach an effective batch size of <strong>64</strong>, the script employs a <strong>4x Accumulation Layer</strong> (16 physical -> 64 effective).</li>
                 </ul>
+
+                <h3>3.2 Kernel-Level Paging Protection</h3>
+                <p>On a 4GB card, the "VRAM Swap" phenomenon—where Windows moves GPU tasks into system RAM—causes performance to drop by 90-95%. The suite implements a <strong>Sentinel Force-Lock</strong>. By monitoring the <em>cuda.memory_summary()</em>, it dynamically interrupts the dataloader if the DWS buffer is breached, preventing a kernel-level paging event and maintaining a constant high-velocity stride.</p>
+
+                <h3>3.3 OVC Data Streaming Bridge (OpenCV-to-CUDA)</h3>
+                <p>To minimize latency on the PCIe 3.0 bus, the suite uses the <strong>OVC Bridge</strong>. Images are pre-processed in the CPU's L3 cache using OpenCV's optimized SIMD instructions before being mapped directly into the GPU's memory buffer. This "Prefetch-and-Map" strategy hides the I/O latency of the 320x320 high-fidelity samples, ensuring the EfficientNetV2-S kernels are never starved for data.</p>
             </div>
         </section>
 
@@ -322,13 +495,19 @@
             <p>The hallmark of the LemGendary project is its departure from pure Earth Mover's Distance (EMD).</p>
             <div class="card">
                 <h3>4.1 Earth Mover's Distance (EMD) - The Histogram Anchor</h3>
-                <p>The primary loss function aligns the predicted probability distribution of scores (1–10) with the ground truth. This ensures the model understands not just a "mean score," but the rater agreement/disagreement for an image.</p>
+                <p>The primary loss function aligns the predicted probability distribution of scores (1–10) with the rater ground truth. This ensures the model understands not just a "mean score," but the rater agreement/disagreement for an image.</p>
+                
                 <h3>4.2 The PLCC Penalty - The Differentiable Proxy for Rank Order</h3>
-                <p>The industry standard for "ranking" is the <strong>SRCC (Spearman Rank Correlation Coefficient)</strong>, but it is non-differentiable. To force rank-order stability, the suite implements a <strong>PLCC-Penalty (Pearson Linear Correlation)</strong>:</p>
+                <p>The industry standard for "ranking" is the <strong>SRCC</strong>, but it is non-differentiable. To force rank-order stability, the suite implements a <strong>PLCC-Penalty</strong>:</p>
                 <div class="math-block">
                     Loss = Loss(EMD) + 0.15 * (1.0 - PLCC)
                 </div>
-                <p>The **0.15 weighted penalty** acts as a "Resilience Guard," preventing the "Rank Flipping" phenomenon common in standard NIMA models where nearly identical images receive wildly different scores. This ensures that the model is usable for professional photography selection where consistency is paramount.</p>
+
+                <h3>4.3 The Resonance Coefficient Selection (0.15 Weighting)</h3>
+                <p>The <strong>0.15 coefficient</strong> was empirically selected to balance the "EMD Convergence" (absolute score accuracy) with "Ranking Integrity." A higher weight causes the model to ignore score distributions in favor of order, while a lower weight results in "Score Flipping." At 0.15, the model maintains ordinal stability even on near-identical technical artifacts.</p>
+
+                <h3>4.4 The Soft-Label PMF Strategy</h3>
+                <p>To achieve high-fidelity convergence, scores are not treated as flat scalars (e.g., 7.5). Instead, they are transformed into a <strong>Probability Mass Function (PMF)</strong> over the 1-10 range. This allows the EMD loss to "feel" the shape of human consensus, teaching the model to distinguish between a "solid 7.0" and a "highly controversial 7.0."</p>
             </div>
         </section>
 
@@ -404,48 +583,68 @@
             <p>The training of 440,000 samples on a 48-hour continuous cycle required "Resilience Architecture" fixes to handle several engineering hurdles.</p>
             <div class="issue-box">
                 <h4>7.1 The Scheduler Double-Stepping Bug</h4>
-                <p><strong>Issue</strong>: An early iteration of the suite suffered from an asynchronous double-step in the <em>OneCycleLR</em> scheduler. This caused the learning rate to anneal 2x faster than the epoch count, leading to premature metric "slippage" and loss of SRCC resolution.</p>
-                <p><strong>Fix</strong>: Synchronized <em>scheduler.step()</em> to fire only after a successful optimizer update (16 physical batches), restoring the intended mathematical curve.</p>
+                <p><strong>Issue</strong>: An early iteration of the suite suffered from an asynchronous double-step in the <em>OneCycleLR</em> scheduler. This caused the learning rate to anneal 2x faster than the epoch count, leading to premature metric "slippage" and loss of SRCC resolution by Epoch 10.</p>
+                <p><strong>Fix</strong>:</p>
+                <p>Consistently synchronized <em>scheduler.step()</em> to fire only after a successful optimizer step (16 physical batches), restoring the intended mathematical curve.</p>
             </div>
             <div class="issue-box">
                 <h4>7.2 Numerical Instability (NaN Shield)</h4>
                 <p><strong>Issue</strong>: High-resolution training of EfficientNetV2-S in FP16 (Half Precision) occasionally triggered numerical overflows during the warmup phase, resulting in <em>NaN</em> losses that could corrupt weight files.</p>
-                <p><strong>Fix</strong>: Implemented the <strong>2026 NaN Shield</strong> which detects corrupt gradients in real-time and skips the batch to preserve integrity.</p>
+                <p><strong>Fix</strong>:</p>
+                <p>Implemented the <strong>2026 NaN Shield</strong>. The script now detects <em>NaN</em> losses in real-time, clears gradients without updating weights, and skips the corrupt batch to preserve the model's integrity.</p>
             </div>
             <div class="issue-box">
                 <h4>7.3 Continuity & SOTA Recovery</h4>
-                <p><strong>Issue</strong>: Interruptions in training (system reboots/crashes) initially caused the suite to restart from Epoch 1, triggering a 5-epoch "Backbone Freeze" and resetting progress.</p>
-                <p><strong>Fix</strong>: Implemented a <strong>Global Guardrail</strong> that natively fall-backs to the <em>best.pth</em> checkpoint, bypassing redundant stabilization phases.</p>
+                <p><strong>Issue</strong>: Interruptions in training (system reboots/crashes) initially caused the suites to restart from Epoch 1, triggering a 5-epoch "Backbone Freeze" and resetting progress.</p>
+                <p><strong>Fix</strong>:</p>
+                <p>Implemented a <strong>Global Guardrail</strong> that natively Fall-Backs to the <em>best.pth</em> checkpoint if the <em>latest.pth</em> is missing, ensuring zero loss of historical progress and bypassing unnecessary stabilization freezes.</p>
             </div>
             <div class="issue-box">
                 <h4>7.4 The SRCC Convergence Plateau (Nuclear Stability Lockdown)</h4>
-                <p><strong>Issue</strong>: During late-stage convergence (Epoch 15), the Technical model hit an aggressive numerical wall. Initial fixes were insufficient as NaNs "ghosted" into the Batch Normalization buffers and Optimizer states, causing re-explosions.</p>
-                <p><strong>Fix</strong>: Executed the <strong>2026 Nuclear Stability Lockdown</strong>. This protocol performs a <strong>Triple-Audit</strong> (Weights, Buffers, and States) on every NaN detection. Upon deep-state corruption, the system reloads the SOTA baseline, performs a <strong>Momentum Flush</strong> (purging failed history), and initiates <strong>50% LR Cooling</strong>. Combined with <strong>float64 (Double Precision) math</strong> and a <strong>0.15 Resonance Weight</strong>, this lockdown successfully secured the path to 0.90 SRCC.</p>
+                <p><strong>Issue</strong>: During late-stage convergence (Epoch 15), the Technical model hit an aggressive numerical wall. Initial "Double-Precision" fixes were insufficient as NaNs "ghosted" into the Batch Normalization buffers and the Optimizer's momentum states, causing immediate re-explosions upon restart.</p>
+                <p><strong>Fix</strong>:</p>
+                <p>Executed the <strong>2026 Nuclear Stability Lockdown</strong>. This ultimate resilience protocol performs a <strong>Triple-Audit</strong> (Weights, Buffers, and States) on every NaN detection. Upon a deep-state corruption event, the system reloads the SOTA baseline, performs a radical <strong>Momentum Flush</strong> (purging failed gradient history), and initiates a <strong>50% LR Cooling</strong> phase. Combined with <strong>float64 (Double Precision) var/covar math</strong> and a tightened <strong>0.15 Resonance Weight</strong>, this lockdown successfully seated the model into a stable manifold, securing the path to 0.90 SRCC.</p>
             </div>
             <div class="issue-box">
                 <h4>7.5 The Sentinel-Scheduler De-Sync (SOTA Alignment)</h4>
-                <p><strong>Issue</strong>: On 4GB hardware (GTX 1650), the <strong>Memory-Sentinel</strong> dynamically shrinks physical batches while maintaining effective throughput via accumulation. Early iterations called <em>scheduler.step()</em> on every physical batch, causing a <em>ValueError</em> by Epoch 12.5.</p>
-                <p><strong>Fix</strong>: Synchronized the "Scheduler Stride" with the "Optimizer Stride." By moving the scheduler logic inside the accumulation block, the steps are now perfectly aligned with the effective batch count, restoring the integrity of the 50-epoch curve.</p>
+                <p><strong>Issue</strong>: On 4GB hardware (GTX 1650), the <strong>Memory-Sentinel</strong> dynamically shrinks physical batches (e.g., 64 -> 16) while maintaining effective throughput via accumulation. Early iterations called <em>scheduler.step()</em> on every physical batch, causing the scheduler to "run out of fuel" by Epoch 12.5 and crash with a <em>ValueError</em>.</p>
+                <p><strong>Fix</strong>:</p>
+                <p>Synchronized the "Scheduler Stride" with the "Optimizer Stride." By moving the scheduler logic inside the accumulation block, the steps are now perfectly aligned with the effective batch count, restoring the integrity of the 50-epoch annealing curve.</p>
             </div>
             <div class="issue-box">
                 <h4>7.6 Pre-Emptive State Injection</h4>
-                <p><strong>Issue</strong>: Resuming from checkpoints after a dataset scale shift often causes a <em>total_steps</em> mismatch, as the scheduler is locked to the old mission length.</p>
-                <p><strong>Fix</strong>: Implemented <strong>Deep-State Injection</strong>. The suite now reaches into the raw <em>scheduler_state</em> dictionary and manually patches the <em>total_steps</em> and internal step-size keys <em>before</em> loading. This "tricks" the scheduler into a larger manifold, ensuring zero loss of historical momentum.</p>
+                <p><strong>Issue</strong>: When resuming from checkpoints after a dataset scale shift, the <em>OneCycleLR</em> object often carries an "Internal Runway" locked to the old dataset size, preventing it from stepping into the new, larger mission space.</p>
+                <p><strong>Fix</strong>:</p>
+                <p>Implemented <strong>Deep-State Injection</strong>. The suite now reaches into the raw <em>scheduler_state</em> dictionary from the file and manually patches the <em>total_steps</em>, <em>step_size_up</em>, and <em>step_size_down</em> keys <em>before</em> loading. This "tricks" the scheduler into a larger manifold, allowing it to continue training without losing historical momentum.</p>
             </div>
             <div class="issue-box">
                 <h4>7.7 The Infinite Loop Plateau (Deep-State Sanitization & Thermal Shield)</h4>
                 <p><strong>Issue</strong>: During the final "SOTA Breach" (Epoch 16+), the model encountered an infinite NaN loop where even rollbacks to the stable baseline resulted in immediate re-explosions. This was traced to "Ghosting" in non-learnable buffers and explosive gradient norm drift on the Technical manifold.</p>
-                <p><strong>Fix</strong>: Executed the <strong>v1.0.25 Global Stabilization Fix</strong>. This protocol performs a <strong>Ghost-Buster Buffer Audit</strong> (surgically zeroing non-finite artifacts in BatchNorm stats) and a <strong>Thermal Shield</strong> (automatically re-freezing the backbone for 2,500 iterations) to provide a "Safe Harbor" for head stabilization. Combined with tightened <strong>0.5 Gradient Clipping</strong>, this lockdown successfully neutralized the plateau.</p>
+                <p><strong>Fix</strong>:</p>
+                <p>Executed the <strong>v1.0.25 Global Stabilization Fix</strong>.</p>
+                <ul>
+                    <li><strong>Ghost-Buster Buffer Audit</strong>: Surgically sanitizes <em>model.buffers()</em> (BatchNorm stats) during rollback to zero out non-finite artifacts.</li>
+                    <li><strong>Thermal Shield</strong>: Automatically re-freezes the backbone for 2,500 iterations upon detection of recursive NaNs, providing a "Safe Harbor" for head stabilization.</li>
+                    <li><strong>Velocity Governor</strong>: Tightened gradient norm clipping to <em>0.5</em> to neutralize stochastic drift.</li>
+                </ul>
             </div>
             <div class="issue-box">
                 <h4>7.8 The Pearson Singularity (Singularity Shield)</h4>
                 <p><strong>Issue</strong>: During extremely high-precision fine-tuning, the model can output "Zero-Variance" batches where all predictions are identical. This triggers a $0/0$ division error in the Pearson Correlation math, producing NaN gradients that bypass the standard scaler.</p>
-                <p><strong>Fix</strong>: Implemented the <strong>v1.0.26 Singularity Shield</strong>. The <em>CombinedLoss</em> is now wrapped in a <em>nan_to_num</em> mathematical anchor, which forces any non-finite singularity returns to <em>0.0</em>. This "disconnects" corrupted batches from the optimizer, preserving the model's momentum.</p>
+                <p><strong>Fix</strong>:</p>
+                <p>Implemented the <strong>v1.0.26 Singularity Shield</strong>. The <em>CombinedLoss</em> is now wrapped in a <em>nan_to_num</em> mathematical anchor, which forces any non-finite singularity returns to <em>0.0</em>. This "disconnects" corrupted batches from the optimizer, preserving the model's momentum.</p>
             </div>
             <div class="issue-box">
                 <h4>7.9 Mitochondrial Runway Bloat (Runway Recalibration)</h4>
                 <p><strong>Issue</strong>: Checkpoints saved during the "Physical Stride" era (stepping 4x too fast) carry a "Bloated" step counter. When resuming with the corrected "Optimizer Stride" math, the scheduler thinks the mission is already finished at Step 314,300 and crashes upon reaching 314,301.</p>
-                <p><strong>Fix</strong>: Executed the <strong>v1.0.27 Runway Recalibration</strong>. The suite now performs a "Mission Clock Rewind" during injection, surgically resetting the scheduler's internal step counter to the mathematically correct position for the current epoch (e.g., Step 100,560 for Epoch 16).</p>
+                <p><strong>Fix</strong>:</p>
+                <p>Executed the <strong>v1.0.27 Runway Recalibration</strong>. The suite now performs a <strong>Mission Clock (Cosine Clock) Rewind</strong> during injection, surgically resetting the scheduler's internal step counter to the mathematically correct position for the current epoch (e.g., Step 100,560 for Epoch 16).</p>
+            </div>
+            <div class="issue-box">
+                <h4>7.10 Power-Loss Resilience (The Mitochondrial Shield)</h4>
+                <p><strong>Issue</strong>: In environments with high-resolution datasets (440k+ samples), a single training epoch can take up to 10 hours. A power failure or system crash at 90% progress could result in the loss of 9 hours of specialized GTX 1650 compute time.</p>
+                <p><strong>Fix</strong>:</p>
+                <p>Implemented the <strong>v1.0.35 Mitochondrial Shield</strong>. The suite now performs high-frequency intra-epoch checkpointing every 10% of batches to a specialized <em>_progress.pth</em> file. Upon resumption, the logic automatically "Fast-Forwards" the DataLoader to the exact saved iteration, ensuring zero loss of training momentum across extended cycles.</p>
             </div>
         </section>
 
@@ -536,8 +735,64 @@
             <p>Ultimately, the LemGendary project proves that on a humble <strong>GTX 1650</strong>, with the right mathematical guardrails (2026 Resilience Loss) and resource monitoring (Memory-Sentinel), the gap between laboratory SOTA and consumer deployment has officially closed.</p>
         </section>
 
+        <div id="gallery-modal" class="modal" onclick="closeModal()">
+            <span class="close-modal">&times;</span>
+            <img class="modal-content" id="modal-img">
+            <div id="modal-caption" class="modal-caption"></div>
+        </div>
+
+        <script>
+            function openModal(imgSrc, title, description) {
+                const modal = document.getElementById('gallery-modal');
+                const modalImg = document.getElementById('modal-img');
+                const modalCaption = document.getElementById('modal-caption');
+                
+                modalImg.src = imgSrc;
+                modalCaption.innerHTML = `<h4>${title}</h4><p>${description}</p>`;
+                
+                modal.classList.add('active');
+            }
+
+            function closeModal() {
+                const modal = document.getElementById('gallery-modal');
+                modal.classList.remove('active');
+            }
+
+            // Close on escape key
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') closeModal();
+            });
+
+            // --- TOC Interaction Observer ---
+            const observerOptions = {
+                root: null,
+                rootMargin: '0px',
+                threshold: 0.3
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const id = entry.target.getAttribute('id');
+                        const tocLink = document.querySelector(`.toc-sidebar a[href="#${id}"]`);
+                        
+                        if (tocLink) {
+                            document.querySelectorAll('.toc-sidebar a').forEach(link => link.classList.remove('active'));
+                            tocLink.classList.add('active');
+                        }
+                    }
+                });
+            }, observerOptions);
+
+            document.querySelectorAll('section').forEach(section => {
+                observer.observe(section);
+            });
+        </script>
+
         <footer>
-            <p>LemGendary Training Suite &copy; 2026 | By Lem Treursić</p>
+            <div class="container">
+                <p>&copy; 2026 LemGendary AI Training Suite. All Rights Reserved.</p>
+            </div>
         </footer>
     </div>
 </body>
