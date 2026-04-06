@@ -24,10 +24,10 @@ Traditional datasets often conflate beauty with clarity. Our LemGendized subset 
 *Figure 2: Low Technical Quality - Extreme sensor noise and artifacts. Even with a good subject, the technical integrity is compromised.*
 
 ![Quadrant 3: Micro-Defects & Compression](assets/technical_compression.png)
-*Figure 4: Technical Failures - Visualizing the JPEG banding and blocking that the EfficientNetV2-S model is designed to catch at 320x320.*
+*Figure 3: Technical Failures - Visualizing the JPEG banding and blocking that the EfficientNetV2-S model is designed to catch at 320x320.*
 
 ![Quadrant 4: Low Aesthetic, High Technical](assets/technical_sharp_boring.png)
-*Figure 3: High Technical (10/10) / Low Aesthetic (1/10) - A sharp, flawless image of a boring subject. This teaches the model that "sharpness" alone is not "art."*
+*Figure 4: High Technical (10/10) / Low Aesthetic (1/10) - A sharp, flawless image of a boring subject. This teaches the model that "sharpness" alone is not "art."*
 
 ---
 
