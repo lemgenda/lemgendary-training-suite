@@ -769,7 +769,8 @@ def main():
                     all_preds.append(preds.detach().cpu())
                     all_targets.append(targets.detach().cpu())
                 elif train_ds.task_type in ["restoration", "enhancement"]:
-                    all_preds.append(preds[0].detach().cpu())
+                    img_pred = preds[0] if isinstance(preds, (tuple, list)) else preds
+                    all_preds.append(img_pred.detach().cpu())
                     all_targets.append(targets.detach().cpu())
                 
         avg_val_loss = val_loss / max(1, len(val_loader))
