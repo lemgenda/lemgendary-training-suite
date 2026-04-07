@@ -35,7 +35,17 @@ def download_and_extract_dataset(ds_name, data_dir):
     api = KaggleApi()
     api.authenticate()
     
-    ds_slug = f"lemtreursi/{ds_name.lower()}"
+    kaggle_slugs = {
+        "LemGendizedQualityDataset": "lemgendized-quality-dataset",
+        "LemGendizedNoiseDataset": "lemgendized-noise-dataset",
+        "LemGendizedLowLightDataset": "lemgendized-lowlight-dataset",
+        "LemGendizedFaceDataset": "lemgendized-face-dataset",
+        "LemGendizedDegradationDataset": "lemgendized-degradation-dataset",
+        "LemGendizedDetectionDataset": "lemgendized-detection-dataset",
+        "LemGendizedSuperResDataset": "lemgendized-superres-dataset"
+    }
+    slug_name = kaggle_slugs.get(ds_name, ds_name.lower())
+    ds_slug = f"lemtreursi/{slug_name}"
     ds_path = os.path.join(data_dir, ds_name)
     
     if os.path.exists(ds_path):

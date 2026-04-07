@@ -127,7 +127,11 @@ class MultiTaskDataset(Dataset):
         if getattr(self, 'env', 'local') == 'kaggle':
             # Kaggle mounts match the end of the URL
             k_name = self.kaggle_links.get(ds_name, "").split('/')[-1]
-            return f"/kaggle/input/{k_name}"
+            base_kaggle_path = f"/kaggle/input/{k_name}"
+            # Protect against datasets natively extracted into a matching internal subfolder
+            if os.path.exists(os.path.join(base_kaggle_path, ds_name, "images")):
+                return os.path.join(base_kaggle_path, ds_name)
+            return base_kaggle_path
         return os.path.join(self.data_root, ds_name)
 
     def load_image(self, img_path):
