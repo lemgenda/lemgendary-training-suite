@@ -44,18 +44,19 @@ def download_and_extract_dataset(ds_name, data_dir):
     print(f"\n--- 🧪 Autonomic Dataset Recovery: {ds_name} ---")
     
     try:
-        # 1. Metadata Verification
-        meta = api.dataset_metadata(ds_slug)
-        total_bytes = meta.get('size', 1024**3) # Fallback to 1GB
-        
-        if not check_disk_space(total_bytes, data_dir):
-            return False
-            
-        # 2. User Confirmation for Large Downloads
+        # 1. Metadata Verification (Bypassed: Kaggle API requires 'path' which forces a file download)
+        total_bytes = 5 * (1024**3) # Safe fallback to 5GB
         total_gb = total_bytes / (1024**3)
-        ans = input(f"   ▶ Proceed with automatic re-fetch from Kaggle Cloud ({total_gb:.2f} GB)? (y/n): ").strip().lower()
-        if ans != 'y':
-            return False
+        
+        # 2. User Confirmation & Disk Check
+        if '--env' in sys.argv and 'kaggle' in sys.argv or '--yes' in sys.argv:
+            print(f"   ▶ Proceeding with automatic re-fetch from Kaggle Cloud ({total_gb:.2f} GB)... (Interactive prompts bypassed)")
+        else:
+            if not check_disk_space(total_bytes, data_dir):
+                return False
+            ans = input(f"   ▶ Proceed with automatic re-fetch from Kaggle Cloud ({total_gb:.2f} GB)? (y/n): ").strip().lower()
+            if ans != 'y':
+                return False
 
         # 3. ⬇️ Bit-Level Download
         os.makedirs(data_dir, exist_ok=True)
