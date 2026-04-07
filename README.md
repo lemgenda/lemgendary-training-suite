@@ -114,14 +114,13 @@ All exports are consolidated in **`trained-models/`**.
 The LemGendary Training Suite natively supports 100% cloud-based dataset training via Kaggle without downloading the 200GB topological arrays locally. The mathematical engine is perfectly tuned to support `--env kaggle` dataset interceptions.
 
 ### How to Launch a Cloud Training Node:
-1. Open your local repository folder. I dynamically generated all 9 `.ipynb` deployment Jupyter Notebooks based strictly on their internal `unified_models.yaml` dataset dependencies:
-   - **Solo Notebooks**: Topologies reliant solely upon exactly one environment (e.g. `Kaggle_Train_Solo_LemGendizedQualityDataset.ipynb`).
-   - **Multi-Mount Notebooks**: Cross-domain models demanding multiple concurrent topologies (e.g. `Kaggle_Train_Multi_Universal_Restoration.ipynb`).
-2. Navigate to your Kaggle profile and click **Create -> Notebook**.
-3. In the top toolbar, select **File -> Import Notebook**. Select the `.ipynb` file of your choice.
-4. Click **Add Data** on the right-hand interface. Search for and mount **exactly** the dataset(s) explicitly requested via comments at the top of the imported code cell.
-5. In **Session Options**, mathematically assign the **Accelerator** natively to **GPU T4 x2** or **GPU P100**. *Do not use CPU or TPU.*
-6. Click **Run All**. The notebook will securely clone this repository, align pathing natively against `/kaggle/input/`, and begin executing the epochs directly into your browser!
+1. Navigate to your Kaggle profile and access the dedicated LemGendary Jupyter Notebooks. The deployment topologies are hosted directly on Kaggle to prevent localized repository bloat:
+   - **Solo Notebooks**: Topologies reliant solely upon exactly one dataset environment.
+   - **Multi-Mount Notebooks**: Cross-domain models demanding multiple concurrent dataset arrays.
+2. Select your desired Notebook and click **Copy & Edit** to clone the environment into your active workspace.
+3. Click **Add Data** on the right-hand interface. Search for and mount **exactly** the LemGendized dataset(s) explicitly requested via comments at the top of the code cell.
+4. In **Session Options**, mathematically assign the **Accelerator** natively to **GPU T4 x2** or **GPU P100**. *Do not use CPU or TPU.*
+5. Click **Run All**. The notebook will securely clone this repository, align pathing natively against `/kaggle/input/`, and begin executing the epochs directly into your browser!
 
 ---
 
