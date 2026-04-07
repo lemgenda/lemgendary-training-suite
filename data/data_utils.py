@@ -78,9 +78,12 @@ def download_and_extract_dataset(ds_name, data_dir):
         api.dataset_download_files(ds_slug, path=data_dir, quiet=False)
         
         # 4. 📦 File-Level Extraction with Progress Bar
-        zip_path = os.path.join(data_dir, f"{slug_name}.zip")
-        if os.path.exists(zip_path):
-            print(f"   [UNPACK] Synchronizing topological array: {ds_name}...")
+        import glob
+        possible_zips = glob.glob(os.path.join(data_dir, "*.zip"))
+        
+        if possible_zips:
+            zip_path = possible_zips[0]
+            print(f"   [UNPACK] Synchronizing topological array: {ds_name} from {os.path.basename(zip_path)}...")
             with zipfile.ZipFile(zip_path, 'r') as z:
                 files = z.namelist()
                 with tqdm(total=len(files), unit='file', desc=f"      📦 Unpacking") as upbar:
