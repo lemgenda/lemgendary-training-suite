@@ -133,10 +133,13 @@ class MultiTaskDataset(Dataset):
             # Protect against datasets natively extracted into a matching internal subfolder
             if os.path.exists(os.path.join(base_kaggle_path, ds_name, "images")):
                 return os.path.join(base_kaggle_path, ds_name)
-            if os.path.exists(base_kaggle_path):
+            # ONLY return the Kaggle mount if the foundational topology actually exists physically
+            if os.path.exists(os.path.join(base_kaggle_path, "images")):
                 return base_kaggle_path
             # Fallback for datasets actively recovered dynamically into working memory instead of native mounts
             local_fallback = os.path.join(self.data_root, ds_name)
+            if os.path.exists(os.path.join(local_fallback, ds_name, "images")):
+                return os.path.join(local_fallback, ds_name)
             if os.path.exists(local_fallback):
                 return local_fallback
             return base_kaggle_path
