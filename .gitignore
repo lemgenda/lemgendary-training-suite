@@ -10,3 +10,6 @@ tmp/
 # Kaggle API tokens
 kaggle.json
 .kaggle_token
+
+# Local Kaggle Notebook Development
+data/kaggle-notebooks/
