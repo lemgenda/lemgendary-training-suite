@@ -360,6 +360,7 @@ def main():
             print(f"⚠️  [GLOBAL GUARDRAIL] Baseline probe failed: {e}. Defaulting to session local best.")
 
     start_epoch = 0
+    start_epochs_no_improve = 0
     sota_baseline_achieved = False
     sota_countdown = 1
     resume_iteration = -1
