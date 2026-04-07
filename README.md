@@ -16,20 +16,27 @@ The easiest way to manage your AI workflow is via the **LemGendary Hub**.
    ```
 
 ### Menu Options
-1. **Initialize/Fix Environment**: Installs Python 3.12 natively and creates the `.venv` enclosure. Upgrades pip, then installs PyTorch 2.4.1+cu121 alongside all other mathematical dependencies for inference.
-2. **Train Individual Model**: Launches the interactive LemGendary Unified Training Suite, empowering singular network selection for localized structural training loops natively.
+**1.** **Initialize/Fix Environment**: Installs Python 3.12 natively and creates the `.venv` enclosure. Upgrades pip, then installs PyTorch 2.4.1+cu121 alongside all other mathematical dependencies for inference.
+
+**2.** **Train Individual Model**: Launches the interactive LemGendary Unified Training Suite, empowering singular network selection for localized structural training loops natively.
    * **Submenu Categories**:
      * *1. Quality Assessment* (NIMA, Aesthetics)
      * *2. Face & Detection* (RetinaFace, YOLOv8, CodeFormer)
      * *3. Super-Resolution* (UltraZoom x2/x3/x4/x8)
      * *4. Image Restoration* (NAFNet, MIRNet, FFANet, MPRNet)
      * *5. Universal Hybrid* (UPN v2, Multi-Restorer, Film)
-3. **Global Orchestration**: Automates sequential continuous execution of **all 21 models** on your local hardware architecture uninterrupted.
-4. **Deploy to Kaggle Cloud**: Outputs physical instructions on how to push the pre-generated Jupyter topologies to Kaggle's T4 instances instantly.
-5. **Smart Cloud Orchestration**: Uses your `C:\` local GPU to mathematically train all 21 models natively by streaming specific datasets through Kaggle explicitly via the API, executing Python loops, and instantly **purging the cache** iteratively. This strictly locks local peak SSD consumption below `~220GB`.
-6. **Single-Epoch Unit Test**: Initiates a massive forced override across all 21 core neural networks, executing precisely **1 automated functional epoch per model** to strictly validate local memory arrays and buffer structural constraints flawlessly without committing to a 50-hour cycle.
-9. **Run Environmental Janitor**: Force-purges all orphaned Python/PowerShell processes and environment locks to structurally reset the project's memory state.
-7. **Exit**: Terminate hub.
+
+**3.** **Global Orchestration**: Automates sequential continuous execution of **all 21 models** on your local hardware architecture uninterrupted.
+
+**4.** **Deploy to Kaggle Cloud**: Outputs physical instructions on how to push the pre-generated Jupyter topologies to Kaggle's T4 instances instantly.
+
+**5.** **Smart Cloud Orchestration**: Uses your `C:\` local GPU to mathematically train all 21 models natively by streaming specific datasets through Kaggle explicitly via the API, executing Python loops, and instantly **purging the cache** iteratively. This strictly locks local peak SSD consumption below `~220GB`.
+
+**6.** **Single-Epoch Unit Test**: Initiates a massive forced override across all 21 core neural networks, executing precisely **1 automated functional epoch per model** to strictly validate local memory arrays and buffer structural constraints flawlessly without committing to a 50-hour cycle.
+
+**9.** **Run Environmental Janitor**: Force-purges all orphaned Python/PowerShell processes and environment locks to structurally reset the project's memory state.
+
+**7.** **Exit**: Terminate hub.
 
 ---
 
