@@ -19,12 +19,33 @@ The easiest way to manage your AI workflow is via the **LemGendary Hub**.
 **1.** **Initialize/Fix Environment**: Installs Python 3.12 natively and creates the `.venv` enclosure. Upgrades pip, then installs PyTorch 2.4.1+cu121 alongside all other mathematical dependencies for inference.
 
 **2.** **Train Individual Model**: Launches the interactive LemGendary Unified Training Suite, empowering singular network selection for localized structural training loops natively.
-   * **Submenu Categories**:
-     * *1. Quality Assessment* (NIMA, Aesthetics)
-     * *2. Face & Detection* (RetinaFace, YOLOv8, CodeFormer)
-     * *3. Super-Resolution* (UltraZoom x2/x3/x4/x8)
-     * *4. Image Restoration* (NAFNet, MIRNet, FFANet, MPRNet)
-     * *5. Universal Hybrid* (UPN v2, Multi-Restorer, Film)
+   * **Submenu Categories & Targets**:
+     * **1. Quality Assessment**
+       * `nima_aesthetic`
+       * `nima_technical`
+     * **2. Face & Detection**
+       * `codeformer`
+       * `parsenet`
+       * `retinaface_mobilenet`
+       * `retinaface_resnet`
+       * `yolov8n`
+     * **3. Super-Resolution**
+       * `ultrazoom_x2`
+       * `ultrazoom_x3`
+       * `ultrazoom_x4`
+       * `ultrazoom_x8`
+     * **4. Image Restoration**
+       * `ffanet_indoor`
+       * `ffanet_outdoor`
+       * `mprnet_deraining`
+       * `mirnet_lowlight`
+       * `mirnet_exposure`
+       * `nafnet_debluring`
+       * `nafnet_denoising`
+     * **5. Universal Hybrid**
+       * `upn_v2`
+       * `professional_multitask_restoration`
+       * `film_restorer`
 
 **3.** **Global Orchestration**: Automates sequential continuous execution of **all 21 models** on your local hardware architecture uninterrupted.
 
