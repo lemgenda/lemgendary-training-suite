@@ -76,7 +76,9 @@ class MultiTaskDataset(Dataset):
                     print(f"   👉 You must securely download and map it natively from Kaggle: {link}")
                     print(f"      Mapped Path Checked: {img_dir}\n")
                     continue
-                # Re-verify path after recovery
+                # Re-verify path after recovery by recalculating dynamic fallback mounts
+                ds_path = self.get_dataset_path(ds_name)
+                img_dir = os.path.join(ds_path, "images", self.split)
                 if not os.path.exists(img_dir): continue
                 
             files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
@@ -131,6 +133,12 @@ class MultiTaskDataset(Dataset):
             # Protect against datasets natively extracted into a matching internal subfolder
             if os.path.exists(os.path.join(base_kaggle_path, ds_name, "images")):
                 return os.path.join(base_kaggle_path, ds_name)
+            if os.path.exists(base_kaggle_path):
+                return base_kaggle_path
+            # Fallback for datasets actively recovered dynamically into working memory instead of native mounts
+            local_fallback = os.path.join(self.data_root, ds_name)
+            if os.path.exists(local_fallback):
+                return local_fallback
             return base_kaggle_path
         return os.path.join(self.data_root, ds_name)
 
