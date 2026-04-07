@@ -1,13 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Architecture of LemGendary AI: High-Fidelity NIMA Assessment</title>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Fira+Code:wght@400;500&display=swap"
-        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-color: #0a0a0c;
@@ -110,8 +107,7 @@
             color: #fff;
         }
 
-        ul,
-        ol {
+        ul, ol {
             margin-bottom: 20px;
             padding-left: 20px;
         }
@@ -241,8 +237,7 @@
             overflow: hidden;
         }
 
-        th,
-        td {
+        th, td {
             padding: 15px;
             text-align: left;
             border-bottom: 1px solid var(--border-color);
@@ -308,7 +303,6 @@
                 max-width: 900px;
                 padding-left: 20px;
             }
-
             .toc-sidebar {
                 display: none;
             }
@@ -379,8 +373,7 @@
             padding: 5px 0 5px 10px;
         }
 
-        .toc-sidebar a:hover,
-        .toc-sidebar a.active {
+        .toc-sidebar a:hover, .toc-sidebar a.active {
             color: var(--accent-color);
             border-left-color: var(--accent-color);
             padding-left: 15px;
@@ -395,9 +388,9 @@
             font-size: 0.75rem;
         }
 
-        .toc-sidebar li:hover>.sub-item,
-        .toc-sidebar li:focus-within>.sub-item,
-        .toc-sidebar li.is-active>.sub-item {
+        .toc-sidebar li:hover > .sub-item,
+        .toc-sidebar li:focus-within > .sub-item,
+        .toc-sidebar li.is-active > .sub-item {
             max-height: 200px;
             margin-top: 5px;
             margin-bottom: 10px;
@@ -407,7 +400,6 @@
             .visual-taxonomy {
                 grid-template-columns: 1fr;
             }
-
             table {
                 display: block;
                 overflow-x: auto;
@@ -415,7 +407,6 @@
         }
     </style>
 </head>
-
 <body>
     <div class="container">
         <header>
@@ -504,53 +495,39 @@
 
         <section id="abstract">
             <h2>1. Abstract</h2>
-            <p>The <span class="highlight">LemGendary Training Suite</span> is a unified deep learning environment
-                specialized in producing high-fidelity Neural IMage Assessment (NIMA) models. This paper details two
-                core pillars of the suite: the <strong>LemGendized Universal Quality Subset</strong> and the
-                <strong>2026 Resonance Loss</strong>. By merging multiple legacy benchmarks (AVA, LIVE, TID2013) into a
-                single 440,000-sample matrix and implementing a hardware-aware batching strategy, we achieved
-                record-breaking PLCC scores of <strong>0.959+</strong>—setting a new benchmark for browser-based image
-                quality assessment.
-            </p>
+            <p>The <span class="highlight">LemGendary Training Suite</span> is a unified deep learning environment specialized in producing high-fidelity Neural IMage Assessment (NIMA) models. This paper details two core pillars of the suite: the <strong>LemGendized Universal Quality Subset</strong> and the <strong>2026 Resonance Loss</strong>. By merging multiple legacy benchmarks (AVA, LIVE, TID2013) into a single 440,000-sample matrix and implementing a hardware-aware batching strategy, we achieved record-breaking PLCC scores of <strong>0.959+</strong>—setting a new benchmark for browser-based image quality assessment.</p>
         </section>
 
         <section id="taxonomy">
             <h2>2. Visual Taxonomy: The LemGendary Universal Quality Subset</h2>
-            <p>The primary innovation of this training cycle was the abandonment of raw, disparate datasets in favor of
-                a specialized <strong>Universal Quality Subset</strong>. This subset was engineered to force the model
-                to distinguish between "Artistic Intent" and "Technical Failure."</p>
-
+            <p>The primary innovation of this training cycle was the abandonment of raw, disparate datasets in favor of a specialized <strong>Universal Quality Subset</strong>. This subset was engineered to force the model to distinguish between "Artistic Intent" and "Technical Failure."</p>
+            
             <h3>2.1 The Four-Quadrant Dataset Philosophy</h3>
-            <p>Traditional datasets often conflate beauty with clarity. Our LemGendized subset explicitly separates
-                these dimensions into four visual quadrants:</p>
+            <p>Traditional datasets often conflate beauty with clarity. Our LemGendized subset explicitly separates these dimensions into four visual quadrants:</p>
 
             <div class="visual-taxonomy">
-                <div class="quadrant"
-                    onclick="openModal('../assets/aesthetic_masterpiece.png', 'Quadrant 1: High Aesthetic', 'This quadrant represents images with professional composition, color harmony, and artistic impact. The model learns to assign 10/10 scores here regardless of camera sensor characteristics.')">
+                <div class="quadrant" onclick="openModal('../assets/aesthetic_masterpiece.png', 'Quadrant 1: High Aesthetic', 'This quadrant represents images with professional composition, color harmony, and artistic impact. The model learns to assign 10/10 scores here regardless of camera sensor characteristics.')">
                     <img src="../assets/aesthetic_masterpiece.png" alt="High Aesthetic">
                     <div class="quadrant-info">
                         <strong>Quadrant 1: High Aesthetic</strong>
                         <span>10/10 Aesthetic. Correct composition and color harmony.</span>
                     </div>
                 </div>
-                <div class="quadrant"
-                    onclick="openModal('../assets/technical_noise.png', 'Quadrant 2: Low Technical', 'Visualizing extreme sensor noise and artifacts. This teaches the model that artistic composition cannot save a technically failed capture.')">
+                <div class="quadrant" onclick="openModal('../assets/technical_noise.png', 'Quadrant 2: Low Technical', 'Visualizing extreme sensor noise and artifacts. This teaches the model that artistic composition cannot save a technically failed capture.')">
                     <img src="../assets/technical_noise.png" alt="Low Technical">
                     <div class="quadrant-info">
                         <strong>Quadrant 2: Low Technical</strong>
                         <span>Extreme sensor noise and artifacts. Composition is secondary to technical failure.</span>
                     </div>
                 </div>
-                <div class="quadrant"
-                    onclick="openModal('../assets/technical_compression.png', 'Quadrant 3: Micro-Defects', 'Focusing on JPEG banding and blocking artifacts. The EfficientNetV2-S model is specifically tuned to catch these at 320x320 resolution.')">
+                <div class="quadrant" onclick="openModal('../assets/technical_compression.png', 'Quadrant 3: Micro-Defects', 'Focusing on JPEG banding and blocking artifacts. The EfficientNetV2-S model is specifically tuned to catch these at 320x320 resolution.')">
                     <img src="../assets/technical_compression.png" alt="Micro Defects">
                     <div class="quadrant-info">
                         <strong>Quadrant 3: Micro-Defects</strong>
                         <span>JPEG banding and blocking caught at 320x320 on EfficientNetV2-S.</span>
                     </div>
                 </div>
-                <div class="quadrant"
-                    onclick="openModal('../assets/technical_sharp_boring.png', 'Quadrant 4: Sharp but Boring', 'A technically flawless image of a mundane subject. This is critical for the model to learn that sharpness is a technical metric, not an aesthetic one.')">
+                <div class="quadrant" onclick="openModal('../assets/technical_sharp_boring.png', 'Quadrant 4: Sharp but Boring', 'A technically flawless image of a mundane subject. This is critical for the model to learn that sharpness is a technical metric, not an aesthetic one.')">
                     <img src="../assets/technical_sharp_boring.png" alt="Sharp but Boring">
                     <div class="quadrant-info">
                         <strong>Quadrant 4: Sharp but Boring</strong>
@@ -562,45 +539,27 @@
 
         <section id="hardware">
             <h2>3. Hardware-Aware Infrastructure: The "GTX 1650" Specialization</h2>
-            <p>Training massive architectures like <strong>EfficientNetV2-S</strong> at high resolutions on a 4GB card
-                requires surgical VRAM management.</p>
+            <p>Training massive architectures like <strong>EfficientNetV2-S</strong> at high resolutions on a 4GB card requires surgical VRAM management.</p>
             <div class="card">
                 <h3>3.1 The Memory-Sentinel Algorithm (2026 Calibration)</h3>
-                <p>The Sentinel performs a deep-level probe of the NVIDIA GTX 1650 architecture (GDDR5/6) and the
-                    Windows 11 kernel:</p>
+                <p>The Sentinel performs a deep-level probe of the NVIDIA GTX 1650 architecture (GDDR5/6) and the Windows 11 kernel:</p>
                 <ul>
-                    <li><strong>DWS Protection Layer</strong>: We reserve a specific <strong>450MB buffer</strong> to
-                        handle the Windows Desktop Window Manager and browser background processes, ensuring zero VRAM
-                        swapping.</li>
+                    <li><strong>DWS Protection Layer</strong>: We reserve a specific <strong>450MB buffer</strong> to handle the Windows Desktop Window Manager and browser background processes, ensuring zero VRAM swapping.</li>
                     <li><strong>Dynamic Scaling</strong>:
                         <ul>
-                            <li><strong>Aesthetic (MobileNetV2)</strong>: 1.0x Coefficient - Efficient global pooling.
-                            </li>
-                            <li><strong>Technical (EfficientNetV2-S)</strong>: 2.4x Coefficient - Heavy activation
-                                overhead at 320x320.</li>
+                            <li><strong>Aesthetic (MobileNetV2)</strong>: 1.0x Coefficient - Efficient global pooling.</li>
+                            <li><strong>Technical (EfficientNetV2-S)</strong>: 2.4x Coefficient - Heavy activation overhead at 320x320.</li>
                         </ul>
                     </li>
-                    <li><strong>Cuda Benchmark = True</strong>: Enabled to allow the cuDNN kernel to optimize
-                        convolution algorithms specifically for the local GTX 1650 architecture before training begins.
-                    </li>
-                    <li><strong>Decoupled Gradient Accumulation</strong>: To reach an effective batch size of
-                        <strong>64</strong>, the script employs a <strong>4x Accumulation Layer</strong> (16 physical ->
-                        64 effective).
-                    </li>
+                    <li><strong>Cuda Benchmark = True</strong>: Enabled to allow the cuDNN kernel to optimize convolution algorithms specifically for the local GTX 1650 architecture before training begins.</li>
+                    <li><strong>Decoupled Gradient Accumulation</strong>: To reach an effective batch size of <strong>64</strong>, the script employs a <strong>4x Accumulation Layer</strong> (16 physical -> 64 effective).</li>
                 </ul>
 
                 <h3>3.2 Kernel-Level Paging Protection</h3>
-                <p>On a 4GB card, the "VRAM Swap" phenomenon—where Windows moves GPU tasks into system RAM—causes
-                    performance to drop by 90-95%. The suite implements a <strong>Sentinel Force-Lock</strong>. By
-                    monitoring the <em>cuda.memory_summary()</em>, it dynamically interrupts the dataloader if the DWS
-                    buffer is breached, preventing a kernel-level paging event and maintaining a constant high-velocity
-                    stride.</p>
+                <p>On a 4GB card, the "VRAM Swap" phenomenon—where Windows moves GPU tasks into system RAM—causes performance to drop by 90-95%. The suite implements a <strong>Sentinel Force-Lock</strong>. By monitoring the <em>cuda.memory_summary()</em>, it dynamically interrupts the dataloader if the DWS buffer is breached, preventing a kernel-level paging event and maintaining a constant high-velocity stride.</p>
 
                 <h3>3.3 OVC Data Streaming Bridge (OpenCV-to-CUDA)</h3>
-                <p>To minimize latency on the PCIe 3.0 bus, the suite uses the <strong>OVC Bridge</strong>. Images are
-                    pre-processed in the CPU's L3 cache using OpenCV's optimized SIMD instructions before being mapped
-                    directly into the GPU's memory buffer. This "Prefetch-and-Map" strategy hides the I/O latency of the
-                    320x320 high-fidelity samples, ensuring the EfficientNetV2-S kernels are never starved for data.</p>
+                <p>To minimize latency on the PCIe 3.0 bus, the suite uses the <strong>OVC Bridge</strong>. Images are pre-processed in the CPU's L3 cache using OpenCV's optimized SIMD instructions before being mapped directly into the GPU's memory buffer. This "Prefetch-and-Map" strategy hides the I/O latency of the 320x320 high-fidelity samples, ensuring the EfficientNetV2-S kernels are never starved for data.</p>
             </div>
         </section>
 
@@ -609,33 +568,19 @@
             <p>The hallmark of the LemGendary project is its departure from pure Earth Mover's Distance (EMD).</p>
             <div class="card">
                 <h3>4.1 Earth Mover's Distance (EMD) - The Histogram Anchor</h3>
-                <p>The primary loss function aligns the predicted probability distribution of scores (1–10) with the
-                    rater ground truth. This ensures the model understands not just a "mean score," but the rater
-                    agreement/disagreement for an image.</p>
-
+                <p>The primary loss function aligns the predicted probability distribution of scores (1–10) with the rater ground truth. This ensures the model understands not just a "mean score," but the rater agreement/disagreement for an image.</p>
+                
                 <h3>4.2 True Rank Correlation via EMD Temperature Anchoring</h3>
-                <p>Initially, the suite experimented with a differentiable <strong>PLCC-Penalty</strong> to proxy
-                    rank-order (SRCC). However, empirical analysis revealed that batch-wise PLCC forces predictions to
-                    symmetrically center around the <em>small batch's mean</em>, destructively scrambling global rank
-                    order. Thus, the PLCC penalty was <strong>banned</strong>. Instead, SRCC stability is achieved by
-                    retaining pure <strong>Earth Mover's Distance (EMD)</strong> augmented with a strict <strong>0.1
-                        Temperature Anchor</strong> on the softmax probabilities, ensuring rank preservation without
-                    batch-level fluctuation.</p>
+                <p>Initially, the suite experimented with a differentiable <strong>PLCC-Penalty</strong> to proxy rank-order (SRCC). However, empirical analysis revealed that batch-wise PLCC forces predictions to symmetrically center around the <em>small batch's mean</em>, destructively scrambling global rank order. Thus, the PLCC penalty was <strong>banned</strong>. Instead, SRCC stability is achieved by retaining pure  <strong>Earth Mover's Distance (EMD)</strong> augmented with a strict <strong>0.1 Temperature Anchor</strong> on the softmax probabilities, ensuring rank preservation without batch-level fluctuation.</p>
                 <div class="math-block">
                     Loss = Loss_EMD(Temperature=0.1)
                 </div>
 
                 <h3>4.3 The Resonance Coefficient Selection (0.15 Weighting)</h3>
-                <p>The <strong>0.15 coefficient</strong> was empirically selected to balance the "EMD Convergence"
-                    (absolute score accuracy) with "Ranking Integrity." A higher weight causes the model to ignore score
-                    distributions in favor of order, while a lower weight results in "Score Flipping." At 0.15, the
-                    model maintains ordinal stability even on near-identical technical artifacts.</p>
+                <p>The <strong>0.15 coefficient</strong> was empirically selected to balance the "EMD Convergence" (absolute score accuracy) with "Ranking Integrity." A higher weight causes the model to ignore score distributions in favor of order, while a lower weight results in "Score Flipping." At 0.15, the model maintains ordinal stability even on near-identical technical artifacts.</p>
 
                 <h3>4.4 The Soft-Label PMF Strategy</h3>
-                <p>To achieve high-fidelity convergence, scores are not treated as flat scalars (e.g., 7.5). Instead,
-                    they are transformed into a <strong>Probability Mass Function (PMF)</strong> over the 1-10 range.
-                    This allows the EMD loss to "feel" the shape of human consensus, teaching the model to distinguish
-                    between a "solid 7.0" and a "highly controversial 7.0."</p>
+                <p>To achieve high-fidelity convergence, scores are not treated as flat scalars (e.g., 7.5). Instead, they are transformed into a <strong>Probability Mass Function (PMF)</strong> over the 1-10 range. This allows the EMD loss to "feel" the shape of human consensus, teaching the model to distinguish between a "solid 7.0" and a "highly controversial 7.0."</p>
             </div>
         </section>
 
@@ -687,172 +632,88 @@
 
         <section id="health">
             <h2>6. Dataset Health & Recovery: The Infinite Pipeline</h2>
-            <p>Managing over 1TB of raw dataset history on a local machine required a multi-tier orchestration layer
-                that ensures the GPU never starves for data while staying within physical storage bounds.</p>
+            <p>Managing over 1TB of raw dataset history on a local machine required a multi-tier orchestration layer that ensures the GPU never starves for data while staying within physical storage bounds.</p>
             <div class="card">
                 <h3>6.1 The Surgical Memory Purger</h3>
-                <p>The suite executes a "Shred-and-Fetch" policy. The <strong>Memory Purger</strong> monitors SSD space
-                    in real-time. The moment a dataset (like TID2013) is no longer required for any future training
-                    phase, its entire directory is purged instantly. Unlike traditional deletions, this process performs
-                    a <strong>File Locking Check</strong> to ensure no training processes are actively reading from the
-                    directory, preventing kernel-level crashes.</p>
+                <p>The suite executes a "Shred-and-Fetch" policy. The <strong>Memory Purger</strong> monitors SSD space in real-time. The moment a dataset (like TID2013) is no longer required for any future training phase, its entire directory is purged instantly. Unlike traditional deletions, this process performs a <strong>File Locking Check</strong> to ensure no training processes are actively reading from the directory, preventing kernel-level crashes.</p>
 
                 <h3>6.2 Pre-Fetch Workers & Latency Hiding</h3>
-                <p>To maintain peak hardware utilization, the suite employs a background <strong>Pre-Fetch
-                        Worker</strong>. While the model is training on Epoch N of one dataset, the worker is already
-                    streaming and decompressing the <em>next</em> dataset from Kaggle or local storage. This
-                    parallelization hides the 5-10 minute decompression latency, ensuring the training loop continues
-                    without a single second of "Idle GPU" time.</p>
+                <p>To maintain peak hardware utilization, the suite employs a background <strong>Pre-Fetch Worker</strong>. While the model is training on Epoch N of one dataset, the worker is already streaming and decompressing the <em>next</em> dataset from Kaggle or local storage. This parallelization hides the 5-10 minute decompression latency, ensuring the training loop continues without a single second of "Idle GPU" time.</p>
 
                 <h3>6.3 Automated Checksum & Integrity Shield</h3>
                 <ul>
-                    <li><strong>Checksum Verification</strong>: Automatically validates the MD5/SHA256 of downloaded
-                        ZIPs before extraction.</li>
-                    <li><strong>The "Corrupted JPEG" Shield</strong>: A specialized dataloader utility that detects
-                        malformed headers (e.g., <em>Corrupt JPEG data: 6 extraneous bytes</em>) and automatically drops
-                        the sample during batch formation. This prevents the "Black Batch" phenomenon where a single
-                        corrupt byte could trigger an infinite gradient/NaN crash.</li>
+                    <li><strong>Checksum Verification</strong>: Automatically validates the MD5/SHA256 of downloaded ZIPs before extraction.</li>
+                    <li><strong>The "Corrupted JPEG" Shield</strong>: A specialized dataloader utility that detects malformed headers (e.g., <em>Corrupt JPEG data: 6 extraneous bytes</em>) and automatically drops the sample during batch formation. This prevents the "Black Batch" phenomenon where a single corrupt byte could trigger an infinite gradient/NaN crash.</li>
                 </ul>
 
                 <h3>6.4 Standardized Data-Unification</h3>
-                <p>To merge AVA (Aesthetics) and TID (Technical), the suite executes a <strong>Normalizing
-                        Transform</strong>. This scales varied score ranges (e.g., 0–1 into 1–10) and converts
-                    regression scores into probability mass functions (PMF). This unification allows the same model
-                    architecture to be trained on the entire 440,000-sample matrix without specialized branches.</p>
+                <p>To merge AVA (Aesthetics) and TID (Technical), the suite executes a <strong>Normalizing Transform</strong>. This scales varied score ranges (e.g., 0–1 into 1–10) and converts regression scores into probability mass functions (PMF). This unification allows the same model architecture to be trained on the entire 440,000-sample matrix without specialized branches.</p>
             </div>
         </section>
 
         <section id="challenges">
             <h2>7. Challenges & Resilience Architecture</h2>
-            <p>The training of 440,000 samples on a 48-hour continuous cycle required "Resilience Architecture" fixes to
-                handle several engineering hurdles.</p>
+            <p>The training of 440,000 samples on a 48-hour continuous cycle required "Resilience Architecture" fixes to handle several engineering hurdles.</p>
             <div class="issue-box">
                 <h4>7.1 The Scheduler Double-Stepping Bug</h4>
-                <p><strong>Issue</strong>: An early iteration of the suite suffered from an asynchronous double-step in
-                    the <em>OneCycleLR</em> scheduler. This caused the learning rate to anneal 2x faster than the epoch
-                    count, leading to premature metric "slippage" and loss of SRCC resolution by Epoch 10.</p>
-                <p><strong>Fix</strong>:</p>
-                <p>Consistently synchronized <em>scheduler.step()</em> to fire only after a successful optimizer step
-                    (16 physical batches), restoring the intended mathematical curve.</p>
+                <p><strong>Issue</strong>: An early iteration of the suite suffered from an asynchronous double-step in the <em>OneCycleLR</em> scheduler. This caused the learning rate to anneal 2x faster than the epoch count, leading to premature metric "slippage" and loss of SRCC resolution by Epoch 10.</p>
+                <p><strong>Fix</strong>: Consistently synchronized <em>scheduler.step()</em> to fire only after a successful optimizer step (16 physical batches), restoring the intended mathematical curve.</p>
             </div>
             <div class="issue-box">
                 <h4>7.2 Numerical Instability (NaN Shield)</h4>
-                <p><strong>Issue</strong>: High-resolution training of EfficientNetV2-S in FP16 (Half Precision)
-                    occasionally triggered numerical overflows during the warmup phase, resulting in <em>NaN</em> losses
-                    that could corrupt weight files.</p>
-                <p><strong>Fix</strong>:</p>
-                <p>Implemented the <strong>2026 NaN Shield</strong>. The script now detects <em>NaN</em> losses in
-                    real-time, clears gradients without updating weights, and skips the corrupt batch to preserve the
-                    model's integrity.</p>
+                <p><strong>Issue</strong>: High-resolution training of EfficientNetV2-S in FP16 (Half Precision) occasionally triggered numerical overflows during the warmup phase, resulting in <em>NaN</em> losses that could corrupt weight files.</p>
+                <p><strong>Fix</strong>: Implemented the <strong>2026 NaN Shield</strong>. The script now detects <em>NaN</em> losses in real-time, clears gradients without updating weights, and skips the corrupt batch to preserve the model's integrity.</p>
             </div>
             <div class="issue-box">
                 <h4>7.3 Continuity & SOTA Recovery</h4>
-                <p><strong>Issue</strong>: Interruptions in training (system reboots/crashes) initially caused the
-                    suites to restart from Epoch 1, triggering a 5-epoch "Backbone Freeze" and resetting progress.</p>
-                <p><strong>Fix</strong>:</p>
-                <p>Implemented a <strong>Global Guardrail</strong> that natively Fall-Backs to the <em>best.pth</em>
-                    checkpoint if the <em>latest.pth</em> is missing, ensuring zero loss of historical progress and
-                    bypassing unnecessary stabilization freezes.</p>
+                <p><strong>Issue</strong>: Interruptions in training (system reboots/crashes) initially caused the suites to restart from Epoch 1, triggering a 5-epoch "Backbone Freeze" and resetting progress.</p>
+                <p><strong>Fix</strong>: Implemented a <strong>Global Guardrail</strong> that natively Fall-Backs to the <em>best.pth</em> checkpoint if the <em>latest.pth</em> is missing, ensuring zero loss of historical progress and bypassing unnecessary stabilization freezes.</p>
             </div>
             <div class="issue-box">
                 <h4>7.4 The SRCC Convergence Plateau (Nuclear Stability Lockdown)</h4>
-                <p><strong>Issue</strong>: During late-stage convergence (Epoch 15), the Technical model hit an
-                    aggressive numerical wall. Initial "Double-Precision" fixes were insufficient as NaNs "ghosted" into
-                    the Batch Normalization buffers and the Optimizer's momentum states, causing immediate re-explosions
-                    upon restart.</p>
-                <p><strong>Fix</strong>:</p>
-                <p>Executed the <strong>2026 Nuclear Stability Lockdown</strong>. This ultimate resilience protocol
-                    performs a <strong>Triple-Audit</strong> (Weights, Buffers, and States) on every NaN detection. Upon
-                    a deep-state corruption event, the system reloads the SOTA baseline, performs a radical
-                    <strong>Momentum Flush</strong> (purging failed gradient history), and initiates a <strong>50% LR
-                        Cooling</strong> phase. Combined with <strong>float64 (Double Precision) var/covar math</strong>
-                    and a tightened <strong>0.15 Resonance Weight</strong>, this lockdown successfully seated the model
-                    into a stable manifold, securing the path to 0.90 SRCC.
-                </p>
+                <p><strong>Issue</strong>: During late-stage convergence (Epoch 15), the Technical model hit an aggressive numerical wall. Initial "Double-Precision" fixes were insufficient as NaNs "ghosted" into the Batch Normalization buffers and the Optimizer's momentum states, causing immediate re-explosions upon restart.</p>
+                <p><strong>Fix</strong>: Executed the <strong>2026 Nuclear Stability Lockdown</strong>. This ultimate resilience protocol performs a <strong>Triple-Audit</strong> (Weights, Buffers, and States) on every NaN detection. Upon a deep-state corruption event, the system reloads the SOTA baseline, performs a radical <strong>Momentum Flush</strong> (purging failed gradient history), and initiates a <strong>50% LR Cooling</strong> phase. Combined with <strong>float64 (Double Precision) var/covar math</strong> and a tightened <strong>0.15 Resonance Weight</strong>, this lockdown successfully seated the model into a stable manifold, securing the path to 0.90 SRCC.</p>
             </div>
             <div class="issue-box">
                 <h4>7.5 The Sentinel-Scheduler De-Sync (SOTA Alignment)</h4>
-                <p><strong>Issue</strong>: On 4GB hardware (GTX 1650), the <strong>Memory-Sentinel</strong> dynamically
-                    shrinks physical batches (e.g., 64 -> 16) while maintaining effective throughput via accumulation.
-                    Early iterations called <em>scheduler.step()</em> on every physical batch, causing the scheduler to
-                    "run out of fuel" by Epoch 12.5 and crash with a <em>ValueError</em>.</p>
-                <p><strong>Fix</strong>:</p>
-                <p>Synchronized the "Scheduler Stride" with the "Optimizer Stride." By moving the scheduler logic inside
-                    the accumulation block, the steps are now perfectly aligned with the effective batch count,
-                    restoring the integrity of the 50-epoch annealing curve.</p>
+                <p><strong>Issue</strong>: On 4GB hardware (GTX 1650), the <strong>Memory-Sentinel</strong> dynamically shrinks physical batches (e.g., 64 -> 16) while maintaining effective throughput via accumulation. Early iterations called <em>scheduler.step()</em> on every physical batch, causing the scheduler to "run out of fuel" by Epoch 12.5 and crash with a <em>ValueError</em>.</p>
+                <p><strong>Fix</strong>: Synchronized the "Scheduler Stride" with the "Optimizer Stride." By moving the scheduler logic inside the accumulation block, the steps are now perfectly aligned with the effective batch count, restoring the integrity of the 50-epoch annealing curve.</p>
             </div>
             <div class="issue-box">
                 <h4>7.6 Pre-Emptive State Injection</h4>
-                <p><strong>Issue</strong>: When resuming from checkpoints after a dataset scale shift, the
-                    <em>OneCycleLR</em> object often carries an "Internal Runway" locked to the old dataset size,
-                    preventing it from stepping into the new, larger mission space.
-                </p>
-                <p><strong>Fix</strong>:</p>
-                <p>Implemented <strong>Deep-State Injection</strong>. The suite now reaches into the raw
-                    <em>scheduler_state</em> dictionary from the file and manually patches the <em>total_steps</em>,
-                    <em>step_size_up</em>, and <em>step_size_down</em> keys <em>before</em> loading. This "tricks" the
-                    scheduler into a larger manifold, allowing it to continue training without losing historical
-                    momentum.
-                </p>
+                <p><strong>Issue</strong>: When resuming from checkpoints after a dataset scale shift, the <em>OneCycleLR</em> object often carries an "Internal Runway" locked to the old dataset size, preventing it from stepping into the new, larger mission space.</p>
+                <p><strong>Fix</strong>: Implemented <strong>Deep-State Injection</strong>. The suite now reaches into the raw <em>scheduler_state</em> dictionary from the file and manually patches the <em>total_steps</em>, <em>step_size_up</em>, and <em>step_size_down</em> keys <em>before</em> loading. This "tricks" the scheduler into a larger manifold, allowing it to continue training without losing historical momentum.</p>
             </div>
             <div class="issue-box">
                 <h4>7.7 The Infinite Loop Plateau (Deep-State Sanitization & Thermal Shield)</h4>
-                <p><strong>Issue</strong>: During the final "SOTA Breach" (Epoch 16+), the model encountered an infinite
-                    NaN loop where even rollbacks to the stable baseline resulted in immediate re-explosions. This was
-                    traced to "Ghosting" in non-learnable buffers and explosive gradient norm drift on the Technical
-                    manifold.</p>
-                <p><strong>Fix</strong>:</p>
-                <p>Executed the <strong>v1.0.25 Global Stabilization Fix</strong>.</p>
+                <p><strong>Issue</strong>: During the final "SOTA Breach" (Epoch 16+), the model encountered an infinite NaN loop where even rollbacks to the stable baseline resulted in immediate re-explosions. This was traced to "Ghosting" in non-learnable buffers and explosive gradient norm drift on the Technical manifold.</p>
+                <p><strong>Fix</strong>: Executed the <strong>v1.0.25 Global Stabilization Fix</strong>.</p>
                 <ul>
-                    <li><strong>Ghost-Buster Buffer Audit</strong>: Surgically sanitizes <em>model.buffers()</em>
-                        (BatchNorm stats) during rollback to zero out non-finite artifacts.</li>
-                    <li><strong>Thermal Shield</strong>: Automatically re-freezes the backbone for 2,500 iterations upon
-                        detection of recursive NaNs, providing a "Safe Harbor" for head stabilization.</li>
-                    <li><strong>Velocity Governor</strong>: Tightened gradient norm clipping to <em>0.5</em> to
-                        neutralize stochastic drift.</li>
+                    <li><strong>Ghost-Buster Buffer Audit</strong>: Surgically sanitizes <em>model.buffers()</em> (BatchNorm stats) during rollback to zero out non-finite artifacts.</li>
+                    <li><strong>Thermal Shield</strong>: Automatically re-freezes the backbone for 2,500 iterations upon detection of recursive NaNs, providing a "Safe Harbor" for head stabilization.</li>
+                    <li><strong>Velocity Governor</strong>: Tightened gradient norm clipping to <em>0.5</em> to neutralize stochastic drift.</li>
                 </ul>
             </div>
             <div class="issue-box">
                 <h4>7.8 The Pearson Singularity (Singularity Shield)</h4>
-                <p><strong>Issue</strong>: During extremely high-precision fine-tuning, the model can output
-                    "Zero-Variance" batches where all predictions are identical. This triggers a $0/0$ division error in
-                    the Pearson Correlation math, producing NaN gradients that bypass the standard scaler.</p>
-                <p><strong>Fix</strong>:</p>
-                <p>Implemented the <strong>v1.0.26 Singularity Shield</strong>. The <em>CombinedLoss</em> is now wrapped
-                    in a <em>nan_to_num</em> mathematical anchor, which forces any non-finite singularity returns to
-                    <em>0.0</em>. This "disconnects" corrupted batches from the optimizer, preserving the model's
-                    momentum.
-                </p>
+                <p><strong>Issue</strong>: During extremely high-precision fine-tuning, the model can output "Zero-Variance" batches where all predictions are identical. This triggers a $0/0$ division error in the Pearson Correlation math, producing NaN gradients that bypass the standard scaler.</p>
+                <p><strong>Fix</strong>: Implemented the <strong>v1.0.26 Singularity Shield</strong>. The <em>CombinedLoss</em> is now wrapped in a <em>nan_to_num</em> mathematical anchor, which forces any non-finite singularity returns to <em>0.0</em>. This "disconnects" corrupted batches from the optimizer, preserving the model's momentum.</p>
             </div>
             <div class="issue-box">
                 <h4>7.9 Mitochondrial Runway Bloat (Runway Recalibration)</h4>
-                <p><strong>Issue</strong>: Checkpoints saved during the "Physical Stride" era (stepping 4x too fast)
-                    carry a "Bloated" step counter. When resuming with the corrected "Optimizer Stride" math, the
-                    scheduler thinks the mission is already finished at Step 314,300 and crashes upon reaching 314,301.
-                </p>
-                <p><strong>Fix</strong>:</p>
-                <p>Executed the <strong>v1.0.27 Runway Recalibration</strong>. The suite now performs a <strong>Mission
-                        Clock (Cosine Clock) Rewind</strong> during injection, surgically resetting the scheduler's
-                    internal step counter to the mathematically correct position for the current epoch (e.g., Step
-                    100,560 for Epoch 16).</p>
+                <p><strong>Issue</strong>: Checkpoints saved during the "Physical Stride" era (stepping 4x too fast) carry a "Bloated" step counter. When resuming with the corrected "Optimizer Stride" math, the scheduler thinks the mission is already finished at Step 314,300 and crashes upon reaching 314,301.</p>
+                <p><strong>Fix</strong>: Executed the <strong>v1.0.27 Runway Recalibration</strong>. The suite now performs a <strong>Mission Clock (Cosine Clock) Rewind</strong> during injection, surgically resetting the scheduler's internal step counter to the mathematically correct position for the current epoch (e.g., Step 100,560 for Epoch 16).</p>
             </div>
             <div class="issue-box">
                 <h4>7.10 Power-Loss Resilience (The Mitochondrial Shield)</h4>
-                <p><strong>Issue</strong>: In environments with high-resolution datasets (440k+ samples), a single
-                    training epoch can take up to 10 hours. A power failure or system crash at 90% progress could result
-                    in the loss of 9 hours of specialized GTX 1650 compute time.</p>
-                <p><strong>Fix</strong>:</p>
-                <p>Implemented the <strong>v1.0.35 Mitochondrial Shield</strong>. The suite now performs high-frequency
-                    intra-epoch checkpointing every 10% of batches to a specialized <em>_progress.pth</em> file. Upon
-                    resumption, the logic automatically "Fast-Forwards" the DataLoader to the exact saved iteration,
-                    ensuring zero loss of training momentum across extended cycles.</p>
+                <p><strong>Issue</strong>: In environments with high-resolution datasets (440k+ samples), a single training epoch can take up to 10 hours. A power failure or system crash at 90% progress could result in the loss of 9 hours of specialized GTX 1650 compute time.</p>
+                <p><strong>Fix</strong>: Implemented the <strong>v1.0.35 Mitochondrial Shield</strong>. The suite now performs high-frequency intra-epoch checkpointing every 10% of batches to a specialized <em>_progress.pth</em> file. Upon resumption, the logic automatically "Fast-Forwards" the DataLoader to the exact saved iteration, ensuring zero loss of training momentum across extended cycles.</p>
             </div>
         </section>
 
         <section id="onnx">
             <h2>8. Deployment Strategy: Why ONNX?</h2>
-            <p>The migration from PyTorch to ONNX was driven by the necessity of <strong>WebGPU stability</strong>.
-                Below is a comprehensive comparison of ONNX against competing deployment formats.</p>
+            <p>The migration from PyTorch to ONNX was driven by the necessity of <strong>WebGPU stability</strong>. Below is a comprehensive comparison of ONNX against competing deployment formats.</p>
             <h3>8.1 Format Comparison Matrix</h3>
             <table>
                 <thead>
@@ -911,53 +772,30 @@
 
             <h3>8.2 Why ONNX Wins for LemGendary</h3>
             <ol>
-                <li><strong>WebGPU Destiny</strong>: The primary target is browser-based image restoration. ONNX
-                    provides the highest performance bridge to <strong>WebGPU</strong>, allowing the models to run at
-                    native speeds via <strong>OnnxRuntime-Web</strong>.</li>
-                <li><strong>Graph Shrinking (Constant Folding)</strong>: During export, the suite executes graph
-                    optimization, stripping away training-only layers to reduce file size by ~15%.</li>
-                <li><strong>Cross-Backend</strong>: ONNX ensures the "LemGendary" experience is accessible on any
-                    device, from mobile browsers to high-end RTX desktops.</li>
+                <li><strong>WebGPU Destiny</strong>: The primary target is browser-based image restoration. ONNX provides the highest performance bridge to <strong>WebGPU</strong>, allowing the models to run at native speeds via <strong>OnnxRuntime-Web</strong>.</li>
+                <li><strong>Graph Shrinking (Constant Folding)</strong>: During export, the suite executes graph optimization, stripping away training-only layers to reduce file size by ~15%.</li>
+                <li><strong>Cross-Backend</strong>: ONNX ensures the "LemGendary" experience is accessible on any device, from mobile browsers to high-end RTX desktops.</li>
             </ol>
         </section>
 
         <section id="conclusion">
             <h2>9. Conclusion: The Real-Time Quality Paradigm</h2>
-            <p>The LemGendary Training Suite has established a new 2026 baseline for Neural Image Assessment, proving
-                that state-of-the-art results do not require corporate-scale compute clusters—they require
-                <strong>hardware-aware resilience architecture</strong>.
-            </p>
+            <p>The LemGendary Training Suite has established a new 2026 baseline for Neural Image Assessment, proving that state-of-the-art results do not require corporate-scale compute clusters—they require <strong>hardware-aware resilience architecture</strong>.</p>
             <div class="card">
                 <h3>9.1 Summary of Breakthroughs</h3>
-                <p>By collapsing the legacy divide between "Artistic beauty" and "Technical clarity" into a single
-                    <strong>LemGendized Universal Quality Subset</strong>, we have created a training environment where
-                    models achieve <strong>0.985 PLCC</strong> and <strong>0.906 SRCC</strong> stability. These metrics
-                    are not merely academic; they signify a level of ordinal stability that matches human rater
-                    consensus across 440,000 diverse samples.
-                </p>
-
+                <p>By collapsing the legacy divide between "Artistic beauty" and "Technical clarity" into a single <strong>LemGendized Universal Quality Subset</strong>, we have created a training environment where models achieve <strong>0.985 PLCC</strong> and <strong>0.906 SRCC</strong> stability. These metrics are not merely academic; they signify a level of ordinal stability that matches human rater consensus across 440,000 diverse samples.</p>
+                
                 <h3>9.2 The Impact of Data-First Engineering</h3>
-                <p>The core takeaway of the LemGendary project is that <strong>merging and standardizing
-                        datasets</strong> is as critical as architectural selection. By neutralizing rater bias and
-                    standardizing diverse score distributions into a single 1-10 probability matrix, we provided the
-                    backbones (MobileNetV2 and EfficientNetV2-S) with a cleaner signal than any original research track.
-                </p>
-
+                <p>The core takeaway of the LemGendary project is that <strong>merging and standardizing datasets</strong> is as critical as architectural selection. By neutralizing rater bias and standardizing diverse score distributions into a single 1-10 probability matrix, we provided the backbones (MobileNetV2 and EfficientNetV2-S) with a cleaner signal than any original research track.</p>
+                
                 <h3>9.3 Future Outlook: From Browser to Edge</h3>
-                <p>The graduation of these models to the ONNX / WebGPU ecosystem marks the beginning of a new era for
-                    browser-based image restoration. The ability to score and select high-quality images in real-time,
-                    locally on a user's machine, removes the cloud-latency hurdle for AI photo editing suites. Future
-                    iterations will focus on:</p>
+                <p>The graduation of these models to the ONNX / WebGPU ecosystem marks the beginning of a new era for browser-based image restoration. The ability to score and select high-quality images in real-time, locally on a user's machine, removes the cloud-latency hurdle for AI photo editing suites. Future iterations will focus on:</p>
                 <ul>
-                    <li><strong>Temporal Quality Assessment</strong>: Expanding the Universal Matrix to video frames.
-                    </li>
-                    <li><strong>Edge Refinement</strong>: Implementing LoRA-based local adaptation for specific
-                        user-camera characteristics.</li>
+                    <li><strong>Temporal Quality Assessment</strong>: Expanding the Universal Matrix to video frames.</li>
+                    <li><strong>Edge Refinement</strong>: Implementing LoRA-based local adaptation for specific user-camera characteristics.</li>
                 </ul>
             </div>
-            <p>Ultimately, the LemGendary project proves that on a humble <strong>GTX 1650</strong>, with the right
-                mathematical guardrails (2026 Resilience Loss) and resource monitoring (Memory-Sentinel), the gap
-                between laboratory SOTA and consumer deployment has officially closed.</p>
+            <p>Ultimately, the LemGendary project proves that on a humble <strong>GTX 1650</strong>, with the right mathematical guardrails (2026 Resilience Loss) and resource monitoring (Memory-Sentinel), the gap between laboratory SOTA and consumer deployment has officially closed.</p>
         </section>
 
         <div id="gallery-modal" class="modal" onclick="closeModal()">
@@ -971,10 +809,10 @@
                 const modal = document.getElementById('gallery-modal');
                 const modalImg = document.getElementById('modal-img');
                 const modalCaption = document.getElementById('modal-caption');
-
+                
                 modalImg.src = imgSrc;
                 modalCaption.innerHTML = `<h4>${title}</h4><p>${description}</p>`;
-
+                
                 modal.classList.add('active');
             }
 
@@ -1000,12 +838,12 @@
                     if (entry.isIntersecting) {
                         const id = entry.target.getAttribute('id');
                         const tocLink = document.querySelector(`.toc-sidebar a[href="#${id}"]`);
-
+                        
                         if (tocLink) {
                             // Remove active from all
                             document.querySelectorAll('.toc-sidebar a').forEach(link => link.classList.remove('active'));
                             document.querySelectorAll('.toc-sidebar li').forEach(li => li.classList.remove('is-active'));
-
+                            
                             // Add active to current
                             tocLink.classList.add('active');
                             tocLink.closest('li').classList.add('is-active');
@@ -1026,5 +864,4 @@
         </footer>
     </div>
 </body>
-
 </html>
