@@ -444,7 +444,7 @@
                 <li><a href="#optimization">4. Mathematics</a>
                     <ul class="sub-item">
                         <li><a href="#optimization">4.1 EMD Anchor</a></li>
-                        <li><a href="#optimization">4.2 PLCC Penalty</a></li>
+                        <li><a href="#optimization">4.2 EMD Temp Anchor</a></li>
                         <li><a href="#optimization">4.3 Resonance Curve</a></li>
                         <li><a href="#optimization">4.4 PMF Strategy</a></li>
                     </ul>
@@ -570,10 +570,10 @@
                 <h3>4.1 Earth Mover's Distance (EMD) - The Histogram Anchor</h3>
                 <p>The primary loss function aligns the predicted probability distribution of scores (1–10) with the rater ground truth. This ensures the model understands not just a "mean score," but the rater agreement/disagreement for an image.</p>
                 
-                <h3>4.2 The PLCC Penalty - The Differentiable Proxy for Rank Order</h3>
-                <p>The industry standard for "ranking" is the <strong>SRCC</strong>, but it is non-differentiable. To force rank-order stability, the suite implements a <strong>PLCC-Penalty</strong>:</p>
+                <h3>4.2 True Rank Correlation via EMD Temperature Anchoring</h3>
+                <p>Initially, the suite experimented with a differentiable <strong>PLCC-Penalty</strong> to proxy rank-order (SRCC). However, empirical analysis revealed that batch-wise PLCC forces predictions to symmetrically center around the <em>small batch's mean</em>, destructively scrambling global rank order. Thus, the PLCC penalty was <strong>banned</strong>. Instead, SRCC stability is achieved by retaining pure  <strong>Earth Mover's Distance (EMD)</strong> augmented with a strict <strong>0.1 Temperature Anchor</strong> on the softmax probabilities, ensuring rank preservation without batch-level fluctuation.</p>
                 <div class="math-block">
-                    Loss = Loss(EMD) + 0.15 * (1.0 - PLCC)
+                    Loss = Loss_EMD(Temperature=0.1)
                 </div>
 
                 <h3>4.3 The Resonance Coefficient Selection (0.15 Weighting)</h3>

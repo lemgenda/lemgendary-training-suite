@@ -35,7 +35,7 @@ nima_technical:
   dataset_type: quality
   optimal_key: nima_technical
   architecture_type: EfficientNetV2-S (Spatial Integrity)
-  description: Technical quality scorer trained on LIVE+TID2013, optimized for detecting micro-defects, noise, and artifacts.
+  description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset, optimized for detecting micro-defects, noise, and artifacts.
   datasets:
   - LemGendizedQualityDataset
 upn_v2:

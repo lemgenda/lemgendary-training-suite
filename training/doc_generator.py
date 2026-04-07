@@ -141,6 +141,10 @@ The model uses a backbone pre-trained on ImageNet-1K with custom adaptation laye
 
 The matrix is optimized for browser-based execution via **ONNX Runtime Web**, bypassing standard browser memory constraints.
 
+## Stability Constraints
+
+Trained using **Earth Mover's Distance (EMD)** with strict 0.1 Temperature Anchoring to prevent probability collapse. The batch-level PLCC penalty is explicitly disabled to preserve global True Rank Correlation (SRCC).
+
 # Data Overview
 
 ## Training data

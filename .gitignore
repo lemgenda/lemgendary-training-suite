@@ -1,4 +1,4 @@
-trained-models/
+trained-models/checkpoints/
 data/datasets/
 .venv*/
 __pycache__/

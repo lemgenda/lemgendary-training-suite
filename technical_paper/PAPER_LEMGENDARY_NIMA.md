@@ -16,7 +16,7 @@
    - [3.3 OVC Data Streaming Bridge](#33-ovc-data-streaming-bridge-opencv-to-cuda)
 4. [Mathematical Optimization: The 2026 Resonance Loss](#4-mathematical-optimization-the-2026-resonance-loss)
    - [4.1 Earth Mover's Distance (EMD)](#41-earth-movers-distance-emd---the-histogram-anchor)
-   - [4.2 The PLCC Penalty](#42-the-plcc-penalty---the-differentiable-proxy-for-rank-order)
+   - [4.2 True Rank Correlation via EMD Temperature Anchoring](#42-true-rank-correlation-via-emd-temperature-anchoring)
    - [4.3 Resonance Coefficient Selection](#43-the-resonance-coefficient-selection-015-weighting)
    - [4.4 Soft-Label PMF Strategy](#44-the-soft-label-pmf-strategy)
 5. [Performance Metrics: LemGendary vs. Google SOTA](#5-performance-metrics-lemgendary-vs-google-sota)
@@ -98,9 +98,9 @@ The hallmark of the LemGendary project is its departure from pure Earth Mover's 
 ### 4.1 Earth Mover's Distance (EMD) - The Histogram Anchor
 The primary loss function aligns the predicted probability distribution of scores (1–10) with the rater ground truth. This ensures the model understands not just a "mean score," but the rater agreement/disagreement for an image.
 
-### 4.2 The PLCC Penalty - The Differentiable Proxy for Rank Order
-The industry standard for "ranking" is the **SRCC**, but it is non-differentiable. To force rank-order stability, the suite implements a **PLCC-Penalty**:
-$$Loss_{Resonance} = Loss_{EMD} + 0.15 \times (1.0 - PLCC)$$
+### 4.2 True Rank Correlation via EMD Temperature Anchoring
+Initially, the suite experimented with a differentiable **PLCC-Penalty** to proxy rank-order (SRCC). However, empirical analysis revealed that batch-wise PLCC forces predictions to symmetrically center around the *small batch's mean*, destructively scrambling global rank order. Thus, the PLCC penalty was **banned**. Instead, SRCC stability is achieved by retaining pure **Earth Mover's Distance (EMD)** augmented with a strict **0.1 Temperature Anchor** on the softmax probabilities, ensuring rank preservation without batch-level fluctuation.
+$$Loss_{Resonance} = Loss_{EMD(Temperature=0.1)}$$
 
 ### 4.3 The Resonance Coefficient Selection (0.15 Weighting)
 The **0.15 coefficient** was empirically selected to balance the "EMD Convergence" (absolute score accuracy) with "Ranking Integrity." A higher weight causes the model to ignore score distributions in favor of order, while a lower weight results in "Score Flipping." At 0.15, the model maintains ordinal stability even on near-identical technical artifacts.

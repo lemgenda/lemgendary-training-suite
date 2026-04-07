@@ -95,21 +95,9 @@ class CombinedLoss(nn.Module):
             cdf_t = torch.cumsum(t_probs, dim=-1)
             emd = torch.mean((cdf_p - cdf_t) ** 2)
             
-            # PLCC Penalty (Secondary - 2026 SOTA)
-            weights = torch.arange(1, 11).float().to(pred_f.device)
-            p_mean = (p_probs * weights).sum(dim=-1)
-            t_mean = (t_probs * weights).sum(dim=-1)
-            
-            vx = p_mean - torch.mean(p_mean)
-            vy = t_mean - torch.mean(t_mean)
-            
-            # 2026 Resilience: Double-Precision (float64) Anchor for PLCC math to eliminate FP16 rounding overflows
-            vx_d, vy_d = vx.double(), vy.double()
-            denom_d = torch.sqrt(torch.sum(vx_d ** 2).clamp(min=1e-6)) * torch.sqrt(torch.sum(vy_d ** 2).clamp(min=1e-6)) + 1e-6
-            plcc_d = torch.sum(vx_d * vy_d) / denom_d
-            plcc = plcc_d.float()
-            
-            total_loss = emd + 0.15 * (1.0 - plcc) # Balanced Resonance (SOTA Target)
+            # EMD Loss Only - Removed batch-wise PLCC penalty which destructively shifts 
+            # predictions away from the global mean and destroys global SRCC / Rank Correlation
+            total_loss = emd
             return torch.nan_to_num(total_loss, nan=0.0, posinf=0.0, neginf=0.0)
         elif self.task_type == "classification":
             return self.ce(pred, target)
@@ -542,12 +530,24 @@ def main():
         consecutive_nans = 0
         consecutive_singularities = 0
         thermal_steps_left = 0
+        # 2026: DataLoader Determinism Guard (Zero Data Leakage Resume)
+        # Seeds the random samplers uniquely per-epoch but deterministically, 
+        # so fast-forwarding doesn't skip or duplicate unseen images upon restart.
+        import random; random.seed(42 + epoch)
+        import numpy as np; np.random.seed(42 + epoch)
+        torch.manual_seed(42 + epoch)
+        if torch.cuda.is_available(): torch.cuda.manual_seed_all(42 + epoch)
+
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]")
         
         # --- 2026: Fast-Forward Resilience ---
         if epoch == start_epoch and resume_iteration > 0:
             print(f"📡 [RESILIENCY] Fast-forwarding DataLoader to iteration {resume_iteration}...")
-        
+            # Fast-forward the LR scheduler to maintain phase sync (was skipped by `continue`)
+            skip_steps = resume_iteration // accumulation_steps
+            for _ in range(skip_steps):
+                scheduler.step()
+                
         optimizer.zero_grad() # Initial zero
         for i, batch in enumerate(pbar):
             # Fast-forward skip
@@ -705,7 +705,9 @@ def main():
                 # --- 2026: Intra-Epoch Resilience (The Mitochondrial Pulse) ---
                 # Save progress every X% of batches to safeguard hours of GTX 1650 compute
                 interval_pct = config.get("intra_epoch_checkpoint_pct", 0.1)
-                interval_steps = max(1, int(len(train_loader) * interval_pct))
+                # Snap the interval stride to always perfectly align with accumulation boundaries
+                base_interval = max(1, int(len(train_loader) * interval_pct))
+                interval_steps = max(accumulation_steps, (base_interval // accumulation_steps) * accumulation_steps)
                 if (i + 1) % interval_steps == 0:
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
                     torch.save({
@@ -780,7 +782,8 @@ def main():
                 t = torch.cat(all_targets)
                 if p.shape[-1] == 10:
                     weights = torch.arange(1, 11).float()
-                    p_probs = F.softmax(p, dim=-1)
+                    # 2026 Resilience: Missing * 0.1 temperature anchor restored for metrics
+                    p_probs = F.softmax(p.clamp(min=-25, max=25) * 0.1, dim=-1)
                     t_probs = t / torch.clamp(t.sum(dim=-1, keepdim=True), min=1e-6)
                     p_mean = (p_probs * weights).sum(dim=-1).numpy()
                     t_mean = (t_probs * weights).sum(dim=-1).numpy()
@@ -871,6 +874,12 @@ def main():
         
         # Consistent checkpoint persistence
         torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth"))  # pyre-ignore
+        
+        # Clean up the intra-epoch progress file now that the epoch is safely committed
+        progress_ckpt_path = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+        if os.path.exists(progress_ckpt_path):
+            try: os.remove(progress_ckpt_path)
+            except: pass
         
         if is_improving:
             epochs_no_improve = 0
