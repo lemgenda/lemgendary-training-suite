@@ -52,6 +52,15 @@ The easiest way to manage your AI workflow is via the **LemGendary Hub**.
 **4.** **Deploy to Kaggle Cloud**: Outputs physical instructions on how to push the pre-generated Jupyter topologies to Kaggle's T4 instances instantly.
 
 **5.** **Smart Cloud Orchestration**: Uses your `C:\` local GPU to mathematically train all 21 models natively by streaming specific datasets through Kaggle explicitly via the API, executing Python loops, and instantly **purging the cache** iteratively. This strictly locks local peak SSD consumption below `~220GB`.
+   * **Execution Phases**:
+     * *Phase 1:* Deep Quality Assessment
+     * *Phase 2A:* High-Fidelity Facial Analytics
+     * *Phase 2B:* Massive Universal Detection
+     * *Phase 3A:* Super-Resolution Synthesis
+     * *Phase 3B:* Degradation Removal Arrays
+     * *Phase 3C:* Low-Light Recovery
+     * *Phase 3D:* Denoising Networks
+     * *Phase 3E:* Universal Cross-Domain Restoration
 
 **6.** **Single-Epoch Unit Test**: Initiates a massive forced override across all 21 core neural networks, executing precisely **1 automated functional epoch per model** to strictly validate local memory arrays and buffer structural constraints flawlessly without committing to a 50-hour cycle.
 
