@@ -147,56 +147,46 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 
 ### 7.1 The Scheduler Double-Stepping Bug
 **Issue**: An early iteration of the suite suffered from an asynchronous double-step in the `OneCycleLR` scheduler. This caused the learning rate to anneal 2x faster than the epoch count, leading to premature metric "slippage" and loss of SRCC resolution by Epoch 10.
-**Fix**: 
-Consistently synchronized `scheduler.step()` to fire only after a successful optimizer step (16 physical batches), restoring the intended mathematical curve.
+**Fix**: Consistently synchronized `scheduler.step()` to fire only after a successful optimizer step (16 physical batches), restoring the intended mathematical curve.
 
 ### 7.2 Numerical Instability (NaN Shield)
 **Issue**: High-resolution training of EfficientNetV2-S in FP16 (Half Precision) occasionally triggered numerical overflows during the warmup phase, resulting in `NaN` losses that could corrupt weight files.
-**Fix**: 
-Implemented the **2026 NaN Shield**. The script now detects `NaN` losses in real-time, clears gradients without updating weights, and skips the corrupt batch to preserve the model's integrity.
+**Fix**: Implemented the **2026 NaN Shield**. The script now detects `NaN` losses in real-time, clears gradients without updating weights, and skips the corrupt batch to preserve the model's integrity.
 
 ### 7.3 Continuity & SOTA Recovery
 **Issue**: Interruptions in training (system reboots/crashes) initially caused the suites to restart from Epoch 1, triggering a 5-epoch "Backbone Freeze" and resetting progress.
-**Fix**: 
-Implemented a **Global Guardrail** that natively Fall-Backs to the `best.pth` checkpoint if the `latest.pth` is missing, ensuring zero loss of historical progress and bypassing unnecessary stabilization freezes.
+**Fix**: Implemented a **Global Guardrail** that natively Fall-Backs to the `best.pth` checkpoint if the `latest.pth` is missing, ensuring zero loss of historical progress and bypassing unnecessary stabilization freezes.
 
 ### 7.4 The SRCC Convergence Plateau (Nuclear Stability Lockdown)
 **Issue**: During late-stage convergence (Epoch 15), the Technical model hit an aggressive numerical wall. Initial "Double-Precision" fixes were insufficient as NaNs "ghosted" into the Batch Normalization buffers and the Optimizer's momentum states, causing immediate re-explosions upon restart.
-**Fix**: 
-Executed the **2026 Nuclear Stability Lockdown**. This ultimate resilience protocol performs a **Triple-Audit** (Weights, Buffers, and States) on every NaN detection. Upon a deep-state corruption event, the system reloads the SOTA baseline, performs a radical **Momentum Flush** (purging failed gradient history), and initiates a **50% LR Cooling** phase. Combined with **float64 (Double Precision) var/covar math** and a tightened **0.15 Resonance Weight**, this lockdown successfully seated the model into a stable manifold, securing the path to 0.90 SRCC.
+**Fix**: Executed the **2026 Nuclear Stability Lockdown**. This ultimate resilience protocol performs a **Triple-Audit** (Weights, Buffers, and States) on every NaN detection. Upon a deep-state corruption event, the system reloads the SOTA baseline, performs a radical **Momentum Flush** (purging failed gradient history), and initiates a **50% LR Cooling** phase. Combined with **float64 (Double Precision) var/covar math** and a tightened **0.15 Resonance Weight**, this lockdown successfully seated the model into a stable manifold, securing the path to 0.90 SRCC.
 
 ### 7.5 The Sentinel-Scheduler De-Sync (SOTA Alignment)
 **Issue**: On 4GB hardware (GTX 1650), the **Memory-Sentinel** dynamically shrinks physical batches (e.g., 64 -> 16) while maintaining effective throughput via accumulation. Early iterations called `scheduler.step()` on every physical batch, causing the scheduler to "run out of fuel" by Epoch 12.5 and crash with a `ValueError`.
-**Fix**: 
-Synchronized the "Scheduler Stride" with the "Optimizer Stride." By moving the scheduler logic inside the accumulation block, the steps are now perfectly aligned with the effective batch count, restoring the integrity of the 50-epoch annealing curve.
+**Fix**: Synchronized the "Scheduler Stride" with the "Optimizer Stride." By moving the scheduler logic inside the accumulation block, the steps are now perfectly aligned with the effective batch count, restoring the integrity of the 50-epoch annealing curve.
 
 ### 7.6 Pre-Emptive State Injection
 **Issue**: When resuming from checkpoints after a dataset scale shift, the `OneCycleLR` object often carries an "Internal Runway" locked to the old dataset size, preventing it from stepping into the new, larger mission space.
-**Fix**: 
-Implemented **Deep-State Injection**. The suite now reaches into the raw `scheduler_state` dictionary from the file and manually patches the `total_steps`, `step_size_up`, and `step_size_down` keys *before* loading. This "tricks" the scheduler into a larger manifold, allowing it to continue training without losing historical momentum.
+**Fix**: Implemented **Deep-State Injection**. The suite now reaches into the raw `scheduler_state` dictionary from the file and manually patches the `total_steps`, `step_size_up`, and `step_size_down` keys *before* loading. This "tricks" the scheduler into a larger manifold, allowing it to continue training without losing historical momentum.
 
 ### 7.7 The Infinite Loop Plateau (Deep-State Sanitization & Thermal Shield)
 **Issue**: During the final "SOTA Breach" (Epoch 16+), the model encountered an infinite NaN loop where even rollbacks to the stable baseline resulted in immediate re-explosions. This was traced to "Ghosting" in non-learnable buffers and explosive gradient norm drift on the Technical manifold.
-**Fix**: 
-Executed the **v1.0.25 Global Stabilization Fix**.
+**Fix**: Executed the **v1.0.25 Global Stabilization Fix**.
 - **Ghost-Buster Buffer Audit**: Surgically sanitizes `model.buffers()` (BatchNorm stats) during rollback to zero out non-finite artifacts.
 - **Thermal Shield**: Automatically re-freezes the backbone for 2,500 iterations upon detection of recursive NaNs, providing a "Safe Harbor" for head stabilization.
 - **Velocity Governor**: Tightened gradient norm clipping to `0.5` to neutralize stochastic drift.
 
 ### 7.8 The Pearson Singularity (Singularity Shield)
 **Issue**: During extremely high-precision fine-tuning, the model can output "Zero-Variance" batches where all predictions are identical. This triggers a $0/0$ division error in the Pearson Correlation math, producing NaN gradients that bypass the standard scaler.
-**Fix**: 
-Implemented the **v1.0.26 Singularity Shield**. The `CombinedLoss` is now wrapped in a `nan_to_num` mathematical anchor, which forces any non-finite singularity returns to `0.0`. This "disconnects" corrupted batches from the optimizer, preserving the model's momentum.
+**Fix**: Implemented the **v1.0.26 Singularity Shield**. The `CombinedLoss` is now wrapped in a `nan_to_num` mathematical anchor, which forces any non-finite singularity returns to `0.0`. This "disconnects" corrupted batches from the optimizer, preserving the model's momentum.
 
 ### 7.9 Mitochondrial Runway Bloat (Runway Recalibration)
 **Issue**: Checkpoints saved during the "Physical Stride" era (stepping 4x too fast) carry a "Bloated" step counter. When resuming with the corrected "Optimizer Stride" math, the scheduler thinks the mission is already finished at Step 314,300 and crashes upon reaching 314,301.
-**Fix**: 
-Executed the **v1.0.27 Runway Recalibration**. The suite now performs a **Mission Clock (Cosine Clock) Rewind** during injection, surgically resetting the scheduler's internal step counter to the mathematically correct position for the current epoch (e.g., Step 100,560 for Epoch 16).
+**Fix**: Executed the **v1.0.27 Runway Recalibration**. The suite now performs a **Mission Clock (Cosine Clock) Rewind** during injection, surgically resetting the scheduler's internal step counter to the mathematically correct position for the current epoch (e.g., Step 100,560 for Epoch 16).
 
 ### 7.10 Power-Loss Resilience (The Mitochondrial Shield)
 **Issue**: In environments with high-resolution datasets (440k+ samples), a single training epoch can take up to 10 hours. A power failure or system crash at 90% progress could result in the loss of 9 hours of specialized GTX 1650 compute time.
-**Fix**: 
-Implemented the **v1.0.35 Mitochondrial Shield**. The suite now performs high-frequency intra-epoch checkpointing every 10% of batches to a specialized `_progress.pth` file. Upon resumption, the logic automatically "Fast-Forwards" the DataLoader to the exact saved iteration, ensuring zero loss of training momentum across extended cycles.
+**Fix**: Implemented the **v1.0.35 Mitochondrial Shield**. The suite now performs high-frequency intra-epoch checkpointing every 10% of batches to a specialized `_progress.pth` file. Upon resumption, the logic automatically "Fast-Forwards" the DataLoader to the exact saved iteration, ensuring zero loss of training momentum across extended cycles.
 
 ---
 
