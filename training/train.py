@@ -374,16 +374,25 @@ def main():
     start_epoch = 0
     sota_baseline_achieved = False
     sota_countdown = 1
+    resume_iteration = -1
     
     latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
-    if not os.path.exists(latest_ckpt):
-        best_fallback = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
-        progress_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+    progress_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+    best_fallback = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
+    
+    candidates = []
+    if os.path.exists(progress_ckpt):
+        candidates.append((os.path.getmtime(progress_ckpt), progress_ckpt))
+    if os.path.exists(latest_ckpt):
+        candidates.append((os.path.getmtime(latest_ckpt), latest_ckpt))
         
-        if os.path.exists(progress_ckpt):
-            print(f"📡 [RESILIENCY] Active progress file detected. Prioritizing intra-epoch recovery.")
+    if candidates:
+        newest = max(candidates, key=lambda x: x[0])[1]
+        if newest == progress_ckpt:
+            print(f"📡 [RESILIENCY] Active progress file is newer than latest. Prioritizing intra-epoch recovery.")
             latest_ckpt = progress_ckpt
-        elif os.path.exists(best_fallback):
+    else:
+        if os.path.exists(best_fallback):
             print(f"ℹ️  [CONTINUITY] No 'latest' checkpoint found. Natively promoting SOTA 'best' for resumption.")
             latest_ckpt = best_fallback
 
@@ -567,6 +576,8 @@ def main():
                 # Normalize loss by accumulation steps
                 loss = criterion(preds, targets, task_idx) / accumulation_steps # pyre-ignore
             
+            is_corrupt = False
+
             # --- 2026: Singularity Audit (The Truth Seeker) ---
             # Detecting "Dead Gradients" that have been masked to 0.0 by the Singularity Shield
             if loss.item() == 0.0:
@@ -587,9 +598,9 @@ def main():
                 consecutive_singularities = 0
 
             # --- 2026 Resilience: Deep-State NaN Shield & Weight/Buffer Corruption Guard ---
-            is_corrupt = False
             if torch.isnan(loss) or is_corrupt:
-                print(f"⚠️  [RESILIENCE] NaN detected in iteration {i}! Skipping corrupt batch...")
+                if torch.isnan(loss):
+                    print(f"⚠️  [RESILIENCE] NaN detected in iteration {i}! Skipping corrupt batch...")
                 optimizer.zero_grad()
                 is_corrupt = True
                 
@@ -919,7 +930,7 @@ def main():
             sota_countdown -= 1  # pyre-ignore
         
 
-    print(f"\n--- Exporting {args.model} to ONNX ---")
+    print(f"\n--- Exporting {args.model} to SOTA Counterparts ---")
     import shutil
     
     try:
@@ -928,10 +939,7 @@ def main():
         model_info = unified_models_registry.get(args.model, {})
         size_raw = model_info.get("input_size", config.get("default_img_size", 256))
         if isinstance(size_raw, list):
-            if len(size_raw) == 3:
-                h, w = int(size_raw[1]), int(size_raw[2])
-            else:
-                h, w = int(size_raw[0]), int(size_raw[1])
+            h, w = (int(size_raw[1]), int(size_raw[2])) if len(size_raw)==3 else (int(size_raw[0]), int(size_raw[1]))
         else:
             h, w = int(size_raw), int(size_raw)
             
@@ -940,24 +948,22 @@ def main():
         model_filename = model_info.get("filename", args.model)
         base_name = f"LemGendary{model_filename}"
         
-        fp32_path = os.path.join(export_dir, f"{base_name}_FP32.onnx")
-        torch.onnx.export(model, dummy_input, fp32_path, export_params=True, opset_version=17, do_constant_folding=True)  # pyre-ignore
+        # --- 2026 SOTA Universal Export Suite Synchronization (v1.0.49) ---
+        # We delegate all export logic to the specialized standalone suite to ensure zero-leak binaries.
+        python_exe = sys.executable
+        export_script_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "export")
         
-        try:
-            import onnx # pyre-ignore
-            print(f"Decoupling FP32 tensor weights into external {base_name}_FP32.onnx.data sidecar...")
-            onnx_model = onnx.load(fp32_path)
-            onnx.save_model(onnx_model, fp32_path, save_as_external_data=True, all_tensors_to_one_file=True, location=f"{base_name}_FP32.onnx.data", size_threshold=1024)
-        except ImportError:
-            print("Warning: The 'onnx' package is missing! Cannot technically eject FP32 weight tensors.")
+        # 1. Standardized ONNX Matrix (Lean-Synthesis + External Data FP32)
+        print(f"✨ [EXPORT] Triggering Universal ONNX Matrix Synthesis...")
+        onnx_script = os.path.join(export_script_dir, "export_onnx_model.py")
+        subprocess.call([python_exe, onnx_script, "--model", args.model, "--yes"])
         
-        try:
-            model.half()  # pyre-ignore
-            dummy_input_fp16 = dummy_input.half()
-            fp16_path = os.path.join(export_dir, f"{base_name}.onnx")
-            torch.onnx.export(model, dummy_input_fp16, fp16_path, export_params=True, opset_version=17, do_constant_folding=True)  # pyre-ignore
-        except Exception as e:
-            print(f"FP16 Export failed: {e}")
+        # 2. Standardized PyTorch Standalone (Architecture + Weights Unity)
+        print(f"✨ [EXPORT] Triggering Standalone PyTorch Unity Synthesis...")
+        torch_script = os.path.join(export_script_dir, "export_torch_model.py")
+        subprocess.call([python_exe, torch_script, "--model", args.model, "--yes"])
+        
+        from training.doc_generator import build_model_readme # pyre-ignore
             
         from training.doc_generator import build_model_readme # pyre-ignore
         metrics_dict = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}

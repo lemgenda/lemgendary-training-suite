@@ -73,7 +73,23 @@ restored_img.save("restored.png")
         vector_section = ""
 
     # 3. Physical Dataset Manifest
-    ds_sizes = [f"- **{d}**: ~{unified_data.get(d, {}).get('count', 'N/A')} binary image samples." for d in datasets]
+    ds_sizes = []
+    for d in datasets:
+        count = 'N/A'
+        ds_root = unified_data.get('datasets', {})
+        for cat, ds_dict in ds_root.items():
+            if isinstance(ds_dict, dict) and d in ds_dict:
+                count = ds_dict[d].get('count', 'N/A')
+                break
+        
+        if count == 'N/A' and d in unified_data:
+            count = unified_data[d].get('count', 'N/A')
+            
+        if isinstance(count, int) and count >= 1000:
+            count = f"{round(count / 1000)}k"
+            
+        ds_sizes.append(f"- **{d}**: ~{count} binary image samples.")
+        
     ds_str = "\n".join(ds_sizes)
 
     # 4. Premium 10-Section Template

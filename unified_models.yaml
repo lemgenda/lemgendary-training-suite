@@ -14,7 +14,7 @@ nima_aesthetic:
   dataset_type: quality
   optimal_key: nima_aesthetic
   architecture_type: MobileNetV2 (Global Composition)
-  description: Aesthetic quality scorer trained on AVA dataset, optimized for artistic composition and color harmony.
+  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset, optimized for artistic composition and color harmony.
   datasets:
   - LemGendizedQualityDataset
 nima_technical:

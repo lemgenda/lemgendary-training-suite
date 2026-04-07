@@ -88,14 +88,13 @@ def main():
             print(f"   Artifact found: {final_onnx_path}")
             
             if args.yes:
-                print("   👉 --yes flag detected: Re-training for verification as requested by 2026 orchestrator.")
-                ans = 'n'
+                print(f"⏭  Skipping {model_name} (Production artifact already exists).")
+                continue
             else:
                 ans = input("Do you want to SKIP training this model? [Y/n]: ")
-                
-            if ans.lower().strip() != 'n':
-                print(f"⏭  Skipping {model_name}...")
-                continue
+                if ans.lower().strip() != 'n':
+                    print(f"⏭  Skipping {model_name}...")
+                    continue
 
         print(f"\n=======================================================")
         print(f"🔥 Training Architecture: {model_name}")
