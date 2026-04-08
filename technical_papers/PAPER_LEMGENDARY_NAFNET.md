@@ -1,8 +1,8 @@
 # Architecture of LemGendary AI: High-Fidelity NAFNet Restoration via SOTA Infrastructure
 
-**Author**: Lem Treursić
-**Version**: 2.0.0 - SOTA (2026 Specialization)
-**Target Hardware**: Dual NVIDIA Tesla T4 (15GB GDDR6 / Kaggle Cloud)
+**Author**: Lem Treursić  
+**Version**: 2.0.0 - SOTA (2026 Specialization)  
+**Target Hardware**: Dual NVIDIA Tesla T4 (15GB GDDR6 / Kaggle Cloud)  
 
 ---
 
@@ -25,8 +25,12 @@ The **LemGendary Training Suite** has achieved its ultimate evolution by migrati
 
 ## 2. Visual Taxonomy: The LemGendary Restoration Subset
 The transition to SOTA architectures required moving beyond basic geometric tasks towards high-frequency pixel manipulation.
-- **Denoising Track**: Targeting low-light sensor artifacts and ISO gain noise without destroying high-frequency textures.
-- **Deblurring Track**: Mitigating motion blur and focal misalignment through deep spatial feature extraction.
+
+![Denoising Target](assets/technical_noise.png)
+*Figure 1: Denoising Target - Extreme ISO sensor noise requiring deep feature extraction without blurring edges.*
+
+![Deblurring Target](assets/technical_compression.png)
+*Figure 2: Deblurring Target - Complex spatial macroblocking and focal blur requiring multi-scale restoration.*
 
 By unifying diverse restoration subsets into the `LemGendizedNoiseDataset`, the NAFNet backbones are trained to handle extreme multi-degradation scenarios natively found in mobile photography.
 
@@ -48,7 +52,7 @@ The pipeline harnesses local NumPy/OpenCV workers to decode image tensors native
 ### 4.1 Structural VS Perceptual Verification
 While PSNR measures absolute mathematical pixel differences, it is notoriously poor at determining if an image "looks good." The 2026 upgrade integrated advanced perceptual loops:
 - **LPIPS (Learned Perceptual Image Patch Similarity)**: Feeds predicted inputs against ground truth through a massive VGG-16 backbone to evaluate deep conceptual feature layout.
-- **FID (Frechet Inception Distance)**: Analyzes macro-distribution geometry through an InceptionV3 neural matrix (dependent on `torch-fidelity`).
+- **FID (Frechet Inception Distance)**: Analyzes macro-distribution geometry through an InceptionV3 neural matrix.
 
 ### 4.2 PCIe VRAM Thrashing & The Chunking Fix
 When attempting to validate a 425-image subset against LPIPS simultaneously, the 15GB VRAM ceiling immediately shattered. The Linux kernel initiated "PCIe Thrashing"—swapping VRAM back to System RAM, physically hanging the Kaggle instance for hours. We engineered a **Structural Chunking Loop** (Cap: 8), permanently restricting VRAM utilization to ~500MB without losing mathematical fidelity.
@@ -59,8 +63,7 @@ Initial mitigations offloaded predictions physically to System RAM to save VRAM.
 ---
 
 ## 5. The SOTA Architectural Migration (Mock to NAFNet)
-The primary triumph of this whitepaper is the stabilization of **NAFNet** in production.
-Legacy code featured 500-parameter "Mock" setups. The true NAFNet possesses millions of parameters driven by `SimpleGates` and `SimplifiedChannelAttention`.
+The primary triumph of this whitepaper is the stabilization of **NAFNet** in production. Legacy code featured 500-parameter "Mock" setups. The true NAFNet possesses millions of parameters driven by `SimpleGates` and `SimplifiedChannelAttention`.
 
 ### 5.1 SimpleGate over ReLU
 NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, it splits channels in half and multiplies them together (`SimpleGate`). This dramatically increases speed and retains extreme frequency detail, making it the supreme engine for Denoising.
@@ -80,7 +83,6 @@ NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, 
 ---
 
 ## 7. Deployment Strategy: The C++ ONNX Ghost-Severing Protocol
-The destiny of LemGendary is the Web-Browser.
 
 ### 7.1 Standalone Exporters
 We completely rebuilt the universal ONNX suite (`export_onnx_model.py`) and PyTorch serialization hooks. Checkpoints saved under `DataParallel` (which inject a `module.` prefix to state dictionaries) are intelligently parsed and mapped cleanly onto raw CPUs, allowing Kaggle multi-GPU runs to be downloaded and evaluated on local standalone PCs.
