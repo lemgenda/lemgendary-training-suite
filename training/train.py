@@ -823,16 +823,26 @@ def main():
                     
                 try:
                     import lpips  # pyre-ignore
-                    loss_fn_vgg = lpips.LPIPS(net='vgg').eval()
-                    lpips_val = float(loss_fn_vgg(p.clamp(0,1)*2-1, t.clamp(0,1)*2-1).mean())
+                    with torch.no_grad():
+                        loss_fn_vgg = lpips.LPIPS(net='vgg').eval().to(p.device)
+                        lpips_vals = []
+                        chunk_size = 8
+                        for i in range(0, len(p), chunk_size):
+                            p_chunk = p[i:i+chunk_size].clamp(0,1)*2-1
+                            t_chunk = t[i:i+chunk_size].clamp(0,1)*2-1
+                            val = loss_fn_vgg(p_chunk, t_chunk).mean().item()
+                            lpips_vals.append(val)
+                        lpips_val = float(np.mean(lpips_vals))
                 except ImportError:
                     lpips_val = 0.05  # Bypass if missing
 
                 try:
                     from torchmetrics.image.fid import FrechetInceptionDistance  # pyre-ignore
-                    fid_metric = FrechetInceptionDistance(feature=64)
-                    fid_metric.update((t.clamp(0,1)*255).to(torch.uint8), real=True)
-                    fid_metric.update((p.clamp(0,1)*255).to(torch.uint8), real=False)
+                    fid_metric = FrechetInceptionDistance(feature=64).to(p.device)
+                    chunk_size = 32
+                    for i in range(0, len(p), chunk_size):
+                        fid_metric.update((t[i:i+chunk_size].clamp(0,1)*255).to(torch.uint8), real=True)
+                        fid_metric.update((p[i:i+chunk_size].clamp(0,1)*255).to(torch.uint8), real=False)
                     fid = float(fid_metric.compute())
                 except ImportError:
                     fid = 10.0  # Bypass if missing
