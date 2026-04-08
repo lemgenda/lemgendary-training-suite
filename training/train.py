@@ -420,6 +420,22 @@ def main():
             sota_baseline_achieved = False
             start_epochs_no_improve = 0
 
+    # --- 2026 Continuity Protocol (SOTA Sentry) ---
+    # Ensure the mission doesn't stall if targets haven't been met.
+    if not sota_baseline_achieved and start_epoch >= epochs:
+        print(f"\n⚠️  [CONTINUITY] Model reached epoch limit ({epochs}) without hitting SOTA benchmarks.")
+        print(f"   -> Dynamically extending training by 20 epochs to ensure convergence...")
+        epochs = start_epoch + 20
+    elif sota_baseline_achieved:
+        print(f"\n✅ [SOTA RECOVERY] Mission accomplished! This model already achieved SOTA targets.")
+        print(f"   -> Jumping directly to ONNX export Phase (Mission Already Accomplished)...")
+        # Bypass the training loop entirely to save GPU time
+        start_epoch = epochs
+        # We try to extract record metrics for the final README
+        plcc = best_quality_score if best_quality_score > 0 else 0.95 
+        srcc = 0.90 # Best guess for doc generation if not fully loaded
+        epoch = start_epoch - 1 # For doc generator compatibility
+
     # 2026: High-Velocity Dynamic Scheduler (OneCycleLR) - Refined for SOTA Breach
     # Total steps must now be calculated using optimizer steps (len/accumulation)
     total_steps = epochs * (len(train_loader) // accumulation_steps)
@@ -477,21 +493,6 @@ def main():
     plcc, srcc, psnr, ssim_val, lpips_val, fid = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     epoch = start_epoch
 
-    # --- 2026 Continuity Protocol (SOTA Sentry) ---
-    # Ensure the mission doesn't stall if targets haven't been met.
-    if not sota_baseline_achieved and start_epoch >= epochs:
-        print(f"\n⚠️  [CONTINUITY] Model reached epoch limit ({epochs}) without hitting SOTA benchmarks.")
-        print(f"   -> Dynamically extending training by 20 epochs to ensure convergence...")
-        epochs = start_epoch + 20
-    elif sota_baseline_achieved:
-        print(f"\n✅ [SOTA RECOVERY] Mission accomplished! This model already achieved SOTA targets.")
-        print(f"   -> Jumping directly to ONNX export Phase (Mission Already Accomplished)...")
-        # Bypass the training loop entirely to save GPU time
-        start_epoch = epochs
-        # We try to extract record metrics for the final README
-        plcc = best_quality_score if best_quality_score > 0 else 0.95 
-        srcc = 0.90 # Best guess for doc generation if not fully loaded
-        epoch = start_epoch - 1 # For doc generator compatibility
     
     # --- 2026: SOTA Sentry Configuration ---
     patience = config.get("early_stopping_patience", 10)
