@@ -452,36 +452,42 @@ def main():
     if os.path.exists(latest_ckpt) and start_epoch > 0:
         ckpt = torch.load(latest_ckpt, map_location=device, weights_only=False) # pyre-ignore
         if 'scheduler_state' in ckpt:
-            try:
-                # 2026 Resilience: Pre-Emptive State Injection & Runway Recalibration
-                # We patch the state dict keys directly before loading to "trick" the scheduler into the new runway
-                state_dict = ckpt['scheduler_state']
-                
-                # A. Runway Stretcher (Injection Phase)
-                if 'total_steps' in state_dict and state_dict['total_steps'] < total_steps:
-                    old_s = state_dict['total_steps']
-                    state_dict['total_steps'] = total_steps
-                    # Recalculate and inject internal step sizes for the cosine curve
-                    pct_start = state_dict.get('pct_start', 0.3)
-                    step_size_up = float(pct_start * state_dict['total_steps']) - 1
-                    step_size_down = float(state_dict['total_steps'] - step_size_up) - 1
-                    state_dict['step_size_up'] = step_size_up
-                    state_dict['step_size_down'] = step_size_down
-                    print(f"📡 [INJECTION] Mission Runway Stretched: {old_s} -> {state_dict['total_steps']}")
-                
-                # B. Cosine Rewind (Recalibration Phase)
-                # If the checkpoint was bloated by a previous "Physical Stride" error, rewind the clock
-                steps_per_epoch = len(train_loader) // accumulation_steps
-                expected_steps = start_epoch * steps_per_epoch
-                if state_dict.get('last_epoch', 0) > (expected_steps + steps_per_epoch):
-                    old_e = state_dict['last_epoch']
-                    state_dict['last_epoch'] = expected_steps
-                    print(f"📡 [RECALIBRATION] Bloated Runway Detected. Rewinding Cosine Clock: {old_e} -> {state_dict['last_epoch']}")
-                
-                scheduler.load_state_dict(state_dict)
-                print("✅ [RESILIENCY] Scheduler state successfully synchronized.")
-            except (KeyError, ValueError, TypeError) as e:
-                print(f"⚠️  [RESILIENCY] Incompatible scheduler state detected ({e}). Structural handoff reset.")
+            # --- 2026 Resilience Override: Dynamic LR Defibrillation ---
+            # If the SOTA mission was surgically extended past its original architectural limits,
+            # we deliberately block the decayed LR synchronization to hit the model with a fresh velocity burst!
+            if epochs > 50 and start_epoch >= 50:
+                 print("\n🚀 [SOTA SENTRY] Defibrillation Override Active! Launching fresh OneCycleLR phase to shatter local minimas...")
+            else:
+                try:
+                    # 2026 Resilience: Pre-Emptive State Injection & Runway Recalibration
+                    # We patch the state dict keys directly before loading to "trick" the scheduler into the new runway
+                    state_dict = ckpt['scheduler_state']
+                    
+                    # A. Runway Stretcher (Injection Phase)
+                    if 'total_steps' in state_dict and state_dict['total_steps'] < total_steps:
+                        old_s = state_dict['total_steps']
+                        state_dict['total_steps'] = total_steps
+                        # Recalculate and inject internal step sizes for the cosine curve
+                        pct_start = state_dict.get('pct_start', 0.3)
+                        step_size_up = float(pct_start * state_dict['total_steps']) - 1
+                        step_size_down = float(state_dict['total_steps'] - step_size_up) - 1
+                        state_dict['step_size_up'] = step_size_up
+                        state_dict['step_size_down'] = step_size_down
+                        print(f"📡 [INJECTION] Mission Runway Stretched: {old_s} -> {state_dict['total_steps']}")
+                    
+                    # B. Cosine Rewind (Recalibration Phase)
+                    # If the checkpoint was bloated by a previous "Physical Stride" error, rewind the clock
+                    steps_per_epoch = len(train_loader) // accumulation_steps
+                    expected_steps = start_epoch * steps_per_epoch
+                    if state_dict.get('last_epoch', 0) > (expected_steps + steps_per_epoch):
+                        old_e = state_dict['last_epoch']
+                        state_dict['last_epoch'] = expected_steps
+                        print(f"📡 [RECALIBRATION] Bloated Runway Detected. Rewinding Cosine Clock: {old_e} -> {state_dict['last_epoch']}")
+                    
+                    scheduler.load_state_dict(state_dict)
+                    print("✅ [RESILIENCY] Scheduler state successfully synchronized.")
+                except (KeyError, ValueError, TypeError) as e:
+                    print(f"⚠️  [RESILIENCY] Incompatible scheduler state detected ({e}). Structural handoff reset.")
     else:
         if os.path.exists(latest_ckpt):
             print("🚀 [SOTA 2.0] Model architecture shift detected. Starting fresh LR cycle from Epoch 1.")
