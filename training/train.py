@@ -574,6 +574,13 @@ def main():
             # Suppress inherently corrupted FP16 backpropagations for notoriously unstable inverted-residual structs globally
             use_fp16 = str(device) == 'cuda'
             
+            # --- 2026 Resilience: Structural FP16 Disable for SOTA Restorers ---
+            # Models like NAFNet (SimpleGate x1*x2) multiply feature maps by themselves.
+            # In FP16, this instantly breaches the 65504 float ceiling and causes NaNs.
+            # We strictly enforce FP32 gradients for these specific architectures.
+            if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "mirnet", "codeformer"]):
+                use_fp16 = False
+            
             with torch.amp.autocast('cuda', enabled=use_fp16): # pyre-ignore
                 preds = model(inputs)
                 # Normalize loss by accumulation steps
