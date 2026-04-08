@@ -18,8 +18,8 @@ export_dir: "trained-models"
 default_img_size: 256
 default_batch_size: 16
 default_lr: 0.0001
-default_epochs: 50
-early_stopping_patience: 50
+default_epochs: 1000
+early_stopping_patience: 250
 intra_epoch_checkpoint_pct: 0.25
 
 # External Repository Deployment Fallbacks

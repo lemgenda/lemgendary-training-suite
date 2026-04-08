@@ -75,7 +75,8 @@ class CombinedLoss(nn.Module):
     def __init__(self, task_type="restoration"):
         super().__init__()
         self.task_type = task_type
-        self.mse = nn.MSELoss()
+        # 2026 Resilience: L1Loss provides sharply superior structural geometry vs blurry MSE minimas
+        self.l1 = nn.L1Loss(reduction='mean')
         self.ce = nn.CrossEntropyLoss()
         self.perc = None
         if self.task_type in ["restoration", "enhancement"]:
@@ -87,26 +88,27 @@ class CombinedLoss(nn.Module):
                 for param in self.perc.parameters():
                     param.requires_grad = False
             except ImportError as e:
-                print(f"⚠️ [RESILIENCE] LPIPS failed to bind ({e}). Defaulting to pure MSE.")
+                print(f"⚠️ [RESILIENCE] LPIPS failed to bind ({e}). Defaulting to pure L1.")
 
     def forward(self, pred, target, task_idx=None):
         if self.task_type in ["restoration", "enhancement"]:
             # Support both Hybrid (img, weights) outputs and Pure Image generation
             if isinstance(pred, (tuple, list)):
-                base_loss = self.mse(pred[0], target) + 0.1 * self.ce(pred[1], task_idx)
+                base_loss = self.l1(pred[0], target) + 0.1 * self.ce(pred[1], task_idx)
                 if self.perc is not None:
                     # LPIPS natively outputs spatial arrays. Mean() required. Clamp to [-1, 1].
                     p_scaled = torch.clamp(pred[0], 0, 1) * 2.0 - 1.0
                     t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0
-                    base_loss += 0.1 * self.perc(p_scaled, t_scaled).mean()
+                    # 2026 Shift: Balanced at 0.025 to create geometric harmony between PSNR & Perception
+                    base_loss += 0.025 * self.perc(p_scaled, t_scaled).mean()
                 return base_loss
             else:
-                base_loss = self.mse(pred, target)
+                base_loss = self.l1(pred, target)
                 if self.perc is not None:
                     p_scaled = torch.clamp(pred, 0, 1) * 2.0 - 1.0
                     t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0
-                    # 2026 Shift: Restoring 0.1 scalar since LPIPS is calibrated natively unlike crude VGG features
-                    base_loss += 0.1 * self.perc(p_scaled, t_scaled).mean()
+                    # 2026 Shift: Balanced at 0.025 to natively harmonize metric extraction
+                    base_loss += 0.025 * self.perc(p_scaled, t_scaled).mean()
                 return base_loss
         elif self.task_type == "quality":
             import torch.nn.functional as F  # pyre-ignore
