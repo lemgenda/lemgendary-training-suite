@@ -91,12 +91,13 @@ class CombinedLoss(nn.Module):
             if isinstance(pred, (tuple, list)):
                 base_loss = self.mse(pred[0], target) + 0.1 * self.ce(pred[1], task_idx)
                 if self.perc is not None:
-                    base_loss += 0.1 * self.perc(pred[0], target)
+                    # 2026 Shift: Dropping from 0.1 to 0.005 so VGG doesn't overpower MSE PSNR geometries
+                    base_loss += 0.005 * self.perc(pred[0], target)
                 return base_loss
             else:
                 base_loss = self.mse(pred, target)
                 if self.perc is not None:
-                    base_loss += 0.1 * self.perc(pred, target)
+                    base_loss += 0.005 * self.perc(pred, target)
                 return base_loss
         elif self.task_type == "quality":
             import torch.nn.functional as F  # pyre-ignore
