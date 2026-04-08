@@ -171,6 +171,14 @@ def main():
                     print("   ⚠️  [WARNING] 'onnx' package missing. FP32 weights remain embedded.")
             else:
                 print(f"   -> FP16 Weights physically EMBEDDED for standalone WebGPU deployment.")
+                # --- 2026 Resilience: C++ API Ghost Purge ---
+                # The PyTorch Legacy C++ exporter fallback sometimes forcefully ignores physical
+                # embedding rules and spits out a sidecar. We surgically sever it here.
+                ghost_data_loc = f"{export['name']}.data"
+                ghost_abs_path = os.path.join(production_dir, ghost_data_loc)
+                if os.path.exists(ghost_abs_path):
+                    os.remove(ghost_abs_path)
+                    print(f"   -> [PURGE] PyTorch C++ Fallback ghost sidecar {ghost_data_loc} physically severed.")
 
             print(f"✅ [SUCCESS] {export['name']} generated.")
         except Exception as e:
