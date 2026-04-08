@@ -428,40 +428,54 @@
             </a>
             <h4>Navigation Matrix</h4>
                         <ul>
-                <li><a href="#abstract">1. Abstract</a></li>
-                <li><a href="#taxonomy">2. Visual Taxonomy</a></li>
-                <li><a href="#hardware">3. Infrastructure</a>
+                <li><a href="#abstract">1. Abstract</a>
+                </li>
+                <li><a href="#taxonomy">2. Visual Taxonomy</a>
+                </li>
+                <li><a href="#hardware">3. Hardware-Aware Infrastructure</a>
                     <ul class="sub-item">
-                        <li><a href="#dataparallel">3.1 DataParallel Deprecation</a></li>
-                        <li><a href="#ovc-bridge">3.2 OVC Data Bridge</a></li>
+                        <li><a href="#dataparallel">3.1 The nn.DataParallel Deprecation & Single-GPU Return</a></li>
+                        <li><a href="#ovc-bridge">3.2 OVC Data Streaming Bridge (OpenCV-to-CUDA)</a></li>
                     </ul>
                 </li>
-                <li><a href="#optimization">4. Mathematics</a>
+                <li><a href="#optimization">4. Mathematical Optimization</a>
                     <ul class="sub-item">
-                        <li><a href="#structural-perceptual">4.1 Structural vs Perceptual</a></li>
-                        <li><a href="#pcie-thrashing">4.2 PCIe VRAM Thrashing</a></li>
-                        <li><a href="#cpu-bypass">4.3 CPU-Bottleneck Bypass</a></li>
+                        <li><a href="#structural-perceptual">4.1 Structural VS Perceptual Verification</a></li>
+                        <li><a href="#pcie-thrashing">4.2 PCIe VRAM Thrashing & The Chunking Fix</a></li>
+                        <li><a href="#cpu-bypass">4.3 The CPU-Bottleneck Bypass</a></li>
                     </ul>
                 </li>
-                <li><a href="#migration">5. SOTA Migration</a>
+                <li><a href="#migration">5. The SOTA Architectural Migration (Mock to NAFNet)</a>
                     <ul class="sub-item">
                         <li><a href="#simplegate">5.1 SimpleGate over ReLU</a></li>
                     </ul>
                 </li>
-                <li><a href="#challenges">6. Resilience Architecture</a>
+                <li><a href="#challenges">6. Challenges & Resilience Architecture</a>
                     <ul class="sub-item">
-                        <li><a href="#nan-overflows">6.1 NaN Overflows</a></li>
-                        <li><a href="#contiguous-crash">6.2 Contiguous Crash</a></li>
-                        <li><a href="#sudden-death">6.3 LR Sudden Death</a></li>
+                        <li><a href="#nan-overflows">6.1 The SimpleGate NaN Overflows (Structural FP16 Disable)</a></li>
+                        <li><a href="#contiguous-crash">6.2 The Contiguous View Kernel Crash</a></li>
+                        <li><a href="#sudden-death">6.3 The OneCycleLR "Sudden Death" & AdamW Resume Shock</a></li>
+                        <li><a href="#vgg-collapse">6.4 The VGG Perceptual Convergence Collapse</a></li>
+                        <li><a href="#double-step-paradox">6.5 The "Double-Step" OneCycleLR Matrix Paradox</a></li>
+                        <li><a href="#defibrillation">6.6 The SOTA Sentry "Defibrillation Override"</a></li>
                     </ul>
                 </li>
                 <li><a href="#deployment">7. Deployment Strategy</a>
                     <ul class="sub-item">
                         <li><a href="#standalone-exporters">7.1 Standalone Exporters</a></li>
-                        <li><a href="#ghost-severing">7.2 Ghost-Severing Protocol</a></li>
+                        <li><a href="#ghost-severing">7.2 The Ghost-Severing Protocol</a></li>
                     </ul>
                 </li>
-                <li><a href="#conclusion">8. Conclusion</a></li>
+                <li><a href="#conclusion">8. Conclusion</a>
+                </li>
+                <li><a href="#kaggle">9. Kaggle Cloud Execution Protocols</a>
+                    <ul class="sub-item">
+                        <li><a href="#single-gpu">9.1 Single-GPU Specialization (15GB T4 Node Strategy)</a></li>
+                        <li><a href="#sub-epoch-continuity">9.2 Sub-Epoch Continuity (Progress Snapshots)</a></li>
+                    </ul>
+                </li>
+                <li><a href="#sota-matrix">10. SOTA Architectural Performance Matrix</a>
+                </li>
             </ul>
         </nav>
 
