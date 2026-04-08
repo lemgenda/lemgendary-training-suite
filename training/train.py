@@ -77,6 +77,7 @@ class CombinedLoss(nn.Module):
         self.task_type = task_type
         # 2026 Resilience: L1Loss provides sharply superior structural geometry vs blurry MSE minimas
         self.l1 = nn.L1Loss(reduction='mean')
+        self.mse = nn.MSELoss(reduction='mean') # Legacy fallback for face and segmentation topology
         self.ce = nn.CrossEntropyLoss()
         self.perc = None
         if self.task_type in ["restoration", "enhancement"]:
