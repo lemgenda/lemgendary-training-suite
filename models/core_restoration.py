@@ -9,7 +9,7 @@ import torch.nn.functional as F
 class SimpleGate(nn.Module):
     def forward(self, x):
         x1, x2 = x.chunk(2, dim=1)
-        return x1.contiguous() * x2.contiguous()
+        return (x1.contiguous() * x2.contiguous()).contiguous()
 
 class SimplifiedChannelAttention(nn.Module):
     def __init__(self, c):
@@ -17,7 +17,8 @@ class SimplifiedChannelAttention(nn.Module):
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.conv = nn.Conv2d(c, c, 1, 1, 0)
     def forward(self, x):
-        return x.contiguous() * self.conv(self.pool(x)).contiguous()
+        x = x.contiguous()
+        return x * self.conv(self.pool(x)).contiguous()
 
 class NAFBlock(nn.Module):
     def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
@@ -84,6 +85,7 @@ class NAFNet(nn.Module):
         self.padder_size = 2 ** len(self.encoders)
 
     def forward(self, inp):
+        inp = inp.contiguous()
         B, C, H, W = inp.shape
         # Pad to generic multiple
         pad_h = (self.padder_size - H % self.padder_size) % self.padder_size
@@ -175,6 +177,7 @@ class FFANet(nn.Module):
         return g
 
     def forward(self, x):
+        x = x.contiguous()
         res = self.conv1(x)
         cat = []
         for i in range(self.gps):
@@ -211,6 +214,7 @@ class MPRNet_Proxy(nn.Module):
         self.stage2_dec = nn.Sequential(nn.Conv2d(channels, out_c, 3, 1, 1))
 
     def forward(self, x):
+        x = x.contiguous()
         f1 = self.stage1_enc(x)
         out1 = self.stage1_dec(f1) + x
         
@@ -230,6 +234,7 @@ class MIRNet_Proxy(nn.Module):
         self.outro = nn.Conv2d(width, out_c, 3, 1, 1)
         
     def forward(self, x):
+        x = x.contiguous()
         feat = self.intro(x)
         b1 = self.branch1(feat)
         b2 = self.branch2(feat)
