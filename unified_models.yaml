@@ -172,7 +172,7 @@ retinaface_resnet:
   - LemGendizedDetectionDataset
 ffanet_indoor:
   name: LemGendary FFANet Dehazing (Indoor)
-  class_name: GenericRestorationMock
+  class_name: FFANet
   category: restoration
   filename: FFANet-Dehazing(Indoor)
   checkpoint: FFANet-Dehazing(Indoor)Weights_FP32.pth
@@ -190,7 +190,7 @@ ffanet_indoor:
   - LemGendizedDegradationDataset
 ffanet_outdoor:
   name: LemGendary FFANet Dehazing (Outdoor)
-  class_name: GenericRestorationMock
+  class_name: FFANet
   category: restoration
   filename: FFANet-Dehazing(Outdoor)
   checkpoint: FFANet-Dehazing(Outdoor)Weights_FP32.pth
@@ -208,7 +208,7 @@ ffanet_outdoor:
   - LemGendizedDegradationDataset
 mirnet_lowlight:
   name: LemGendary MIRNet v2 Low-Light Enhancement
-  class_name: GenericRestorationMock
+  class_name: MIRNet
   category: restoration
   filename: MIRNet(v2)-LowLight
   checkpoint: MIRNet(v2)-LowLightWeights_FP32.pth
@@ -226,7 +226,7 @@ mirnet_lowlight:
   - LemGendizedLowLightDataset
 mirnet_exposure:
   name: LemGendary MIRNet v2 Exposure Correction
-  class_name: GenericRestorationMock
+  class_name: MIRNet
   category: restoration
   filename: MIRNet(v2)-Exposure
   checkpoint: MIRNet(v2)-ExposureWeights_FP32.pth
@@ -244,7 +244,7 @@ mirnet_exposure:
   - LemGendizedLowLightDataset
 mprnet_deraining:
   name: LemGendary MPRNet Deraining
-  class_name: GenericRestorationMock
+  class_name: MPRNet
   category: restoration
   filename: MPRNet-Deraining
   checkpoint: MPRNet-DerainingWeights_FP32.pth
@@ -262,7 +262,7 @@ mprnet_deraining:
   - LemGendizedDegradationDataset
 nafnet_debluring:
   name: LemGendary NAFNet Debluring
-  class_name: GenericRestorationMock
+  class_name: NAFNet
   category: restoration
   filename: NAFNet-Debluring
   checkpoint: NAFNet-DebluringWeights_FP32.pth
@@ -281,7 +281,7 @@ nafnet_debluring:
   - LemGendizedDegradationDataset
 nafnet_denoising:
   name: LemGendary NAFNet Denoising
-  class_name: GenericRestorationMock
+  class_name: NAFNet
   category: restoration
   filename: NAFNet-Denoising
   checkpoint: NAFNet-DenoisingWeights_FP32.pth

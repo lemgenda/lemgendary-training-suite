@@ -6,6 +6,7 @@ from models.nima import NIMA_Model
 from models.face_restoration import CodeFormerMock, ParseNetMock
 from models.detection import RetinaFaceMock
 from models.mock_legacy import GenericRestorationMock, UltraZoomModel, UniversalFilmRestorer, UPN_v2_Model
+from models.core_restoration import NAFNet, FFANet, MIRNet_Proxy, MPRNet_Proxy
 
 def get_model(model_key, config=None):
     """
@@ -37,6 +38,14 @@ def get_model(model_key, config=None):
         return RetinaFaceMock()
     elif model_class_name == "GenericRestorationMock":
         return GenericRestorationMock()
+    elif model_class_name == "NAFNet":
+        return NAFNet(**kwargs)
+    elif model_class_name == "FFANet":
+        return FFANet()
+    elif model_class_name == "MIRNet":
+        return MIRNet_Proxy()
+    elif model_class_name == "MPRNet":
+        return MPRNet_Proxy()
     elif model_class_name == "UltraZoomModel":
         return UltraZoomModel(**kwargs)
     elif model_class_name == "UniversalFilmRestorer":
