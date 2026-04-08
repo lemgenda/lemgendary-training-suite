@@ -73,7 +73,7 @@ The easiest way to manage your AI workflow is via the **LemGendary Hub**.
 ## 🚀 Technical Whitepaper: The Architecture of LemGendary AI
 For a deep dive into the mathematical foundations, visual taxonomy, and hardware-aware optimizations of this suite, please refer to our official technical whitepaper:
 
-*   **[Technical Whitepaper (HTML Version)](https://lemgenda.github.io/lemgendary-training-suite/)** - *Recommended: Premium Viewing Experience (Dark Mode)*
+*   **[Technical Whitepaper (HTML Version)](https://lemgenda.github.io/lemgendary-training-suite/papers/nima-quality.html)** - *Recommended: Premium Viewing Experience (Dark Mode)*
 *   **[Technical Whitepaper (Markdown Version)](technical_paper/PAPER_LEMGENDARY_NIMA.md)** - *Documentation Source*
 
 This paper details the **LemGendized Universal Quality Subset**, the **2026 Resonance Loss** ($Loss_{EMD} + 0.3 \times (1.0 - PLCC)$), and our specialized **GTX 1650** VRAM management strategies.
@@ -188,7 +188,7 @@ The LemGendary Training Suite natively supports 100% cloud-based dataset trainin
 The LemGendary Training Suite has been heavily upgraded to incorporate native architectural efficiencies for complex multi-model dataset routing:
 
 ### ⚡ Zero-Latency Kaggle Background Streams
-When you execute Option 5 (**Smart Cloud Orchestration**), the Python loop breaks memory isolation to execute a massive 8-phase mathematical pipeline. During execution, the moment a mathematical model natively **breaches the SOTA Baseline threshold**, the core `train.py` hook structurally detaches an independent Python `subprocess` thread. 
+When you execute Option 5 (**Smart Cloud Orchestration**), the Python loop breaks memory isolation to execute a massive 8-phase mathematical pipeline. During execution, the moment a mathematical model natively **breaches the SOTA Baseline threshold**, the core `train.py` hook structurally detaches an independent Python `subprocess` thread.
 This invisible background worker (`prefetch_worker.py`) seamlessly streams the subsequent 20GB+ Kaggle Datasets directly over the Kaggle API and radically uncompresses them into your local `data/datasets/` cache while the active PyTorch Tensor structure performs its final 1-Epoch Cooldown. This strictly guarantees **100% Zero-Latency Data Handoffs** mathematically without stealing Focus or interrupting Local GPU arrays.
 
 ### 🛡️ Intelligent SOTA Checkpoint Recoveries
