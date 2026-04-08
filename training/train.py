@@ -547,10 +547,9 @@ def main():
         # --- 2026: Fast-Forward Resilience ---
         if epoch == start_epoch and resume_iteration > 0:
             print(f"📡 [RESILIENCY] Fast-forwarding DataLoader to iteration {resume_iteration}...")
-            # Fast-forward the LR scheduler to maintain phase sync (was skipped by `continue`)
-            skip_steps = resume_iteration // accumulation_steps
-            for _ in range(skip_steps):
-                scheduler.step()
+            # Note: The LR scheduler `state_dict` automatically reloads its internal `last_epoch` step count.
+            # We strictly DO NOT manually fast-forward `scheduler.step()` here to avoid duplicating the step count 
+            # and blowing out the OneCycleLR matrix ceiling (ValueError: Tried to step N+1 times).
                 
         optimizer.zero_grad() # Initial zero
         for i, batch in enumerate(pbar):
