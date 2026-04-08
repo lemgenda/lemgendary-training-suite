@@ -733,12 +733,7 @@ def main():
                 scaler.update()
                 optimizer.zero_grad()
                 
-                # --- 2026: SOTA Fine-Tuning Guardrail ---
-                # Step scheduler exactly AFTER gradients are applied to align with total_steps calculation
-                current_lr = scheduler.get_last_lr()[0]
-                if current_lr > 5e-6:
-                    for param_group in optimizer.param_groups:
-                        param_group['lr'] = 5e-6
+                # The OneCycleLR scheduler manages LR scales naturally now over 1000 epochs.
                 
                 scheduler.step()
                 new_lr = scheduler.get_last_lr()[0]
