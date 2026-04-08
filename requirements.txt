@@ -11,6 +11,7 @@ scipy>=1.11.0
 onnx>=1.15.0
 onnxsim>=0.4.30
 onnxconverter-common>=1.14.0
+onnxscript>=0.1.0
 tqdm>=4.66.0
 tensorflow-cpu>=2.16.0
 ultralytics>=8.1.0
