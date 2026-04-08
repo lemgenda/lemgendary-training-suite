@@ -297,13 +297,6 @@ def main():
 
     model = get_model(args.model, config).to(device)
     
-    # --- 2026 Resiliency: Kaggle Multi-GPU Activation ---
-    # Seamlessly distribute batches across all available T4 GPUs.
-    if str(device) == 'cuda' and torch.cuda.device_count() > 1:
-        print(f"🚀 [MULTI-GPU] Activating {torch.cuda.device_count()} GPUs natively via DataParallel!")
-        model = nn.DataParallel(model)
-        
-
     # --- 2026 Hyperparameter Priority Engine (Memory-Sentinel) ---
     model_info = unified_models_registry.get(args.model, {})
     epochs = args.epochs or model_info.get("epochs") or config.get("default_epochs", 50)
@@ -881,7 +874,7 @@ def main():
         # Finalize Checkpoint State (Capturing latest Metric Shift)
         ckpt_state = {
             'epoch': epoch + 1,
-            'model_state': model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict(),  # pyre-ignore
+            'model_state': model.state_dict(),  # pyre-ignore
             'optimizer_state': optimizer.state_dict(),
             'scheduler_state': scheduler.state_dict(),
             'best_val_loss': best_val_loss,
