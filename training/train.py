@@ -77,14 +77,27 @@ class CombinedLoss(nn.Module):
         self.task_type = task_type
         self.mse = nn.MSELoss()
         self.ce = nn.CrossEntropyLoss()
+        self.perc = None
+        if self.task_type in ["restoration", "enhancement"]:
+            try:
+                from losses import PerceptualLoss
+                self.perc = PerceptualLoss().to('cuda' if torch.cuda.is_available() else 'cpu')
+            except ImportError:
+                print("⚠️ [RESILIENCE] PerceptualLoss failed to bind. Defaulting to pure MSE.")
 
     def forward(self, pred, target, task_idx=None):
         if self.task_type in ["restoration", "enhancement"]:
             # Support both Hybrid (img, weights) outputs and Pure Image generation
             if isinstance(pred, (tuple, list)):
-                return self.mse(pred[0], target) + 0.1 * self.ce(pred[1], task_idx)
+                base_loss = self.mse(pred[0], target) + 0.1 * self.ce(pred[1], task_idx)
+                if self.perc is not None:
+                    base_loss += 0.1 * self.perc(pred[0], target)
+                return base_loss
             else:
-                return self.mse(pred, target)
+                base_loss = self.mse(pred, target)
+                if self.perc is not None:
+                    base_loss += 0.1 * self.perc(pred, target)
+                return base_loss
         elif self.task_type == "quality":
             import torch.nn.functional as F  # pyre-ignore
             pred_f = pred.float()
