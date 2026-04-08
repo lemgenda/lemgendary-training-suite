@@ -733,8 +733,8 @@ def main():
                 scaler.update()
                 optimizer.zero_grad()
                 
-                # The OneCycleLR scheduler manages LR scales naturally now over 1000 epochs.
-                
+                # Natively register current_lr before stepping so the Guardrails don't throw an UnboundLocalError
+                current_lr = scheduler.get_last_lr()[0]
                 scheduler.step()
                 new_lr = scheduler.get_last_lr()[0]
                 
@@ -759,11 +759,7 @@ def main():
                     }, prog_ckpt)
                     print(f"📡 [RESILIENCY] Milestone reached ({(i+1)/len(train_loader)*100:.0f}%). Progress synchronized.")
 
-                # Resilience: Prevent metric regression if resuming late in the cycle
-                if epoch > (epochs * 0.3) and new_lr > current_lr:
-                    for param_group in optimizer.param_groups:
-                        param_group['lr'] = current_lr
-                
+                # Cleaned legacy execution path.
             train_loss += loss.item() * accumulation_steps
             pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
 
