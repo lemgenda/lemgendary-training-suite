@@ -19,3 +19,4 @@ kaggle>=1.6.0
 opencv-python>=4.11.0
 scikit-image>=0.22.0
 lpips>=0.1.4
+torch-fidelity>=0.3.0
