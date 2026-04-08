@@ -80,6 +80,10 @@ NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, 
 **Issue**: When interacting with partial dataset views (or previous Multi-GPU experiments), PyTorch passed fragmented tensors into convolutions causing `misaligned address` crashes.
 **Fix**: Surgically patched `models/core_restoration.py` with rigorous `.contiguous()` clamps. Every input passed to `Conv2d`, `Pool2d`, or a `SimpleGate` multiplier is physically forced into linear memory realignment before GPU mathematical ingestion.
 
+### 6.3 The OneCycleLR "Sudden Death" & AdamW Resume Shock
+**Issue**: Standard Early Stopping mechanisms (patience=15) mathematically trigger "Sudden Death" at Epoch 39 due to MSE Val Loss wobbling on the floor, permanently locking the model out of the crucial OneCycleLR precision-cooling sequence (Epochs 40-50). Resuming from this crash natively induces an `AdamW Resume Shock`, where reloaded moving-average momenta buffers cause PSNR to temporarily crater (e.g., 24.7dB -> 22.4dB) for 1-2 epochs before skyrocketing back to SOTA.
+**Fix**: Engineered an emergency `early_stopping_patience: 50` override to permanently disable MSE-based sudden death for high-complexity manifolds, allowing perceptual metrics (LPIPS/FID) to safely plummet into record territory during the final cooling phase.
+
 ---
 
 ## 7. Deployment Strategy: The C++ ONNX Ghost-Severing Protocol

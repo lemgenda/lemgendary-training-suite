@@ -520,6 +520,12 @@
                 <p><strong>Issue:</strong> When interacting with partial dataset views (or previous Multi-GPU experiments), PyTorch passed fragmented tensors into convolutions causing <code>misaligned address</code> crashes.<br/>
                 <strong>Fix:</strong> Surgically patched <code>models/core_restoration.py</code> with rigorous <code>.contiguous()</code> clamps. Every input passed to <code>Conv2d</code>, <code>Pool2d</code>, or a <code>SimpleGate</code> multiplier is physically forced into linear memory realignment before GPU mathematical ingestion.</p>
             </div>
+
+            <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
+                <h3>6.3 The OneCycleLR "Sudden Death" & AdamW Resume Shock</h3>
+                <p><strong>Issue:</strong> Standard Early Stopping mechanisms (patience=15) mathematically trigger "Sudden Death" at Epoch 39 due to MSE Val Loss wobbling on the floor, permanently locking the model out of the crucial OneCycleLR precision-cooling sequence (Epochs 40-50). Resuming from this crash natively induces an <code>AdamW Resume Shock</code>, where reloaded moving-average momenta buffers cause PSNR to temporarily crater (e.g., 24.7dB to 22.4dB) for 1-2 epochs before skyrocketing back to SOTA.<br/>
+                <strong>Fix:</strong> Engineered an emergency <code>early_stopping_patience: 50</code> override to permanently disable MSE-based sudden death for high-complexity manifolds, allowing perceptual metrics (LPIPS/FID) to safely plummet into record territory during the final cooling phase.</p>
+            </div>
         </section>
 
         <section id="deployment">
