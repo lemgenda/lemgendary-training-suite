@@ -592,6 +592,14 @@
                 <p><strong>Issue:</strong> Upon extending <code>epochs</code> sequentially using the Continuity Guard, the model loaded PyTorch schedulers where the learning rate had correctly decayed down to <code>0.00000053</code>. While fixing geometric issues like Perceptual Norms, the learning momentum was fundamentally dead—frozen perfectly inside a local minima without the velocity required to utilize the new mathematical matrices.<br/>
                 <strong>Fix:</strong> SOTA Sentry dynamically bypasses <code>scheduler_state</code> injection specifically during extended epoch bounds mathematically greater than 50. This deliberately slams the NAFNet architecture with a fresh "Phase-1" burst of OneCycleLR velocity, completely ripping the vector out of the flatlined states.</p>
             </div>
+
+            <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
+                <h3 id="universal-sota">6.7 The Universal SOTA Optimization Vector</h3>
+                <p><strong>Issue:</strong> Despite stabilizing the VGG gradients, the architecture hit a hard perceptual ceiling at <code>23.87dB</code>. We mathematically isolated this as the classic "Perception-Distortion Tradeoff"&mdash;the native <code>MSELoss</code> inherently penalized sharp features, constantly clashing with Perceptual metrics to create a blurry equilibrium. Additionally, the iteration span (<code>50</code> epochs) was profoundly depriving the optimizer of physical convergence blocks, given NAFNet natively requires >300,000 iterations to scale to <code>39dB</code> thresholds.</p>
+                <p><strong>Fix:</strong><br/>
+                - <strong>The L1-LPIPS Harmonic Matrix:</strong> We physically abandoned <code>MSELoss</code> and structurally swapped to <code>L1Loss</code>, which natively bounds high-frequency gradients geometrically. We then anchored the true learned <code>lpips.LPIPS(net='vgg')</code> layer at exactly <code>0.025</code> to perfectly balance human perception targets without overpowering PSNR.<br/>
+                - <strong>Iteration Expansion:</strong> Extended runtime parameterization to <code>1000</code> epochs, effectively expanding the base <code>OneCycleLR</code> cosine scale into massive, high-velocity heating curves lasting tens of thousands of steps.</p>
+            </div>
         </section>
 
         <section id="deployment">
