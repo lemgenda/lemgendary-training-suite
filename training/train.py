@@ -195,11 +195,10 @@ def main():
     if "yolo" in args.model.lower():
         from data.yolo_config_gen import generate_yolo_yaml  # pyre-ignore
         
-        from data.yolo_config_gen import generate_yolo_yaml  # pyre-ignore
         yaml_path = generate_yolo_yaml(config, args.model, unified_models_registry, unified_data_registry)
         
         from ultralytics import YOLO  # pyre-ignore
-        model_info = unified_models.get(args.model, {})
+        model_info = unified_models_registry.get(args.model, {})
         
         # Dynamic base architecture inference
         default_pt = "yolov8n.pt" if "yolov8" in args.model.lower() else "yolov8n.pt"
