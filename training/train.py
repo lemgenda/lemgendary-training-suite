@@ -897,11 +897,20 @@ def main():
                 is_improving = True
                 print(f" -> Significant Loss Improvement ({avg_val_loss:.6f}). Patience reset.")
         else:
-            if avg_val_loss < best_val_loss:
-                best_val_loss = avg_val_loss
+            # 2026: Shift to Universal Visual SOTA Metric (Eliminating Val_Loss dominance)
+            # Normalizing directions: PSNR (Higher) + SSIM (Higher) - LPIPS (Lower) - FID (Lower)
+            # We multiply fractions to scale them similarly to the PSNR digits so nothing is drowned out mathematically.
+            current_quality_score = psnr + (ssim_val * 20) - (lpips_val * 20)
+            
+            if current_quality_score > best_quality_score:
+                best_quality_score = current_quality_score
                 is_best = True
                 is_improving = True
-                print(f" -> Saved new best model (Val Loss: {best_val_loss:.4f})!")
+                print(f" -> Saved new SOTA Visual Metric: {best_quality_score:.4f} (PSNR: {psnr:.2f}, LPIPS: {lpips_val:.4f})!")
+            
+            elif avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                is_improving = True # Resets patience if the loss is geometrically improving but visual metrics are temporarily wobbling
 
         # Finalize Checkpoint State (Capturing latest Metric Shift)
         ckpt_state = {

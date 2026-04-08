@@ -126,6 +126,7 @@ NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, 
 **Fix**: 
 - **The L1-LPIPS Harmonic Matrix**: We physically abandoned `MSELoss` and structurally swapped to `L1Loss`, which natively bounds high-frequency gradients geometrically. We then anchored the true learned `lpips.LPIPS(net='vgg')` layer at exactly `0.025` to perfectly balance human perception targets without overpowering PSNR.
 - **Iteration Expansion & Runway Re-Injection**: Extended runtime parameterization to `1000` epochs, effectively expanding the base `OneCycleLR` cosine scale into massive, high-velocity heating curves lasting tens of thousands of steps across cloud clusters. Custom guardrails capping LR unexpectedly at fine-tuning limits (`5e-6`) were systematically targeted and eradicated.
+- **Universal Visual SOTA Sentry**: We fundamentally unlinked the target extraction hook from `avg_val_loss`. The SOTA orchestrator now mathematically compounds `current_quality_score = psnr + (ssim * 20) - (lpips * 20)` to ensure the `.pth` weights that are exported universally represent maximum perceptual human value, ignoring abstract backpropagation loss fluctuations.
 
 ---
 
