@@ -103,13 +103,15 @@ NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, 
 **Fix**: Engineered an emergency `early_stopping_patience: 50` override to permanently disable MSE-based sudden death for high-complexity manifolds, allowing perceptual metrics (LPIPS/FID) to safely plummet into record territory during the final cooling phase.
 
 ### 6.4 The VGG Perceptual Convergence Collapse
-**Issue**: The convergence ceiling unexpectedly hard-locked at exactly ~22.70dB mathematically, refusing to traverse higher despite the Defibrillation override injecting fresh Learning Rate velocity. We discovered two coupled architectural breaks:
+**Issue**: The convergence ceiling unexpectedly hard-locked at exactly ~22.70dB mathematically, refusing to traverse higher despite the Defibrillation override injecting fresh Learning Rate velocity. We discovered three coupled architectural breaks:
 1. **The VGG Geometry Invalidation**: Directly passing un-normalized `[0,1]` float pixels into the VGG19 Network mathematically invalidates the Perceptual Loss geometry. Because VGG was uniquely trained on ImageNet tensor distributions (`mean=[0.485, 0.456, 0.406]`), it interprets raw `0-1` arrays as extreme edge case statics, feeding chaotic gradients.
 2. **The CombinedLoss Structural Bypass**: The master execution script (`train.py`) had a native `CombinedLoss` class defined internally that completely bypassed the global `training.losses` library. It was executing raw `nn.MSELoss()`, abandoning all Perceptual gradients entirely.
+3. **The 40x Magnitude Overflow**: Upon restoring the VGG pipeline, the default scale (`0.1`) caused the VGG L1-feature magnitude to massively overpower the raw spatial `MSELoss` by a factor of 40x, instantly cratering the PSNR to 19.87dB.
 
 **Fix**: 
 - **Strict ImageNet Normalization Anchor**: We natively bound standard deviations that dynamically scale input tensors to pure VGG spatial geometry before passing them into the internal layers.
-- **Master Loop Injection**: We structurally re-anchored `PerceptualLoss` directly into `train.py`'s localized `CombinedLoss` block, layering `0.1 * perc_loss` directly onto the MSE tensors. This instantly shattered the 22.70dB bottleneck mathematically.
+- **Master Loop Injection**: We structurally re-anchored `PerceptualLoss` directly into `train.py`'s localized `CombinedLoss` block.
+- **Magnitude Equalization**: We radically depressed the scalar magnitude down to `0.005`, allowing VGG to provide sharp detail contours without completely overwhelming the base pixel alignment accuracy.
 
 ### 6.5 The "Double-Step" OneCycleLR Matrix Paradox
 **Issue**: When resuming from a checkpoint via PyTorch's `Fast-Forward` loop, manual invocations of `scheduler.step()` blindly advanced the `OneCycleLR` clock while the dataloader was merely skipping batches. For instance, resuming at Iteration 413 physically blew past the `Total_Steps` limit, throwing a `ValueError` the moment training breached 23,001.
