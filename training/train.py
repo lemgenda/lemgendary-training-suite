@@ -234,7 +234,6 @@ def main():
                     trainer.excellent_countdown = 1
                     
                     if args.prefetch_datasets:
-                        import subprocess
                         print(f"\n[Zero-Latency Pre-Fetch] Triggering parallel background data streams natively for next workflow phase!")
                         base_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "prefetch_worker.py"), args.prefetch_datasets, os.path.join(os.path.dirname(__file__), "..", "data", "datasets")]
                         if os.name == 'nt':
@@ -927,7 +926,6 @@ def main():
             sota_countdown = 1
             
             if args.prefetch_datasets:
-                import subprocess
                 print(f"\n[Zero-Latency Pre-Fetch] Triggering parallel background data streams natively for next workflow phase!")
                 base_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "prefetch_worker.py"), args.prefetch_datasets, os.path.join(os.path.dirname(__file__), "..", "data", "datasets")]
                 if os.name == 'nt':
