@@ -427,14 +427,40 @@
                 <img src="assets/lemgenda-icon.svg" alt="LemGenda Icon">
             </a>
             <h4>Navigation Matrix</h4>
-            <ul>
+                        <ul>
                 <li><a href="#abstract">1. Abstract</a></li>
                 <li><a href="#taxonomy">2. Visual Taxonomy</a></li>
-                <li><a href="#hardware">3. Infrastructure</a></li>
-                <li><a href="#optimization">4. Mathematics</a></li>
-                <li><a href="#migration">5. SOTA Migration</a></li>
-                <li><a href="#challenges">6. Resilience Architecture</a></li>
-                <li><a href="#deployment">7. Deployment Strategy</a></li>
+                <li><a href="#hardware">3. Infrastructure</a>
+                    <ul class="sub-item">
+                        <li><a href="#dataparallel">3.1 DataParallel Deprecation</a></li>
+                        <li><a href="#ovc-bridge">3.2 OVC Data Bridge</a></li>
+                    </ul>
+                </li>
+                <li><a href="#optimization">4. Mathematics</a>
+                    <ul class="sub-item">
+                        <li><a href="#structural-perceptual">4.1 Structural vs Perceptual</a></li>
+                        <li><a href="#pcie-thrashing">4.2 PCIe VRAM Thrashing</a></li>
+                        <li><a href="#cpu-bypass">4.3 CPU-Bottleneck Bypass</a></li>
+                    </ul>
+                </li>
+                <li><a href="#migration">5. SOTA Migration</a>
+                    <ul class="sub-item">
+                        <li><a href="#simplegate">5.1 SimpleGate over ReLU</a></li>
+                    </ul>
+                </li>
+                <li><a href="#challenges">6. Resilience Architecture</a>
+                    <ul class="sub-item">
+                        <li><a href="#nan-overflows">6.1 NaN Overflows</a></li>
+                        <li><a href="#contiguous-crash">6.2 Contiguous Crash</a></li>
+                        <li><a href="#sudden-death">6.3 LR Sudden Death</a></li>
+                    </ul>
+                </li>
+                <li><a href="#deployment">7. Deployment Strategy</a>
+                    <ul class="sub-item">
+                        <li><a href="#standalone-exporters">7.1 Standalone Exporters</a></li>
+                        <li><a href="#ghost-severing">7.2 Ghost-Severing Protocol</a></li>
+                    </ul>
+                </li>
                 <li><a href="#conclusion">8. Conclusion</a></li>
             </ul>
         </nav>
@@ -475,54 +501,54 @@
             <h2>3. Hardware-Aware Infrastructure: Dual-GPU SOTA Specialization</h2>
             <p>Training massive architectures like NAFNet at high resolutions requires absolute synchronization on multi-GPU Kaggle environments.</p>
             <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
-                <h3>3.1 The nn.DataParallel Deprecation & Single-GPU Return</h3>
+                <h3 id="dataparallel">3.1 The nn.DataParallel Deprecation & Single-GPU Return</h3>
                 <p>Initial attempts to harness both Tesla T4 GPUs simultaneously via PyTorch's legacy <code>nn.DataParallel</code> wrapper resulted in catastrophic hardware panics. The module slices batches into non-contiguous "virtual memory views" across the PCIe bus. When NAFNet's advanced <code>AdaptiveAvgPool2d</code> and <code>SimpleGate</code> structures attempted to run mathematical convolutions against these fragmented views, the Nvidia Turing architecture instantly panicked, throwing fatal <code>cudaErrorMisalignedAddress</code> C++ exceptions. The suite was aggressively rolled back to lock onto <code>cuda:0</code>, proving that for memory-optimized architectures, a single, structurally perfect 15GB GPU is vastly superior to a fragmented dual-GPU array.</p>
             </div>
             <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
-                <h3>3.2 OVC Data Streaming Bridge (OpenCV-to-CUDA)</h3>
+                <h3 id="ovc-bridge">3.2 OVC Data Streaming Bridge (OpenCV-to-CUDA)</h3>
                 <p>The pipeline harnesses local NumPy/OpenCV workers to decode image tensors natively in CPU cache before flushing them to the GPU. This prevents data-starvation of the GPU cores completely, hiding I/O latency behind raw throughput.</p>
             </div>
         </section>
 
         <section id="optimization">
             <h2>4. Mathematical Optimization: High-Fidelity Perceptual Engines</h2>
-            <h3>4.1 Structural VS Perceptual Verification</h3>
+            <h3 id="structural-perceptual">4.1 Structural VS Perceptual Verification</h3>
             <p>While PSNR measures absolute mathematical pixel differences, it is notoriously poor at determining if an image "looks good." The 2026 upgrade integrated advanced perceptual loops:</p>
             <ul>
                 <li><strong>LPIPS:</strong> Feeds predicted inputs against ground truth through a massive VGG-16 backbone to evaluate conceptual feature layout.</li>
                 <li><strong>FID:</strong> Analyzes macro-distribution geometry through an InceptionV3 neural matrix.</li>
             </ul>
 
-            <h3>4.2 PCIe VRAM Thrashing & The Chunking Fix</h3>
+            <h3 id="pcie-thrashing">4.2 PCIe VRAM Thrashing & The Chunking Fix</h3>
             <p>When attempting to validate a 425-image subset against LPIPS simultaneously, the 15GB VRAM ceiling immediately shattered. The Linux kernel initiated "PCIe Thrashing"—swapping VRAM back to System RAM, physically hanging the Kaggle instance for hours. We engineered a <strong>Structural Chunking Loop</strong> (Cap: 8), permanently restricting VRAM utilization to ~500MB without losing mathematical fidelity.</p>
 
-            <h3>4.3 The CPU-Bottleneck Bypass</h3>
+            <h3 id="cpu-bypass">4.3 The CPU-Bottleneck Bypass</h3>
             <p>Initial mitigations offloaded predictions physically to System RAM to save VRAM. However, invoking <code>lpips(net="vgg")</code> against RAM implicitly forced convolutions to run on the 2-Core Kaggle CPU at fractions of a frame per second. The final stabilization dynamically re-injects standard batch chunks <code>.to(device)</code> directly back into the T4 GPU solely for the validation millisecond, executing validation cycles in mere seconds instead of hours.</p>
         </section>
         
         <section id="migration">
             <h2>5. The SOTA Architectural Migration (Mock to NAFNet)</h2>
             <p>The primary triumph of this whitepaper is the stabilization of <strong>NAFNet</strong> in production. Legacy code featured 500-parameter "Mock" setups. The true NAFNet possesses millions of parameters driven by <code>SimpleGates</code> and <code>SimplifiedChannelAttention</code>.</p>
-            <h3>5.1 SimpleGate over ReLU</h3>
+            <h3 id="simplegate">5.1 SimpleGate over ReLU</h3>
             <p>NAFNet actively abandons activating nonlinearities (like ReLU). Instead, it splits channels in half and multiplies them together (<code>SimpleGate</code>). This dramatically increases speed and retains extreme frequency detail, making it the supreme engine for Denoising.</p>
         </section>
 
         <section id="challenges">
             <h2>6. Challenges & Resilience Architecture</h2>
             <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
-                <h3>6.1 The SimpleGate NaN Overflows (Structural FP16 Disable)</h3>
+                <h3 id="nan-overflows">6.1 The SimpleGate NaN Overflows (Structural FP16 Disable)</h3>
                 <p><strong>Issue:</strong> NAFNet training initially exploded with infinite <code>NaN</code> losses. Because <code>SimpleGate</code> acts as a multiplicative layer, feature maps inside the encoder can easily cross the internal float ceiling of <code>65,504</code> dictated by FP16 (Automatic Mixed Precision).<br/>
                 <strong>Fix:</strong> Engineered the <strong>Structural FP16 Disable</strong>. The <code>train.py</code> loop dynamically disables AMP specifically for NAFNet wrappers, forcing PyTorch to retain strict double-precision gradients via FP32. NaN collapses structurally plummeted to 0.</p>
             </div>
             
             <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
-                <h3>6.2 The Contiguous View Kernel Crash</h3>
+                <h3 id="contiguous-crash">6.2 The Contiguous View Kernel Crash</h3>
                 <p><strong>Issue:</strong> When interacting with partial dataset views (or previous Multi-GPU experiments), PyTorch passed fragmented tensors into convolutions causing <code>misaligned address</code> crashes.<br/>
                 <strong>Fix:</strong> Surgically patched <code>models/core_restoration.py</code> with rigorous <code>.contiguous()</code> clamps. Every input passed to <code>Conv2d</code>, <code>Pool2d</code>, or a <code>SimpleGate</code> multiplier is physically forced into linear memory realignment before GPU mathematical ingestion.</p>
             </div>
 
             <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
-                <h3>6.3 The OneCycleLR "Sudden Death" & AdamW Resume Shock</h3>
+                <h3 id="sudden-death">6.3 The OneCycleLR "Sudden Death" & AdamW Resume Shock</h3>
                 <p><strong>Issue:</strong> Standard Early Stopping mechanisms (patience=15) mathematically trigger "Sudden Death" at Epoch 39 due to MSE Val Loss wobbling on the floor, permanently locking the model out of the crucial OneCycleLR precision-cooling sequence (Epochs 40-50). Resuming from this crash natively induces an <code>AdamW Resume Shock</code>, where reloaded moving-average momenta buffers cause PSNR to temporarily crater (e.g., 24.7dB to 22.4dB) for 1-2 epochs before skyrocketing back to SOTA.<br/>
                 <strong>Fix:</strong> Engineered an emergency <code>early_stopping_patience: 50</code> override to permanently disable MSE-based sudden death for high-complexity manifolds, allowing perceptual metrics (LPIPS/FID) to safely plummet into record territory during the final cooling phase.</p>
             </div>
@@ -530,10 +556,10 @@
 
         <section id="deployment">
             <h2>7. Deployment Strategy: The C++ ONNX Ghost-Severing Protocol</h2>
-            <h3>7.1 Standalone Exporters</h3>
+            <h3 id="standalone-exporters">7.1 Standalone Exporters</h3>
             <p>We completely rebuilt the universal ONNX suite and PyTorch serialization hooks. Checkpoints saved under <code>DataParallel</code> (which inject a <code>module.</code> prefix) are intelligently parsed and mapped cleanly onto raw CPUs, allowing Kaggle multi-GPU runs to be downloaded and evaluated on local standalone PCs.</p>
 
-            <h3>7.2 The Ghost-Severing Protocol</h3>
+            <h3 id="ghost-severing">7.2 The Ghost-Severing Protocol</h3>
             <p><strong>Issue:</strong> When compressing massive 30MB FP32 tensors to FP16, legacy PyTorch ONNX C++ sub-compilers would illegally fork enormous <code>.onnx.data</code> sidecar files to disk (exceeding Protobuf serialization limits). This effectively poisoned WebGPU payloads with segmented external dependency.<br/>
             <strong>Fix:</strong> Implemented the <strong>Ghost Severing Protocol</strong>. A clean-slate ONNX sweep detects and forcefully physically deletes orphaned <code>.onnx.data</code> graph fragments. The model is dynamically constrained to self-contained payload architecture, ensuring a single, 15MB file powers the web instance.</p>
         </section>
