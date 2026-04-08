@@ -9,7 +9,7 @@ import torch.nn.functional as F
 class SimpleGate(nn.Module):
     def forward(self, x):
         x1, x2 = x.chunk(2, dim=1)
-        return x1 * x2
+        return x1.contiguous() * x2.contiguous()
 
 class SimplifiedChannelAttention(nn.Module):
     def __init__(self, c):
@@ -17,7 +17,7 @@ class SimplifiedChannelAttention(nn.Module):
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.conv = nn.Conv2d(c, c, 1, 1, 0)
     def forward(self, x):
-        return x * self.conv(self.pool(x))
+        return x.contiguous() * self.conv(self.pool(x)).contiguous()
 
 class NAFBlock(nn.Module):
     def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
@@ -47,13 +47,13 @@ class NAFBlock(nn.Module):
         x = self.sg(x)
         x = x * self.sca(x)
         x = self.conv3(x)
-        y = inp + x * self.beta
+        y = inp + x.contiguous() * self.beta.contiguous()
 
         x = self.norm2(y)
         x = self.conv4(x)
         x = self.sg(x)
         x = self.conv5(x)
-        return y + x * self.gamma
+        return y + x.contiguous() * self.gamma.contiguous()
 
 class NAFNet(nn.Module):
     """Real NAFNet Architecture for Denoising/Deblurring"""
@@ -123,7 +123,7 @@ class PALayer(nn.Module):
                 nn.Sigmoid()
         )
     def forward(self, x):
-        return x * self.pa(x)
+        return x.contiguous() * self.pa(x).contiguous()
 
 class CALayer(nn.Module):
     def __init__(self, channel):
@@ -136,7 +136,7 @@ class CALayer(nn.Module):
                 nn.Sigmoid()
         )
     def forward(self, x):
-        return x * self.ca(self.avg_pool(x))
+        return x.contiguous() * self.ca(self.avg_pool(x)).contiguous()
 
 class Block(nn.Module):
     def __init__(self, conv, dim, kernel_size):
