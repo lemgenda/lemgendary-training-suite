@@ -422,7 +422,7 @@ def main():
 
     # --- 2026 Continuity Protocol (SOTA Sentry) ---
     # Ensure the mission doesn't stall if targets haven't been met.
-    if not sota_baseline_achieved and start_epoch >= epochs:
+    if not sota_baseline_achieved and start_epoch >= (epochs - 1):
         print(f"\n⚠️  [CONTINUITY] Model reached epoch limit ({epochs}) without hitting SOTA benchmarks.")
         print(f"   -> Dynamically extending training by 20 epochs to ensure convergence...")
         epochs = start_epoch + 20
