@@ -28,9 +28,11 @@
 7. [Deployment Strategy: The C++ ONNX Ghost-Severing Protocol](#7-deployment-strategy-the-c-onnx-ghost-severing-protocol)
    - [7.1 Standalone Exporters](#71-standalone-exporters)
    - [7.2 The Ghost-Severing Protocol](#72-the-ghost-severing-protocol)
-8. [Conclusion: The Browser Restoration Paradigm](#8-conclusion-the-browser-restoration-paradigm)
-9. [Kaggle Cloud Execution Protocols](#9-kaggle-cloud-execution-protocols)
-10. [SOTA Architectural Performance Matrix](#10-sota-architectural-performance-matrix)
+8. [Kaggle Cloud Execution Protocols](#8-kaggle-cloud-execution-protocols)
+   - [8.1 Single-GPU Specialization](#81-single-gpu-specialization-15gb-t4-node-strategy)
+   - [8.2 Sub-Epoch Continuity](#82-sub-epoch-continuity-progress-snapshots)
+9. [SOTA Architectural Performance Matrix](#9-sota-architectural-performance-matrix)
+10. [Conclusion: The Browser Restoration Paradigm](#10-conclusion-the-browser-restoration-paradigm)
 
 ---
 
@@ -125,28 +127,19 @@ We completely rebuilt the universal ONNX suite (`export_onnx_model.py`) and PyTo
 
 ---
 
-## 8. Conclusion: The Browser Restoration Paradigm
-The stabilization of SOTA Backbones represents the final engineering milestone of the LemGendary project.
-
-By overriding Kaggle architectural panics—disabling PyTorch's broken Multi-GPU layers, enforcing contiguous tensor mappings, and manually throttling PCIe validation chunks—we built a framework practically indestructible. 
-
-The resulting NAFNet architecture, operating in FP32 inside the Kaggle Docker container and ultimately compiling down to self-contained FP16 ONNX nodes, proves that studio-grade image restoration can be generated automatically in the cloud, and deployed instantly via WebGPU.
-
----
-
-## 9. Kaggle Cloud Execution Protocols
+## 8. Kaggle Cloud Execution Protocols
 
 Kaggle instances uniquely operate under hyper-ephemeral boundaries (12-hour session maximums, multi-GPU validation desyncs, random RAM evictions). We implemented the following deployment strategies to ensure robust convergence parity.
 
-### Single-GPU Specialization (15GB T4 Node Strategy)
+### 8.1 Single-GPU Specialization (15GB T4 Node Strategy)
 Kaggle frequently offers 2x T4 standard instances. Activating PyTorch `nn.DataParallel` physically splits NAFNet's SimpleGate multiplicative volumes directly across PCIe buses natively crippled by Kaggle's internal VM throttling. We actively deprecate the second GPU to double VRAM stability linearly on `cuda:0`.
 
-### Sub-Epoch Continuity (Progress Snapshots)
+### 8.2 Sub-Epoch Continuity (Progress Snapshots)
 Because an epoch can take 2-3 hours on massive HD topologies, standard `epoch-only` checkpoints are insufficient. We natively execute intra-epoch `progress.pth` serialization precisely tracking global `_batch_steps`. The SOTA Resumption Array guarantees hardware disruptions merely clip seconds off the training sequence.
 
 ---
 
-## 10. SOTA Architectural Performance Matrix
+## 9. SOTA Architectural Performance Matrix
 
 The following matrix isolates NAFNet structurally compared against generic industry baselines (DnCNN/U-Net) and modern Multi-head transformer giants (Restormer/MIRNet).
 
@@ -158,4 +151,13 @@ The following matrix isolates NAFNet structurally compared against generic indus
 | **Restormer** | *Swin-Transformer MDTA* | 26M | ~ 14 GB | ~32.4dB | 0.05 (VGG) | Highly Degraded (Opset) |
 | **LemGendary NAFNet** | *SCA SimpleGate (Ours)* | **17M** | **~ 6 GB** | **~32.5dB+** | **< 0.06 (VGG)** | **Production Grade** |
 
-**Conclusion**: NAFNet fundamentally achieves Restormer-level clarity without relying on computationally unstable multi-head deterministic attention sweeps, making it the perfect vector engine for `[FP16]` browser exportation.
+**Hardware Note**: NAFNet fundamentally achieves Restormer-level clarity without relying on computationally unstable multi-head deterministic attention sweeps, making it the perfect vector engine for `[FP16]` browser exportation.
+
+---
+
+## 10. Conclusion: The Browser Restoration Paradigm
+The stabilization of SOTA Backbones represents the final engineering milestone of the LemGendary project.
+
+By overriding Kaggle architectural panics—disabling PyTorch's broken Multi-GPU layers, enforcing contiguous tensor mappings, and manually throttling PCIe validation chunks—we built a framework practically indestructible. 
+
+The resulting NAFNet architecture, operating in FP32 inside the Kaggle Docker container and ultimately compiling down to self-contained FP16 ONNX nodes, proves that studio-grade image restoration can be generated automatically in the cloud, and deployed instantly via WebGPU.
