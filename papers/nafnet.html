@@ -411,20 +411,20 @@
     <div class="container">
         <header>
             <a href="https://lemgenda.hr" target="_blank" class="brand-logo">
-                <img src="../assets/lemgenda-logo.svg" alt="LemGenda Logo" style="height: 60px; margin-bottom: 20px;">
+                <img src="assets/lemgenda-logo.svg" alt="LemGenda Logo" style="height: 60px; margin-bottom: 20px;">
             </a>
             <h1>Architecture of LemGendary AI</h1>
             <p class="subtitle">High-Fidelity NAFNet Restoration via SOTA Infrastructure</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 2.0.0 - SOTA</span>
+                <span>Version: 2.1.0 - Resilience Milestone</span>
                 <span>Hardware: Dual Tesla T4 (15GB)</span>
             </div>
         </header>
 
         <nav class="toc-sidebar">
             <a href="https://lemgenda.hr" target="_blank" class="toc-brand">
-                <img src="../assets/lemgenda-icon.svg" alt="LemGenda Icon">
+                <img src="assets/lemgenda-icon.svg" alt="LemGenda Icon">
             </a>
             <h4>Navigation Matrix</h4>
                         <ul>
@@ -468,8 +468,9 @@
                 </li>
                 <li><a href="#kaggle">8. Kaggle Cloud Execution Protocols</a>
                     <ul class="sub-item">
-                        <li><a href="#single-gpu">8.1 Single-GPU Specialization (15GB T4 Node Strategy)</a></li>
-                        <li><a href="#sub-epoch-continuity">8.2 Sub-Epoch Continuity (Progress Snapshots)</a></li>
+                        <li><a href="#single-gpu">8.1 Single-GPU Specialization</a></li>
+                        <li><a href="#sub-epoch-continuity">8.2 Sub-Epoch Continuity</a></li>
+                        <li><a href="#serial-extraction">8.3 Serial Extraction Mutex</a></li>
                     </ul>
                 </li>
                 <li><a href="#sota-matrix">9. SOTA Architectural Performance Matrix</a>
@@ -494,15 +495,15 @@
             <p>By unifying diverse restoration subsets into the <code>LemGendizedNoiseDataset</code>, the NAFNet backbones are trained to handle extreme multi-degradation scenarios natively found in mobile photography.</p>
             
             <div class="visual-taxonomy">
-                <div class="quadrant" onclick="openModal('../assets/technical_noise.png', 'Denoising Target', 'Extreme ISO sensor noise requiring deep feature extraction without blurring edges.')">
-                    <img src="../assets/technical_noise.png" alt="Denoising Target" style="width:100%; height:auto;">
+                <div class="quadrant" onclick="openModal('assets/technical_noise.png', 'Denoising Target', 'Extreme ISO sensor noise requiring deep feature extraction without blurring edges.')">
+                    <img src="assets/technical_noise.png" alt="Denoising Target" style="width:100%; height:auto;">
                     <div style="padding: 15px;">
                         <span class="badge" style="background:var(--accent-color); padding:3px 8px; border-radius:12px; font-size:0.75rem;">Training Domain</span>
                         <h4 style="color:#fff; margin:10px 0;">Denoising Manifold</h4>
                     </div>
                 </div>
-                <div class="quadrant" onclick="openModal('../assets/technical_compression.png', 'Deblurring Target', 'Complex spatial macroblocking and focal blur requiring multi-scale restoration.')">
-                    <img src="../assets/technical_compression.png" alt="Deblurring Target" style="width:100%; height:auto;">
+                <div class="quadrant" onclick="openModal('assets/technical_compression.png', 'Deblurring Target', 'Complex spatial macroblocking and focal blur requiring multi-scale restoration.')">
+                    <img src="assets/technical_compression.png" alt="Deblurring Target" style="width:100%; height:auto;">
                     <div style="padding: 15px;">
                         <span class="badge" style="background:#03dac6; color:#000; padding:3px 8px; border-radius:12px; font-size:0.75rem;">Training Domain</span>
                         <h4 style="color:#fff; margin:10px 0;">Deblurring Manifold</h4>
@@ -594,12 +595,14 @@
             </div>
 
             <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
-                <h3 id="universal-sota">6.7 The Universal SOTA Optimization Vector</h3>
-                <p><strong>Issue:</strong> Despite stabilizing the VGG gradients, the architecture hit a hard perceptual ceiling at <code>23.87dB</code>. We mathematically isolated this as the classic "Perception-Distortion Tradeoff"&mdash;the native <code>MSELoss</code> inherently penalized sharp features, constantly clashing with Perceptual metrics to create a blurry equilibrium. Additionally, the iteration span (<code>50</code> epochs) was profoundly depriving the optimizer of physical convergence blocks, given NAFNet natively requires >300,000 iterations to scale to <code>39dB</code> thresholds.</p>
-                <p><strong>Fix:</strong><br/>
-                - <strong>The L1-LPIPS Harmonic Matrix:</strong> We physically abandoned <code>MSELoss</code> and structurally swapped to <code>L1Loss</code>, which natively bounds high-frequency gradients geometrically. We then anchored the true learned <code>lpips.LPIPS(net='vgg')</code> layer at exactly <code>0.025</code> to perfectly balance human perception targets without overpowering PSNR.<br/>
-                - <strong>Iteration Expansion:</strong> Extended runtime parameterization to <code>1000</code> epochs, effectively expanding the base <code>OneCycleLR</code> cosine scale into massive, high-velocity heating curves lasting tens of thousands of steps.<br/>
-                - <strong>Universal Visual SOTA Sentry:</strong> We fundamentally unlinked the target extraction hook from <code>avg_val_loss</code>. The SOTA orchestrator now mathematically compounds <code>current_quality_score = psnr + (ssim * 20) - (lpips * 20)</code> to ensure the <code>.pth</code> weights that are exported universally represent maximum perceptual human value.</p>
+                <h3 id="universal-sota">6.7 The Universal Visual SOTA Sentry (v1.1.0 Refactor)</h3>
+                <p><strong>Issue</strong>: Despite stabilizing the VGG gradients, the architecture hit a hard perceptual ceiling at <code>23.87dB</code>. We mathematically isolated this as the classic "Perception-Distortion Tradeoff"&mdash;the native <code>MSELoss</code> inherently penalized sharp features, constantly clashing with Perceptual metrics to create a blurry equilibrium. Additionally, the iteration span (<code>50</code> epochs) was profoundly depriving the optimizer of physical convergence blocks.</p>
+                <p><strong>Fix</strong>:</p>
+                <ul>
+                    <li><strong>The L1-LPIPS Harmonic Matrix</strong>: We physically abandoned <code>MSELoss</code> and structurally swapped to <code>L1Loss</code>, which natively bounds high-frequency gradients geometrically. We then anchored the true learned <em>lpips.LPIPS(net='vgg')</em> layer at exactly <code>0.025</code> to perfectly balance human perception targets.</li>
+                    <li><strong>Iteration Expansion</strong>: Extended runtime parameterization to <code>1000</code> epochs, expanding the base <code>OneCycleLR</code> scale into massive, high-velocity heating curves.</li>
+                    <li><strong>Universal Visual SOTA Sentry</strong>: We fundamentally unlinked the target extraction hook from <em>avg_val_loss</em>. The SOTA orchestrator now mathematically compounds <code>current_quality_score = psnr + (ssim * 20) - (lpips * 20)</code> (and other specialized registry metrics) to ensure the exported weights universally represent maximum perceptual human value.</li>
+                </ul>
             </div>
         </section>
 
@@ -617,11 +620,15 @@
             <h2>8. Kaggle Cloud Execution Protocols</h2>
             <p>Kaggle instances uniquely operate under hyper-ephemeral boundaries (12-hour session maximums, multi-GPU validation desyncs, random RAM evictions). We implemented the following deployment strategies to ensure robust convergence parity.</p>
             
-            <h3 id="single-gpu">8.1 Single-GPU Specialization (15GB T4 Node Strategy)</h3>
+            <h3 id="single-gpu">8.1 Single-GPU Specialization</h3>
             <p>Kaggle frequently offers 2x T4 standard instances. Activating PyTorch <code>nn.DataParallel</code> physically splits NAFNet's SimpleGate multiplicative volumes directly across PCIe buses natively crippled by Kaggle's internal VM throttling. We actively deprecate the second GPU to double VRAM stability linearly on <code>cuda:0</code>.</p>
 
-            <h3 id="sub-epoch-continuity">8.2 Sub-Epoch Continuity (Progress Snapshots)</h3>
+            <h3 id="sub-epoch-continuity">8.2 Sub-Epoch Continuity</h3>
             <p>Because an epoch can take 2-3 hours on massive HD topologies, standard <code>epoch-only</code> checkpoints are insufficient. We natively execute intra-epoch <code>progress.pth</code> serialization precisely tracking global <code>_batch_steps</code>. The SOTA Resumption Array guarantees hardware disruptions merely clip seconds off the training sequence.</p>
+
+            <h3 id="serial-extraction">8.3 Serial Extraction Mutex: Stable Global Alignment</h3>
+            <p><strong>Issue</strong>: Concurrent unzipping of massive datasets (FFHQ, DIV2K) previously triggered fatal OS freezes and I/O contention on localized storage arrays.</p>
+            <p><strong>Fix</strong>: Implemented the <strong>Serial Extraction Mutex</strong>. The dataset pipeline now acquires a **Global Named Mutex** (<em>Global\LemGendaryExtractionLock</em>) during the unzipping phase. While downloads operate in parallel to maximize bandwidth, extractions are strictly serialized. This ensures that NAFNet training threads maintain a rock-solid training stride without CPU starvation.</p>
         </section>
 
         <section id="sota-matrix">
