@@ -120,7 +120,14 @@ class MultiTaskDataset(Dataset):
             std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
             img = (img - mean) / std
             
-        return torch.from_numpy(img.transpose(2, 0, 1))
+        # --- 2026: SOTA Integrity Shield ---
+        # Ensure the final tensor is numerically safe before handing it to the GPU
+        tensor = torch.from_numpy(img.transpose(2, 0, 1))
+        if not torch.isfinite(tensor).all():
+            print(f"\n⚠️  [INTEGRITY] Non-finite values detected in processed sample! Zeroing out to prevent singularity...")
+            return torch.zeros_like(tensor)
+            
+        return tensor
 
     def __len__(self):
         return len(self.samples)

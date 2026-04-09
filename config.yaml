@@ -20,7 +20,13 @@ default_batch_size: 16
 default_lr: 0.0001
 default_epochs: 1000
 early_stopping_patience: 250
-intra_epoch_checkpoint_pct: 0.25
+intra_epoch_checkpoint_pct: 0.05
+
+# Global Stabilizer Defaults (To prevent Infinite NaN loops across different architectures)
+stabilizers:
+  softmax_temp: 0.1
+  emd_epsilon: 0.000001
+  logit_clamp: 15.0
 
 # External Repository Deployment Fallbacks
 export_to_external_folder: false

@@ -95,11 +95,12 @@ This paper details the **LemGendized Universal Quality Subset**, the **2026 Reso
   - **Primary (NVIDIA)**: Handles the heavy model training (Backpropagation).
   - **Auxiliary (AMD/Intel)**: Offloads the real-time image synthesis (Blur, Noise, Haze).
 
-### Smart Termination Logic
+### Universal SOTA-Priority Engine
 To ensure State-of-the-Art (SOTA) results without wasting compute:
-1. **Target Reached**: If the strict mathematical SOTA threshold (`PLCC > 0.95 / SRCC > 0.90` for Quality, `PSNR > 32.5` for Restoration) is breached, the orchestrator triggers dynamic Early-Stopping.
-2. **Cooldown Buffer**: The suite automatically mathematically enforces exactly **1 final cooldown epoch** instantly upon breaching the array threshold to perfectly stabilize the tensor weights before executing `.onnx` compilation.
-3. **Max 50 Epochs**: Absolute safety hard-cap to violently terminate if convergence plateaus.
+1. **Metric-Driven Saving**: The engine now prioritizes specialized SOTA metrics (PSNR, PLCC, FID) over raw validation loss. `best.pth` is only updated when a new mathematical quality benchmark is achieved.
+2. **Config-Driven Targets**: All success criteria (e.g., `PLCC > 0.95`, `PSNR > 32.5`) are modularized in `unified_models.yaml`, allowing architecture-specific termination logic.
+3. **Reinforcement Countdown**: The suite automatically enforces exactly **1 final reinforcement epoch** instantly upon breaching all configured SOTA targets to stabilize the weights before ONNX compilation.
+4. **Max 50 Epochs**: Absolute safety hard-cap.
 
 ---
 
@@ -198,9 +199,11 @@ The LemGendary Training Suite (2026 Engine) incorporates a multi-layer state rec
 - **2026 Continuity Protocol**: If you resume a model from a checkpoint that has not yet hit its SOTA targets but has already reached its defining epoch limit, the orchestrator now triggers an **Automated Continuity Extension (+20 Epochs)** to ensure the mission doesn't stall until the benchmarks are breached.
 - **SOTA Bypass (Fast-Forward)**: If a model already achieved its benchmarks in a previous session but the export was interrupted, re-running the Hub will now detect the SOTA flag and **fast-forward directly to the ONNX export phase**, bypassing the 90-minute training loop entirely to save GPU compute.
 
-### 🧬 Metric Recovery & Resilient Synchronization
-The deployment chain is now natively optimized for unstable Windows file-system environments:
+### 🧬 Resilience & Numerical Stability (v1.0.42)
+The deployment chain is now natively optimized for unstable Windows file-system and high-precision convergence:
 
+- **Modular Hyperparameter Injection**: Mathematical stabilizers (Softmax Temperature, EMD Epsilon, Logit Clamping) are now dynamically injected from the model registry (`unified_models.yaml`). This ensures multi-model safety, where hardening for NIMA doesn't interfere with restoration manifolds.
+- **Serial Extraction Mutex**: To prevent SSD contention and CPU hangs, the dataset pipeline implements a **Global Named Mutex** (`Global\LemGendaryExtractionLock`). Downloads remain parallel, but ZIP extractions are serialized (one-at-a-time).
+- **Infinite NaN Recovery**: The engine incorporates deep-state sanitization. Upon detecting a numerical explosion (NaN), the system re-initializes the `GradScaler`, performs a momentum flush, and rolls back to the historical SOTA baseline with an automatic **50% LR Cooling** phase.
 - **Metric Recovery Engine (Zero-Guess Documentation)**: During SOTA fast-forwards, the script no longer uses "guestimate" placeholders. It dynamically scrapes your local `metrics.csv` to extract the real-world historical PLCC, SRCC, and PSNR values for the final production `README.md`.
-- **Resilient Artifact Sync (Windows IO Guard)**: The final deployment sync now includes a mandatory **Settle-Period** and a **3-Attempt Retry Loop** to handle Windows `WinError 32` file locks.
-- **Collision Guard**: The sync engine automatically detects if your `export_dir` and production folders are identical. If they are, it skips redundant self-copies, preventing directory-level access conflicts.
+- **Resilient Artifact Sync (Windows IO Guard)**: The final deployment sync includes a mandatory **Settle-Period** and a **3-Attempt Retry Loop** to handle Windows `WinError 32` file locks.

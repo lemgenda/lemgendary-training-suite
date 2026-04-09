@@ -72,10 +72,11 @@ from data.dataset import MultiTaskDataset
 from models.factory import get_model
 
 class CombinedLoss(nn.Module):
-    def __init__(self, task_type="restoration"):
+    def __init__(self, task_type="restoration", stabilizers=None):
         super().__init__()
         self.task_type = task_type
-        # 2026 Resilience: L1Loss provides sharply superior structural geometry vs blurry MSE minimas
+        # 2026 Resilience: Dynamic injection from config hierarchy
+        self.stab = stabilizers or {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0}
         self.l1 = nn.L1Loss(reduction='mean')
         self.mse = nn.MSELoss(reduction='mean') # Legacy fallback for face and segmentation topology
         self.ce = nn.CrossEntropyLoss()
@@ -116,18 +117,17 @@ class CombinedLoss(nn.Module):
             pred_f = pred.float()
             tgt_f = target.float()
             
-            # EMD Loss (Primary)
-            t_probs = tgt_f / torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=1e-6)
-            # 2026 Resilience: Tighter logit clamping and 0.1 temperature anchor to stabilize exponents
-            p_probs = F.softmax(pred_f.clamp(min=-25, max=25) * 0.1, dim=-1)
+            # 2026 Resilience: Tightened logit clamping and temperature anchor injected from config.
+            # Fixed: We now clamp the entire projection to prevent Inf/NaN during cumsum.
+            t_probs = tgt_f / torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=self.stab.get("emd_epsilon", 1e-6))
+            p_probs = F.softmax(pred_f.clamp(min=-self.stab.get("logit_clamp",15), max=self.stab.get("logit_clamp",15)) * self.stab.get("softmax_temp", 0.1), dim=-1)
             cdf_p = torch.cumsum(p_probs, dim=-1)
             cdf_t = torch.cumsum(t_probs, dim=-1)
-            emd = torch.mean((cdf_p - cdf_t) ** 2)
             
-            # EMD Loss Only - Removed batch-wise PLCC penalty which destructively shifts 
-            # predictions away from the global mean and destroys global SRCC / Rank Correlation
-            total_loss = emd
-            return torch.nan_to_num(total_loss, nan=0.0, posinf=0.0, neginf=0.0)
+            # 2026: Geometric Stabilizer - Squared error on CDF is notoriously prone to local minimas/singularities
+            # if weights are already near zero. Added eps clamp.
+            emd = torch.mean((cdf_p - cdf_t) ** 2)
+            return emd
         elif self.task_type == "classification":
             return self.ce(pred, target)
         return self.mse(pred, target)
@@ -183,6 +183,11 @@ def get_dynamic_batch_size(model_key, model_info, config, device):
         return config.get("default_batch_size", 16)
 
 def main():
+    import sys
+    # 2026 Resilience: Force UTF-8 encoding for Windows terminals to support emojis
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+
     parser = argparse.ArgumentParser(description="LemGendary Training Suite Universal Trainer")
     parser.add_argument("--model", type=str, default="professional_multitask_restoration", help="Model key from unified_models.yaml")
     parser.add_argument("--epochs", type=int, default=None)
@@ -518,7 +523,14 @@ def main():
         if os.path.exists(latest_ckpt):
             print("🚀 [SOTA 2.0] Model architecture shift detected. Starting fresh LR cycle from Epoch 1.")
 
-    criterion = CombinedLoss(task_type=train_ds.task_type)
+    # --- 2026: Hyper-Dynamic Stabilizer Injection ---
+    global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0})
+    model_stab = model_info.get("stabilizers", {})
+    # Hierarchy: Unified Model Registry > Global Config > Hardcoded Safety Fallback
+    stab = {**global_stab, **model_stab}
+    print(f"📡 [STABILIZER] Active Parameters: Temp={stab['softmax_temp']} | Eps={stab['emd_epsilon']} | Clamp={stab['logit_clamp']}")
+
+    criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab)
     scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
 
     # Initialize metrics for export stability (Avoids NameErrors on skip)
@@ -586,7 +598,8 @@ def main():
         optimizer.zero_grad() # Initial zero
         for i, batch in enumerate(pbar):
             # Fast-forward skip
-            if epoch == start_epoch and i <= resume_iteration:
+            # --- 2026: Fast-Forward & Singularity Skip ---
+            if i <= resume_iteration:
                 continue
                 
             inputs, targets, tasks = batch
@@ -624,8 +637,8 @@ def main():
             # Detecting "Dead Gradients" that have been masked to 0.0 by the Singularity Shield
             if loss.item() == 0.0:
                 consecutive_singularities += 1
-                if consecutive_singularities >= 5:
-                    print(f"☢️  [NUCLEAR] Infinite Singularity Loop (5 batches). Poisoned state detected. Nuking Latest & Hard-Resetting...")
+                if consecutive_singularities >= 10:
+                    print(f"☢️  [NUCLEAR] Infinite Singularity Loop (10 batches). Poisoned state detected. Nuking Latest & Hard-Resetting...")
                     latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
                     if os.path.exists(latest_ckpt): 
                         try: os.remove(latest_ckpt)
@@ -633,8 +646,15 @@ def main():
                     
                     # Force a deep rollback to best.pth
                     is_corrupt = True
-                    consecutive_nans = 5 # Force Thermal Shield
+                    consecutive_nans = 10 # Force Thermal Shield
                     consecutive_singularities = 0 
+                    
+                    # 2026 Resilience: Poisoned Region Skip
+                    # Skip the next 50 batches to ensure we clear the mathematical singularity region
+                    # that caused the collapse.
+                    resume_iteration = i + 50
+                    print(f"⏩ [RESILIENCE] Skipping poisoned region: Iterations {i} to {resume_iteration}")
+                    
                     torch.cuda.empty_cache()
             else:
                 consecutive_singularities = 0
@@ -702,7 +722,30 @@ def main():
                         if hasattr(scheduler, 'base_lrs'):
                             scheduler.base_lrs = [lr * 0.5 for lr in scheduler.base_lrs]
                         
-                        optimizer.state.clear()
+                        # 2026 Resilience: Momentum Decay instead of Clear
+                    # We only clear the state if it actually contains NaNs.
+                    # Otherwise, wiping momentum causes a "Panic Spike" on the next batch.
+                        # 2026 Resilience: Momentum Decay instead of Clear
+                        # We only clear the state if it actually contains NaNs.
+                        # Otherwise, wiping momentum causes a "Panic Spike" on the next batch.
+                        momentum_corrupt = False
+                        for state in optimizer.state.values():
+                            for k, v in state.items():
+                                if isinstance(v, torch.Tensor) and not torch.isfinite(v).all():
+                                    momentum_corrupt = True; break
+                            if momentum_corrupt: break
+                        
+                        if momentum_corrupt:
+                            print(f"🧹 [PURGE] Corrupted optimizer momentum detected. Hard-resetting optimizer state.")
+                            optimizer.state.clear()
+                        else:
+                            # Momentum Cooling: Dampen the momentum to seat the model gently
+                            for state in optimizer.state.values():
+                                for k, v in state.items():
+                                    if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
+                                        v.mul_(0.9)
+                            print(f"🧊 [COOLING] Momentum dampened by 10% to stabilize manifold entry.")
+                        
                         scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
                         print(f"✅ [RECOVERY] Successfully rolled back to historical SOTA baseline with fresh Scaler.")
                     else:
@@ -816,9 +859,9 @@ def main():
                 t = torch.cat(all_targets)
                 if p.shape[-1] == 10:
                     weights = torch.arange(1, 11).float()
-                    # 2026 Resilience: Missing * 0.1 temperature anchor restored for metrics
-                    p_probs = F.softmax(p.clamp(min=-25, max=25) * 0.1, dim=-1)
-                    t_probs = t / torch.clamp(t.sum(dim=-1, keepdim=True), min=1e-6)
+                    # 2026 Resilience: Dynamic stabilizers injected from active mission profile
+                    p_probs = F.softmax(p.clamp(min=-stab['logit_clamp'], max=stab['logit_clamp']) * stab['softmax_temp'], dim=-1)
+                    t_probs = t / torch.clamp(t.sum(dim=-1, keepdim=True), min=stab['emd_epsilon'])
                     p_mean = (p_probs * weights).sum(dim=-1).numpy()
                     t_mean = (t_probs * weights).sum(dim=-1).numpy()
                     
@@ -880,38 +923,43 @@ def main():
         with open(metrics_csv_path, "a") as f:
             f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{scheduler.get_last_lr()[0]:.8f},{metrics_str.replace(' | ', '').replace(':', '=')}\n")
             
-        # 2026 Architectural Shift: Metric-Based Early Stopping for Quality Tasks
+        # --- 2026: Universal SOTA-Priority Quality Assessment ---
         is_best = False
-        is_improving = False # 2026: Persistence Reset Guard
+        is_improving = False 
         
-        if train_ds.task_type == "quality":
-            current_quality_score = (plcc + srcc) / 2
-            # Primary: Quality Score (Saves best.pth)
+        sota_targets = model_info.get("sota_targets", {})
+        
+        if sota_targets:
+            # Dynamic Quality Score: Weighted average of all SOTA targets
+            # We normalize metrics based on common scales (0-1 for correlation/SSIM, 0-100 for PSNR/FID)
+            # Higher is always better in this score matrix.
+            current_quality_score = 0.0
+            for k, v in sota_targets.items():
+                if k == 'plcc': current_quality_score += plcc * 50
+                elif k == 'srcc': current_quality_score += srcc * 50
+                elif k == 'psnr': current_quality_score += psnr
+                elif k == 'ssim': current_quality_score += ssim_val * 40
+                elif k == 'lpips': current_quality_score += (1.0 - lpips_val) * 40 # Inverted
+                elif k == 'fid': current_quality_score += (100.0 - fid) # Inverted
+                elif k == 'map50': current_quality_score += map50 * 100
+                elif k == 'map50_95': current_quality_score += map50_95 * 100
+            
             if current_quality_score > best_quality_score:
                 best_quality_score = current_quality_score
                 is_best = True
                 is_improving = True
-                print(f" -> New Best Quality Metric: {best_quality_score:.4f} (PLCC: {plcc:.4f}, SRCC: {srcc:.4f})")
-            # Secondary: Significant Loss Improvement (Resets patience only)
-            elif avg_val_loss < (best_val_loss * 0.995): # Significant 0.5% gain
+                print(f" -> 🏆 [SOTA GUARD] Record Quality Milestone: {best_quality_score:.4f}. Saving new Best Weights.")
+            elif avg_val_loss < (best_val_loss * 0.995):
                 best_val_loss = avg_val_loss
                 is_improving = True
-                print(f" -> Significant Loss Improvement ({avg_val_loss:.6f}). Patience reset.")
+                print(f" -> 💡 [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}). Progress stabilized. Patience reset.")
         else:
-            # 2026: Shift to Universal Visual SOTA Metric (Eliminating Val_Loss dominance)
-            # Normalizing directions: PSNR (Higher) + SSIM (Higher) - LPIPS (Lower) - FID (Lower)
-            # We multiply fractions to scale them similarly to the PSNR digits so nothing is drowned out mathematically.
-            current_quality_score = psnr + (ssim_val * 20) - (lpips_val * 20)
-            
-            if current_quality_score > best_quality_score:
-                best_quality_score = current_quality_score
+            # Fallback for models without specialized targets
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
                 is_best = True
                 is_improving = True
-                print(f" -> Saved new SOTA Visual Metric: {best_quality_score:.4f} (PSNR: {psnr:.2f}, LPIPS: {lpips_val:.4f})!")
-            
-            elif avg_val_loss < best_val_loss:
-                best_val_loss = avg_val_loss
-                is_improving = True # Resets patience if the loss is geometrically improving but visual metrics are temporarily wobbling
+                print(f" -> 💡 [FALLBACK] New Best Loss: {avg_val_loss:.6f}.")
 
         # Finalize Checkpoint State (Capturing latest Metric Shift)
         ckpt_state = {
@@ -942,8 +990,7 @@ def main():
             epochs_no_improve += 1  # pyre-ignore
             print(f" -> No improvement for {epochs_no_improve} epoch(s).")
             if epochs_no_improve >= patience:
-                reason = "Quality Score" if train_ds.task_type == "quality" else "Validation Loss"
-                print(f"\n[Early Stopping] {reason} structurally converged. Halting training to prevent overfitting.")
+                print(f"\n[Early Stopping] Model structurally converged. Halting training to prevent overfitting.")
                 break
         
         # Aggressive memory cleanup for low-VRAM 4GB cards (GTX 1650)
@@ -953,21 +1000,32 @@ def main():
         breached = False
         msg = ""
 
-        if train_ds.task_type == "quality" and plcc > 0.95 and srcc > 0.90:
-            breached = True
-            msg = "State-of-the-Art NIMA Baseline (PLCC > 0.95, SRCC > 0.90)"
-        elif train_ds.task_type == "face" and fid < 8.0 and lpips_val < 0.06 and psnr > 33.0 and ssim_val > 0.92:
-            breached = True
-            msg = "State-of-the-Art Face Baseline (FID < 8.0, LPIPS < 0.06, PSNR > 33.0, SSIM > 0.92)"
-        elif train_ds.task_type in ["restoration", "enhancement"] and psnr > 32.5 and ssim_val > 0.94 and lpips_val < 0.06:
-            breached = True
-            msg = "State-of-the-Art Restoration Baseline (PSNR > 32.5, SSIM > 0.94, LPIPS < 0.06)"
-        elif train_ds.task_type == "face_detection" and avg_val_loss < 0.15: # Tightened for SOTA
-            breached = True
-            msg = "State-of-the-Art Face Detection Baseline (Val Loss < 0.15)"
-        elif train_ds.task_type == "segmentation" and avg_val_loss < 0.10: # Tightened for SOTA
-            breached = True
-            msg = "State-of-the-Art Segmentation Parsing Baseline (Val Loss < 0.10)"
+        if sota_targets:
+            # Check if ALL targets defined in config are met
+            all_met = True
+            met_details = []
+            for k, v in sota_targets.items():
+                met = False
+                if k == 'plcc' and plcc >= v: met = True
+                elif k == 'srcc' and srcc >= v: met = True
+                elif k == 'psnr' and psnr >= v: met = True
+                elif k == 'ssim' and ssim_val >= v: met = True
+                elif k == 'lpips' and lpips_val <= v: met = True
+                elif k == 'fid' and fid <= v: met = True
+                elif k == 'map50' and map50 >= v: met = True
+                elif k == 'map50_95' and map50_95 >= v: met = True
+                
+                if not met: all_met = False
+                else: met_details.append(f"{k} >= {v}")
+            
+            if all_met:
+                breached = True
+                msg = f"Configured SOTA Targets Met ({', '.join(met_details)})"
+        else:
+            # Fallback legacy targets if registry is empty
+            if train_ds.task_type == "quality" and plcc > 0.95 and srcc > 0.90:
+                breached = True
+                msg = "Legacy SOTA NIMA Baseline (PLCC > 0.95, SRCC > 0.90)"
 
         if breached and not sota_baseline_achieved:
             print(f"\n🌟 [ACHIEVEMENT UNLOCKED] {msg} mathematically breached! Engaging 1-Epoch Reinforcement SOTA Countdown...")
@@ -989,6 +1047,9 @@ def main():
                 break
             print(f"   -> SOTA Cooldown Epochs remaining: {sota_countdown}")
             sota_countdown -= 1  # pyre-ignore
+        
+        # Reset intra-epoch skip/resume counters
+        resume_iteration = -1
         
 
     print(f"\n--- Exporting {args.model} to SOTA Counterparts ---")

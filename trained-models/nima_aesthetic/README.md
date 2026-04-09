@@ -49,7 +49,7 @@ This model is a core module within the **LemGendary AI Training Suite**.
 
 - **Hardware**: NVIDIA GeForce GTX 1650 (4G VRAM)
 - **Software**: PyTorch 2.11+, CUDA 12.1.
-- **Training Lifecycle**: Successfully processed over 11 total epochs securely.
+- **Training Lifecycle**: Successfully processed over 2 total epochs securely.
 
 # Model Characteristics
 
@@ -59,13 +59,17 @@ The model uses a backbone pre-trained on ImageNet-1K with custom adaptation laye
 
 ## Model stats
 
-- **Precision**: ONNX FP16 (Embedded Weight Unity) / PyTorch FP32 (Full Standalone Model).
+- **Precision**: ONNX FP16 (Edge) / PyTorch FP32 (Training).
 - **Latency**: Sub-50ms inference bound on target local GPU hardware.
-- **Ejection**: Weight tensors are embedded for FP16 standalone deployment; FP32 utilizes sidecar `.data` files for high-precision WebGPU stability.
+- **Ejection**: Weight tensors are decoupled into sidecar `.data` files for WebGPU stability.
 
 ## Other details
 
 The matrix is optimized for browser-based execution via **ONNX Runtime Web**, bypassing standard browser memory constraints.
+
+## Stability Constraints
+
+Trained using **Earth Mover's Distance (EMD)** with strict 0.1 Temperature Anchoring to prevent probability collapse. The batch-level PLCC penalty is explicitly disabled to preserve global True Rank Correlation (SRCC).
 
 # Data Overview
 
@@ -87,7 +91,7 @@ Managed via an **80/20 train/validate split** with zero sample-leakage across th
 ## Summary
 
 The model has been structurally converged to achieve the following SOTA baselines:
-- **Baseline Achievement**: **PLCC**: 0.9596 | **SRCC**: 0.9068
+- **Baseline Achievement**: **PLCC**: 0.0 | **SRCC**: 0.0
 
 ## Fairness 
 

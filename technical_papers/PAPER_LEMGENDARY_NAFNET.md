@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NAFNet Restoration via SOTA Infrastructure
 
 **Author**: Lem Treursić  
-**Version**: 2.0.0 - SOTA (2026 Specialization)  
+**Version**: 2.1.0 - Resilience Milestone (2026 Specialization)  
 **Target Hardware**: Dual NVIDIA Tesla T4 (15GB GDDR6 / Kaggle Cloud)  
 
 ---
@@ -31,6 +31,7 @@
 8. [Kaggle Cloud Execution Protocols](#8-kaggle-cloud-execution-protocols)
    - [8.1 Single-GPU Specialization](#81-single-gpu-specialization-15gb-t4-node-strategy)
    - [8.2 Sub-Epoch Continuity](#82-sub-epoch-continuity-progress-snapshots)
+   - [8.3 Serial Extraction Mutex: Stable Global Alignment](#83-serial-extraction-mutex-stable-global-alignment)
 9. [SOTA Architectural Performance Matrix](#9-sota-architectural-performance-matrix)
 10. [Conclusion: The Browser Restoration Paradigm](#10-conclusion-the-browser-restoration-paradigm)
 
@@ -126,7 +127,7 @@ NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, 
 **Fix**: 
 - **The L1-LPIPS Harmonic Matrix**: We physically abandoned `MSELoss` and structurally swapped to `L1Loss`, which natively bounds high-frequency gradients geometrically. We then anchored the true learned `lpips.LPIPS(net='vgg')` layer at exactly `0.025` to perfectly balance human perception targets without overpowering PSNR.
 - **Iteration Expansion & Runway Re-Injection**: Extended runtime parameterization to `1000` epochs, effectively expanding the base `OneCycleLR` cosine scale into massive, high-velocity heating curves lasting tens of thousands of steps across cloud clusters. Custom guardrails capping LR unexpectedly at fine-tuning limits (`5e-6`) were systematically targeted and eradicated.
-- **Universal Visual SOTA Sentry**: We fundamentally unlinked the target extraction hook from `avg_val_loss`. The SOTA orchestrator now mathematically compounds `current_quality_score = psnr + (ssim * 20) - (lpips * 20)` to ensure the `.pth` weights that are exported universally represent maximum perceptual human value, ignoring abstract backpropagation loss fluctuations.
+- **Universal Visual SOTA Sentry (v1.1.0 Refactor)**: We fundamentally unlinked the target extraction hook from `avg_val_loss`. The SOTA orchestrator now mathematically compounds `current_quality_score = psnr + (ssim * 20) - (lpips * 20)` (and other specialized registry metrics) to ensure the `.pth` weights exported universally represent maximum perceptual human value. Early stopping and 'best' weight logic are now entirely config-driven via the model registry, ignoring abstract backpropagation loss fluctuations.
 
 ---
 
@@ -150,6 +151,10 @@ Kaggle frequently offers 2x T4 standard instances. Activating PyTorch `nn.DataPa
 
 ### 8.2 Sub-Epoch Continuity (Progress Snapshots)
 Because an epoch can take 2-3 hours on massive HD topologies, standard `epoch-only` checkpoints are insufficient. We natively execute intra-epoch `progress.pth` serialization precisely tracking global `_batch_steps`. The SOTA Resumption Array guarantees hardware disruptions merely clip seconds off the training sequence.
+
+### 8.3 Serial Extraction Mutex: Stable Global Alignment (v1.0.42)
+**Issue**: Concurrent unzipping of massive datasets (FFHQ, COCO, DIV2K) previously triggered fatal OS freezes and I/O contention on localized storage arrays.
+**Fix**: Implemented the **Serial Extraction Mutex**. The dataset pipeline now acquires a **Global Named Mutex** (`Global\LemGendaryExtractionLock`) during the unzipping phase. While downloads operate in parallel to maximize bandwidth, extractions are strictly serialized. This ensures that NAFNet training threads are never starved for CPU cycles by background decompression tasks, maintaining a rock-solid training stride.
 
 ---
 

@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NIMA Assessment via Hardware-Aware Optimization
 
 **Author**: Lem Treursić
-**Version**: 1.0.38 - SOTA (2026 Specialization)
+**Version**: 1.1.0 - Resilience Milestone (2026 Specialization)
 **Target Hardware**: NVIDIA GeForce GTX 1650 (4GB GDDR5 / Windows 11)
 
 ---
@@ -37,6 +37,8 @@
    - [7.8 The Pearson Singularity (Singularity Shield)](#78-the-pearson-singularity-singularity-shield)
    - [7.9 Mitochondrial Runway Bloat](#79-mitochondrial-runway-bloat-runway-recalibration)
    - [7.10 Power-Loss Resilience](#710-power-loss-resilience-the-mitochondrial-shield)
+   - [7.11 The Manifold Anchor: Resolving Infinite NaN Loops](#711-the-manifold-anchor-resolving-infinite-nan-loops)
+   - [7.12 Modular Calibration: Non-Destructive Global Scaling](#712-modular-calibration-non-destructive-global-scaling)
 8. [Deployment Strategy: Why ONNX?](#8-deployment-strategy-why-onnx)
    - [8.1 Format Comparison Matrix](#81-format-comparison-matrix)
    - [8.2 Why ONNX Wins for LemGendary](#82-why-onnx-wins-for-lemgendary)
@@ -187,6 +189,19 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 ### 7.10 Power-Loss Resilience (The Mitochondrial Shield)
 **Issue**: In environments with high-resolution datasets (440k+ samples), a single training epoch can take up to 10 hours. A power failure or system crash at 90% progress could result in the loss of 9 hours of specialized GTX 1650 compute time.
 **Fix**: Implemented the **v1.0.35 Mitochondrial Shield**. The suite now performs high-frequency intra-epoch checkpointing every 10% of batches to a specialized `_progress.pth` file. Upon resumption, the logic automatically "Fast-Forwards" the DataLoader to the exact saved iteration, ensuring zero loss of training momentum across extended cycles.
+
+### 7.11 The Manifold Anchor: Resolving Infinite NaN Loops
+**Issue**: During the final 0.95+ PLCC convergence phase, the model entered an **Infinite NaN Loop** where even rollbacks to SOTA baselines immediately re-exploded. This was identified as a "Manifold Shock" caused by the 0.1 temperature Softmax producing near-zero probability mass in the EMD normalization layer ($1e-8$).
+**Fix**: Executed the **v1.0.40 Manifold Anchor**. 
+- **Epsilon Hardening**: Increased the EMD normalization floor from `1e-8` to `1e-4`. This "pillows" the loss calculation, preventing division-by-zero singularities during late-epoch distribution shifts.
+- **Logit Clamping (±10)**: Tightened the output logit window to ensure Softmax exponents never exceed numerical stability bounds (`e^10` vs `e^15`).
+- **Resilience Result**: These stabilizers effectively "anchored" the model into a stable high-correlation manifold, allowing it to bypass the singularity and finish the mission.
+
+### 7.12 Modular Calibration: Non-Destructive Global Scaling
+**Issue**: Hard-coding NIMA-specific stabilizers (like the 1e-4 Epsilon) into the global `train.py` threatened to degrade the performance of other models (e.g., face restorers or segmenters) that rely on more aggressive gradients.
+**Fix**: Implemented **Modular Hyperparameter Injection**. 
+- **Registry Overrides**: ALL mathematical stabilizers (Temperature, Epsilon, Clamps) were moved from the core code into the `unified_models.yaml` registry.
+- **Impact**: This allows the NIMA architecture to utilize "Safe Harbor" stabilizers while permitting restoration models to maintain "Deep-Gradient" settings, ensuring global multi-model integrity within a single shared codebase.
 
 ---
 

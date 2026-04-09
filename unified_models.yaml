@@ -15,8 +15,13 @@ nima_aesthetic:
   optimal_key: nima_aesthetic
   architecture_type: MobileNetV2 (Global Composition)
   description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset, optimized for artistic composition and color harmony.
-  datasets:
-  - LemGendizedQualityDataset
+  sota_targets:
+    plcc: 0.95
+    srcc: 0.90
+  stabilizers:
+    softmax_temp: 0.1
+    emd_epsilon: 0.0001
+    logit_clamp: 10.0
 nima_technical:
   name: LemGendary NIMA Technical Scorer
   class_name: NIMA_Model
@@ -38,6 +43,13 @@ nima_technical:
   description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset, optimized for detecting micro-defects, noise, and artifacts.
   datasets:
   - LemGendizedQualityDataset
+  sota_targets:
+    plcc: 0.95
+    srcc: 0.90
+  stabilizers:
+    softmax_temp: 0.1
+    emd_epsilon: 0.0001
+    logit_clamp: 10.0
 upn_v2:
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2_Model
@@ -105,6 +117,11 @@ codeformer:
   description: Face restoration model
   datasets:
   - LemGendizedFaceDataset
+  sota_targets:
+    fid: 8.0
+    lpips: 0.06
+    psnr: 33.0
+    ssim: 0.92
 parsenet:
   name: LemGendary ParseNet Face Parsing
   class_name: ParseNetMock
@@ -279,6 +296,10 @@ nafnet_debluring:
   datasets:
   - LemGendizedSuperResDataset
   - LemGendizedDegradationDataset
+  sota_targets:
+    psnr: 32.5
+    ssim: 0.94
+    lpips: 0.06
 nafnet_denoising:
   name: LemGendary NAFNet Denoising
   class_name: NAFNet
@@ -297,6 +318,10 @@ nafnet_denoising:
   description: NAFNet image denoising
   datasets:
   - LemGendizedNoiseDataset
+  sota_targets:
+    psnr: 32.5
+    ssim: 0.94
+    lpips: 0.06
 ultrazoom_x2:
   name: LemGendary UltraZoom 2x Super-Resolution
   class_name: UltraZoomModel
@@ -313,10 +338,14 @@ ultrazoom_x2:
   dataset_type: restoration
   optimal_key: ultrazoom_x2
   description: 2x super-resolution model
-  kwargs:
-    scale_factor: 2
   datasets:
   - LemGendizedSuperResDataset
+  sota_targets:
+    psnr: 34.0
+    ssim: 0.95
+    lpips: 0.04
+  kwargs:
+    scale_factor: 2
 ultrazoom_x3:
   name: LemGendary UltraZoom 3x Super-Resolution
   class_name: UltraZoomModel
@@ -333,6 +362,10 @@ ultrazoom_x3:
   dataset_type: restoration
   optimal_key: ultrazoom_x3
   description: 3x super-resolution model
+  sota_targets:
+    psnr: 33.5
+    ssim: 0.94
+    lpips: 0.05
   kwargs:
     scale_factor: 3
   datasets:
@@ -353,6 +386,10 @@ ultrazoom_x4:
   dataset_type: restoration
   optimal_key: ultrazoom_x4
   description: 4x super-resolution model
+  sota_targets:
+    psnr: 33.0
+    ssim: 0.93
+    lpips: 0.06
   kwargs:
     scale_factor: 4
   datasets:
@@ -373,6 +410,10 @@ ultrazoom_x8:
   dataset_type: restoration
   optimal_key: ultrazoom_x8
   description: 8x super-resolution model
+  sota_targets:
+    psnr: 31.0
+    ssim: 0.90
+    lpips: 0.08
   kwargs:
     scale_factor: 8
   datasets:
@@ -399,6 +440,9 @@ yolov8n:
   datasets:
   - LemGendizedDetectionDataset
   - LemGendizedFaceDataset
+  sota_targets:
+    map50: 0.85
+    map50_95: 0.65
 professional_multitask_restoration:
   name: LemGendary Professional Multi-Task Restoration Model
   class_name: MultiTaskRestorer
@@ -417,6 +461,10 @@ professional_multitask_restoration:
   optimal_key: professional_multitask_restoration
   description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze,
     and Low-Light
+  sota_targets:
+    psnr: 32.0
+    ssim: 0.93
+    lpips: 0.07
   datasets:
   - LemGendizedSuperResDataset
   - LemGendizedLowLightDataset
