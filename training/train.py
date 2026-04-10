@@ -587,6 +587,7 @@ def main():
         if torch.cuda.is_available(): torch.cuda.manual_seed_all(42 + epoch)
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]")
+        pbar.set_postfix({"loss": "..."})
         
         # --- 2026: Fast-Forward Resilience ---
         if epoch == start_epoch and resume_iteration > 0:
@@ -654,6 +655,7 @@ def main():
                     # that caused the collapse.
                     resume_iteration = i + 50
                     print(f"⏩ [RESILIENCE] Skipping poisoned region: Iterations {i} to {resume_iteration}")
+                    pbar.set_postfix({"loss": "SINGULARITY", "skip": "+50"})
                     
                     torch.cuda.empty_cache()
             else:
@@ -663,6 +665,7 @@ def main():
             if torch.isnan(loss) or is_corrupt:
                 if torch.isnan(loss):
                     print(f"⚠️  [RESILIENCE] NaN detected in iteration {i}! Skipping corrupt batch...")
+                    pbar.set_postfix({"loss": "NaN", "resilience": "Active"})
                 optimizer.zero_grad()
                 is_corrupt = True
                 
@@ -753,6 +756,9 @@ def main():
                         sys.exit(1)
                 else:
                     consecutive_nans = 0 # Batch was skip-stabilized
+                
+                # Update UI before continuing to ensure user sees the "RECOVERING" status
+                pbar.set_postfix({"loss": "RECOVERING", "retry": consecutive_nans})
                 continue
             
             # --- 2026: Thermal Reset ---

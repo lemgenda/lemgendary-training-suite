@@ -1,5 +1,5 @@
-trained-models/checkpoints/
-data/datasets/
+trained-models/
+data/
 .venv*/
 __pycache__/
 tmp/
