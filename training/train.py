@@ -397,6 +397,7 @@ def main():
     sota_baseline_achieved = False
     sota_countdown = 1
     resume_iteration = -1
+    regression_epochs = 0 # 2026 Resilience: Regression Guardrail Counter
     
     latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
     progress_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
@@ -982,12 +983,45 @@ def main():
         # Consistent checkpoint persistence
         torch.save(ckpt_state, os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth"))  # pyre-ignore
         
-        # Clean up the intra-epoch progress file now that the epoch is safely committed
+        # Reset intra-epoch progress file now that the epoch is safely committed
         progress_ckpt_path = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
         if os.path.exists(progress_ckpt_path):
             try: os.remove(progress_ckpt_path)
             except: pass
         
+        # --- 2026: SOTA Regression Guardrail (Resilience v2.5) ---
+        # Greedy Rollback: If quality drops > 5% below best for 3 epochs, reset and cool LR.
+        if sota_targets and current_quality_score < (best_quality_score * 0.95) and not is_best:
+            regression_epochs += 1
+            print(f" -> ⚠️  [REGRESSION] Performance drift detected ({regression_epochs}/3). Distance to SOTA: {(1 - current_quality_score/best_quality_score)*100:.1f}%")
+            
+            if regression_epochs >= 3:
+                print(f"🚀 [REGRESSION GUARD] Triple-Epoch drift threshold breached! Hard-Resetting to SOTA best weights...")
+                if os.path.exists(best_ckpt_path):
+                    ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
+                    model.load_state_dict(ckpt['model_state'])
+                    
+                    if 'optimizer_state' in ckpt:
+                        optimizer.load_state_dict(ckpt['optimizer_state'])
+                    
+                    # Force 50% LR cooling to 'seat' the model back into the stable manifold
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = param_group['lr'] * 0.5
+                    if hasattr(scheduler, 'base_lrs'):
+                        scheduler.base_lrs = [lr * 0.5 for lr in scheduler.base_lrs]
+                    
+                    # Momentum Cooling
+                    for state in optimizer.state.values():
+                        for k, v in state.items():
+                            if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
+                                v.mul_(0.8) # Heavier dampening for regression recovery
+                    
+                    print(f"✅ [GUARD] SOTA Rollback successful. LR cooled to {optimizer.param_groups[0]['lr']:.8f} | Momentum dampened.")
+                    regression_epochs = 0
+                    epochs_no_improve = 0 # Reset patience since we are essentially retrying a new manifold
+        else:
+            regression_epochs = 0
+            
         if is_improving:
             epochs_no_improve = 0
             if is_best:
