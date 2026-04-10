@@ -24,10 +24,22 @@ Fully synchronized with the [LemGendary Dataset Engine (v3.0)](../lemgendary-dat
 ## 🛠️ Getting Started
 
 ### 1. The Models Hub
-The central TUI for managing models, environment, and cloud deployments.
+The master orchestration console. It manages the full lifecycle from system bootstrapping to multi-model cloud orchestration.
 ```powershell
 ./lemgendary_models_hub.ps1
 ```
+
+#### 📋 Detailed Menu Structure
+| Option | Action | Sub-Prompts & Details |
+| :--- | :--- | :--- |
+| **1. Initialize Systems** | **Environment Sync** | Installs Python 3.12, creates `.venv`, and Auto-Detects GPU. Installs PyTorch 2.4.1+cu121 (NVIDIA) or DirectML. |
+| **2. Train Model** | **Interactive Selection** | Launches the **Category Submenu**: <br>• **1. Quality**: NIMA (Aesthetic/Technical) <br>• **2. Face/Det**: YOLOv8n, RetinaFace, CodeFormer <br>• **3. SuperRes**: UltraZoom Array (x2-x8) <br>• **4. Restoration**: NAFNet, MIRNet, FFANet, MPRNet <br>• **5. Hybrid**: UPN v2, Multi-Restorer, Film |
+| **3. Global Orchestration** | **Continuous Train** | Executes sequential training for all 21+ models defined in `unified_models.yaml` uninterrupted. |
+| **4. Deploy to Cloud** | **Kaggle Deployment** | Generates tailored instructions and topologies for remote Jupyter execution. |
+| **5. Smart Cloud Ops** | **Hybrid Streaming** | Trains locally using the **Smart Prefetch Engine** to stream Kaggle data without local storage bloat. |
+| **6. Unit Test (All)** | **Diagnostic Pass** | Runs precisely **1 functional epoch** across the entire model inventory to validate memory/VRAM. |
+| **9. Environment Janitor** | **Orphan Purge** | Force-terminates orphaned Python/PowerShell processes and releases file-system mutexes. |
+| **7. Exit** | **Full Shutdown** | Gracefully closes the orchestration hub. |
 
 ### 2. Manual Orchestration
 For advanced users who require direct pipeline control.
