@@ -614,12 +614,21 @@ def main():
             # and blowing out the OneCycleLR matrix ceiling (ValueError: Tried to step N+1 times).
                 
         optimizer.zero_grad() # Initial zero
-        for i, batch in enumerate(pbar):
-            # Fast-forward skip
-            # --- 2026: Fast-Forward & Singularity Skip ---
-            if i <= resume_iteration:
-                continue
-                
+        
+        # --- 2026: Accelerated Fast-Forward (Velocity v2.8) ---
+        # For high-iteration resumption, we bypass the tqdm overhead and skip 
+        # batches in silent mode with periodic telemetry.
+        iter_obj = enumerate(train_loader)
+        if epoch == start_epoch and resume_iteration > 0:
+            print(f"🚀 [FAST-FORWARD] Reach-point detected: {resume_iteration} batches. Synchronizing...")
+            for i, batch in iter_obj:
+                if i % 1000 == 0:
+                    print(f"📡 [FAST-FORWARD] Progress: {i}/{resume_iteration} (Batch Burst Mode)")
+                if i >= resume_iteration:
+                    break
+            print(f"✅ [RESILIENCY] Reach-point synchronized. Engaging UI-Active training manifold.")
+
+        for i, batch in iter_obj:
             inputs, targets, tasks = batch
             inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
             
@@ -666,6 +675,12 @@ def main():
                     is_corrupt = True
                     consecutive_nans = 10 # Force Thermal Shield
                     consecutive_singularities = 0 
+                    
+                    # 2026: Deep-State Momentum Flush
+                    # If we are stuck in a singularity loop, we purge the optimizer buffers
+                    # to remove any "Ghost Momentum" that might be forcing the weights into the abyss.
+                    optimizer.state.clear()
+                    print(f"🛡️  [PURGE] Deep-State Momentum Flush complete. Gradient history erased.")
                     
                     # 2026 Resilience: Poisoned Region Skip
                     # Skip the next 50 batches to ensure we clear the mathematical singularity region
