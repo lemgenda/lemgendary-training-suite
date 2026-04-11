@@ -417,7 +417,7 @@
             <p class="subtitle">High-Fidelity NIMA Assessment via Hardware-Aware Optimization</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 1.1.0 - Resilience Milestone</span>
+                <span>Version: 2.1.0 - Hyper-Convergence Milestone</span>
                 <span>Hardware: GTX 1650 (4GB)</span>
             </div>
         </header>
@@ -476,6 +476,9 @@
                         <li><a href="#power-resilience">7.10 Power Resilience</a></li>
                         <li><a href="#manifold-anchor">7.11 Manifold Anchor</a></li>
                         <li><a href="#modular-calibration">7.12 Modular Calibration</a></li>
+                        <li><a href="#logit-refactor">7.13 Logit Refactor</a></li>
+                        <li><a href="#plateau-breaker">7.14 Plateau Breaker</a></li>
+                        <li><a href="#swa-smoothing">7.15 SWA Smoothing</a></li>
                     </ul>
                 </li>
                 <li><a href="#onnx">8. ONNX Strategy</a>
@@ -497,7 +500,7 @@
 
         <section id="abstract">
             <h2>1. Abstract</h2>
-            <p>The <span class="highlight">LemGendary Training Suite</span> is a unified deep learning environment specialized in producing high-fidelity Neural IMage Assessment (NIMA) models. This paper details two core pillars of the suite: the <strong>LemGendized Universal Quality Subset</strong> and the <strong>2026 Resonance Loss</strong>. By merging multiple legacy benchmarks (AVA, LIVE, TID2013) into a single 440,000-sample matrix and implementing a hardware-aware batching strategy, we achieved record-breaking PLCC scores of <strong>0.959+</strong>—setting a new benchmark for browser-based image quality assessment.</p>
+            <p>The <span class="highlight">LemGendary Training Suite</span> is a unified deep learning environment specialized in producing high-fidelity Neural IMage Assessment (NIMA) models. This paper details three core pillars of the suite: the <strong>LemGendized Universal Quality Subset</strong>, the <strong>2026 Resilience Engine</strong>, and the <strong>Hyper-Convergence Patch (v2.6)</strong>. By merging legacy benchmarks and implementing hardware-aware 'Jolt' mechanisms, we achieved record-breaking PLCC scores of <strong>0.959+</strong>—setting a new benchmark for browser-based image quality assessment.</p>
         </section>
 
         <section id="taxonomy">
@@ -724,11 +727,22 @@
             <div class="issue-box">
                 <h4 id="modular-calibration">7.12 Modular Calibration: Non-Destructive Global Scaling</h4>
                 <p><strong>Issue</strong>: Hard-coding NIMA-specific stabilizers into the global train.py threatened to degrade the performance of other models that rely on more aggressive gradients.</p>
-                <p><strong>Fix</strong>: Implemented <strong>Modular Hyperparameter Injection</strong>.</p>
-                <ul>
-                    <li><strong>Registry Overrides</strong>: ALL mathematical stabilizers (Temperature, Epsilon, Clamps) were moved from the core code into the <em>unified_models.yaml</em> registry.</li>
-                    <li><strong>Impact</strong>: This allows the NIMA architecture to utilize "Safe Harbor" stabilizers while permitting restoration models to maintain "Deep-Gradient" settings.</li>
-                </ul>
+                <p><strong>Fix</strong>: Implemented <strong>Modular Hyperparameter Injection</strong>. ALL mathematical stabilizers (Temperature, Epsilon, Clamps) were moved from the core code into the <em>unified_models.yaml</em> registry, ensuring global multi-model integrity.</p>
+            </div>
+            <div class="issue-box">
+                <h4 id="logit-refactor">7.13 The Logistic Refactor: Neutralizing Softmax Collisions</h4>
+                <p><strong>Issue</strong>: A critical convergence bottleneck was identified where the model head applied a native <em>nn.Softmax</em>, while the <em>CombinedLoss</em> applied a secondary <em>F.softmax</em> with an aggressive 0.1 Temperature Anchor. This "Double-Softmax" state flattened gradients to near-zero ($< 1e-7$).</p>
+                <p><strong>Fix</strong>: Migrated the architecture to raw <strong>Logit-Outputs</strong>. By removing the internal softmax and implementing internal logit-clamping (±10.0), full gradient sensitivity was restored to the EMD loss, instantly shattering the static metric plateaus observed in early v2.0 missions.</p>
+            </div>
+            <div class="issue-box">
+                <h4 id="plateau-breaker">7.14 The Plateau Breaker: Dynamic Kinetic LR Injection</h4>
+                <p><strong>Issue</strong>: Models training on 440k+ samples often reach numerical saturation where the <em>OneCycleLR</em> schedule lacks sufficient power to escape a local minimum.</p>
+                <p><strong>Fix</strong>: Implemented the <strong>v2.7 Plateau Breaker</strong>. The engine monitors Loss Velocity; if the loss remains static for 5 epochs, it injects a <strong>2.0x Learning Rate Jolt</strong> for a 2-epoch burst. This kinetic energy "shakes" the model into a deeper, more refined trough by physical weight displacement.</p>
+            </div>
+            <div class="issue-box">
+                <h4 id="swa-smoothing">7.15 Manifold Smoothing via SWA</h4>
+                <p><strong>Issue</strong>: Late-cycle stochastic noise causes peak metrics to fluctuate, leading to sub-optimal generalization in WebGPU deployments.</p>
+                <p><strong>Fix</strong>: Integrated <strong>Stochastic Weight Averaging (SWA)</strong>. The Resilience Engine tracks a shadow mean of weights across the final 50% of the mission, producing a smoothed manifold that exhibits superior stability and correlation benchmarks compared to raw epoch snapshots.</p>
             </div>
         </section>
 
