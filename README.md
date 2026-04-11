@@ -8,7 +8,7 @@
 
 ## ⚡ 2026 Resilience Architecture
 
-The v7.0 release introduces the **Manifold Anchor Protocol** and **Automated Singularity Rollbacks**, ensuring that even 50-hour training runs remain stable against numerical explosions (NaN) and dataset corruption.
+The v7.2 release introduces the **Hyper-Convergence Patch (v2.6)** and **Stochastic Weight Averaging (SWA)**, ensuring that models never stall on plateaus and achieve superior generalization through manifold smoothing.
 
 ### 🧵 The LemGendary Hub
 The master orchestration console for all training activities. Automatically manages `.venv` isolation, hardware-specific library selection (NVIDIA CUDA 12.1), and sequential project execution.
@@ -80,10 +80,11 @@ Deep dives into the mathematical foundations and hardware-aware optimizations of
 
 | Feature | Description | Status |
 | :--- | :--- | :--- |
-| **Singularity Rollback** | Detection of numerical explosions (NaN) triggers 50% LR cooling and weight restoration. | ✅ Active |
-| **Serial Extraction Mutex** | ZIP extractions are serialized to prevent Windows file-system contention. | ✅ Active |
+| **Plateau Breaker** | Detects static Loss and injects **3.0x LR Jolt** to shatter local minimums. | ✅ Active |
+| **SWA Smoothing** | Shadow weight averaging across epochs for superior SOTA generalization. | ✅ Active |
+| **Singularity Rollback** | Detection of numerical explosions (NaN) triggers weight restoration & cooling. | ✅ Active |
+| **Regression Guard** | Hard-reset to peak weights if quality metrics drop > 5% for 3 epochs. | ✅ Active |
 | **Zero-Latency Prefetch** | Subsequent datasets are streamed/unpacked in the background during active training. | ✅ Active |
-| **SOTA Continuity** | Automated epoch extension if benchmarks aren't hit within initial limits. | ✅ Active |
 
 ---
 **LemGendary AI Suite | Advanced Agentic Coding 2026**
