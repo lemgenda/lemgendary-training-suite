@@ -429,6 +429,14 @@ def main():
             if 'model_state' in ckpt:
                 # 2026: Strict Load Guard (Triggers catch-and-reset for SOTA 2.0 shift)
                 model.load_state_dict(ckpt['model_state'], strict=True)
+                
+                # 2026 Resilience: Proactive Weight/Buffer Audit (SOTA v2.7)
+                # Ensure the loaded weights aren't already poisoned (NaNs in buffers or weights)
+                for name, buf in model.named_buffers():
+                    if not torch.isfinite(buf).all():
+                        print(f"🛡️  [SANITIZER] Poisoned buffer detected in checkpoint: {name}. Purging and centering...")
+                        buf.data.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
+                
                 if 'optimizer_state' in ckpt:
                     optimizer.load_state_dict(ckpt['optimizer_state'])
                 if 'epoch' in ckpt: start_epoch = ckpt['epoch']
@@ -938,14 +946,14 @@ def main():
         with open(metrics_csv_path, "a") as f:
             f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{scheduler.get_last_lr()[0]:.8f},{metrics_str.replace(' | ', '').replace(':', '=')}\n")
             
-        # --- 2026: SOTA Plateau Breaker (Resilience v2.6) ---
+        # --- 2026: SOTA Plateau Breaker (Resilience v2.7) ---
         # If the loss delta remains static (< 1e-6) for 5 epochs, 'Jolt' the LR to break the minimum.
         if abs(avg_val_loss - best_val_loss) < 1e-6:
             stall_counter += 1
             if stall_counter >= 5 and jolt_epochs_left == 0:
-                print(f"⚡ [PLATEAU BREAKER] Convergence stalled for 5 epochs. Injecting 3.0x LR Jolt for 2 epochs!")
+                print(f"⚡ [PLATEAU BREAKER] Convergence stalled for 5 epochs. Injecting 2.0x LR Jolt for 2 epochs!")
                 for param_group in optimizer.param_groups:
-                    param_group['lr'] = param_group['lr'] * 3.0
+                    param_group['lr'] = param_group['lr'] * 2.0
                 jolt_epochs_left = 2
                 stall_counter = 0
         else:

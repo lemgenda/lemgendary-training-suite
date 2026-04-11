@@ -31,7 +31,10 @@ class NIMA_Model(nn.Module):
         x = self.features(x)
         x = nn.functional.adaptive_avg_pool2d(x, (1, 1)) # Robust GAP
         x = torch.flatten(x, 1)
-        return self.classifier(x)
+        x = self.classifier(x)
+        # 2026 Resilience: Internal Logit Safety Valve
+        # Clamping to ±10.0 ensures stability during first-iteration resumption (FP16 safe)
+        return torch.clamp(x, -10.0, 10.0)
 
 def emd_loss(p, q, r=2):
     """
