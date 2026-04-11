@@ -30,6 +30,7 @@ try:
     import torch.nn as nn
     from torch.utils.data import DataLoader
     from tqdm import tqdm
+    from torch.optim.swa_utils import AveragedModel, SWALR, update_bn # 2026 SOTA: Smooth Generalization
 except ImportError as e:
     print(f"\n--- LemGendary Crash Diagnostics ---")
     print(f"Executable: {sys.executable}")
@@ -398,6 +399,8 @@ def main():
     sota_countdown = 1
     resume_iteration = -1
     regression_epochs = 0 # 2026 Resilience: Regression Guardrail Counter
+    stall_counter = 0     # 2026 Resilience: Plateau Breaker Counter
+    jolt_epochs_left = 0
     
     latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
     progress_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
@@ -478,6 +481,11 @@ def main():
         optimizer, max_lr=lr*1.2, total_steps=total_steps, 
         pct_start=0.3, anneal_strategy='cos'
     )
+    
+    # 2026 SOTA: Stochastic Weight Averaging (SWA) Shadow initialization
+    swa_model = AveragedModel(model)
+    swa_scheduler = SWALR(optimizer, swa_lr=lr * 0.1)
+    swa_start = int(epochs * 0.5) # Start SWA halfway through the mission
     
     # Reload scheduler state only if compatible (Resiliency Phase)
     # 2026: Continuity Guard - Only sync if start_epoch is > 0 (resuming)
@@ -930,6 +938,30 @@ def main():
         with open(metrics_csv_path, "a") as f:
             f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{scheduler.get_last_lr()[0]:.8f},{metrics_str.replace(' | ', '').replace(':', '=')}\n")
             
+        # --- 2026: SOTA Plateau Breaker (Resilience v2.6) ---
+        # If the loss delta remains static (< 1e-6) for 5 epochs, 'Jolt' the LR to break the minimum.
+        if abs(avg_val_loss - best_val_loss) < 1e-6:
+            stall_counter += 1
+            if stall_counter >= 5 and jolt_epochs_left == 0:
+                print(f"⚡ [PLATEAU BREAKER] Convergence stalled for 5 epochs. Injecting 3.0x LR Jolt for 2 epochs!")
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = param_group['lr'] * 3.0
+                jolt_epochs_left = 2
+                stall_counter = 0
+        else:
+            stall_counter = 0
+            
+        if jolt_epochs_left > 0:
+            jolt_epochs_left -= 1
+            if jolt_epochs_left == 0:
+                print(f"🧊 [PLATEAU BREAKER] Jolt complete. Resuming standard scheduler manifold.")
+
+        # --- 2026: SOTA Weight Averaging Phase ---
+        if epoch >= swa_start:
+            swa_model.update_parameters(model)
+            swa_scheduler.step()
+            print(f"🛸 [SWA] Shadow Weights Synchronized (Epoch {epoch+1})")
+
         # --- 2026: Universal SOTA-Priority Quality Assessment ---
         is_best = False
         is_improving = False 
@@ -1094,6 +1126,12 @@ def main():
 
     print(f"\n--- Exporting {args.model} to SOTA Counterparts ---")
     import shutil
+    
+    # Final SWA Synchronization (Manifold Stabilization)
+    if epoch >= swa_start:
+        print("🧱 [SWA] Finalizing Stochastic Weight Average for production deployment...")
+        update_bn(train_loader, swa_model, device=device)
+        model = swa_model.module # Extract the averaged weights back into the main model
     
     try:
         model.eval()  # pyre-ignore

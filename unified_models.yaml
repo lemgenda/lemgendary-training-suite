@@ -33,7 +33,7 @@ nima_technical:
   - 320
   - 320
   batch_size: auto
-  learning_rate: 1.0e-05
+  learning_rate: 3.0e-05
   kwargs:
     backbone: efficientnet_v2_s
   loss_fn: emd

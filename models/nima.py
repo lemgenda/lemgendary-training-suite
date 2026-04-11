@@ -23,8 +23,7 @@ class NIMA_Model(nn.Module):
         # Flatten and predict 10 classes (representing scores 1 through 10)
         self.classifier = nn.Sequential(
             nn.Dropout(p=0.5), # 2026: SOTA Dropout Guard
-            nn.Linear(in_features, 10),
-            nn.Softmax(dim=1)
+            nn.Linear(in_features, 10)
         )
 
     def forward(self, x):
