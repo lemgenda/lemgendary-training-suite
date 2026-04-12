@@ -34,7 +34,7 @@ class NIMA_Model(nn.Module):
         x = self.classifier(x)
         # 2026 Resilience: Internal Logit Safety Valve
         # Clamping to ±10.0 ensures stability during first-iteration resumption (FP16 safe)
-        return torch.clamp(x, -10.0, 10.0)
+        return x
 
 def emd_loss(p, q, r=2):
     """

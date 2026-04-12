@@ -24,7 +24,7 @@ intra_epoch_checkpoint_pct: 0.05
 
 # Global Stabilizer Defaults (To prevent Infinite NaN loops across different architectures)
 stabilizers:
-  softmax_temp: 0.1
+  softmax_temp: 1.0
   emd_epsilon: 0.000001
   logit_clamp: 15.0
 

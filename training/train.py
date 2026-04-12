@@ -119,15 +119,15 @@ class CombinedLoss(nn.Module):
             tgt_f = target.float()
             
             # 2026 Resilience: Tightened logit clamping and temperature anchor injected from config.
-            # Fixed: We now clamp the entire projection to prevent Inf/NaN during cumsum.
+            # Fixed: Temperature must be a divisor for sharpening; Multiplier caused metric collapse.
+            # Expansion: Logit headroom increased to 20.0 to support 0.95+ PLCC benchmarks.
             t_probs = tgt_f / torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=self.stab.get("emd_epsilon", 1e-6))
-            p_probs = F.softmax(pred_f.clamp(min=-self.stab.get("logit_clamp",15), max=self.stab.get("logit_clamp",15)) * self.stab.get("softmax_temp", 0.1), dim=-1)
+            p_probs = F.softmax(pred_f.clamp(min=-self.stab.get("logit_clamp", 20.0), max=self.stab.get("logit_clamp", 20.0)) / self.stab.get("softmax_temp", 1.0), dim=-1)
             cdf_p = torch.cumsum(p_probs, dim=-1)
             cdf_t = torch.cumsum(t_probs, dim=-1)
             
-            # 2026: Geometric Stabilizer - Squared error on CDF is notoriously prone to local minimas/singularities
-            # if weights are already near zero. Added eps clamp.
-            emd = torch.mean((cdf_p - cdf_t) ** 2)
+            # 2026: Geometric Stabilizer - Summing squared CDF error per-bin (matches NIMA SOTA Baseline)
+            emd = torch.sum((cdf_p - cdf_t) ** 2, dim=-1).mean()
             return emd
         elif self.task_type == "classification":
             return self.ce(pred, target)
