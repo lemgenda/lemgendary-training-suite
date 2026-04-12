@@ -526,10 +526,14 @@ def main():
                     # B. Cosine Rewind (Recalibration Phase)
                     # If the checkpoint was bloated by a previous "Physical Stride" error, rewind the clock
                     steps_per_epoch = len(train_loader) // accumulation_steps
-                    expected_steps = start_epoch * steps_per_epoch
-                    if state_dict.get('last_epoch', 0) > (expected_steps + steps_per_epoch):
+                    # 2026 Resilience: Factor in the intra-epoch reach-point to prevent accidental Peak LR jumps
+                    expected_steps_epoch = start_epoch * steps_per_epoch
+                    expected_steps_total = expected_steps_epoch + max(0, resume_iteration // accumulation_steps)
+                    
+                    # We allow a 1-epoch "drift buffer" before forcing a hard recalibration
+                    if state_dict.get('last_epoch', 0) > (expected_steps_total + steps_per_epoch):
                         old_e = state_dict['last_epoch']
-                        state_dict['last_epoch'] = expected_steps
+                        state_dict['last_epoch'] = expected_steps_total
                         print(f"📡 [RECALIBRATION] Bloated Runway Detected. Rewinding Cosine Clock: {old_e} -> {state_dict['last_epoch']}")
                     
                     scheduler.load_state_dict(state_dict)
@@ -551,7 +555,7 @@ def main():
     scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
 
     # Initialize metrics for export stability (Avoids NameErrors on skip)
-    plcc, srcc, psnr, ssim_val, lpips_val, fid = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    plcc, srcc, psnr, ssim_val, lpips_val, fid, map50, map50_95 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     epoch = start_epoch
 
     
@@ -566,7 +570,8 @@ def main():
             f.write("Epoch,Train_Loss,Val_Loss,Learning_Rate\n")
     
     effective_batch_size = batch_size
-    accumulation_steps = 1
+    # 2026: SOTA Memory Fix - Removed accidental reset of accumulation_steps to 1
+    # accumulation_steps is established during Memory-Sentinel initialization.
     
     for epoch in range(start_epoch, epochs):
         # 2026: SOTA Stabilization Protocol
@@ -606,6 +611,11 @@ def main():
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]")
         pbar.set_postfix({"loss": "..."})
         
+        # --- 2026: Iterator Synchronization (Resiliency v2.9) ---
+        # We wrap the pbar in enumerate to ensure that the progress bar 
+        # is updated even during the 'Fast-Forward' skip phase.
+        iter_obj = enumerate(pbar)
+        
         # --- 2026: Fast-Forward Resilience ---
         if epoch == start_epoch and resume_iteration > 0:
             print(f"📡 [RESILIENCY] Fast-forwarding DataLoader to iteration {resume_iteration}...")
@@ -616,9 +626,8 @@ def main():
         optimizer.zero_grad() # Initial zero
         
         # --- 2026: Accelerated Fast-Forward (Velocity v2.8) ---
-        # For high-iteration resumption, we bypass the tqdm overhead and skip 
-        # batches in silent mode with periodic telemetry.
-        iter_obj = enumerate(train_loader)
+        # For high-iteration resumption, we utilize the synchronized iter_obj.
+        # This keeps the TQDM telemetry alive while bypassing the training logic.
         if epoch == start_epoch and resume_iteration > 0:
             print(f"🚀 [FAST-FORWARD] Reach-point detected: {resume_iteration} batches. Synchronizing...")
             for i, batch in iter_obj:
