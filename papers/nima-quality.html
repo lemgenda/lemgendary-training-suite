@@ -480,6 +480,7 @@
                         <li><a href="#plateau-breaker">7.14 Plateau Breaker</a></li>
                         <li><a href="#swa-smoothing">7.15 SWA Smoothing</a></li>
                         <li><a href="#cosine-recalibration">7.16 Cosine Recalibration</a></li>
+                        <li><a href="#v31-resiliency">7.17 Metric-Driven Deployment (v3.1)</a></li>
                     </ul>
                 </li>
                 <li><a href="#onnx">8. ONNX Strategy</a>
@@ -746,9 +747,14 @@
                 <p><strong>Fix</strong>: Integrated <strong>Stochastic Weight Averaging (SWA)</strong>. The Resilience Engine tracks a shadow mean of weights across the final 50% of the mission, producing a smoothed manifold that exhibits superior stability and correlation benchmarks compared to raw epoch snapshots.</p>
             </div>
             <div class="issue-box">
-                <h4 id="cosine-recalibration">7.16 Intra-Epoch Cosine Recalibration (v3.0 Resiliency)</h4>
-                <p><strong>Issue</strong>: Upon resumption from high-frequency intra-epoch checkpoints, the system initially suffered from a "Manifold Shock" where the scheduler rewound to the start of the epoch, ignoring processed batches. Furthermore, a critical bug on low-VRAM 1650 hardware caused the <em>accumulation_steps</em> to reset to 1, triggering gradient explosions.</p>
-                <p><strong>Fix</strong>: Implemented the <strong>v3.0 Resiliency Patch</strong>. By factorially including <em>resume_iteration</em> in the "Bloated Runway" logic, the Cosine Clock is now perfectly aligned with the data manifold upon resumption. Additionally, the Memory-Sentinel was hardened to ensure accumulation persistence, successfully recovering a <strong>7.1% quality regression</strong> and restoring the model to a stable <strong>0.95+ PLCC</strong> state.</p>
+                <h4 id="v31-resiliency">7.17 Metric-Driven Deployment & Polarity Alignment (v3.1 Resiliency)</h4>
+                <p><strong>Issue</strong>: During the 1000-epoch mission, two critical regressions were identified: (1) a "Sign Flipping" bug in the dataset logic that caused a perfectly negative correlation (-0.93 PLCC), and (2) a "Runway Crash" where the scheduler's 1000-epoch curve was overwritten by the checkpoint's old 50-epoch state.</p>
+                <p><strong>Fix</strong>: Executed the <strong>v3.1 Zero-Bug Restoration</strong>.</p>
+                <ul>
+                    <li><strong>Surgical Polarity Alignment</strong>: Removed the legacy `reverse()` logic in the dataset pipeline to natively align the labels (10=Best) with the EfficientNetV2-S weights.</li>
+                    <li><strong>Mission Shield Scheduler</strong>: Implemented a "State Protection" layer that prevents checkpoint-loading from corrupting the mission length. The scheduler now maintains its 1000-epoch runway regardless of legacy checkpoint states.</li>
+                    <li><strong>Automated SOTA Deployment</strong>: Decoupled model exports from the epoch counter. The system now monitors PLCC/SRCC in real-time and triggers high-fidelity ONNX/FP32 exports the moment a new record is hit.</li>
+                </ul>
             </div>
         </section>
 
