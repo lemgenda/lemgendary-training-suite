@@ -481,6 +481,7 @@
                         <li><a href="#swa-smoothing">7.15 SWA Smoothing</a></li>
                         <li><a href="#cosine-recalibration">7.16 Cosine Recalibration</a></li>
                         <li><a href="#v31-resiliency">7.17 Metric-Driven Deployment (v3.1)</a></li>
+                        <li><a href="#v32-velocity">7.18 Mission Velocity (v3.2)</a></li>
                     </ul>
                 </li>
                 <li><a href="#onnx">8. ONNX Strategy</a>
@@ -754,6 +755,17 @@
                     <li><strong>Surgical Polarity Alignment</strong>: Removed the legacy `reverse()` logic in the dataset pipeline to natively align the labels (10=Best) with the EfficientNetV2-S weights.</li>
                     <li><strong>Mission Shield Scheduler</strong>: Implemented a "State Protection" layer that prevents checkpoint-loading from corrupting the mission length. The scheduler now maintains its 1000-epoch runway regardless of legacy checkpoint states.</li>
                     <li><strong>Automated SOTA Deployment</strong>: Decoupled model exports from the epoch counter. The system now monitors PLCC/SRCC in real-time and triggers high-fidelity ONNX/FP32 exports the moment a new record is hit.</li>
+                </ul>
+            </div>
+            <div class="issue-box">
+                <h4 id="v32-velocity">7.18 Mission Velocity Acceleration: Stochastic Subsampling (v3.2)</h4>
+                <p><strong>Issue</strong>: With the dataset density reaching 440,000 samples, a 1000-epoch mission was calculated to require 137 days of continuous GTX 1650 compute time. This "Iteration Bottleneck" made high-frequency metric tracking and SOTA capturing mathematically impossible within a standard research window.</p>
+                <p><strong>Fix</strong>: Implemented the <strong>v3.2 Mission Velocity Acceleration</strong> protocol.</p>
+                <ul>
+                    <li><strong>Stochastic Fractional Windows</strong>: Introduced a `sample_fraction` (0.1) to the global data pipeline. Each training epoch now processes a random 10% representative window (44,224 images).</li>
+                    <li><strong>Temporal Variety Guard</strong>: Shuffling the fractional window every session ensures total manifold exposure over 10 epochs while accelerating the feedback loop by 10x.</li>
+                    <li><strong>Precision Milestones</strong>: Intra-epoch checkpoints (Mitochondrial Shield) are now surgically locked to exact 20% intervals (20, 40, 60, 80) to provide high-fidelity progress synchronization during long-running 1000-epoch missions.</li>
+                    <li><strong>Velocity Resync</strong>: OneCycleLR dynamically recalculates its runway based on the fractional length, ensuring identical annealing curves at 10x speed.</li>
                 </ul>
             </div>
         </section>
