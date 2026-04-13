@@ -8,7 +8,7 @@ from data.data_utils import download_and_extract_dataset
 def main():
     parser = argparse.ArgumentParser(description="Global Orchestration")
     parser.add_argument("--env", type=str, default="local", choices=["local", "kaggle"])
-    parser.add_argument("--epochs", type=int, default=50, help="Force override SOTA iterations mathematically natively.")
+    parser.add_argument("--epochs", type=int, default=1000, help="Force override SOTA iterations mathematically natively.")
     parser.add_argument("--yes", action="store_true", help="Automatically bypass interactive prompts for 2026 unit-test orchestration.")
     args = parser.parse_args()
 

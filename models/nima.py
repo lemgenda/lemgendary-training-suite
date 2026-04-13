@@ -36,13 +36,4 @@ class NIMA_Model(nn.Module):
         # Clamping to ±10.0 ensures stability during first-iteration resumption (FP16 safe)
         return x
 
-def emd_loss(p, q, r=2):
-    """
-    Earth Mover's Distance (EMD) Loss formulation.
-    p: predicted distribution (batch_size, 10)
-    q: ground truth distribution (batch_size, 10)
-    """
-    cdf_p = torch.cumsum(p, dim=1)
-    cdf_q = torch.cumsum(q, dim=1)
-    cdf_diff = torch.abs(cdf_p - cdf_q) ** r
-    return torch.mean(torch.sum(cdf_diff, dim=1))
+# Unified Loss Logic moved to training/train.py for 2026 Resiliency Synchronization.

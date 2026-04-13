@@ -19,7 +19,7 @@ nima_aesthetic:
     plcc: 0.95
     srcc: 0.90
   stabilizers:
-    softmax_temp: 1.0
+    softmax_temp: 0.1
     emd_epsilon: 0.0001
     logit_clamp: 20.0
 nima_technical:
@@ -47,7 +47,7 @@ nima_technical:
     plcc: 0.95
     srcc: 0.90
   stabilizers:
-    softmax_temp: 1.0
+    softmax_temp: 0.1
     emd_epsilon: 0.0001
     logit_clamp: 20.0
 upn_v2:

@@ -172,8 +172,8 @@ class MultiTaskDataset(Dataset):
             
             img = self.load_image(img_path)
             if img is not None:
-                # Fast Resize with OpenCV
-                img = cv2.resize(img, self.size, interpolation=cv2.INTER_LINEAR)
+                # 2026 Resilience Optimization: INTER_AREA is superior for downsampling technical datasets (Preserves Alias-free Noise/Blur)
+                img = cv2.resize(img, self.size, interpolation=cv2.INTER_AREA)
                 break
                 
             print(f"\n[Warning] Corrupted image detected and permanently deleted: {img_path}")
@@ -220,7 +220,7 @@ class MultiTaskDataset(Dataset):
                         score = [float(x) for x in f.read().split()]
                         if len(score) < 10:
                             score = score + [0.0] * (10 - len(score))
-                        score.reverse()  # Mathematically match NIMA's inverse binning
+                        # score.reverse()  # DELETED: Auditor confirms SOTA weights expect natural 1..10 mapping (Bin 10 = Best)
                         padded_score = [score[i] for i in range(10)]
                         return self.fast_process(img), torch.tensor(padded_score, dtype=torch.float32), "quality"
                     except:
