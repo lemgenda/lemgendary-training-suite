@@ -223,6 +223,13 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 - **Runway Sync**: The "Bloated Runway" logic now factorially includes `resume_iteration`, ensuring the Cosine Clock is perfectly aligned with the data manifold upon resumption.
 - **Sentinel Persistence**: Hardened the Memory-Sentinel to prevent accidental accumulation resets, maintaining the 4x stride stability throughout the entire mission.
 - **Result**: Successfully recovered a **7.1% quality regression**, restoring the model to a stable **0.95+ PLCC** state.
++
++### 7.17 Metric-Driven Deployment & Polarity Alignment (v3.1 Resiliency)
++**Issue**: During the 1000-epoch mission, two critical regressions were identified: (1) a "Sign Flipping" bug in the dataset logic that caused a perfectly negative correlation (-0.93 PLCC), and (2) a "Runway Crash" where the scheduler's 1000-epoch curve was overwritten by the checkpoint's old 50-epoch state.
++**Fix**: Executed the **v3.1 Zero-Bug Restoration**.
++- **Surgical Polarity Alignment**: Removed the legacy `reverse()` logic in the dataset pipeline to natively align the labels (10=Best) with the EfficientNetV2-S weights.
++- **Mission Shield Scheduler**: Implemented a "State Protection" layer that prevents checkpoint-loading from corrupting the mission length. The scheduler now maintains its 1000-epoch runway regardless of legacy checkpoint states.
++- **Automated SOTA Deployment**: Decoupled model exports from the epoch counter. The system now monitors PLCC/SRCC in real-time and triggers high-fidelity ONNX/FP32 exports the moment a new record is hit.
 
 ---
 
