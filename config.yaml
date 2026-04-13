@@ -20,7 +20,7 @@ default_batch_size: 16
 default_lr: 0.0001
 default_epochs: 1000
 early_stopping_patience: 250
-intra_epoch_checkpoint_pct: 0.05
+intra_epoch_checkpoint_pct: 0.2
 
 # Global Stabilizer Defaults (To prevent Infinite NaN loops across different architectures)
 stabilizers:

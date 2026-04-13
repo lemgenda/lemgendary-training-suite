@@ -888,12 +888,16 @@ def main():
                 new_lr = scheduler.get_last_lr()[0]
                 
                 # --- 2026: Intra-Epoch Resilience (The Mitochondrial Pulse) ---
-                # Save progress every X% of batches to safeguard hours of GTX 1650 compute
+                # Save progress at exact percentages to safeguard hours of GTX 1650 compute.
+                # Snap the check to the nearest multiple of accumulation_steps to ensure clean state loading.
                 interval_pct = config.get("intra_epoch_checkpoint_pct", 0.1)
-                # Snap the interval stride to always perfectly align with accumulation boundaries
-                base_interval = max(1, int(len(train_loader) * interval_pct))
-                interval_steps = max(accumulation_steps, (base_interval // accumulation_steps) * accumulation_steps)
-                if (i + 1) % interval_steps == 0:
+                milestones = []
+                if interval_pct > 0:
+                    num_milestones = int(1.0 / interval_pct)
+                    milestones = [int(len(train_loader) * (p * interval_pct)) for p in range(1, num_milestones)]
+                
+                # We save if the current iteration is the designated milestone (aligned to accumulation)
+                if (i + 1) in milestones:
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
                     torch.save({
                         'epoch': epoch,
