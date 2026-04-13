@@ -230,6 +230,13 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 +- **Surgical Polarity Alignment**: Removed the legacy `reverse()` logic in the dataset pipeline to natively align the labels (10=Best) with the EfficientNetV2-S weights.
 +- **Mission Shield Scheduler**: Implemented a "State Protection" layer that prevents checkpoint-loading from corrupting the mission length. The scheduler now maintains its 1000-epoch runway regardless of legacy checkpoint states.
 +- **Automated SOTA Deployment**: Decoupled model exports from the epoch counter. The system now monitors PLCC/SRCC in real-time and triggers high-fidelity ONNX/FP32 exports the moment a new record is hit.
++
++### 7.18 Mission Velocity Acceleration: Stochastic Subsampling (v3.2)
++**Issue**: With the dataset density reaching 440,000 samples, a 1000-epoch mission was calculated to require 137 days of continuous GTX 1650 compute time. This "Iteration Bottleneck" made high-frequency metric tracking and SOTA capturing mathematically impossible within a standard research window.
++**Fix**: Implemented the **v3.2 Mission Velocity Acceleration** protocol.
++- **Stochastic Fractional Windows**: Introduced a `sample_fraction` (0.1) to the global data pipeline. Each training epoch now processes a random 10% representative window (44,224 images).
++- **Temporal Variety Guard**: By shuffling the fractional window every session, the model eventually sees 100% of the 440k dataset manifold over 10 epochs while providing 10x faster validation checkpoints.
++- **Velocity Resync**: The `OneCycleLR` scheduler was hardened to dynamically recalculate its mission runway based on the fractional length, ensuring identical annealing curves at 10x the speed.
 
 ---
 

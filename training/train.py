@@ -408,7 +408,11 @@ def main():
             print(f"📡 [MEM-SENTINEL] Pre-Emptive 4GB Lockdown: Physical Batch 16 | Accumulation {accumulation_steps}")
 
     # Dataset & DataLoader
-    train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env)
+    # 2026: Mission Velocity Acceleration (Fractional Epochs)
+    # Extracts the sample_fraction from model_info or config (default 1.0)
+    sample_fraction = model_info.get("sample_fraction", config.get("sample_fraction", 1.0))
+    
+    train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
     
     num_workers = config.get("num_workers", 8 if os.name == 'nt' else 12)

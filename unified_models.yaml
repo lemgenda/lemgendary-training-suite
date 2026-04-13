@@ -46,6 +46,7 @@ nima_technical:
   sota_targets:
     plcc: 0.95
     srcc: 0.90
+  sample_fraction: 0.1
   stabilizers:
     softmax_temp: 0.1
     emd_epsilon: 0.0001

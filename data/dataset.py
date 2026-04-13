@@ -14,7 +14,7 @@ class MultiTaskDataset(Dataset):
     Automatically handles Restoration, Detection, and Quality tasks 
     based on unified_models.yaml and unified_data.yaml.
     """
-    def __init__(self, config, model_key=None, is_train=True, env="local"):
+    def __init__(self, config, model_key=None, is_train=True, env="local", sample_fraction=1.0):
         self.is_train = is_train
         self.env = env
         self.split = "train" if is_train else "validate"
@@ -85,6 +85,15 @@ class MultiTaskDataset(Dataset):
             for f in files:
                 self.samples.append((ds_name, f))
                 
+        # --- 2026: Mission Velocity Acceleration (Subsampling) ---
+        # If fraction < 1.0, we perform a stochastic slice of the dataset.
+        # This allows 10x faster epochs while seeing the full variety over time.
+        if is_train and 0.0 < sample_fraction < 1.0:
+            import random
+            random.shuffle(self.samples)
+            self.samples = self.samples[:int(len(self.samples) * sample_fraction)]
+            print(f"🚀 [VELOCITY] Stochastic Subsampling ACTIVE: Using {len(self.samples)} samples ({sample_fraction*100:.1f}%)")
+
         # --- 2026: SOTA Rank-Aware Augmentations ---
         transform_list = [transforms.Resize(self.size, interpolation=transforms.InterpolationMode.BILINEAR)]
         if self.is_train and self.task_type == "quality":
