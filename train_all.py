@@ -24,26 +24,37 @@ def main():
         print("   -> Fix: Please run 'Option 1' in the LemGendary Hub to synchronize your dependencies.")
         return
     
-    # Kaggle Dependency Verification
-    expected_datasets = {
-        "LemGendizedQualityDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-quality-dataset",
-        "LemGendizedNoiseDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-noise-dataset",
-        "LemGendizedLowLightDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-lowlight-dataset",
-        "LemGendizedFaceDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-face-dataset",
-        "LemGendizedDegradationDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-degradation-dataset",
-        "LemGendizedDetectionDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-dettection-dataset",
-        "LemGendizedSuperResDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-superres-dataset"
-    }
+    # Load unified_models
+    unified_models_path = os.path.join(os.path.dirname(__file__), "unified_models.yaml")
+    if not os.path.exists(unified_models_path):
+        print(f"Error: Unified Models config not found at {unified_models_path}")
+        return
+        
+    with open(unified_models_path, "r") as f:
+        registry = yaml.safe_load(f)
+        
+    # Registry metadata & dataset discovery
+    metadata = registry.get("_registry_metadata", {})
+    dataset_urls = metadata.get("dataset_urls", {})
     
+    # 2026 Shift: Identify all required datasets across the active registry
+    required_datasets = set()
+    models = {k: v for k, v in registry.items() if not k.startswith("_")}
+    for m_info in models.values():
+        ds_reqs = m_info.get("datasets", [])
+        if isinstance(ds_reqs, str): ds_reqs = [ds_reqs]
+        required_datasets.update(ds_reqs)
+
     missing_any = False
     if args.env == "local":
-        print("🔍 Executing Local Array Dependency Verification...")
+        print(f"🔍 Executing Dynamic Dependency Verification for {len(required_datasets)} datasets...")
         data_dir = os.path.join(os.path.dirname(__file__), "data", "datasets")
-        for ds_name, link in expected_datasets.items():
+        for ds_name in required_datasets:
             ds_path = os.path.join(data_dir, ds_name)
             if not os.path.exists(ds_path):
                 print(f"❌ MISSING DEPENDENCY: '{ds_name}' is not structurally attached!")
                 if not download_and_extract_dataset(ds_name, data_dir):
+                    link = dataset_urls.get(ds_name, "Source Link Missing")
                     print(f"   👉 Critical recovery failed. Manual download required: {link}")
                     missing_any = True
                 
@@ -59,19 +70,10 @@ def main():
                 print("🛑 Aborting orchestration to prevent native exceptions.\n")
                 return
         else:
-            print("✅ All 7 physical datasets structurally mapping verified and recovered!\n")
+            print(f"✅ All {len(required_datasets)} physical datasets structurally verified and recovered!\n")
     else:
         print("☁️ Kaggle Environment Detected: Bypassing local physical dataset structure verification.\n")
     
-    # Load unified_models
-    unified_models_path = os.path.join(os.path.dirname(__file__), "unified_models.yaml")
-    if not os.path.exists(unified_models_path):
-        print(f"Error: Unified Models config not found at {unified_models_path}")
-        return
-        
-    with open(unified_models_path, "r") as f:
-        models = yaml.safe_load(f)
-        
     print(f"Found {len(models)} specialized models in registry. Commencing training matrix...")
     
     for model_key, model_info in models.items():

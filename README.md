@@ -1,4 +1,4 @@
-# LemGendary AI Training Suite (v7.0.0-LEMGENDARY)
+# LemGendary AI Training Suite (v7.5.0-LEMGENDARY)
 
 > **The Professional Standard for Vision Model Training.**
 >
@@ -6,18 +6,18 @@
 
 ---
 
-## ⚡ 2026 Resilience Architecture
+## ⚡ 2026 Resilience Architecture (v4.5 Breakthrough)
 
-The v7.2 release introduces the **Hyper-Convergence Patch (v2.6)** and **Stochastic Weight Averaging (SWA)**, ensuring that models never stall on plateaus and achieve superior generalization through manifold smoothing.
+The v7.5 release introduces the **Registry-First Dynamic Orchestration (v4.5)** and **Standardized Epoch Resumption**, ensuring binary parity across all 21+ neural models with zero maintenance debt. By unifying all metadata into a single source of truth, the suite now self-heals its dependency mappings across local and cloud clusters natively.
 
 ### 🧵 The LemGendary Hub
 The master orchestration console for all training activities. Automatically manages `.venv` isolation, hardware-specific library selection (NVIDIA CUDA 12.1), and sequential project execution.
 
 ### 🧬 Unified Multitask DNA
 Fully synchronized with the [LemGendary Dataset Engine (v3.0)](../lemgendary-datasets/README.md).
-- **Native Support**: Detection, Instance Segmentation (Polygons), and Pose Estimation (Keypoints).
 - **SOTA Alignment**: Automated metric scoring against PLCC, SRCC, PSNR, and mAP@0.5:0.95.
-- **Multitask Dataset Loader**: High-performance pipeline for streaming massive Kaggle datasets with zero-latency prefetching.
+- **Registry-First Acquisition**: Dynamic dependency discovery removes all hardcoded dataset lists; the suite auto-fetches required Kaggle streams based on the `unified_models.yaml` registry.
+- **Unified Multitask Loader**: High-performance pipeline for streaming massive datasets with zero-latency prefetching and Windows-hardened file-locking protection.
 
 ---
 
@@ -62,8 +62,7 @@ python smart_orchestrator.py
 - `models/` — Specialized model architecture definitions and weight loaders.
 - `trained-models/` — Production-ready artifacts (ONNX FP16/FP32).
 - `technical_papers/` — High-fidelity architecture whitepapers and research notes.
-- `unified_models.yaml` — The Master Registry for all 21+ supported neural networks.
-- `unified_data.yaml` — Global dataset mapping and pathing overrides.
+- `unified_models.yaml` — The Master Registry (Single Source of Truth) for all supported neural networks and data dependencies.
 
 ---
 

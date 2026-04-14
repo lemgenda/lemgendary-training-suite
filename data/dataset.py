@@ -12,7 +12,7 @@ class MultiTaskDataset(Dataset):
     """
     Universal Dataset loader for LemGendary Training Suite suite.
     Automatically handles Restoration, Detection, and Quality tasks 
-    based on unified_models.yaml and unified_data.yaml.
+    based on unified_models.yaml.
     """
     def __init__(self, config, model_key=None, is_train=True, env="local", sample_fraction=1.0):
         self.is_train = is_train
@@ -24,7 +24,6 @@ class MultiTaskDataset(Dataset):
         # Set global PIL flags once during init instead of per-image load
         ImageFile.LOAD_TRUNCATED_IMAGES = False
         unified_models_path = os.path.join(os.path.dirname(__file__), "..", config["unified_models"])
-        unified_data_path = os.path.join(os.path.dirname(__file__), "..", config["unified_data"])
         
         with open(unified_models_path, 'r') as f:
             self.unified_models = yaml.safe_load(f)
@@ -163,11 +162,14 @@ class MultiTaskDataset(Dataset):
 
     def load_image(self, img_path):
         try:
-            # 2026 OpenCV Hardware Acceleration: 3-5x faster than PIL for 384x384
-            img = cv2.imread(img_path)
-            if img is None: return None
-            return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        except Exception:
+            from PIL import Image, ImageFile
+            ImageFile.LOAD_TRUNCATED_IMAGES = True
+            # Safely handle physical file headers with Pillow, averting OpenCV C++ access violations
+            with Image.open(img_path) as img:
+                img = img.convert('RGB')
+                import numpy as np
+                return np.array(img)
+        except Exception as e:
             return None
 
     def __getitem__(self, idx):
@@ -218,18 +220,16 @@ class MultiTaskDataset(Dataset):
             return self.fast_process(img), self.fast_process(target), self.task_type
             
         elif self.task_type == "quality":
-            # 2026 Architectural Sync: While Aesthetic and Technical models may share the same physical 
-            # image repository (LemGendizedQualityDataset), the 'labels' directory contains distinct 
-            # sub-vectors corresponding to the specific model's objective (Artistic vs Integrity).
             ds_path = self.get_dataset_path(ds_name)
             label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
             if os.path.exists(label_path):
-                with open(label_path, 'r') as f:
+                with open(label_path, 'r', encoding='utf-8') as f:
                     try:
+                        # 2026 Resilience Protocol (v3.6): Source-level restoration confirmed.
+                        # The disk format is now natively 1=Worst -> 10=Best.
                         score = [float(x) for x in f.read().split()]
                         if len(score) < 10:
                             score = score + [0.0] * (10 - len(score))
-                        # score.reverse()  # DELETED: Auditor confirms SOTA weights expect natural 1..10 mapping (Bin 10 = Best)
                         padded_score = [score[i] for i in range(10)]
                         return self.fast_process(img), torch.tensor(padded_score, dtype=torch.float32), "quality"
                     except:

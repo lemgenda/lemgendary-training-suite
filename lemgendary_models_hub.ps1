@@ -182,19 +182,13 @@ function Initialize-Environment {
     
     if ($null -ne $isNvidia) {
         Write-Host "  [+] NVIDIA GPU Detected: GTX/RTX hardware optimization active." -ForegroundColor Green
-        & $venvPy -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 --force-reinstall
-        & $venvPy -m pip install onnxruntime-gpu --force-reinstall
+        Write-Host "  [4/4] Resolving holistic dependency graph (Unified Install)..." -ForegroundColor Cyan
+        & $venvPy -m pip install torch torchvision torchaudio onnxruntime-gpu -r $script:REQ_FILE --extra-index-url https://download.pytorch.org/whl/cu121
     } else {
-        & $venvPy -m pip install --upgrade torchruntime
+        Write-Host "  [4/4] Resolving holistic dependency graph (Unified Install)..." -ForegroundColor Cyan
+        & $venvPy -m pip install torchruntime onnxruntime-directml -r $script:REQ_FILE
         & $venvPy -m torchruntime install --auto
-        if ((& $venvPy -c "import torch; print(torch.cuda.is_available())") -eq "False") {
-            & $venvPy -m pip install onnxruntime-directml
-        }
     }
-
-    Write-Host "  [4/4] Installing Auxiliary libraries (PyYAML/Datasets/ONNX)..." -ForegroundColor Cyan
-    & $venvPy -m pip install --force-reinstall pyyaml
-    & $venvPy -m pip install -r $script:REQ_FILE
 
     Write-Host "`n  [SUCCESS] All LemGendary 2026 Systems are Synchronized!" -ForegroundColor Green
 }

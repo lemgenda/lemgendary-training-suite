@@ -35,17 +35,26 @@ def download_and_extract_dataset(ds_name, data_dir):
     api = KaggleApi()
     api.authenticate()
     
-    kaggle_slugs = {
-        "LemGendizedQualityDataset": "lemgendized-quality-dataset",
-        "LemGendizedNoiseDataset": "lemgendized-noise-dataset",
-        "LemGendizedLowLightDataset": "lemgendized-lowlight-dataset",
-        "LemGendizedFaceDataset": "lemgendized-face-dataset",
-        "LemGendizedDegradationDataset": "lemgendized-degradation-dataset",
-        "LemGendizedDetectionDataset": "lemgendized-detection-dataset",
-        "LemGendizedSuperResDataset": "lemgendized-superres-dataset"
-    }
-    slug_name = kaggle_slugs.get(ds_name, ds_name.lower())
-    ds_slug = f"lemtreursi/{slug_name}"
+    # 2026 Shift: Dynamically resolve Kaggle slug from the Unified Registry
+    registry_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "unified_models.yaml")
+    ds_slug = f"lemtreursi/{ds_name.lower()}" # Default fallback
+    
+    if os.path.exists(registry_path):
+        import yaml
+        try:
+            with open(registry_path, "r") as f:
+                registry = yaml.safe_load(f)
+                metadata = registry.get("_registry_metadata", {})
+                urls = metadata.get("dataset_urls", {})
+                if ds_name in urls:
+                    # Extract slug from URL: https://www.kaggle.com/datasets/user/slug
+                    full_url = urls[ds_name]
+                    if "datasets/" in full_url:
+                        ds_slug = full_url.split("datasets/")[-1]
+                    elif "lemtreursi/" in full_url:
+                        ds_slug = full_url.split(".com/")[-1]
+        except:
+             print(f"   ⚠️ [REGISTRY] Failed to read unified_models.yaml for slug resolution. Using fallback: {ds_slug}")
     ds_path = os.path.join(data_dir, ds_name)
     
     if os.path.exists(ds_path):

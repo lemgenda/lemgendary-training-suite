@@ -1,7 +1,7 @@
 import os
 import yaml # pyre-ignore
 
-def build_model_readme(model_key, unified_models, unified_data, epochs_trained, metrics, hardware="NVIDIA GeForce GTX 1650 (4G VRAM)"):
+def build_model_readme(model_key, unified_models, epochs_trained, metrics, hardware="NVIDIA GeForce GTX 1650 (4G VRAM)"):
     model_info = unified_models.get(model_key, {})
     name = model_info.get("name", model_key)
     desc = model_info.get("description", "Premium LemGendary AI Training Suite Matrix Model.")
@@ -74,16 +74,13 @@ restored_img.save("restored.png")
 
     # 3. Physical Dataset Manifest
     ds_sizes = []
+    metadata = unified_models.get('_registry_metadata', {})
+    ds_registry = metadata.get('datasets', {})
+    
     for d in datasets:
         count = 'N/A'
-        ds_root = unified_data.get('datasets', {})
-        for cat, ds_dict in ds_root.items():
-            if isinstance(ds_dict, dict) and d in ds_dict:
-                count = ds_dict[d].get('count', 'N/A')
-                break
-        
-        if count == 'N/A' and d in unified_data:
-            count = unified_data[d].get('count', 'N/A')
+        if d in ds_registry:
+            count = ds_registry[d].get('count', 'N/A')
             
         if isinstance(count, int) and count >= 1000:
             count = f"{round(count / 1000)}k"

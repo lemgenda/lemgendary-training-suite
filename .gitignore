@@ -1,5 +1,4 @@
-trained-models/
-data/
+data/datasets/
 .venv*/
 __pycache__/
 tmp/

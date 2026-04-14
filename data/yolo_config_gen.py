@@ -1,7 +1,7 @@
 import os
 import yaml
 
-def generate_yolo_yaml(config, model_key, unified_models, unified_data):
+def generate_yolo_yaml(config, model_key, unified_models):
     """
     Placeholder generator for YOLO multi-task configs.
     Dynamically generates Ultralytics .yaml files based on unified data registries.
