@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NIMA Assessment via Hardware-Aware Optimization
 
 **Author**: Lem Treursić
-**Version**: 2.2.0 - Resiliency v3.0 Milestone (2026 Optimization)
+**Version**: 2.5.0 - Resiliency v4.5 Milestone (2026 Optimization)
 **Target Hardware**: NVIDIA GeForce GTX 1650 (4GB GDDR5 / Windows 11)
 
 ---
@@ -43,6 +43,10 @@
    - [7.14 The Plateau Breaker: Dynamic Kinetic LR Injection](#714-the-plateau-breaker-dynamic-kinetic-lr-injection)
    - [7.15 Manifold Smoothing via SWA](#715-manifold-smoothing-via-swa)
    - [7.16 Intra-Epoch Cosine Recalibration (v3.0 Resiliency)](#716-intra-epoch-cosine-recalibration-v30-resiliency)
+   - [7.17 Metric-Driven Deployment & Polarity Alignment (v3.1 Resiliency)](#717-metric-driven-deployment--polarity-alignment-v31-resiliency)
+   - [7.18 Mission Velocity Acceleration: Stochastic Subsampling (v3.2)](#718-mission-velocity-acceleration-stochastic-subsampling-v32)
+   - [7.19 Registry-First Unification (v4.5)](#719-registry-first-unification-v45)
+   - [7.20 Standardized Epoch Resumption (The Windows Shield)](#720-standardized-epoch-resumption-the-windows-shield)
 8. [Deployment Strategy: Why ONNX?](#8-deployment-strategy-why-onnx)
    - [8.1 Format Comparison Matrix](#81-format-comparison-matrix)
    - [8.2 Why ONNX Wins for LemGendary](#82-why-onnx-wins-for-lemgendary)
@@ -54,7 +58,7 @@
 ---
 
 ## 1. Abstract
-The **LemGendary Training Suite** is a unified deep learning environment specialized in producing high-fidelity Neural IMage Assessment (NIMA) models. This paper details three core pillars of the suite: the **LemGendized Universal Quality Subset**, the **2026 Resilience Engine**, and the **Hyper-Convergence Patch (v2.6)**. By merging legacy benchmarks and implementing hardware-aware 'Jolt' mechanisms, we achieved record-breaking PLCC scores of **0.959+**—setting a new benchmark for browser-based image quality assessment.
+The **LemGendary Training Suite** is a unified deep learning environment specialized in producing high-fidelity Neural IMage Assessment (NIMA) models. This paper details three core pillars of the suite: the **LemGendized Universal Quality Subset**, the **2026 Resilience Engine**, and the **Hyper-Convergence Patch (v2.6)**. By merging legacy benchmarks and implementing hardware-aware 'Jolt' mechanisms, we achieved record-breaking PLCC scores of **0.983+**—setting a new benchmark for browser-based image quality assessment.
 
 ---
 
@@ -71,7 +75,7 @@ Traditional datasets often conflate beauty with clarity. Our LemGendized subset 
 *Figure 2: Low Technical Quality - Extreme sensor noise and artifacts. Even with a good subject, the technical integrity is compromised.*
 
 ![Quadrant 3: Micro-Defects & Compression](assets/technical_compression.png)
-*Figure 3: Technical Failures - Visualizing the JPEG banding and blocking that the EfficientNetV2-S model is designed to catch at 320x320.*
+*Figure 3: Technical Failures - Visualizing the JPEG banding and blocking that the EfficientNetV2-S model is designed to catch at 384x384.*
 
 ![Quadrant 4: Low Aesthetic, High Technical](assets/technical_sharp_boring.png)
 *Figure 4: High Technical (10/10) / Low Aesthetic (1/10) - A sharp, flawless image of a boring subject. This teaches the model that "sharpness" alone is not "art."*
@@ -86,7 +90,7 @@ The Sentinel performs a deep-level probe of the NVIDIA GTX 1650 architecture (GD
 *   **DWS Protection Layer**: We reserve a specific **450MB buffer** to handle the Windows Desktop Window Manager and browser background processes, ensuring zero VRAM swapping.
 *   **Dynamic Scaling**:
     *   **Aesthetic (MobileNetV2)**: 1.0x Coefficient - Efficient global pooling.
-    *   **Technical (EfficientNetV2-S)**: 2.4x Coefficient - Heavy activation overhead at 320x320.
+    *   **Technical (EfficientNetV2-S)**: 2.4x Coefficient - Heavy activation overhead at 384x384.
 *   **Cuda Benchmark = True**: Enabled to allow the cuDNN kernel to optimize convolution algorithms specifically for the local GTX 1650 architecture before training begins.
 *   **Decoupled Gradient Accumulation**: To reach an effective batch size of **64**, the script employs a **4x Accumulation Layer** (16 physical -> 64 effective).
 
@@ -94,7 +98,7 @@ The Sentinel performs a deep-level probe of the NVIDIA GTX 1650 architecture (GD
 On a 4GB card, the "VRAM Swap" phenomenon—where Windows moves GPU tasks into system RAM—causes performance to drop by 90-95%. The suite implements a **Sentinel Force-Lock**. By monitoring the `cuda.memory_summary()`, it dynamically interrupts the dataloader if the DWS buffer is breached, preventing a kernel-level paging event and maintaining a constant high-velocity stride.
 
 ### 3.3 OVC Data Streaming Bridge (OpenCV-to-CUDA)
-To minimize latency on the PCIe 3.0 bus, the suite uses the **OVC Bridge**. Images are pre-processed in the CPU's L3 cache using OpenCV's optimized SIMD instructions before being mapped directly into the GPU's memory buffer. This "Prefetch-and-Map" strategy hides the I/O latency of the 320x320 high-fidelity samples, ensuring the EfficientNetV2-S kernels are never starved for data.
+To minimize latency on the PCIe 3.0 bus, the suite uses the **OVC Bridge**. Images are pre-processed in the CPU's L3 cache using OpenCV's optimized SIMD instructions before being mapped directly into the GPU's memory buffer. This "Prefetch-and-Map" strategy hides the I/O latency of the 384x384 high-fidelity samples, ensuring the EfficientNetV2-S kernels are never starved for data.
 
 ---
 
@@ -124,8 +128,8 @@ Our results demonstrate significant generational leaps over the original 2018 NI
 | :--- | :--- | :--- | :--- | :--- |
 | **Aesthetic** | **PLCC** | ~0.636 | **0.9596** | **+50.8% (Precision)** |
 | **Aesthetic** | **SRCC** | ~0.612 | **0.9068** | **+48.1% (Ranking)** |
-| **Technical** | **PLCC** | ~0.908 | **0.9852** | **+8.5% (Precision)** |
-| **Technical** | **SRCC** | ~0.900 | **0.8804** | Fine-Grained Stability |
+| **Technical** | **PLCC** | ~0.908 | **0.9832** | **+8.2% (Record)** |
+| **Technical** | **SRCC** | ~0.900 | **0.8785** | Fine-Grained Stability |
 
 ---
 
@@ -223,20 +227,31 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 - **Runway Sync**: The "Bloated Runway" logic now factorially includes `resume_iteration`, ensuring the Cosine Clock is perfectly aligned with the data manifold upon resumption.
 - **Sentinel Persistence**: Hardened the Memory-Sentinel to prevent accidental accumulation resets, maintaining the 4x stride stability throughout the entire mission.
 - **Result**: Successfully recovered a **7.1% quality regression**, restoring the model to a stable **0.95+ PLCC** state.
-+
-+### 7.17 Metric-Driven Deployment & Polarity Alignment (v3.1 Resiliency)
-+**Issue**: During the 1000-epoch mission, two critical regressions were identified: (1) a "Sign Flipping" bug in the dataset logic that caused a perfectly negative correlation (-0.93 PLCC), and (2) a "Runway Crash" where the scheduler's 1000-epoch curve was overwritten by the checkpoint's old 50-epoch state.
-+**Fix**: Executed the **v3.1 Zero-Bug Restoration**.
-+- **Surgical Polarity Alignment**: Removed the legacy `reverse()` logic in the dataset pipeline to natively align the labels (10=Best) with the EfficientNetV2-S weights.
-+- **Mission Shield Scheduler**: Implemented a "State Protection" layer that prevents checkpoint-loading from corrupting the mission length. The scheduler now maintains its 1000-epoch runway regardless of legacy checkpoint states.
-+- **Automated SOTA Deployment**: Decoupled model exports from the epoch counter. The system now monitors PLCC/SRCC in real-time and triggers high-fidelity ONNX/FP32 exports the moment a new record is hit.
-+
-+### 7.18 Mission Velocity Acceleration: Stochastic Subsampling (v3.2)
-+**Issue**: With the dataset density reaching 440,000 samples, a 1000-epoch mission was calculated to require 137 days of continuous GTX 1650 compute time. This "Iteration Bottleneck" made high-frequency metric tracking and SOTA capturing mathematically impossible within a standard research window.
-+**Fix**: Implemented the **v3.2 Mission Velocity Acceleration** protocol.
-+- **Stochastic Fractional Windows**: Introduced a `sample_fraction` (0.1) to the global data pipeline. Each training epoch now processes a random 10% representative window (44,224 images).
-+- **Temporal Variety Guard**: By shuffling the fractional window every session, the model eventually sees 100% of the 440k dataset manifold over 10 epochs while providing 10x faster validation checkpoints.
-+- **Velocity Resync**: The `OneCycleLR` scheduler was hardened to dynamically recalculate its mission runway based on the fractional length, ensuring identical annealing curves at 10x the speed.
+
+### 7.17 Metric-Driven Deployment & Polarity Alignment (v3.1 Resiliency)
+**Issue**: During the 1000-epoch mission, two critical regressions were identified: (1) a "Sign Flipping" bug in the dataset logic that caused a perfectly negative correlation (-0.93 PLCC), and (2) a "Runway Crash" where the scheduler's 1000-epoch curve was overwritten by the checkpoint's old 50-epoch state.
+**Fix**: Executed the **v3.1 Zero-Bug Restoration**.
+- **Surgical Polarity Alignment**: Removed the legacy `reverse()` logic in the dataset pipeline to natively align the labels (10=Best) with the EfficientNetV2-S weights.
+- **Mission Shield Scheduler**: Implemented a "State Protection" layer that prevents checkpoint-loading from corrupting the mission length. The scheduler now maintains its 1000-epoch runway regardless of legacy checkpoint states.
+- **Automated SOTA Deployment**: Decoupled model exports from the epoch counter. The system now monitors PLCC/SRCC in real-time and triggers high-fidelity ONNX/FP32 exports the moment a new record is hit.
+
+### 7.18 Mission Velocity Acceleration: Stochastic Subsampling (v3.2)
+**Issue**: With the dataset density reaching 440,000 samples, a 1000-epoch mission was calculated to require 137 days of continuous GTX 1650 compute time. This "Iteration Bottleneck" made high-frequency metric tracking and SOTA capturing mathematically impossible within a standard research window.
+**Fix**: Implemented the **v3.2 Mission Velocity Acceleration** protocol.
+- **Stochastic Fractional Windows**: Introduced a `sample_fraction` (0.1) to the global data pipeline. Each training epoch now processes a random 10% representative window (44,224 images).
+- **Temporal Variety Guard**: By shuffling the fractional window every session, the model eventually sees 100% of the 440k dataset manifold over 10 epochs while providing 10x faster validation checkpoints.
+- **Velocity Resync**: The `OneCycleLR` scheduler was hardened to dynamically recalculate its mission runway based on the fractional length, ensuring identical annealing curves at 10x the speed.
+
+### 7.19 Registry-First Unification (v4.5)
+**Issue**: As the neural library expanded to 21+ models, maintenance debt accumulated across orchestrators (`train_all.py` and `data_utils.py`) which relied on hardcoded dataset dictionaries. Adding a model required three manual code updates, increasing the risk of desync.
+**Fix**: Migrated the entire project to **Registry-First Dynamic Orchestration**. Hardcoded lists were purged and centralized into the `_registry_metadata` section of `unified_models.yaml`. All manager scripts now dynamically discover dependencies at runtime, ensuring 100% architectural synchronization.
+
+### 7.20 Standardized Epoch Resumption (The Windows Shield)
+**Issue**: Windows-specific file-locking race conditions frequently caused training to crash when attempting to delete `_progress.pth` at the end of an epoch. Furthermore, desync between 0-indexed and 1-indexed epoch logic caused models to redundantly repeat finalized training segments.
+**Fix**: Executed the **Resumption Governance Protocol**.
+- **The Retry Stride**: Implemented a 3-attempt recursive retry loop with a 1.0s `time.sleep` pause specifically for Windows `_progress.pth` deletion.
+- **Zero-Index Uniformity**: Standardized all internal and persistent state records (Latest, Progress, Best) to 0-indexed integer format.
+- **Result**: Resumption is now idempotent and robust against OS-level resource locks, ensuring seamless 1000-epoch mission continuity.
 
 ---
 
@@ -247,7 +262,7 @@ The migration from PyTorch to ONNX was driven by the necessity of **WebGPU stabi
 | Format | Perf (Browser) | Size (v1.0.10) | Portability | Strength | Weakness |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **ONNX** | **Elite (WebGPU)** | **~48MB** | **Universal** | **Best-in-class WebGPU/NPU support** | Minor overhead on low-end CPUs |
-| **TFLite** | High (WebGL) | ~52MB | Android/Browser | Legacy compatibility | Slower on large kernels (320x320) |
+| **TFLite** | High (WebGL) | ~52MB | Android/Browser | Legacy compatibility | Slower on large kernels (384x384) |
 | **TensorRT** | Peak (Local) | ~60MB | NVIDIA Only | Raw NVIDIA hardware speed | Zero portability to non-NVIDIA GPUs |
 | **Torch JIT** | Mid-High | ~55MB | Python/Native | Python native debugging | Heavy runtime requirements for browser |
 | **CoreML** | High (Neural) | ~45MB | Apple Only | Optimal on M1/M2/M3 chips | Locked to macOS/iOS ecosystems |
@@ -263,7 +278,7 @@ The migration from PyTorch to ONNX was driven by the necessity of **WebGPU stabi
 The LemGendary Training Suite has established a new 2026 baseline for Neural Image Assessment, proving that state-of-the-art results do not require corporate-scale compute clusters—they require **hardware-aware resilience architecture**.
 
 ### 9.1 Summary of Breakthroughs
-By collapsing the legacy divide between "Artistic beauty" and "Technical clarity" into a single **LemGendized Universal Quality Subset**, we have created a training environment where models achieve **0.985 PLCC** and **0.906 SRCC** stability. These metrics are not merely academic; they signify a level of ordinal stability that matches human rater consensus across 440,000 diverse samples.
+By collapsing the legacy divide between "Artistic beauty" and "Technical clarity" into a single **LemGendized Universal Quality Subset**, we have created a training environment where models achieve **0.983 PLCC** and **0.906 SRCC** stability. These metrics are not merely academic; they signify a level of ordinal stability that matches human rater consensus across 440,000 diverse samples.
 
 ### 9.2 The Impact of Data-First Engineering
 The core takeaway of the LemGendary project is that **merging and standardizing datasets** is as critical as architectural selection. By neutralizing rater bias and standardizing diverse score distributions into a single 1-10 probability matrix, we provided the backbones (MobileNetV2 and EfficientNetV2-S) with a cleaner signal than any original research track.

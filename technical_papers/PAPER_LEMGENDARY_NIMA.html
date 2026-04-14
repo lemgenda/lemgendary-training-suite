@@ -411,20 +411,20 @@
     <div class="container">
         <header>
             <a href="https://lemgenda.hr" target="_blank" class="brand-logo">
-                <img src="../assets/lemgenda-logo.svg" alt="LemGenda Logo" style="height: 60px; margin-bottom: 20px;">
+                <img src="assets/lemgenda-logo.svg" alt="LemGenda Logo" style="height: 60px; margin-bottom: 20px;">
             </a>
             <h1>Architecture of LemGendary AI</h1>
             <p class="subtitle">High-Fidelity NIMA Assessment via Hardware-Aware Optimization</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 2.2.0 - Resiliency v3.0 Milestone</span>
+                <span>Version: 2.5.0 - Resiliency v4.5 Milestone</span>
                 <span>Hardware: GTX 1650 (4GB)</span>
             </div>
         </header>
 
         <nav class="toc-sidebar">
             <a href="https://lemgenda.hr" target="_blank" class="toc-brand">
-                <img src="../assets/lemgenda-icon.svg" alt="LemGenda Icon">
+                <img src="assets/lemgenda-icon.svg" alt="LemGenda Icon">
             </a>
             <h4>Navigation Matrix</h4>
             <ul>
@@ -482,6 +482,8 @@
                         <li><a href="#cosine-recalibration">7.16 Cosine Recalibration</a></li>
                         <li><a href="#v31-resiliency">7.17 Metric-Driven Deployment (v3.1)</a></li>
                         <li><a href="#v32-velocity">7.18 Mission Velocity (v3.2)</a></li>
+                        <li><a href="#registry-first">7.19 Registry-First Unification (v4.5)</a></li>
+                        <li><a href="#epoch-standard">7.20 Standardized Epoch Resumption (v4.5)</a></li>
                     </ul>
                 </li>
                 <li><a href="#onnx">8. ONNX Strategy</a>
@@ -503,7 +505,7 @@
 
         <section id="abstract">
             <h2>1. Abstract</h2>
-            <p>The <span class="highlight">LemGendary Training Suite</span> is a unified deep learning environment specialized in producing high-fidelity Neural IMage Assessment (NIMA) models. This paper details three core pillars of the suite: the <strong>LemGendized Universal Quality Subset</strong>, the <strong>2026 Resilience Engine</strong>, and the <strong>Hyper-Convergence Patch (v2.6)</strong>. By merging legacy benchmarks and implementing hardware-aware 'Jolt' mechanisms, we achieved record-breaking PLCC scores of <strong>0.959+</strong>—setting a new benchmark for browser-based image quality assessment.</p>
+            <p>The <span class="highlight">LemGendary Training Suite</span> is a unified deep learning environment specialized in producing high-fidelity Neural IMage Assessment (NIMA) models. This paper details three core pillars of the suite: the <strong>LemGendized Universal Quality Subset</strong>, the <strong>2026 Resilience Engine</strong>, and the <strong>Hyper-Convergence Patch (v2.6)</strong>. By merging legacy benchmarks and implementing hardware-aware 'Jolt' mechanisms, we achieved record-breaking PLCC scores of <strong>0.983+</strong>—setting a new benchmark for browser-based image quality assessment.</p>
         </section>
 
         <section id="taxonomy">
@@ -514,29 +516,29 @@
             <p>Traditional datasets often conflate beauty with clarity. Our LemGendized subset explicitly separates these dimensions into four visual quadrants:</p>
 
             <div class="visual-taxonomy">
-                <div class="quadrant" onclick="openModal('../assets/aesthetic_masterpiece.png', 'Quadrant 1: High Aesthetic', 'This quadrant represents images with professional composition, color harmony, and artistic impact. The model learns to assign 10/10 scores here regardless of camera sensor characteristics.')">
-                    <img src="../assets/aesthetic_masterpiece.png" alt="High Aesthetic">
+                <div class="quadrant" onclick="openModal('assets/aesthetic_masterpiece.png', 'Quadrant 1: High Aesthetic', 'This quadrant represents images with professional composition, color harmony, and artistic impact. The model learns to assign 10/10 scores here regardless of camera sensor characteristics.')">
+                    <img src="assets/aesthetic_masterpiece.png" alt="High Aesthetic">
                     <div class="quadrant-info">
                         <strong>Quadrant 1: High Aesthetic</strong>
                         <span>10/10 Aesthetic. Correct composition and color harmony.</span>
                     </div>
                 </div>
-                <div class="quadrant" onclick="openModal('../assets/technical_noise.png', 'Quadrant 2: Low Technical', 'Visualizing extreme sensor noise and artifacts. This teaches the model that artistic composition cannot save a technically failed capture.')">
-                    <img src="../assets/technical_noise.png" alt="Low Technical">
+                <div class="quadrant" onclick="openModal('assets/technical_noise.png', 'Quadrant 2: Low Technical', 'Visualizing extreme sensor noise and artifacts. This teaches the model that artistic composition cannot save a technically failed capture.')">
+                    <img src="assets/technical_noise.png" alt="Low Technical">
                     <div class="quadrant-info">
                         <strong>Quadrant 2: Low Technical</strong>
                         <span>Extreme sensor noise and artifacts. Composition is secondary to technical failure.</span>
                     </div>
                 </div>
-                <div class="quadrant" onclick="openModal('../assets/technical_compression.png', 'Quadrant 3: Micro-Defects', 'Focusing on JPEG banding and blocking artifacts. The EfficientNetV2-S model is specifically tuned to catch these at 320x320 resolution.')">
-                    <img src="../assets/technical_compression.png" alt="Micro Defects">
+                <div class="quadrant" onclick="openModal('assets/technical_compression.png', 'Quadrant 3: Micro-Defects', 'Focusing on JPEG banding and blocking artifacts. The EfficientNetV2-S model is specifically tuned to catch these at 384x384 resolution.')">
+                    <img src="assets/technical_compression.png" alt="Micro Defects">
                     <div class="quadrant-info">
                         <strong>Quadrant 3: Micro-Defects</strong>
-                        <span>JPEG banding and blocking caught at 320x320 on EfficientNetV2-S.</span>
+                        <span>JPEG banding and blocking caught at 384x384 on EfficientNetV2-S.</span>
                     </div>
                 </div>
-                <div class="quadrant" onclick="openModal('../assets/technical_sharp_boring.png', 'Quadrant 4: Sharp but Boring', 'A technically flawless image of a mundane subject. This is critical for the model to learn that sharpness is a technical metric, not an aesthetic one.')">
-                    <img src="../assets/technical_sharp_boring.png" alt="Sharp but Boring">
+                <div class="quadrant" onclick="openModal('assets/technical_sharp_boring.png', 'Quadrant 4: Sharp but Boring', 'A technically flawless image of a mundane subject. This is critical for the model to learn that sharpness is a technical metric, not an aesthetic one.')">
+                    <img src="assets/technical_sharp_boring.png" alt="Sharp but Boring">
                     <div class="quadrant-info">
                         <strong>Quadrant 4: Sharp but Boring</strong>
                         <span>Flawless technical integrity on a boring subject. Sharpness != Art.</span>
@@ -556,7 +558,7 @@
                     <li><strong>Dynamic Scaling</strong>:
                         <ul>
                             <li><strong>Aesthetic (MobileNetV2)</strong>: 1.0x Coefficient - Efficient global pooling.</li>
-                            <li><strong>Technical (EfficientNetV2-S)</strong>: 2.4x Coefficient - Heavy activation overhead at 320x320.</li>
+                            <li><strong>Technical (EfficientNetV2-S)</strong>: 2.4x Coefficient - Heavy activation overhead at 384x384.</li>
                         </ul>
                     </li>
                     <li><strong>Cuda Benchmark = True</strong>: Enabled to allow the cuDNN kernel to optimize convolution algorithms specifically for the local GTX 1650 architecture before training begins.</li>
@@ -567,7 +569,7 @@
                 <p>On a 4GB card, the "VRAM Swap" phenomenon—where Windows moves GPU tasks into system RAM—causes performance to drop by 90-95%. The suite implements a <strong>Sentinel Force-Lock</strong>. By monitoring the <em>cuda.memory_summary()</em>, it dynamically interrupts the dataloader if the DWS buffer is breached, preventing a kernel-level paging event and maintaining a constant high-velocity stride.</p>
 
                 <h3 id="ovc-bridge">3.3 OVC Data Streaming Bridge (OpenCV-to-CUDA)</h3>
-                <p>To minimize latency on the PCIe 3.0 bus, the suite uses the <strong>OVC Bridge</strong>. Images are pre-processed in the CPU's L3 cache using OpenCV's optimized SIMD instructions before being mapped directly into the GPU's memory buffer. This "Prefetch-and-Map" strategy hides the I/O latency of the 320x320 high-fidelity samples, ensuring the EfficientNetV2-S kernels are never starved for data.</p>
+                <p>To minimize latency on the PCIe 3.0 bus, the suite uses the <strong>OVC Bridge</strong>. Images are pre-processed in the CPU's L3 cache using OpenCV's optimized SIMD instructions before being mapped directly into the GPU's memory buffer. This "Prefetch-and-Map" strategy hides the I/O latency of the 384x384 high-fidelity samples, ensuring the EfficientNetV2-S kernels are never starved for data.</p>
             </div>
         </section>
 
@@ -624,14 +626,14 @@
                         <td>Technical</td>
                         <td>PLCC</td>
                         <td>~0.908</td>
-                        <td><strong>0.9852</strong></td>
-                        <td style="color: #4cd964;">+8.5%</td>
+                        <td><strong>0.9832</strong></td>
+                        <td style="color: #4cd964;">+8.3%</td>
                     </tr>
                     <tr>
                         <td>Technical</td>
                         <td>SRCC</td>
                         <td>~0.900</td>
-                        <td><strong>0.8804</strong></td>
+                        <td><strong>0.8785</strong></td>
                         <td>Fine-Grained</td>
                     </tr>
                 </tbody>
@@ -762,10 +764,25 @@
                 <p><strong>Issue</strong>: With the dataset density reaching 440,000 samples, a 1000-epoch mission was calculated to require 137 days of continuous GTX 1650 compute time. This "Iteration Bottleneck" made high-frequency metric tracking and SOTA capturing mathematically impossible within a standard research window.</p>
                 <p><strong>Fix</strong>: Implemented the <strong>v3.2 Mission Velocity Acceleration</strong> protocol.</p>
                 <ul>
-                    <li><strong>Stochastic Fractional Windows</strong>: Introduced a `sample_fraction` (0.1) to the global data pipeline. Each training epoch now processes a random 10% representative window (44,224 images).</li>
+                    <li><strong>Stochastic Fractional Windows</strong>: Introduced a <em>sample_fraction</em> (0.1) to the global data pipeline. Each training epoch now processes a random 10% representative window (44,224 images).</li>
                     <li><strong>Temporal Variety Guard</strong>: Shuffling the fractional window every session ensures total manifold exposure over 10 epochs while accelerating the feedback loop by 10x.</li>
                     <li><strong>Precision Milestones</strong>: Intra-epoch checkpoints (Mitochondrial Shield) are now surgically locked to exact 20% intervals (20, 40, 60, 80) to provide high-fidelity progress synchronization during long-running 1000-epoch missions.</li>
                     <li><strong>Velocity Resync</strong>: OneCycleLR dynamically recalculates its runway based on the fractional length, ensuring identical annealing curves at 10x speed.</li>
+                </ul>
+            </div>
+            <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
+                <h3 id="registry-first">7.19 Registry-First Unification (v4.5)</h3>
+                <p><strong>Issue</strong>: As the neural library expanded to 21+ models, maintenance debt accumulated across orchestrators (<em>train_all.py</em> and <em>data_utils.py</em>) which relied on hardcoded dataset dictionaries. Adding a model required three manual code updates, increasing the risk of desync.</p>
+                <p><strong>Fix</strong>: Migrated the entire project to <strong>Registry-First Dynamic Orchestration</strong>. Hardcoded lists were purged and centralized into the <em>_registry_metadata</em> section of <em>unified_models.yaml</em>. All manager scripts now dynamically discover dependencies at runtime, ensuring 100% architectural synchronization.</p>
+            </div>
+            <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
+                <h3 id="epoch-standard">7.20 Standardized Epoch Resumption (The Windows Shield)</h3>
+                <p><strong>Issue</strong>: Windows-specific file-locking race conditions frequently caused training to crash when attempting to delete <em>_progress.pth</em> at the end of an epoch. Furthermore, desync between 0-indexed and 1-indexed epoch logic caused models to redundantly repeat finalized training segments.</p>
+                <p><strong>Fix</strong>: Executed the <strong>Resumption Governance Protocol</strong>.</p>
+                <ul>
+                    <li><strong>The Retry Stride</strong>: Implemented a 3-attempt recursive retry loop with a 1.0s <em>time.sleep</em> pause specifically for Windows <em>_progress.pth</em> deletion.</li>
+                    <li><strong>Zero-Index Uniformity</strong>: Standardized all internal and persistent state records (Latest, Progress, Best) to 0-indexed integer format.</li>
+                    <li><strong>Result</strong>: Resumption is now idempotent and robust against OS-level resource locks, ensuring seamless 1000-epoch mission continuity.</li>
                 </ul>
             </div>
         </section>
@@ -842,7 +859,7 @@
             <p>The LemGendary Training Suite has established a new 2026 baseline for Neural Image Assessment, proving that state-of-the-art results do not require corporate-scale compute clusters—they require <strong>hardware-aware resilience architecture</strong>.</p>
             <div class="card">
                 <h3 id="breakthroughs">9.1 Summary of Breakthroughs</h3>
-                <p>By collapsing the legacy divide between "Artistic beauty" and "Technical clarity" into a single <strong>LemGendized Universal Quality Subset</strong>, we have created a training environment where models achieve <strong>0.985 PLCC</strong> and <strong>0.906 SRCC</strong> stability. These metrics are not merely academic; they signify a level of ordinal stability that matches human rater consensus across 440,000 diverse samples.</p>
+                <p>By collapsing the legacy divide between "Artistic beauty" and "Technical clarity" into a single <strong>LemGendized Universal Quality Subset</strong>, we have created a training environment where models achieve <strong>0.983 PLCC</strong> and <strong>0.906 SRCC</strong> stability. These metrics are not merely academic; they signify a level of ordinal stability that matches human rater consensus across 440,000 diverse samples.</p>
                 
                 <h3 id="data-first-strategy">9.2 The Impact of Data-First Engineering</h3>
                 <p>The core takeaway of the LemGendary project is that <strong>merging and standardizing datasets</strong> is as critical as architectural selection. By neutralizing rater bias and standardizing diverse score distributions into a single 1-10 probability matrix, we provided the backbones (MobileNetV2 and EfficientNetV2-S) with a cleaner signal than any original research track.</p>

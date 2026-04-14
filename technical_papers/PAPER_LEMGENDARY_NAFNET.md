@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NAFNet Restoration via SOTA Infrastructure
 
 **Author**: Lem Treursić  
-**Version**: 2.1.0 - Resilience Milestone (2026 Specialization)  
+**Version**: 2.2.0 - Resiliency v4.5 Milestone (2026 Specialization)  
 **Target Hardware**: Dual NVIDIA Tesla T4 (15GB GDDR6 / Kaggle Cloud)  
 
 ---
@@ -31,7 +31,8 @@
 8. [Kaggle Cloud Execution Protocols](#8-kaggle-cloud-execution-protocols)
    - [8.1 Single-GPU Specialization](#81-single-gpu-specialization-15gb-t4-node-strategy)
    - [8.2 Sub-Epoch Continuity](#82-sub-epoch-continuity-progress-snapshots)
-   - [8.3 Serial Extraction Mutex: Stable Global Alignment](#83-serial-extraction-mutex-stable-global-alignment)
+   - [8.3 Serial Extraction Mutex: Stable Global Alignment (v1.0.42)](#83-serial-extraction-mutex-stable-global-alignment-v1042)
+   - [8.4 Registry-First Dynamic Unification (v4.5)](#84-registry-first-dynamic-unification-v45)
 9. [SOTA Architectural Performance Matrix](#9-sota-architectural-performance-matrix)
 10. [Conclusion: The Browser Restoration Paradigm](#10-conclusion-the-browser-restoration-paradigm)
 
@@ -155,6 +156,10 @@ Because an epoch can take 2-3 hours on massive HD topologies, standard `epoch-on
 ### 8.3 Serial Extraction Mutex: Stable Global Alignment (v1.0.42)
 **Issue**: Concurrent unzipping of massive datasets (FFHQ, COCO, DIV2K) previously triggered fatal OS freezes and I/O contention on localized storage arrays.
 **Fix**: Implemented the **Serial Extraction Mutex**. The dataset pipeline now acquires a **Global Named Mutex** (`Global\LemGendaryExtractionLock`) during the unzipping phase. While downloads operate in parallel to maximize bandwidth, extractions are strictly serialized. This ensures that NAFNet training threads are never starved for CPU cycles by background decompression tasks, maintaining a rock-solid training stride.
+
+### 8.4 Registry-First Dynamic Unification (v4.5)
+**Issue**: Legacy NAFNet deployments required manual configuration of dataset paths and Kaggle slugs across multiple files, leading to frequent "Path Not Found" errors during multi-model orchestration.
+**Fix**: Synchronized NAFNet with the **Registry-First Dynamic Orchestration** protocol. All asset handles and Kaggle URLs are now natively resolved from the `unified_models.yaml` registry, ensuring that the NAFNet convergence pipeline is entirely self-managed and robust against local/cloud path shifts.
 
 ---
 

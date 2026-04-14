@@ -417,7 +417,7 @@
             <p class="subtitle">High-Fidelity NAFNet Restoration via SOTA Infrastructure</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 2.1.0 - Resilience Milestone</span>
+                <span>Version: 2.2.0 - Resiliency v4.5 Milestone</span>
                 <span>Hardware: Dual Tesla T4 (15GB)</span>
             </div>
         </header>
@@ -471,6 +471,7 @@
                         <li><a href="#single-gpu">8.1 Single-GPU Specialization</a></li>
                         <li><a href="#sub-epoch-continuity">8.2 Sub-Epoch Continuity</a></li>
                         <li><a href="#serial-extraction">8.3 Serial Extraction Mutex</a></li>
+                        <li><a href="#registry-first">8.4 Registry-First Dynamic Unification</a></li>
                     </ul>
                 </li>
                 <li><a href="#sota-matrix">9. SOTA Architectural Performance Matrix</a>
@@ -629,6 +630,11 @@
             <h3 id="serial-extraction">8.3 Serial Extraction Mutex: Stable Global Alignment</h3>
             <p><strong>Issue</strong>: Concurrent unzipping of massive datasets (FFHQ, DIV2K) previously triggered fatal OS freezes and I/O contention on localized storage arrays.</p>
             <p><strong>Fix</strong>: Implemented the <strong>Serial Extraction Mutex</strong>. The dataset pipeline now acquires a **Global Named Mutex** (<em>Global\LemGendaryExtractionLock</em>) during the unzipping phase. While downloads operate in parallel to maximize bandwidth, extractions are strictly serialized. This ensures that NAFNet training threads maintain a rock-solid training stride without CPU starvation.</p>
+            <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
+                <h3 id="registry-first">8.4 Registry-First Dynamic Unification (v4.5)</h3>
+                <p><strong>Issue</strong>: Legacy NAFNet deployments required manual configuration of dataset paths and Kaggle slugs across multiple files, leading to frequent "Path Not Found" errors during multi-model orchestration.</p>
+                <p><strong>Fix</strong>: Synchronized NAFNet with the <strong>Registry-First Dynamic Orchestration</strong> protocol. All asset handles and Kaggle URLs are now natively resolved from the <em>unified_models.yaml</em> registry, ensuring that the NAFNet convergence pipeline is entirely self-managed and robust against local/cloud path shifts.</p>
+            </div>
         </section>
 
         <section id="sota-matrix">
