@@ -52,6 +52,7 @@ class MultiTaskDataset(Dataset):
             self.size = (size_raw, size_raw) # int -> (H, W)
         
         self.samples = []
+        self.all_samples = []
         dataset_names = self.model_info.get("datasets", [])
         
         self.kaggle_links = {
@@ -82,34 +83,52 @@ class MultiTaskDataset(Dataset):
                 
             files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
             for f in files:
-                self.samples.append((ds_name, f))
+                self.all_samples.append((ds_name, f))
+        
+        self.samples = list(self.all_samples)
+        self.sample_fraction = sample_fraction
                 
         # --- 2026: Mission Velocity Acceleration (Subsampling) ---
-        # If fraction < 1.0, we perform a stochastic slice of the dataset.
-        # This allows 10x faster epochs while seeing the full variety over time.
-        if is_train and 0.0 < sample_fraction < 1.0:
+        if is_train and 0.0 < self.sample_fraction < 1.0:
             import random
             random.shuffle(self.samples)
-            self.samples = self.samples[:int(len(self.samples) * sample_fraction)]
-            print(f"🚀 [VELOCITY] Stochastic Subsampling ACTIVE: Using {len(self.samples)} samples ({sample_fraction*100:.1f}%)")
+            self.samples = self.samples[:int(len(self.samples) * self.sample_fraction)]
+            print(f"🚀 [VELOCITY] Stochastic Subsampling ACTIVE: Using {len(self.samples)} samples ({self.sample_fraction*100:.1f}%)")
 
+        self.build_transforms()
+        print(f"Loaded {len(self.samples)} samples for {model_key} (Task: {self.task_type}, Split: {self.split})")
+
+    def build_transforms(self):
         # --- 2026: SOTA Rank-Aware Augmentations ---
         transform_list = [transforms.Resize(self.size, interpolation=transforms.InterpolationMode.BILINEAR)]
         if self.is_train and self.task_type == "quality":
-            # Only apply Jitter to Aesthetic training; Disable for Technical to maintain ground-truth integrity
             if self.model_key == "nima_aesthetic":
                 transform_list.append(transforms.ColorJitter(brightness=0.1, contrast=0.1))
         
         transform_list.append(transforms.ToTensor())
-        
-        # --- 2026: ImageNet-Handoff Normalization ---
-        # Strictly required for Quality models using pre-trained feature backbones (NIMA)
         if self.task_type == "quality":
             transform_list.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
             
         self.transform = transforms.Compose(transform_list)
+
+    def update_strategy(self, fraction=None, size=None):
+        """Autonomous recalibration of dataset parameters without disc re-scan."""
+        if size is not None:
+            if isinstance(size, list):
+                self.size = (int(size[1]), int(size[2])) if len(size)==3 else (int(size[0]), int(size[1]))
+            else:
+                self.size = (size, size)
+            self.build_transforms()
+            
+        if fraction is not None:
+            self.sample_fraction = fraction
+            self.samples = list(self.all_samples)
+            if self.is_train:
+                import random
+                random.shuffle(self.samples)
+                self.samples = self.samples[:int(len(self.samples) * self.sample_fraction)]
         
-        print(f"Loaded {len(self.samples)} samples for {model_key} (Task: {self.task_type}, Split: {self.split})")
+        print(f"📡 [DATASET RECALIBRATED] Fraction: {self.sample_fraction*100:.1f}% | Size: {self.size}")
 
     def fast_process(self, img):
         """High-speed 2026 data pipeline bypassing PIL overhead."""

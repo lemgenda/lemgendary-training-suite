@@ -31,6 +31,7 @@ try:
     from torch.utils.data import DataLoader
     from tqdm import tqdm
     from torch.optim.swa_utils import AveragedModel, SWALR, update_bn # 2026 SOTA: Smooth Generalization
+    from training.optimization_engine import SmartTrainingGovernor
 except ImportError as e:
     print(f"\n--- LemGendary Crash Diagnostics ---")
     print(f"Executable: {sys.executable}")
@@ -72,6 +73,49 @@ signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
 from data.dataset import MultiTaskDataset
 from models.factory import get_model
 
+def safe_replace(src, dst):
+    """Battle-Hardened atomic replace for Windows. Uses 3-stage recovery (Replace -> Remove/Rename -> Copy/Delete)."""
+    max_retries = 15
+    base_delay = 0.5
+    
+    for i in range(max_retries):
+        try:
+            # Stage 1: Standard atomic replace (Best for Linux/Correct Windows states)
+            if os.path.exists(dst):
+                os.replace(src, dst)
+            else:
+                os.rename(src, dst)
+            return True
+        except (PermissionError, OSError):
+            if i < 8:
+                # Exponential backoff pulse
+                delay = base_delay * (1.6 ** i)
+                print(f"🔄 [RESILIENCY] IO Lock detected on {os.path.basename(dst)} (Attempt {i+1}/{max_retries}). Retrying in {delay:.1f}s...")
+                time.sleep(delay)
+            elif i < 12:
+                # Stage 2: Surgical Extraction (Explicit Remove then Rename)
+                try:
+                    print(f"🔪 [RESILIENCY] Attempting Surgical Extraction for {os.path.basename(dst)}...")
+                    if os.path.exists(dst):
+                        os.remove(dst)
+                    os.rename(src, dst)
+                    return True
+                except:
+                    time.sleep(2)
+            else:
+                # Stage 3: Brute Force Manifold (Copy/Delete)
+                try:
+                    print(f"💥 [RESILIENCY] Attempting Brute Force Copy for {os.path.basename(dst)}...")
+                    shutil.copy2(src, dst)
+                    os.remove(src)
+                    return True
+                except Exception as final_e:
+                    if i == max_retries - 1:
+                        print(f"❌ [CRITICAL] Persistence Manifold EXHAUSTED for {os.path.basename(dst)}: {final_e}")
+                        raise
+                    time.sleep(2)
+    return False
+
 class CombinedLoss(nn.Module):
     def __init__(self, task_type="restoration", stabilizers=None):
         super().__init__()
@@ -82,6 +126,10 @@ class CombinedLoss(nn.Module):
         self.mse = nn.MSELoss(reduction='mean') # Legacy fallback for face and segmentation topology
         self.ce = nn.CrossEntropyLoss()
         self.perc = None
+        
+        # 2026: SOTA Rank-Boost Weights (Standard 10..1 mapping)
+        self.register_buffer('rank_weights', torch.arange(10, 0, -1).float())
+        
         if self.task_type in ["restoration", "enhancement"]:
             try:
                 import lpips
@@ -128,6 +176,33 @@ class CombinedLoss(nn.Module):
             
             # 2026: Geometric Stabilizer - Summing squared CDF error per-bin (matches NIMA SOTA Baseline)
             emd = torch.sum((cdf_p - cdf_t) ** 2, dim=-1).mean()
+            
+            # --- 2026: Neural Rank-Boost (SRCC Enhancement) ---
+            # Differentiable pairwise ranking component within the training batch.
+            rank_weight = self.stab.get('rank_weight', 0.0)
+            if rank_weight > 0 and p_probs.size(0) > 1:
+                # Calculate mean scores for predicted and target distributions
+                p_mean = (p_probs * self.rank_weights).sum(dim=-1)
+                t_mean = (t_probs * self.rank_weights).sum(dim=-1)
+                
+                # Expand into pairwise matrices (Batch x Batch)
+                p_diff = p_mean.unsqueeze(0) - p_mean.unsqueeze(1)
+                t_diff = t_mean.unsqueeze(0) - t_mean.unsqueeze(1)
+                
+                # Sign matrix for ground truth relationship
+                # +1 if T_i > T_j, -1 if T_i < T_j, 0 if equal
+                t_sign = torch.sign(t_diff)
+                
+                # Margin Ranking Loss: max(0, -sign * (p_i - p_j) + margin)
+                margin = self.stab.get('rank_margin', 0.05)
+                rank_loss = F.relu(margin - t_sign * p_diff)
+                
+                # Mask out diagonal and equal-score samples to avoid zero-bias
+                mask = (t_sign != 0).float()
+                avg_rank_loss = (rank_loss * mask).sum() / torch.clamp(mask.sum(), min=1.0)
+                
+                return emd + (rank_weight * avg_rank_loss)
+            
             return emd
         elif self.task_type == "classification":
             return self.ce(pred, target)
@@ -412,10 +487,13 @@ def main():
             accumulation_steps = max(1, effective_batch_size // 16)
             print(f"📡 [MEM-SENTINEL] Pre-Emptive 4GB Lockdown: Physical Batch 16 | Accumulation {accumulation_steps}")
 
-    # Dataset & DataLoader
-    # 2026: Mission Velocity Acceleration (Fractional Epochs)
-    # Extracts the sample_fraction from model_info or config (default 1.0)
-    sample_fraction = model_info.get("sample_fraction", config.get("sample_fraction", 1.0))
+    # 2026: SOTA Smart Pipeline - Initialize with Governor's Efficiency Strategy (Default 10%)
+    # Hyper-Dynamic Stabilizer Injection
+    global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0})
+    model_stab = model_info.get("stabilizers", {})
+    stab = {**global_stab, **model_stab}
+    governor = SmartTrainingGovernor(model_info, stabilizers=stab)
+    sample_fraction = governor.current_fraction
     
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
@@ -470,8 +548,7 @@ def main():
     sota_countdown = 1
     resume_iteration = -1
     regression_epochs = 0 # 2026 Resilience: Regression Guardrail Counter
-    stall_counter = 0     # 2026 Resilience: Plateau Breaker Counter
-    jolt_epochs_left = 0
+    prev_quality_score = 0.0
     
     latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
     progress_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
@@ -596,16 +673,30 @@ def main():
     model.train()
     
     # --- 2026 Continuity Protocol (SOTA Sentry) ---
+    # Manifold Health Audit: Revoke SOTA status if the physical manifold has regressed
+    if 'probe_srcc' in locals() and sota_baseline_achieved:
+        targets = model_info.get("sota_targets", {})
+        target_srcc = targets.get("srcc", 0.90)
+        if probe_srcc < (target_srcc - 0.05): # Tightened tolerance to 0.05 for SOTA integrity
+            print(f"📡 [SOTA SENTRY] Manifold Health Audit: FAILED.")
+            print(f"📡 [SOTA SENTRY] Probe SRCC ({probe_srcc:.4f}) is below mission target ({target_srcc:.4f}).")
+            print(f"🚀 [RECONSTRUCTION] Revoking SOTA status. Launching deep-manifold recovery...")
+            sota_baseline_achieved = False
+
     # Ensure the mission doesn't stall if targets haven't been met.
     if not sota_baseline_achieved and start_epoch >= (epochs - 1):
         print(f"\n⚠️  [CONTINUITY] Model reached epoch limit ({epochs}) without hitting SOTA benchmarks.")
         print(f"   -> Dynamically extending training by 20 epochs to ensure convergence...")
         epochs = start_epoch + 20
     elif sota_baseline_achieved:
-        print(f"\n✅ [SOTA RECOVERY] Mission accomplished! This model already achieved SOTA targets.")
-        print(f"   -> Jumping directly to ONNX export Phase (Mission Already Accomplished)...")
-        # Bypass the training loop entirely to save GPU time
-        start_epoch = epochs
+        print(f"\n✅ [SOTA RECOVERY] SOTA Targets consistently verified by current manifold.")
+        print(f"   -> Entering Stochastic Re-convergence phase (Final 5 epochs)...")
+        # Instead of skipping, we do a short refinement phase if already at SOTA
+        if start_epoch >= epochs:
+            start_epoch = max(0, epochs - 5) 
+        else:
+            # If not yet at the end, just continue training normally
+            pass
         # We try to extract record metrics for the final README
         plcc = best_quality_score if best_quality_score > 0 else 0.95 
         srcc = 0.90 # Best guess for doc generation if not fully loaded
@@ -698,7 +789,7 @@ def main():
     stab = {**global_stab, **model_stab}
     print(f"📡 [STABILIZER] Active Parameters: Temp={stab['softmax_temp']} | Eps={stab['emd_epsilon']} | Clamp={stab['logit_clamp']}")
 
-    criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab)
+    criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab).to(device)
     scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
 
     # Initialize metrics for export stability (Avoids NameErrors on skip)
@@ -714,7 +805,7 @@ def main():
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
     if not os.path.exists(metrics_csv_path):
         with open(metrics_csv_path, "w") as f:
-            f.write("Epoch,Train_Loss,Val_Loss,Learning_Rate\n")
+            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Data,Temp,Clamp,Batch,Acc\n")
     
     effective_batch_size = batch_size
     # 2026: SOTA Memory Fix - Removed accidental reset of accumulation_steps to 1
@@ -794,10 +885,28 @@ def main():
             if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "mirnet", "codeformer"]):
                 use_fp16 = False
             
-            with torch.amp.autocast('cuda', enabled=use_fp16): # pyre-ignore
-                preds = model(inputs)
-                # Normalize loss by accumulation steps
-                loss = criterion(preds, targets, task_idx) / accumulation_steps # pyre-ignore
+            try:
+                with torch.amp.autocast('cuda', enabled=use_fp16): # pyre-ignore
+                    preds = model(inputs)
+                    # Normalize loss by accumulation steps
+                    loss = criterion(preds, targets, task_idx) / accumulation_steps # pyre-ignore
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    print(f"🛑 [OOM SENTINEL] VRAM overflow detected! Attempting emergency batch-accumulation trade...")
+                    torch.cuda.empty_cache()
+                    if batch_size > 1:
+                        batch_size = max(1, batch_size // 2)
+                        accumulation_steps = (effective_batch_size // batch_size) if 'effective_batch_size' in locals() else accumulation_steps * 2
+                        print(f"🛡️  [RECOVERY] New Physical Batch: {batch_size} | New Accumulation: {accumulation_steps}")
+                        # Update loaders mid-epoch
+                        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                        # Skip current batch and continue (or break to restart epoch if preferred)
+                        continue 
+                    else:
+                        print(f"❌ [CRITICAL] OOM even at Batch Size 1! Resolution {train_ds.size[0]}px is too large for this hardware.")
+                        raise e
+                else:
+                    raise e
             
             is_corrupt = False
 
@@ -1003,7 +1112,7 @@ def main():
                         'epochs_no_improve': epochs_no_improve,
                         'sota_achieved': sota_baseline_achieved
                     }, temp_prog_ckpt)
-                    os.replace(temp_prog_ckpt, prog_ckpt)
+                    safe_replace(temp_prog_ckpt, prog_ckpt)
                     print(f"📡 [RESILIENCY] Milestone reached ({(i+1)/len(train_loader)*100:.0f}%). Progress synchronized.")
 
                 # Cleaned legacy execution path.
@@ -1119,29 +1228,19 @@ def main():
         except Exception as e:
             metrics_str = f" | Metrics Error: {e}"
 
-        print(f"Epoch {epoch+1} Summary | Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}{metrics_str} | LR: {scheduler.get_last_lr()[0]:.8f}")
+        # 2026 Smart Telemetry: Include current variety, resolution, and thermal state
+        smart_meta = f" | Data: {train_ds.sample_fraction*100:.0f}% | Res: {train_ds.size[0]} | T: {stab['softmax_temp']:.2f}"
+        print(f"Epoch {epoch+1} Summary | Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}{metrics_str}{smart_meta} | LR: {scheduler.get_last_lr()[0]:.8f}")
 
-        # Save live offline metrics (High-Precision 2026 Telemetry)
         with open(metrics_csv_path, "a") as f:
-            f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{scheduler.get_last_lr()[0]:.8f},{metrics_str.replace(' | ', '').replace(':', '=')}\n")
+            curr_lr = scheduler.get_last_lr()[0]
+            # Unified SOTA Row: Standardized 17-column hardware-aware manifold tracking
+            f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{curr_lr:.8f},"
+                    f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim_val:.4f},{lpips_val:.4f},{fid:.4f},"
+                    f"{map50:.4f},{map50_95:.4f},{train_ds.sample_fraction:.2f},{stab['softmax_temp']:.4f},"
+                    f"{stab.get('logit_clamp', 20.0):.1f},{batch_size},{accumulation_steps}\n")
             
-        # --- 2026: SOTA Plateau Breaker (Resilience v2.7) ---
-        # If the loss delta remains static (< 1e-6) for 5 epochs, 'Jolt' the LR to break the minimum.
-        if abs(avg_val_loss - best_val_loss) < 1e-6:
-            stall_counter += 1
-            if stall_counter >= 5 and jolt_epochs_left == 0:
-                print(f"⚡ [PLATEAU BREAKER] Convergence stalled for 5 epochs. Injecting 2.0x LR Jolt for 2 epochs!")
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = param_group['lr'] * 2.0
-                jolt_epochs_left = 2
-                stall_counter = 0
-        else:
-            stall_counter = 0
-            
-        if jolt_epochs_left > 0:
-            jolt_epochs_left -= 1
-            if jolt_epochs_left == 0:
-                print(f"🧊 [PLATEAU BREAKER] Jolt complete. Resuming standard scheduler manifold.")
+        # 2026: SOTA Hyperparameter management is now handled by the Smart Governor below.
 
         # --- 2026: SOTA Weight Averaging Phase ---
         if epoch >= swa_start:
@@ -1207,7 +1306,7 @@ def main():
         latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
         temp_latest = f"{latest_ckpt}.tmp"
         torch.save(ckpt_state, temp_latest) # pyre-ignore
-        os.replace(temp_latest, latest_ckpt)
+        safe_replace(temp_latest, latest_ckpt)
         
         # Reset intra-epoch progress file now that the epoch is safely committed
         progress_ckpt_path = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
@@ -1220,12 +1319,15 @@ def main():
                 except: 
                     time.sleep(1)
         
-        # --- 2026: SOTA Regression Guardrail (Resilience v2.5) ---
-        # Greedy Rollback: If quality drops > 5% below best for 3 epochs, reset and cool LR.
-        if sota_targets and current_quality_score < (best_quality_score * 0.95) and not is_best:
+        # --- 2026: SOTA Regression Guardrail (Resilience v3.0) ---
+        # Greedy Rollback: If quality drops > 1.5% below best for 3 epochs, reset and cool LR.
+        # Drift Sentinel: If quality regresses for 2 consecutive epochs, dampen LR immediately.
+        if sota_targets and current_quality_score < (best_quality_score * 0.985) and not is_best:
             regression_epochs += 1
-            print(f" -> ⚠️  [REGRESSION] Performance drift detected ({regression_epochs}/3). Distance to SOTA: {(1 - current_quality_score/best_quality_score)*100:.1f}%")
+            print(f" -> ⚠️  [REGRESSION] Performance drift detected ({regression_epochs}/3). Distance to SOTA: {(1 - current_quality_score/best_quality_score)*100:.2f}%")
             
+            # 2026: Drift Sentinel logic has been migrated to the Smart Governor.
+
             if regression_epochs >= 3:
                 print(f"🚀 [REGRESSION GUARD] Triple-Epoch drift threshold breached! Hard-Resetting to SOTA best weights...")
                 best_ckpt_path = os.path.join(config.get("checkpoint_dir", "trained-models/checkpoints"), f"{args.model}_best.pth")
@@ -1248,21 +1350,32 @@ def main():
                     for state in optimizer.state.values():
                         for k, v in state.items():
                             if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
-                                v.mul_(0.8) # Heavier dampening for regression recovery
+                                v.mul_(0.5) # 2026 SOTA: Aggressive dampening for regression recovery
                     
+                    # --- 2026: SOTA Resilience (Physical Purge) ---
+                    # To prevent the suite from 'accidentally' resuming from the drifted state after a crash,
+                    # we physically purge the poisoned latest and progress checkpoints.
+                    for doomed in [latest_ckpt, progress_ckpt_path]:
+                        if os.path.exists(doomed):
+                            try:
+                                os.remove(doomed)
+                                print(f"🔥 [REGRESSION GUARD] Physically purged poisoned checkpoint: {os.path.basename(doomed)}")
+                            except: pass
+
                     print(f"✅ [GUARD] SOTA Rollback successful. LR cooled to {optimizer.param_groups[0]['lr']:.8f} | Momentum dampened.")
                     regression_epochs = 0
                     epochs_no_improve = 0 # Reset patience since we are essentially retrying a new manifold
         else:
             regression_epochs = 0
             
+        prev_quality_score = current_quality_score
         if is_improving:
             epochs_no_improve = 0
             if is_best:
                 best_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
                 temp_best = f"{best_ckpt}.tmp"
                 torch.save(ckpt_state, temp_best) # pyre-ignore
-                os.replace(temp_best, best_ckpt)
+                safe_replace(temp_best, best_ckpt)
                 
                 # --- 2026 SOTA Deployment Sync (v1.0.50) ---
                 # We trigger the export ONLY after the best.pth is physically committed to disk
@@ -1330,6 +1443,51 @@ def main():
             print(f"   -> SOTA Cooldown Epochs remaining: {sota_countdown}")
             sota_countdown -= 1  # pyre-ignore
         
+        # --- 2026: SOTA Smart Optimization Audit ---
+        f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
+            current_quality_score, best_quality_score, epochs_no_improve, regression_epochs
+        )
+        
+        if smart_msg:
+            print(smart_msg)
+            new_params = governor.get_state()
+            
+            if f_changed or r_changed or b_changed:
+                # Update batch size and accumulation constraints if hardware pressure detected
+                if b_changed:
+                    batch_size = new_params['batch_size']
+                    accumulation_steps = new_params['accumulation_steps']
+                
+                # Synchronize dataset variety and resolution ladders
+                train_ds.update_strategy(
+                    fraction=new_params['sample_fraction'] if f_changed else None,
+                    size=new_params['input_size'] if r_changed else None
+                )
+                val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
+                
+                # Re-initialize DataLoader to reflect new batch or dataset topology
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+            
+            if lr_changed:
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = param_group['lr'] * new_params['lr_multiplier']
+            
+            if t_changed or c_changed:
+                # Sync stabilizers across loss and metrics
+                stab['softmax_temp'] = new_params['softmax_temp']
+                stab['logit_clamp'] = new_params['logit_clamp']
+                if hasattr(criterion, 'stab'):
+                    criterion.stab['softmax_temp'] = new_params['softmax_temp']
+                    criterion.stab['logit_clamp'] = new_params['logit_clamp']
+
+            # Update model_info registry for export/readme parity
+            model_info['input_size'] = new_params['input_size']
+            model_info['sample_fraction'] = new_params['sample_fraction']
+            if 'stabilizers' not in model_info: model_info['stabilizers'] = {}
+            model_info['stabilizers']['softmax_temp'] = new_params['softmax_temp']
+            model_info['stabilizers']['logit_clamp'] = new_params['logit_clamp']
+
         # Reset intra-epoch skip/resume counters
         resume_iteration = -1
         
@@ -1376,7 +1534,7 @@ def main():
         # 2026 Resilience: We use the PERSISTENT best_metrics for the final README
         # to ensure doc-weight parity if the final epoch was a regression.
         metrics_to_report = best_metrics if best_quality_score > -1.0 else {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
-        readme_text = build_model_readme(args.model, unified_models_registry, unified_data_registry, epoch+1, metrics_to_report)
+        readme_text = build_model_readme(args.model, unified_models_registry, epoch+1, metrics_to_report)
         with open(os.path.join(export_dir, "README.md"), "w") as f:
             f.write(readme_text)
             

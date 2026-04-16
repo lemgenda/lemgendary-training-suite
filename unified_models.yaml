@@ -50,6 +50,17 @@ nima_aesthetic:
     softmax_temp: 0.1
     emd_epsilon: 0.0001
     logit_clamp: 20.0
+    rank_weight: 0.2
+    rank_margin: 0.05
+  optimization:
+    enabled: true
+    initial_fraction: 0.1
+    fraction_increment: 0.15
+    res_ladder: [112, 224, 384, 512]
+    plateau_patience: 6
+    cooling_factor: 0.8
+    plateau_priority: resolution
+    clamp_range: [15.0, 45.0]
 nima_technical:
   name: LemGendary NIMA Technical Scorer
   class_name: NIMA_Model
@@ -61,7 +72,7 @@ nima_technical:
   - 384
   - 384
   batch_size: auto
-  learning_rate: 4.0e-05
+  learning_rate: 1.8e-05
   kwargs:
     backbone: efficientnet_v2_s
   loss_fn: emd
@@ -73,12 +84,17 @@ nima_technical:
   - LemGendizedQualityDataset
   sota_targets:
     plcc: 0.98
-    srcc: 0.88
-  sample_fraction: 0.1
-  stabilizers:
-    softmax_temp: 0.1
-    emd_epsilon: 0.0001
-    logit_clamp: 20.0
+    srcc: 0.92
+    rank_margin: 0.05
+  optimization:
+    enabled: true
+    initial_fraction: 0.1
+    fraction_increment: 0.15
+    res_ladder: [256, 384, 512, 768]
+    plateau_patience: 8
+    cooling_factor: 0.75
+    plateau_priority: resolution
+    clamp_range: [15.0, 50.0]
 upn_v2:
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2_Model
@@ -100,6 +116,13 @@ upn_v2:
   - conf
   optimal_key: upn_v2
   description: Universal parameter predictor for image restoration
+  optimization:
+    enabled: true
+    initial_fraction: 0.1
+    fraction_increment: 0.25
+    res_ladder: [128, 256]
+    plateau_patience: 4
+    cooling_factor: 0.85
   datasets:
   - LemGendizedSuperResDataset
   - LemGendizedLowLightDataset
@@ -122,6 +145,13 @@ film_restorer:
   needs_synthesis: true
   optimal_key: film_restorer
   description: Universal image restoration autoencoder
+  optimization:
+    enabled: true
+    initial_fraction: 0.1
+    fraction_increment: 0.15
+    res_ladder: [112, 224, 384, 512]
+    plateau_patience: 8
+    cooling_factor: 0.8
   datasets:
   - LemGendizedSuperResDataset
   - LemGendizedLowLightDataset
@@ -144,6 +174,14 @@ codeformer:
   needs_synthesis: true
   optimal_key: codeformer
   description: Face restoration model
+  optimization:
+    enabled: true
+    initial_fraction: 0.15
+    fraction_increment: 0.1
+    res_ladder: [256, 512]
+    plateau_patience: 12
+    cooling_factor: 0.7
+    plateau_priority: data
   datasets:
   - LemGendizedFaceDataset
   sota_targets:
@@ -322,6 +360,14 @@ nafnet_debluring:
   dataset_type: restoration
   optimal_key: nafnet_debluring
   description: NAFNet image debluring
+  optimization:
+    enabled: true
+    initial_fraction: 0.15
+    fraction_increment: 0.15
+    res_ladder: [128, 256, 384, 512, 640]
+    plateau_patience: 10
+    cooling_factor: 0.8
+    plateau_priority: resolution
   datasets:
   - LemGendizedSuperResDataset
   - LemGendizedDegradationDataset
@@ -345,6 +391,14 @@ nafnet_denoising:
   dataset_type: restoration
   optimal_key: nafnet_denoising
   description: NAFNet image denoising
+  optimization:
+    enabled: true
+    initial_fraction: 0.15
+    fraction_increment: 0.15
+    res_ladder: [128, 256, 384, 512, 640]
+    plateau_patience: 10
+    cooling_factor: 0.8
+    plateau_priority: resolution
   datasets:
   - LemGendizedNoiseDataset
   sota_targets:
@@ -466,6 +520,13 @@ yolov8n:
   - pose
   optimal_key: yolov8n
   description: Unified YOLOv8n for classification, detection, and pose
+  optimization:
+    enabled: true
+    initial_fraction: 0.2
+    fraction_increment: 0.2
+    res_ladder: [320, 640]
+    plateau_patience: 10
+    cooling_factor: 0.75
   datasets:
   - LemGendizedDetectionDataset
   - LemGendizedFaceDataset
@@ -490,6 +551,14 @@ professional_multitask_restoration:
   optimal_key: professional_multitask_restoration
   description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze,
     and Low-Light
+  optimization:
+    enabled: true
+    initial_fraction: 0.1
+    fraction_increment: 0.25
+    res_ladder: [128, 256, 384, 512, 640]
+    plateau_patience: 12
+    cooling_factor: 0.8
+    plateau_priority: data
   sota_targets:
     psnr: 32.0
     ssim: 0.93

@@ -75,15 +75,40 @@ Deep dives into the mathematical foundations and hardware-aware optimizations of
 
 ---
 
-## 🛡️ Resilience Metrics (v2026 Engine)
+## 🚀 Autonomous Smart Pipeline (v5.0 Breakthrough)
+
+The v7.5.0-LEMGENDARY release transforms the training suite into a fully autonomous, data-driven engine. The **Smart Training Governor** now manages the entire training trajectory without manual intervention.
+
+### 🧠 Smart Training Governor
+A centralized intelligence layer that dynamically recalibrates training complexity and velocity based on real-time manifold performance:
+- **Resolution Scaling**: Automatically shifts from 128px to 768px as the model converges.
+- **Thermal Management**: Dynamically adjusts `softmax_temp` (0.1 → 0.05) to sharpen logits as resolution increases.
+- **Smart Clamping**: Autonomous logit guardrails [15.0, 50.0] that tighten during instability and relax for high-fidelity discovery.
+- **Plateau Priority**: Metric-aligned optimization levers; Fidelity-focused models (NAFNet) prioritize **Resolution**, while Perceptual-focused models (CodeFormer) prioritize **Data Variety**.
+
+### 🛡️ Memory-Sentinel (VRAM Guard)
+Hardware-aware orchestration that prevents OOM crashes and OS paging:
+- **Proactive Scaling**: Predicts VRAM consumption before resolution shifts and automatically trades physical **Batch Size** for **Gradient Accumulation**.
+- **Reactive Recovery**: Intercepts physical OOM errors mid-epoch, clears the CUDA cache, and performs emergency batch reductions to keep the mission alive.
+
+### 📊 Universal SOTA Telemetry
+A standardized, 17-column historical audit (`metrics.csv`) that captures the complete state of the training manifold:
+- **Metrics**: PLCC, SRCC, PSNR, SSIM, LPIPS, FID, mAP50, mAP50-95.
+- **Governor State**: Data Fraction, Softmax Temp, Logit Clamp, LR, Batch Size, Accumulation.
+
+---
+
+## 🛡️ Resilience Architecture (v2026 Engine)
 
 | Feature | Description | Status |
 | :--- | :--- | :--- |
-| **Plateau Breaker** | Detects static Loss and injects **3.0x LR Jolt** to shatter local minimums. | ✅ Active |
+| **Smart Governor** | Autonomous scaling of Res, Temp, Clamp, and Dataset Fraction. | ✅ Active |
+| **Memory-Sentinel** | Hardware-aware VRAM monitoring and Batch-Accumulation trades. | ✅ Active |
+| **Plateau Breaker** | Detects metric stalls and injects **2.0x LR Jolt** or **3.0x Resolution Scaling**. | ✅ Active |
+| **Singularity Shield** | Detection of NaNs triggers immediate weight restoration & thermal cooling. | ✅ Active |
+| **Regression Guard** | Physical checkpoint rollback if metrics drop > 5% for 3 consecutive epochs. | ✅ Active |
 | **SWA Smoothing** | Shadow weight averaging across epochs for superior SOTA generalization. | ✅ Active |
-| **Singularity Rollback** | Detection of numerical explosions (NaN) triggers weight restoration & cooling. | ✅ Active |
-| **Regression Guard** | Hard-reset to peak weights if quality metrics drop > 5% for 3 epochs. | ✅ Active |
-| **Zero-Latency Prefetch** | Subsequent datasets are streamed/unpacked in the background during active training. | ✅ Active |
 
 ---
 **LemGendary AI Suite | Advanced Agentic Coding 2026**
+
