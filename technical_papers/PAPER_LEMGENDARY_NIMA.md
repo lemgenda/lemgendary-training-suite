@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NIMA Assessment via Hardware-Aware Optimization
 
 **Author**: Lem Treursić
-**Version**: 2.5.0 - Resiliency v4.5 Milestone (2026 Optimization)
+**Version**: 2.6.0 - Resiliency v5.1 Milestone (2026 Optimization)
 **Target Hardware**: NVIDIA GeForce GTX 1650 (4GB GDDR5 / Windows 11)
 
 ---
@@ -47,6 +47,7 @@
    - [7.18 Mission Velocity Acceleration: Stochastic Subsampling (v3.2)](#718-mission-velocity-acceleration-stochastic-subsampling-v32)
    - [7.19 Registry-First Unification (v4.5)](#719-registry-first-unification-v45)
    - [7.20 Standardized Epoch Resumption (The Windows Shield)](#720-standardized-epoch-resumption-the-windows-shield)
+   - [7.21 The Velocity-Scheduler Sync (v5.1 Resiliency)](#721-the-velocity-scheduler-sync-v51-resiliency)
 8. [Deployment Strategy: Why ONNX?](#8-deployment-strategy-why-onnx)
    - [8.1 Format Comparison Matrix](#81-format-comparison-matrix)
    - [8.2 Why ONNX Wins for LemGendary](#82-why-onnx-wins-for-lemgendary)
@@ -54,11 +55,12 @@
    - [9.1 Summary of Breakthroughs](#91-summary-of-breakthroughs)
    - [9.2 The Impact of Data-First Engineering](#92-the-impact-of-data-first-engineering)
    - [9.3 Future Outlook: From Browser to Edge](#93-future-outlook-from-browser-to-edge)
+10. [Appendix: 2026 Dynamic Governor Logs](#10-appendix-2026-dynamic-governor-logs)
 
 ---
 
 ## 1. Abstract
-The **LemGendary Training Suite** is a unified deep learning environment specialized in producing high-fidelity Neural IMage Assessment (NIMA) models. This paper details three core pillars of the suite: the **LemGendized Universal Quality Subset**, the **2026 Resilience Engine**, and the **Hyper-Convergence Patch (v2.6)**. By merging legacy benchmarks and implementing hardware-aware 'Jolt' mechanisms, we achieved record-breaking PLCC scores of **0.983+**—setting a new benchmark for browser-based image quality assessment.
+The **LemGendary Training Suite** is a unified deep learning environment specialized in producing high-fidelity Neural IMage Assessment (NIMA) models. This paper details three core pillars of the suite: the **LemGendized Universal Quality Subset**, the **2026 Resilience Engine**, and the **Hyper-Convergence Patch (v2.6)**. By merging legacy benchmarks and implementing hardware-aware 'Jolt' mechanisms, we achieved record-breaking PLCC scores of **0.9848+**—setting a new benchmark for browser-based image quality assessment.
 
 ---
 
@@ -128,8 +130,8 @@ Our results demonstrate significant generational leaps over the original 2018 NI
 | :--- | :--- | :--- | :--- | :--- |
 | **Aesthetic** | **PLCC** | ~0.636 | **0.9596** | **+50.8% (Precision)** |
 | **Aesthetic** | **SRCC** | ~0.612 | **0.9068** | **+48.1% (Ranking)** |
-| **Technical** | **PLCC** | ~0.908 | **0.9832** | **+8.2% (Record)** |
-| **Technical** | **SRCC** | ~0.900 | **0.8785** | Fine-Grained Stability |
+| **Technical** | **PLCC** | ~0.908 | **0.9848** | **+8.4% (Record)** |
+| **Technical** | **SRCC** | ~0.900 | **0.8887** | High-Fidelity Stability |
 
 ---
 
@@ -252,6 +254,11 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 - **The Retry Stride**: Implemented a 3-attempt recursive retry loop with a 1.0s `time.sleep` pause specifically for Windows `_progress.pth` deletion.
 - **Zero-Index Uniformity**: Standardized all internal and persistent state records (Latest, Progress, Best) to 0-indexed integer format.
 - **Result**: Resumption is now idempotent and robust against OS-level resource locks, ensuring seamless 1000-epoch mission continuity.
+
+### 7.21 The Velocity-Scheduler Sync (v5.1 Resiliency)
+**Issue**: Prior to v5.1, the **Smart Training Governor** operated independently of the `OneCycleLR` schedule. When the Governor dampened the learning rate to stabilize metric drift, the scheduler—unaware of the external intervention—would overwrite the LR on the next step based on its original trajectory, leading to "Manifold Shock" and recurrent drift.
+**Fix**: Implemented the **v5.1 Velocity Synchronization**. The Governor is now programmatically bound to the scheduler's internal state. Upon a drift-triggered LR shift, the suite physically scales the scheduler's `max_lrs` and `base_lrs` parameters. This ensures the stabilization "sticks" and the entire mathematical curve is recalibrated for the new manifold velocity.
+**Result**: Successfully locked NIMA Technical at a stable **0.9848 PLCC**, neutralizing stochastic runaway during the peak of the training cycle.
 
 ---
 

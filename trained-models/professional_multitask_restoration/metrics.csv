@@ -1,1 +1,1 @@
-Epoch,Train_Loss,Val_Loss,Learning_Rate
+Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Data,Temp,Clamp,Batch,Acc

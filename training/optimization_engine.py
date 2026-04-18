@@ -9,7 +9,7 @@ class SmartTrainingGovernor:
     managing Thermal (Temperature), Numerical (Clamping), Hardware (Batch/VRAM), 
     and Velocity (LR) states.
     
-    Now includes 'Memory-Sentinel' logic for hardware-aware auto-batching.
+    v5.1: Added Jolt Recoil protection and configurable jolt multipliers.
     """
     def __init__(self, model_info, stabilizers=None):
         self.model_info = model_info
@@ -24,6 +24,7 @@ class SmartTrainingGovernor:
         self.plateau_patience = opt.get("plateau_patience", 6)
         self.cooling_factor = opt.get("cooling_factor", 0.8)
         self.plateau_priority = opt.get("plateau_priority", "resolution") # 'resolution' or 'data'
+        self.jolt_multiplier = opt.get("jolt_multiplier", 2.0)
         
         # 2026 Smart Clamp range [min, max]
         clamp_range = opt.get("clamp_range", [15.0, 45.0])
@@ -45,6 +46,7 @@ class SmartTrainingGovernor:
         self.lr_multiplier = 1.0
         self.prev_quality = 0.0
         self.consecutive_drift = 0
+        self.jolt_active = False # Tracks if we just injected energy
         
         # Resolution Ladder: Progression steps to force feature discovery
         self.res_ladder = opt.get("res_ladder", [128, 256, 384, 512])
@@ -79,37 +81,28 @@ class SmartTrainingGovernor:
         self.lr_multiplier = 1.0 # Reset multiplier each audit; train.py applies it to active optimizer
         msg_parts = []
 
-        # 1. Hardware-Aware Scaling (Memory Sentinel) - Check before shifts
+        # Predict VRAM scaling only if resolution shift is possible
+        predicted_ratio = 1.0
         if torch.cuda.is_available():
             mem_total = torch.cuda.get_device_properties(0).total_memory
             mem_reserved = torch.cuda.memory_reserved(0)
             mem_usage_ratio = mem_reserved / mem_total
-            
-            # Predictive Scaling: If resolution is about to increase, 
-            # assume memory will increase by roughly (NewRes / OldRes)^2
             predicted_ratio = mem_usage_ratio
-            if epochs_no_improve >= self.plateau_patience:
-                current_idx = -1
-                try: current_idx = self.res_ladder.index(self.current_res)
-                except ValueError: pass
-                if current_idx != -1 and current_idx < len(self.res_ladder) - 1:
-                    next_res = self.res_ladder[current_idx + 1]
-                    predicted_ratio *= (next_res / self.current_res)**1.8 # Conservative squared scaling
 
-            # If predicted ratio > safety limit, or current ratio is already high
-            if predicted_ratio > self.vram_safety_margin and self.current_batch > 1:
-                old_batch = self.current_batch
-                self.current_batch = max(1, self.current_batch // 2)
-                self.current_acc = self.effective_batch_goal // self.current_batch
-                if self.current_batch != old_batch:
-                    b_changed = True
-                    msg_parts.append(f"PROTECTING VRAM: Scaling Batch {old_batch}->{self.current_batch} | Accumulation 1->{self.current_acc}")
-
-        # 2. Velocity & Numerical Management (Drift Sentinel)
+        # 1. Velocity & Numerical Management (Drift Sentinel)
+        # If the model regresses for 2 consecutive epochs, dampen the LR and tighten the clamp.
         if current_quality < (self.prev_quality - 1e-6):
             self.consecutive_drift += 1
+            
+            # Post-Jolt Regression: Model couldn't handle the power, throttle back immediately.
+            if self.jolt_active:
+                self.lr_multiplier = 0.5
+                lr_changed = True
+                msg_parts.append(f"JOLT RECOIL: Immediate 0.5x LR damping to stabilize manifold")
+                self.jolt_active = False
+            
             if self.consecutive_drift >= 2:
-                self.lr_multiplier = 0.7
+                self.lr_multiplier = min(self.lr_multiplier, 0.7)
                 lr_changed = True
                 
                 # Tighten the logit clamp to force stability during regression
@@ -119,10 +112,29 @@ class SmartTrainingGovernor:
                     c_changed = True
                     msg_parts.append(f"TIGHTENING CLAMP to {self.current_clamp:.1f} (Resilience)")
                 
-                msg_parts.append(f"DAMPENING LR (0.7x) due to consecutive drift")
+                msg_parts.append(f"DAMPENING LR ({self.lr_multiplier}x) due to consecutive drift")
                 self.consecutive_drift = 0
         else:
             self.consecutive_drift = 0
+            self.jolt_active = False # Safe back in the fold
+
+        # 2. Hardware-Aware Scaling (Memory Sentinel) - Check before shifts
+        if torch.cuda.is_available() and predicted_ratio > 0.0:
+            if epochs_no_improve >= self.plateau_patience:
+                current_idx = -1
+                try: current_idx = self.res_ladder.index(self.current_res)
+                except ValueError: pass
+                if current_idx != -1 and current_idx < len(self.res_ladder) - 1:
+                    next_res = self.res_ladder[current_idx + 1]
+                    predicted_ratio *= (next_res / self.current_res)**1.8 # Conservative squared scaling
+
+            if predicted_ratio > self.vram_safety_margin and self.current_batch > 1:
+                old_batch = self.current_batch
+                self.current_batch = max(1, self.current_batch // 2)
+                self.current_acc = self.effective_batch_goal // self.current_batch
+                if self.current_batch != old_batch:
+                    b_changed = True
+                    msg_parts.append(f"PROTECTING VRAM: Scaling Batch {old_batch}->{self.current_batch} | Accumulation 1->{self.current_acc}")
 
         # 3. Dataset Expansion on Regression
         if regression_epochs >= 1 and self.current_fraction < 1.0:
@@ -133,25 +145,20 @@ class SmartTrainingGovernor:
         # 4. Resolution Scaling & Thermal Cooling on Plateau
         if epochs_no_improve >= self.plateau_patience:
             if self.plateau_priority == "data" and self.current_fraction < 1.0:
-                # Perceptual/Texture Priority: Expand variety before scaling complexity
                 self.current_fraction = min(1.0, self.current_fraction + self.fraction_increment)
                 f_changed = True
                 msg_parts.append(f"PLATEAU (Data-Priority): Expanding variety to {self.current_fraction*100:.0f}%")
             else:
-                # Fidelity/Architecture Priority: Shift Resolution
                 current_idx = -1
                 try: current_idx = self.res_ladder.index(self.current_res)
                 except ValueError: pass
                 
                 if current_idx != -1 and current_idx < len(self.res_ladder) - 1:
-                    # Final Hardware Guard: If we are already at batch 1 and predicted OOM, cap resolution.
                     if predicted_ratio > self.vram_safety_margin and self.current_batch == 1:
                         msg_parts.append(f"RESOLUTION CAPPED: VRAM limited at {self.current_res}px")
                     else:
                         self.current_res = self.res_ladder[current_idx + 1]
                         r_changed = True
-                        
-                        # Thermal Cooling & Clamp Relaxation
                         self.current_temp = max(0.05, self.current_temp * self.cooling_factor)
                         t_changed = True
                         
@@ -162,15 +169,15 @@ class SmartTrainingGovernor:
                         
                         msg_parts.append(f"SCALING to {self.current_res}px | RELAXING CLAMP to {self.current_clamp:.1f}")
                 elif self.current_fraction < 1.0:
-                    # Resolution maxed, fallback to variety expansion
                     self.current_fraction = min(1.0, self.current_fraction + self.fraction_increment)
                     f_changed = True
                     msg_parts.append(f"PLATEAU (Res-Maxed): Expanding variety to {self.current_fraction*100:.0f}%")
                 else:
-                    # Everything maxed, try a 2.0x LR Jolt to break the plateau
-                    self.lr_multiplier = 2.0
+                    # Everything maxed, try a configured LR Jolt to break the plateau
+                    self.lr_multiplier = self.jolt_multiplier
                     lr_changed = True
-                    msg_parts.append(f"PLATEAU BREAKER: Injecting 2.0x LR Jolt")
+                    self.jolt_active = True
+                    msg_parts.append(f"PLATEAU BREAKER: Injecting {self.jolt_multiplier}x LR Jolt")
 
         self.prev_quality = current_quality
         
@@ -178,6 +185,11 @@ class SmartTrainingGovernor:
         if msg_parts:
             self.manifold_shift_pending = True
             final_msg = f"⚡ [SMART GOVERNOR] " + " | ".join(msg_parts)
+        else:
+            # 2026: Visible Monitoring (Audit v5.2)
+            # This ensures the user knows the engine is alive and scanning the horizon.
+            status = "STABLE" if regression_epochs == 0 else "REGRESSING" 
+            print(f"📡 [SMART GOVERNOR] Scanning Manifold... [Status: {status}] [No Plateau Detected]")
             
         return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, final_msg
 

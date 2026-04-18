@@ -57,10 +57,11 @@ nima_aesthetic:
     initial_fraction: 0.1
     fraction_increment: 0.15
     res_ladder: [112, 224, 384, 512]
-    plateau_patience: 6
-    cooling_factor: 0.8
+    plateau_patience: 4
+    cooling_factor: 0.85
     plateau_priority: resolution
     clamp_range: [15.0, 45.0]
+    jolt_multiplier: 1.5
 nima_technical:
   name: LemGendary NIMA Technical Scorer
   class_name: NIMA_Model
@@ -91,10 +92,11 @@ nima_technical:
     initial_fraction: 0.1
     fraction_increment: 0.15
     res_ladder: [256, 384, 512, 768]
-    plateau_patience: 8
-    cooling_factor: 0.75
+    plateau_patience: 4
+    cooling_factor: 0.85
     plateau_priority: resolution
     clamp_range: [15.0, 50.0]
+    jolt_multiplier: 1.5
 upn_v2:
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2_Model

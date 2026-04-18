@@ -259,8 +259,8 @@ function Show-Menu {
     Write-Host "  4. Deploy to Kaggle Cloud      (Generate Cloud Instructions)"
     Write-Host "  5. Smart Cloud Orchestration   (Local GPU + Dynamic Kaggle Streams)"
     Write-Host "  6. Single-Epoch Unit Test      (Diagnostic 1-Epoch pass for ALL models)"
-    Write-Host "  9. Run Environmental Janitor   (Force-Purge all project Orphans)" -ForegroundColor Yellow
-    Write-Host "  7. Exit"
+    Write-Host "  7. Run Environmental Janitor   (Force-Purge all project Orphans)" -ForegroundColor Yellow
+    Write-Host "  Q. Exit"
     Write-Host ""
 }
 
@@ -269,7 +269,7 @@ Invoke-BootstrapCheck
 
 while ($true) {
     Show-Menu
-    $choice = Read-Host "Select an option (1-7)"
+    $choice = Read-Host "Select an option (1-7, Q)"
     switch ($choice) {
         '1' { Initialize-Environment; Read-Host "Press Enter to return..." }
         '2' {
@@ -316,8 +316,9 @@ while ($true) {
             }
             Read-Host "Press Enter to return..."
         }
-        '9' { Invoke-JanitorPurge; Read-Host "Purge Complete. Press Enter to return..." }
-        '7' { return }
+        '7' { Invoke-JanitorPurge; Read-Host "Purge Complete. Press Enter to return..." }
+        'Q' { return }
+        'q' { return }
         default { Write-Host "Invalid selection."; Start-Sleep -Seconds 1 }
     }
 }

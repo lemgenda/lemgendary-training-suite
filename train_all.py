@@ -6,6 +6,10 @@ import yaml
 from data.data_utils import download_and_extract_dataset
 
 def main():
+    # 2026 Resilience: Force UTF-8 encoding for Windows terminals to support emojis
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+        
     parser = argparse.ArgumentParser(description="Global Orchestration")
     parser.add_argument("--env", type=str, default="local", choices=["local", "kaggle"])
     parser.add_argument("--epochs", type=int, default=1000, help="Force override SOTA iterations mathematically natively.")

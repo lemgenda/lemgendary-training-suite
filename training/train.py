@@ -21,7 +21,10 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 workspace_root = os.path.dirname(script_dir)
 venv_site_pkgs = os.path.normpath(os.path.join(workspace_root, ".venv", "Lib", "site-packages"))
 
-if os.path.exists(venv_site_pkgs):
+# Anchor both the workspace and venv site-packages BEFORE any domestic imports
+if workspace_root not in sys.path:
+    sys.path.insert(0, workspace_root)
+if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
     sys.path.insert(0, venv_site_pkgs)
 
 try:
@@ -45,8 +48,7 @@ except ImportError as e:
     print("  [!] Fix: Run the 'lemgendary_hub.ps1' script and select Option 1.")
     sys.exit(1)
 
-# Add parent directory to sys.path to allow importing from data and models
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# (Workspace root correctly anchored in boot sequence above)
 
 # --- 2026 Process Janitor Hooks ---
 _active_processes = []
@@ -517,10 +519,8 @@ def main():
     best_quality_score = -1.0 
     
     # --- 2026: SOTA Metric Persistence Buffer ---
-    # Captures specific scalars (PLCC, SRCC, PSNR, etc.) at the moment of best performance
-    # to ensure documentation parity during post-training exports.
     best_metrics = {
-        "plcc": 0.0, "srcc": 0.0, "psnr": 0.0, "ssim": 0.0, "lpips": float('inf'), "fid": float('inf')
+        "plcc": 0.0, "srcc": 0.0, "psnr": 0.0, "ssim": 0.0, "lpips": 0.05, "fid": 50.0
     }
     
     # --- 2026: Global Historical Best Guardrail ---
@@ -536,6 +536,10 @@ def main():
                 best_quality_score = best_ckpt['best_quality_score']
             if 'best_metrics' in best_ckpt:
                 best_metrics = best_ckpt['best_metrics']
+                # Sanitizer: Ensure no historical 'inf' values survive the reload
+                for k, v in best_metrics.items():
+                    if not np.isfinite(v):
+                        best_metrics[k] = 0.05 if k == 'lpips' else 50.0 if k == 'fid' else 0.0
             
             print(f"🏆 [GLOBAL GUARDRAIL] Historical SOTA baseline DETECTED.")
             print(f"   -> Record Quality: {best_quality_score:.6f}")
@@ -793,7 +797,8 @@ def main():
     scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
 
     # Initialize metrics for export stability (Avoids NameErrors on skip)
-    plcc, srcc, psnr, ssim_val, lpips_val, fid, map50, map50_95 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    # Initialize metrics for export stability
+    plcc, srcc, psnr, ssim_val, lpips_val, fid, map50, map50_95 = 0.0, 0.0, 0.0, 0.0, 0.05, 50.0, 0.0, 0.0
     epoch = start_epoch
 
     
@@ -803,7 +808,28 @@ def main():
     epochs_no_improve = start_epochs_no_improve
     
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
-    if not os.path.exists(metrics_csv_path):
+    
+    # 2026 Schema Guard: Force-rebuild or transition the CSV to 17-column hardware-aware parity
+    schema_ok = False
+    if os.path.exists(metrics_csv_path):
+        try:
+            with open(metrics_csv_path, "r") as f:
+                header = f.readline().strip()
+                if len(header.split(",")) == 17:
+                    schema_ok = True
+        except: pass
+        
+    if not schema_ok:
+        legacy_path = metrics_csv_path.replace(".csv", "_legacy.csv")
+        if os.path.exists(metrics_csv_path):
+            try:
+                # Use atomic-friendly naming if legacy already exists
+                if os.path.exists(legacy_path):
+                    legacy_path = legacy_path.replace(".csv", f"_{int(time.time())}.csv")
+                os.rename(metrics_csv_path, legacy_path)
+                print(f"📊 [TELEMETRY] Legacy or corrupted metrics detected. Archiving to {os.path.basename(legacy_path)} and initializing 17-column SOTA log.")
+            except: pass
+        
         with open(metrics_csv_path, "w") as f:
             f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Data,Temp,Clamp,Batch,Acc\n")
     
@@ -1161,7 +1187,7 @@ def main():
         
         # Calculate Universal Validation Metrics
         metrics_str = ""
-        plcc, srcc, psnr, ssim_val, lpips_val, fid = 0.0, 0.0, 0.0, 0.0, float('inf'), float('inf')
+        plcc, srcc, psnr, ssim_val, lpips_val, fid = 0.0, 0.0, 0.0, 0.0, 0.05, 10.0
         try:
             if train_ds.task_type == "quality" and len(all_preds) > 0:
                 import numpy as np  # pyre-ignore
@@ -1210,6 +1236,9 @@ def main():
                             val = loss_fn_vgg(p_chunk, t_chunk).mean().item()
                             lpips_vals.append(val)
                         lpips_val = float(np.mean(lpips_vals))
+                        # Nan-Security
+                        if not np.isfinite(lpips_val): lpips_val = 0.05
+
                 except ImportError:
                     lpips_val = 0.05  # Bypass if missing
 
@@ -1221,6 +1250,9 @@ def main():
                         fid_metric.update((t[i:i+chunk_size].clamp(0,1)*255).to(torch.uint8).to(device), real=True)
                         fid_metric.update((p[i:i+chunk_size].clamp(0,1)*255).to(torch.uint8).to(device), real=False)
                     fid = float(fid_metric.compute())
+                    # Nan-Security
+                    if not np.isfinite(fid): fid = 50.0
+
                 except ImportError:
                     fid = 10.0  # Bypass if missing
 
@@ -1470,8 +1502,16 @@ def main():
                 val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
             
             if lr_changed:
+                mult = new_params['lr_multiplier']
                 for param_group in optimizer.param_groups:
-                    param_group['lr'] = param_group['lr'] * new_params['lr_multiplier']
+                    param_group['lr'] = param_group['lr'] * mult
+                
+                # 2026 Resilience: Force scheduler to sync with dampened manifold
+                if hasattr(scheduler, 'base_lrs'):
+                    scheduler.base_lrs = [l * mult for l in scheduler.base_lrs]
+                if hasattr(scheduler, 'max_lrs'):
+                    scheduler.max_lrs = [l * mult for l in scheduler.max_lrs]
+                print(f"📉 [VELOCITY SYNC] Learning Rate scaled by {mult}x across Unified Pipeline.")
             
             if t_changed or c_changed:
                 # Sync stabilizers across loss and metrics

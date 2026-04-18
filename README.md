@@ -39,7 +39,7 @@ The master orchestration console. It manages the full lifecycle from system boot
 | **5. Smart Cloud Ops** | **Hybrid Streaming** | Trains locally using the **Smart Prefetch Engine** to stream Kaggle data without local storage bloat. |
 | **6. Unit Test (All)** | **Diagnostic Pass** | Runs precisely **1 functional epoch** across the entire model inventory to validate memory/VRAM. |
 | **9. Environment Janitor** | **Orphan Purge** | Force-terminates orphaned Python/PowerShell processes and releases file-system mutexes. |
-| **7. Exit** | **Full Shutdown** | Gracefully closes the orchestration hub. |
+| **Q. Exit** | **Full Shutdown** | Gracefully closes the orchestration hub. |
 
 ### 2. Manual Orchestration
 For advanced users who require direct pipeline control.
@@ -84,7 +84,8 @@ A centralized intelligence layer that dynamically recalibrates training complexi
 - **Resolution Scaling**: Automatically shifts from 128px to 768px as the model converges.
 - **Thermal Management**: Dynamically adjusts `softmax_temp` (0.1 → 0.05) to sharpen logits as resolution increases.
 - **Smart Clamping**: Autonomous logit guardrails [15.0, 50.0] that tighten during instability and relax for high-fidelity discovery.
-- **Plateau Priority**: Metric-aligned optimization levers; Fidelity-focused models (NAFNet) prioritize **Resolution**, while Perceptual-focused models (CodeFormer) prioritize **Data Variety**.
+- **Jolt Recoil Protection**: Detects counter-productive energy injections; if regression follows a plateau break, the Governor triggers a **0.5x Recoil Damping** to force manifold stabilization.
+- **Plateau Priority**: Metric-aligned optimization levers; Fidelity-focused models (NIMA) prioritize **Resolution**, while Perceptual-focused models (CodeFormer) prioritize **Data Variety**.
 
 ### 🛡️ Memory-Sentinel (VRAM Guard)
 Hardware-aware orchestration that prevents OOM crashes and OS paging:
@@ -93,8 +94,9 @@ Hardware-aware orchestration that prevents OOM crashes and OS paging:
 
 ### 📊 Universal SOTA Telemetry
 A standardized, 17-column historical audit (`metrics.csv`) that captures the complete state of the training manifold:
-- **Metrics**: PLCC, SRCC, PSNR, SSIM, LPIPS, FID, mAP50, mAP50-95.
-- **Governor State**: Data Fraction, Softmax Temp, Logit Clamp, LR, Batch Size, Accumulation.
+- **Telemetry Schema Guard**: Automatically detects, archives, and migrates legacy 8-column or 10-column logs into the 17-column hardware-aware standard.
+- **Metrics Sanitizer**: Explicitly sanitizes `inf`/`NaN` artifacts and bypasses incompatible metrics (e.g., LPIPS for quality) to prevent numerical poison from infiltrating the Governor's logic.
+- **Auditable State**: Tracks PLCC, SRCC, PSNR, SSIM, LPIPS, FID, mAP, Data Fraction, Softmax Temp, Logit Clamp, LR, Batch Size, and Accumulation.
 
 ---
 
@@ -103,12 +105,12 @@ A standardized, 17-column historical audit (`metrics.csv`) that captures the com
 | Feature | Description | Status |
 | :--- | :--- | :--- |
 | **Smart Governor** | Autonomous scaling of Res, Temp, Clamp, and Dataset Fraction. | ✅ Active |
+| **Jolt Recoil** | Detects and dampens manifold regression following plateau breaks. | ✅ Active |
 | **Memory-Sentinel** | Hardware-aware VRAM monitoring and Batch-Accumulation trades. | ✅ Active |
-| **Plateau Breaker** | Detects metric stalls and injects **2.0x LR Jolt** or **3.0x Resolution Scaling**. | ✅ Active |
+| **Plateau Breaker** | Detects metric stalls and injects **1.5x - 2.0x LR Jolt** to shatter local minimums. | ✅ Active |
 | **Singularity Shield** | Detection of NaNs triggers immediate weight restoration & thermal cooling. | ✅ Active |
 | **Regression Guard** | Physical checkpoint rollback if metrics drop > 5% for 3 consecutive epochs. | ✅ Active |
 | **SWA Smoothing** | Shadow weight averaging across epochs for superior SOTA generalization. | ✅ Active |
 
 ---
-**LemGendary AI Suite | Advanced Agentic Coding 2026**
 
