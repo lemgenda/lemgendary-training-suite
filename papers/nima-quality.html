@@ -639,6 +639,24 @@
                     </tr>
                 </tbody>
             </table>
+
+            <h3 id="training-curves">5.1.1 Training Convergence Visuals</h3>
+            <div class="visual-taxonomy">
+                <div class="quadrant" onclick="openModal('assets/nima_aesthetic_training.png', 'NIMA Aesthetic Convergence', 'Visualizing the epoch-by-epoch convergence of the Aesthetic manifold. PLCC (Blue) and SRCC (Green) demonstrate stable logarithmic growth.')">
+                    <img src="assets/nima_aesthetic_training.png" alt="Aesthetic Training Curve" style="height: auto;">
+                    <div class="quadrant-info">
+                        <strong>NIMA Aesthetic Curve</strong>
+                        <span>Convergence on Universal Quality Subset.</span>
+                    </div>
+                </div>
+                <div class="quadrant" onclick="openModal('assets/nima_technical_training.png', 'NIMA Technical Convergence', 'Tracking the record-breaking 0.9848 PLCC glide path of the EfficientNetV2-S model.')">
+                    <img src="assets/nima_technical_training.png" alt="Technical Training Curve" style="height: auto;">
+                    <div class="quadrant-info">
+                        <strong>NIMA Technical Curve</strong>
+                        <span>EfficientNetV2-S Record Capture Path.</span>
+                    </div>
+                </div>
+            </div>
         </section>
 
         <section id="health">
