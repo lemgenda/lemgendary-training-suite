@@ -391,7 +391,7 @@
         .toc-sidebar li:hover > .sub-item,
         .toc-sidebar li:focus-within > .sub-item,
         .toc-sidebar li.is-active > .sub-item {
-            max-height: 800px;
+            max-height: 1200px;
             margin-top: 5px;
             margin-bottom: 10px;
         }
@@ -423,61 +423,59 @@
         </header>
 
         <nav class="toc-sidebar">
-            <a href="https://lemgenda.hr" target="_blank" class="toc-brand">
-                <img src="../assets/lemgenda-icon.svg" alt="LemGenda Icon">
-            </a>
-            <h4>Navigation Matrix</h4>
-                        <ul>
-                <li><a href="#abstract">1. Abstract</a>
-                </li>
+            <h3 style="color:var(--primary-color); padding:10px 15px; border-bottom:1px solid var(--border-color); font-size:1rem;">Navigation Matrix</h3>
+            <ul>
+                <li><a href="#abstract">1. Abstract</a></li>
                 <li><a href="#taxonomy">2. Visual Taxonomy</a>
-                </li>
-                <li><a href="#hardware">3. Hardware-Aware Infrastructure</a>
                     <ul class="sub-item">
-                        <li><a href="#dataparallel">3.1 The nn.DataParallel Deprecation & Single-GPU Return</a></li>
-                        <li><a href="#ovc-bridge">3.2 OVC Data Streaming Bridge (OpenCV-to-CUDA)</a></li>
+                        <li><a href="#taxonomy">2.1 Restoration Subset</a></li>
                     </ul>
                 </li>
-                <li><a href="#optimization">4. Mathematical Optimization</a>
+                <li><a href="#hardware">3. Infrastructure</a>
                     <ul class="sub-item">
-                        <li><a href="#structural-perceptual">4.1 Structural VS Perceptual Verification</a></li>
-                        <li><a href="#pcie-thrashing">4.2 PCIe VRAM Thrashing & The Chunking Fix</a></li>
-                        <li><a href="#cpu-bypass">4.3 The CPU-Bottleneck Bypass</a></li>
+                        <li><a href="#dataparallel">3.1 DataParallel Deprecation</a></li>
+                        <li><a href="#ovc-bridge">3.2 OVC Bridge</a></li>
                     </ul>
                 </li>
-                <li><a href="#migration">5. The SOTA Architectural Migration (Mock to NAFNet)</a>
+                <li><a href="#optimization">4. Mathematics</a>
+                    <ul class="sub-item">
+                        <li><a href="#structural-perceptual">4.1 Structural vs Perceptual</a></li>
+                        <li><a href="#pcie-thrashing">4.2 PCIe Chunking</a></li>
+                        <li><a href="#cpu-bypass">4.3 CPU-Bottleneck Bypass</a></li>
+                    </ul>
+                </li>
+                <li><a href="#migration">5. SOTA Migration</a>
                     <ul class="sub-item">
                         <li><a href="#simplegate">5.1 SimpleGate over ReLU</a></li>
                     </ul>
                 </li>
-                <li><a href="#challenges">6. Challenges & Resilience Architecture</a>
+                <li><a href="#challenges">6. Challenges & Resilience</a>
                     <ul class="sub-item">
-                        <li><a href="#nan-overflows">6.1 The SimpleGate NaN Overflows (Structural FP16 Disable)</a></li>
-                        <li><a href="#contiguous-crash">6.2 The Contiguous View Kernel Crash</a></li>
-                        <li><a href="#sudden-death">6.3 The OneCycleLR "Sudden Death" & AdamW Resume Shock</a></li>
-                        <li><a href="#vgg-collapse">6.4 The VGG Perceptual Convergence Collapse</a></li>
-                        <li><a href="#double-step-paradox">6.5 The "Double-Step" OneCycleLR Matrix Paradox</a></li>
-                        <li><a href="#defibrillation">6.6 The SOTA Sentry "Defibrillation Override"</a></li>
+                        <li><a href="#nan-overflows">6.1 NaN Overflows</a></li>
+                        <li><a href="#contiguous-crash">6.2 Kernel Crash</a></li>
+                        <li><a href="#sudden-death">6.3 Resume Shock</a></li>
+                        <li><a href="#vgg-collapse">6.4 Perceptual Collapse</a></li>
+                        <li><a href="#double-step-paradox">6.5 Double-Step Paradox</a></li>
+                        <li><a href="#defibrillation">6.6 SOTA Sentry Jolt</a></li>
+                        <li><a href="#universal-sota">6.7 Universal Sentry</a></li>
                     </ul>
                 </li>
                 <li><a href="#deployment">7. Deployment Strategy</a>
                     <ul class="sub-item">
                         <li><a href="#standalone-exporters">7.1 Standalone Exporters</a></li>
-                        <li><a href="#ghost-severing">7.2 The Ghost-Severing Protocol</a></li>
+                        <li><a href="#ghost-severing">7.2 Ghost-Severing</a></li>
                     </ul>
                 </li>
-                <li><a href="#kaggle">8. Kaggle Cloud Execution Protocols</a>
+                <li><a href="#kaggle">8. Kaggle Protocols</a>
                     <ul class="sub-item">
-                        <li><a href="#single-gpu">8.1 Single-GPU Specialization</a></li>
+                        <li><a href="#single-gpu">8.1 Single-GPU Stride</a></li>
                         <li><a href="#sub-epoch-continuity">8.2 Sub-Epoch Continuity</a></li>
-                        <li><a href="#serial-extraction">8.3 Serial Extraction Mutex</a></li>
-                        <li><a href="#registry-first">8.4 Registry-First Dynamic Unification</a></li>
+                        <li><a href="#serial-extraction">8.3 Serial Extraction (Mutex)</a></li>
+                        <li><a href="#registry-first">8.4 Registry-First Unification</a></li>
                     </ul>
                 </li>
-                <li><a href="#sota-matrix">9. SOTA Architectural Performance Matrix</a>
-                </li>
-                <li><a href="#conclusion">10. Conclusion</a>
-                </li>
+                <li><a href="#sota-matrix">9. Performance Matrix</a></li>
+                <li><a href="#conclusion">10. Conclusion</a></li>
             </ul>
         </nav>
 
@@ -598,6 +596,8 @@
 
             <div class="card">
                 <h3 id="universal-sota">6.7 The Universal Visual SOTA Sentry (v1.1.0 Refactor)</h3>
+                <p><strong>Status:</strong> Successfully deployed to all NAFNet/EfficientNetV2-S pipelines. The sentry now maintains a <strong>Registry-First</strong> synchronization between Kaggle and local storage, ensuring zero "Model Not Found" runtime exceptions during multi-task restoration missions.</p>
+            </div>
                 <p><strong>Issue</strong>: Despite stabilizing the VGG gradients, the architecture hit a hard perceptual ceiling at <code>23.87dB</code>. We mathematically isolated this as the classic "Perception-Distortion Tradeoff"&mdash;the native <code>MSELoss</code> inherently penalized sharp features, constantly clashing with Perceptual metrics to create a blurry equilibrium. Additionally, the iteration span (<code>50</code> epochs) was profoundly depriving the optimizer of physical convergence blocks.</p>
                 <p><strong>Fix</strong>:</p>
                 <ul>
@@ -615,8 +615,9 @@
                 <p>We completely rebuilt the universal ONNX suite and PyTorch serialization hooks. Checkpoints saved under <code>DataParallel</code> (which inject a <code>module.</code> prefix) are intelligently parsed and mapped cleanly onto raw CPUs, allowing Kaggle multi-GPU runs to be downloaded and evaluated on local standalone PCs.</p>
             </div>
             <div class="card">
-            <p><strong>Issue:</strong> When compressing massive 30MB FP32 tensors to FP16, legacy PyTorch ONNX C++ sub-compilers would illegally fork enormous <code>.onnx.data</code> sidecar files to disk (exceeding Protobuf serialization limits). This effectively poisoned WebGPU payloads with segmented external dependency.<br/>
-            <strong>Fix:</strong> Implemented the <strong>Ghost Severing Protocol</strong>. A clean-slate ONNX sweep detects and forcefully physically deletes orphaned <code>.onnx.data</code> graph fragments. The model is dynamically constrained to self-contained payload architecture, ensuring a single, 15MB file powers the web instance.</p>
+                <h3 id="ghost-severing">7.2 The Ghost-Severing Protocol</h3>
+                <p><strong>Issue:</strong> When compressing massive 30MB FP32 tensors to FP16, legacy PyTorch ONNX C++ sub-compilers would illegally fork enormous <code>.onnx.data</code> sidecar files to disk (exceeding Protobuf serialization limits). This effectively poisoned WebGPU payloads with segmented external dependency.<br/>
+                <strong>Fix:</strong> Implemented the <strong>Ghost Severing Protocol</strong>. A clean-slate ONNX sweep detects and forcefully physically deletes orphaned <code>.onnx.data</code> graph fragments. The model is dynamically constrained to self-contained payload architecture, ensuring a single, 15MB file powers the web instance.</p>
             </div>
         </section>
 
