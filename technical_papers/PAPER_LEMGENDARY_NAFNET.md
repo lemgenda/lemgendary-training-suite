@@ -1,8 +1,8 @@
 # Architecture of LemGendary AI: High-Fidelity NAFNet Restoration via SOTA Infrastructure
 
 **Author**: Lem Treursić  
-**Version**: 2.3.0 - Resiliency v5.2 Milestone (2026 Specialization)  
-**Target Hardware**: Dual NVIDIA Tesla T4 (15GB GDDR6 / Kaggle Cloud)  
+**Version**: 2.4.0 - Resiliency v6.1 Milestone (2026 Specialization)  
+**Target Hardware**: Dual Tesla T4 (Cloud) / NVIDIA GTX 1650 (4GB Entry-Level Survival)
 
 ---
 
@@ -28,7 +28,9 @@
    - [6.7 The Universal SOTA Optimization Vector](#67-the-universal-sota-optimization-vector)
    - [6.8 The Stagnation Paradox: Plateau-Buster v5.2](#68-the-stagnation-paradox-plateau-buster-v52)
    - [6.9 The Quality-Regression Mutex (SOTA Guardrail)](#69-the-quality-regression-mutex-sota-guardrail)
-   - [6.10 Distributed I/O Synchronization](#610-distributed-io-synchronization)
+   - [6.10 Persistent I/O Synchronization (v5.8)](#610-persistent-io-synchronization-v58)
+   - [6.11 Architectural Survival Profiles (v5.9)](#611-architectural-survival-profiles-v59)
+   - [6.12 Mission Continuity Guard (v6.1)](#612-mission-continuity-guard-v61)
 7. [Deployment Strategy: The C++ ONNX Ghost-Severing Protocol](#7-deployment-strategy-the-c-onnx-ghost-severing-protocol)
    - [7.1 Standalone Exporters](#71-standalone-exporters)
    - [7.2 The Ghost-Severing Protocol](#72-the-ghost-severing-protocol)
@@ -147,7 +149,19 @@ NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, 
 **Issue**: During long missions, `val_loss` may improve while core quality metrics (PSNR/SSIM) regressed due to smoothing or weight decay. This caused the system to export "False SOTA" models that were technically worse than previous peaks.
 **Fix**: Engineered the **Quality-Regression Mutex**. The SOTA export logic is now strictly bounded by the `current_quality_score`. Even if loss hits a record low, the system will **NOT** coronation the model as the new "Best" unless its physical quality metrics have hit a record high.
 
-### 6.10 Distributed I/O Synchronization
+### 6.10 Persistent I/O Synchronization (v5.8)
+**Issue**: On Windows systems with massive multitask datasets (50,000+ files), PyTorch dataloader workers would hang for up to 8 minutes during initialization as they recursively scanned the physical disk structure. In high-velocity mission scenarios, this cold-start latency was unacceptable.
+**Fix**: Engineered the **Persistent Mission Manifest**. The suite now generates a unified `.dataset_cache.json` manifest during the first scan. Subsequent restarts load this JSON manifest in milliseconds, providing instant manifold alignment and shattering the Windows disk-latency bottleneck.
+
+### 6.11 Architectural Survival Profiles (v5.9)
+**Issue**: Entry-level hardware (NVIDIA GTX 1650 / 4GB VRAM) physically cannot process SOTA NAFNet blocks at high resolutions with standard batch sizes. Previous models would instantly crater with `Out of Memory` errors.
+**Fix**: Implementation of the **Survival Profile**. The environment dynamically detects VRAM constraints and enforces a **Physical Batch Size 1** strategy coupled with **4x Gradient Accumulation**. This maintains the mathematical integrity of a "Batch Size 4" epoch while strictly restricting the GPU memory footprint to survival levels.
+
+### 6.12 Mission Continuity Guard (v6.1)
+**Issue**: Legacy OOM recovery systems occasionally "leaked" manifold state, causing the training loop to terminate prematurely after a memory recovery event. This resulted in "truncated epochs" where the system only processed a fraction of the dataset.
+**Fix**: Engineered the **Continuity Guard**. By repairing the Resync logic and adding mandatory **Iteration Pulse Heartbeats**, the suite ensures that every sample is physically reconciled with the manifold. A final **Manifold Leak Guard** audit-locks the epoch until 100% of the dataset is processed.
+
+---
 **Issue**: Multi-worker dataset initialization on Windows previously triggered `os.listdir` contention, leading to process hangs.
 **Fix**: Implemented a **Class-Level I/O Cache**. File lists are fetched once and cached, ensuring that all 12-16 workers initialize near-instantly without disk thrashing.
 

@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NIMA Assessment via Hardware-Aware Optimization
 
 **Author**: Lem Treursić
-**Version**: 2.7.0 - Resiliency v5.2 Milestone (2026 Optimization)
+**Version**: 2.8.0 - Resiliency v6.1 Milestone (2026 Optimization)
 **Target Hardware**: NVIDIA GeForce GTX 1650 (4GB GDDR5 / Windows 11)
 
 ---
@@ -48,6 +48,8 @@
    - [7.19 Registry-First Unification (v4.5)](#719-registry-first-unification-v45)
    - [7.20 Standardized Epoch Resumption (The Windows Shield)](#720-standardized-epoch-resumption-the-windows-shield)
    - [7.21 The Velocity-Scheduler Sync (v5.1 Resiliency)](#721-the-velocity-scheduler-sync-v51-resiliency)
+   - [7.22 Persistent I/O Synchronization (v5.8)](#722-persistent-io-synchronization-v58)
+   - [7.23 Mission Continuity Guard (v6.1)](#723-mission-continuity-guard-v61)
 8. [Deployment Strategy: Why ONNX?](#8-deployment-strategy-why-onnx)
    - [8.1 Format Comparison Matrix](#81-format-comparison-matrix)
    - [8.2 Why ONNX Wins for LemGendary](#82-why-onnx-wins-for-lemgendary)
@@ -269,6 +271,14 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 - **Result**: Resumption is now idempotent and robust against OS-level resource locks, ensuring seamless 1000-epoch mission continuity.
 
 ### 7.21 The Velocity-Scheduler Sync (v5.1 Resiliency)
+...
+### 7.22 Persistent I/O Synchronization (v5.8)
+**Issue**: High-frequency Technical Assessment at 384x384 requires massive batch throughput. On Windows, PyTorch workers previously spent minutes scanning the 50,000-sample dataset during initialization.
+**Fix**: Engineered the **Persistent Mission Manifest**. The suite now generates a unified `.dataset_cache.json` manifest. Subsequent restarts load this JSON mission manifest in milliseconds, providing instant manifold alignment and shattering the cold-start disk bottleneck.
+
+### 7.23 Mission Continuity Guard (v6.1)
+**Issue**: Previous iterations suffered from "Manifold Leaks" where the training loop terminated prematurely after a memory recovery event. This truncated the learning curve and damaged the EMD distribution.
+**Fix**: Engineered the **Continuity Guard**. It repair the OOM-recovery loop and adds mandatory **Iteration Pulse Heartbeats**. The suite now verifies that exactly 100% of the dataset is reconciled with the manifold before allowing the epoch to conclude.
 **Issue**: Prior to v5.1, the **Smart Training Governor** operated independently of the `OneCycleLR` schedule. When the Governor dampened the learning rate to stabilize metric drift, the scheduler—unaware of the external intervention—would overwrite the LR on the next step based on its original trajectory, leading to "Manifold Shock" and recurrent drift.
 **Fix**: Implemented the **v5.1 Velocity Synchronization**. The Governor is now programmatically bound to the scheduler's internal state. Upon a drift-triggered LR shift, the suite physically scales the scheduler's `max_lrs` and `base_lrs` parameters. This ensures the stabilization "sticks" and the entire mathematical curve is recalibrated for the new manifold velocity.
 **Result**: Successfully locked NIMA Technical at a stable **0.9848 PLCC**, neutralizing stochastic runaway during the peak of the training cycle.
