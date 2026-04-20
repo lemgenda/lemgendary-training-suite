@@ -949,10 +949,6 @@ def main():
                 pbar.update(1)
                 pbar.set_postfix({"loss": "..."})
                 pbar.refresh()
-                
-                # --- 2026: Iteration Pulse Heartbeat ---
-                if (i + 1) % 10 == 0:
-                    pbar.write(f" [DATA] Batch {i + 1}/{len(train_loader)} synchronized with manifold.")
 
                 inputs, targets, tasks = batch
                 inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
