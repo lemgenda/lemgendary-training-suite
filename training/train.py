@@ -508,6 +508,9 @@ def main():
             print(f" [SURVIVAL PROFILE] NAFNet 4GB Lockdown: Physical Batch 1 | Accumulation {accumulation_steps}")
             print(f" [RESILIENCE] Correcting for 156s/batch slowdown. Manifold throttled for stability.")
 
+    # 2026: SOTA Mission Profile - Final Consistency Audit
+    print(f" [MISSION PROFILE] Physical Batch: {batch_size} | Logical (Effective) Batch: {batch_size * accumulation_steps}")
+
     # 2026: SOTA Smart Pipeline - Initialize with Governor's Efficiency Strategy (Default 10%)
     # Hyper-Dynamic Stabilizer Injection
     global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0, "vram_purge": True})
@@ -988,14 +991,14 @@ def main():
                             print(f" [RECOVERY] New Physical Batch: {batch_size} | New Accumulation: {accumulation_steps}")
                             # Update iterator position to maintain sample parity (approximate for shuffled loaders)
                             current_iter = int(i * (old_bs / batch_size))
-                            # Update loaders mid-epoch
-                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=True if num_workers > 0 else False, pin_memory=True if device.type=='cuda' else False)
+                            if pbar: pbar.close() # Clean up zombie bar before re-initialization
                             pbar = tqdm(
                                 train_loader, 
                                 desc=f"Epoch {epoch+1}/{epochs} [Train RECOVERY]", 
                                 leave=False,
                                 file=sys.stderr,
-                                dynamic_ncols=True
+                                dynamic_ncols=True,
+                                initial=current_iter
                             )
                             iter_resync_triggered = True
                             break 
@@ -1005,7 +1008,6 @@ def main():
                     else:
                         raise e
                 
-                if iter_resync_triggered: break
                 
                 # --- 2026: Success Point ---
                 is_corrupt = False
