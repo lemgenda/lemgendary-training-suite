@@ -5,6 +5,7 @@ import torch  # pyre-ignore
 import cv2  # pyre-ignore
 import numpy as np  # pyre-ignore
 from PIL import Image, ImageFile  # pyre-ignore
+import json
 from torch.utils.data import Dataset  # pyre-ignore
 from torchvision import transforms  # pyre-ignore
 
@@ -84,13 +85,30 @@ class MultiTaskDataset(Dataset):
                 img_dir = os.path.join(ds_path, "images", self.split)
                 if not os.path.exists(img_dir): continue
                 
-            cache_key = f"{ds_name}_{self.split}"
-            if cache_key in MultiTaskDataset._file_cache:
-                files = MultiTaskDataset._file_cache[cache_key]
-                # print(f"✨ [CACHE] Restored {len(files)} files for {ds_name} from primary manifold memory")
-            else:
+            cache_dir = os.path.join(self.data_root, ".cache")
+            os.makedirs(cache_dir, exist_ok=True)
+            cache_file = os.path.join(cache_dir, f"{ds_name}_{self.split}_manifest.json")
+            
+            files = []
+            if os.path.exists(cache_file):
+                try:
+                    with open(cache_file, 'r') as f:
+                        files = json.load(f)
+                    # print(f"✨ [MANIFEST] Instantly restored {len(files)} files for {ds_name} from disk cache.")
+                except Exception as e:
+                    print(f"⚠️ [MANIFEST] Cache corruption on {ds_name}. Re-scanning: {e}")
+            
+            if not files:
+                # 2026 Resilience: First-time scan pulse
+                if not getattr(self, '_scanned_already', False):
+                    print(f"🔍 [DATA] Syncing Physical Manifold for '{ds_name}' (First-run disk scan)...")
+                    self._scanned_already = True
                 files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
-                MultiTaskDataset._file_cache[cache_key] = files
+                try:
+                    with open(cache_file, 'w') as f:
+                        json.dump(files, f)
+                except Exception as e:
+                    print(f"⚠️ [MANIFEST] Failed to persist cache for {ds_name}: {e}")
                 
             for f in files:
                 self.all_samples.append((ds_name, f))

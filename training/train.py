@@ -509,6 +509,13 @@ def main():
     # 2026 Resilience: Parallel Mission Support
     # On Windows, num_workers > 0 is essential for large deep datasets
     num_workers = config.get("num_workers", 4) 
+    # --- 2026 Windows Stability Overrides ---
+    if os.name == 'nt' or sys.platform == 'win32':
+        if 'vram' in locals() and vram < 5.0:
+            num_workers = min(num_workers, 2) # Cap workers to prevent I/O thrashing on 4GB hardware
+            print(f" [DATA] Windows 4GB Optimization: Capping workers at {num_workers}")
+            
+    print(f" [DATA] Initializing Parallel Manifold (Workers: {num_workers} | Persistent: {num_workers > 0})...")
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=True if num_workers > 0 else False, pin_memory=True if device.type=='cuda' else False)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=True if num_workers > 0 else False, pin_memory=True if device.type=='cuda' else False)
 
