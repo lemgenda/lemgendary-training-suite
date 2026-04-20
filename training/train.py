@@ -142,23 +142,10 @@ class CombinedLoss(nn.Module):
         if self.task_type in ["restoration", "enhancement"]:
             try:
                 import lpips
-                # 2026: Surgical Noise Shelter
-                # LPIPS and Torchvision are extremely noisy during weight loading.
-                # Redirecting stdout/stderr to devnull to ensure a clean LemGendary terminal experience.
-                class Silence:
-                    def __enter__(self):
-                        self._stdout = sys.stdout
-                        self._stderr = sys.stderr
-                        sys.stdout = open(os.devnull, 'w')
-                        sys.stderr = open(os.devnull, 'w')
-                    def __exit__(self, *args):
-                        sys.stdout.close(); sys.stderr.close()
-                        sys.stdout = self._stdout
-                        sys.stderr = self._stderr
-
+                # 2026: Mission Pulse - Restore transparency for slow perceptual engine loading
+                print(" [MISSION] Initializing Neural Perceptual Engine (LPIPS/VGG16)...")
                 # Natively trained perceptual alignment! Exponentially more stable than crude VGG L1
-                with Silence():
-                    self.perc = lpips.LPIPS(net='vgg').to('cuda' if torch.cuda.is_available() else 'cpu')
+                self.perc = lpips.LPIPS(net='vgg').to('cuda' if torch.cuda.is_available() else 'cpu')
                 self.perc.eval()
                 for param in self.perc.parameters():
                     param.requires_grad = False
