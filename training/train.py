@@ -1178,6 +1178,13 @@ def main():
             scaler.scale(loss).backward()
             
             # Step only after accumulating enough gradients
+                # Cleaned legacy execution path.
+                train_loss += loss.item() * accumulation_steps # Audit physical loss
+                pbar.update(1)
+                pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
+                pbar.refresh()
+
+            # Step only after accumulating enough gradients
             if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_loader):
                 # --- 2026: SOTA Gradient Clipping (Tightened to 0.5 for stability) ---
                 scaler.unscale_(optimizer)
@@ -1222,15 +1229,6 @@ def main():
                     }, temp_prog_ckpt)
                     safe_replace(temp_prog_ckpt, prog_ckpt)
                     pbar.write(f" [RESILIENCY] Milestone reached ({(i+1)/len(train_loader)*100:.0f}%). Progress synchronized.")
-
-                # Cleaned legacy execution path.
-                train_loss += loss.item() * accumulation_steps
-                pbar.update(1)
-                pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
-                
-                # 2026: Auto-Refresh on every step to ensure real-time telemetry.
-                # tqdm handles internal throttling via mininterval.
-                pbar.refresh()
 
         avg_train_loss = train_loss / len(train_loader)
         
