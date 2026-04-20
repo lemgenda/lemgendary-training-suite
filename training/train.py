@@ -993,16 +993,17 @@ def main():
                             batch_size = max(1, batch_size // 2)
                             accumulation_steps = (effective_batch_size // batch_size) if 'effective_batch_size' in locals() else accumulation_steps * 2
                             print(f" [RECOVERY] New Physical Batch: {batch_size} | New Accumulation: {accumulation_steps}")
-                            # Update iterator position to maintain sample parity (approximate for shuffled loaders)
-                            current_iter = int(i * (old_bs / batch_size))
+                            # Update iterator position to maintain absolute manifold parity (v6.1.6)
+                            current_iter = int(absolute_i * (old_bs / batch_size))
                             if pbar: pbar.close() # Clean up zombie bar before re-initialization
                             pbar = tqdm(
-                                train_loader, 
+                                total=len(train_loader),
+                                initial=current_iter,
                                 desc=f"Epoch {epoch+1}/{epochs} [Train RECOVERY]", 
-                                leave=False,
+                                unit="batch",
+                                colour="yellow",
                                 file=sys.stderr,
-                                dynamic_ncols=True,
-                                initial=current_iter
+                                dynamic_ncols=True
                             )
                             iter_resync_triggered = True
                             break 
