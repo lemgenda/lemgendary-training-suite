@@ -906,7 +906,6 @@ def main():
         while current_iter < len(train_loader):
             # Enumerate to keep indices synced
             iter_obj = enumerate(train_loader)
-            sync_offset = current_iter # --- 2026 Resilience: Manifold Alignment (v6.1.5) ---
             iter_resync_triggered = False
             
             # --- 2026: Resonance Sync Accelerator ---
@@ -941,14 +940,13 @@ def main():
             optimizer.zero_grad() # Initial zero
 
             for i, batch in iter_obj:
-                # 2026: Global Index Alignment (v6.1.5)
-                # Maps physical iterator index i to absolute manifold position.
-                absolute_i = i + sync_offset
-                current_iter = absolute_i + 1 
+                # 2026: Global Index Alignment (v6.1.7 Harmony)
+                # leverage the absolute enumerate index i to maintain manifold parity.
+                current_iter = i + 1 
                 
                 # --- 2026: Iteration Pulse Heartbeat ---
-                if (absolute_i + 1) % 10 == 0:
-                    pbar.write(f" [DATA] Batch {absolute_i + 1}/{len(train_loader)} synchronized with manifold.")
+                if (i + 1) % 10 == 0:
+                    pbar.write(f" [DATA] Batch {i + 1}/{len(train_loader)} synchronized with manifold.")
 
                 inputs, targets, tasks = batch
                 inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
@@ -993,8 +991,8 @@ def main():
                             batch_size = max(1, batch_size // 2)
                             accumulation_steps = (effective_batch_size // batch_size) if 'effective_batch_size' in locals() else accumulation_steps * 2
                             print(f" [RECOVERY] New Physical Batch: {batch_size} | New Accumulation: {accumulation_steps}")
-                            # Update iterator position to maintain absolute manifold parity (v6.1.6)
-                            current_iter = int(absolute_i * (old_bs / batch_size))
+                            # Update iterator position to maintain absolute manifold parity (v6.1.7)
+                            current_iter = int(i * (old_bs / batch_size))
                             if pbar: pbar.close() # Clean up zombie bar before re-initialization
                             pbar = tqdm(
                                 total=len(train_loader),
@@ -1213,12 +1211,12 @@ def main():
                     milestones = [m - (m % accumulation_steps) for m in raw_milestones]
                 
                 # We save if the current iteration is the designated milestone (aligned to accumulation)
-                if (absolute_i + 1) in milestones:
+                if (i + 1) in milestones:
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
                     temp_prog_ckpt = f"{prog_ckpt}.tmp"
                     torch.save({
                         'epoch': epoch,
-                        'iteration': absolute_i,
+                        'iteration': i,
                         'model_state': model.state_dict(),
                         'optimizer_state': optimizer.state_dict(),
                         'scheduler_state': scheduler.state_dict(),
@@ -1228,7 +1226,7 @@ def main():
                         'sota_achieved': sota_baseline_achieved
                     }, temp_prog_ckpt)
                     safe_replace(temp_prog_ckpt, prog_ckpt)
-                    pbar.write(f" [RESILIENCY] Milestone reached ({(absolute_i+1)/len(train_loader)*100:.0f}%). Progress synchronized.")
+                    pbar.write(f" [RESILIENCY] Milestone reached ({(i+1)/len(train_loader)*100:.0f}%). Progress synchronized.")
 
         avg_train_loss = train_loss / len(train_loader)
         
