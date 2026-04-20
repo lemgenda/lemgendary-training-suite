@@ -1266,7 +1266,7 @@ def main():
             val_pbar = tqdm(
                 val_loader, 
                 desc=f"Epoch {epoch+1}/{epochs} [Val]", 
-                leave=False, 
+                leave=True, 
                 colour="green", 
                 file=sys.stderr,
                 mininterval=0.1,
