@@ -944,6 +944,12 @@ def main():
                 # leverage the absolute enumerate index i to maintain manifold parity.
                 current_iter = i + 1 
                 
+                # --- 2026: Universal Telemetry Tick (v6.1.8) ---
+                # Top-load the tick to ensure real-time visual feedback before the 45s backward pass.
+                pbar.update(1)
+                pbar.set_postfix({"loss": "..."})
+                pbar.refresh()
+                
                 # --- 2026: Iteration Pulse Heartbeat ---
                 if (i + 1) % 10 == 0:
                     pbar.write(f" [DATA] Batch {i + 1}/{len(train_loader)} synchronized with manifold.")
@@ -1178,9 +1184,7 @@ def main():
             # Step only after accumulating enough gradients
             # Cleaned legacy execution path.
             train_loss += loss.item() * accumulation_steps # Audit physical loss
-            pbar.update(1)
             pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
-            pbar.refresh()
 
             # Step only after accumulating enough gradients
             if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_loader):
