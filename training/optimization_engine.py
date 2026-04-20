@@ -66,7 +66,7 @@ class SmartTrainingGovernor:
         self.manifold_shift_pending = False
         self.current_strategy = f"Efficiency ({self.current_fraction*100:.0f}% Data)"
 
-    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0):
+    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None):
         # 2026 Resilience: Stricter Plateau Detection
         # horizontal_stagnation occurs if quality doesn't improve meaningfully, regardless of loss.
         quality_improved = current_quality > (self.prev_quality * (1.0 + self.min_delta))
@@ -189,11 +189,19 @@ class SmartTrainingGovernor:
                     f_changed = True
                     msg_parts.append(f"PLATEAU (Res-Maxed): Expanding variety to {self.current_fraction*100:.0f}%")
                 else:
-                    # Everything maxed, force a configured LR Jolt to break the horizontal stall
-                    self.lr_multiplier = self.jolt_multiplier
+                    # Everything maxed, force a High-Energy Manifold Jolt (v6.1.17)
+                    if current_lr and base_lr:
+                        self.lr_multiplier = base_lr / current_lr
+                        msg_parts.append(f"PLATEAU BREAKER: Injecting High-Energy Manifold Jolt ({self.lr_multiplier:.1f}x)")
+                    else:
+                        self.lr_multiplier = self.jolt_multiplier
+                        msg_parts.append(f"PLATEAU BREAKER: Injecting {self.jolt_multiplier}x LR Jolt")
+                    
                     lr_changed = True
                     self.jolt_active = True
-                    msg_parts.append(f"PLATEAU BREAKER: Injecting {self.jolt_multiplier}x LR Jolt")
+                    # Warm up Thermal Thermal Shield to allow exploration
+                    self.current_temp = min(0.3, self.current_temp * 2.0)
+                    t_changed = True
                 
                 # Reset stagnation counter ONLY if a change was actually made
                 if f_changed or r_changed or lr_changed:

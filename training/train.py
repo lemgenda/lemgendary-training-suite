@@ -1467,10 +1467,13 @@ def main():
                 is_improving = True
                 print(f" -> 💡 [FALLBACK] New Best Loss: {avg_val_loss:.6f}.")
 
-        # --- 2026: SOTA Smart Optimization Audit (v6.1.16) ---
+        # --- 2026: SOTA Smart Optimization Audit (v6.1.17) ---
         # Moved BEFORE CSV write and Checkpoint creation to ensure total manifold parity.
         f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
-            current_quality_score, best_quality_score, epochs_no_improve, regression_epochs, sentinel_trigger_rate=avg_sentinel_stress
+            current_quality_score, best_quality_score, epochs_no_improve, regression_epochs, 
+            sentinel_trigger_rate=avg_sentinel_stress,
+            current_lr=optimizer.param_groups[0]['lr'],
+            base_lr=args.lr
         )
         
         if smart_msg:
