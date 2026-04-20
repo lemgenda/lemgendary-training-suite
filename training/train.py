@@ -898,6 +898,7 @@ def main():
         
         # --- 2026 Resilience: Dynamic Iterator Bridge ---
         # Allows the OOM Sentinel to hot-swap the loader and resume mid-epoch
+        # Allows the OOM Sentinel to hot-swap the loader and resume mid-epoch
         current_iter = 0
         if epoch == start_epoch and resume_iteration > 0:
             current_iter = resume_iteration
@@ -905,6 +906,7 @@ def main():
         while current_iter < len(train_loader):
             # Enumerate to keep indices synced
             iter_obj = enumerate(train_loader)
+            sync_offset = current_iter # --- 2026 Resilience: Manifold Alignment (v6.1.5) ---
             iter_resync_triggered = False
             
             # --- 2026: Resonance Sync Accelerator ---
@@ -939,17 +941,14 @@ def main():
             optimizer.zero_grad() # Initial zero
 
             for i, batch in iter_obj:
-                # If we were resuming mid-epoch, i will start from current_iter.
-                # milestone check must be absolute relative to epoch start.
-                # 2026: Consolidation Phase. Milestone check is now handled after the gradient step
-                # to ensure persistence matches the absolute updated state.
-
-                # Normal training logic follows...
-                current_iter = i + 1 # Update trackable progress
+                # 2026: Global Index Alignment (v6.1.5)
+                # Maps physical iterator index i to absolute manifold position.
+                absolute_i = i + sync_offset
+                current_iter = absolute_i + 1 
                 
                 # --- 2026: Iteration Pulse Heartbeat ---
-                if (i + 1) % 10 == 0:
-                    pbar.write(f" [DATA] Batch {i+1}/{len(train_loader)} synchronized with manifold.")
+                if (absolute_i + 1) % 10 == 0:
+                    pbar.write(f" [DATA] Batch {absolute_i + 1}/{len(train_loader)} synchronized with manifold.")
 
                 inputs, targets, tasks = batch
                 inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
@@ -1213,12 +1212,12 @@ def main():
                     milestones = [m - (m % accumulation_steps) for m in raw_milestones]
                 
                 # We save if the current iteration is the designated milestone (aligned to accumulation)
-                if (i + 1) in milestones:
+                if (absolute_i + 1) in milestones:
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
                     temp_prog_ckpt = f"{prog_ckpt}.tmp"
                     torch.save({
                         'epoch': epoch,
-                        'iteration': i,
+                        'iteration': absolute_i,
                         'model_state': model.state_dict(),
                         'optimizer_state': optimizer.state_dict(),
                         'scheduler_state': scheduler.state_dict(),
@@ -1228,7 +1227,7 @@ def main():
                         'sota_achieved': sota_baseline_achieved
                     }, temp_prog_ckpt)
                     safe_replace(temp_prog_ckpt, prog_ckpt)
-                    pbar.write(f" [RESILIENCY] Milestone reached ({(i+1)/len(train_loader)*100:.0f}%). Progress synchronized.")
+                    pbar.write(f" [RESILIENCY] Milestone reached ({(absolute_i+1)/len(train_loader)*100:.0f}%). Progress synchronized.")
 
         avg_train_loss = train_loss / len(train_loader)
         
