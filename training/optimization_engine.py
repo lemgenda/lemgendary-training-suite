@@ -214,14 +214,6 @@ class SmartTrainingGovernor:
             
         return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, final_msg
 
-    def get_state(self):
-        """Returns the updated parameters for re-initialization."""
-        raw_size = self.model_info.get("input_size", 256)
-        if isinstance(raw_size, list) and len(raw_size) == 3:
-            new_size = [raw_size[0], self.current_res, self.current_res]
-        else:
-            new_size = self.current_res
-            
         return {
             "sample_fraction": self.current_fraction,
             "input_size": new_size,
@@ -229,8 +221,33 @@ class SmartTrainingGovernor:
             "logit_clamp": self.current_clamp,
             "lr_multiplier": self.lr_multiplier,
             "batch_size": self.current_batch,
-            "accumulation_steps": self.current_acc
+            "accumulation_steps": self.current_acc,
+            "consecutive_drift": self.consecutive_drift,
+            "stagnation_counter": self.stagnation_counter,
+            "jolt_active": self.jolt_active,
+            "current_strategy": self.current_strategy
         }
+
+    def load_state(self, state):
+        """Restores the governor state from a checkpoint."""
+        if not state: return
+        self.current_fraction = state.get("sample_fraction", self.current_fraction)
+        
+        raw_size = state.get("input_size", self.current_res)
+        if isinstance(raw_size, list) and len(raw_size) == 3:
+            self.current_res = raw_size[1]
+        else:
+            self.current_res = raw_size
+            
+        self.current_temp = state.get("softmax_temp", self.current_temp)
+        self.current_clamp = state.get("logit_clamp", self.current_clamp)
+        self.lr_multiplier = state.get("lr_multiplier", self.lr_multiplier)
+        self.current_batch = state.get("batch_size", self.current_batch)
+        self.current_acc = state.get("accumulation_steps", self.current_acc)
+        self.consecutive_drift = state.get("consecutive_drift", self.consecutive_drift)
+        self.stagnation_counter = state.get("stagnation_counter", self.stagnation_counter)
+        self.jolt_active = state.get("jolt_active", self.jolt_active)
+        self.current_strategy = state.get("current_strategy", self.current_strategy)
 
     def recoil(self):
         """

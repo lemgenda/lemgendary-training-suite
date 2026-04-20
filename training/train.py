@@ -630,6 +630,9 @@ def main():
                 if 'iteration' in ckpt:
                     resume_iteration = ckpt['iteration']
                     print(f"[INFO] [RESILIENCY] Intra-epoch progress detected. Iteration: {resume_iteration}")
+                if 'governor_state' in ckpt:
+                    governor.load_state(ckpt['governor_state'])
+                    print(f" [RESILIENCY] Smart Governor state RESTORED from checkpoint.")
                 if ckpt.get('sota_achieved', False):
                     sota_baseline_achieved = True
             else:
@@ -1014,6 +1017,7 @@ def main():
                                 'model_state': model.state_dict(),
                                 'optimizer_state': optimizer.state_dict(),
                                 'scheduler_state': scheduler.state_dict(),
+                                'governor_state': governor.get_state(),
                                 'best_val_loss': best_val_loss,
                                 'best_quality_score': best_quality_score,
                                 'epochs_no_improve': epochs_no_improve,
@@ -1231,6 +1235,7 @@ def main():
                         'model_state': model.state_dict(),
                         'optimizer_state': optimizer.state_dict(),
                         'scheduler_state': scheduler.state_dict(),
+                        'governor_state': governor.get_state(),
                         'best_val_loss': best_val_loss,
                         'best_quality_score': best_quality_score,
                         'epochs_no_improve': epochs_no_improve,
@@ -1462,12 +1467,63 @@ def main():
                 is_improving = True
                 print(f" -> 💡 [FALLBACK] New Best Loss: {avg_val_loss:.6f}.")
 
+        # --- 2026: SOTA Smart Optimization Audit (v6.1.16) ---
+        # Moved BEFORE CSV write and Checkpoint creation to ensure total manifold parity.
+        f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
+            current_quality_score, best_quality_score, epochs_no_improve, regression_epochs, sentinel_trigger_rate=avg_sentinel_stress
+        )
+        
+        if smart_msg:
+            print(smart_msg)
+            new_params = governor.get_state()
+            
+            if f_changed or r_changed or b_changed:
+                if b_changed:
+                    batch_size = new_params['batch_size']
+                    accumulation_steps = new_params['accumulation_steps']
+                
+                train_ds.update_strategy(
+                    fraction=new_params['sample_fraction'] if f_changed else None,
+                    size=new_params['input_size'] if r_changed else None
+                )
+                val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
+                
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+            
+            if lr_changed:
+                mult = new_params['lr_multiplier']
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = param_group['lr'] * mult
+                if hasattr(scheduler, 'base_lrs'):
+                    scheduler.base_lrs = [l * mult for l in scheduler.base_lrs]
+                if hasattr(scheduler, 'max_lrs'):
+                    scheduler.max_lrs = [l * mult for l in scheduler.max_lrs]
+                print(f"📉 [VELOCITY SYNC] Learning Rate scaled by {mult}x across Unified Pipeline.")
+            
+            if t_changed or c_changed:
+                stab['softmax_temp'] = new_params['softmax_temp']
+                stab['logit_clamp'] = new_params['logit_clamp']
+                if hasattr(criterion, 'stab'):
+                    criterion.stab['softmax_temp'] = new_params['softmax_temp']
+                    criterion.stab['logit_clamp'] = new_params['logit_clamp']
+
+            model_info['input_size'] = new_params['input_size']
+            model_info['sample_fraction'] = new_params['sample_fraction']
+            if 'stabilizers' not in model_info: model_info['stabilizers'] = {}
+            model_info['stabilizers']['softmax_temp'] = new_params['softmax_temp']
+            model_info['stabilizers']['logit_clamp'] = new_params['logit_clamp']
+
+        # Update best metrics for the CSV write (Enforce Audit Parity)
+        best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
+
         # Finalize Checkpoint State (Capturing latest Metric Shift)
         ckpt_state = {
             'epoch': epoch,
             'model_state': model.state_dict(),  # pyre-ignore
             'optimizer_state': optimizer.state_dict(),
             'scheduler_state': scheduler.state_dict(),
+            'governor_state': governor.get_state(),
             'best_val_loss': best_val_loss,
             'best_quality_score': best_quality_score,
             'best_metrics': best_metrics,
@@ -1620,58 +1676,7 @@ def main():
             print(f"   -> SOTA Cooldown Epochs remaining: {sota_countdown}")
             sota_countdown -= 1  # pyre-ignore
         
-        # --- 2026: SOTA Smart Optimization Audit ---
-        f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
-            current_quality_score, best_quality_score, epochs_no_improve, regression_epochs, sentinel_trigger_rate=avg_sentinel_stress
-        )
-        
-        if smart_msg:
-            print(smart_msg)
-            new_params = governor.get_state()
-            
-            if f_changed or r_changed or b_changed:
-                # Update batch size and accumulation constraints if hardware pressure detected
-                if b_changed:
-                    batch_size = new_params['batch_size']
-                    accumulation_steps = new_params['accumulation_steps']
-                
-                # Synchronize dataset variety and resolution ladders
-                train_ds.update_strategy(
-                    fraction=new_params['sample_fraction'] if f_changed else None,
-                    size=new_params['input_size'] if r_changed else None
-                )
-                val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
-                
-                # Re-initialize DataLoader to reflect new batch or dataset topology
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
-                val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
-            
-            if lr_changed:
-                mult = new_params['lr_multiplier']
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = param_group['lr'] * mult
-                
-                # 2026 Resilience: Force scheduler to sync with dampened manifold
-                if hasattr(scheduler, 'base_lrs'):
-                    scheduler.base_lrs = [l * mult for l in scheduler.base_lrs]
-                if hasattr(scheduler, 'max_lrs'):
-                    scheduler.max_lrs = [l * mult for l in scheduler.max_lrs]
-                print(f"📉 [VELOCITY SYNC] Learning Rate scaled by {mult}x across Unified Pipeline.")
-            
-            if t_changed or c_changed:
-                # Sync stabilizers across loss and metrics
-                stab['softmax_temp'] = new_params['softmax_temp']
-                stab['logit_clamp'] = new_params['logit_clamp']
-                if hasattr(criterion, 'stab'):
-                    criterion.stab['softmax_temp'] = new_params['softmax_temp']
-                    criterion.stab['logit_clamp'] = new_params['logit_clamp']
-
-            # Update model_info registry for export/readme parity
-            model_info['input_size'] = new_params['input_size']
-            model_info['sample_fraction'] = new_params['sample_fraction']
-            if 'stabilizers' not in model_info: model_info['stabilizers'] = {}
-            model_info['stabilizers']['softmax_temp'] = new_params['softmax_temp']
-            model_info['stabilizers']['logit_clamp'] = new_params['logit_clamp']
+# Governor Audit Moved to Pre-Log Phase (v6.1.16)
 
         # Reset intra-epoch skip/resume counters
         resume_iteration = -1

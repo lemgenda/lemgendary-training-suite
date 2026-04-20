@@ -407,13 +407,12 @@ nafnet_denoising:
   description: NAFNet image denoising
   optimization:
     enabled: true
-    initial_fraction: 0.15
-    fraction_increment: 0.10
+    initial_fraction: 0.40
+    fraction_increment: 0.15
     res_ladder: [128, 256, 384, 512, 640]
     plateau_patience: 12
     cooling_factor: 0.8
     plateau_priority: resolution
-  datasets:
   datasets:
   - LemGendizedNoiseDataset
   stabilizers:
@@ -422,6 +421,7 @@ nafnet_denoising:
     psnr: 32.5
     ssim: 0.94
     lpips: 0.06
+    fid: 15.0
 ultrazoom_x2:
   name: LemGendary UltraZoom 2x Super-Resolution
   class_name: UltraZoom
