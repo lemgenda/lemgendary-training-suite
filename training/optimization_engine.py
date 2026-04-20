@@ -214,6 +214,14 @@ class SmartTrainingGovernor:
             
         return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, final_msg
 
+    def get_state(self):
+        """Returns the updated parameters for re-initialization."""
+        raw_size = self.model_info.get("input_size", 256)
+        if isinstance(raw_size, list) and len(raw_size) == 3:
+            new_size = [raw_size[0], self.current_res, self.current_res]
+        else:
+            new_size = self.current_res
+            
         return {
             "sample_fraction": self.current_fraction,
             "input_size": new_size,
