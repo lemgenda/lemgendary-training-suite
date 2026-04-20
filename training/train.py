@@ -12,10 +12,12 @@ import shutil
 # Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
 sys.setrecursionlimit(2000)
 
-# Suppress noisy Triton and serialization warnings (benign across GTX/RTX training)
+# Suppress noisy Triton, torchvision, and serialization warnings (benign across GTX/RTX training)
 warnings.filterwarnings("ignore", category=UserWarning, module="triton")
 warnings.filterwarnings("ignore", category=FutureWarning) 
 warnings.filterwarnings("ignore", category=UserWarning, message=".*pretrained.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
+warnings.filterwarnings("ignore", category=UserWarning, module="torch")
 
 # --- Hyper-Verbose Path Defense (2026 Specialization) ---
 # Anchor the search path to the script's own folder to bypass "Ghost Python" hijacking.
@@ -140,12 +142,27 @@ class CombinedLoss(nn.Module):
         if self.task_type in ["restoration", "enhancement"]:
             try:
                 import lpips
+                # 2026: Surgical Noise Shelter
+                # LPIPS and Torchvision are extremely noisy during weight loading.
+                # Redirecting stdout/stderr to devnull to ensure a clean LemGendary terminal experience.
+                class Silence:
+                    def __enter__(self):
+                        self._stdout = sys.stdout
+                        self._stderr = sys.stderr
+                        sys.stdout = open(os.devnull, 'w')
+                        sys.stderr = open(os.devnull, 'w')
+                    def __exit__(self, *args):
+                        sys.stdout.close(); sys.stderr.close()
+                        sys.stdout = self._stdout
+                        sys.stderr = self._stderr
+
                 # Natively trained perceptual alignment! Exponentially more stable than crude VGG L1
-                self.perc = lpips.LPIPS(net='vgg').to('cuda' if torch.cuda.is_available() else 'cpu')
+                with Silence():
+                    self.perc = lpips.LPIPS(net='vgg').to('cuda' if torch.cuda.is_available() else 'cpu')
                 self.perc.eval()
                 for param in self.perc.parameters():
                     param.requires_grad = False
-            except ImportError as e:
+            except Exception as e:
                 print(f"⚠️ [RESILIENCE] LPIPS failed to bind ({e}). Defaulting to pure L1.")
 
     def forward(self, pred, target, task_idx=None):

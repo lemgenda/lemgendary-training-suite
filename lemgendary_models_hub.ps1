@@ -90,7 +90,7 @@ function Test-Environment {
     Write-Header "ENVIRONMENT INTEGRITY AUDIT"
     Write-Host "  [*] Verifying core library specialization (PyYAML / Torch / OpenCV / DirectML)..." -ForegroundColor Gray
     $auditCmd = "import yaml; print('YAML_PATH: ' + yaml.__file__); import torch; print('Torch: ' + torch.__version__); import cv2; print('OpenCV: ' + cv2.__version__); print('CUDA Ready: ' + str(torch.cuda.is_available())); print('Device: ' + (torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'))"
-    $auditResult = & "$script:VENV_DIR\Scripts\python.exe" -c $auditCmd 2>$null
+    $auditResult = & "$script:VENV_DIR\Scripts\python.exe" -W ignore -c $auditCmd 2>$null
     
     $venvBase = Split-Path $script:VENV_DIR -Leaf
     if ($auditResult -match "YAML_PATH: .*$venvBase" -and $auditResult -match "Torch:" -and $auditResult -match "OpenCV:") {
