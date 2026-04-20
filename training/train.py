@@ -911,7 +911,7 @@ def main():
             if current_iter > 0:
                 pbar_desc = f"Epoch {epoch+1}"
                 train_ds.sync_mode = True
-                with tqdm(total=current_iter, desc=" [RESONANCE SYNC]", unit="iter", colour="cyan", leave=False) as sync_pbar:
+                 with tqdm(total=current_iter, desc=" [RESONANCE SYNC]", unit="iter", colour="cyan", leave=False, file=sys.stderr, dynamic_ncols=True) as sync_pbar:
                     for i, _ in iter_obj:
                         sync_pbar.update(1)
                         if i >= current_iter - 1:
@@ -946,6 +946,11 @@ def main():
 
                 # Normal training logic follows...
                 current_iter = i + 1 # Update trackable progress
+                
+                # --- 2026: Iteration Pulse Heartbeat ---
+                if (i + 1) % 10 == 0:
+                    pbar.write(f" [DATA] Batch {i+1}/{len(train_loader)} synchronized with manifold.")
+
                 inputs, targets, tasks = batch
                 inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
                 
@@ -1228,6 +1233,11 @@ def main():
             pbar.refresh()
 
         avg_train_loss = train_loss / len(train_loader)
+        
+        # --- 2026: Manifold Leak Guard ---
+        if current_iter < len(train_loader):
+            print(f" ⚠️ [WARNING] Manifold Leak Detected! Epoch processed {current_iter}/{len(train_loader)} batches before termination.")
+        
         pbar.close()
 
         # Validation Loop
