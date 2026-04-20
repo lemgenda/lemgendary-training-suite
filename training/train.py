@@ -890,11 +890,19 @@ def main():
             
             pbar_desc = f"Epoch {epoch+1}/{epochs} [Train]"
             if pbar is None:
-                # 2026: Time-Sync Fixed. Start at 0, then update to current_iter to keep it/s accurate
-                pbar = tqdm(total=len(train_loader), desc=pbar_desc, unit="batch", colour="blue", smoothing=0.05)
-                if current_iter > 0:
-                    pbar.update(current_iter)
-                    pbar.refresh()
+                # 2026: Time-Sync optimized via direct constructor injection.
+                # Route to stderr and use mininterval to ensure real-time feedback in Windows PowerShell.
+                pbar = tqdm(
+                    total=len(train_loader), 
+                    initial=current_iter, 
+                    desc=pbar_desc, 
+                    unit="batch", 
+                    colour="blue", 
+                    smoothing=0.3, 
+                    file=sys.stderr,
+                    mininterval=0.1,
+                    dynamic_ncols=True
+                )
                 pbar.set_postfix({"loss": "..."})
 
             optimizer.zero_grad() # Initial zero
@@ -954,7 +962,13 @@ def main():
                             current_iter = int(i * (old_bs / batch_size))
                             # Update loaders mid-epoch
                             train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=True if num_workers > 0 else False, pin_memory=True if device.type=='cuda' else False)
-                            pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train RECOVERY]", leave=False)
+                            pbar = tqdm(
+                                train_loader, 
+                                desc=f"Epoch {epoch+1}/{epochs} [Train RECOVERY]", 
+                                leave=False,
+                                file=sys.stderr,
+                                dynamic_ncols=True
+                            )
                             iter_resync_triggered = True
                             break 
                         else:
@@ -1179,8 +1193,9 @@ def main():
             pbar.update(1)
             pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
             
-            # 2026: Auto-Flush large tqdm buffers to prevent Windows terminal truncation
-            if i % 10 == 0: pbar.refresh()
+            # 2026: Auto-Refresh on every step to ensure real-time telemetry.
+            # tqdm handles internal throttling via mininterval.
+            pbar.refresh()
 
         avg_train_loss = train_loss / len(train_loader)
         pbar.close()
@@ -1192,7 +1207,16 @@ def main():
         all_targets = []
         # sentinel_stresses moved to epoch start to capture training instability
         with torch.no_grad():
-            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Val]", leave=False, colour="green")
+            # 2026: Standardized Validation Telemetry. sys.stderr routes directly to PowerShell without buffering.
+            val_pbar = tqdm(
+                val_loader, 
+                desc=f"Epoch {epoch+1}/{epochs} [Val]", 
+                leave=False, 
+                colour="green", 
+                file=sys.stderr,
+                mininterval=0.1,
+                dynamic_ncols=True
+            )
             for batch in val_pbar:
                 inputs, targets, tasks = batch
                 inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
