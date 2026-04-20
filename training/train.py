@@ -869,8 +869,8 @@ def main():
     
     effective_batch_size = batch_size
     # accumulation_steps is established pre-emptively during initialization.
-    milestones = [int(len(train_loader) * p) for p in [0.2, 0.4, 0.6, 0.8]]
     global_step = 0 # Absolute step tracking across the entire mission
+    last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.10) ---
     
     for epoch in range(start_epoch, epochs):
         # 2026: SOTA Stabilization and Thermal Sharding
@@ -1005,6 +1005,23 @@ def main():
                                 file=sys.stderr,
                                 dynamic_ncols=True
                             )
+                            
+                            # --- 2026 Resilience: Emergency Recovery Save (v6.1.10) ---
+                            # Immediately lock in the new hardware profile and position
+                            recovery_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+                            torch.save({
+                                'epoch': epoch,
+                                'iteration': current_iter,
+                                'model_state': model.state_dict(),
+                                'optimizer_state': optimizer.state_dict(),
+                                'scheduler_state': scheduler.state_dict(),
+                                'best_val_loss': best_val_loss,
+                                'best_quality_score': best_quality_score,
+                                'epochs_no_improve': epochs_no_improve,
+                                'sota_achieved': sota_baseline_achieved
+                            }, f"{recovery_ckpt}.tmp")
+                            safe_replace(f"{recovery_ckpt}.tmp", recovery_ckpt)
+                            
                             iter_resync_triggered = True
                             break 
                         else:
@@ -1200,18 +1217,13 @@ def main():
                     scheduler.step()
                 new_lr = scheduler.get_last_lr()[0]
                 
-                # --- 2026: Intra-Epoch Resilience (The Mitochondrial Pulse) ---
-                # Save progress at exact percentages to safeguard hours of GTX 1650 compute.
-                # Snap the check to the nearest multiple of accumulation_steps to ensure clean state loading.
-                interval_pct = config.get("intra_epoch_checkpoint_pct", 0.2)
-                milestones = []
-                if interval_pct > 0:
-                    num_milestones = int(1.0 / interval_pct)
-                    raw_milestones = [int(len(train_loader) * (p * interval_pct)) for p in range(1, num_milestones)]
-                    milestones = [m - (m % accumulation_steps) for m in raw_milestones]
+                # --- 2026: Intra-Epoch Resilience (The Mitochondrial Pulse v6.1.10) ---
+                # Threshold-based saving ensures persistence is never skipped due to batch-jumps.
+                interval_pct = config.get("intra_epoch_checkpoint_pct", 0.1)
+                current_pct = (i + 1) / len(train_loader)
                 
-                # We save if the current iteration is the designated milestone (aligned to accumulation)
-                if (i + 1) in milestones:
+                if interval_pct > 0 and (current_pct >= last_intra_epoch_pct + interval_pct):
+                    last_intra_epoch_pct = (int(current_pct / interval_pct) * interval_pct)
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
                     temp_prog_ckpt = f"{prog_ckpt}.tmp"
                     torch.save({
@@ -1226,7 +1238,7 @@ def main():
                         'sota_achieved': sota_baseline_achieved
                     }, temp_prog_ckpt)
                     safe_replace(temp_prog_ckpt, prog_ckpt)
-                    pbar.write(f" [RESILIENCY] Milestone reached ({(i+1)/len(train_loader)*100:.0f}%). Progress synchronized.")
+                    pbar.write(f" [RESILIENCY] Progress Synchronization Tier reached ({current_pct*100:.0f}%). State committed.")
 
         avg_train_loss = train_loss / len(train_loader)
         
