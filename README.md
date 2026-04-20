@@ -1,4 +1,4 @@
-# LemGendary AI Training Suite (v7.5.0-LEMGENDARY)
+# LemGendary AI Training Suite (v8.1.0-ULTRA-STABILIZED)
 
 > **The Professional Standard for Vision Model Training.**
 >
@@ -17,7 +17,7 @@ The master orchestration console for all training activities. Automatically mana
 Fully synchronized with the [LemGendary Dataset Engine (v3.0)](../lemgendary-datasets/README.md).
 - **SOTA Alignment**: Automated metric scoring against PLCC, SRCC, PSNR, and mAP@0.5:0.95.
 - **Registry-First Acquisition**: Dynamic dependency discovery removes all hardcoded dataset lists; the suite auto-fetches required Kaggle streams based on the `unified_models.yaml` registry.
-- **Unified Multitask Loader**: High-performance pipeline for streaming massive datasets with zero-latency prefetching and Windows-hardened file-locking protection.
+- **Unified Multitask Loader**: High-performance pipeline for streaming massive datasets with zero-latency prefetching, Windows-hardened file-locking protection, and a **Distributed I/O Cache** for instant multi-worker initialization.
 
 ---
 
@@ -100,6 +100,21 @@ A standardized, 17-column historical audit (`metrics.csv`) that captures the com
 
 ---
 
+## 🏗️ Architectural Hardening: Dethroning the Mocks (v8.0.0 Breakthrough)
+
+The v8.0.0 release marks the complete transition from placeholder "Mock" classes to **Real High-Fidelity Architectures**. This ensures that every epoch contributes to empirical model convergence across the entire 21+ model inventory.
+
+### 🎭 Real Face & Detection Backbones
+- **CodeFormer (Real)**: Replaced UNet proxies with deep **Multi-Scale Residual UNets** featuring spatial skip connections.
+- **RetinaFace (Real)**: Integrated **MobileNetV2 features** with multi-task regression heads for Bboxes, Confidence, and Landmarks.
+- **ParseNet (Real)**: Real **Fully Convolutional Network (FCN)** implementation for 19-class semantic face parsing.
+
+### 💎 Professional Restoration Backbones
+- **Sub-Pixel Mastery**: `UltraZoom` upgraded to a real **ESPCN** sub-pixel convolution network.
+- **Feature Synergy**: Universal film and restoration models upgraded to **Residual Dense Blocks (RDB)** for maximum feature reuse and high-frequency preservation.
+
+---
+
 ## 🛡️ Resilience Architecture (v2026 Engine)
 
 | Feature | Description | Status |
@@ -107,10 +122,12 @@ A standardized, 17-column historical audit (`metrics.csv`) that captures the com
 | **Smart Governor** | Autonomous scaling of Res, Temp, Clamp, and Dataset Fraction. | ✅ Active |
 | **Jolt Recoil** | Detects and dampens manifold regression following plateau breaks. | ✅ Active |
 | **Memory-Sentinel** | Hardware-aware VRAM monitoring and Batch-Accumulation trades. | ✅ Active |
-| **Plateau Breaker** | Detects metric stalls and injects **1.5x - 2.0x LR Jolt** to shatter local minimums. | ✅ Active |
+| **Plateau-Buster** | **v5.2 Upgrade**: Strict 0.1% delta gating with a stagnation jolt counter to break training stalls. | ✅ Active |
+| **SOTA Guardrail** | **v5.2 Upgrade**: Quality-Regression Mutex prevents false exports if PSNR regresses during loss drops. | ✅ Active |
 | **Singularity Shield** | Detection of NaNs triggers immediate weight restoration & thermal cooling. | ✅ Active |
 | **Regression Guard** | Physical checkpoint rollback if metrics drop > 5% for 3 consecutive epochs. | ✅ Active |
 | **SWA Smoothing** | Shadow weight averaging across epochs for superior SOTA generalization. | ✅ Active |
+| **No-Mock Protocol** | 100% Real High-Fidelity Architectures (Removed all Proxies/Mocks). | ✅ Active |
 
 ---
 

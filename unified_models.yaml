@@ -99,7 +99,7 @@ nima_technical:
     jolt_multiplier: 1.5
 upn_v2:
   name: LemGendary UPN v2 Parameter Predictor
-  class_name: UPN_v2_Model
+  class_name: UPN_v2
   category: enhance
   filename: UPN(v2)Modular
   checkpoint: UPN(v2)ModularWeights_FP32.pth
@@ -161,7 +161,7 @@ film_restorer:
   - LemGendizedNoiseDataset
 codeformer:
   name: LemGendary CodeFormer Face Restoration
-  class_name: CodeFormerMock
+  class_name: CodeFormer
   category: face
   filename: CodeFormer-FaceRestoration
   checkpoint: CodeFormer-FaceRestorationWeights_FP32.pth
@@ -193,7 +193,7 @@ codeformer:
     ssim: 0.92
 parsenet:
   name: LemGendary ParseNet Face Parsing
-  class_name: ParseNetMock
+  class_name: ParseNet
   category: face
   filename: ParseNet-Parsing
   checkpoint: ParseNet-ParsingWeights_FP32.pth
@@ -212,7 +212,7 @@ parsenet:
   - LemGendizedFaceDataset
 retinaface_mobilenet:
   name: LemGendary RetinaFace MobileNet Detection
-  class_name: RetinaFaceMock
+  class_name: RetinaFace
   category: face
   filename: MobileNet0.25-Detection
   checkpoint: MobileNet0.25-DetectionWeights_FP32.pth
@@ -235,7 +235,7 @@ retinaface_mobilenet:
   - LemGendizedDetectionDataset
 retinaface_resnet:
   name: LemGendary RetinaFace ResNet Detection
-  class_name: RetinaFaceMock
+  class_name: RetinaFace
   category: face
   filename: RESNet50-Detection
   checkpoint: RESNet50-DetectionWeights_FP32.pth
@@ -274,6 +274,8 @@ ffanet_indoor:
   description: FFANet indoor dehazing restoration
   datasets:
   - LemGendizedDegradationDataset
+  stabilizers:
+    numerical_sentinel: [-0.2, 1.2]
 ffanet_outdoor:
   name: LemGendary FFANet Dehazing (Outdoor)
   class_name: FFANet
@@ -292,6 +294,8 @@ ffanet_outdoor:
   description: FFANet outdoor dehazing restoration
   datasets:
   - LemGendizedDegradationDataset
+  stabilizers:
+    numerical_sentinel: [-0.2, 1.2]
 mirnet_lowlight:
   name: LemGendary MIRNet v2 Low-Light Enhancement
   class_name: MIRNet
@@ -310,6 +314,8 @@ mirnet_lowlight:
   description: MIRNet v2 low-light image enhancement
   datasets:
   - LemGendizedLowLightDataset
+  stabilizers:
+    numerical_sentinel: [-0.2, 1.2]
 mirnet_exposure:
   name: LemGendary MIRNet v2 Exposure Correction
   class_name: MIRNet
@@ -328,6 +334,8 @@ mirnet_exposure:
   description: MIRNet v2 for overexposure correction and dynamic range adjustment
   datasets:
   - LemGendizedLowLightDataset
+  stabilizers:
+    numerical_sentinel: [-0.2, 1.2]
 mprnet_deraining:
   name: LemGendary MPRNet Deraining
   class_name: MPRNet
@@ -346,6 +354,8 @@ mprnet_deraining:
   description: MPRNet image deraining
   datasets:
   - LemGendizedDegradationDataset
+  stabilizers:
+    numerical_sentinel: [-0.2, 1.2]
 nafnet_debluring:
   name: LemGendary NAFNet Debluring
   class_name: NAFNet
@@ -373,6 +383,8 @@ nafnet_debluring:
   datasets:
   - LemGendizedSuperResDataset
   - LemGendizedDegradationDataset
+  stabilizers:
+    numerical_sentinel: [-0.2, 1.2]
   sota_targets:
     psnr: 32.5
     ssim: 0.94
@@ -396,20 +408,23 @@ nafnet_denoising:
   optimization:
     enabled: true
     initial_fraction: 0.15
-    fraction_increment: 0.15
+    fraction_increment: 0.10
     res_ladder: [128, 256, 384, 512, 640]
-    plateau_patience: 10
+    plateau_patience: 12
     cooling_factor: 0.8
     plateau_priority: resolution
   datasets:
+  datasets:
   - LemGendizedNoiseDataset
+  stabilizers:
+    numerical_sentinel: [-0.2, 1.2]
   sota_targets:
     psnr: 32.5
     ssim: 0.94
     lpips: 0.06
 ultrazoom_x2:
   name: LemGendary UltraZoom 2x Super-Resolution
-  class_name: UltraZoomModel
+  class_name: UltraZoom
   category: ultrazoom
   filename: UltraZoom(x2)
   checkpoint: UltraZoom(x2)Weights_FP32.pth
@@ -433,7 +448,7 @@ ultrazoom_x2:
     scale_factor: 2
 ultrazoom_x3:
   name: LemGendary UltraZoom 3x Super-Resolution
-  class_name: UltraZoomModel
+  class_name: UltraZoom
   category: ultrazoom
   filename: UltraZoom(x3)
   checkpoint: UltraZoom(x3)Weights_FP32.pth
@@ -457,7 +472,7 @@ ultrazoom_x3:
   - LemGendizedSuperResDataset
 ultrazoom_x4:
   name: LemGendary UltraZoom 4x Super-Resolution
-  class_name: UltraZoomModel
+  class_name: UltraZoom
   category: ultrazoom
   filename: UltraZoom(x4)
   checkpoint: UltraZoom(x4)Weights_FP32.pth

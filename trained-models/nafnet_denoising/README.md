@@ -1,16 +1,13 @@
 # Model Summary
 
-The **LemGendary NIMA Aesthetic Scorer** is a professional-grade AI model optimized for the `quality` lifecycle within the LemGendary Training Suite. 
+The **LemGendary NAFNet Denoising** is a professional-grade AI model optimized for the `restoration` lifecycle within the LemGendary Training Suite. 
 
-- **Architecture**: NIMA_Model (MobileNetV2 (Global Composition))
-- **Input Resolution**: 224x224
-- **Use Case**: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset, optimized for artistic composition and color harmony.
-- **Training Data**: LemGendizedQualityDataset
-- **Evaluation**: Validated against SOTA quality baselines.
+- **Architecture**: NAFNet (Standard Backbone)
+- **Input Resolution**: 256x256
+- **Use Case**: NAFNet image denoising
+- **Training Data**: LemGendizedNoiseDataset
+- **Evaluation**: Validated against SOTA restoration baselines.
 
-> [!IMPORTANT]
-> **Quality Vector**: This model is specialized for **Aesthetics**. 
-> - **Primary Targets**: Composition, Color, Lighting, Artistic Intent.
 
 
 ## Usage
@@ -18,25 +15,22 @@ The **LemGendary NIMA Aesthetic Scorer** is a professional-grade AI model optimi
 ```python
 import torch
 from PIL import Image
-from models.nima import NIMA_Model
+from models.factory import create_model
 
 # 1. Initialize
-model = NIMA_Model()
-model.load_state_dict(torch.load("nima_aesthetic_latest.pth"))
+model = create_model("nafnet_denoising")
+model.load_state_dict(torch.load("nafnet_denoising_latest.pth"))
 model.eval()
 
-# 2. Forward Pass
-img = Image.open("photo.jpg").resize((224, 224))
-probs = model(img)
-
-# 3. Scale Calculation
-scores = torch.arange(1, 11).float()
-mean_score = torch.sum(probs * scores).item()
-print(f"Quality Score: {mean_score:.2f}")
+# 2. Restoration Pass
+img = Image.open("degraded.jpg")
+restored = model(img)
+restored_img = Image.fromarray(restored.byte().cpu().numpy())
+restored_img.save("restored.png")
 ```
 
 - **Input Requirements**: RGB Image Tensors normalized to ImageNet stats.
-- **Output Characteristics**: Quality predictive arrays.
+- **Output Characteristics**: Restoration predictive arrays.
 - **Failures**: Large aspect ratio distortions during the standard resize phases.
 
 ## System
@@ -49,7 +43,7 @@ This model is a core module within the **LemGendary AI Training Suite**.
 
 - **Hardware**: NVIDIA GeForce GTX 1650 (4G VRAM)
 - **Software**: PyTorch 2.11+, CUDA 12.1.
-- **Training Lifecycle**: Successfully processed over 2 total epochs securely.
+- **Training Lifecycle**: Successfully processed over 139 total epochs securely.
 
 # Model Characteristics
 
@@ -76,7 +70,7 @@ Trained using **Earth Mover's Distance (EMD)** with strict 0.1 Temperature Ancho
 ## Training data
 
 Collected and curated from the following high-fidelity arrays:
-- **LemGendizedQualityDataset**: ~440k binary image samples.
+- **LemGendizedNoiseDataset**: ~50k binary image samples.
 
 ## Demographic groups
 
@@ -91,7 +85,7 @@ Managed via an **80/20 train/validate split** with zero sample-leakage across th
 ## Summary
 
 The model has been structurally converged to achieve the following SOTA baselines:
-- **Baseline Achievement**: **PLCC**: 0.9596 | **SRCC**: 0.9068
+- **Baseline Achievement**: **PSNR**: 24.568228878653105 | **SSIM**: 0.8165683746337891 | **LPIPS**: 0.24600809812545776
 
 ## Fairness 
 

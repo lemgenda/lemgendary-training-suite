@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NAFNet Restoration via SOTA Infrastructure
 
 **Author**: Lem Treursić  
-**Version**: 2.2.0 - Resiliency v4.5 Milestone (2026 Specialization)  
+**Version**: 2.3.0 - Resiliency v5.2 Milestone (2026 Specialization)  
 **Target Hardware**: Dual NVIDIA Tesla T4 (15GB GDDR6 / Kaggle Cloud)  
 
 ---
@@ -25,6 +25,10 @@
    - [6.4 The VGG Perceptual Convergence Collapse](#64-the-vgg-perceptual-convergence-collapse)
    - [6.5 The "Double-Step" OneCycleLR Matrix Paradox](#65-the-double-step-onecyclelr-matrix-paradox)
    - [6.6 The SOTA Sentry "Defibrillation Override"](#66-the-sota-sentry-defibrillation-override)
+   - [6.7 The Universal SOTA Optimization Vector](#67-the-universal-sota-optimization-vector)
+   - [6.8 The Stagnation Paradox: Plateau-Buster v5.2](#68-the-stagnation-paradox-plateau-buster-v52)
+   - [6.9 The Quality-Regression Mutex (SOTA Guardrail)](#69-the-quality-regression-mutex-sota-guardrail)
+   - [6.10 Distributed I/O Synchronization](#610-distributed-io-synchronization)
 7. [Deployment Strategy: The C++ ONNX Ghost-Severing Protocol](#7-deployment-strategy-the-c-onnx-ghost-severing-protocol)
    - [7.1 Standalone Exporters](#71-standalone-exporters)
    - [7.2 The Ghost-Severing Protocol](#72-the-ghost-severing-protocol)
@@ -83,6 +87,9 @@ Initial mitigations offloaded predictions physically to System RAM to save VRAM.
 ---
 
 ## 5. The SOTA Architectural Migration (Mock to NAFNet)
+
+The evaluation of LemGendary AI models is conducted against rigorous industry benchmarks and legacy state-of-the-art architectures. By utilizing the 2026 Resiliency Engine and our specialized Universal Quality Subset, we have established a new baseline for high-fidelity assessment and restoration. The following metrics isolate the specific generational leaps in absolute correlation and structural fidelity achieved on consumer-grade hardware.
+
 The primary triumph of this whitepaper is the stabilization of **NAFNet** in production. Legacy code featured 500-parameter "Mock" setups. The true NAFNet possesses millions of parameters driven by `SimpleGates` and `SimplifiedChannelAttention`.
 
 ### 5.1 SimpleGate over ReLU
@@ -128,7 +135,21 @@ NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, 
 **Fix**: 
 - **The L1-LPIPS Harmonic Matrix**: We physically abandoned `MSELoss` and structurally swapped to `L1Loss`, which natively bounds high-frequency gradients geometrically. We then anchored the true learned `lpips.LPIPS(net='vgg')` layer at exactly `0.025` to perfectly balance human perception targets without overpowering PSNR.
 - **Iteration Expansion & Runway Re-Injection**: Extended runtime parameterization to `1000` epochs, effectively expanding the base `OneCycleLR` cosine scale into massive, high-velocity heating curves lasting tens of thousands of steps across cloud clusters. Custom guardrails capping LR unexpectedly at fine-tuning limits (`5e-6`) were systematically targeted and eradicated.
-- **Universal Visual SOTA Sentry (v1.1.0 Refactor)**: We fundamentally unlinked the target extraction hook from `avg_val_loss`. The SOTA orchestrator now mathematically compounds `current_quality_score = psnr + (ssim * 20) - (lpips * 20)` (and other specialized registry metrics) to ensure the `.pth` weights exported universally represent maximum perceptual human value. Early stopping and 'best' weight logic are now entirely config-driven via the model registry, ignoring abstract backpropagation loss fluctuations.
+- **Universal Visual SOTA Sentry (v1.1.0 Refactor)**: We fundamentally unlinked the target extraction hook from `avg_val_loss`. The SOTA orchestrator now mathematically compounds `current_quality_score = psnr + (ssim * 20) - (lpips * 20)` to ensure the `.pth` weights exported universally represent maximum perceptual human value. 
+
+### 6.8 The Stagnation Paradox: Plateau-Buster v5.2
+**Issue**: High-complexity models (NAFNet) occasionally enter a "Numerical Stagnation" phase where `val_loss` flickers with negligible improvements (e.g., 1e-7). These "Noise-Wins" previously reset the Governor's plateau timer, preventing the engine from ever scaling the resolution.
+**Fix**: Implemented the **v5.2 Plateau-Buster**. 
+- **Strict 0.1% Delta**: The Governor now requires a minimum **0.1% relative improvement** to reset its patience.
+- **Horizontal Jolt Counter**: If the model remains stagnant for more than 2 epochs (even with minor loss drops), the Governor triggers a **Kinetic Jolt**, forcing a resolution or dataset scale to break the attractor.
+
+### 6.9 The Quality-Regression Mutex (SOTA Guardrail)
+**Issue**: During long missions, `val_loss` may improve while core quality metrics (PSNR/SSIM) regressed due to smoothing or weight decay. This caused the system to export "False SOTA" models that were technically worse than previous peaks.
+**Fix**: Engineered the **Quality-Regression Mutex**. The SOTA export logic is now strictly bounded by the `current_quality_score`. Even if loss hits a record low, the system will **NOT** coronation the model as the new "Best" unless its physical quality metrics have hit a record high.
+
+### 6.10 Distributed I/O Synchronization
+**Issue**: Multi-worker dataset initialization on Windows previously triggered `os.listdir` contention, leading to process hangs.
+**Fix**: Implemented a **Class-Level I/O Cache**. File lists are fetched once and cached, ensuring that all 12-16 workers initialize near-instantly without disk thrashing.
 
 ---
 

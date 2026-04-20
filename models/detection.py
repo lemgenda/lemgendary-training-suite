@@ -1,42 +1,37 @@
 import torch
 import torch.nn as nn
+from torchvision import models
 
-class YOLOv8Mock(nn.Module):
+class RetinaFace_MobileNet(nn.Module):
     """
-    Mock of YOLOv8n architecture.
-    Takes 640x640 input and outputs [batch, 84, 8400] tensor.
-    """
-    def __init__(self):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(3, 16, 3, stride=2, padding=1), nn.ReLU(),
-            nn.Conv2d(16, 32, 3, stride=2, padding=1), nn.ReLU(),
-            nn.AdaptiveAvgPool2d((1, 8400)) # Flattening spatial dimension to match 8400 anchors
-        )
-        self.head = nn.Conv2d(32, 84, 1)
-
-    def forward(self, x):
-        feat = self.net(x)
-        # feat is [b, 32, 1, 8400] -> [b, 84, 1, 8400] -> squeeze 2nd dim -> [b, 84, 8400]
-        out = self.head(feat)
-        return out.squeeze(2)
-
-class RetinaFaceMock(nn.Module):
-    """ 
-    Mocks object detection backbones (MobileNet or ResNet) for face bounds. 
+    Real RetinaFace structure with MobileNetV2 backbone.
     Outputs: [B, 4] Bboxes, [B, 1] Confidence, [B, 10] Landmarks.
     """
     def __init__(self):
         super().__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 16, 3, stride=2, padding=1), nn.ReLU(),
-            nn.AdaptiveAvgPool2d((1, 1))
+        # Use pretrained MobileNetV2 features
+        self.backbone = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1).features
+        
+        # Detection Heads
+        self.conv_feat = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten()
         )
-        self.bbox_head = nn.Linear(16, 4) # x1, y1, x2, y2
-        self.conf_head = nn.Linear(16, 1) # confidence
-        self.landmark_head = nn.Linear(16, 10) # 5 points * 2
+        
+        # 1280 is the output channel count of MobileNetV2
+        self.bbox_head = nn.Linear(1280, 4)
+        self.conf_head = nn.Linear(1280, 1)
+        self.landmark_head = nn.Linear(1280, 10)
 
     def forward(self, x):
-        feat = self.features(x)
-        feat = torch.flatten(feat, 1)
-        return self.bbox_head(feat), self.conf_head(feat), self.landmark_head(feat)
+        feat = self.backbone(x)
+        feat = self.conv_feat(feat)
+        
+        bboxes = self.bbox_head(feat)
+        conf = torch.sigmoid(self.conf_head(feat))
+        landmarks = self.landmark_head(feat)
+        
+        return bboxes, conf, landmarks
+
+# YOLOv8 handling is delegated to the Ultralytics original library in train.py
+# The factory should no longer instantiate a YOLOv8Mock.

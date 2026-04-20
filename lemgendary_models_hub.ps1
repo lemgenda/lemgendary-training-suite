@@ -90,7 +90,7 @@ function Test-Environment {
     Write-Header "ENVIRONMENT INTEGRITY AUDIT"
     Write-Host "  [*] Verifying core library specialization (PyYAML / Torch / OpenCV / DirectML)..." -ForegroundColor Gray
     $auditCmd = "import yaml; print('YAML_PATH: ' + yaml.__file__); import torch; print('Torch: ' + torch.__version__); import cv2; print('OpenCV: ' + cv2.__version__); print('CUDA Ready: ' + str(torch.cuda.is_available())); print('Device: ' + (torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'))"
-    $auditResult = & "$script:VENV_DIR\Scripts\python.exe" -c $auditCmd 2>&1
+    $auditResult = & "$script:VENV_DIR\Scripts\python.exe" -c $auditCmd 2>$null
     
     $venvBase = Split-Path $script:VENV_DIR -Leaf
     if ($auditResult -match "YAML_PATH: .*$venvBase" -and $auditResult -match "Torch:" -and $auditResult -match "OpenCV:") {
@@ -221,7 +221,7 @@ function Get-ModelSelection {
     Write-Host "  $($modelList.Count + 1). Back" -ForegroundColor Gray
     Write-Host ""
     
-    $modelChoice = Read-Host "Select a model (1-$($modelList.Count + 1))"
+    $modelChoice = (Read-Host "Select a model (1-$($modelList.Count + 1))").Trim()
     if ($modelChoice -as [int] -and [int]$modelChoice -ge 1 -and [int]$modelChoice -le $modelList.Count) {
         return $modelList[[int]$modelChoice - 1]
     }
@@ -269,7 +269,7 @@ Invoke-BootstrapCheck
 
 while ($true) {
     Show-Menu
-    $choice = Read-Host "Select an option (1-7, Q)"
+    $choice = (Read-Host "Select an option (1-7, Q)").Trim()
     switch ($choice) {
         '1' { Initialize-Environment; Read-Host "Press Enter to return..." }
         '2' {
@@ -278,8 +278,9 @@ while ($true) {
                 if ($null -ne $selectedModel) {
                     $rocket = [char]0xD83D + [char]0xDE80
                     Write-Host "  [$rocket] Launching Training Matrix for >> $selectedModel <<..." -ForegroundColor Green
+                    Write-Host "      -> Target Manifold: $selectedModel" -ForegroundColor Gray
                     Invoke-JanitorPurge # Ensure clean start
-                    $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
+                    $env:PYTHONPATH="$script:HUB_DIR"; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
                     $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
                     Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "training/train.py" --model $selectedModel; Pop-Location
                 }

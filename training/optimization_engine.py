@@ -47,6 +47,8 @@ class SmartTrainingGovernor:
         self.prev_quality = 0.0
         self.consecutive_drift = 0
         self.jolt_active = False # Tracks if we just injected energy
+        self.stagnation_counter = 0 # Tracks horizontal stagnation across epochs
+        self.min_delta = opt.get("min_delta", 1e-3) # 2026: 0.1% required to reset plateau
         
         # Resolution Ladder: Progression steps to force feature discovery
         self.res_ladder = opt.get("res_ladder", [128, 256, 384, 512])
@@ -64,11 +66,12 @@ class SmartTrainingGovernor:
         self.manifold_shift_pending = False
         self.current_strategy = f"Efficiency ({self.current_fraction*100:.0f}% Data)"
 
-    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs):
-        """
-        Analyzes the trajectory of the manifold to prescribe optimizations.
-        Returns: (f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, msg)
-        """
+    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0):
+        # 2026 Resilience: Stricter Plateau Detection
+        # horizontal_stagnation occurs if quality doesn't improve meaningfully, regardless of loss.
+        quality_improved = current_quality > (self.prev_quality * (1.0 + self.min_delta))
+        is_stagnant = epochs_no_improve >= self.plateau_patience or (not quality_improved and epochs_no_improve >= self.plateau_patience // 2)
+        
         if not self.enabled:
             return False, False, False, False, False, False, ""
 
@@ -118,9 +121,20 @@ class SmartTrainingGovernor:
             self.consecutive_drift = 0
             self.jolt_active = False # Safe back in the fold
 
+        # 1.1 Numerical Sentinel Feedback Loop (v5.6)
+        # If sentinel_trigger_rate > 5%, it means the model is fighting its boundaries.
+        if sentinel_trigger_rate > 0.05:
+            self.lr_multiplier = min(self.lr_multiplier, 0.8)
+            lr_changed = True
+            msg_parts.append(f"NUMERICAL STRESS ({sentinel_trigger_rate*100:.1f}%): Cooling LR 0.8x to seat manifold")
+            # If stress is extreme (>20%), force resolution scaling pause by inflating patiente
+            if sentinel_trigger_rate > 0.20:
+                epochs_no_improve = 0 # Trick the engine into thinking we just improved to delay scaling
+                msg_parts.append(f"EXTREME STRESS: Scaling Milestones Delayed")
+
         # 2. Hardware-Aware Scaling (Memory Sentinel) - Check before shifts
         if torch.cuda.is_available() and predicted_ratio > 0.0:
-            if epochs_no_improve >= self.plateau_patience:
+            if is_stagnant:
                 current_idx = -1
                 try: current_idx = self.res_ladder.index(self.current_res)
                 except ValueError: pass
@@ -136,14 +150,16 @@ class SmartTrainingGovernor:
                     b_changed = True
                     msg_parts.append(f"PROTECTING VRAM: Scaling Batch {old_batch}->{self.current_batch} | Accumulation 1->{self.current_acc}")
 
-        # 3. Dataset Expansion on Regression
-        if regression_epochs >= 1 and self.current_fraction < 1.0:
+        # 3. Dataset Expansion on Regression (Incremental Discovery)
+        if regression_epochs >= 1 and self.current_fraction < 1.0 and not f_changed:
             self.current_fraction = min(1.0, self.current_fraction + self.fraction_increment)
             f_changed = True
             msg_parts.append(f"EXPANDING VARIETY (+{self.fraction_increment*100:.0f}%) to {self.current_fraction*100:.0f}%")
 
         # 4. Resolution Scaling & Thermal Cooling on Plateau
-        if epochs_no_improve >= self.plateau_patience:
+        if is_stagnant:
+            self.stagnation_counter += 1
+            msg_parts.append(f"STAGNATION ({self.stagnation_counter})")
             if self.plateau_priority == "data" and self.current_fraction < 1.0:
                 self.current_fraction = min(1.0, self.current_fraction + self.fraction_increment)
                 f_changed = True
@@ -173,11 +189,15 @@ class SmartTrainingGovernor:
                     f_changed = True
                     msg_parts.append(f"PLATEAU (Res-Maxed): Expanding variety to {self.current_fraction*100:.0f}%")
                 else:
-                    # Everything maxed, try a configured LR Jolt to break the plateau
+                    # Everything maxed, force a configured LR Jolt to break the horizontal stall
                     self.lr_multiplier = self.jolt_multiplier
                     lr_changed = True
                     self.jolt_active = True
                     msg_parts.append(f"PLATEAU BREAKER: Injecting {self.jolt_multiplier}x LR Jolt")
+                
+                # Reset stagnation counter ONLY if a change was actually made
+                if f_changed or r_changed or lr_changed:
+                    self.stagnation_counter = 0
 
         self.prev_quality = current_quality
         
@@ -189,7 +209,8 @@ class SmartTrainingGovernor:
             # 2026: Visible Monitoring (Audit v5.2)
             # This ensures the user knows the engine is alive and scanning the horizon.
             status = "STABLE" if regression_epochs == 0 else "REGRESSING" 
-            print(f"📡 [SMART GOVERNOR] Scanning Manifold... [Status: {status}] [No Plateau Detected]")
+            patience_left = self.plateau_patience - epochs_no_improve
+            print(f"📡 [SMART GOVERNOR] Scanning Manifold... [Status: {status}] [Patience: {patience_left}]")
             
         return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, final_msg
 
@@ -210,3 +231,41 @@ class SmartTrainingGovernor:
             "batch_size": self.current_batch,
             "accumulation_steps": self.current_acc
         }
+
+    def recoil(self):
+        """
+        Force a tactical retreat in complexity upon a technical rollback.
+        Scales back resolution and variety to allow the model to re-seat safely.
+        """
+        msg_parts = []
+        
+        # 1. Step back in resolution ladder
+        current_idx = -1
+        try: current_idx = self.res_ladder.index(self.current_res)
+        except ValueError: pass
+        
+        if current_idx > 0:
+            old_res = self.current_res
+            self.current_res = self.res_ladder[current_idx - 1]
+            msg_parts.append(f"Resolution {old_res}->{self.current_res}px")
+            
+        # 2. Step back in dataset variety
+        if self.current_fraction > 0.15: # Don't drop below bare minimum
+            old_frac = self.current_fraction
+            self.current_fraction = max(0.15, self.current_fraction - self.fraction_increment)
+            msg_parts.append(f"Variety {old_frac*100:.0f}%->{self.current_fraction*100:.0f}%")
+            
+        # 3. Cool down Thermal/Clamping
+        self.current_temp = min(0.15, self.current_temp * 1.5) # Warm back up to allow exploration
+        self.current_clamp = max(self.min_clamp, self.current_clamp - 5.0) # Tighten clamp
+        
+        # 4. Reset internal counters to prevent immediate re-scaling
+        self.consecutive_drift = 0
+        self.jolt_active = False
+        
+        final_msg = ""
+        if msg_parts:
+            final_msg = f"⚡ [SMART GOVERNOR] RECOIL ENGAGED: " + " | ".join(msg_parts)
+            self.manifold_shift_pending = True
+        
+        return final_msg

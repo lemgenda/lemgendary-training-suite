@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NIMA Assessment via Hardware-Aware Optimization
 
 **Author**: Lem Treursić
-**Version**: 2.6.0 - Resiliency v5.1 Milestone (2026 Optimization)
+**Version**: 2.7.0 - Resiliency v5.2 Milestone (2026 Optimization)
 **Target Hardware**: NVIDIA GeForce GTX 1650 (4GB GDDR5 / Windows 11)
 
 ---
@@ -123,6 +123,9 @@ To achieve high-fidelity convergence, scores are not treated as flat scalars (e.
 ---
 
 ## 5. Performance Metrics: LemGendary vs. Google SOTA
+
+The evaluation of LemGendary AI models is conducted against rigorous industry benchmarks and legacy state-of-the-art architectures. By utilizing the 2026 Resiliency Engine and our specialized Universal Quality Subset, we have established a new baseline for high-fidelity assessment and restoration. The following metrics isolate the specific generational leaps in absolute correlation and structural fidelity achieved on consumer-grade hardware.
+
 Our results demonstrate significant generational leaps over the original 2018 NIMA benchmarks.
 
 ### 5.1 Consolidated SOTA Benchmarks (AVA/LIVE/TID Bases)
@@ -131,7 +134,15 @@ Our results demonstrate significant generational leaps over the original 2018 NI
 | **Aesthetic** | **PLCC** | ~0.636 | **0.9596** | **+50.8% (Precision)** |
 | **Aesthetic** | **SRCC** | ~0.612 | **0.9068** | **+48.1% (Ranking)** |
 | **Technical** | **PLCC** | ~0.908 | **0.9848** | **+8.4% (Record)** |
-| **Technical** | **SRCC** | ~0.900 | **0.8887** | High-Fidelity Stability |
+| **Technical** | **SRCC** | ~0.900 | **0.9037** | **Record Stability** |
+
+#### 5.1.1 Aesthetic Training Curve
+![NIMA Aesthetic Training](assets/nima_aesthetic_training.png)
+*Figure 5: Convergence of NIMA Aesthetic (MobileNetV2) on the Universal Quality Subset.*
+
+#### 5.1.2 Technical Training Curve
+![NIMA Technical Training](assets/nima_technical_training.png)
+*Figure 6: Convergence and record capture for NIMA Technical (EfficientNetV2-S).*
 
 ---
 
@@ -215,9 +226,11 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 **Issue**: A critical convergence bottleneck was identified where the model head applied a native `nn.Softmax`, while the `CombinedLoss` applied a secondary `F.softmax` with an aggressive 0.1 Temperature Anchor. This "Double-Softmax" state flattened gradients to near-zero ($< 1e-7$).
 **Fix**: Migrated the architecture to raw **Logit-Outputs**. By removing the internal softmax, full gradient sensitivity was restored to the EMD loss, instantly shattering the static metric plateaus observed in early v2.0 missions.
 
-### 7.14 The Plateau Breaker: Dynamic Kinetic LR Injection
-**Issue**: Models training on 440k+ samples often reach numerical saturation where the `OneCycleLR` schedule lacks sufficient power to escape a local minimum.
-**Fix**: Implemented the **v2.6 Plateau Breaker**. The engine monitors Loss Velocity; if the loss remains static for 5 epochs, it injects a **3.0x Learning Rate Jolt** for a 2-epoch burst. This kinetic energy "shakes" the model into a deeper, more refined trough.
+### 7.14 The Plateau Breaker: Dynamic Kinetic LR Injection (v5.2)
+**Issue**: Models training on 440k+ samples often reach numerical saturation where the `OneCycleLR` schedule lacks sufficient power to escape a local minimum. Tiny loss fluctuations (1e-7) previously reset the patience, preventing the Governor from injecting power.
+**Fix**: Executed the **v5.2 Plateau-Buster** upgrade. 
+- **Strict 0.1% Delta**: The Governor now requires a 0.1% relative improvement to reset its timer, ignoring numerical drift.
+- **Horizontal Stagnation Jolt**: If loss is static (or flickering) for 5 epochs without a significant metric peak, the system injects a **3.0x LR Jolt** and forces a resolution/variety shift to "shatter" the plateau attractor.
 
 ### 7.15 Manifold Smoothing via SWA
 **Issue**: Late-cycle stochastic noise causes peak metrics to fluctuate, leading to sub-optimal generalization in WebGPU deployments.
@@ -285,7 +298,7 @@ The migration from PyTorch to ONNX was driven by the necessity of **WebGPU stabi
 The LemGendary Training Suite has established a new 2026 baseline for Neural Image Assessment, proving that state-of-the-art results do not require corporate-scale compute clusters—they require **hardware-aware resilience architecture**.
 
 ### 9.1 Summary of Breakthroughs
-By collapsing the legacy divide between "Artistic beauty" and "Technical clarity" into a single **LemGendized Universal Quality Subset**, we have created a training environment where models achieve **0.983 PLCC** and **0.906 SRCC** stability. These metrics are not merely academic; they signify a level of ordinal stability that matches human rater consensus across 440,000 diverse samples.
+By collapsing the legacy divide between "Artistic beauty" and "Technical clarity" into a single **LemGendized Universal Quality Subset**, we have created a training environment where models achieve **0.9848 PLCC** and **0.9068 SRCC** stability. These metrics are not merely academic; they signify a level of ordinal stability that matches human rater consensus across 440,000 diverse samples.
 
 ### 9.2 The Impact of Data-First Engineering
 The core takeaway of the LemGendary project is that **merging and standardizing datasets** is as critical as architectural selection. By neutralizing rater bias and standardizing diverse score distributions into a single 1-10 probability matrix, we provided the backbones (MobileNetV2 and EfficientNetV2-S) with a cleaner signal than any original research track.

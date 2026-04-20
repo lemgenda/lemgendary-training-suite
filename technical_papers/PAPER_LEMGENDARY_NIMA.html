@@ -417,7 +417,7 @@
             <p class="subtitle">High-Fidelity NIMA Assessment via Hardware-Aware Optimization</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 2.6.0 - Resiliency v5.1 Milestone</span>
+                <span>Version: 2.7.0 - Resiliency v5.2 Milestone</span>
                 <span>Hardware: GTX 1650 (4GB)</span>
             </div>
         </header>
@@ -477,7 +477,7 @@
                         <li><a href="#manifold-anchor">7.11 Manifold Anchor</a></li>
                         <li><a href="#modular-calibration">7.12 Modular Calibration</a></li>
                         <li><a href="#logit-refactor">7.13 Logit Refactor</a></li>
-                        <li><a href="#plateau-breaker">7.14 Plateau Breaker</a></li>
+                        <li><a href="#plateau-breaker">7.14 The Plateau Breaker: Dynamic Kinetic LR Injection (v5.2)</a></li>
                         <li><a href="#swa-smoothing">7.15 SWA Smoothing</a></li>
                         <li><a href="#cosine-recalibration">7.16 Cosine Recalibration</a></li>
                         <li><a href="#v31-resiliency">7.17 Metric-Driven Deployment (v3.1)</a></li>
@@ -500,6 +500,7 @@
                         <li><a href="#future-outlook">9.3 Future Outlook</a></li>
                     </ul>
                 </li>
+                <li><a href="#appendix">10. Appendix</a></li>
             </ul>
         </nav>
 
@@ -597,6 +598,7 @@
 
         <section id="benchmarks">
             <h2>5. Performance Metrics: LemGendary vs. Google SOTA</h2>
+            <p>The evaluation of LemGendary AI models is conducted against rigorous industry benchmarks and legacy state-of-the-art architectures. By utilizing the 2026 Resiliency Engine and our specialized Universal Quality Subset, we have established a new baseline for high-fidelity assessment and restoration. The following metrics isolate the specific generational leaps in absolute correlation and structural fidelity achieved on consumer-grade hardware.</p>
             <p>Our results demonstrate significant generational leaps over the original 2018 NIMA benchmarks.</p>
             <table>
                 <thead>
@@ -634,11 +636,29 @@
                         <td>Technical</td>
                         <td>SRCC</td>
                         <td>~0.900</td>
-                        <td><strong>0.8887</strong></td>
-                        <td>High-Fidelity</td>
+                        <td><strong>0.9037</strong></td>
+                        <td>Record Stability</td>
                     </tr>
                 </tbody>
             </table>
+
+            <h3 id="training-curves">5.1.1 Training Convergence Visuals</h3>
+            <div class="visual-taxonomy">
+                <div class="quadrant" onclick="openModal('assets/nima_aesthetic_training.png', 'NIMA Aesthetic Convergence', 'Visualizing the epoch-by-epoch convergence of the Aesthetic manifold. PLCC (Blue) and SRCC (Green) demonstrate stable logarithmic growth.')">
+                    <img src="assets/nima_aesthetic_training.png" alt="Aesthetic Training Curve" style="height: auto;">
+                    <div class="quadrant-info">
+                        <strong>NIMA Aesthetic Curve</strong>
+                        <span>Convergence on Universal Quality Subset.</span>
+                    </div>
+                </div>
+                <div class="quadrant" onclick="openModal('assets/nima_technical_training.png', 'NIMA Technical Convergence', 'Tracking the record-breaking 0.9848 PLCC glide path of the EfficientNetV2-S model.')">
+                    <img src="assets/nima_technical_training.png" alt="Technical Training Curve" style="height: auto;">
+                    <div class="quadrant-info">
+                        <strong>NIMA Technical Curve</strong>
+                        <span>EfficientNetV2-S Record Capture Path.</span>
+                    </div>
+                </div>
+            </div>
         </section>
 
         <section id="health">
@@ -665,37 +685,37 @@
         <section id="challenges">
             <h2>7. Challenges & Resilience Architecture</h2>
             <p>The training of 440,000 samples on a 48-hour continuous cycle required "Resilience Architecture" fixes to handle several engineering hurdles.</p>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="scheduler-bug">7.1 The Scheduler Double-Stepping Bug</h4>
                 <p><strong>Issue</strong>: An early iteration of the suite suffered from an asynchronous double-step in the <em>OneCycleLR</em> scheduler. This caused the learning rate to anneal 2x faster than the epoch count, leading to premature metric "slippage" and loss of SRCC resolution by Epoch 10.</p>
                 <p><strong>Fix</strong>: Consistently synchronized <em>scheduler.step()</em> to fire only after a successful optimizer step (16 physical batches), restoring the intended mathematical curve.</p>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="nan-shield">7.2 Numerical Instability (NaN Shield)</h4>
                 <p><strong>Issue</strong>: High-resolution training of EfficientNetV2-S in FP16 (Half Precision) occasionally triggered numerical overflows during the warmup phase, resulting in <em>NaN</em> losses that could corrupt weight files.</p>
                 <p><strong>Fix</strong>: Implemented the <strong>2026 NaN Shield</strong>. The script now detects <em>NaN</em> losses in real-time, clears gradients without updating weights, and skips the corrupt batch to preserve the model's integrity.</p>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="sota-recovery">7.3 Continuity & SOTA Recovery</h4>
                 <p><strong>Issue</strong>: Interruptions in training (system reboots/crashes) initially caused the suites to restart from Epoch 1, triggering a 5-epoch "Backbone Freeze" and resetting progress.</p>
                 <p><strong>Fix</strong>: Implemented a <strong>Global Guardrail</strong> that natively Fall-Backs to the <em>best.pth</em> checkpoint if the <em>latest.pth</em> is missing, ensuring zero loss of historical progress and bypassing unnecessary stabilization freezes.</p>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="nuclear-lockdown">7.4 The SRCC Convergence Plateau (Nuclear Stability Lockdown)</h4>
                 <p><strong>Issue</strong>: During late-stage convergence (Epoch 15), the Technical model hit an aggressive numerical wall. Initial "Double-Precision" fixes were insufficient as NaNs "ghosted" into the Batch Normalization buffers and the Optimizer's momentum states, causing immediate re-explosions upon restart.</p>
                 <p><strong>Fix</strong>: Executed the <strong>2026 Nuclear Stability Lockdown</strong>. This ultimate resilience protocol performs a <strong>Triple-Audit</strong> (Weights, Buffers, and States) on every NaN detection. Upon a deep-state corruption event, the system reloads the SOTA baseline, performs a radical <strong>Momentum Flush</strong> (purging failed gradient history), and initiates a <strong>50% LR Cooling</strong> phase. Combined with <strong>float64 (Double Precision) var/covar math</strong> and a tightened <strong>0.15 Resonance Weight</strong>, this lockdown successfully seated the model into a stable manifold, securing the path to 0.90 SRCC.</p>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="sentinel-desync">7.5 The Sentinel-Scheduler De-Sync (SOTA Alignment)</h4>
                 <p><strong>Issue</strong>: On 4GB hardware (GTX 1650), the <strong>Memory-Sentinel</strong> dynamically shrinks physical batches (e.g., 64 -> 16) while maintaining effective throughput via accumulation. Early iterations called <em>scheduler.step()</em> on every physical batch, causing the scheduler to "run out of fuel" by Epoch 12.5 and crash with a <em>ValueError</em>.</p>
                 <p><strong>Fix</strong>: Synchronized the "Scheduler Stride" with the "Optimizer Stride." By moving the scheduler logic inside the accumulation block, the steps are now perfectly aligned with the effective batch count, restoring the integrity of the 50-epoch annealing curve.</p>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="state-injection">7.6 Pre-Emptive State Injection</h4>
                 <p><strong>Issue</strong>: When resuming from checkpoints after a dataset scale shift, the <em>OneCycleLR</em> object often carries an "Internal Runway" locked to the old dataset size, preventing it from stepping into the new, larger mission space.</p>
                 <p><strong>Fix</strong>: Implemented <strong>Deep-State Injection</strong>. The suite now reaches into the raw <em>scheduler_state</em> dictionary from the file and manually patches the <em>total_steps</em>, <em>step_size_up</em>, and <em>step_size_down</em> keys <em>before</em> loading. This "tricks" the scheduler into a larger manifold, allowing it to continue training without losing historical momentum.</p>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="thermal-shield">7.7 The Infinite Loop Plateau (Deep-State Sanitization & Thermal Shield)</h4>
                 <p><strong>Issue</strong>: During the final "SOTA Breach" (Epoch 16+), the model encountered an infinite NaN loop where even rollbacks to the stable baseline resulted in immediate re-explosions. This was traced to "Ghosting" in non-learnable buffers and explosive gradient norm drift on the Technical manifold.</p>
                 <p><strong>Fix</strong>: Executed the <strong>v1.0.25 Global Stabilization Fix</strong>.</p>
@@ -705,22 +725,22 @@
                     <li><strong>Velocity Governor</strong>: Tightened gradient norm clipping to <em>0.5</em> to neutralize stochastic drift.</li>
                 </ul>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="singularity-shield">7.8 The Pearson Singularity (Singularity Shield)</h4>
                 <p><strong>Issue</strong>: During extremely high-precision fine-tuning, the model can output "Zero-Variance" batches where all predictions are identical. This triggers a $0/0$ division error in the Pearson Correlation math, producing NaN gradients that bypass the standard scaler.</p>
                 <p><strong>Fix</strong>: Implemented the <strong>v1.0.26 Singularity Shield</strong>. The <em>CombinedLoss</em> is now wrapped in a <em>nan_to_num</em> mathematical anchor, which forces any non-finite singularity returns to <em>0.0</em>. This "disconnects" corrupted batches from the optimizer, preserving the model's momentum.</p>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="runway-bloat">7.9 Mitochondrial Runway Bloat (Runway Recalibration)</h4>
                 <p><strong>Issue</strong>: Checkpoints saved during the "Physical Stride" era (stepping 4x too fast) carry a "Bloated" step counter. When resuming with the corrected "Optimizer Stride" math, the scheduler thinks the mission is already finished at Step 314,300 and crashes upon reaching 314,301.</p>
                 <p><strong>Fix</strong>: Executed the <strong>v1.0.27 Runway Recalibration</strong>. The suite now performs a <strong>Mission Clock (Cosine Clock) Rewind</strong> during injection, surgically resetting the scheduler's internal step counter to the mathematically correct position for the current epoch (e.g., Step 100,560 for Epoch 16).</p>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="power-resilience">7.10 Power-Loss Resilience (The Mitochondrial Shield)</h4>
                 <p><strong>Issue</strong>: In environments with high-resolution datasets (440k+ samples), a single training epoch can take up to 10 hours. A power failure or system crash at 90% progress could result in the loss of 9 hours of specialized GTX 1650 compute time.</p>
                 <p><strong>Fix</strong>: Implemented the <strong>v1.0.35 Mitochondrial Shield</strong>. The suite now performs high-frequency intra-epoch checkpointing every 10% of batches to a specialized <em>_progress.pth</em> file. Upon resumption, the logic automatically "Fast-Forwards" the DataLoader to the exact saved iteration, ensuring zero loss of training momentum across extended cycles.</p>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="manifold-anchor">7.11 The Manifold Anchor: Resolving Infinite NaN Loops</h4>
                 <p><strong>Issue</strong>: During the final 0.95+ PLCC convergence phase, the model entered an <strong>Infinite NaN Loop</strong> where rollbacks to SOTA baselines immediately re-exploded. This was identified as a "Manifold Shock" caused by the 0.1 temperature Softmax producing near-zero probability mass in the EMD normalization layer (1e-8).</p>
                 <p><strong>Fix</strong>: Executed the <strong>v1.0.40 Manifold Anchor</strong>.</p>
@@ -730,27 +750,31 @@
                     <li><strong>Resilience Result</strong>: These stabilizers effectively "anchored" the model into a stable high-correlation manifold, allowing it to bypass the singularity.</li>
                 </ul>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="modular-calibration">7.12 Modular Calibration: Non-Destructive Global Scaling</h4>
                 <p><strong>Issue</strong>: Hard-coding NIMA-specific stabilizers into the global train.py threatened to degrade the performance of other models that rely on more aggressive gradients.</p>
                 <p><strong>Fix</strong>: Implemented <strong>Modular Hyperparameter Injection</strong>. ALL mathematical stabilizers (Temperature, Epsilon, Clamps) were moved from the core code into the <em>unified_models.yaml</em> registry, ensuring global multi-model integrity.</p>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="logit-refactor">7.13 The Logistic Refactor: Neutralizing Softmax Collisions</h4>
                 <p><strong>Issue</strong>: A critical convergence bottleneck was identified where the model head applied a native <em>nn.Softmax</em>, while the <em>CombinedLoss</em> applied a secondary <em>F.softmax</em> with an aggressive 0.1 Temperature Anchor. This "Double-Softmax" state flattened gradients to near-zero ($< 1e-7$).</p>
                 <p><strong>Fix</strong>: Migrated the architecture to raw <strong>Logit-Outputs</strong>. By removing the internal softmax and implementing internal logit-clamping (±10.0), full gradient sensitivity was restored to the EMD loss, instantly shattering the static metric plateaus observed in early v2.0 missions.</p>
             </div>
-            <div class="issue-box">
-                <h4 id="plateau-breaker">7.14 Plateau Breaker: Dynamic Kinetic LR Injection</h4>
-                <p><strong>Issue</strong>: Models training on 440k+ samples often reach numerical saturation where the <em>OneCycleLR</em> schedule lacks sufficient power to escape a local minimum.</p>
-                <p><strong>Fix</strong>: Implemented the <strong>v2.7 Plateau Breaker</strong>. The engine monitors Loss Velocity; if the loss remains static for 5 epochs, it injects a <strong>2.0x Learning Rate Jolt</strong> for a 2-epoch burst. This kinetic energy "shakes" the model into a deeper, more refined trough by physical weight displacement.</p>
+            <div class="card">
+                <h4 id="plateau-breaker">7.14 The Plateau Breaker: Dynamic Kinetic LR Injection (v5.2)</h4>
+                <p><strong>Issue</strong>: Models training on 440k+ samples often reach numerical saturation where the <code>OneCycleLR</code> schedule lacks sufficient power to escape a local minimum. Tiny loss fluctuations (1e-7) previously reset the patience, preventing the Governor from injecting power.</p>
+                <p><strong>Fix</strong>: Executed the <strong>v5.2 Plateau-Buster</strong> upgrade.</p>
+                <ul>
+                    <li><strong>Strict 0.1% Delta</strong>: The Governor now requires a 0.1% relative improvement to reset its timer, ignoring numerical drift.</li>
+                    <li><strong>Horizontal Stagnation Jolt</strong>: If loss is static (or flickering) for 5 epochs without a significant metric peak, the system injects a <strong>3.0x LR Jolt</strong> and forces a resolution/variety shift to "shatter" the plateau attractor.</li>
+                </ul>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="swa-smoothing">7.15 Manifold Smoothing via SWA</h4>
                 <p><strong>Issue</strong>: Late-cycle stochastic noise causes peak metrics to fluctuate, leading to sub-optimal generalization in WebGPU deployments.</p>
                 <p><strong>Fix</strong>: Integrated <strong>Stochastic Weight Averaging (SWA)</strong>. The Resilience Engine tracks a shadow mean of weights across the final 50% of the mission, producing a smoothed manifold that exhibits superior stability and correlation benchmarks compared to raw epoch snapshots.</p>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="v31-resiliency">7.17 Metric-Driven Deployment & Polarity Alignment (v3.1 Resiliency)</h4>
                 <p><strong>Issue</strong>: During the 1000-epoch mission, two critical regressions were identified: (1) a "Sign Flipping" bug in the dataset logic that caused a perfectly negative correlation (-0.93 PLCC), and (2) a "Runway Crash" where the scheduler's 1000-epoch curve was overwritten by the checkpoint's old 50-epoch state.</p>
                 <p><strong>Fix</strong>: Executed the <strong>v3.1 Zero-Bug Restoration</strong>.</p>
@@ -760,7 +784,7 @@
                     <li><strong>Automated SOTA Deployment</strong>: Decoupled model exports from the epoch counter. The system now monitors PLCC/SRCC in real-time and triggers high-fidelity ONNX/FP32 exports the moment a new record is hit.</li>
                 </ul>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="v32-velocity">7.18 Mission Velocity Acceleration: Stochastic Subsampling (v3.2)</h4>
                 <p><strong>Issue</strong>: With the dataset density reaching 440,000 samples, a 1000-epoch mission was calculated to require 137 days of continuous GTX 1650 compute time. This "Iteration Bottleneck" made high-frequency metric tracking and SOTA capturing mathematically impossible within a standard research window.</p>
                 <p><strong>Fix</strong>: Implemented the <strong>v3.2 Mission Velocity Acceleration</strong> protocol.</p>
@@ -771,13 +795,13 @@
                     <li><strong>Velocity Resync</strong>: OneCycleLR dynamically recalculates its runway based on the fractional length, ensuring identical annealing curves at 10x speed.</li>
                 </ul>
             </div>
-            <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
-                <h3 id="registry-first">7.19 Registry-First Unification (v4.5)</h3>
+            <div class="card">
+                <h4 id="registry-first">7.19 Registry-First Unification (v4.5)</h4>
                 <p><strong>Issue</strong>: As the neural library expanded to 21+ models, maintenance debt accumulated across orchestrators (<em>train_all.py</em> and <em>data_utils.py</em>) which relied on hardcoded dataset dictionaries. Adding a model required three manual code updates, increasing the risk of desync.</p>
                 <p><strong>Fix</strong>: Migrated the entire project to <strong>Registry-First Dynamic Orchestration</strong>. Hardcoded lists were purged and centralized into the <em>_registry_metadata</em> section of <em>unified_models.yaml</em>. All manager scripts now dynamically discover dependencies at runtime, ensuring 100% architectural synchronization.</p>
             </div>
-            <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
-                <h3 id="epoch-standard">7.20 Standardized Epoch Resumption (The Windows Shield)</h3>
+            <div class="card">
+                <h4 id="epoch-standard">7.20 Standardized Epoch Resumption (The Windows Shield)</h4>
                 <p><strong>Issue</strong>: Windows-specific file-locking race conditions frequently caused training to crash when attempting to delete <em>_progress.pth</em> at the end of an epoch. Furthermore, desync between 0-indexed and 1-indexed epoch logic caused models to redundantly repeat finalized training segments.</p>
                 <p><strong>Fix</strong>: Executed the <strong>Resumption Governance Protocol</strong>.</p>
                 <ul>
@@ -786,7 +810,7 @@
                     <li><strong>Result</strong>: Resumption is now idempotent and robust against OS-level resource locks, ensuring seamless 1000-epoch mission continuity.</li>
                 </ul>
             </div>
-            <div class="issue-box">
+            <div class="card">
                 <h4 id="velocity-sync">7.21 The Velocity-Scheduler Sync (v5.1 Resiliency)</h4>
                 <p><strong>Issue</strong>: Prior to v5.1, the <strong>Smart Training Governor</strong> operated independently of the <em>OneCycleLR</em> schedule. When the Governor dampened the learning rate to stabilize metric drift, the scheduler—unaware of the external intervention—would overwrite the LR on the next step based on its original trajectory, leading to "Manifold Shock" and recurrent drift.</p>
                 <p><strong>Fix</strong>: Implemented the <strong>v5.1 Velocity Synchronization</strong>. The Governor is now programmatically bound to the scheduler's internal state. Upon a drift-triggered LR shift, the suite physically scales the scheduler's <em>max_lrs</em> and <em>base_lrs</em> parameters. This ensures the stabilization "sticks" and the entire mathematical curve is recalibrated for the new manifold velocity.</p>

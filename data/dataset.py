@@ -12,11 +12,14 @@ class MultiTaskDataset(Dataset):
     """
     Universal Dataset loader for LemGendary Training Suite suite.
     Automatically handles Restoration, Detection, and Quality tasks 
-    based on unified_models.yaml.
+    v5.7: Added class-level _file_cache for lightning-fast multi-worker initialization.
     """
+    _file_cache = {} # Static cache to share dataset scanned state across workers
+
     def __init__(self, config, model_key=None, is_train=True, env="local", sample_fraction=1.0):
         self.is_train = is_train
         self.env = env
+        self.sync_mode = False # --- 2026 Resiliency: Fast-Skip Sync ---
         self.split = "train" if is_train else "validate"
         self.data_root = config.get("datasets_dir", "../data/datasets")
         
@@ -81,7 +84,14 @@ class MultiTaskDataset(Dataset):
                 img_dir = os.path.join(ds_path, "images", self.split)
                 if not os.path.exists(img_dir): continue
                 
-            files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+            cache_key = f"{ds_name}_{self.split}"
+            if cache_key in MultiTaskDataset._file_cache:
+                files = MultiTaskDataset._file_cache[cache_key]
+                # print(f"✨ [CACHE] Restored {len(files)} files for {ds_name} from primary manifold memory")
+            else:
+                files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+                MultiTaskDataset._file_cache[cache_key] = files
+                
             for f in files:
                 self.all_samples.append((ds_name, f))
         
@@ -177,6 +187,12 @@ class MultiTaskDataset(Dataset):
             if os.path.exists(local_fallback):
                 return local_fallback
             return base_kaggle_path
+            
+        # 2026 Shift: Check Universal Shared Repository first
+        shared_path = os.path.join(self.data_root, "_shared", ds_name)
+        if os.path.exists(shared_path):
+            return shared_path
+            
         return os.path.join(self.data_root, ds_name)
 
     def load_image(self, img_path):
@@ -192,6 +208,12 @@ class MultiTaskDataset(Dataset):
             return None
 
     def __getitem__(self, idx):
+        # --- 2026 Resiliency: Fast-Skip Synchronization ---
+        # When synchronizing mid-epoch iterations, we bypass all I/O and processing
+        # logic to instantly satisfy the DataLoader's iterator.
+        if self.sync_mode:
+            return torch.zeros((3, self.size[0], self.size[1])), torch.zeros(1), self.task_type
+
         import random
         current_idx = idx
         
