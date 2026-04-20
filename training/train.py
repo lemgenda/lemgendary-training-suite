@@ -911,7 +911,7 @@ def main():
             if current_iter > 0:
                 pbar_desc = f"Epoch {epoch+1}"
                 train_ds.sync_mode = True
-                 with tqdm(total=current_iter, desc=" [RESONANCE SYNC]", unit="iter", colour="cyan", leave=False, file=sys.stderr, dynamic_ncols=True) as sync_pbar:
+                with tqdm(total=current_iter, desc=" [RESONANCE SYNC]", unit="iter", colour="cyan", leave=False, file=sys.stderr, dynamic_ncols=True) as sync_pbar:
                     for i, _ in iter_obj:
                         sync_pbar.update(1)
                         if i >= current_iter - 1:
