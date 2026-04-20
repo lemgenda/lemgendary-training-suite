@@ -870,9 +870,8 @@ def main():
     effective_batch_size = batch_size
     # accumulation_steps is established pre-emptively during initialization.
     global_step = 0 # Absolute step tracking across the entire mission
-    last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.10) ---
-    
     for epoch in range(start_epoch, epochs):
+        last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.12) ---
         # 2026: SOTA Stabilization and Thermal Sharding
         # Physical batch constraints are now established pre-emptively during initialization.
         # This ensures the scheduler math (total_steps) matches the execution stride.
