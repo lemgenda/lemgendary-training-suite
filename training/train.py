@@ -7,6 +7,7 @@ import signal
 import subprocess
 import time
 import shutil
+import gc
 
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
@@ -488,16 +489,28 @@ def main():
     # We must establish the physical batch size BEFORE initialization to ensure scheduler parity
     effective_batch_size = batch_size
     accumulation_steps = 1
-    if device.type == 'cuda' and "technical" in args.model:
+    vram = 0
+    if device.type == 'cuda':
         vram = torch.cuda.get_device_properties(device).total_memory / (1024**3)
-        if vram < 5.0: # GTX 1650 / 4GB Guard
+        
+    # Survival Profile Trigger: GTX 1650 / 4GB Guard for heavy architectures
+    is_heavy_model = any(x in args.model.lower() for x in ["nafnet", "mirnet", "ffanet", "mprnet"])
+    
+    if vram > 0 and vram < 5.0:
+        if "technical" in args.model:
             batch_size = 16
             accumulation_steps = max(1, effective_batch_size // 16)
-            print(f"[INFO] [MEM-SENTINEL] Pre-Emptive 4GB Lockdown: Physical Batch 16 | Accumulation {accumulation_steps}")
+            print(f" [MEM-SENTINEL] Pre-Emptive 4GB Lockdown: Physical Batch 16 | Accumulation {accumulation_steps}")
+        elif is_heavy_model:
+            # NAFNet/MIRNet Survival Profile
+            batch_size = 1
+            accumulation_steps = max(4, effective_batch_size) # Force at least 4 steps for stability
+            print(f" [SURVIVAL PROFILE] NAFNet 4GB Lockdown: Physical Batch 1 | Accumulation {accumulation_steps}")
+            print(f" [RESILIENCE] Correcting for 156s/batch slowdown. Manifold throttled for stability.")
 
     # 2026: SOTA Smart Pipeline - Initialize with Governor's Efficiency Strategy (Default 10%)
     # Hyper-Dynamic Stabilizer Injection
-    global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0})
+    global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0, "vram_purge": True})
     model_stab = model_info.get("stabilizers", {})
     stab = {**global_stab, **model_stab}
     governor = SmartTrainingGovernor(model_info, stabilizers=stab)
@@ -517,7 +530,11 @@ def main():
             
     print(f" [DATA] Initializing Parallel Manifold (Workers: {num_workers} | Persistent: {num_workers > 0})...")
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=True if num_workers > 0 else False, pin_memory=True if device.type=='cuda' else False)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=True if num_workers > 0 else False, pin_memory=True if device.type=='cuda' else False)
+    val_num_workers = num_workers
+    if vram > 0 and vram < 5.0 and is_heavy_model:
+        val_num_workers = 0 # Force sequential validation on 4GB hardware to prevent swap-death crashes
+        print(f" [DATA] NAFNet Stability Hack: Disabling validation workers on 4GB hardware.")
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=val_num_workers, persistent_workers=True if val_num_workers > 0 else False, pin_memory=True if device.type=='cuda' else False)
 
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=5e-4) # 2026: SOTA Weight Decay Stabilizer
@@ -1218,6 +1235,13 @@ def main():
         all_targets = []
         # sentinel_stresses moved to epoch start to capture training instability
         with torch.no_grad():
+            # --- 2026: VRAM Defibrillation Pulse ---
+            # Purge training memory caches before high-res validation inference.
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
+            gc.collect()
+            if stab.get('vram_purge'): print(" [MEM] VRAM Defibrillation Pulse triggered. Clearing manifold for validation...")
+
             # 2026: Standardized Validation Telemetry. sys.stderr routes directly to PowerShell without buffering.
             val_pbar = tqdm(
                 val_loader, 
