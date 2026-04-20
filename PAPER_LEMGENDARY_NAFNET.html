@@ -417,8 +417,8 @@
             <p class="subtitle">High-Fidelity NAFNet Restoration via SOTA Infrastructure</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 2.3.0 - Resiliency v5.2 Milestone</span>
-                <span>Hardware: Dual Tesla T4 (15GB)</span>
+                <span>Version: 2.4.0 - Resiliency v6.1 Milestone</span>
+                <span>Hardware: Dual T4 / GTX 1650 Survival</span>
             </div>
         </header>
 
@@ -452,16 +452,18 @@
                 </li>
                 <li><a href="#challenges">6. Challenges & Resilience Architecture</a>
                     <ul class="sub-item">
-                        <li><a href="#nan-overflows">6.1 The SimpleGate NaN Overflows (Structural FP16 Disable)</a></li>
-                        <li><a href="#contiguous-crash">6.2 The Contiguous View Kernel Crash</a></li>
-                        <li><a href="#sudden-death">6.3 The OneCycleLR "Sudden Death" & AdamW Resume Shock</a></li>
-                        <li><a href="#vgg-collapse">6.4 The VGG Perceptual Convergence Collapse</a></li>
-                        <li><a href="#double-step-paradox">6.5 The "Double-Step" OneCycleLR Matrix Paradox</a></li>
+                        <li><a href="#nan-overflows">6.1 The SimpleGate NaN Overflows</a></li>
+                        <li><a href="#kernel-crash">6.2 The Contiguous View Kernel Crash</a></li>
+                        <li><a href="#onecyclelr-death">6.3 The OneCycleLR "Sudden Death"</a></li>
+                        <li><a href="#convergence-collapse">6.4 The VGG Perceptual Convergence Collapse</a></li>
+                        <li><a href="#matrix-paradox">6.5 The "Double-Step" OneCycleLR Matrix Paradox</a></li>
                         <li><a href="#defibrillation">6.6 The SOTA Sentry "Defibrillation Override"</a></li>
-                        <li><a href="#universal-sota">6.7 The Universal SOTA Optimization Vector</a></li>
-                        <li><a href="#stagnation-paradox">6.8 The Stagnation Paradox (Plateau-Buster v5.2)</a></li>
-                        <li><a href="#quality-mutex">6.9 The Quality-Regression Mutex (SOTA Guardrail)</a></li>
-                        <li><a href="#io-sync">6.10 Distributed I/O Synchronization</a></li>
+                        <li><a href="#optimization-vector">6.7 The Universal SOTA Optimization Vector</a></li>
+                        <li><a href="#plateau-buster">6.8 The Stagnation Paradox: Plateau-Buster v5.2</a></li>
+                        <li><a href="#quality-mutex">6.9 The Quality-Regression Mutex</a></li>
+                        <li><a href="#io-sync">6.10 Persistent I/O Synchronization (v5.8)</a></li>
+                        <li><a href="#survival-profile">6.11 Architectural Survival Profiles (v5.9)</a></li>
+                        <li><a href="#continuity-guard">6.12 Mission Continuity Guard (v6.1)</a></li>
                     </ul>
                 </li>
                 <li><a href="#deployment">7. Deployment Strategy</a>
@@ -628,9 +630,21 @@
             </div>
 
             <div class="card">
-                <h3 id="io-sync">6.10 Distributed I/O Synchronization</h3>
-                <p><strong>Issue</strong>: Multi-worker dataset initialization on Windows previously triggered <code>os.listdir</code> contention, leading to process hangs.</p>
-                <p><strong>Fix</strong>: Implemented a <strong>Class-Level I/O Cache</strong>. File lists are fetched once and cached, ensuring that all 12-16 workers initialize near-instantly without disk thrashing.</p>
+                <h3 id="io-sync">6.10 Persistent I/O Synchronization (v5.8)</h3>
+                <p><strong>Issue</strong>: On Windows systems with massive multitask datasets (50,000+ files), PyTorch dataloader workers would hang for up to 8 minutes during initialization as they recursively scanned the physical disk structure. In high-velocity mission scenarios, this cold-start latency was unacceptable.</p>
+                <p><strong>Fix</strong>: Engineered the <strong>Persistent Mission Manifest</strong>. The suite now generates a unified <code>.dataset_cache.json</code> manifest during the first scan. Subsequent restarts load this JSON manifest in milliseconds, providing instant manifold alignment and shattering the Windows disk-latency bottleneck.</p>
+            </div>
+
+            <div class="card">
+                <h3 id="survival-profile">6.11 Architectural Survival Profiles (v5.9)</h3>
+                <p><strong>Issue</strong>: Entry-level hardware (NVIDIA GTX 1650 / 4GB VRAM) physically cannot process SOTA NAFNet blocks at high resolutions with standard batch sizes. Previous models would instantly crater with <code>Out of Memory</code> errors.</p>
+                <p><strong>Fix</strong>: Implementation of the <strong>Survival Profile</strong>. The environment dynamically detects VRAM constraints and enforces a <strong>Physical Batch Size 1</strong> strategy coupled with <strong>4x Gradient Accumulation</strong>. This maintains the mathematical integrity of a "Batch Size 4" epoch while strictly restricting the GPU memory footprint to survival levels.</p>
+            </div>
+
+            <div class="card">
+                <h3 id="continuity-guard">6.12 Mission Continuity Guard (v6.1)</h3>
+                <p><strong>Issue</strong>: Legacy OOM recovery systems occasionally "leaked" manifold state, causing the training loop to terminate prematurely after a memory recovery event. This resulted in "truncated epochs" where the system only processed a fraction of the dataset.</p>
+                <p><strong>Fix</strong>: Engineered the <strong>Continuity Guard</strong>. By repairing the Resync logic and adding mandatory <strong>Iteration Pulse Heartbeats</strong>, the suite ensures that every sample is physically reconciled with the manifold. A final <strong>Manifold Leak Guard</strong> audit-locks the epoch until 100% of the dataset is processed.</p>
             </div>
         </section>
 
