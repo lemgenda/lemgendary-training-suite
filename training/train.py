@@ -535,7 +535,13 @@ def main():
     sample_fraction = governor.current_fraction
     
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
+    # --- 2026: SOTA Validation Anchoring (Resilience v4.0) ---
+    # We lock validation at 384px to provide a stable, consistent yardstick for SOTA tracking
+    # regardless of the Governor's dynamic training exploration resolution.
+    val_anchor_size = 384
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
+    val_ds.update_strategy(size=val_anchor_size)
+    print(f" [DATA] Validation Manifold ANCHORED at {val_anchor_size}px (Stable Baseline).")
     
     # 2026 Resilience: Parallel Mission Support
     # On Windows, num_workers > 0 is essential for large deep datasets
@@ -647,7 +653,10 @@ def main():
                     print(f"[INFO] [RESILIENCY] Intra-epoch progress detected. Iteration: {resume_iteration}")
                 if 'governor_state' in ckpt:
                     governor.load_state(ckpt['governor_state'])
-                    print(f" [RESILIENCY] Smart Governor state RESTORED from checkpoint.")
+                    g_start_state = governor.get_state()
+                    train_ds.update_strategy(fraction=g_start_state['sample_fraction'], size=g_start_state['input_size'])
+                    val_ds.update_strategy(size=g_start_state['input_size'])
+                    print(f" [RESILIENCY] Smart Governor state RESTORED from checkpoint (Dataset: {g_start_state['sample_fraction']*100:.0f}%).")
                 if ckpt.get('sota_achieved', False):
                     sota_baseline_achieved = True
             else:
@@ -874,7 +883,7 @@ def main():
         try:
             with open(metrics_csv_path, "r") as f:
                 header = f.readline().strip()
-                if len(header.split(",")) == 18:
+                if len(header.split(",")) == 19:
                     schema_ok = True
         except: pass
         
@@ -890,7 +899,7 @@ def main():
             except: pass
         
         with open(metrics_csv_path, "w") as f:
-            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Data,Temp,Clamp,Batch,Acc,Stress\n")
+            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Res,Data,Temp,Clamp,Batch,Acc,Stress\n")
     
     effective_batch_size = batch_size
     # accumulation_steps is established pre-emptively during initialization.
@@ -1523,7 +1532,8 @@ def main():
                     fraction=new_params['sample_fraction'] if f_changed else None,
                     size=new_params['input_size'] if r_changed else None
                 )
-                val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
+                # 2026: Validation remains Anchored at 384px for stable scorecarding
+                # val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
                 
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                 val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
@@ -1532,6 +1542,9 @@ def main():
                 mult = new_params['lr_multiplier']
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = param_group['lr'] * mult
+                    if 'max_lr' in param_group: param_group['max_lr'] *= mult
+                    if 'initial_lr' in param_group: param_group['initial_lr'] *= mult
+                    if 'min_lr' in param_group: param_group['min_lr'] *= mult
                 if hasattr(scheduler, 'base_lrs'):
                     scheduler.base_lrs = [l * mult for l in scheduler.base_lrs]
                 if hasattr(scheduler, 'max_lrs'):
@@ -1550,6 +1563,12 @@ def main():
             if 'stabilizers' not in model_info: model_info['stabilizers'] = {}
             model_info['stabilizers']['softmax_temp'] = new_params['softmax_temp']
             model_info['stabilizers']['logit_clamp'] = new_params['logit_clamp']
+
+            # --- 2026: SOTA Plateau Timer Reset ---
+            # If the Governor structurally changed the manifold via Data or Resolution, 
+            # or broke a plateau with a Jolt, we must reset the patience timer so it doesn't infinite loop.
+            if f_changed or r_changed or lr_changed:
+                epochs_no_improve = 0
 
         # Update best metrics for the CSV write (Enforce Audit Parity)
         best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
@@ -1609,6 +1628,15 @@ def main():
                     if 'optimizer_state' in ckpt:
                         optimizer.load_state_dict(ckpt['optimizer_state'])
                     
+                    # --- 2026: SOTA Governor Sync ---
+                    # Restore the Governor state (including datasets/fractions) to perfectly match the SOTA weights
+                    if 'governor_state' in ckpt:
+                        governor.load_state(ckpt['governor_state'])
+                        g_state = governor.get_state()
+                        train_ds.update_strategy(fraction=g_state['sample_fraction'], size=g_state['input_size'])
+                        val_ds.update_strategy(size=g_state['input_size'])
+                        print(f"🔄 [GOVERNOR SYNC] Rolled back Dataset Fraction to {g_state['sample_fraction']*100:.0f}%")
+                    
                     # Force 50% LR cooling to 'seat' the model back into the stable manifold
                     # --- 2026: SOTA Velocity Shield (v3.1) ---
                     # We prevent the LR from dropping below a fixed Survivor Floor (5e-7)
@@ -1618,6 +1646,9 @@ def main():
                     
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = new_lr
+                        if 'max_lr' in param_group: param_group['max_lr'] = max(survivor_floor, param_group['max_lr'] * 0.5)
+                        if 'initial_lr' in param_group: param_group['initial_lr'] = max(survivor_floor, param_group['initial_lr'] * 0.5)
+                        if 'min_lr' in param_group: param_group['min_lr'] = max(survivor_floor, param_group['min_lr'] * 0.5)
                         
                     if hasattr(scheduler, 'base_lrs'):
                         scheduler.base_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs]
@@ -1657,10 +1688,12 @@ def main():
         with open(metrics_csv_path, "a") as f:
             # Ground Truth LR: Using the optimizer's active param_groups to bypass scheduler lag
             curr_lr = optimizer.param_groups[0]['lr']
+            # Telemetry Sync: Logging dynamic training resolution with anchored validation metrics
             f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{curr_lr:.8f},"
                     f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim_val:.4f},{lpips_val:.4f},{fid:.4f},"
-                    f"{map50:.4f},{map50_95:.4f},{train_ds.sample_fraction:.2f},{stab['softmax_temp']:.4f},"
-                    f"{stab.get('logit_clamp', 20.0):.1f},{batch_size},{accumulation_steps},{avg_sentinel_stress:.6f}\n")
+                    f"{map50:.4f},{map50_95:.4f},{train_ds.size[0]},{train_ds.sample_fraction:.2f},"
+                    f"{stab['softmax_temp']:.4f},{stab.get('logit_clamp', 20.0):.1f},"
+                    f"{batch_size},{accumulation_steps},{avg_sentinel_stress:.6f}\n")
             
         prev_quality_score = current_quality_score
         if is_improving:
