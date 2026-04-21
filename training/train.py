@@ -800,10 +800,13 @@ def main():
                             print(" [RESILIENCY] Scheduler manifold successfully synchronized.")
                         except Exception as e:
                             print(f" [RESILIENCY] Partial scheduler sync failure: {e}. Re-instantiating fresh curve.")
-                            steps_per_epoch = len(train_loader) // accumulation_steps
-                            expected_steps_total = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
                             scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                        print(f" [RESILIENCY] Incompatible scheduler state detected ({e}). Structural handoff reset.")
+                                optimizer, max_lr=lr*1.2, total_steps=total_steps, 
+                                pct_start=dynamic_pct_start, anneal_strategy='cos',
+                                last_epoch=expected_steps_total
+                            )
+                        except Exception as e:
+                            print(f" [RESILIENCY] Incompatible scheduler state detected ({e}). Structural handoff reset.")
     else:
         if os.path.exists(latest_ckpt):
             ckpt = torch.load(latest_ckpt, map_location=device)
@@ -1227,7 +1230,7 @@ def main():
                 interval_pct = config.get("intra_epoch_checkpoint_pct", 0.1)
                 current_pct = (i + 1) / len(train_loader)
                 
-                if interval_pct > 0 and (current_pct >= last_intra_epoch_pct + interval_pct):
+                if interval_pct > 0 and (current_pct >= (last_intra_epoch_pct + interval_pct - 1e-5)):
                     last_intra_epoch_pct = (int(current_pct / interval_pct) * interval_pct)
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
                     temp_prog_ckpt = f"{prog_ckpt}.tmp"
