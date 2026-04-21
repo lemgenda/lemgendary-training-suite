@@ -11,8 +11,8 @@ kaggle.json
 .kaggle_token
 
 # ML Artifacts (Avoid committing binary weights)
-trained-models/
-checkpoints/
-*.pth
-*.pt
-*.onnx
+# trained-models/
+# checkpoints/
+# *.pth
+# *.pt
+# *.onnx

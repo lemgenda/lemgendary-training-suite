@@ -417,7 +417,7 @@
             <p class="subtitle">High-Fidelity NIMA Assessment via Hardware-Aware Optimization</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 2.8.0 - Resiliency v6.1 Milestone</span>
+                <span>Version: 2.9.0 - Resiliency v6.1.25</span>
                 <span>Hardware: GTX 1650 (4GB)</span>
             </div>
         </header>
@@ -487,6 +487,9 @@
                         <li><a href="#velocity-sync">7.21 Velocity-Scheduler Sync (v5.1)</a></li>
                         <li><a href="#io-sync">7.22 Persistent I/O Synchronization (v5.8)</a></li>
                         <li><a href="#continuity-guard">7.23 Mission Continuity Guard (v6.1)</a></li>
+                        <li><a href="#manifold-rescue">7.24 Manifold Rescue & High-Energy Jolt (v6.1.17)</a></li>
+                        <li><a href="#life-support">7.25 Velocity Life-Support (v6.1.18)</a></li>
+                        <li><a href="#mitochondrial-pulse">7.26 Mitochondrial Pulse (v6.1.19)</a></li>
                     </ul>
                 </li>
                 <li><a href="#onnx">8. ONNX Strategy</a>
@@ -829,6 +832,24 @@
                 <h4 id="continuity-guard">7.23 Mission Continuity Guard (v6.1)</h4>
                 <p><strong>Issue</strong>: Previous iterations suffered from "Manifold Leaks" where the training loop terminated prematurely after a memory recovery event. This truncated the learning curve and damaged the EMD distribution.</p>
                 <p><strong>Fix</strong>: Engineered the <strong>Continuity Guard</strong>. It repairs the OOM-recovery loop and adds mandatory <strong>Iteration Pulse Heartbeats</strong>. The suite now verifies that exactly 100% of the dataset is reconciled with the manifold before allowing the epoch to conclude.</p>
+            </div>
+
+            <div class="card">
+                <h4 id="manifold-rescue">7.24 Manifold Rescue & High-Energy Jolt (v6.1.17)</h4>
+                <p><strong>Issue:</strong> Quality-focused models (NIMA) occasionally enter "Numerical Stagnancy" where SRCC flickers on a 0.83 plateau regardless of temperature shifting.<br/>
+                <strong>Fix:</strong> Adoption of the project-wide <strong>High-Energy Jolt</strong>. If stagnation is detected for >12 epochs, the system slams the EfficientNet/MobileNet backbones with a fresh 0.0002 LR burst, shattering local minima and forcing re-exploration of the aesthetic manifold.</p>
+            </div>
+
+            <div class="card">
+                <h4 id="life-support">7.25 Velocity Life-Support (v6.1.18)</h4>
+                <p><strong>Issue:</strong> Recursive regression dampening could previously cool the NIMA learning rate below the threshold of physical discovery (e.g., 1e-7).<br/>
+                <strong>Fix:</strong> Implementation of <strong>Velocity Life-Support</strong>. If LR drops below 1% of the mission base due to repeated Smart Governor corrections, an emergency Rescue Jolt is triggered to maintain training momentum.</p>
+            </div>
+
+            <div class="card">
+                <h4 id="mitochondrial-pulse">7.26 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)</h4>
+                <p><strong>Issue:</strong> Intra-epoch checkpointing previously suffered from floating-point rounding errors on Windows, occasionally missing critical 20% progress milestones.<br/>
+                <strong>Fix:</strong> Engineered the <strong>Mitochondrial Pulse</strong>. Persistence triggers now utilize a 1e-5 mathematical epsilon and strict lock-counters, ensuring that resume-states are biologically-synchronized across every session.</p>
             </div>
         </section>
 

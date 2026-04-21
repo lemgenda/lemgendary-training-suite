@@ -6,6 +6,12 @@
 
 ---
 
+### 📡 Mission Status: v2.5.0 (Resiliency v6.1.25)
+🚀 **Status**: Production Deployment / Active Training Loop  
+🧪 **Current Goal**: Break 35dB PSNR / Escaping 24dB Local Minima
+
+---
+
 ## ⚡ 2026 Resilience Architecture (v4.5 Breakthrough)
 
 The v7.5 release introduces the **Registry-First Dynamic Orchestration (v4.5)** and **Standardized Epoch Resumption**, ensuring binary parity across all 21+ neural models with zero maintenance debt. By unifying all metadata into a single source of truth, the suite now self-heals its dependency mappings across local and cloud clusters natively.
@@ -90,14 +96,15 @@ A centralized intelligence layer that dynamically recalibrates training complexi
 ### 🛡️ Memory-Sentinel (VRAM Guard) & Survival Profile (v5.9)
 Hardware-aware orchestration that prevents OOM crashes and OS paging:
 - **Proactive Scaling**: Predicts VRAM consumption before resolution shifts and automatically trades physical **Batch Size** for **Gradient Accumulation**.
-- **Survival Profile (v5.9)**: Specifically for heavy architectures (NAFNet/MIRNet) on 4GB hardware. Forces **Physical Batch Size 1** with **4x Gradient Accumulation** to maintain mathematical quality without VRAM oversubscription.
+- **Survival Profile (v5.9)**: Specifically for heavy architectures (NAFNet/MIRNet) on 4GB hardware. Forces **Physical Batch Size 1** with **4x Gradient Accumulation**.
 - **Reactive Recovery**: Intercepts physical OOM errors mid-epoch, clears the CUDA cache, and performs emergency batch reductions to keep the mission alive.
-- **Mission Continuity Guard (v6.1)**: Manifold leak prevention. Ensures the mission continues seamlessly after a memory recovery event instead of terminating the epoch prematurely.
+- **Mission Continuity Guard (v6.1)**: Manifold leak prevention. Ensures the mission continues seamlessly after a memory recovery event.
+- **Plateau Breaker (v6.1.25)**: Engineered high-energy Manifold Jolt + Velocity Life-Support. Breaks 200-epoch stagnancy using kinetic LR resetting.
 
 ### 📊 Universal SOTA Telemetry
 A standardized, 17-column historical audit (`metrics.csv`) that captures the complete state of the training manifold:
 - **Telemetry Schema Guard**: Automatically detects, archives, and migrates legacy 8-column or 10-column logs into the 17-column hardware-aware standard.
-- **Metrics Sanitizer**: Explicitly sanitizes `inf`/`NaN` artifacts and bypasses incompatible metrics (e.g., LPIPS for quality) to prevent numerical poison from infiltrating the Governor's logic.
+- **Metrics Sanitizer**: Explicitly sanitizes `inf`/`NaN` artifacts and bypasses incompatible metrics to prevent numerical poison from infiltrating the Governor's logic.
 - **Auditable State**: Tracks PLCC, SRCC, PSNR, SSIM, LPIPS, FID, mAP, Data Fraction, Softmax Temp, Logit Clamp, LR, Batch Size, and Accumulation.
 
 ---
@@ -124,15 +131,13 @@ The v8.0.0 release marks the complete transition from placeholder "Mock" classes
 | **Smart Governor** | Autonomous scaling of Res, Temp, Clamp, and Dataset Fraction. | ✅ Active |
 | **Jolt Recoil** | Detects and dampens manifold regression following plateau breaks. | ✅ Active |
 | **Memory-Sentinel** | Hardware-aware VRAM monitoring and Batch-Accumulation trades. | ✅ Active |
-| **Plateau-Buster** | **v5.2 Upgrade**: Strict 0.1% delta gating with a stagnation jolt counter to break training stalls. | ✅ Active |
-| **SOTA Guardrail** | **v5.2 Upgrade**: Quality-Regression Mutex prevents false exports if PSNR regresses during loss drops. | ✅ Active |
+| **Plateau-Buster** | **v5.2 Upgrade**: Strict 0.1% delta gating with a stagnation jolt counter. | ✅ Active |
+| **SOTA Guardrail** | **v5.2 Upgrade**: Quality-Regression Mutex prevents false exports. | ✅ Active |
 | **Singularity Shield** | Detection of NaNs triggers immediate weight restoration & thermal cooling. | ✅ Active |
-| **Regression Guard** | Physical checkpoint rollback if metrics drop > 5% for 3 consecutive epochs. | ✅ Active |
-| **SWA Smoothing** | Shadow weight averaging across epochs for superior SOTA generalization. | ✅ Active |
-| **I/O Sync** | **v5.8 Upgrade**: Persistent JSON manifold manifest shatters cold-start disk hangs. | ✅ Active |
-| **Survival Profile**| **v5.9 Upgrade**: Physical/Logical batch trading for heavy models on 4GB hardware. | ✅ Active |
-| **Continuity Guard**| **v6.1 Upgrade**: OOM-recovery loop leak prevention and manifold liveness heartbeats. | ✅ Active |
-| **No-Mock Protocol** | 100% Real High-Fidelity Architectures (Removed all Proxies/Mocks). | ✅ Active |
+| **I/O Sync** | **v5.8 Upgrade**: Persistent JSON manifold manifest shatters disk hangs. | ✅ Active |
+| **Survival Profile** | **v5.9 Upgrade**: Physical/Logical batch trading for heavy models on 4GB hardware. | ✅ Active |
+| **Continuity Guard** | **v6.1 Upgrade**: OOM-recovery loop leak prevention and manifold liveness. | ✅ Active |
+| **Plateau Breaker** | **v6.1.25 Upgrade**: High-energy Manifold Jolt + Velocity Life-Support. | ✅ Active |
+| **Pulse Persistence**| **v6.1.25 Upgrade**: Epsilon-hardened 20% intra-epoch synchronization. | ✅ Active |
 
 ---
-

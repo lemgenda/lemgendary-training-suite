@@ -417,7 +417,7 @@
             <p class="subtitle">High-Fidelity NAFNet Restoration via SOTA Infrastructure</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 2.4.0 - Resiliency v6.1 Milestone</span>
+                <span>Version: 2.5.0 - Resiliency v6.1.25</span>
                 <span>Hardware: Dual T4 / GTX 1650 Survival</span>
             </div>
         </header>
@@ -464,6 +464,9 @@
                         <li><a href="#io-sync">6.10 Persistent I/O Synchronization (v5.8)</a></li>
                         <li><a href="#survival-profile">6.11 Architectural Survival Profiles (v5.9)</a></li>
                         <li><a href="#continuity-guard">6.12 Mission Continuity Guard (v6.1)</a></li>
+                        <li><a href="#manifold-rescue">6.13 Manifold Rescue & High-Energy Jolt (v6.1.17)</a></li>
+                        <li><a href="#life-support">6.14 Velocity Life-Support (v6.1.18)</a></li>
+                        <li><a href="#mitochondrial-pulse">6.15 Mitochondrial Pulse (v6.1.19)</a></li>
                     </ul>
                 </li>
                 <li><a href="#deployment">7. Deployment Strategy</a>
@@ -644,7 +647,25 @@
             <div class="card">
                 <h3 id="continuity-guard">6.12 Mission Continuity Guard (v6.1)</h3>
                 <p><strong>Issue</strong>: Legacy OOM recovery systems occasionally "leaked" manifold state, causing the training loop to terminate prematurely after a memory recovery event. This resulted in "truncated epochs" where the system only processed a fraction of the dataset.</p>
-                <p><strong>Fix</strong>: Engineered the <strong>Continuity Guard</strong>. By repairing the Resync logic and adding mandatory <strong>Iteration Pulse Heartbeats</strong>, the suite ensures that every sample is physically reconciled with the manifold. A final <strong>Manifold Leak Guard</strong> audit-locks the epoch until 100% of the dataset is processed.</p>
+                <p><strong>Fix:</strong> Engineered the <strong>Continuity Guard</strong>. By repairing the Resync logic and adding mandatory <strong>Iteration Pulse Heartbeats</strong>, the suite ensures that every sample is physically reconciled with the manifold. A final <strong>Manifold Leak Guard</strong> audit-locks the epoch until 100% of the dataset is processed.</p>
+            </div>
+
+            <div class="card">
+                <h3 id="manifold-rescue">6.13 Manifold Rescue & High-Energy Jolt (v6.1.17)</h3>
+                <p><strong>Issue:</strong> High-complexity models occasionally enter "Numerical Stagnancy" where they become trapped in a 24dB local minimum regardless of learning rate decay.<br/>
+                <strong>Fix:</strong> Implementation of the <strong>High-Energy Jolt</strong>. When a 12-epoch stagnation is detected at 100% data capacity, the Governor now forces a <strong>Hard-Reset</strong> to the <code>base_lr</code> (0.0002). This slams the architecture with kinetic energy, physically ripping the weights out of the local minimum and forcing global re-exploration.</p>
+            </div>
+
+            <div class="card">
+                <h3 id="life-support">6.14 Velocity Life-Support (v6.1.18)</h3>
+                <p><strong>Issue:</strong> During prolonged regressions, the Smart Governor's dampening multipliers (0.7x) could stack indefinitely, cooling the learning rate to "terminal" levels (e.g., 2e-7) where training effectively halts.<br/>
+                <strong>Fix:</strong> Implementation of <strong>Velocity Life-Support</strong>. The Governor now monitors the "Training Velocity." If the current LR drops below 1% of the base training speed due to repeated dampening, an emergency <strong>Rescue Trigger</strong> forces an immediate Jolt, preventing the mission from flatlining in a low-energy state.</p>
+            </div>
+
+            <div class="card">
+                <h3 id="mitochondrial-pulse">6.15 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)</h3>
+                <p><strong>Issue:</strong> On high-iteration missions (NAFNet), intra-epoch progress markers (every 10-20%) could be skipped due to floating-point rounding errors in the iterator percentage calculation.<br/>
+                <strong>Fix:</strong> Engineered the <strong>Mitochondrial Pulse</strong>. The persistence trigger now utilizes a <strong>Mathematical Epsilon</strong> (<code>1e-5</code>) and strict <code>last_intra_epoch_pct</code> locking. This ensures that state-saving synchronization is physically indestructible across all hardware profiles, guaranteeing a 20% checkpoint is never missed.</p>
             </div>
         </section>
 
