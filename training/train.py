@@ -800,6 +800,7 @@ def main():
                             print(" [RESILIENCY] Scheduler manifold successfully synchronized.")
                         except Exception as e:
                             print(f" [RESILIENCY] Partial scheduler sync failure: {e}. Re-instantiating fresh curve.")
+                        try:
                             scheduler = torch.optim.lr_scheduler.OneCycleLR(
                                 optimizer, max_lr=lr*1.2, total_steps=total_steps, 
                                 pct_start=dynamic_pct_start, anneal_strategy='cos',
