@@ -190,9 +190,17 @@ class SmartTrainingGovernor:
                     msg_parts.append(f"PLATEAU (Res-Maxed): Expanding variety to {self.current_fraction*100:.0f}%")
                 else:
                     # Everything maxed, force a High-Energy Manifold Jolt (v6.1.17)
+                    forced_jolt = False
                     if current_lr and base_lr:
+                        # 2026 Resilience: Velocity Life-Support (v6.1.18)
+                        # If LR is < 1% of base due to dampening, it's effectively dead. Force reset.
+                        if current_lr < (base_lr * 0.01):
+                            forced_jolt = True
+                            msg_parts.append(f"VELOCITY LIFE-SUPPORT: LR has cooled to death ({current_lr:.8f}). Forcing recovery!")
+
                         self.lr_multiplier = base_lr / current_lr
-                        msg_parts.append(f"PLATEAU BREAKER: Injecting High-Energy Manifold Jolt ({self.lr_multiplier:.1f}x)")
+                        if not forced_jolt:
+                            msg_parts.append(f"PLATEAU BREAKER: Injecting High-Energy Manifold Jolt ({self.lr_multiplier:.1f}x)")
                     else:
                         self.lr_multiplier = self.jolt_multiplier
                         msg_parts.append(f"PLATEAU BREAKER: Injecting {self.jolt_multiplier}x LR Jolt")
@@ -202,10 +210,12 @@ class SmartTrainingGovernor:
                     # Warm up Thermal Thermal Shield to allow exploration
                     self.current_temp = min(0.3, self.current_temp * 2.0)
                     t_changed = True
-                
+
                 # Reset stagnation counter ONLY if a change was actually made
                 if f_changed or r_changed or lr_changed:
                     self.stagnation_counter = 0
+                    # On high-energy reset, also reset the drift tracker
+                    self.consecutive_drift = 0
 
         self.prev_quality = current_quality
         

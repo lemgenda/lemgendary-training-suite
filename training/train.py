@@ -803,14 +803,15 @@ def main():
                             steps_per_epoch = len(train_loader) // accumulation_steps
                             expected_steps_total = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
                             scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                                optimizer, max_lr=lr*1.2, total_steps=total_steps, 
-                                pct_start=dynamic_pct_start, anneal_strategy='cos',
-                                last_epoch=expected_steps_total
-                            )
-                except (KeyError, ValueError, TypeError) as e:
-                    print(f" [RESILIENCY] Incompatible scheduler state detected ({e}). Structural handoff reset.")
+                        print(f" [RESILIENCY] Incompatible scheduler state detected ({e}). Structural handoff reset.")
     else:
         if os.path.exists(latest_ckpt):
+            ckpt = torch.load(latest_ckpt, map_location=device)
+            start_epoch = ckpt['epoch'] + 1
+            best_val_loss = ckpt.get('best_val_loss', 1e10)
+            best_quality_score = ckpt.get('best_quality_score', 0.0)
+            epochs_no_improve = ckpt.get('epochs_no_improve', 0)
+            regression_epochs = ckpt.get('regression_epochs', 0)
             print(" [SOTA 2.0] Model architecture shift detected. Starting fresh LR cycle from Epoch 1.")
 
     # --- 2026: Polarity Manifold Anchor (v4.0) ---
@@ -1021,6 +1022,7 @@ def main():
                                 'best_val_loss': best_val_loss,
                                 'best_quality_score': best_quality_score,
                                 'epochs_no_improve': epochs_no_improve,
+                                'regression_epochs': regression_epochs,
                                 'sota_achieved': sota_baseline_achieved
                             }, f"{recovery_ckpt}.tmp")
                             safe_replace(f"{recovery_ckpt}.tmp", recovery_ckpt)
@@ -1239,6 +1241,7 @@ def main():
                         'best_val_loss': best_val_loss,
                         'best_quality_score': best_quality_score,
                         'epochs_no_improve': epochs_no_improve,
+                        'regression_epochs': regression_epochs,
                         'sota_achieved': sota_baseline_achieved
                     }, temp_prog_ckpt)
                     safe_replace(temp_prog_ckpt, prog_ckpt)
@@ -1531,6 +1534,7 @@ def main():
             'best_quality_score': best_quality_score,
             'best_metrics': best_metrics,
             'epochs_no_improve': epochs_no_improve,
+            'regression_epochs': regression_epochs,
             'sota_achieved': sota_baseline_achieved
         }
         
@@ -1619,6 +1623,7 @@ def main():
                 trigger_sota_export(model, args, config, unified_models_registry, epoch, plcc, srcc, psnr, ssim_val, lpips_val, fid)
         else:
             epochs_no_improve += 1  # pyre-ignore
+            regression_epochs += 1
             print(f" -> No improvement for {epochs_no_improve} epoch(s).")
             if epochs_no_improve >= patience:
                 print(f"\n[Early Stopping] Model structurally converged. Halting training to prevent overfitting.")
