@@ -807,7 +807,9 @@ def main():
                                     last_epoch=expected_steps_total
                                 )
                             except Exception as e:
-                                print(f" [RESILIENCY] Incompatible scheduler state detected ({e}). Structural handoff reset.")
+                            print(f" [RESILIENCY] Incompatible scheduler state detected ({e}). Structural handoff reset.")
+                except Exception as e:
+                    print(f" [RESILIENCY] Mission-level scheduler sync failure: {e}. Defaulting to safety manifold.")
     else:
         if os.path.exists(latest_ckpt):
             ckpt = torch.load(latest_ckpt, map_location=device)
