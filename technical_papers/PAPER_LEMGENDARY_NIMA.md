@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NIMA Assessment via Hardware-Aware Optimization
 
 **Author**: Lem Treursić
-**Version**: 2.8.0 - Resiliency v6.1 Milestone (2026 Optimization)
+**Version**: 2.9.0 - Resiliency v6.1.25 (2026 Optimization)
 **Target Hardware**: NVIDIA GeForce GTX 1650 (4GB GDDR5 / Windows 11)
 
 ---
@@ -50,6 +50,11 @@
    - [7.21 The Velocity-Scheduler Sync (v5.1 Resiliency)](#721-the-velocity-scheduler-sync-v51-resiliency)
    - [7.22 Persistent I/O Synchronization (v5.8)](#722-persistent-io-synchronization-v58)
    - [7.23 Mission Continuity Guard (v6.1)](#723-mission-continuity-guard-v61)
+   - [7.24 Manifold Rescue & High-Energy Jolt (v6.1.17)](#724-manifold-rescue-high-energy-jolt-v6117)
+   - [7.25 Velocity Life-Support (v6.1.18)](#725-velocity-life-support-v6118)
+   - [7.26 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)](#726-the-mitochondrial-pulse-epsilon-hardened-persistence-v6119)
+   - [7.27 The Rank Margin Objective (v6.1.30)](#727-the-rank-margin-objective-v6130)
+   - [7.28 Telemetry Parity & Plateau Resilience (v6.1.31)](#728-telemetry-parity--plateau-resilience-v6131)
 8. [Deployment Strategy: Why ONNX?](#8-deployment-strategy-why-onnx)
    - [8.1 Format Comparison Matrix](#81-format-comparison-matrix)
    - [8.2 Why ONNX Wins for LemGendary](#82-why-onnx-wins-for-lemgendary)
@@ -271,17 +276,37 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 - **Result**: Resumption is now idempotent and robust against OS-level resource locks, ensuring seamless 1000-epoch mission continuity.
 
 ### 7.21 The Velocity-Scheduler Sync (v5.1 Resiliency)
-...
+**Issue**: Prior to v5.1, the **Smart Training Governor** operated independently of the `OneCycleLR` schedule. When the Governor dampened the learning rate to stabilize metric drift, the scheduler—unaware of the external intervention—would overwrite the LR on the next step based on its original trajectory, leading to "Manifold Shock" and recurrent drift.
+**Fix**: Implemented the **v5.1 Velocity Synchronization**. The Governor is now programmatically bound to the scheduler's internal state. Upon a drift-triggered LR shift, the suite physically scales the scheduler's `max_lrs` and `base_lrs` parameters. This ensures the stabilization "sticks" and the entire mathematical curve is recalibrated for the new manifold velocity.
+**Result**: Successfully locked NIMA Technical at a stable **0.9848 PLCC**, neutralizing stochastic runaway during the peak of the training cycle.
+
 ### 7.22 Persistent I/O Synchronization (v5.8)
 **Issue**: High-frequency Technical Assessment at 384x384 requires massive batch throughput. On Windows, PyTorch workers previously spent minutes scanning the 50,000-sample dataset during initialization.
 **Fix**: Engineered the **Persistent Mission Manifest**. The suite now generates a unified `.dataset_cache.json` manifest. Subsequent restarts load this JSON mission manifest in milliseconds, providing instant manifold alignment and shattering the cold-start disk bottleneck.
 
 ### 7.23 Mission Continuity Guard (v6.1)
 **Issue**: Previous iterations suffered from "Manifold Leaks" where the training loop terminated prematurely after a memory recovery event. This truncated the learning curve and damaged the EMD distribution.
-**Fix**: Engineered the **Continuity Guard**. It repair the OOM-recovery loop and adds mandatory **Iteration Pulse Heartbeats**. The suite now verifies that exactly 100% of the dataset is reconciled with the manifold before allowing the epoch to conclude.
-**Issue**: Prior to v5.1, the **Smart Training Governor** operated independently of the `OneCycleLR` schedule. When the Governor dampened the learning rate to stabilize metric drift, the scheduler—unaware of the external intervention—would overwrite the LR on the next step based on its original trajectory, leading to "Manifold Shock" and recurrent drift.
-**Fix**: Implemented the **v5.1 Velocity Synchronization**. The Governor is now programmatically bound to the scheduler's internal state. Upon a drift-triggered LR shift, the suite physically scales the scheduler's `max_lrs` and `base_lrs` parameters. This ensures the stabilization "sticks" and the entire mathematical curve is recalibrated for the new manifold velocity.
-**Result**: Successfully locked NIMA Technical at a stable **0.9848 PLCC**, neutralizing stochastic runaway during the peak of the training cycle.
+**Fix**: Engineered the **Continuity Guard**. By repairing the Resync logic and adding mandatory **Iteration Pulse Heartbeats**, the suite ensures that every sample is physically reconciled with the manifold. A final **Manifold Leak Guard** audit-locks the epoch until 100% of the dataset is processed.
+
+### 7.24 Manifold Rescue & High-Energy Jolt (v6.1.17)
+**Issue**: Quality-focused models (NIMA) occasionally enter "Numerical Stagnancy" where SRCC flickers on a 0.83 plateau regardless of temperature shifting.
+**Fix**: Adoption of the project-wide **High-Energy Jolt**. If stagnation is detected for >12 epochs, the system slams the EfficientNet/MobileNet backbones with a fresh 0.0002 LR burst, shattering local minima and forcing re-exploration of the aesthetic manifold.
+
+### 7.25 Velocity Life-Support (v6.1.18)
+**Issue**: Recursive regression dampening could previously cool the NIMA learning rate below the threshold of physical discovery (e.g., 1e-7).
+**Fix**: Implementation of **Velocity Life-Support**. If LR drops below 1% of the mission base due to repeated Smart Governor corrections, an emergency Rescue Jolt is triggered to maintain training momentum.
+
+### 7.26 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)
+**Issue**: Intra-epoch checkpointing previously suffered from floating-point rounding errors on Windows, occasionally missing critical 20% progress milestones.
+**Fix**: Engineered the **Mitochondrial Pulse**. Persistence triggers now utilize a 1e-5 mathematical epsilon and strict lock-counters, ensuring that resume-states are biologically-synchronized across every session.
+
+### 7.27 The Rank Margin Objective (v6.1.30)
+**Issue**: Legacy metric tracking natively favored models that learned high correlation (SRCC) but completely failed to preserve the absolute rank distance between quality bins, leading to squashed classification logits in the output manifold.
+**Fix**: SOTA Metric logic has been decentralized and integrated with physical **Rank Margin** calculation. The metric ensures the mean absolute error between ordinal ground-truth ranks and predicted ranks is minimized, driving the EMD loss to physically separate technical quality bins.
+
+### 7.28 Telemetry Parity & Plateau Resilience (v6.1.31)
+**Issue**: Substantial metric fluctuations caused by dataset expansions triggered "LR Starvation" where the regression guard repeatedly rolled back weights while blindly zeroing out kinetic energy.
+**Fix**: Deployed the **Velocity Shield (Survivor Floor)**. The Regression Guard is now bound by a physical `5e-7` absolute LR floor. Consecutive rollbacks are restricted from freezing the velocity, effectively keeping the engine running through long plateaus. Telemetry synchronization guarantees these recovery shifts are logged with zero-epoch lag.
 
 ---
 

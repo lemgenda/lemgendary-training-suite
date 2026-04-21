@@ -83,6 +83,21 @@ signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
 from data.dataset import MultiTaskDataset
 from models.factory import get_model
 
+# --- 2026: SOTA Metric Registry & Polarity Definitions ---
+# higher_better: True (Higher is Better), False (Lower is Better)
+METRIC_DIRECTIONS = {
+    'plcc': True, 'srcc': True, 'psnr': True, 'ssim': True,
+    'lpips': False, 'fid': False, 'map50': True, 'map50_95': True,
+    'rank_margin': False, 'accuracy': True
+}
+
+# Standard Weights for Quality Score calculation (Multiplier applied to normalized 0.0-1.0 range)
+METRIC_WEIGHTS = {
+    'plcc': 50, 'srcc': 50, 'psnr': 1, 'ssim': 40,
+    'lpips': 40, 'fid': 1, 'map50': 100, 'map50_95': 100,
+    'rank_margin': 20, 'accuracy': 100
+}
+
 def safe_replace(src, dst):
     """Battle-Hardened atomic replace for Windows. Uses 3-stage recovery (Replace -> Remove/Rename -> Copy/Delete)."""
     max_retries = 15
@@ -1331,7 +1346,10 @@ def main():
         
         # Calculate Universal Validation Metrics
         metrics_str = ""
-        plcc, srcc, psnr, ssim_val, lpips_val, fid = 0.0, 0.0, 0.0, 0.0, 0.05, 10.0
+        plcc = srcc = psnr = ssim_val = lpips_val = fid = map50 = map50_95 = rank_margin = 0.0
+        # Set baseline for non-negative metrics
+        lpips_val = 0.05
+        fid = 50.0
         try:
             if train_ds.task_type == "quality" and len(all_preds) > 0:
                 import scipy.stats  # pyre-ignore
@@ -1349,7 +1367,9 @@ def main():
                     
                     plcc, _ = scipy.stats.pearsonr(p_mean, t_mean)
                     srcc, _ = scipy.stats.spearmanr(p_mean, t_mean)
-                    metrics_str = f" | PLCC: {plcc:.4f} | SRCC: {srcc:.4f}"
+                    # 2026 Resilience: Rank Margin - Mean Absolute Error of ordinal ranks
+                    rank_margin = float(np.mean(np.abs(p_mean - t_mean)))
+                    metrics_str = f" | PLCC: {plcc:.4f} | SRCC: {srcc:.4f} | RM: {rank_margin:.4f}"
             elif train_ds.task_type in ["restoration", "enhancement", "face"] and len(all_preds) > 0:
                 p = torch.cat(all_preds)
                 t = torch.cat(all_targets)
@@ -1409,13 +1429,7 @@ def main():
         summary_line = f"Epoch {epoch+1} Summary | Train: {avg_train_loss:.6f} | Val: {avg_val_loss:.6f}{metrics_str}{smart_meta}"
         print(f"\n{summary_line}")
 
-        with open(metrics_csv_path, "a") as f:
-            curr_lr = scheduler.get_last_lr()[0]
-            # Unified SOTA Row: Standardized 18-column hardware-aware manifold tracking
-            f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{curr_lr:.8f},"
-                    f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim_val:.4f},{lpips_val:.4f},{fid:.4f},"
-                    f"{map50:.4f},{map50_95:.4f},{train_ds.sample_fraction:.2f},{stab['softmax_temp']:.4f},"
-                    f"{stab.get('logit_clamp', 20.0):.1f},{batch_size},{accumulation_steps},{avg_sentinel_stress:.6f}\n")
+        # 2026: SOTA Hyperparameter management is now handled by the Smart Governor below.
             
         # 2026: SOTA Hyperparameter management is now handled by the Smart Governor below.
 
@@ -1433,18 +1447,29 @@ def main():
         
         if sota_targets:
             # Dynamic Quality Score: Weighted average of all SOTA targets
-            # We normalize metrics based on common scales (0-1 for correlation/SSIM, 0-100 for PSNR/FID)
-            # Higher is always better in this score matrix.
+            # Metric mapping ensures higher is always better for the final scalar.
             current_quality_score = 0.0
-            for k, v in sota_targets.items():
-                if k == 'plcc': current_quality_score += plcc * 50
-                elif k == 'srcc': current_quality_score += srcc * 50
-                elif k == 'psnr': current_quality_score += psnr
-                elif k == 'ssim': current_quality_score += ssim_val * 40
-                elif k == 'lpips': current_quality_score += (1.0 - lpips_val) * 40 # Inverted
-                elif k == 'fid': current_quality_score += (100.0 - fid) # Inverted
-                elif k == 'map50': current_quality_score += map50 * 100
-                elif k == 'map50_95': current_quality_score += map50_95 * 100
+            
+            # Map available variables to a local dict for easy lookup
+            curr_metrics = {
+                'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
+                'lpips': lpips_val, 'fid': fid, 'map50': map50, 'map50_95': map50_95,
+                'rank_margin': rank_margin
+            }
+            
+            for k, target_v in sota_targets.items():
+                val = curr_metrics.get(k, 0.0)
+                direction = METRIC_DIRECTIONS.get(k, True)
+                weight = METRIC_WEIGHTS.get(k, 1)
+                
+                if direction:
+                    current_quality_score += val * weight
+                else:
+                    # Inverted: We use standard 2026 normalization for restoration metrics
+                    if k == 'fid': current_quality_score += (100.0 - val) * weight
+                    elif k == 'lpips': current_quality_score += (1.0 - val) * weight
+                    elif k == 'rank_margin': current_quality_score += (1.0 - val) * weight
+                    else: current_quality_score += (1.0 / (val + 1e-6)) * weight
             
             # --- 2026 Resilience: Meaningful Improvement Delta ---
             # We now use the Governor's min_delta (0.1%) to filter out numerical noise.
@@ -1585,12 +1610,24 @@ def main():
                         optimizer.load_state_dict(ckpt['optimizer_state'])
                     
                     # Force 50% LR cooling to 'seat' the model back into the stable manifold
+                    # --- 2026: SOTA Velocity Shield (v3.1) ---
+                    # We prevent the LR from dropping below a fixed Survivor Floor (5e-7)
+                    # to prevent the model from 'freezing' in a sub-optimal manifold.
+                    survivor_floor = 5e-7
+                    new_lr = max(survivor_floor, optimizer.param_groups[0]['lr'] * 0.5)
+                    
                     for param_group in optimizer.param_groups:
-                        param_group['lr'] = param_group['lr'] * 0.5
+                        param_group['lr'] = new_lr
+                        
                     if hasattr(scheduler, 'base_lrs'):
-                        scheduler.base_lrs = [lr * 0.5 for lr in scheduler.base_lrs]
+                        scheduler.base_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs]
                     if hasattr(scheduler, 'max_lrs'):
-                        scheduler.max_lrs = [lr * 0.5 for lr in scheduler.max_lrs]
+                        scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.max_lrs]
+                    
+                    # 2026 Resilience: Force scheduler state synchronization
+                    # This ensures get_last_lr() and internal counters are aligned after the rollback
+                    if hasattr(scheduler, '_last_lr'):
+                        scheduler._last_lr = [new_lr] * len(optimizer.param_groups)
                     
                     # Momentum Cooling
                     for state in optimizer.state.values():
@@ -1613,6 +1650,17 @@ def main():
                     epochs_no_improve = 0 # Reset patience since we are essentially retrying a new manifold
         else:
             regression_epochs = 0
+            
+        # --- 2026: SOTA Telemetry Sync (Resilience v3.1) ---
+        # We record the metrics AFTER all Governor transitions and Regression Guard rollbacks
+        # to ensure the CSV reflects the EXACT state that will be used for the next epoch's training.
+        with open(metrics_csv_path, "a") as f:
+            # Ground Truth LR: Using the optimizer's active param_groups to bypass scheduler lag
+            curr_lr = optimizer.param_groups[0]['lr']
+            f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{curr_lr:.8f},"
+                    f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim_val:.4f},{lpips_val:.4f},{fid:.4f},"
+                    f"{map50:.4f},{map50_95:.4f},{train_ds.sample_fraction:.2f},{stab['softmax_temp']:.4f},"
+                    f"{stab.get('logit_clamp', 20.0):.1f},{batch_size},{accumulation_steps},{avg_sentinel_stress:.6f}\n")
             
         prev_quality_score = current_quality_score
         if is_improving:
@@ -1646,19 +1694,22 @@ def main():
             # Check if ALL targets defined in config are met
             all_met = True
             met_details = []
+            
+            curr_metrics = {
+                'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
+                'lpips': lpips_val, 'fid': fid, 'map50': map50, 'map50_95': map50_95,
+                'rank_margin': rank_margin
+            }
+
             for k, v in sota_targets.items():
-                met = False
-                if k == 'plcc' and plcc >= v: met = True
-                elif k == 'srcc' and srcc >= v: met = True
-                elif k == 'psnr' and psnr >= v: met = True
-                elif k == 'ssim' and ssim_val >= v: met = True
-                elif k == 'lpips' and lpips_val <= v: met = True
-                elif k == 'fid' and fid <= v: met = True
-                elif k == 'map50' and map50 >= v: met = True
-                elif k == 'map50_95' and map50_95 >= v: met = True
+                val = curr_metrics.get(k, 0.0)
+                direction = METRIC_DIRECTIONS.get(k, True)
+                met = (val >= v) if direction else (val <= v)
                 
-                if not met: all_met = False
-                else: met_details.append(f"{k} >= {v}")
+                if not met: 
+                    all_met = False
+                else: 
+                    met_details.append(f"{k} {'+=' if direction else '-='} {v}")
             
             if all_met:
                 breached = True

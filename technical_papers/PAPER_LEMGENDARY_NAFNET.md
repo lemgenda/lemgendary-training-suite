@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NAFNet Restoration via SOTA Infrastructure
 
 **Author**: Lem Treursić  
-**Version**: 2.4.0 - Resiliency v6.1 Milestone (2026 Specialization)  
+**Version**: 2.5.0 - Resiliency v6.1.25 (2026 Specialization)  
 **Target Hardware**: Dual Tesla T4 (Cloud) / NVIDIA GTX 1650 (4GB Entry-Level Survival)
 
 ---
@@ -31,6 +31,10 @@
    - [6.10 Persistent I/O Synchronization (v5.8)](#610-persistent-io-synchronization-v58)
    - [6.11 Architectural Survival Profiles (v5.9)](#611-architectural-survival-profiles-v59)
    - [6.12 Mission Continuity Guard (v6.1)](#612-mission-continuity-guard-v61)
+   - [6.13 Manifold Rescue & High-Energy Jolt (v6.1.17)](#613-manifold-rescue-high-energy-jolt-v6117)
+   - [6.14 Velocity Life-Support (v6.1.18)](#614-velocity-life-support-v6118)
+   - [6.15 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)](#615-the-mitochondrial-pulse-epsilon-hardened-persistence-v6119)
+   - [6.16 Telemetry Parity & Plateau Resilience (v6.1.31)](#616-telemetry-parity--plateau-resilience-v6131)
 7. [Deployment Strategy: The C++ ONNX Ghost-Severing Protocol](#7-deployment-strategy-the-c-onnx-ghost-severing-protocol)
    - [7.1 Standalone Exporters](#71-standalone-exporters)
    - [7.2 The Ghost-Severing Protocol](#72-the-ghost-severing-protocol)
@@ -159,7 +163,26 @@ NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, 
 
 ### 6.12 Mission Continuity Guard (v6.1)
 **Issue**: Legacy OOM recovery systems occasionally "leaked" manifold state, causing the training loop to terminate prematurely after a memory recovery event. This resulted in "truncated epochs" where the system only processed a fraction of the dataset.
-**Fix**: Engineered the **Continuity Guard**. By repairing the Resync logic and adding mandatory **Iteration Pulse Heartbeats**, the suite ensures that every sample is physically reconciled with the manifold. A final **Manifold Leak Guard** audit-locks the epoch until 100% of the dataset is processed.
+**Fix**: Engineered the **Continuity Guard**. By repairing the Resync logic and adding mandatory **Iteration Pulse Heartbeats**, the suite ensures that every sample is physically reconciled with the manifold. A final **Manifold Leak Guard** audit-locks the epoch until 1000% of the dataset is processed.
+
+### 6.13 Manifold Rescue & High-Energy Jolt (v6.1.17)
+**Issue**: High-complexity models occasionally enter "Numerical Stagnancy" where they become trapped in a 24dB local minimum regardless of learning rate decay. This is caused by the model settling into a specific manifold basin where standard gradients are too weak to escape.
+**Fix**: Implementation of the **High-Energy Jolt**. When a 12-epoch stagnation is detected at 100% data capacity, the Governor now forces a **Hard-Reset** to the `base_lr` (0.0002). This slams the architecture with kinetic energy, physically ripping the weights out of the local minimum and forcing global re-exploration.
+
+### 6.14 Velocity Life-Support (v6.1.18)
+**Issue**: During prolonged regressions, the Smart Governor's dampening multipliers (0.7x) could stack indefinitely, cooling the learning rate to "terminal" levels (e.g., 2e-7) where training effectively halts.
+**Fix**: Implementation of **Velocity Life-Support**. The Governor now monitors the "Training Velocity." If the current LR drops below 1% of the base training speed due to repeated dampening, an emergency **Rescue Trigger** forces an immediate Jolt, preventing the mission from flatlining in a low-energy state.
+
+### 6.15 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)
+**Issue**: On high-iteration missions (NAFNet), intra-epoch progress markers (every 10-20%) could be skipped due to floating-point rounding errors in the iterator percentage calculation, leading to hours of un-persisted work.
+**Fix**: Engineered the **Mitochondrial Pulse**. The persistence trigger now utilizes a **Mathematical Epsilon** (`1e-5`) and strict `last_intra_epoch_pct` locking. This ensures that state-saving synchronization is physically indestructible across all hardware profiles, guaranteeing a 20% checkpoint is never missed.
+
+### 6.16 Telemetry Parity & Plateau Resilience (v6.1.31)
+**Issue**: Deep NAFNet plateaus (e.g., locking precisely at 24.5dB) caused repeated regression rollbacks, cascading into "LR Starvation" where the optimizer systematically cooled its learning rate into dead zones trying to resync. Additionally, manual LR edits or governor jolts suffered from one-epoch telemetry lag due to scheduler misalignment.
+**Fix**: 
+- **Velocity Shield (Survivor Floor)**: The Regression Guard is now bound by a physical `5e-7` absolute LR floor. Consecutive rollbacks are restricted from cooling the velocity below this threshold, ensuring the model retains kinetic momentum to push through wide saddle points.
+- **Asymmetric Jolt Potency**: The Governor now actively compounds its Jolt Multipliers (2.0x+) if it detects the model is trapped in a deep-plateau with critically low LR (<5e-6), ripping it violently into exploration modes.
+- **Zero-Lag Telemetry Sync**: Real-time LR readings are now slaved directly to the physical `optimizer.param_groups`, completely bypassing the pytorch `scheduler`, ensuring `metrics.csv` permanently achieves 1-to-1 operational ground truth parity.
 
 ---
 **Issue**: Multi-worker dataset initialization on Windows previously triggered `os.listdir` contention, leading to process hangs.

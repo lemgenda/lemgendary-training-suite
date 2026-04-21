@@ -69,7 +69,12 @@ class SmartTrainingGovernor:
     def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None):
         # 2026 Resilience: Stricter Plateau Detection
         # horizontal_stagnation occurs if quality doesn't improve meaningfully, regardless of loss.
-        quality_improved = current_quality > (self.prev_quality * (1.0 + self.min_delta))
+        # 2026 Resilience: Robust improvement check handling absolute and relative deltas (v6.1.30)
+        # This prevents stagnation triggers on tiny numeric fluctuations if the score is small.
+        improvement = current_quality - self.prev_quality
+        threshold = max(abs(self.prev_quality), 1.0) * self.min_delta
+        quality_improved = improvement > threshold
+        
         is_stagnant = epochs_no_improve >= self.plateau_patience or (not quality_improved and epochs_no_improve >= self.plateau_patience // 2)
         
         if not self.enabled:
@@ -191,6 +196,13 @@ class SmartTrainingGovernor:
                 else:
                     # Everything maxed, force a High-Energy Manifold Jolt (v6.1.17)
                     forced_jolt = False
+                    
+                    # 2026: SOTA Jolt Potency (v3.1)
+                    # If LR is extremely low, the default multiplier might be too weak to escape a deep plateau.
+                    actual_jolt = self.jolt_multiplier
+                    if current_lr and current_lr < 5e-6:
+                        actual_jolt *= 2.0 # Double jolt potency for deep plateaus (<5e-6 LR)
+                    
                     if current_lr and base_lr:
                         # 2026 Resilience: Velocity Life-Support (v6.1.18)
                         # If LR is < 1% of base due to dampening, it's effectively dead. Force reset.
@@ -202,13 +214,13 @@ class SmartTrainingGovernor:
                         if not forced_jolt:
                             msg_parts.append(f"PLATEAU BREAKER: Injecting High-Energy Manifold Jolt ({self.lr_multiplier:.1f}x)")
                     else:
-                        self.lr_multiplier = self.jolt_multiplier
-                        msg_parts.append(f"PLATEAU BREAKER: Injecting {self.jolt_multiplier}x LR Jolt")
+                        self.lr_multiplier = actual_jolt
+                        msg_parts.append(f"PLATEAU BREAKER: Injecting {actual_jolt}x LR Jolt (Deep Recovery)")
                     
                     lr_changed = True
                     self.jolt_active = True
-                    # Warm up Thermal Thermal Shield to allow exploration
-                    self.current_temp = min(0.3, self.current_temp * 2.0)
+                    # Warm up Thermal Shield to allow exploration
+                    self.current_temp = min(0.3, self.current_temp * 2.5)
                     t_changed = True
 
                 # Reset stagnation counter ONLY if a change was actually made
