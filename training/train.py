@@ -1263,11 +1263,20 @@ def main():
                 
                 # --- 2026: Intra-Epoch Resilience (The Mitochondrial Pulse v6.1.10) ---
                 # Threshold-based saving ensures persistence is never skipped due to batch-jumps.
-                interval_pct = config.get("intra_epoch_checkpoint_pct", 0.2)
+                interval_pct = float(config.get("intra_epoch_checkpoint_pct", 0.2))
                 current_pct = (i + 1) / len(train_loader)
                 
-                if interval_pct > 0 and (current_pct >= (last_intra_epoch_pct + interval_pct - 1e-5)):
-                    last_intra_epoch_pct = (int(current_pct / interval_pct) * interval_pct)
+                if last_intra_epoch_pct < 0:
+                    last_intra_epoch_pct = 0.0
+                
+                if interval_pct > 0 and (current_pct >= last_intra_epoch_pct + interval_pct - 1e-4 or current_pct == 1.0):
+                    if current_pct == 1.0:
+                        last_intra_epoch_pct = 1.0
+                    else:
+                        last_intra_epoch_pct += interval_pct
+                        
+                    # Clamp to prevent floating point drift
+                    last_intra_epoch_pct = round(last_intra_epoch_pct, 2)
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
                     temp_prog_ckpt = f"{prog_ckpt}.tmp"
                     torch.save({
