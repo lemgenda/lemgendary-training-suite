@@ -190,6 +190,13 @@ NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, 
 - **True Stabilization Shield**: We hard-coded an impenetrable 3-epoch lockout period (`is_stagnant = False`) following any structural shift or high-energy Jolt. This completely masks the Governor's plateau-detection sensors during the critical manifold alignment phase, ensuring the new resolution physics have time to crystallize.
 - **Synchronous Spatial Augmentation**: Surgically patched the `fast_process` dataset loader to synchronously apply 50% randomized geometric flips (horizontal and vertical) simultaneously to both the noisy input and the clean target tensor. This completely shattered the feature memorization ceiling, forcing the network to acquire true translation-invariant structural generalizations.
 
+### 6.18 Invariant Native Scorecarding (v6.2.0)
+**Issue**: As the Smart Governor dynamically scaled the NAFNet training resolution (e.g., from 128px up to 640px), the validation set mathematically followed this resolution. This created a fractured metric baseline where early-epoch PSNR could not be objectively compared to late-epoch PSNR due to shifting spatial complexity.
+**Fix**: Engineered the **Invariant Native Scorecarding** protocol. 
+- Validation resolution is now fully decoupled from the Governor's dynamic scaling logic.
+- Using a `val_resolution` registry key, high-fidelity models like NAFNet are now strictly anchored to their native 640px evaluation resolution from Epoch 1 to 1000. 
+- This guarantees an unbroken, invariant scorecarding metric where every PSNR improvement genuinely reflects architectural learning rather than resolution reduction.
+
 ---
 **Issue**: Multi-worker dataset initialization on Windows previously triggered `os.listdir` contention, leading to process hangs.
 **Fix**: Implemented a **Class-Level I/O Cache**. File lists are fetched once and cached, ensuring that all 12-16 workers initialize near-instantly without disk thrashing.

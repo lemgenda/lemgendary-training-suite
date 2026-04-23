@@ -535,13 +535,13 @@ def main():
     sample_fraction = governor.current_fraction
     
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
-    # --- 2026: SOTA Validation Anchoring (Resilience v4.0) ---
-    # We lock validation at 384px to provide a stable, consistent yardstick for SOTA tracking
-    # regardless of the Governor's dynamic training exploration resolution.
-    val_anchor_size = 384
+    # --- 2026: SOTA Validation Synchronization ---
+    # Validation mirrors the Governor's training resolution, UNLESS explicitly 
+    # anchored in unified_models.yaml for invariant scorecarding (e.g., val_resolution: 640).
+    val_anchor_size = model_info.get("val_resolution", governor.current_res)
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
     val_ds.update_strategy(size=val_anchor_size)
-    print(f" [DATA] Validation Manifold ANCHORED at {val_anchor_size}px (Stable Baseline).")
+    print(f" [DATA] Validation Manifold SYNCED to {val_anchor_size}px native resolution.")
     
     # 2026 Resilience: Parallel Mission Support
     # On Windows, num_workers > 0 is essential for large deep datasets
@@ -1383,17 +1383,17 @@ def main():
         fid = 50.0
         
         # --- 2026: Canonical Eval Upscale (Resolution-Invariant Scorecarding) ---
-        # Metrics are ALWAYS computed at 384px canonical resolution, regardless of the
-        # current training resolution set by the Smart Governor. This ensures PSNR/SSIM/
-        # LPIPS/FID remain directly comparable across all epochs, even during resolution
-        # curriculum transitions (e.g. 128px -> 256px -> 384px).
+        # Metrics are ALWAYS computed at 384px canonical resolution during early
+        # curriculum transitions (e.g. 128px -> 256px -> 384px). However, once the model
+        # breaches the 384px ceiling (e.g. 512px, 640px), we NEVER downscale it, as this
+        # destroys translation-invariant details and artificially caps PSNR/SSIM.
         CANONICAL_EVAL_SIZE = 384
         if train_ds.task_type in ["restoration", "enhancement", "face"] and len(all_preds) > 0:
             _p_raw = torch.cat(all_preds)
             _t_raw = torch.cat(all_targets)
             _current_h = _p_raw.shape[-2]
             _current_w = _p_raw.shape[-1]
-            if _current_h != CANONICAL_EVAL_SIZE or _current_w != CANONICAL_EVAL_SIZE:
+            if _current_h < CANONICAL_EVAL_SIZE or _current_w < CANONICAL_EVAL_SIZE:
                 import torch.nn.functional as _F_resize  # pyre-ignore
                 print(f" [CANONICAL EVAL] Upscaling {_current_h}px → {CANONICAL_EVAL_SIZE}px for resolution-invariant scorecarding.")
                 _scale_args = dict(size=(CANONICAL_EVAL_SIZE, CANONICAL_EVAL_SIZE), mode='bicubic', align_corners=False)
@@ -1581,8 +1581,9 @@ def main():
                     fraction=new_params['sample_fraction'] if f_changed else None,
                     size=new_params['input_size'] if r_changed else None
                 )
-                # 2026: Validation remains Anchored at 384px for stable scorecarding
-                # val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
+                # 2026: Validation perfectly mirrors the Training Resolution UNLESS anchored
+                if "val_resolution" not in model_info:
+                    val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
                 
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                 val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
@@ -1702,9 +1703,10 @@ def main():
                         governor.load_state(ckpt['governor_state'])
                         g_state = governor.get_state()
                         train_ds.update_strategy(fraction=g_state['sample_fraction'], size=g_state['input_size'])
-                        # 2026: val_ds resolution is NOT rolled back — it remains anchored at 384px
-                        # for canonical, resolution-invariant scorecarding (metric parity guarantee).
-                        print(f"🔄 [GOVERNOR SYNC] Rolled back Dataset Fraction to {g_state['sample_fraction']*100:.0f}% | Val anchored at 384px")
+                        # 2026: val_ds resolution is seamlessly rolled back to mirror the Governor UNLESS anchored
+                        if "val_resolution" not in model_info:
+                            val_ds.update_strategy(size=g_state['input_size'])
+                        print(f"🔄 [GOVERNOR SYNC] Rolled back Dataset Fraction to {g_state['sample_fraction']*100:.0f}% | Val sync to {g_state['input_size']}px")
                     
                     # Force 50% LR cooling to 'seat' the model back into the stable manifold
                     # --- 2026: SOTA Velocity Shield (v3.1) ---

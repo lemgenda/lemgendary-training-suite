@@ -469,6 +469,7 @@
                         <li><a href="#mitochondrial-pulse">6.15 Mitochondrial Pulse (v6.1.19)</a></li>
                         <li><a href="#telemetry-parity">6.16 Telemetry Parity (v6.1.31)</a></li>
                         <li><a href="#stabilization-shield">6.17 True Stabilization Shield (v6.1.26)</a></li>
+                        <li><a href="#scorecarding">6.18 Invariant Native Scorecarding (v6.2.0)</a></li>
                     </ul>
                 </li>
                 <li><a href="#deployment">7. Deployment Strategy</a>
@@ -685,6 +686,15 @@
                 <strong>Fix:</strong><br/>
                 - <strong>True Stabilization Shield:</strong> We hard-coded an impenetrable 3-epoch lockout period (<code>is_stagnant = False</code>) following any structural shift or high-energy Jolt. This completely masks the Governor's plateau-detection sensors during the critical manifold alignment phase, ensuring the new resolution physics have time to crystallize.<br/>
                 - <strong>Synchronous Spatial Augmentation:</strong> Surgically patched the <code>fast_process</code> dataset loader to synchronously apply 50% randomized geometric flips (horizontal and vertical) simultaneously to both the noisy input and the clean target tensor. This completely shattered the feature memorization ceiling, forcing the network to acquire true translation-invariant structural generalizations.</p>
+            </div>
+
+            <div class="card">
+                <h3 id="scorecarding">6.18 Invariant Native Scorecarding (v6.2.0)</h3>
+                <p><strong>Issue:</strong> As the Smart Governor dynamically scaled the NAFNet training resolution (e.g., from 128px up to 640px), the validation set mathematically followed this resolution. This created a fractured metric baseline where early-epoch PSNR could not be objectively compared to late-epoch PSNR due to shifting spatial complexity.<br/>
+                <strong>Fix:</strong> Engineered the <strong>Invariant Native Scorecarding</strong> protocol.<br/>
+                - Validation resolution is now fully decoupled from the Governor's dynamic scaling logic.<br/>
+                - Using a <code>val_resolution</code> registry key, high-fidelity models like NAFNet are now strictly anchored to their native 640px evaluation resolution from Epoch 1 to 1000.<br/>
+                - This guarantees an unbroken, invariant scorecarding metric where every PSNR improvement genuinely reflects architectural learning rather than resolution reduction.</p>
             </div>
         </section>
 

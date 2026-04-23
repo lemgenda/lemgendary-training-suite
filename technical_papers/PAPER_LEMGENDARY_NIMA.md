@@ -55,6 +55,7 @@
    - [7.26 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)](#726-the-mitochondrial-pulse-epsilon-hardened-persistence-v6119)
    - [7.27 The Rank Margin Objective (v6.1.30)](#727-the-rank-margin-objective-v6130)
    - [7.28 Telemetry Parity & Plateau Resilience (v6.1.31)](#728-telemetry-parity--plateau-resilience-v6131)
+   - [7.29 Invariant Native Scorecarding (v6.2.0)](#729-invariant-native-scorecarding-v620)
 8. [Deployment Strategy: Why ONNX?](#8-deployment-strategy-why-onnx)
    - [8.1 Format Comparison Matrix](#81-format-comparison-matrix)
    - [8.2 Why ONNX Wins for LemGendary](#82-why-onnx-wins-for-lemgendary)
@@ -307,6 +308,13 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 ### 7.28 Telemetry Parity & Plateau Resilience (v6.1.31)
 **Issue**: Substantial metric fluctuations caused by dataset expansions triggered "LR Starvation" where the regression guard repeatedly rolled back weights while blindly zeroing out kinetic energy.
 **Fix**: Deployed the **Velocity Shield (Survivor Floor)**. The Regression Guard is now bound by a physical `5e-7` absolute LR floor. Consecutive rollbacks are restricted from freezing the velocity, effectively keeping the engine running through long plateaus. Telemetry synchronization guarantees these recovery shifts are logged with zero-epoch lag.
+
+### 7.29 Invariant Native Scorecarding (v6.2.0)
+**Issue**: As the Smart Governor dynamically scaled training resolution across epochs (e.g., 128px up to 640px), the validation dataset mathematically followed this resolution. This created a fractured metric curve where Epoch 10's PSNR (at 128px) could not be objectively compared to Epoch 200's PSNR (at 640px), masking true architectural improvements behind spatial complexity shifts.
+**Fix**: Engineered the **Invariant Native Scorecarding** protocol. 
+- Validation resolution is now decoupled from the Governor's dynamic training size.
+- Using a `val_resolution` registry key in `unified_models.yaml`, high-end models (like NAFNet) are strictly anchored to their target native resolution (e.g., 640px) from Epoch 1 to 1000.
+- This creates an unbroken, invariant metric baseline, ensuring that every decimal of PSNR or SRCC improvement directly correlates to true geometric learning, rather than resolution manipulation.
 
 ---
 

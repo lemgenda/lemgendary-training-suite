@@ -489,6 +489,9 @@
                         <li><a href="#manifold-rescue">7.24 Manifold Rescue & High-Energy Jolt (v6.1.17)</a></li>
                         <li><a href="#life-support">7.25 Velocity Life-Support (v6.1.18)</a></li>
                         <li><a href="#mitochondrial-pulse">7.26 Mitochondrial Pulse (v6.1.19)</a></li>
+                        <li><a href="#rank-margin">7.27 The Rank Margin Objective (v6.1.30)</a></li>
+                        <li><a href="#telemetry-parity">7.28 Telemetry Parity (v6.1.31)</a></li>
+                        <li><a href="#scorecarding">7.29 Invariant Native Scorecarding (v6.2.0)</a></li>
                     </ul>
                 </li>
                 <li><a href="#onnx">8. ONNX Strategy</a>
@@ -848,6 +851,27 @@
                 <h4 id="mitochondrial-pulse">7.26 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)</h4>
                 <p><strong>Issue:</strong> Intra-epoch checkpointing previously suffered from floating-point rounding errors on Windows, occasionally missing critical 20% progress milestones.<br/>
                 <strong>Fix:</strong> Engineered the <strong>Mitochondrial Pulse</strong>. Persistence triggers now utilize a 1e-5 mathematical epsilon and strict lock-counters, ensuring that resume-states are biologically-synchronized across every session.</p>
+            </div>
+
+            <div class="card">
+                <h4 id="rank-margin">7.27 The Rank Margin Objective (v6.1.30)</h4>
+                <p><strong>Issue:</strong> Legacy metric tracking natively favored models that learned high correlation (SRCC) but completely failed to preserve the absolute rank distance between quality bins, leading to squashed classification logits in the output manifold.<br/>
+                <strong>Fix:</strong> SOTA Metric logic has been decentralized and integrated with physical <strong>Rank Margin</strong> calculation. The metric ensures the mean absolute error between ordinal ground-truth ranks and predicted ranks is minimized, driving the EMD loss to physically separate technical quality bins.</p>
+            </div>
+
+            <div class="card">
+                <h4 id="telemetry-parity">7.28 Telemetry Parity & Plateau Resilience (v6.1.31)</h4>
+                <p><strong>Issue:</strong> Substantial metric fluctuations caused by dataset expansions triggered "LR Starvation" where the regression guard repeatedly rolled back weights while blindly zeroing out kinetic energy.<br/>
+                <strong>Fix:</strong> Deployed the <strong>Velocity Shield (Survivor Floor)</strong>. The Regression Guard is now bound by a physical <code>5e-7</code> absolute LR floor. Consecutive rollbacks are restricted from freezing the velocity, effectively keeping the engine running through long plateaus. Telemetry synchronization guarantees these recovery shifts are logged with zero-epoch lag.</p>
+            </div>
+
+            <div class="card">
+                <h4 id="scorecarding">7.29 Invariant Native Scorecarding (v6.2.0)</h4>
+                <p><strong>Issue:</strong> As the Smart Governor dynamically scaled training resolution across epochs (e.g., 128px up to 640px), the validation dataset mathematically followed this resolution. This created a fractured metric curve where Epoch 10's PSNR (at 128px) could not be objectively compared to Epoch 200's PSNR (at 640px), masking true architectural improvements behind spatial complexity shifts.<br/>
+                <strong>Fix:</strong> Engineered the <strong>Invariant Native Scorecarding</strong> protocol.<br/>
+                - Validation resolution is now decoupled from the Governor's dynamic training size.<br/>
+                - Using a <code>val_resolution</code> registry key in <code>unified_models.yaml</code>, high-end models (like NAFNet) are strictly anchored to their target native resolution (e.g., 640px) from Epoch 1 to 1000.<br/>
+                - This creates an unbroken, invariant metric baseline, ensuring that every decimal of PSNR or SRCC improvement directly correlates to true geometric learning, rather than resolution manipulation.</p>
             </div>
         </section>
 
