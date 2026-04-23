@@ -391,7 +391,7 @@
         .toc-sidebar li:hover > .sub-item,
         .toc-sidebar li:focus-within > .sub-item,
         .toc-sidebar li.is-active > .sub-item {
-            max-height: 1200px;
+            max-height: 800px;
             margin-top: 5px;
             margin-bottom: 10px;
         }
@@ -417,7 +417,7 @@
             <p class="subtitle">High-Fidelity NIMA Assessment via Hardware-Aware Optimization</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 2.6.0 - Resiliency v5.1 Milestone</span>
+                <span>Version: 2.9.0 - Resiliency v6.1.25</span>
                 <span>Hardware: GTX 1650 (4GB)</span>
             </div>
         </header>
@@ -477,7 +477,7 @@
                         <li><a href="#manifold-anchor">7.11 Manifold Anchor</a></li>
                         <li><a href="#modular-calibration">7.12 Modular Calibration</a></li>
                         <li><a href="#logit-refactor">7.13 Logit Refactor</a></li>
-                        <li><a href="#plateau-breaker">7.14 Plateau Breaker</a></li>
+                        <li><a href="#plateau-breaker">7.14 The Plateau Breaker: Dynamic Kinetic LR Injection (v5.2)</a></li>
                         <li><a href="#swa-smoothing">7.15 SWA Smoothing</a></li>
                         <li><a href="#cosine-recalibration">7.16 Cosine Recalibration</a></li>
                         <li><a href="#v31-resiliency">7.17 Metric-Driven Deployment (v3.1)</a></li>
@@ -485,18 +485,23 @@
                         <li><a href="#registry-first">7.19 Registry-First Unification (v4.5)</a></li>
                         <li><a href="#epoch-standard">7.20 Standardized Epoch Resumption (v4.5)</a></li>
                         <li><a href="#velocity-sync">7.21 Velocity-Scheduler Sync (v5.1)</a></li>
+                        <li><a href="#io-sync">7.22 Persistent I/O Synchronization (v5.8)</a></li>
+                        <li><a href="#continuity-guard">7.23 Mission Continuity Guard (v6.1)</a></li>
+                        <li><a href="#manifold-rescue">7.24 Manifold Rescue & High-Energy Jolt (v6.1.17)</a></li>
+                        <li><a href="#life-support">7.25 Velocity Life-Support (v6.1.18)</a></li>
+                        <li><a href="#mitochondrial-pulse">7.26 Mitochondrial Pulse (v6.1.19)</a></li>
                     </ul>
                 </li>
                 <li><a href="#onnx">8. ONNX Strategy</a>
                     <ul class="sub-item">
-                        <li><a href="#format-comparison">8.1 Comparison Matrix</a></li>
+                        <li><a href="#comparison-matrix">8.1 Comparison Matrix</a></li>
                         <li><a href="#why-onnx-wins">8.2 Why ONNX Wins</a></li>
                     </ul>
                 </li>
                 <li><a href="#conclusion">9. Conclusion</a>
                     <ul class="sub-item">
-                        <li><a href="#summary-breakthroughs">9.1 Breakthroughs</a></li>
-                        <li><a href="#impact-strategy">9.2 Data-First Strategy</a></li>
+                        <li><a href="#breakthroughs">9.1 Breakthroughs</a></li>
+                        <li><a href="#data-first-strategy">9.2 Data-First Strategy</a></li>
                         <li><a href="#future-outlook">9.3 Future Outlook</a></li>
                     </ul>
                 </li>
@@ -761,9 +766,13 @@
                 <p><strong>Fix</strong>: Migrated the architecture to raw <strong>Logit-Outputs</strong>. By removing the internal softmax and implementing internal logit-clamping (±10.0), full gradient sensitivity was restored to the EMD loss, instantly shattering the static metric plateaus observed in early v2.0 missions.</p>
             </div>
             <div class="card">
-                <h4 id="plateau-breaker">7.14 Plateau Breaker: Dynamic Kinetic LR Injection</h4>
-                <p><strong>Issue</strong>: Models training on 440k+ samples often reach numerical saturation where the <em>OneCycleLR</em> schedule lacks sufficient power to escape a local minimum.</p>
-                <p><strong>Fix</strong>: Implemented the <strong>v2.7 Plateau Breaker</strong>. The engine monitors Loss Velocity; if the loss remains static for 5 epochs, it injects a <strong>2.0x Learning Rate Jolt</strong> for a 2-epoch burst. This kinetic energy "shakes" the model into a deeper, more refined trough by physical weight displacement.</p>
+                <h4 id="plateau-breaker">7.14 The Plateau Breaker: Dynamic Kinetic LR Injection (v5.2)</h4>
+                <p><strong>Issue</strong>: Models training on 440k+ samples often reach numerical saturation where the <code>OneCycleLR</code> schedule lacks sufficient power to escape a local minimum. Tiny loss fluctuations (1e-7) previously reset the patience, preventing the Governor from injecting power.</p>
+                <p><strong>Fix</strong>: Executed the <strong>v5.2 Plateau-Buster</strong> upgrade.</p>
+                <ul>
+                    <li><strong>Strict 0.1% Delta</strong>: The Governor now requires a 0.1% relative improvement to reset its timer, ignoring numerical drift.</li>
+                    <li><strong>Horizontal Stagnation Jolt</strong>: If loss is static (or flickering) for 5 epochs without a significant metric peak, the system injects a <strong>3.0x LR Jolt</strong> and forces a resolution/variety shift to "shatter" the plateau attractor.</li>
+                </ul>
             </div>
             <div class="card">
                 <h4 id="swa-smoothing">7.15 Manifold Smoothing via SWA</h4>
@@ -812,12 +821,42 @@
                 <p><strong>Fix</strong>: Implemented the <strong>v5.1 Velocity Synchronization</strong>. The Governor is now programmatically bound to the scheduler's internal state. Upon a drift-triggered LR shift, the suite physically scales the scheduler's <em>max_lrs</em> and <em>base_lrs</em> parameters. This ensures the stabilization "sticks" and the entire mathematical curve is recalibrated for the new manifold velocity.</p>
                 <p><strong>Result</strong>: Successfully locked NIMA Technical at a stable <span class="highlight">0.9848 PLCC</span>, neutralizing stochastic runaway during the peak of the training cycle.</p>
             </div>
+
+            <div class="card">
+                <h4 id="io-sync">7.22 Persistent I/O Synchronization (v5.8)</h4>
+                <p><strong>Issue</strong>: High-frequency Technical Assessment at 384x384 requires massive batch throughput. On Windows, PyTorch workers previously spent minutes scanning the 50,000-sample dataset during initialization.</p>
+                <p><strong>Fix</strong>: Engineered the <strong>Persistent Mission Manifest</strong>. The suite now generates a unified <code>.dataset_cache.json</code> manifest. Subsequent restarts load this JSON mission manifest in milliseconds, providing instant manifold alignment and shattering the cold-start disk bottleneck.</p>
+            </div>
+
+            <div class="card">
+                <h4 id="continuity-guard">7.23 Mission Continuity Guard (v6.1)</h4>
+                <p><strong>Issue</strong>: Previous iterations suffered from "Manifold Leaks" where the training loop terminated prematurely after a memory recovery event. This truncated the learning curve and damaged the EMD distribution.</p>
+                <p><strong>Fix</strong>: Engineered the <strong>Continuity Guard</strong>. It repairs the OOM-recovery loop and adds mandatory <strong>Iteration Pulse Heartbeats</strong>. The suite now verifies that exactly 100% of the dataset is reconciled with the manifold before allowing the epoch to conclude.</p>
+            </div>
+
+            <div class="card">
+                <h4 id="manifold-rescue">7.24 Manifold Rescue & High-Energy Jolt (v6.1.17)</h4>
+                <p><strong>Issue:</strong> Quality-focused models (NIMA) occasionally enter "Numerical Stagnancy" where SRCC flickers on a 0.83 plateau regardless of temperature shifting.<br/>
+                <strong>Fix:</strong> Adoption of the project-wide <strong>High-Energy Jolt</strong>. If stagnation is detected for >12 epochs, the system slams the EfficientNet/MobileNet backbones with a fresh 0.0002 LR burst, shattering local minima and forcing re-exploration of the aesthetic manifold.</p>
+            </div>
+
+            <div class="card">
+                <h4 id="life-support">7.25 Velocity Life-Support (v6.1.18)</h4>
+                <p><strong>Issue:</strong> Recursive regression dampening could previously cool the NIMA learning rate below the threshold of physical discovery (e.g., 1e-7).<br/>
+                <strong>Fix:</strong> Implementation of <strong>Velocity Life-Support</strong>. If LR drops below 1% of the mission base due to repeated Smart Governor corrections, an emergency Rescue Jolt is triggered to maintain training momentum.</p>
+            </div>
+
+            <div class="card">
+                <h4 id="mitochondrial-pulse">7.26 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)</h4>
+                <p><strong>Issue:</strong> Intra-epoch checkpointing previously suffered from floating-point rounding errors on Windows, occasionally missing critical 20% progress milestones.<br/>
+                <strong>Fix:</strong> Engineered the <strong>Mitochondrial Pulse</strong>. Persistence triggers now utilize a 1e-5 mathematical epsilon and strict lock-counters, ensuring that resume-states are biologically-synchronized across every session.</p>
+            </div>
         </section>
 
         <section id="onnx">
             <h2>8. Deployment Strategy: Why ONNX?</h2>
             <p>The migration from PyTorch to ONNX was driven by the necessity of <strong>WebGPU stability</strong>. Below is a comprehensive comparison of ONNX against competing deployment formats.</p>
-            <h3 id="format-comparison">8.1 Format Comparison Matrix</h3>
+            <h3 id="comparison-matrix">8.1 Format Comparison Matrix</h3>
             <table>
                 <thead>
                     <tr>
@@ -885,10 +924,10 @@
             <h2>9. Conclusion: The Real-Time Quality Paradigm</h2>
             <p>The LemGendary Training Suite has established a new 2026 baseline for Neural Image Assessment, proving that state-of-the-art results do not require corporate-scale compute clusters—they require <strong>hardware-aware resilience architecture</strong>.</p>
             <div class="card">
-                <h3 id="summary-breakthroughs">9.1 Summary of Breakthroughs</h3>
+                <h3 id="breakthroughs">9.1 Summary of Breakthroughs</h3>
                 <p>By collapsing the legacy divide between "Artistic beauty" and "Technical clarity" into a single <strong>LemGendized Universal Quality Subset</strong>, we have created a training environment where models achieve <strong>0.983 PLCC</strong> and <strong>0.906 SRCC</strong> stability. These metrics are not merely academic; they signify a level of ordinal stability that matches human rater consensus across 440,000 diverse samples.</p>
                 
-                <h3 id="impact-strategy">9.2 The Impact of Data-First Engineering</h3>
+                <h3 id="data-first-strategy">9.2 The Impact of Data-First Engineering</h3>
                 <p>The core takeaway of the LemGendary project is that <strong>merging and standardizing datasets</strong> is as critical as architectural selection. By neutralizing rater bias and standardizing diverse score distributions into a single 1-10 probability matrix, we provided the backbones (MobileNetV2 and EfficientNetV2-S) with a cleaner signal than any original research track.</p>
                 
                 <h3 id="future-outlook">9.3 Future Outlook: From Browser to Edge</h3>
