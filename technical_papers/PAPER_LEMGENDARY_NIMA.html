@@ -451,7 +451,7 @@
                 </li>
                 <li><a href="#benchmarks">5. Benchmarks</a>
                     <ul class="sub-item">
-                        <li><a href="#consolidated-sota">5.1 Consolidated SOTA</a></li>
+                        <li><a href="#training-curves">5.1 Training Convergence Visuals</a></li>
                     </ul>
                 </li>
                 <li><a href="#health">6. Data Pipeline</a>
@@ -462,7 +462,7 @@
                         <li><a href="#data-unification">6.4 Data Unification</a></li>
                     </ul>
                 </li>
-                <li><a href="#resilience">7. Challenges & Resilience</a>
+                <li><a href="#challenges">7. Challenges & Resilience Architecture</a>
                     <ul class="sub-item">
                         <li><a href="#scheduler-bug">7.1 Scheduler Bug</a></li>
                         <li><a href="#nan-shield">7.2 NaN Shield</a></li>
@@ -479,7 +479,6 @@
                         <li><a href="#logit-refactor">7.13 Logit Refactor</a></li>
                         <li><a href="#plateau-breaker">7.14 The Plateau Breaker: Dynamic Kinetic LR Injection (v5.2)</a></li>
                         <li><a href="#swa-smoothing">7.15 SWA Smoothing</a></li>
-                        <li><a href="#cosine-recalibration">7.16 Cosine Recalibration</a></li>
                         <li><a href="#v31-resiliency">7.17 Metric-Driven Deployment (v3.1)</a></li>
                         <li><a href="#v32-velocity">7.18 Mission Velocity (v3.2)</a></li>
                         <li><a href="#registry-first">7.19 Registry-First Unification (v4.5)</a></li>
@@ -505,7 +504,6 @@
                         <li><a href="#future-outlook">9.3 Future Outlook</a></li>
                     </ul>
                 </li>
-                <li><a href="#appendix">10. Appendix</a></li>
             </ul>
         </nav>
 
@@ -647,7 +645,7 @@
                 </tbody>
             </table>
 
-            <h3 id="training-curves">5.1.1 Training Convergence Visuals</h3>
+            <h3 id="training-curves">5.1 Training Convergence Visuals</h3>
             <div class="visual-taxonomy">
                 <div class="quadrant" onclick="openModal('assets/nima_aesthetic_training.png', 'NIMA Aesthetic Convergence', 'Visualizing the epoch-by-epoch convergence of the Aesthetic manifold. PLCC (Blue) and SRCC (Green) demonstrate stable logarithmic growth.')">
                     <img src="assets/nima_aesthetic_training.png" alt="Aesthetic Training Curve" style="height: auto;">
