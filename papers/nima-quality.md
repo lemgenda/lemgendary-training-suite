@@ -53,6 +53,9 @@
    - [7.24 Manifold Rescue & High-Energy Jolt (v6.1.17)](#724-manifold-rescue-high-energy-jolt-v6117)
    - [7.25 Velocity Life-Support (v6.1.18)](#725-velocity-life-support-v6118)
    - [7.26 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)](#726-the-mitochondrial-pulse-epsilon-hardened-persistence-v6119)
+   - [7.27 The Rank Margin Objective (v6.1.30)](#727-the-rank-margin-objective-v6130)
+   - [7.28 Telemetry Parity & Plateau Resilience (v6.1.31)](#728-telemetry-parity--plateau-resilience-v6131)
+   - [7.29 Invariant Native Scorecarding (v6.2.0)](#729-invariant-native-scorecarding-v620)
 8. [Deployment Strategy: Why ONNX?](#8-deployment-strategy-why-onnx)
    - [8.1 Format Comparison Matrix](#81-format-comparison-matrix)
    - [8.2 Why ONNX Wins for LemGendary](#82-why-onnx-wins-for-lemgendary)
@@ -274,7 +277,10 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 - **Result**: Resumption is now idempotent and robust against OS-level resource locks, ensuring seamless 1000-epoch mission continuity.
 
 ### 7.21 The Velocity-Scheduler Sync (v5.1 Resiliency)
-...
+**Issue**: Prior to v5.1, the **Smart Training Governor** operated independently of the `OneCycleLR` schedule. When the Governor dampened the learning rate to stabilize metric drift, the scheduler—unaware of the external intervention—would overwrite the LR on the next step based on its original trajectory, leading to "Manifold Shock" and recurrent drift.
+**Fix**: Implemented the **v5.1 Velocity Synchronization**. The Governor is now programmatically bound to the scheduler's internal state. Upon a drift-triggered LR shift, the suite physically scales the scheduler's `max_lrs` and `base_lrs` parameters. This ensures the stabilization "sticks" and the entire mathematical curve is recalibrated for the new manifold velocity.
+**Result**: Successfully locked NIMA Technical at a stable **0.9848 PLCC**, neutralizing stochastic runaway during the peak of the training cycle.
+
 ### 7.22 Persistent I/O Synchronization (v5.8)
 **Issue**: High-frequency Technical Assessment at 384x384 requires massive batch throughput. On Windows, PyTorch workers previously spent minutes scanning the 50,000-sample dataset during initialization.
 **Fix**: Engineered the **Persistent Mission Manifest**. The suite now generates a unified `.dataset_cache.json` manifest. Subsequent restarts load this JSON mission manifest in milliseconds, providing instant manifold alignment and shattering the cold-start disk bottleneck.
@@ -294,10 +300,21 @@ The training of 440,000 samples on a 48-hour continuous cycle required "Resilien
 ### 7.26 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)
 **Issue**: Intra-epoch checkpointing previously suffered from floating-point rounding errors on Windows, occasionally missing critical 20% progress milestones.
 **Fix**: Engineered the **Mitochondrial Pulse**. Persistence triggers now utilize a 1e-5 mathematical epsilon and strict lock-counters, ensuring that resume-states are biologically-synchronized across every session.
-**Fix**: Engineered the **Continuity Guard**. It repair the OOM-recovery loop and adds mandatory **Iteration Pulse Heartbeats**. The suite now verifies that exactly 100% of the dataset is reconciled with the manifold before allowing the epoch to conclude.
-**Issue**: Prior to v5.1, the **Smart Training Governor** operated independently of the `OneCycleLR` schedule. When the Governor dampened the learning rate to stabilize metric drift, the scheduler—unaware of the external intervention—would overwrite the LR on the next step based on its original trajectory, leading to "Manifold Shock" and recurrent drift.
-**Fix**: Implemented the **v5.1 Velocity Synchronization**. The Governor is now programmatically bound to the scheduler's internal state. Upon a drift-triggered LR shift, the suite physically scales the scheduler's `max_lrs` and `base_lrs` parameters. This ensures the stabilization "sticks" and the entire mathematical curve is recalibrated for the new manifold velocity.
-**Result**: Successfully locked NIMA Technical at a stable **0.9848 PLCC**, neutralizing stochastic runaway during the peak of the training cycle.
+
+### 7.27 The Rank Margin Objective (v6.1.30)
+**Issue**: Legacy metric tracking natively favored models that learned high correlation (SRCC) but completely failed to preserve the absolute rank distance between quality bins, leading to squashed classification logits in the output manifold.
+**Fix**: SOTA Metric logic has been decentralized and integrated with physical **Rank Margin** calculation. The metric ensures the mean absolute error between ordinal ground-truth ranks and predicted ranks is minimized, driving the EMD loss to physically separate technical quality bins.
+
+### 7.28 Telemetry Parity & Plateau Resilience (v6.1.31)
+**Issue**: Substantial metric fluctuations caused by dataset expansions triggered "LR Starvation" where the regression guard repeatedly rolled back weights while blindly zeroing out kinetic energy.
+**Fix**: Deployed the **Velocity Shield (Survivor Floor)**. The Regression Guard is now bound by a physical `5e-7` absolute LR floor. Consecutive rollbacks are restricted from freezing the velocity, effectively keeping the engine running through long plateaus. Telemetry synchronization guarantees these recovery shifts are logged with zero-epoch lag.
+
+### 7.29 Invariant Native Scorecarding (v6.2.0)
+**Issue**: As the Smart Governor dynamically scaled training resolution across epochs (e.g., 128px up to 640px), the validation dataset mathematically followed this resolution. This created a fractured metric curve where Epoch 10's PSNR (at 128px) could not be objectively compared to Epoch 200's PSNR (at 640px), masking true architectural improvements behind spatial complexity shifts.
+**Fix**: Engineered the **Invariant Native Scorecarding** protocol. 
+- Validation resolution is now decoupled from the Governor's dynamic training size.
+- Using a `val_resolution` registry key in `unified_models.yaml`, high-end models (like NAFNet) are strictly anchored to their target native resolution (e.g., 640px) from Epoch 1 to 1000.
+- This creates an unbroken, invariant metric baseline, ensuring that every decimal of PSNR or SRCC improvement directly correlates to true geometric learning, rather than resolution manipulation.
 
 ---
 

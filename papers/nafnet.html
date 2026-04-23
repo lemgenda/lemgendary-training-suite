@@ -411,7 +411,7 @@
     <div class="container">
         <header>
             <a href="https://lemgenda.hr" target="_blank" class="brand-logo">
-                <img src="../assets/lemgenda-logo.svg" alt="LemGenda Logo" style="height: 60px; margin-bottom: 20px;">
+                <img src="assets/lemgenda-logo.svg" alt="LemGenda Logo" style="height: 60px; margin-bottom: 20px;">
             </a>
             <h1>Architecture of LemGendary AI</h1>
             <p class="subtitle">High-Fidelity NAFNet Restoration via SOTA Infrastructure</p>
@@ -424,7 +424,7 @@
 
         <nav class="toc-sidebar">
             <a href="https://lemgenda.hr" target="_blank" class="toc-brand">
-                <img src="../assets/lemgenda-icon.svg" alt="LemGenda Icon">
+                <img src="assets/lemgenda-icon.svg" alt="LemGenda Icon">
             </a>
             <h4>Navigation Matrix</h4>
                         <ul>
@@ -469,6 +469,7 @@
                         <li><a href="#mitochondrial-pulse">6.15 Mitochondrial Pulse (v6.1.19)</a></li>
                         <li><a href="#telemetry-parity">6.16 Telemetry Parity (v6.1.31)</a></li>
                         <li><a href="#stabilization-shield">6.17 True Stabilization Shield (v6.1.26)</a></li>
+                        <li><a href="#scorecarding">6.18 Invariant Native Scorecarding (v6.2.0)</a></li>
                     </ul>
                 </li>
                 <li><a href="#deployment">7. Deployment Strategy</a>
@@ -507,15 +508,15 @@
             <p>By unifying diverse restoration subsets into the <code>LemGendizedNoiseDataset</code>, the NAFNet backbones are trained to handle extreme multi-degradation scenarios natively found in mobile photography.</p>
             
             <div class="visual-taxonomy">
-                <div class="quadrant" onclick="openModal('../assets/technical_noise.png', 'Denoising Target', 'Extreme ISO sensor noise requiring deep feature extraction without blurring edges.')">
-                    <img src="../assets/technical_noise.png" alt="Denoising Target" style="width:100%; height:auto;">
+                <div class="quadrant" onclick="openModal('assets/technical_noise.png', 'Denoising Target', 'Extreme ISO sensor noise requiring deep feature extraction without blurring edges.')">
+                    <img src="assets/technical_noise.png" alt="Denoising Target" style="width:100%; height:auto;">
                     <div style="padding: 15px;">
                         <span class="badge" style="background:var(--accent-color); padding:3px 8px; border-radius:12px; font-size:0.75rem;">Training Domain</span>
                         <h4 style="color:#fff; margin:10px 0;">Denoising Manifold</h4>
                     </div>
                 </div>
-                <div class="quadrant" onclick="openModal('../assets/technical_compression.png', 'Deblurring Target', 'Complex spatial macroblocking and focal blur requiring multi-scale restoration.')">
-                    <img src="../assets/technical_compression.png" alt="Deblurring Target" style="width:100%; height:auto;">
+                <div class="quadrant" onclick="openModal('assets/technical_compression.png', 'Deblurring Target', 'Complex spatial macroblocking and focal blur requiring multi-scale restoration.')">
+                    <img src="assets/technical_compression.png" alt="Deblurring Target" style="width:100%; height:auto;">
                     <div style="padding: 15px;">
                         <span class="badge" style="background:#03dac6; color:#000; padding:3px 8px; border-radius:12px; font-size:0.75rem;">Training Domain</span>
                         <h4 style="color:#fff; margin:10px 0;">Deblurring Manifold</h4>
@@ -685,6 +686,15 @@
                 <strong>Fix:</strong><br/>
                 - <strong>True Stabilization Shield:</strong> We hard-coded an impenetrable 3-epoch lockout period (<code>is_stagnant = False</code>) following any structural shift or high-energy Jolt. This completely masks the Governor's plateau-detection sensors during the critical manifold alignment phase, ensuring the new resolution physics have time to crystallize.<br/>
                 - <strong>Synchronous Spatial Augmentation:</strong> Surgically patched the <code>fast_process</code> dataset loader to synchronously apply 50% randomized geometric flips (horizontal and vertical) simultaneously to both the noisy input and the clean target tensor. This completely shattered the feature memorization ceiling, forcing the network to acquire true translation-invariant structural generalizations.</p>
+            </div>
+
+            <div class="card">
+                <h3 id="scorecarding">6.18 Invariant Native Scorecarding (v6.2.0)</h3>
+                <p><strong>Issue:</strong> As the Smart Governor dynamically scaled the NAFNet training resolution (e.g., from 128px up to 640px), the validation set mathematically followed this resolution. This created a fractured metric baseline where early-epoch PSNR could not be objectively compared to late-epoch PSNR due to shifting spatial complexity.<br/>
+                <strong>Fix:</strong> Engineered the <strong>Invariant Native Scorecarding</strong> protocol.<br/>
+                - Validation resolution is now fully decoupled from the Governor's dynamic scaling logic.<br/>
+                - Using a <code>val_resolution</code> registry key, high-fidelity models like NAFNet are now strictly anchored to their native 640px evaluation resolution from Epoch 1 to 1000.<br/>
+                - This guarantees an unbroken, invariant scorecarding metric where every PSNR improvement genuinely reflects architectural learning rather than resolution reduction.</p>
             </div>
         </section>
 

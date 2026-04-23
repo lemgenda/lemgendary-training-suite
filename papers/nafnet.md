@@ -1,7 +1,7 @@
 # Architecture of LemGendary AI: High-Fidelity NAFNet Restoration via SOTA Infrastructure
 
 **Author**: Lem Treursić  
-**Version**: 2.5.0 - Resiliency v6.1.25 (2026 Specialization)  
+**Version**: 2.5.0 - Resiliency v6.1.26 (2026 Specialization)  
 **Target Hardware**: Dual Tesla T4 (Cloud) / NVIDIA GTX 1650 (4GB Entry-Level Survival)
 
 ---
@@ -34,6 +34,7 @@
    - [6.13 Manifold Rescue & High-Energy Jolt (v6.1.17)](#613-manifold-rescue-high-energy-jolt-v6117)
    - [6.14 Velocity Life-Support (v6.1.18)](#614-velocity-life-support-v6118)
    - [6.15 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)](#615-the-mitochondrial-pulse-epsilon-hardened-persistence-v6119)
+   - [6.16 Telemetry Parity & Plateau Resilience (v6.1.31)](#616-telemetry-parity--plateau-resilience-v6131)
 7. [Deployment Strategy: The C++ ONNX Ghost-Severing Protocol](#7-deployment-strategy-the-c-onnx-ghost-severing-protocol)
    - [7.1 Standalone Exporters](#71-standalone-exporters)
    - [7.2 The Ghost-Severing Protocol](#72-the-ghost-severing-protocol)
@@ -175,6 +176,26 @@ NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, 
 ### 6.15 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)
 **Issue**: On high-iteration missions (NAFNet), intra-epoch progress markers (every 10-20%) could be skipped due to floating-point rounding errors in the iterator percentage calculation, leading to hours of un-persisted work.
 **Fix**: Engineered the **Mitochondrial Pulse**. The persistence trigger now utilizes a **Mathematical Epsilon** (`1e-5`) and strict `last_intra_epoch_pct` locking. This ensures that state-saving synchronization is physically indestructible across all hardware profiles, guaranteeing a 20% checkpoint is never missed.
+
+### 6.16 Telemetry Parity & Plateau Resilience (v6.1.31)
+**Issue**: Deep NAFNet plateaus (e.g., locking precisely at 24.5dB) caused repeated regression rollbacks, cascading into "LR Starvation" where the optimizer systematically cooled its learning rate into dead zones trying to resync. Additionally, manual LR edits or governor jolts suffered from one-epoch telemetry lag due to scheduler misalignment.
+**Fix**: 
+- **Velocity Shield (Survivor Floor)**: The Regression Guard is now bound by a physical `5e-7` absolute LR floor. Consecutive rollbacks are restricted from cooling the velocity below this threshold, ensuring the model retains kinetic momentum to push through wide saddle points.
+- **Asymmetric Jolt Potency**: The Governor now actively compounds its Jolt Multipliers (2.0x+) if it detects the model is trapped in a deep-plateau with critically low LR (<5e-6), ripping it violently into exploration modes.
+- **Zero-Lag Telemetry Sync**: Real-time LR readings are now slaved directly to the physical `optimizer.param_groups`, completely bypassing the pytorch `scheduler`, ensuring `metrics.csv` permanently achieves 1-to-1 operational ground truth parity.
+
+### 6.17 True Stabilization Shield & Synchronous Spatial Augmentation (v6.1.26)
+**Issue**: When the Smart Governor triggered a Manifold Shift (such as a Resolution scale up to 640px), the learning rate and metrics naturally experienced temporary destabilization. The Governor's strict stagnation timers would prematurely classify this "settling phase" as a new plateau, instantly firing sequential Jolts and completely destroying the architecture's ability to learn translation-invariant features at the new resolution. Furthermore, extreme PSNR plateaus (e.g. 24.12dB) were diagnosed as *Catastrophic Feature Memorization*—the NAFNet model mathematically memorized the fixed spatial layouts of the 50,000 training images due to a lack of dynamic geometric augmentation in the restoration data pipeline.
+**Fix**: 
+- **True Stabilization Shield**: We hard-coded an impenetrable 3-epoch lockout period (`is_stagnant = False`) following any structural shift or high-energy Jolt. This completely masks the Governor's plateau-detection sensors during the critical manifold alignment phase, ensuring the new resolution physics have time to crystallize.
+- **Synchronous Spatial Augmentation**: Surgically patched the `fast_process` dataset loader to synchronously apply 50% randomized geometric flips (horizontal and vertical) simultaneously to both the noisy input and the clean target tensor. This completely shattered the feature memorization ceiling, forcing the network to acquire true translation-invariant structural generalizations.
+
+### 6.18 Invariant Native Scorecarding (v6.2.0)
+**Issue**: As the Smart Governor dynamically scaled the NAFNet training resolution (e.g., from 128px up to 640px), the validation set mathematically followed this resolution. This created a fractured metric baseline where early-epoch PSNR could not be objectively compared to late-epoch PSNR due to shifting spatial complexity.
+**Fix**: Engineered the **Invariant Native Scorecarding** protocol. 
+- Validation resolution is now fully decoupled from the Governor's dynamic scaling logic.
+- Using a `val_resolution` registry key, high-fidelity models like NAFNet are now strictly anchored to their native 640px evaluation resolution from Epoch 1 to 1000. 
+- This guarantees an unbroken, invariant scorecarding metric where every PSNR improvement genuinely reflects architectural learning rather than resolution reduction.
 
 ---
 **Issue**: Multi-worker dataset initialization on Windows previously triggered `os.listdir` contention, leading to process hangs.
