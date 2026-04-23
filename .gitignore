@@ -16,3 +16,5 @@ kaggle.json
 # *.pth
 # *.pt
 # *.onnx
+# Ignore throwaway scripts
+scratch/
