@@ -139,5 +139,7 @@ The v8.0.0 release marks the complete transition from placeholder "Mock" classes
 | **Continuity Guard** | **v6.1 Upgrade**: OOM-recovery loop leak prevention and manifold liveness. | ✅ Active |
 | **Plateau Breaker** | **v6.1.25 Upgrade**: High-energy Manifold Jolt + Velocity Life-Support. | ✅ Active |
 | **Pulse Persistence**| **v6.1.25 Upgrade**: Epsilon-hardened 20% intra-epoch synchronization. | ✅ Active |
+| **Stabilization Shield**| **v6.1.26 Upgrade**: Strict plateau-lockout protecting the manifold after structural shifts. | ✅ Active |
+| **Spatial Augmentation**| **v6.1.26 Upgrade**: Synchronous geometric flips preventing catastrophic feature memorization. | ✅ Active |
 
 ---

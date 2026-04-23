@@ -65,6 +65,7 @@ class SmartTrainingGovernor:
 
         self.manifold_shift_pending = False
         self.current_strategy = f"Efficiency ({self.current_fraction*100:.0f}% Data)"
+        self.stabilization_epochs = 0 # Grace period for manifold shifts
 
     def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None):
         # 2026 Resilience: Stricter Plateau Detection
@@ -76,6 +77,11 @@ class SmartTrainingGovernor:
         quality_improved = improvement > threshold
         
         is_stagnant = epochs_no_improve >= self.plateau_patience or (not quality_improved and epochs_no_improve >= self.plateau_patience // 2)
+        
+        # --- 2026 Resilience: True Stabilization Shield ---
+        # Do not allow plateau triggers while the manifold is still stabilizing from a previous shift!
+        if self.stabilization_epochs > 0:
+            is_stagnant = False
         
         if not self.enabled:
             return False, False, False, False, False, False, ""
@@ -92,14 +98,22 @@ class SmartTrainingGovernor:
         # Predict VRAM scaling only if resolution shift is possible
         predicted_ratio = 1.0
         if torch.cuda.is_available():
+            torch.cuda.empty_cache() # Clear dead blocks to get an accurate reading
             mem_total = torch.cuda.get_device_properties(0).total_memory
-            mem_reserved = torch.cuda.memory_reserved(0)
-            mem_usage_ratio = mem_reserved / mem_total
+            mem_allocated = torch.cuda.memory_allocated(0)
+            mem_usage_ratio = mem_allocated / mem_total
             predicted_ratio = mem_usage_ratio
 
         # 1. Velocity & Numerical Management (Drift Sentinel)
-        # If the model regresses for 2 consecutive epochs, dampen the LR and tighten the clamp.
-        if current_quality < (self.prev_quality - 1e-6):
+        # --- 2026 Resilience: Stabilization Shield (v6.1.35) ---
+        # When resolution or batch size shifts, the manifold requires time to adjust.
+        # We suspend the Regression Guard for 3 epochs to prevent 'Self-Gaslighting' Recoils.
+        if self.stabilization_epochs > 0:
+            self.stabilization_epochs -= 1
+            self.consecutive_drift = 0
+            self.jolt_active = False # Mask jolt status during shield to prevent recoil triggers
+            # Do NOT exit, we still want Numerical Sentinel (VRAM/Stress) to work!
+        elif current_quality < (self.prev_quality - 1e-6):
             self.consecutive_drift += 1
             
             # Post-Jolt Regression: Model couldn't handle the power, throttle back immediately.
@@ -170,13 +184,15 @@ class SmartTrainingGovernor:
                 f_changed = True
                 msg_parts.append(f"PLATEAU (Data-Priority): Expanding variety to {self.current_fraction*100:.0f}%")
             else:
+                is_capped = False
                 current_idx = -1
                 try: current_idx = self.res_ladder.index(self.current_res)
                 except ValueError: pass
                 
                 if current_idx != -1 and current_idx < len(self.res_ladder) - 1:
                     if predicted_ratio > self.vram_safety_margin and self.current_batch == 1:
-                        msg_parts.append(f"RESOLUTION CAPPED: VRAM limited at {self.current_res}px")
+                        msg_parts.append(f"RESOLUTION CAPPED: VRAM limited at {self.current_res}px. Triggering Emergency Manifold Jolt.")
+                        is_capped = True
                     else:
                         self.current_res = self.res_ladder[current_idx + 1]
                         r_changed = True
@@ -189,45 +205,47 @@ class SmartTrainingGovernor:
                             c_changed = True
                         
                         msg_parts.append(f"SCALING to {self.current_res}px | RELAXING CLAMP to {self.current_clamp:.1f}")
-                elif self.current_fraction < 1.0:
-                    self.current_fraction = min(1.0, self.current_fraction + self.fraction_increment)
-                    f_changed = True
-                    msg_parts.append(f"PLATEAU (Res-Maxed): Expanding variety to {self.current_fraction*100:.0f}%")
-                else:
-                    # Everything maxed, force a High-Energy Manifold Jolt (v6.1.17)
-                    forced_jolt = False
-                    
-                    # 2026: SOTA Jolt Potency (v3.1)
-                    # If LR is extremely low, the default multiplier might be too weak to escape a deep plateau.
-                    actual_jolt = self.jolt_multiplier
-                    if current_lr and current_lr < 5e-6:
-                        actual_jolt *= 2.0 # Double jolt potency for deep plateaus (<5e-6 LR)
-                    
-                    if current_lr and base_lr:
-                        # 2026 Resilience: Velocity Life-Support (v6.1.18)
-                        # If LR is < 1% of base due to dampening, it's effectively dead. Force reset.
-                        if current_lr < (base_lr * 0.01):
-                            forced_jolt = True
-                            msg_parts.append(f"VELOCITY LIFE-SUPPORT: LR has cooled to death ({current_lr:.8f}). Forcing recovery!")
-
-                        self.lr_multiplier = base_lr / current_lr
-                        if not forced_jolt:
-                            msg_parts.append(f"PLATEAU BREAKER: Injecting High-Energy Manifold Jolt ({self.lr_multiplier:.1f}x)")
+                        self.stabilization_epochs = 3 # Manifold Shift: Engage Shield!
+                
+                # FALLTHROUGH: If we didn't scale (either maxed out OR capped), we JOLT
+                if not r_changed:
+                    if self.current_fraction < 1.0 and not is_capped:
+                        self.current_fraction = min(1.0, self.current_fraction + self.fraction_increment)
+                        f_changed = True
+                        msg_parts.append(f"PLATEAU (Res-Maxed): Expanding variety to {self.current_fraction*100:.0f}%")
                     else:
-                        self.lr_multiplier = actual_jolt
-                        msg_parts.append(f"PLATEAU BREAKER: Injecting {actual_jolt}x LR Jolt (Deep Recovery)")
-                    
-                    lr_changed = True
-                    self.jolt_active = True
-                    # Warm up Thermal Shield to allow exploration
-                    self.current_temp = min(0.3, self.current_temp * 2.5)
-                    t_changed = True
+                        # Everything maxed or capped, force a High-Energy Manifold Jolt (v6.1.17)
+                        forced_jolt = False
+                        
+                        # 2026: SOTA Jolt Potency (v3.1)
+                        actual_jolt = self.jolt_multiplier
+                        if current_lr and current_lr < 5e-6:
+                            actual_jolt *= 2.0 # Double jolt potency for deep plateaus (<5e-6 LR)
+                        
+                        if current_lr and base_lr:
+                            # 2026 Resilience: Velocity Life-Support (v6.1.18)
+                            if current_lr < (base_lr * 0.01):
+                                forced_jolt = True
+                                msg_parts.append(f"VELOCITY LIFE-SUPPORT: LR has cooled to death ({current_lr:.8f}). Forcing recovery!")
+    
+                            self.lr_multiplier = base_lr / current_lr
+                            if not forced_jolt:
+                                msg_parts.append(f"PLATEAU BREAKER: Injecting High-Energy Manifold Jolt ({self.lr_multiplier:.1f}x)")
+                        else:
+                            self.lr_multiplier = actual_jolt
+                            msg_parts.append(f"PLATEAU BREAKER: Injecting {actual_jolt}x LR Jolt (Deep Recovery)")
+                        
+                        lr_changed = True
+                        self.jolt_active = True
+                        # Warm up Thermal Shield to allow exploration
+                        self.current_temp = min(0.3, self.current_temp * 2.5)
+                        t_changed = True
 
-                # Reset stagnation counter ONLY if a change was actually made
-                if f_changed or r_changed or lr_changed:
-                    self.stagnation_counter = 0
-                    # On high-energy reset, also reset the drift tracker
-                    self.consecutive_drift = 0
+            # Reset stagnation counter ONLY if a change was actually made
+            if f_changed or r_changed or lr_changed:
+                self.stagnation_counter = 0
+                # On high-energy reset, also reset the drift tracker
+                self.consecutive_drift = 0
 
         self.prev_quality = current_quality
         
@@ -263,7 +281,8 @@ class SmartTrainingGovernor:
             "consecutive_drift": self.consecutive_drift,
             "stagnation_counter": self.stagnation_counter,
             "jolt_active": self.jolt_active,
-            "current_strategy": self.current_strategy
+            "current_strategy": self.current_strategy,
+            "stabilization_epochs": self.stabilization_epochs
         }
 
     def load_state(self, state):
@@ -286,6 +305,7 @@ class SmartTrainingGovernor:
         self.stagnation_counter = state.get("stagnation_counter", self.stagnation_counter)
         self.jolt_active = state.get("jolt_active", self.jolt_active)
         self.current_strategy = state.get("current_strategy", self.current_strategy)
+        self.stabilization_epochs = state.get("stabilization_epochs", 0)
 
     def recoil(self):
         """

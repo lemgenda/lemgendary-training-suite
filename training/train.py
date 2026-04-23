@@ -655,8 +655,8 @@ def main():
                     governor.load_state(ckpt['governor_state'])
                     g_start_state = governor.get_state()
                     train_ds.update_strategy(fraction=g_start_state['sample_fraction'], size=g_start_state['input_size'])
-                    val_ds.update_strategy(size=g_start_state['input_size'])
-                    print(f" [RESILIENCY] Smart Governor state RESTORED from checkpoint (Dataset: {g_start_state['sample_fraction']*100:.0f}%).")
+                    # 2026: val_ds is NOT updated here — it must remain anchored at 384px!
+                    print(f" [RESILIENCY] Smart Governor state RESTORED from checkpoint (Dataset: {g_start_state['sample_fraction']*100:.0f}%). Val anchored at 384px.")
                 if ckpt.get('sota_achieved', False):
                     sota_baseline_achieved = True
             else:
@@ -680,12 +680,11 @@ def main():
         start_epochs_no_improve = 0
 
     print(f"[OK] [CONTINUITY] Successfully resumed from epoch {start_epoch+1}.")
-    print(f"[INFO] [CALIBRATION] Manifold Aligned: Bin 0=Worst(1.0) | Bin 9=Best(10.0)")
-    
     # --- 2026: Polarity Governor (Resilience v3.3) ---
     # Perform a surgical 10-batch 'Probe' of validation correlation to detect inverse heads.
     # This prevents hours of wasted training on inverted manifolds.
     if train_ds.task_type == "quality":
+        print(f"[INFO] [CALIBRATION] Manifold Aligned: Bin 0=Worst(1.0) | Bin 9=Best(10.0)")
         print(f"[INFO] [POLARITY] Auditing manifold sign (Quick Probe)...")
         model.eval()
         probe_preds, probe_tgtes = [], []
@@ -966,7 +965,8 @@ def main():
                     smoothing=0.3, 
                     file=sys.stderr,
                     mininterval=0.1,
-                    dynamic_ncols=True
+                    dynamic_ncols=True,
+                    leave=False
                 )
                 pbar.set_postfix({"loss": "..."})
 
@@ -1250,11 +1250,20 @@ def main():
                 if not skip_lr_sched:
                     current_lr = scheduler.get_last_lr()[0]
                     scheduler.step()
+                
+                # --- 2026 Resilience: Velocity Floor (v3.2) ---
+                # We enforce a hard floor of 5e-7 to prevent the scheduler from decaying 
+                # into numerical silence during the tail of the OneCycle curve.
+                for param_group in optimizer.param_groups:
+                    if param_group['lr'] < 5e-7:
+                        param_group['lr'] = 5e-7
+                
                 new_lr = scheduler.get_last_lr()[0]
+                if new_lr < 5e-7: new_lr = 5e-7
                 
                 # --- 2026: Intra-Epoch Resilience (The Mitochondrial Pulse v6.1.10) ---
                 # Threshold-based saving ensures persistence is never skipped due to batch-jumps.
-                interval_pct = config.get("intra_epoch_checkpoint_pct", 0.1)
+                interval_pct = config.get("intra_epoch_checkpoint_pct", 0.2)
                 current_pct = (i + 1) / len(train_loader)
                 
                 if interval_pct > 0 and (current_pct >= (last_intra_epoch_pct + interval_pct - 1e-5)):
@@ -1275,7 +1284,20 @@ def main():
                         'sota_achieved': sota_baseline_achieved
                     }, temp_prog_ckpt)
                     safe_replace(temp_prog_ckpt, prog_ckpt)
-                    pbar.write(f" [RESILIENCY] Progress Synchronization Tier reached ({current_pct*100:.0f}%). State committed.")
+                    tier_str = f"{current_pct*100:.0f}%"
+                    
+                    # Forcefully inject the print via a raw OS write to bypass tqdm's terminal control codes
+                    raw_msg = f"\n>>> [RESILIENCY] PROGRESS COMMITTED: Tier {tier_str} at Batch {i+1} <<<\n"
+                    sys.stderr.write(raw_msg)
+                    sys.stderr.flush()
+                    
+                    # Create a 100% indestructible physical log in the root folder so the user can see it
+                    try:
+                        with open(f"{args.model}_progress_log.txt", "a") as logf:
+                            import time
+                            logf.write(f"Epoch {epoch+1} - Tier {tier_str} committed at {time.strftime('%H:%M:%S')}\n")
+                    except Exception as e:
+                        sys.stderr.write(f"\n[ERROR] Log write failed: {e}\n")
 
         avg_train_loss = train_loss / len(train_loader)
         
@@ -1359,6 +1381,28 @@ def main():
         # Set baseline for non-negative metrics
         lpips_val = 0.05
         fid = 50.0
+        
+        # --- 2026: Canonical Eval Upscale (Resolution-Invariant Scorecarding) ---
+        # Metrics are ALWAYS computed at 384px canonical resolution, regardless of the
+        # current training resolution set by the Smart Governor. This ensures PSNR/SSIM/
+        # LPIPS/FID remain directly comparable across all epochs, even during resolution
+        # curriculum transitions (e.g. 128px -> 256px -> 384px).
+        CANONICAL_EVAL_SIZE = 384
+        if train_ds.task_type in ["restoration", "enhancement", "face"] and len(all_preds) > 0:
+            _p_raw = torch.cat(all_preds)
+            _t_raw = torch.cat(all_targets)
+            _current_h = _p_raw.shape[-2]
+            _current_w = _p_raw.shape[-1]
+            if _current_h != CANONICAL_EVAL_SIZE or _current_w != CANONICAL_EVAL_SIZE:
+                import torch.nn.functional as _F_resize  # pyre-ignore
+                print(f" [CANONICAL EVAL] Upscaling {_current_h}px → {CANONICAL_EVAL_SIZE}px for resolution-invariant scorecarding.")
+                _scale_args = dict(size=(CANONICAL_EVAL_SIZE, CANONICAL_EVAL_SIZE), mode='bicubic', align_corners=False)
+                all_preds = [_F_resize.interpolate(_p_raw.clamp(0, 1), **_scale_args).cpu()]
+                all_targets = [_F_resize.interpolate(_t_raw.clamp(0, 1), **_scale_args).cpu()]
+            else:
+                all_preds = [_p_raw]
+                all_targets = [_t_raw]
+        
         try:
             if train_ds.task_type == "quality" and len(all_preds) > 0:
                 import scipy.stats  # pyre-ignore
@@ -1480,10 +1524,11 @@ def main():
                     elif k == 'rank_margin': current_quality_score += (1.0 - val) * weight
                     else: current_quality_score += (1.0 / (val + 1e-6)) * weight
             
-            # --- 2026 Resilience: Meaningful Improvement Delta ---
-            # We now use the Governor's min_delta (0.1%) to filter out numerical noise.
-            loss_improves = avg_val_loss < (best_val_loss * (1.0 - governor.min_delta))
-            quality_improves = current_quality_score > (best_quality_score * (1.0 + governor.min_delta))
+            # --- 2026 Resilience: Meaningful Improvement Delta (Hardened v4.1) ---
+            # For high-resolution restoration, we need 0.5% improvement to reset the plateau clock.
+            stagnation_threshold = governor.min_delta if train_ds.task_type == "quality" else 0.005
+            loss_improves = avg_val_loss < (best_val_loss * (1.0 - stagnation_threshold))
+            quality_improves = current_quality_score > (best_quality_score * (1.0 + stagnation_threshold))
             is_improving = loss_improves or quality_improves
             
             # --- 2026 SOTA GUARD: Quality Regression Mutex ---
@@ -1516,12 +1561,16 @@ def main():
             current_quality_score, best_quality_score, epochs_no_improve, regression_epochs, 
             sentinel_trigger_rate=avg_sentinel_stress,
             current_lr=optimizer.param_groups[0]['lr'],
-            base_lr=args.lr
+            base_lr=lr  # Corrected: Using resolved lr variable instead of args.lr (which might be None)
         )
         
         if smart_msg:
             print(smart_msg)
             new_params = governor.get_state()
+            
+            # --- 2026: Shield Telemetry (v6.1.35) ---
+            if new_params.get('stabilization_epochs', 0) > 0:
+                print(f"🛡️ [STABILIZATION SHIELD] Manifold Locked for {new_params['stabilization_epochs']} more epochs.")
             
             if f_changed or r_changed or b_changed:
                 if b_changed:
@@ -1550,6 +1599,25 @@ def main():
                 if hasattr(scheduler, 'max_lrs'):
                     scheduler.max_lrs = [l * mult for l in scheduler.max_lrs]
                 print(f"📉 [VELOCITY SYNC] Learning Rate scaled by {mult}x across Unified Pipeline.")
+                
+                # --- 2026: Mission Defibrillation (v6.1.19) ---
+                # If a High-Energy Jolt occurs, the current scheduler curve is likely 
+                # too decayed to support the new manifold. We re-initialize a fresh OneCycle phase.
+                if mult > 2.0 and isinstance(scheduler, torch.optim.lr_scheduler.OneCycleLR):
+                    print(f"🔄 [MISSION DEFIBRILLATION] Re-initializing OneCycleLR curve for High-Energy Manifold.")
+                    steps_per_epoch = len(train_loader) // accumulation_steps
+                    if steps_per_epoch == 0: steps_per_epoch = 1
+                    
+                    # Target a 'Fresh Life': Resetting the curve to an equivalent of 10% progress
+                    # or the start of the mission to allow for a new warm-up and annealing phase.
+                    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                        optimizer, max_lr=lr*1.2, total_steps=total_steps, 
+                        pct_start=dynamic_pct_start, anneal_strategy='cos'
+                    )
+                    # We sync the scheduler's 'last_epoch' (step counter) to the start of the current epoch
+                    # to effectively 'rewind' the mission time.
+                    scheduler.last_epoch = epoch * steps_per_epoch
+                    print(f" [MISSION SHIELD] Scheduler manifold RE-ANCHORED. Step counter: {scheduler.last_epoch} of {total_steps}.")
             
             if t_changed or c_changed:
                 stab['softmax_temp'] = new_params['softmax_temp']
@@ -1634,8 +1702,9 @@ def main():
                         governor.load_state(ckpt['governor_state'])
                         g_state = governor.get_state()
                         train_ds.update_strategy(fraction=g_state['sample_fraction'], size=g_state['input_size'])
-                        val_ds.update_strategy(size=g_state['input_size'])
-                        print(f"🔄 [GOVERNOR SYNC] Rolled back Dataset Fraction to {g_state['sample_fraction']*100:.0f}%")
+                        # 2026: val_ds resolution is NOT rolled back — it remains anchored at 384px
+                        # for canonical, resolution-invariant scorecarding (metric parity guarantee).
+                        print(f"🔄 [GOVERNOR SYNC] Rolled back Dataset Fraction to {g_state['sample_fraction']*100:.0f}% | Val anchored at 384px")
                     
                     # Force 50% LR cooling to 'seat' the model back into the stable manifold
                     # --- 2026: SOTA Velocity Shield (v3.1) ---

@@ -276,6 +276,21 @@ class MultiTaskDataset(Dataset):
                 target = self.load_image(tgt_path)
             else:
                 target = img.copy()
+            
+            # --- 2026 Resilience: Synchronous Spatial Augmentation ---
+            # To break the catastrophic overfitting plateau, we must force the network 
+            # to learn translation-invariant features by synchronously augmenting both tensors.
+            if self.is_train:
+                import random
+                # 50% chance Horizontal Flip
+                if random.random() > 0.5:
+                    img = cv2.flip(img, 1)
+                    target = cv2.flip(target, 1)
+                # 50% chance Vertical Flip
+                if random.random() > 0.5:
+                    img = cv2.flip(img, 0)
+                    target = cv2.flip(target, 0)
+                    
             return self.fast_process(img), self.fast_process(target), self.task_type
             
         elif self.task_type == "quality":

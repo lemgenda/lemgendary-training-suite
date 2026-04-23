@@ -410,9 +410,10 @@ nafnet_denoising:
     initial_fraction: 0.40
     fraction_increment: 0.15
     res_ladder: [128, 256, 384, 512, 640]
-    plateau_patience: 12
+    plateau_patience: 4
     cooling_factor: 0.8
     plateau_priority: resolution
+    jolt_multiplier: 5.0
   datasets:
   - LemGendizedNoiseDataset
   stabilizers:
