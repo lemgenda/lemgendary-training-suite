@@ -533,7 +533,20 @@ def main():
     stab = {**global_stab, **model_stab}
     governor = SmartTrainingGovernor(model_info, stabilizers=stab)
     sample_fraction = governor.current_fraction
+    # --- 2026: Auto-Recovery Dataset Downloader (Option 2) ---
+    ds_reqs = model_info.get("datasets", [])
+    if isinstance(ds_reqs, str): ds_reqs = [ds_reqs]
+    data_dir = os.path.join(project_root, "data", "datasets")
     
+    if args.env == "local":
+        for ds_name in ds_reqs:
+            ds_path = os.path.join(data_dir, ds_name)
+            if not os.path.exists(ds_path):
+                print(f"\n📡 [DATA] Dependency '{ds_name}' not found natively. Auto-initiating Cloud Stream...")
+                from data.data_utils import download_and_extract_dataset
+                if not download_and_extract_dataset(ds_name, data_dir):
+                    print(f" ❌ [CRITICAL] Failed to auto-recover dataset '{ds_name}'. Terminal Exception pending.\n")
+
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
     # --- 2026: SOTA Validation Synchronization ---
     # Validation mirrors the Governor's training resolution, UNLESS explicitly 
@@ -1070,211 +1083,211 @@ def main():
                 is_corrupt = False
 
 
-            # --- 2026: Singularity Audit (The Truth Seeker) ---
-            # Detecting "Dead Gradients" that have been masked to 0.0 by the Singularity Shield
-            if loss.item() == 0.0:
-                consecutive_singularities += 1
-                if consecutive_singularities >= 10:
-                    print(f" [NUCLEAR] Infinite Singularity Loop (10 batches). Poisoned state detected. Nuking Latest & Hard-Resetting...")
-                    latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
-                    if os.path.exists(latest_ckpt): 
-                        try: os.remove(latest_ckpt)
-                        except: pass
+                # --- 2026: Singularity Audit (The Truth Seeker) ---
+                # Detecting "Dead Gradients" that have been masked to 0.0 by the Singularity Shield
+                if loss.item() == 0.0:
+                    consecutive_singularities += 1
+                    if consecutive_singularities >= 10:
+                        print(f" [NUCLEAR] Infinite Singularity Loop (10 batches). Poisoned state detected. Nuking Latest & Hard-Resetting...")
+                        latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
+                        if os.path.exists(latest_ckpt): 
+                            try: os.remove(latest_ckpt)
+                            except: pass
                     
-                    # Force a deep rollback to best.pth
-                    is_corrupt = True
-                    consecutive_nans = 10 # Force Thermal Shield
-                    consecutive_singularities = 0 
+                        # Force a deep rollback to best.pth
+                        is_corrupt = True
+                        consecutive_nans = 10 # Force Thermal Shield
+                        consecutive_singularities = 0 
                     
-                    # 2026: Deep-State Momentum Flush
-                    # If we are stuck in a singularity loop, we purge the optimizer buffers
-                    # to remove any "Ghost Momentum" that might be forcing the weights into the abyss.
-                    optimizer.state.clear()
-                    print(f" [PURGE] Deep-State Momentum Flush complete. Gradient history erased.")
+                        # 2026: Deep-State Momentum Flush
+                        # If we are stuck in a singularity loop, we purge the optimizer buffers
+                        # to remove any "Ghost Momentum" that might be forcing the weights into the abyss.
+                        optimizer.state.clear()
+                        print(f" [PURGE] Deep-State Momentum Flush complete. Gradient history erased.")
                     
-                    # 2026 Resilience: Poisoned Region Skip
-                    # Skip the next 50 batches physically using iter_obj to clear the mathematical singularity region
-                    resume_iteration = i + 50
-                    print(f" [RESILIENCE] Skipping poisoned region: Iterations {i} to {resume_iteration}")
-                    for _i, _batch in iter_obj:
-                        if _i >= resume_iteration:
-                            break
-                    pbar.set_postfix({"loss": "SINGULARITY", "skip": "+50"})
+                        # 2026 Resilience: Poisoned Region Skip
+                        # Skip the next 50 batches physically using iter_obj to clear the mathematical singularity region
+                        resume_iteration = i + 50
+                        print(f" [RESILIENCE] Skipping poisoned region: Iterations {i} to {resume_iteration}")
+                        for _i, _batch in iter_obj:
+                            if _i >= resume_iteration:
+                                break
+                        pbar.set_postfix({"loss": "SINGULARITY", "skip": "+50"})
                     
-                    torch.cuda.empty_cache()
-            else:
-                consecutive_singularities = 0
+                        torch.cuda.empty_cache()
+                else:
+                    consecutive_singularities = 0
 
-            # --- 2026 Resilience: Deep-State NaN Shield & Weight/Buffer Corruption Guard ---
-            if torch.isnan(loss) or is_corrupt:
-                if torch.isnan(loss):
-                    print(f" [RESILIENCE] NaN detected in iteration {i}! Skipping corrupt batch...")
-                    pbar.set_postfix({"loss": "NaN", "resilience": "Active"})
-                optimizer.zero_grad()
-                deep_state_corrupt = False
+                # --- 2026 Resilience: Deep-State NaN Shield & Weight/Buffer Corruption Guard ---
+                if torch.isnan(loss) or is_corrupt:
+                    if torch.isnan(loss):
+                        print(f" [RESILIENCE] NaN detected in iteration {i}! Skipping corrupt batch...")
+                        pbar.set_postfix({"loss": "NaN", "resilience": "Active"})
+                    optimizer.zero_grad()
+                    deep_state_corrupt = False
                 
-                # Triple-Audit NaN Shield (Weights/Buffers/Optimizer)
-                # 1. Audit Parameters (Weights)
-                for param in model.parameters():
-                    if not torch.isfinite(param).all():
-                        deep_state_corrupt = True; break
-                # 2. Audit Buffers (Batch Norm Running Stats)
-                if not deep_state_corrupt:
-                    for buf in model.buffers():
-                        if not torch.isfinite(buf).all():
+                    # Triple-Audit NaN Shield (Weights/Buffers/Optimizer)
+                    # 1. Audit Parameters (Weights)
+                    for param in model.parameters():
+                        if not torch.isfinite(param).all():
                             deep_state_corrupt = True; break
-                # 3. Audit Optimizer State (Momentum/Variance buffers)
-                if not deep_state_corrupt:
-                    for state in optimizer.state.values():
-                        for k, v in state.items():
-                            if isinstance(v, torch.Tensor) and not torch.isfinite(v).all():
-                                deep_state_corrupt = True; break
-                        if deep_state_corrupt: break
-                
-                if deep_state_corrupt or is_corrupt:
-                    consecutive_nans += 1
-                    if deep_state_corrupt:
-                        print(f" [CRITICAL] Deep-State corruption (Weights/Buffers/Optimizer) detected.")
-                    else:
-                        print(f" [CRITICAL] Infinite NaN loss surface detected.")
-                    
-                    if consecutive_nans >= 3:
-                        print(f" [THERMAL] NaN Loop detected. Re-freezing backbone for 2500 iterations...")
-                        # Freeze backbone
-                        for name, param in model.named_parameters():
-                            if "head" not in name and "classifier" not in name:
-                                param.requires_grad = False
-                        thermal_steps_left = 2500
-
-                    print(f" [RECOVERY] Engaging SOTA Auto-Rollback & 50% LR Cooling...")
-                    best_ckpt_path = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
-                    if os.path.exists(best_ckpt_path):
-                        ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
-                        model.load_state_dict(ckpt['model_state'])
-                        
-                        # 2026: Surgical Buffer Audit (The Ghost-Buster)
-                        # Ensure no NaNs remain in non-learnable BatchNorm stats or other buffers
-                        sanitized_count = 0
+                    # 2. Audit Buffers (Batch Norm Running Stats)
+                    if not deep_state_corrupt:
                         for buf in model.buffers():
                             if not torch.isfinite(buf).all():
-                                buf.data.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
-                                sanitized_count += 1
-                        if sanitized_count > 0:
-                            print(f" [PURGE] Sanitized {sanitized_count} non-finite buffers/stats.")
-
-                        if 'optimizer_state' in ckpt:
-                            optimizer.load_state_dict(ckpt['optimizer_state'])
-                        
-                        # Halve the learning rate to re-seat the model into a stable manifold
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = param_group['lr'] * 0.5
-                        
-                        if hasattr(scheduler, 'base_lrs'):
-                            scheduler.base_lrs = [lr * 0.5 for lr in scheduler.base_lrs]
-                        if hasattr(scheduler, 'max_lrs'):
-                            scheduler.max_lrs = [lr * 0.5 for lr in scheduler.max_lrs]
-                        
-                        # 2026 Resilience: Momentum Decay instead of Clear
-                    # We only clear the state if it actually contains NaNs.
-                    # Otherwise, wiping momentum causes a "Panic Spike" on the next batch.
-                        # 2026 Resilience: Momentum Decay instead of Clear
-                        # We only clear the state if it actually contains NaNs.
-                        # Otherwise, wiping momentum causes a "Panic Spike" on the next batch.
-                        momentum_corrupt = False
+                                deep_state_corrupt = True; break
+                    # 3. Audit Optimizer State (Momentum/Variance buffers)
+                    if not deep_state_corrupt:
                         for state in optimizer.state.values():
                             for k, v in state.items():
                                 if isinstance(v, torch.Tensor) and not torch.isfinite(v).all():
-                                    momentum_corrupt = True; break
-                            if momentum_corrupt: break
-                        
-                        if momentum_corrupt:
-                            print(f" [PURGE] Corrupted optimizer momentum detected. Hard-resetting optimizer state.")
-                            optimizer.state.clear()
+                                    deep_state_corrupt = True; break
+                            if deep_state_corrupt: break
+                
+                    if deep_state_corrupt or is_corrupt:
+                        consecutive_nans += 1
+                        if deep_state_corrupt:
+                            print(f" [CRITICAL] Deep-State corruption (Weights/Buffers/Optimizer) detected.")
                         else:
-                            # Momentum Cooling: Dampen the momentum to seat the model gently
+                            print(f" [CRITICAL] Infinite NaN loss surface detected.")
+                    
+                        if consecutive_nans >= 3:
+                            print(f" [THERMAL] NaN Loop detected. Re-freezing backbone for 2500 iterations...")
+                            # Freeze backbone
+                            for name, param in model.named_parameters():
+                                if "head" not in name and "classifier" not in name:
+                                    param.requires_grad = False
+                            thermal_steps_left = 2500
+
+                        print(f" [RECOVERY] Engaging SOTA Auto-Rollback & 50% LR Cooling...")
+                        best_ckpt_path = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
+                        if os.path.exists(best_ckpt_path):
+                            ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
+                            model.load_state_dict(ckpt['model_state'])
+                        
+                            # 2026: Surgical Buffer Audit (The Ghost-Buster)
+                            # Ensure no NaNs remain in non-learnable BatchNorm stats or other buffers
+                            sanitized_count = 0
+                            for buf in model.buffers():
+                                if not torch.isfinite(buf).all():
+                                    buf.data.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
+                                    sanitized_count += 1
+                            if sanitized_count > 0:
+                                print(f" [PURGE] Sanitized {sanitized_count} non-finite buffers/stats.")
+
+                            if 'optimizer_state' in ckpt:
+                                optimizer.load_state_dict(ckpt['optimizer_state'])
+                        
+                            # Halve the learning rate to re-seat the model into a stable manifold
+                            for param_group in optimizer.param_groups:
+                                param_group['lr'] = param_group['lr'] * 0.5
+                        
+                            if hasattr(scheduler, 'base_lrs'):
+                                scheduler.base_lrs = [lr * 0.5 for lr in scheduler.base_lrs]
+                            if hasattr(scheduler, 'max_lrs'):
+                                scheduler.max_lrs = [lr * 0.5 for lr in scheduler.max_lrs]
+                        
+                            # 2026 Resilience: Momentum Decay instead of Clear
+                        # We only clear the state if it actually contains NaNs.
+                        # Otherwise, wiping momentum causes a "Panic Spike" on the next batch.
+                            # 2026 Resilience: Momentum Decay instead of Clear
+                            # We only clear the state if it actually contains NaNs.
+                            # Otherwise, wiping momentum causes a "Panic Spike" on the next batch.
+                            momentum_corrupt = False
                             for state in optimizer.state.values():
                                 for k, v in state.items():
-                                    if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
-                                        v.mul_(0.9)
-                            print(f" [COOLING] Momentum dampened by 10% to stabilize manifold entry.")
+                                    if isinstance(v, torch.Tensor) and not torch.isfinite(v).all():
+                                        momentum_corrupt = True; break
+                                if momentum_corrupt: break
                         
-                        scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
-                        print(f" [RECOVERY] Successfully rolled back to historical SOTA baseline with fresh Scaler.")
+                            if momentum_corrupt:
+                                print(f" [PURGE] Corrupted optimizer momentum detected. Hard-resetting optimizer state.")
+                                optimizer.state.clear()
+                            else:
+                                # Momentum Cooling: Dampen the momentum to seat the model gently
+                                for state in optimizer.state.values():
+                                    for k, v in state.items():
+                                        if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
+                                            v.mul_(0.9)
+                                print(f" [COOLING] Momentum dampened by 10% to stabilize manifold entry.")
+                        
+                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
+                            print(f" [RECOVERY] Successfully rolled back to historical SOTA baseline with fresh Scaler.")
+                        else:
+                            print(f" [RECOVERY] No 'best.pth' found natively. Engaging purely mathematical stabilization without LR penalty.")
+                            # Purge corrupted stats dynamically
+                            for buf in model.buffers():
+                                if not torch.isfinite(buf).all():
+                                    buf.data.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
+                            optimizer.state.clear()
+                            # Removed LR halving here. Freshly wiped heads MUST retain their learning rate to physically escape the inverse manifold!
+                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
+                            print(f" [COOLING] Deep-states purged manually. Scaler reset. Gracefully resuming.")
                     else:
-                        print(f" [RECOVERY] No 'best.pth' found natively. Engaging purely mathematical stabilization without LR penalty.")
-                        # Purge corrupted stats dynamically
-                        for buf in model.buffers():
-                            if not torch.isfinite(buf).all():
-                                buf.data.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
-                        optimizer.state.clear()
-                        # Removed LR halving here. Freshly wiped heads MUST retain their learning rate to physically escape the inverse manifold!
-                        scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
-                        print(f" [COOLING] Deep-states purged manually. Scaler reset. Gracefully resuming.")
-                else:
-                    consecutive_nans = 0 # Batch was skip-stabilized
+                        consecutive_nans = 0 # Batch was skip-stabilized
                 
-                # Update UI before continuing to ensure user sees the "RECOVERING" status
-                pbar.set_postfix({"loss": "RECOVERING", "retry": consecutive_nans})
-                continue
+                    # Update UI before continuing to ensure user sees the "RECOVERING" status
+                    pbar.set_postfix({"loss": "RECOVERING", "retry": consecutive_nans})
+                    continue
             
-            # --- 2026: Thermal Reset ---
-            if thermal_steps_left > 0:
-                thermal_steps_left -= 1
-                if thermal_steps_left == 0:
-                    print(f" [THERMAL] Stabilization complete. Thawing backbone for full fine-tuning.")
-                    for param in model.parameters():
-                        param.requires_grad = True
+                # --- 2026: Thermal Reset ---
+                if thermal_steps_left > 0:
+                    thermal_steps_left -= 1
+                    if thermal_steps_left == 0:
+                        print(f" [THERMAL] Stabilization complete. Thawing backbone for full fine-tuning.")
+                        for param in model.parameters():
+                            param.requires_grad = True
             
-            consecutive_nans = 0 # Reset upon successful forward pass
+                consecutive_nans = 0 # Reset upon successful forward pass
 
-            scaler.scale(loss).backward()
+                scaler.scale(loss).backward()
             
-            # Step only after accumulating enough gradients
-            # Cleaned legacy execution path.
-            train_loss += loss.item() * accumulation_steps # Audit physical loss
-            pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
+                # Step only after accumulating enough gradients
+                # Cleaned legacy execution path.
+                train_loss += loss.item() * accumulation_steps # Audit physical loss
+                pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
 
-            # Step only after accumulating enough gradients
-            if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_loader):
-                # --- 2026: SOTA Gradient Clipping (Tightened to 0.5 for stability) ---
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+                # Step only after accumulating enough gradients
+                if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_loader):
+                    # --- 2026: SOTA Gradient Clipping (Tightened to 0.5 for stability) ---
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
 
-                scale_before = scaler.get_scale()
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
+                    scale_before = scaler.get_scale()
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad()
                 
-                # Natively prevent 'lr_scheduler before optimizer' UserWarning during AMP nan-skips
-                skip_lr_sched = (scale_before > scaler.get_scale())
-                if not skip_lr_sched:
-                    current_lr = scheduler.get_last_lr()[0]
-                    scheduler.step()
+                    # Natively prevent 'lr_scheduler before optimizer' UserWarning during AMP nan-skips
+                    skip_lr_sched = (scale_before > scaler.get_scale())
+                    if not skip_lr_sched:
+                        current_lr = scheduler.get_last_lr()[0]
+                        scheduler.step()
                 
-                # --- 2026 Resilience: Velocity Floor (v3.2) ---
-                # We enforce a hard floor of 5e-7 to prevent the scheduler from decaying 
-                # into numerical silence during the tail of the OneCycle curve.
-                for param_group in optimizer.param_groups:
-                    if param_group['lr'] < 5e-7:
-                        param_group['lr'] = 5e-7
+                    # --- 2026 Resilience: Velocity Floor (v3.2) ---
+                    # We enforce a hard floor of 5e-7 to prevent the scheduler from decaying 
+                    # into numerical silence during the tail of the OneCycle curve.
+                    for param_group in optimizer.param_groups:
+                        if param_group['lr'] < 5e-7:
+                            param_group['lr'] = 5e-7
                 
-                new_lr = scheduler.get_last_lr()[0]
-                if new_lr < 5e-7: new_lr = 5e-7
+                    new_lr = scheduler.get_last_lr()[0]
+                    if new_lr < 5e-7: new_lr = 5e-7
                 
-                # --- 2026: Intra-Epoch Resilience (The Mitochondrial Pulse v6.1.10) ---
+                # --- 2026: Intra-Epoch Resilience (The Mitochondrial Pulse v6.1.11) ---
                 # Threshold-based saving ensures persistence is never skipped due to batch-jumps.
                 interval_pct = float(config.get("intra_epoch_checkpoint_pct", 0.2))
                 current_pct = (i + 1) / len(train_loader)
-                
+            
                 if last_intra_epoch_pct < 0:
                     last_intra_epoch_pct = 0.0
-                
+            
                 if interval_pct > 0 and (current_pct >= last_intra_epoch_pct + interval_pct - 1e-4 or current_pct == 1.0):
                     if current_pct == 1.0:
                         last_intra_epoch_pct = 1.0
                     else:
                         last_intra_epoch_pct += interval_pct
-                        
+                    
                     # Clamp to prevent floating point drift
                     last_intra_epoch_pct = round(last_intra_epoch_pct, 2)
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
@@ -1294,19 +1307,13 @@ def main():
                     }, temp_prog_ckpt)
                     safe_replace(temp_prog_ckpt, prog_ckpt)
                     tier_str = f"{current_pct*100:.0f}%"
-                    
+                
                     # Forcefully inject the print via a raw OS write to bypass tqdm's terminal control codes
                     raw_msg = f"\n>>> [RESILIENCY] PROGRESS COMMITTED: Tier {tier_str} at Batch {i+1} <<<\n"
                     sys.stderr.write(raw_msg)
                     sys.stderr.flush()
-                    
-                    # Create a 100% indestructible physical log in the root folder so the user can see it
-                    try:
-                        with open(f"{args.model}_progress_log.txt", "a") as logf:
-                            import time
-                            logf.write(f"Epoch {epoch+1} - Tier {tier_str} committed at {time.strftime('%H:%M:%S')}\n")
-                    except Exception as e:
-                        sys.stderr.write(f"\n[ERROR] Log write failed: {e}\n")
+                
+
 
         avg_train_loss = train_loss / len(train_loader)
         
