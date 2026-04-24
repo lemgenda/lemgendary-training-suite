@@ -40,11 +40,9 @@ The master orchestration console. It manages the full lifecycle from system boot
 | :--- | :--- | :--- |
 | **1. Initialize Systems** | **Environment Sync** | Installs Python 3.12, creates `.venv`, and Auto-Detects GPU. Installs PyTorch 2.4.1+cu121 (NVIDIA) or DirectML. |
 | **2. Train Model** | **Interactive Selection** | Launches the **Category Submenu**: <br>• **1. Quality**: NIMA (Aesthetic/Technical) <br>• **2. Face/Det**: YOLOv8n, RetinaFace, CodeFormer <br>• **3. SuperRes**: UltraZoom Array (x2-x8) <br>• **4. Restoration**: NAFNet, MIRNet, FFANet, MPRNet <br>• **5. Hybrid**: UPN v2, Multi-Restorer, Film |
-| **3. Global Orchestration** | **Continuous Train** | Executes sequential training for all 21+ models defined in `unified_models.yaml` uninterrupted. |
-| **4. Deploy to Cloud** | **Kaggle Deployment** | Generates tailored instructions and topologies for remote Jupyter execution. |
-| **5. Smart Cloud Ops** | **Hybrid Streaming** | Trains locally using the **Smart Prefetch Engine** to stream Kaggle data without local storage bloat. |
-| **6. Unit Test (All)** | **Diagnostic Pass** | Runs precisely **1 functional epoch** across the entire model inventory to validate memory/VRAM. |
-| **9. Environment Janitor** | **Orphan Purge** | Force-terminates orphaned Python/PowerShell processes and releases file-system mutexes. |
+| **3. Global Orchestration** | **Continuous Train** | Executes intelligent phased training with zero-latency pre-fetching and aggressive dataset SSD purging. |
+| **4. Unit Test (All)** | **Diagnostic Pass** | Runs precisely **1 functional epoch** across the entire model inventory to validate memory/VRAM. |
+| **5. Environment Janitor** | **Orphan Purge** | Force-terminates orphaned Python/PowerShell processes and releases file-system mutexes. |
 | **Q. Exit** | **Full Shutdown** | Gracefully closes the orchestration hub. |
 
 ### 2. Manual Orchestration
@@ -53,11 +51,11 @@ For advanced users who require direct pipeline control.
 # Individual Model Run
 python training/train.py --model nima_technical
 
+# Global Orchestration (Smart Caching + Phased Matrix Mode)
+python train_all.py
+
 # Global Unit Test (Dry Run)
 python train_all.py --epochs 1 --yes
-
-# Smart Cloud Streaming (Kaggle API)
-python smart_orchestrator.py
 ```
 
 ---
@@ -69,6 +67,38 @@ python smart_orchestrator.py
 - `trained-models/` — Production-ready artifacts (ONNX FP16/FP32).
 - `technical_papers/` — High-fidelity architecture whitepapers and research notes.
 - `unified_models.yaml` — The Master Registry (Single Source of Truth) for all supported neural networks and data dependencies.
+
+---
+
+## ⚙️ Orchestrator Pipeline & Smart Governor Internals
+
+The v8.1.0-ULTRA-STABILIZED training suite leverages a highly sophisticated, multi-phase orchestration sequence and an autonomous parameter governor. These systems ensure non-stop continuous training across the entire model inventory while aggressively optimizing both physical hardware and the mathematical training manifold.
+
+### 1. The Smart Orchestrator Sequence
+Defined in `smart_orchestrator.py`, this script manages the physical execution of the models using a mathematically structured pipeline.
+- **Phased Execution Matrix**: Models are grouped by structural topology into 8 distinct phases (Phase 1: Deep Quality Assessment, Phase 2A/B: Facial Analytics & Detection, Phase 3A-E: Super-Resolution & Restoration). This controls the global memory footprint.
+- **Zero-Latency Background Pre-Fetch**: While a model trains natively, the Orchestrator arms a background thread to look ahead to the *next* phase and stream Kaggle datasets into the SSD cache. This ensures the GPU never idles waiting for physical I/O.
+- **Aggressive SSD Purging**: Upon completing a phase, a surgical memory purger mathematically shreds any cached datasets that are no longer required by future phases, freeing massive disk space on constrained hardware.
+
+### 2. Smart Governor Initialization & Starting Values
+When a model boots via `train.py`, the `SmartTrainingGovernor` initializes with the following default logic limits (configurable via `unified_models.yaml`):
+- **Data Fraction (`initial_fraction`)**: Defaults to `10%` (0.1). This forces the model to heavily overfit to a small stochastic subset during its "Discovery Phase."
+- **Fraction Increment**: Defaults to `15%` (0.15). The chunk size by which the dataset expands when a plateau is hit.
+- **Resolution Ladder**: Follows a predefined progression (e.g., `[128, 256, 384, 512, 640]`) to force spatial feature extraction.
+- **Thermal Values**: Softmax Temperature starts at `0.1`; Logit Clamp initialized at `20.0` (with a dynamic range of `[15.0, 45.0]`).
+- **Hardware Sentinels**: Physical batch size (`16` or auto-detected); VRAM Safety Margin (`0.85` or 85%).
+
+### 3. Autonomous Triggers & Logic
+The Governor executes `audit_epoch()` at the end of every epoch, utilizing multiple sentinels to analyze the model's structural health:
+- **Stagnation Plateau Guard**: Triggered if the validation metric (e.g., PSNR) fails to improve by a strict `0.1%` delta (`min_delta: 1e-3`) for `plateau_patience` (default 6) epochs.
+- **Drift Sentinel**: Triggered if the validation quality regresses compared to the previous epoch. If consecutive drift occurs (>= 2), the Governor mathematically dampens the Learning Rate by `0.8x/0.7x` and tightens the logit clamp (`-5.0`) to force stability.
+- **Numerical Sentinel**: If the `sentinel_trigger_rate` (NaNs or infs) exceeds 5%, the LR is cooled to seat the manifold. If stress exceeds 20%, scaling milestones are intentionally delayed.
+- **Hardware/Memory Sentinel**: Predicts the next VRAM footprint before shifting resolutions using `(next_res / current_res)^1.8`. If the prediction exceeds 85%, it natively trades physical Batch Size for logical Gradient Accumulation to prevent OS paging.
+
+### 4. Dynamic Optimizations & Shields
+- **Velocity Life-Support & Defibrillation (Jolt)**: If all resolution and data scaling options are exhausted during a plateau, the Governor injects a High-Energy Manifold Jolt (multiplying the LR by `2.0x` up to `4.0x`). If the LR has "cooled to death" (`< base_lr * 0.01`), it forces a surgical multiplier to rewind the OneCycleLR curve and break the stagnation.
+- **Stabilization Shield**: Immediately following a structural shift (Resolution up-scale or Batch size drop), the manifold is naturally volatile. The Governor engages a **3-epoch Stabilization Shield** that temporarily locks out the Regression Guard and Plateau detection to prevent "Self-Gaslighting" recoils.
+- **Recoil Protocol**: If the model suffers a catastrophic manifold collapse and must roll back to a `_best.pth` checkpoint, the Governor triggers `recoil()`. It tacticaly steps down one rung on the resolution ladder and shrinks the dataset fraction, allowing the model to gently re-seat itself safely.
 
 ---
 

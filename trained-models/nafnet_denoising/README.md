@@ -43,7 +43,7 @@ This model is a core module within the **LemGendary AI Training Suite**.
 
 - **Hardware**: NVIDIA GeForce GTX 1650 (4G VRAM)
 - **Software**: PyTorch 2.11+, CUDA 12.1.
-- **Training Lifecycle**: Successfully processed over 147 total epochs securely.
+- **Training Lifecycle**: Successfully processed over 200 total epochs securely.
 
 # Model Characteristics
 
@@ -85,7 +85,7 @@ Managed via an **80/20 train/validate split** with zero sample-leakage across th
 ## Summary
 
 The model has been structurally converged to achieve the following SOTA baselines:
-- **Baseline Achievement**: **PSNR**: 24.126819344889373 | **SSIM**: 0.7711274027824402 | **LPIPS**: 0.30342345077682426
+- **Baseline Achievement**: **PSNR**: 24.75230029808811 | **SSIM**: 0.8167222738265991 | **LPIPS**: 0.2672729330758254
 
 ## Fairness 
 

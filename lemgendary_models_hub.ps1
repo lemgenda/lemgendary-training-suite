@@ -256,10 +256,8 @@ function Show-Menu {
     Write-Host "  1. Initialize/Fix All Systems (Python + Node.js + Specialized GPUs)"
     Write-Host "  2. Train Individual Model      (Launches LemGendary Training Suite)"
     Write-Host "  3. Global Orchestration        (Automated sequential multi-model run)"
-    Write-Host "  4. Deploy to Kaggle Cloud      (Generate Cloud Instructions)"
-    Write-Host "  5. Smart Cloud Orchestration   (Local GPU + Dynamic Kaggle Streams)"
-    Write-Host "  6. Single-Epoch Unit Test      (Diagnostic 1-Epoch pass for ALL models)"
-    Write-Host "  7. Run Environmental Janitor   (Force-Purge all project Orphans)" -ForegroundColor Yellow
+    Write-Host "  4. Single-Epoch Unit Test      (Diagnostic 1-Epoch pass for ALL models)"
+    Write-Host "  5. Run Environmental Janitor   (Force-Purge all project Orphans)" -ForegroundColor Yellow
     Write-Host "  Q. Exit"
     Write-Host ""
 }
@@ -269,7 +267,7 @@ Invoke-BootstrapCheck
 
 while ($true) {
     Show-Menu
-    $choice = (Read-Host "Select an option (1-7, Q)").Trim()
+    $choice = (Read-Host "Select an option (1-5, Q)").Trim()
     switch ($choice) {
         '1' { Initialize-Environment; Read-Host "Press Enter to return..." }
         '2' {
@@ -296,19 +294,6 @@ while ($true) {
             Read-Host "Press Enter to return..."
         }
         '4' {
-            Write-Header "DEPLOY TO KAGGLE CLOUD"
-            Write-Host "  Open Kaggle -> Create Notebook -> File -> Import Notebook."
-            Read-Host "Press Enter to return..."
-        }
-        '5' {
-            if (Test-Environment) {
-                $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
-                $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
-                Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "smart_orchestrator.py"; Pop-Location
-            }
-            Read-Host "Press Enter to return..."
-        }
-        '6' {
             if (Test-Environment) {
                 Invoke-JanitorPurge
                 $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
@@ -317,7 +302,7 @@ while ($true) {
             }
             Read-Host "Press Enter to return..."
         }
-        '7' { Invoke-JanitorPurge; Read-Host "Purge Complete. Press Enter to return..." }
+        '5' { Invoke-JanitorPurge; Read-Host "Purge Complete. Press Enter to return..." }
         'Q' { return }
         'q' { return }
         default { Write-Host "Invalid selection."; Start-Sleep -Seconds 1 }
