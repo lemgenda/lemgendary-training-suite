@@ -14,17 +14,16 @@ class SmartTrainingGovernor:
     def __init__(self, model_info, stabilizers=None):
         self.model_info = model_info
         
-        # 2026 Configurable Optimization Block
+        # 2026 High-Velocity Optimization Block
         opt = model_info.get("optimization", {})
         self.enabled = opt.get("enabled", True)
         
-        # Default to 10% (0.1) for the initial "Discovery Phase" if not specified
         self.current_fraction = opt.get("initial_fraction", model_info.get("sample_fraction", 0.1))
-        self.fraction_increment = opt.get("fraction_increment", 0.15)
-        self.plateau_patience = opt.get("plateau_patience", 6)
-        self.cooling_factor = opt.get("cooling_factor", 0.8)
-        self.plateau_priority = opt.get("plateau_priority", "resolution") # 'resolution' or 'data'
-        self.jolt_multiplier = opt.get("jolt_multiplier", 2.0)
+        self.fraction_increment = opt.get("fraction_increment", 0.2) 
+        self.plateau_patience = opt.get("plateau_patience", 3) 
+        self.cooling_factor = opt.get("cooling_factor", 0.85)
+        self.plateau_priority = opt.get("plateau_priority", "resolution")
+        self.jolt_multiplier = opt.get("jolt_multiplier", 3.0) 
         
         # 2026 Smart Clamp range [min, max]
         clamp_range = opt.get("clamp_range", [15.0, 45.0])
