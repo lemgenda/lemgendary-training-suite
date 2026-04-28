@@ -21,7 +21,7 @@ nima_aesthetic:
   description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
     optimized for artistic composition and color harmony.
   datasets:
-    - LemGendizedNimaAestheticLarge
+    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.95
     srcc: 0.9
@@ -39,7 +39,6 @@ nima_aesthetic:
       - 112
       - 224
       - 384
-      - 512
     plateau_patience: 4
     cooling_factor: 0.85
     plateau_priority: resolution
@@ -69,7 +68,7 @@ nima_technical:
   description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset,
     optimized for detecting micro-defects, noise, and artifacts.
   datasets:
-    - LemGendizedNimaTechnicalLarge
+    - LemGendizedNimaTechnical
   sota_targets:
     plcc: 0.98
     srcc: 0.92
@@ -90,6 +89,38 @@ nima_technical:
       - 15.0
       - 50.0
     jolt_multiplier: 1.5
+nima_authenticity:
+  name: LemGendary Authenticity Scorer (AI vs Human)
+  class_name: AuthenticityScorer
+  category: enhance
+  filename: AuthenticityScorer
+  checkpoint: AuthenticityScorerWeights_FP32.pth
+  input_size:
+    - 3
+    - 384
+    - 384
+  val_resolution: 384
+  batch_size: auto
+  learning_rate: 2.5e-05
+  loss_fn: cross_entropy
+  dataset_type: classification
+  optimal_key: nima_authenticity
+  architecture_type: EfficientNetV2-S (Binary Classifier)
+  description: DeepFake and AI-generated image detection model built on EfficientNetV2.
+  datasets:
+    - LemGendizedNimaAuthenticity
+  sota_targets:
+    accuracy: 0.95
+  optimization:
+    enabled: true
+    initial_fraction: 0.15
+    fraction_increment: 0.20
+    res_ladder:
+      - 256
+      - 384
+      - 512
+    plateau_patience: 4
+    cooling_factor: 0.85
 upn_v2:
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2
@@ -121,7 +152,7 @@ upn_v2:
     plateau_patience: 4
     cooling_factor: 0.85
   datasets:
-    - LemGendizedUpnV2Large
+    - LemGendizedUpnV2
 film_restorer:
   name: LemGendary Universal Film Restorer
   class_name: UniversalFilmRestorer
@@ -151,7 +182,7 @@ film_restorer:
     plateau_patience: 8
     cooling_factor: 0.8
   datasets:
-    - LemGendizedFilmRestorerLarge
+    - LemGendizedFilmRestorer
 codeformer:
   name: LemGendary CodeFormer Face Restoration
   class_name: CodeFormer
@@ -179,8 +210,11 @@ codeformer:
     plateau_patience: 12
     cooling_factor: 0.7
     plateau_priority: data
+    jolt_multiplier: 5.0
+  stabilizers:
+    logit_clamp: 15.0
   datasets:
-    - LemGendizedCodeFormerLarge
+    - LemGendizedCodeFormer
   sota_targets:
     fid: 8.0
     lpips: 0.06
@@ -204,7 +238,7 @@ parsenet:
   optimal_key: parsenet
   description: Face parsing model for segmentation
   datasets:
-    - LemGendizedParseNetLarge
+    - LemGendizedParseNet
 retinaface_mobilenet:
   name: LemGendary RetinaFace MobileNet Detection
   class_name: RetinaFace
@@ -226,7 +260,7 @@ retinaface_mobilenet:
   optimal_key: retinaface_mobilenet
   description: MobileNet-based face detection
   datasets:
-    - LemGendizedRetinaFaceMobileNetLarge
+    - LemGendizedRetinaFaceMobileNet
 retinaface_resnet:
   name: LemGendary RetinaFace ResNet Detection
   class_name: RetinaFace
@@ -248,7 +282,7 @@ retinaface_resnet:
   optimal_key: retinaface_resnet
   description: ResNet-based face detection
   datasets:
-    - LemGendizedRetinaFaceResNetLarge
+    - LemGendizedRetinaFaceResNet
 ffanet_indoor:
   name: LemGendary FFANet Dehazing (Indoor)
   class_name: FFANet
@@ -266,7 +300,7 @@ ffanet_indoor:
   optimal_key: ffanet_indoor
   description: FFANet indoor dehazing restoration
   datasets:
-    - LemGendizedFfaNetIndoorLarge
+    - LemGendizedFfaNetIndoor
   stabilizers:
     numerical_sentinel:
       - -0.2
@@ -288,7 +322,7 @@ ffanet_outdoor:
   optimal_key: ffanet_outdoor
   description: FFANet outdoor dehazing restoration
   datasets:
-    - LemGendizedFfaNetOutdoorLarge
+    - LemGendizedFfaNetOutdoor
   stabilizers:
     numerical_sentinel:
       - -0.2
@@ -310,11 +344,16 @@ mirnet_lowlight:
   optimal_key: mirnet_lowlight
   description: MIRNet v2 low-light image enhancement
   datasets:
-    - LemGendizedMirNetLowLightLarge
+    - LemGendizedMirNetLowLight
   stabilizers:
     numerical_sentinel:
       - -0.2
       - 1.2
+  sota_targets:
+    psnr: 24.7
+    ssim: 0.90
+    lpips: 0.08
+    fid: 18.0
 mirnet_exposure:
   name: LemGendary MIRNet v2 Exposure Correction
   class_name: MIRNet
@@ -332,11 +371,16 @@ mirnet_exposure:
   optimal_key: mirnet_exposure
   description: MIRNet v2 for overexposure correction and dynamic range adjustment
   datasets:
-    - LemGendizedMirNetExposureLarge
+    - LemGendizedMirNetExposure
   stabilizers:
     numerical_sentinel:
       - -0.2
       - 1.2
+  sota_targets:
+    psnr: 24.7
+    ssim: 0.90
+    lpips: 0.08
+    fid: 18.0
 mprnet_deraining:
   name: LemGendary MPRNet Deraining
   class_name: MPRNet
@@ -354,11 +398,16 @@ mprnet_deraining:
   optimal_key: mprnet_deraining
   description: MPRNet image deraining
   datasets:
-    - LemGendizedMprNetDerainingLarge
+    - LemGendizedMprNetDeraining
   stabilizers:
     numerical_sentinel:
       - -0.2
       - 1.2
+  sota_targets:
+    psnr: 32.7
+    ssim: 0.93
+    lpips: 0.07
+    fid: 15.0
 nafnet_debluring:
   name: LemGendary NAFNet Debluring
   class_name: NAFNet
@@ -367,8 +416,8 @@ nafnet_debluring:
   checkpoint: NAFNet-DebluringWeights_FP32.pth
   input_size:
     - 3
-    - 256
-    - 256
+    - 640
+    - 640
   batch_size: 4
   learning_rate: 5.0e-05
   loss_fn: l1
@@ -389,15 +438,16 @@ nafnet_debluring:
     cooling_factor: 0.8
     plateau_priority: resolution
   datasets:
-    - LemGendizedNafNetDebluringLarge
+    - LemGendizedNafNetDebluring
   stabilizers:
     numerical_sentinel:
       - -0.2
       - 1.2
   sota_targets:
-    psnr: 32.5
+    psnr: 33.7
     ssim: 0.94
     lpips: 0.06
+    fid: 15.0
 nafnet_denoising:
   name: LemGendary NAFNet Denoising
   class_name: NAFNet
@@ -406,8 +456,8 @@ nafnet_denoising:
   checkpoint: NAFNet-DenoisingWeights_FP32.pth
   input_size:
     - 3
-    - 256
-    - 256
+    - 640
+    - 640
   val_resolution: 640
   batch_size: 4
   learning_rate: 5.0e-05
@@ -417,7 +467,7 @@ nafnet_denoising:
   description: NAFNet image denoising
   optimization:
     enabled: true
-    initial_fraction: 0.4
+    initial_fraction: 0.1
     fraction_increment: 0.15
     res_ladder:
       - 128
@@ -430,13 +480,13 @@ nafnet_denoising:
     plateau_priority: resolution
     jolt_multiplier: 5.0
   datasets:
-    - LemGendizedNafNetDenoisingLarge
+    - LemGendizedNafNetDenoising
   stabilizers:
     numerical_sentinel:
       - -0.2
       - 1.2
   sota_targets:
-    psnr: 32.5
+    psnr: 33.7
     ssim: 0.94
     lpips: 0.06
     fid: 15.0
@@ -469,7 +519,7 @@ yolov8n:
     plateau_patience: 10
     cooling_factor: 0.75
   datasets:
-    - LemGendizedYoloV8nLarge
+    - LemGendizedYoloV8n
   sota_targets:
     map50: 0.85
     map50_95: 0.65
@@ -481,8 +531,8 @@ professional_multitask_restoration:
   checkpoint: ProfessionalMultiRestorerWeights_FP32.pth
   input_size:
     - 3
-    - 256
-    - 256
+    - 640
+    - 640
   batch_size: 4
   learning_rate: 0.0001
   loss_fn: hybrid_restoration
@@ -493,15 +543,15 @@ professional_multitask_restoration:
     and Low-Light
   optimization:
     enabled: true
-    initial_fraction: 0.1
-    fraction_increment: 0.25
+    initial_fraction: 0.15
+    fraction_increment: 0.15
     res_ladder:
       - 128
       - 256
       - 384
       - 512
       - 640
-    plateau_patience: 12
+    plateau_patience: 15
     cooling_factor: 0.8
     plateau_priority: data
   sota_targets:
@@ -509,7 +559,7 @@ professional_multitask_restoration:
     ssim: 0.93
     lpips: 0.07
   datasets:
-    - LemGendizedProfessionalMultitaskRestorationLarge
+    - LemGendizedProfessionalMultitaskRestoration
 ultrazoom:
   name: LemGendary UltraZoom Master Model
   class_name: UltraZoomMaster
@@ -518,8 +568,8 @@ ultrazoom:
   checkpoint: UltraZoom(Master)Weights_FP32.pth
   input_size:
     - 3
-    - 256
-    - 256
+    - 512
+    - 512
   batch_size: 32
   learning_rate: 0.0005
   loss_fn: mse
@@ -527,98 +577,177 @@ ultrazoom:
   optimal_key: ultrazoom
   description: Dynamic scale super-resolution model
   datasets:
-    - LemGendizedUltraZoomLarge
+    - LemGendizedUltraZoom
+  optimization:
+    enabled: true
+    initial_fraction: 0.15
+    fraction_increment: 0.15
+    res_ladder:
+      - 128
+      - 256
+      - 384
+      - 512
+    plateau_patience: 10
+    plateau_priority: resolution
   sota_targets:
     psnr: 34.0
     ssim: 0.95
     lpips: 0.04
-diffusion_sdxl_sfw:
-  name: LemGendary SDXL SFW Diffusion
+diffusion_sdxl:
+  name: LemGendary SDXL Master Diffusion
   class_name: StableDiffusionXL
   category: generative
-  filename: SDXL-SFW
-  checkpoint: SDXL-SFW-Weights_FP16.safetensors
+  filename: SDXL-Master
+  checkpoint: SDXL-Master-Weights_FP16.safetensors
   input_size:
     - 3
     - 1024
     - 1024
+  val_resolution: 512
   batch_size: 4
   learning_rate: 1.0e-05
   loss_fn: diffusion_loss
   dataset_type: text_to_image
-  optimal_key: diffusion_sdxl_sfw
-  description: SDXL model tuned on SFW high-res datasets
+  optimal_key: diffusion_sdxl
+  description: Unified SDXL model tuned on high-res Master Manifold
+  optimization:
+    enabled: true
+    initial_fraction: 0.1
+    fraction_increment: 0.15
+    res_ladder:
+      - 256
+      - 512
+      - 768
+      - 1024
+    plateau_patience: 10
+    plateau_priority: resolution
+  sota_targets:
+    fid: 14.5
   datasets:
-    - LemGendizedDiffusionSdxlSfwLarge
-diffusion_flux_sfw:
-  name: LemGendary FLUX.1 SFW Diffusion
-  class_name: Flux1_SFW
+    - diffusion_master_manifold
+diffusion_flux:
+  name: LemGendary FLUX.1 Master Diffusion
+  class_name: Flux1_Master
   category: generative
-  filename: FLUX1-SFW
-  checkpoint: FLUX1-SFW-Weights_BF16.safetensors
+  filename: FLUX1-Master
+  checkpoint: FLUX1-Master-Weights_BF16.safetensors
   input_size:
     - 3
     - 512
     - 512
+  val_resolution: 512
   batch_size: 2
   learning_rate: 5.0e-06
   loss_fn: flow_matching
   dataset_type: text_to_image
-  optimal_key: diffusion_flux_sfw
-  description: FLUX.1 model tuned on complex Midjourney prompts
+  optimal_key: diffusion_flux
+  description: Unified FLUX.1 model tuned on complex Midjourney + Master Manifold
+  optimization:
+    enabled: true
+    initial_fraction: 0.1
+    fraction_increment: 0.15
+    res_ladder:
+      - 256
+      - 512
+      - 768
+      - 1024
+    plateau_patience: 12
+    plateau_priority: resolution
+  sota_targets:
+    fid: 14.5
   datasets:
-    - LemGendizedDiffusionFluxSfwLarge
-diffusion_nsfw:
-  name: LemGendary SDXL NSFW Diffusion
-  class_name: StableDiffusionXL_NSFW
-  category: generative
-  filename: SDXL-NSFW
-  checkpoint: SDXL-NSFW-Weights_FP16.safetensors
-  input_size:
-    - 3
-    - 1024
-    - 1024
-  batch_size: 4
-  learning_rate: 1.0e-05
-  loss_fn: diffusion_loss
-  dataset_type: text_to_image
-  optimal_key: diffusion_nsfw
-  description: SDXL model tuned on NSFW datasets
-  datasets:
-    - LemGendizedDiffusionNsfwLarge
-image_to_text_llava:
-  name: LemGendary LLaVA v1.5 Conversational VLM
+    - diffusion_master_manifold
+vlm_llava:
+  name: LemGendary LLaVA v1.5 Master VLM
   class_name: LLaVA_v1_5
   category: multimodal
-  filename: LLaVA-v1.5
+  filename: LLaVA-v1.5-Master
   checkpoint: LLaVA-v1.5-Weights_BF16.safetensors
   input_size:
     - 3
     - 336
     - 336
+  val_resolution: 336
   batch_size: 8
   learning_rate: 2.0e-05
   loss_fn: cross_entropy
   dataset_type: image_to_text
-  optimal_key: image_to_text_llava
-  description: Conversational Vision-Language Model
+  optimal_key: vlm_llava
+  description: Unified LLaVA model tuned on Vision-Language Master Manifold
+  optimization:
+    enabled: true
+    initial_fraction: 0.1
+    fraction_increment: 0.2
+    res_ladder:
+      - 224
+      - 336
+      - 448
+    plateau_patience: 8
+    plateau_priority: data
+  stabilizers:
+    softmax_temp: 0.05
   datasets:
-    - LemGendizedImageToTextLlavaLarge
-image_to_text_blip2:
-  name: LemGendary BLIP-2 Image Captioning
+    - vision_language_master_manifold
+vlm_blip2:
+  name: LemGendary BLIP-2 Master VLM
   class_name: BLIP_2
   category: multimodal
-  filename: BLIP-2
+  filename: BLIP-2-Master
   checkpoint: BLIP-2-Weights_FP32.pth
   input_size:
     - 3
     - 224
     - 224
+  val_resolution: 224
   batch_size: 16
   learning_rate: 0.0001
   loss_fn: contrastive_captioning
   dataset_type: image_to_text
-  optimal_key: image_to_text_blip2
-  description: Rigid grammatical image captioning model
+  optimal_key: vlm_blip2
+  description: Unified BLIP-2 model tuned on Master Manifold
+  optimization:
+    enabled: true
+    initial_fraction: 0.1
+    fraction_increment: 0.2
+    res_ladder:
+      - 224
+      - 336
+      - 448
+    plateau_patience: 8
+    plateau_priority: data
+  stabilizers:
+    softmax_temp: 0.05
   datasets:
-    - LemGendizedImageToTextBlip2Large
+    - vision_language_master_manifold
+anime_nsfw_classification:
+  name: LemGendary Anime NSFW Classifier
+  class_name: NIMA_Model
+  category: enhance
+  filename: AnimeNSFWClassifier
+  checkpoint: AnimeNSFWClassifierWeights_FP32.pth
+  input_size:
+    - 3
+    - 224
+    - 224
+  batch_size: 64
+  learning_rate: 3.0e-05
+  loss_fn: cross_entropy
+  dataset_type: classification
+  optimal_key: anime_nsfw_classification
+  architecture_type: MobileNetV2 (Categorical Anchor)
+  description: High-fidelity anime safety filter and NSFW classifier.
+  datasets:
+    - classification_master_manifold
+  sota_targets:
+    accuracy: 0.98
+  optimization:
+    enabled: true
+    initial_fraction: 0.2
+    fraction_increment: 0.2
+    res_ladder:
+      - 224
+      - 384
+      - 512
+    plateau_patience: 6
+    cooling_factor: 0.85
+    plateau_priority: data

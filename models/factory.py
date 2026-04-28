@@ -2,11 +2,15 @@ import os
 import yaml
 import torch
 from models.multitask_restorer import MultiTaskRestorer
-from models.nima import NIMA_Model
+from models.nima import NIMA_Model, AuthenticityScorer
 from models.face_restoration import CodeFormer, ParseNet
 from models.detection import RetinaFace_MobileNet
-from models.core_architectures import GenericRestorationModel, UltraZoomModel, UniversalFilmRestorer, UPN_v2_Model
-from models.core_restoration import NAFNet, FFANet, MIRNet_Proxy, MPRNet_Proxy
+from models.core_restoration import (
+    NAFNet, FFANet, MIRNet_Proxy, MPRNet_Proxy,
+    GenericRestorationModel, UltraZoomModel, UniversalFilmRestorer, UPN_v2_Model
+)
+from models.master_generative import StableDiffusionXL, Flux1_Master
+from models.master_multimodal import LLaVA_v1_5, BLIP_2
 
 def get_model(model_key, config=None):
     """
@@ -15,7 +19,8 @@ def get_model(model_key, config=None):
     """
     # Load unified models if possible to resolve class_name
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    unified_models_path = os.path.join(project_root, "unified_models.yaml")
+    unified_name = config.get("unified_models", "unified_models_v2.yaml") if config else "unified_models_v2.yaml"
+    unified_models_path = os.path.join(project_root, unified_name)
     
     model_class_name = None
     kwargs = {}
@@ -31,6 +36,8 @@ def get_model(model_key, config=None):
         return MultiTaskRestorer(num_tasks=6)
     elif model_class_name == "NIMA_Model":
         return NIMA_Model(**kwargs)
+    elif model_class_name == "AuthenticityScorer":
+        return AuthenticityScorer()
     elif model_class_name == "CodeFormer":
         return CodeFormer()
     elif model_class_name == "ParseNet":
@@ -56,6 +63,14 @@ def get_model(model_key, config=None):
     elif model_class_name == "YOLO":
         # Handled natively in train.py, but fallback throw if called
         raise ValueError("YOLO model initialization should be explicitly routed to Ultralytics native loop.")
+    elif model_class_name == "StableDiffusionXL":
+        return StableDiffusionXL(**kwargs)
+    elif model_class_name == "Flux1_Master":
+        return Flux1_Master(**kwargs)
+    elif model_class_name == "LLaVA_v1_5":
+        return LLaVA_v1_5(**kwargs)
+    elif model_class_name == "BLIP_2":
+        return BLIP_2(**kwargs)
     
     # Fallback for Multi-Task
     if model_key in ["multi_task_restorer", "professional_multitask_restoration"]:

@@ -14,14 +14,16 @@ class PhaseDef(TypedDict):
     models: List[str]
 
 PHASES: List[PhaseDef] = [
-    {"name": "Phase 1: Deep Quality Assessment", "datasets": ["LemGendizedQualityDataset"], "models": ["nima_aesthetic", "nima_technical"]},
+    {"name": "Phase 1: Deep Quality & Safety Assessment", "datasets": ["LemGendizedQualityDataset", "classification_master_manifold"], "models": ["nima_aesthetic", "nima_technical", "nima_authenticity", "anime_nsfw_classification"]},
     {"name": "Phase 2A: High-Fidelity Facial Analytics", "datasets": ["LemGendizedFaceDataset"], "models": ["codeformer", "parsenet"]},
     {"name": "Phase 2B: Massive Universal Detection", "datasets": ["LemGendizedFaceDataset", "LemGendizedDetectionDataset"], "models": ["retinaface_mobilenet", "retinaface_resnet", "yolov8n"]},
-    {"name": "Phase 3A: Super-Resolution Synthesis", "datasets": ["LemGendizedSuperResDataset"], "models": ["ultrazoom_x2", "ultrazoom_x3", "ultrazoom_x4", "ultrazoom_x8"]},
+    {"name": "Phase 3A: Master Super-Resolution Synthesis", "datasets": ["LemGendizedSuperResDataset"], "models": ["ultrazoom"]},
     {"name": "Phase 3B: Degradation Removal Arrays", "datasets": ["LemGendizedDegradationDataset"], "models": ["ffanet_indoor", "ffanet_outdoor", "mprnet_deraining"]},
     {"name": "Phase 3C: Low-Light Recovery", "datasets": ["LemGendizedLowLightDataset"], "models": ["mirnet_lowlight", "mirnet_exposure"]},
     {"name": "Phase 3D: Denoising Networks", "datasets": ["LemGendizedNoiseDataset"], "models": ["nafnet_denoising"]},
-    {"name": "Phase 3E: Universal Cross-Domain Restoration", "datasets": ["LemGendizedSuperResDataset", "LemGendizedDegradationDataset", "LemGendizedLowLightDataset", "LemGendizedNoiseDataset"], "models": ["nafnet_debluring", "film_restorer", "upn_v2", "professional_multitask_restoration"]}
+    {"name": "Phase 3E: Universal Cross-Domain Restoration", "datasets": ["LemGendizedSuperResDataset", "LemGendizedDegradationDataset", "LemGendizedLowLightDataset", "LemGendizedNoiseDataset"], "models": ["nafnet_debluring", "film_restorer", "upn_v2", "professional_multitask_restoration"]},
+    {"name": "Phase 4: Master Generative Manifolds", "datasets": ["diffusion_master_manifold"], "models": ["diffusion_sdxl", "diffusion_flux"]},
+    {"name": "Phase 5: Master Multimodal Reasoning", "datasets": ["vision_language_master_manifold"], "models": ["vlm_llava", "vlm_blip2"]}
 ]
 
 def check_kaggle_auth():
@@ -73,7 +75,14 @@ def main():
         return
     
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    unified_models_path = os.path.join(base_dir, "unified_models.yaml")
+    
+    config_path = os.path.join(base_dir, "config.yaml")
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+        
+    unified_name = config.get("unified_models", "unified_models_v2.yaml")
+    unified_models_path = os.path.join(base_dir, unified_name)
+    
     if not os.path.exists(unified_models_path):
         print(f"Error: Unified Models config not found at {unified_models_path}")
         return
@@ -81,7 +90,10 @@ def main():
     with open(unified_models_path, "r") as f:
         registry = yaml.safe_load(f)
 
-    data_dir = os.path.join(base_dir, "data", "datasets")
+    data_dir = config.get("datasets_dir", os.path.join(base_dir, "data", "datasets"))
+    if not os.path.isabs(data_dir):
+        data_dir = os.path.abspath(os.path.join(base_dir, data_dir))
+    
     os.makedirs(data_dir, exist_ok=True)
     python_exe = sys.executable
     train_script = os.path.join(base_dir, "training", "train.py")

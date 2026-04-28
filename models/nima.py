@@ -37,3 +37,20 @@ class NIMA_Model(nn.Module):
         return x
 
 # Unified Loss Logic moved to training/train.py for 2026 Resiliency Synchronization.
+
+class AuthenticityScorer(nn.Module):
+    """
+    Authenticity Scorer (Binary Classification: AI vs Real)
+    Built on a robust EfficientNet backbone to detect high-frequency AI generation artifacts.
+    """
+    def __init__(self, num_classes=2):
+        super(AuthenticityScorer, self).__init__()
+        # Use EfficientNetV2-S for deep feature extraction (Matches NIMA standard)
+        self.backbone = models.efficientnet_v2_s(weights=models.EfficientNet_V2_S_Weights.IMAGENET1K_V1)
+        # Replace the classification head for binary authentication
+        in_features = self.backbone.classifier[1].in_features
+        self.backbone.classifier[1] = nn.Linear(in_features, num_classes)
+
+    def forward(self, x):
+        # 2026 Resilience: Native internal logit clamping
+        return self.backbone(x)

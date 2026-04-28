@@ -1,3 +1,4 @@
+# 2026: Environment Linter Sync
 import os
 import sys
 import argparse
@@ -8,6 +9,7 @@ import subprocess
 import time
 import shutil
 import gc
+import math
 
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
@@ -105,135 +107,21 @@ def safe_replace(src, dst):
 
     for i in range(max_retries):
         try:
-            # Stage 1: Standard atomic replace (Best for Linux/Correct Windows states)
             if os.path.exists(dst):
-                os.replace(src, dst)
+                # 2026: Windows Lock Defense - Rename then Replace
+                temp_old = f"{dst}.old_{int(time.time())}"
+                os.rename(dst, temp_old)
+                os.rename(src, dst)
+                try: os.remove(temp_old)
+                except: pass
             else:
                 os.rename(src, dst)
             return True
-        except (PermissionError, OSError):
-            if i < 8:
-                # Exponential backoff pulse
-                delay = base_delay * (1.6 ** i)
-                print(f"🔄 [RESILIENCY] IO Lock detected on {os.path.basename(dst)} (Attempt {i+1}/{max_retries}). Retrying in {delay:.1f}s...")
-                time.sleep(delay)
-            elif i < 12:
-                # Stage 2: Surgical Extraction (Explicit Remove then Rename)
-                try:
-                    print(f"🔪 [RESILIENCY] Attempting Surgical Extraction for {os.path.basename(dst)}...")
-                    if os.path.exists(dst):
-                        os.remove(dst)
-                    os.rename(src, dst)
-                    return True
-                except:
-                    time.sleep(2)
-            else:
-                # Stage 3: Brute Force Manifold (Copy/Delete)
-                try:
-                    print(f"💥 [RESILIENCY] Attempting Brute Force Copy for {os.path.basename(dst)}...")
-                    shutil.copy2(src, dst)
-                    os.remove(src)
-                    return True
-                except Exception as final_e:
-                    if i == max_retries - 1:
-                        print(f"❌ [CRITICAL] Persistence Manifold EXHAUSTED for {os.path.basename(dst)}: {final_e}")
-                        raise
-                    time.sleep(2)
+        except (PermissionError, OSError) as e:
+            time.sleep(base_delay * (1.5 ** i))
     return False
 
-class CombinedLoss(nn.Module):
-    def __init__(self, task_type="restoration", stabilizers=None):
-        super().__init__()
-        self.task_type = task_type
-        # 2026 Resilience: Dynamic injection from config hierarchy
-        self.stab = stabilizers or {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0}
-        self.l1 = nn.L1Loss(reduction='mean')
-        self.mse = nn.MSELoss(reduction='mean') # Legacy fallback for face and segmentation topology
-        self.ce = nn.CrossEntropyLoss()
-        self.perc = None
-
-        # 2026: SOTA Rank-Boost Weights (Standard 10..1 mapping)
-        self.register_buffer('rank_weights', torch.arange(10, 0, -1).float())
-
-        if self.task_type in ["restoration", "enhancement"]:
-            try:
-                import lpips
-                # 2026: Mission Pulse - Restore transparency for slow perceptual engine loading
-                print(" [MISSION] Initializing Neural Perceptual Engine (LPIPS/VGG16)...")
-                # Natively trained perceptual alignment! Exponentially more stable than crude VGG L1
-                self.perc = lpips.LPIPS(net='vgg').to('cuda' if torch.cuda.is_available() else 'cpu')
-                self.perc.eval()
-                for param in self.perc.parameters():
-                    param.requires_grad = False
-            except Exception as e:
-                print(f"⚠️ [RESILIENCE] LPIPS failed to bind ({e}). Defaulting to pure L1.")
-
-    def forward(self, pred, target, task_idx=None):
-        if self.task_type in ["restoration", "enhancement"]:
-            # Support both Hybrid (img, weights) outputs and Pure Image generation
-            if isinstance(pred, (tuple, list)):
-                base_loss = self.l1(pred[0], target) + 0.1 * self.ce(pred[1], task_idx)
-                if self.perc is not None:
-                    # LPIPS natively outputs spatial arrays. Mean() required. Clamp to [-1, 1].
-                    p_scaled = torch.clamp(pred[0], 0, 1) * 2.0 - 1.0
-                    t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0
-                    # 2026 Shift: Balanced at 0.025 to create geometric harmony between PSNR & Perception
-                    base_loss += 0.025 * self.perc(p_scaled, t_scaled).mean()
-                return base_loss
-            else:
-                base_loss = self.l1(pred, target)
-                if self.perc is not None:
-                    p_scaled = torch.clamp(pred, 0, 1) * 2.0 - 1.0
-                    t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0
-                    # 2026 Shift: Balanced at 0.025 to natively harmonize metric extraction
-                    base_loss += 0.025 * self.perc(p_scaled, t_scaled).mean()
-                return base_loss
-        elif self.task_type == "quality":
-            import torch.nn.functional as F  # pyre-ignore
-            pred_f = pred.float()
-            tgt_f = target.float()
-
-            # NIMA specific Earth Mover's Distance (EMD) with sharpened Logit Anchoring
-            # T=0.1 (multiplication by 10.0) ensures the model pushes mass into the peak bin.
-            p_probs = F.softmax(pred_f.clamp(min=-self.stab.get('logit_clamp', 20.0), max=self.stab.get('logit_clamp', 20.0)) / self.stab.get("softmax_temp", 1.0), dim=-1)
-            t_probs = tgt_f / torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=self.stab.get("emd_epsilon", 1e-6))
-
-            cdf_p = torch.cumsum(p_probs, dim=-1)
-            cdf_t = torch.cumsum(t_probs, dim=-1)
-
-            # 2026: Geometric Stabilizer - Summing squared CDF error per-bin (matches NIMA SOTA Baseline)
-            emd = torch.sum((cdf_p - cdf_t) ** 2, dim=-1).mean()
-
-            # --- 2026: Neural Rank-Boost (SRCC Enhancement) ---
-            # Differentiable pairwise ranking component within the training batch.
-            rank_weight = self.stab.get('rank_weight', 0.0)
-            if rank_weight > 0 and p_probs.size(0) > 1:
-                # Calculate mean scores for predicted and target distributions
-                p_mean = (p_probs * self.rank_weights).sum(dim=-1)
-                t_mean = (t_probs * self.rank_weights).sum(dim=-1)
-
-                # Expand into pairwise matrices (Batch x Batch)
-                p_diff = p_mean.unsqueeze(0) - p_mean.unsqueeze(1)
-                t_diff = t_mean.unsqueeze(0) - t_mean.unsqueeze(1)
-
-                # Sign matrix for ground truth relationship
-                # +1 if T_i > T_j, -1 if T_i < T_j, 0 if equal
-                t_sign = torch.sign(t_diff)
-
-                # Margin Ranking Loss: max(0, -sign * (p_i - p_j) + margin)
-                margin = self.stab.get('rank_margin', 0.05)
-                rank_loss = F.relu(margin - t_sign * p_diff)
-
-                # Mask out diagonal and equal-score samples to avoid zero-bias
-                mask = (t_sign != 0).float()
-                avg_rank_loss = (rank_loss * mask).sum() / torch.clamp(mask.sum(), min=1.0)
-
-                return emd + (rank_weight * avg_rank_loss)
-
-            return emd
-        elif self.task_type == "classification":
-            return self.ce(pred, target)
-        return self.mse(pred, target)
+from .losses import CombinedLoss
 
 def trigger_sota_export(model, args, config, unified_models_registry, epoch, plcc, srcc, psnr, ssim_val, lpips_val, fid):
     """
@@ -284,12 +172,12 @@ def trigger_sota_export(model, args, config, unified_models_registry, epoch, plc
         readme_text = build_model_readme(args.model, unified_models_registry, epoch+1, metrics_dict)
 
         # Deployment Sync
-        trained_models_dir = os.path.normpath(os.path.join(os.getcwd(), "trained-models", args.model))
+        trained_models_dir = os.path.normpath(os.path.join(os.getcwd(), "..", "LemGendaryModels", args.model))
         os.makedirs(trained_models_dir, exist_ok=True)
         with open(os.path.join(trained_models_dir, "README.md"), "w") as f:
             f.write(readme_text)
 
-        print(f"✅ [SOTA DEPLOYMENT] Successful! Production binaries are live in trained-models/{args.model}.")
+        print(f"✅ [SOTA DEPLOYMENT] Successful! Production binaries are live in LemGendaryModels/{args.model}.")
     except Exception as e:
         print(f"⚠️  [SOTA DEPLOYMENT] Export phase failed: {e}")
 
@@ -344,7 +232,6 @@ def get_dynamic_batch_size(model_key, model_info, config, device):
         return config.get("default_batch_size", 16)
 
 def main():
-    import sys
     # 2026 Resilience: Force UTF-8 encoding for Windows terminals to support emojis
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
@@ -443,9 +330,7 @@ def main():
         model.add_callback("on_fit_epoch_end", on_fit_epoch_end)
 
         model.train(data=yaml_path, epochs=epochs, batch=batch_size, device=device.type if device.type != "cpu" else "cpu")
-
-        import shutil
-        base_export = config.get("export_dir", os.path.join("trained-models", "models"))
+        base_export = config.get("export_dir", os.path.join("..", "LemGendaryModels", "models"))
         export_dir = os.path.join(os.path.dirname(__file__), "..", base_export, args.model)
         os.makedirs(export_dir, exist_ok=True)
         external_path = config.get("external_folder_path", "../../../local_models")
@@ -476,7 +361,7 @@ def main():
 
             if config.get("export_to_external_folder", False):
                 shutil.copytree(export_dir, local_dir, dirs_exist_ok=True)
-            trained_models_dir = os.path.join(os.path.dirname(__file__), "..", "trained-models", args.model)
+            trained_models_dir = os.path.join(os.path.dirname(__file__), "..", "..", "LemGendaryModels", args.model)
             os.makedirs(trained_models_dir, exist_ok=True)
             shutil.copytree(export_dir, trained_models_dir, dirs_exist_ok=True)
         except Exception as e:
@@ -534,18 +419,18 @@ def main():
     governor = SmartTrainingGovernor(model_info, stabilizers=stab)
     sample_fraction = governor.current_fraction
     # --- 2026: Auto-Recovery Dataset Downloader (Option 2) ---
+    # Dynamic execution suffix parsing
+    exec_config = config.get("execution", {})
+    exec_mode = exec_config.get("mode", "training")
+    exec_suffix = exec_config.get("suffixes", {}).get(exec_mode, "Large")
+
     ds_reqs = model_info.get("datasets", [])
     if isinstance(ds_reqs, str): ds_reqs = [ds_reqs]
-    data_dir = os.path.join(project_root, "data", "datasets")
-
-    if args.env == "local":
-        for ds_name in ds_reqs:
-            ds_path = os.path.join(data_dir, ds_name)
-            if not os.path.exists(ds_path):
-                print(f"\n📡 [DATA] Dependency '{ds_name}' not found natively. Auto-initiating Cloud Stream...")
-                from data.data_utils import download_and_extract_dataset
-                if not download_and_extract_dataset(ds_name, data_dir):
-                    print(f" ❌ [CRITICAL] Failed to auto-recover dataset '{ds_name}'. Terminal Exception pending.\n")
+    # Dynamically append suffix
+    ds_reqs = [f"{ds}{exec_suffix}" if not ds.endswith(exec_suffix) else ds for ds in ds_reqs]
+    data_dir = config.get("datasets_dir", "data/datasets")
+    if not os.path.isabs(data_dir):
+        data_dir = os.path.normpath(os.path.join(project_root, data_dir))
 
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
     # --- 2026: SOTA Validation Synchronization ---
@@ -579,10 +464,11 @@ def main():
     # --- 2026 Structural Shift: Resume Logic (Metadata Protection Phase) ---
     # We load weights and optimizer state BEFORE the scheduler is born.
     # This ensures OneCycleLR injects its keys into the final, active optimizer state.
-    base_export = config.get("export_dir", os.path.join("trained-models", "models"))
+    base_export = config.get("export_dir", os.path.join("..", "LemGendaryModels", "models"))
     export_dir = os.path.join(os.path.dirname(__file__), "..", base_export, args.model)
     os.makedirs(export_dir, exist_ok=True)
 
+    config["checkpoint_dir"] = os.path.normpath(os.path.join(project_root, config.get("checkpoint_dir", "trained-models/checkpoints")))
     os.makedirs(config["checkpoint_dir"], exist_ok=True)
     best_val_loss = float('inf')
     best_quality_score = -1.0
@@ -916,6 +802,9 @@ def main():
     effective_batch_size = batch_size
     # accumulation_steps is established pre-emptively during initialization.
     global_step = 0 # Absolute step tracking across the entire mission
+    # 2026: SOTA Persistence Constants
+    interval_pct = float(config.get("intra_epoch_checkpoint_pct", 0.1))
+    
     for epoch in range(start_epoch, epochs):
         last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.12) ---
         # 2026: SOTA Stabilization and Thermal Sharding
@@ -965,23 +854,20 @@ def main():
                 train_ds.sync_mode = False
                 if pbar: pbar.write(f" [MANIFOLD REACHED] Resonance synchronization complete.")
 
-            pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]", unit="it", leave=False)
-            if pbar is None:
-                # 2026: Time-Sync optimized via direct constructor injection.
-                # Route to stderr and use mininterval to ensure real-time feedback in Windows PowerShell.
-                pbar = tqdm(
-                    total=len(train_loader),
-                    initial=current_iter,
-                    desc=f"Epoch {epoch+1}/{epochs} [Train]",
-                    unit="batch",
-                    colour="blue",
-                    smoothing=0.3,
-                    file=sys.stderr,
-                    mininterval=0.1,
-                    dynamic_ncols=True,
-                    leave=False
-                )
-                pbar.set_postfix({"loss": "..."})
+            pbar = tqdm(
+                total=len(train_loader),
+                initial=current_iter,
+                desc=f"Epoch {epoch+1}/{epochs} [Train]",
+                unit="batch",
+                colour="green",
+                file=sys.stderr,
+                dynamic_ncols=True,
+                leave=False
+            )
+            # Sync intra-epoch save threshold to resume point
+            last_intra_epoch_pct = (current_iter / len(train_loader)) if len(train_loader) > 0 else 0.0
+            last_intra_epoch_pct = round(math.floor(last_intra_epoch_pct / interval_pct) * interval_pct, 2)
+            pbar.set_postfix({"loss": "..."})
 
             optimizer.zero_grad() # Initial zero
 
@@ -996,19 +882,20 @@ def main():
                 pbar.set_postfix({"loss": "..."})
                 pbar.refresh()
 
-                inputs, targets, tasks = batch
-                inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
-
-                # --- 2026 Resilience: Input Integrity Shield ---
-                if not torch.isfinite(inputs).all():
-                    if pbar: pbar.write(f" [RESILIENCE] Non-finite values detected in input batch! Skipping...")
-                    continue
-
-                # For MultiTaskRestorer, we need task indices for the classifier loss
-                task_idx = None
-                if train_ds.task_type == "restoration":
-                    task_names = ["denoise", "deblur", "derain", "dehaze", "lowlight", "superres"]
-                    task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
+                # --- 2026 Generative Data Unpacking ---
+                if train_ds.task_type in ["text_to_image", "image_to_text"]:
+                    inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                    targets, task_idx = None, None
+                else:
+                    inputs, targets, tasks = batch
+                    inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
+                    if not torch.isfinite(inputs).all():
+                        if pbar: pbar.write(f" [RESILIENCE] Non-finite values detected in input batch! Skipping...")
+                        continue
+                    task_idx = None
+                    if train_ds.task_type == "restoration":
+                        task_names = ["denoise", "deblur", "derain", "dehaze", "lowlight", "superres"]
+                        task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
 
                 use_fp16 = str(device) == 'cuda'
                 if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "mirnet", "codeformer"]):
@@ -1016,24 +903,64 @@ def main():
 
                 try:
                     with torch.amp.autocast('cuda', enabled=use_fp16): # pyre-ignore
-                        preds = model(inputs)
-
-                        # --- 2026: Numerical Sentinel (Stability Guard v5.5) ---
-                        sentinel = stab.get('numerical_sentinel')
-                        if sentinel and len(sentinel) == 2:
-                            min_v, max_v = float(sentinel[0]), float(sentinel[1])
-                            if isinstance(preds, (tuple, list)):
-                                p_p = preds[0]
-                                sentinel_stresses.append(((p_p < min_v) | (p_p > max_v)).float().mean().item())
-                                preds = (torch.clamp(p_p, min=min_v, max=max_v), *preds[1:])
+                        if train_ds.task_type == "text_to_image":
+                            loss_fn_name = model_info.get("loss_fn", "diffusion_loss")
+                            if hasattr(model, "train_step"):
+                                loss_dict = model.train_step(inputs)
+                                loss = loss_dict["loss"] / accumulation_steps
+                                preds, targets = loss_dict.get("preds"), loss_dict.get("targets")
+                            elif loss_fn_name == "flow_matching":
+                                # 2026: SOTA Flow Matching Objective (Flux Architecture)
+                                latents = model.vae.encode(inputs["pixel_values"]).latent_dist.sample() * 0.18215
+                                noise = torch.randn_like(latents)
+                                # Velocity-based sampling
+                                timesteps = torch.rand((latents.shape[0],), device=device)
+                                sigmas = timesteps.view(-1, 1, 1, 1)
+                                z_t = (1 - sigmas) * latents + sigmas * noise
+                                # Prediction targets are the velocity (noise - latent)
+                                velocity = noise - latents
+                                model_pred = model.transformer(z_t, timesteps, inputs["prompt_embeds"])
+                                loss = torch.nn.functional.mse_loss(model_pred.float(), velocity.float(), reduction="mean") / accumulation_steps
+                                preds, targets = model_pred, velocity
                             else:
-                                sentinel_stresses.append(((preds < min_v) | (preds > max_v)).float().mean().item())
-                                preds = torch.clamp(preds, min=min_v, max=max_v)
-                        loss = criterion(preds, targets, task_idx) / accumulation_steps # pyre-ignore
+                                # Standard Diffusion Objective (SDXL Architecture)
+                                latents = model.vae.encode(inputs["pixel_values"]).latent_dist.sample() * model.vae.config.scaling_factor
+                                noise = torch.randn_like(latents)
+                                timesteps = torch.randint(0, model.noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=device)
+                                noisy_latents = model.noise_scheduler.add_noise(latents, noise, timesteps)
+                                model_pred = model.unet(noisy_latents, timesteps, inputs["prompt_embeds"]).sample
+                                loss = torch.nn.functional.mse_loss(model_pred.float(), noise.float(), reduction="mean") / accumulation_steps
+                                preds, targets = model_pred, noise
+
+                        elif train_ds.task_type == "image_to_text":
+                            outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs.get("attention_mask"), pixel_values=inputs.get("pixel_values"), labels=inputs.get("labels"))
+                            loss = outputs.loss / accumulation_steps
+                            preds, targets = outputs.logits, inputs.get("labels")
+
+                        else:
+                            preds = model(inputs)
+                            sentinel = stab.get('numerical_sentinel')
+                            if sentinel and len(sentinel) == 2:
+                                min_v, max_v = float(sentinel[0]), float(sentinel[1])
+                                if isinstance(preds, (tuple, list)):
+                                    p_p = preds[0]
+                                    sentinel_stresses.append(((p_p < min_v) | (p_p > max_v)).float().mean().item())
+                                    preds = (torch.clamp(p_p, min=min_v, max=max_v), *preds[1:])
+                                else:
+                                    sentinel_stresses.append(((preds < min_v) | (preds > max_v)).float().mean().item())
+                                    preds = torch.clamp(preds, min=min_v, max=max_v)
+                            loss = criterion(preds, targets, task_idx) / accumulation_steps # pyre-ignore
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
                         print(f" [OOM SENTINEL] VRAM overflow detected! Attempting emergency batch-accumulation trade...")
-                        torch.cuda.empty_cache()
+                        
+                        # 2026 Resilience: Aggressively purge local computational graphs and tensors
+                        # to physically free VRAM before invoking the empty_cache kernel.
+                        inputs = targets = batch = None
+                        preds = loss = None
+                        del e
+                        
+                        if torch.cuda.is_available(): torch.cuda.empty_cache()
                         if batch_size > 1:
                             old_bs = batch_size
                             batch_size = max(1, batch_size // 2)
@@ -1043,7 +970,7 @@ def main():
                             current_iter = int(i * (old_bs / batch_size))
                             if pbar: pbar.close() # Clean up zombie bar before re-initialization
                             pbar = tqdm(
-                                total=len(train_loader),
+                                train_loader,
                                 initial=current_iter,
                                 desc=f"Epoch {epoch+1}/{epochs} [Train RECOVERY]",
                                 unit="batch",
@@ -1274,9 +1201,7 @@ def main():
                     new_lr = scheduler.get_last_lr()[0]
                     if new_lr < 5e-7: new_lr = 5e-7
 
-                # --- 2026: Intra-Epoch Resilience (The Mitochondrial Pulse v6.1.11) ---
                 # Threshold-based saving ensures persistence is never skipped due to batch-jumps.
-                interval_pct = float(config.get("intra_epoch_checkpoint_pct", 0.2))
                 current_pct = (i + 1) / len(train_loader)
 
                 if last_intra_epoch_pct < 0:
@@ -1292,19 +1217,22 @@ def main():
                     last_intra_epoch_pct = round(last_intra_epoch_pct, 2)
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
                     temp_prog_ckpt = f"{prog_ckpt}.tmp"
-                    torch.save({
-                        'epoch': epoch,
-                        'iteration': i,
-                        'model_state': model.state_dict(),
-                        'optimizer_state': optimizer.state_dict(),
-                        'scheduler_state': scheduler.state_dict(),
-                        'governor_state': governor.get_state(),
-                        'best_val_loss': best_val_loss,
-                        'best_quality_score': best_quality_score,
-                        'epochs_no_improve': epochs_no_improve,
-                        'regression_epochs': regression_epochs,
-                        'sota_achieved': sota_baseline_achieved
-                    }, temp_prog_ckpt)
+                    with open(temp_prog_ckpt, "wb") as f:
+                        torch.save({
+                            'epoch': epoch,
+                            'iteration': i,
+                            'model_state': model.state_dict(),
+                            'optimizer_state': optimizer.state_dict(),
+                            'scheduler_state': scheduler.state_dict(),
+                            'governor_state': governor.get_state(),
+                            'best_val_loss': best_val_loss,
+                            'best_quality_score': best_quality_score,
+                            'epochs_no_improve': epochs_no_improve,
+                            'regression_epochs': regression_epochs,
+                            'sota_achieved': sota_baseline_achieved
+                        }, f)
+                        f.flush()
+                        os.fsync(f.fileno())
                     safe_replace(temp_prog_ckpt, prog_ckpt)
                     tier_str = f"{current_pct*100:.0f}%"
 
@@ -1337,32 +1265,78 @@ def main():
             gc.collect()
             if stab.get('vram_purge'): print(" [MEM] VRAM Defibrillation Pulse triggered. Clearing manifold for validation...")
 
+            # --- 2026: Incremental Canonical Eval (RAM Protection v5.0) ---
+            CANONICAL_EVAL_SIZE = 384
+            mse_sum, ssim_sum, lpips_sum = 0.0, 0.0, 0.0
+            total_samples, total_pixels = 0, 0
+            loss_fn_vgg, fid_metric = None, None
+            sota_targets = model_info.get("sota_targets", {})
+            
+            if train_ds.task_type in ["restoration", "enhancement", "face"]:
+                import torch.nn.functional as _F_resize
+                from skimage.metrics import structural_similarity as ssim
+                import lpips
+                try:
+                    from torchmetrics.image.fid import FrechetInceptionDistance
+                    if sota_targets.get('fid') is not None:
+                        fid_metric = FrechetInceptionDistance(feature=2048).to(device)
+                except Exception as e:
+                    print(f"⚠️ [RESILIENCE] FID Engine init failed ({e}).")
+                    FrechetInceptionDistance = None
+
+                try:
+                    loss_fn_vgg = lpips.LPIPS(net='vgg').eval().to(device)
+                except: pass
+
             # 2026: Standardized Validation Telemetry. sys.stderr routes directly to PowerShell without buffering.
             val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=False, dynamic_ncols=True)
             for batch in val_pbar:
-                inputs, targets, tasks = batch
-                inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
-
-                task_idx = None
-                if train_ds.task_type == "restoration":
-                    task_names = ["denoise", "deblur", "derain", "dehaze", "lowlight", "superres"]
-                    task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
+                # --- 2026 Generative Validation Unpacking ---
+                if train_ds.task_type in ["text_to_image", "image_to_text"]:
+                    inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                    targets, task_idx = None, None
+                else:
+                    inputs, targets, tasks = batch
+                    inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
+                    task_idx = None
+                    if train_ds.task_type == "restoration":
+                        task_names = ["denoise", "deblur", "derain", "dehaze", "lowlight", "superres"]
+                        task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
 
                 # Disabled volatile FP16 autocast during validation to prevent PyTorch precision collapses
-                preds = model(inputs)
-
-                # --- 2026: Numerical Sentinel (Validation Parity Guard) ---
-                sentinel = stab.get('numerical_sentinel')
-                if sentinel and len(sentinel) == 2:
-                    min_v, max_v = float(sentinel[0]), float(sentinel[1])
-                    if isinstance(preds, (tuple, list)):
-                        p_p = preds[0]
-                        sentinel_stresses.append(((p_p < min_v) | (p_p > max_v)).float().mean().item())
-                        preds = (torch.clamp(p_p, min=min_v, max=max_v), *preds[1:])
+                if train_ds.task_type == "text_to_image":
+                    if hasattr(model, "val_step"):
+                        loss_dict = model.val_step(inputs)
+                        loss = loss_dict["loss"]
+                        preds, targets = loss_dict.get("preds"), loss_dict.get("targets")
                     else:
-                        sentinel_stresses.append(((preds < min_v) | (preds > max_v)).float().mean().item())
-                        preds = torch.clamp(preds, min=min_v, max=max_v)
-                loss = criterion(preds, targets, task_idx)  # pyre-ignore
+                        latents = model.vae.encode(inputs["pixel_values"]).latent_dist.sample() * model.vae.config.scaling_factor
+                        noise = torch.randn_like(latents)
+                        timesteps = torch.randint(0, model.noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=device)
+                        noisy_latents = model.noise_scheduler.add_noise(latents, noise, timesteps)
+                        model_pred = model.unet(noisy_latents, timesteps, inputs["prompt_embeds"]).sample
+                        loss = torch.nn.functional.mse_loss(model_pred.float(), noise.float(), reduction="mean")
+                        preds, targets = model_pred, noise
+
+                elif train_ds.task_type == "image_to_text":
+                    outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs.get("attention_mask"), pixel_values=inputs.get("pixel_values"), labels=inputs.get("labels"))
+                    loss = outputs.loss
+                    preds, targets = outputs.logits, inputs.get("labels")
+
+                else:
+                    preds = model(inputs)
+                    # --- 2026: Numerical Sentinel (Validation Parity Guard) ---
+                    sentinel = stab.get('numerical_sentinel')
+                    if sentinel and len(sentinel) == 2:
+                        min_v, max_v = float(sentinel[0]), float(sentinel[1])
+                        if isinstance(preds, (tuple, list)):
+                            p_p = preds[0]
+                            sentinel_stresses.append(((p_p < min_v) | (p_p > max_v)).float().mean().item())
+                            preds = (torch.clamp(p_p, min=min_v, max=max_v), *preds[1:])
+                        else:
+                            sentinel_stresses.append(((preds < min_v) | (preds > max_v)).float().mean().item())
+                            preds = torch.clamp(preds, min=min_v, max=max_v)
+                    loss = criterion(preds, targets, task_idx)  # pyre-ignore
 
                 # Active Mathematics Protection Block (Prevents NaN from feeding into Scipy)
                 if torch.isnan(loss) or torch.isnan(preds).any():
@@ -1375,9 +1349,44 @@ def main():
                 if train_ds.task_type == "quality":
                     all_preds.append(preds.detach().cpu())
                     all_targets.append(targets.detach().cpu())
-                elif train_ds.task_type in ["restoration", "enhancement"]:
+                elif train_ds.task_type in ["restoration", "enhancement", "face"]:
+                    # --- 2026: STREAMING METRICS (Zero-RAM Leak) ---
                     img_pred = preds[0] if isinstance(preds, (tuple, list)) else preds
-                    all_preds.append(img_pred.detach().cpu())
+                    p_chunk = img_pred.detach().cpu()
+                    t_chunk = targets.detach().cpu()
+
+                    _current_h, _current_w = p_chunk.shape[-2], p_chunk.shape[-1]
+                    if _current_h < CANONICAL_EVAL_SIZE or _current_w < CANONICAL_EVAL_SIZE:
+                        _scale_args = dict(size=(CANONICAL_EVAL_SIZE, CANONICAL_EVAL_SIZE), mode='bicubic', align_corners=False)
+                        p_chunk = _F_resize.interpolate(p_chunk.clamp(0, 1), **_scale_args)
+                        t_chunk = _F_resize.interpolate(t_chunk.clamp(0, 1), **_scale_args)
+                        _current_h, _current_w = CANONICAL_EVAL_SIZE, CANONICAL_EVAL_SIZE
+
+                    p_chunk = torch.clamp(p_chunk, 0, 1)
+                    t_chunk = torch.clamp(t_chunk, 0, 1)
+
+                    _mse_chunk = torch.sum((p_chunk - t_chunk) ** 2).item()
+                    mse_sum += _mse_chunk
+
+                    p_np = p_chunk.numpy().transpose(0, 2, 3, 1)
+                    t_np = t_chunk.numpy().transpose(0, 2, 3, 1)
+                    for idx in range(len(p_np)):
+                        ssim_sum += ssim(t_np[idx], p_np[idx], data_range=1.0, channel_axis=-1)
+
+                    if loss_fn_vgg:
+                        lpips_sum += loss_fn_vgg(p_chunk.to(device)*2-1, t_chunk.to(device)*2-1).sum().item()
+
+                    if fid_metric is not None:
+                        p_fid = (p_chunk.to(device) * 255).to(torch.uint8)
+                        t_fid = (t_chunk.to(device) * 255).to(torch.uint8)
+                        fid_metric.update(t_fid, real=True)
+                        fid_metric.update(p_fid, real=False)
+
+                    total_samples += len(p_chunk)
+                    total_pixels += len(p_chunk) * 3 * _current_h * _current_w
+
+                elif train_ds.task_type == "classification":
+                    all_preds.append(preds.detach().cpu())
                     all_targets.append(targets.detach().cpu())
 
         avg_val_loss = val_loss / max(1, len(val_loader))
@@ -1385,7 +1394,7 @@ def main():
 
         # Calculate Universal Validation Metrics
         metrics_str = ""
-        plcc = srcc = psnr = ssim_val = lpips_val = fid = map50 = map50_95 = rank_margin = 0.0
+        plcc = srcc = psnr = ssim_val = lpips_val = fid = map50 = map50_95 = rank_margin = accuracy = 0.0
         # Set baseline for non-negative metrics
         # --- 2026: Incremental Canonical Eval (RAM Protection v5.0) ---
         # We process metrics in manageable chunks to avoid System RAM OOM on large datasets.
@@ -1407,77 +1416,14 @@ def main():
                     srcc, _ = scipy.stats.spearmanr(p_mean, t_mean)
                     rank_margin = float(np.mean(np.abs(p_mean - t_mean)))
                     metrics_str = f" | PLCC: {plcc:.4f} | SRCC: {srcc:.4f} | RM: {rank_margin:.4f}"
-            elif train_ds.task_type in ["restoration", "enhancement", "face"] and len(all_preds) > 0:
-                # INCREMENTAL PSNR/SSIM/LPIPS (Zero-RAM Pattern)
-                mse_sum = 0.0
-                ssim_sum = 0.0
-                lpips_sum = 0.0
-                total_samples = 0
-                total_pixels = 0
-
-                # Best-effort imports for advanced metrics
-                import torch.nn.functional as _F_resize
-                from skimage.metrics import structural_similarity as ssim
-                import lpips
-                try:
-                    from torchmetrics.image.fid import FrechetInceptionDistance
-                except ImportError:
-                    FrechetInceptionDistance = None
-
-                loss_fn_vgg = None
-                fid_metric = None
-
-                try:
-                    loss_fn_vgg = lpips.LPIPS(net='vgg').eval().to(device)
-                except: pass
-
-                if FrechetInceptionDistance is not None and sota_targets.get('fid') is not None:
-                    try:
-                        # 2026 Resilience: Initialize FID on target device with zero-gradient manifold
-                        fid_metric = FrechetInceptionDistance(feature=2048).to(device)
-                    except Exception as e:
-                        print(f"⚠️ [RESILIENCE] FID Engine failed to initialize ({e}).")
-
-                for p_chunk, t_chunk in zip(all_preds, all_targets):
-                    _current_h, _current_w = p_chunk.shape[-2], p_chunk.shape[-1]
-                    # Canonical Upscale if needed (only for small images)
-                    if _current_h < CANONICAL_EVAL_SIZE or _current_w < CANONICAL_EVAL_SIZE:
-                        _scale_args = dict(size=(CANONICAL_EVAL_SIZE, CANONICAL_EVAL_SIZE), mode='bicubic', align_corners=False)
-                        p_chunk = _F_resize.interpolate(p_chunk.clamp(0, 1), **_scale_args)
-                        t_chunk = _F_resize.interpolate(t_chunk.clamp(0, 1), **_scale_args)
-                        _current_h, _current_w = CANONICAL_EVAL_SIZE, CANONICAL_EVAL_SIZE
-
-                    p_chunk = torch.clamp(p_chunk, 0, 1)
-                    t_chunk = torch.clamp(t_chunk, 0, 1)
-
-                    # MSE -> PSNR (Sum pixels then divide by actual resolution area)
-                    _mse_chunk = torch.sum((p_chunk - t_chunk) ** 2).item()
-                    mse_sum += _mse_chunk
-
-                    # SSIM
-                    p_np = p_chunk.numpy().transpose(0, 2, 3, 1)
-                    t_np = t_chunk.numpy().transpose(0, 2, 3, 1)
-                    for i in range(len(p_np)):
-                        ssim_sum += ssim(t_np[i], p_np[i], data_range=1.0, channel_axis=-1)
-
-                    # LPIPS
-                    if loss_fn_vgg:
-                        with torch.no_grad():
-                            lpips_sum += loss_fn_vgg(p_chunk.to(device)*2-1, t_chunk.to(device)*2-1).sum().item()
-
-                    # FID (Frechet Inception Distance)
-                    if fid_metric is not None:
-                        with torch.no_grad():
-                            # torchmetrics FID expects [0, 255] uint8 or [0, 1] float
-                            # We use uint8 for maximal numerical parity with legacy benchmarks
-                            p_fid = (p_chunk.to(device) * 255).to(torch.uint8)
-                            t_fid = (t_chunk.to(device) * 255).to(torch.uint8)
-                            fid_metric.update(t_fid, real=True)
-                            fid_metric.update(p_fid, real=False)
-
-                    total_samples += len(p_chunk)
-                    total_pixels += len(p_chunk) * 3 * _current_h * _current_w
-
+            elif train_ds.task_type == "classification" and len(all_preds) > 0:
+                p = torch.cat(all_preds)
+                t = torch.cat(all_targets)
+                if t.dim() == 2: t = t.squeeze(-1)
+                preds_class = torch.argmax(p, dim=1)
+                accuracy = (preds_class == t).float().mean().item()
+                metrics_str = f" | Accuracy: {accuracy:.4f}"
+            elif train_ds.task_type in ["restoration", "enhancement", "face"] and total_samples > 0:
                 mse_val = mse_sum / max(1, total_pixels)
                 psnr = 10 * np.log10(1.0 / max(mse_val, 1e-10))
                 ssim_val = ssim_sum / max(1, total_samples)
@@ -1529,7 +1475,7 @@ def main():
             curr_metrics = {
                 'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
                 'lpips': lpips_val, 'fid': fid, 'map50': map50, 'map50_95': map50_95,
-                'rank_margin': rank_margin
+                'rank_margin': rank_margin, 'accuracy': accuracy
             }
 
             for k, target_v in sota_targets.items():
@@ -1553,32 +1499,13 @@ def main():
             quality_improves = current_quality_score > (best_quality_score * (1.0 + stagnation_threshold))
             is_improving = loss_improves or quality_improves
 
-            # --- 2026: SOTA Mission Accomplished (Auto-Stop v1.0) ---
-            # If every single target in sota_targets is met, we end the mission immediately.
-            targets_met = True
-            for k, target_v in sota_targets.items():
-                val = curr_metrics.get(k, 0.0)
-                direction = METRIC_DIRECTIONS.get(k, True)
-                if direction: # Higher is better
-                    if val < target_v: targets_met = False; break
-                else: # Lower is better
-                    if val > target_v: targets_met = False; break
-
-            if targets_met and len(sota_targets) > 0:
-                print(f"\n🏆 [SOTA MISSION ACCOMPLISHED] All targets reached: {sota_targets}")
-                print(f"🥇 Current Metrics: {curr_metrics}")
-                print(f"🚀 Finalizing and exiting training suite.")
-                # Force final SOTA export before exit
-                trigger_sota_export(model, args, config, unified_models_registry, epoch, plcc, srcc, psnr, ssim_val, lpips_val, fid)
-                break
-
             # --- 2026 SOTA GUARD: Quality Regression Mutex ---
             if quality_improves:
                 prev_best = best_quality_score
                 best_quality_score = current_quality_score
                 is_best = True
                 is_improving = True
-                best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
+                best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid, "accuracy": accuracy}
                 pbar.write(f" -> 🏆 [SOTA GUARD] Record Quality Milestone: {best_quality_score:.4f} (Previous: {prev_best:.4f}).")
             elif loss_improves:
                 best_val_loss = avg_val_loss
@@ -1700,9 +1627,17 @@ def main():
 
         # Consistent checkpoint persistence (Atomic Save)
         latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
+        backup_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_epoch_{epoch+1}.pth")
         temp_latest = f"{latest_ckpt}.tmp"
-        torch.save(ckpt_state, temp_latest) # pyre-ignore
+        
+        with open(temp_latest, "wb") as f:
+            torch.save(ckpt_state, f)
+            f.flush()
+            os.fsync(f.fileno())
+        
         safe_replace(temp_latest, latest_ckpt)
+        # 2026: SOTA Mirroring - Create a permanent backup of this epoch milestone
+        shutil.copy2(latest_ckpt, backup_ckpt)
 
         # Reset intra-epoch progress file now that the epoch is safely committed
         progress_ckpt_path = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
@@ -1815,11 +1750,6 @@ def main():
                 temp_best = f"{best_ckpt}.tmp"
                 torch.save(ckpt_state, temp_best) # pyre-ignore
                 safe_replace(temp_best, best_ckpt)
-
-                # --- 2026 SOTA Deployment Sync (v1.0.50) ---
-                # We trigger the export ONLY after the best.pth is physically committed to disk
-                # to avoid race conditions with the exporter subprocess.
-                trigger_sota_export(model, args, config, unified_models_registry, epoch, plcc, srcc, psnr, ssim_val, lpips_val, fid)
         else:
             epochs_no_improve += 1  # pyre-ignore
             regression_epochs += 1
@@ -1893,7 +1823,6 @@ def main():
 
 
     print(f"\n--- Exporting {args.model} to SOTA Counterparts ---")
-    import shutil
 
     # Final SWA Synchronization (Manifold Stabilization)
     if epoch >= swa_start:
@@ -1934,9 +1863,97 @@ def main():
         # 2026 Resilience: We use the PERSISTENT best_metrics for the final README
         # to ensure doc-weight parity if the final epoch was a regression.
         metrics_to_report = best_metrics if best_quality_score > -1.0 else {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
+        from training.doc_generator import build_model_readme # pyre-ignore
         readme_text = build_model_readme(args.model, unified_models_registry, epoch+1, metrics_to_report)
         with open(os.path.join(export_dir, "README.md"), "w") as f:
             f.write(readme_text)
+
+        # --- 2026 Kaggle Notebook/Inference Generator ---
+        print(f"✨ [EXPORT] Generating Kaggle Inference Notebook...")
+        import json
+        inference_notebook_path = os.path.join(export_dir, "kaggle_inference.ipynb")
+        pascal_model_name = args.model.replace('_', ' ').title().replace(' ', '')
+        kebab_model_name = args.model.replace('_', '-')
+
+        import base64
+        cell_1_b64 = "aW1wb3J0IHRvcmNoCmltcG9ydCBvbm54cnVudGltZSBhcyBvcnQKZnJvbSBQSUwgaW1wb3J0IEltYWdlCmltcG9ydCBudW1weSBhcyBucAppbXBvcnQgb3MKCmRldmljZSA9IHRvcmNoLmRldmljZSgnY3VkYScgaWYgdG9yY2guY3VkYS5pc19hdmFpbGFibGUoKSBlbHNlICdjcHUnKQpwcmludChmIlVzaW5nIGRldmljZToge2RldmljZX0iKQo="
+        cell_2_b64 = "bW9kZWxfcGF0aCA9ICcva2FnZ2xlL2lucHV0L2xlbWdlbmRhcnkte2tlYmFiX21vZGVsX25hbWV9L0xlbUdlbmRhcnl7cGFzY2FsX21vZGVsX25hbWV9LnB0aCcKaWYgbm90IG9zLnBhdGguZXhpc3RzKG1vZGVsX3BhdGgpOgogICAgbW9kZWxfcGF0aCA9ICdMZW1HZW5kYXJ5e3Bhc2NhbF9tb2RlbF9uYW1lfS5wdGgnICMgTG9jYWwgZmFsbGJhY2sKCnRyeToKICAgIG1vZGVsID0gdG9yY2gubG9hZChtb2RlbF9wYXRoLCBtYXBfbG9jYXRpb249ZGV2aWNlKQogICAgbW9kZWwuZXZhbCgpCiAgICBwcmludCgi4pyFIFB5VG9yY2ggTW9kZWwgbG9hZGVkIHN1Y2Nlc3NmdWxseSEiKQpleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICBwcmludChmIuKdjCBFcnJvciBsb2FkaW5nIFB5VG9yY2ggbW9kZWw6IHtlfSIpCg=="
+        cell_3_b64 = "b25ueF9wYXRoID0gJy9rYWdnbGUvaW5wdXQvbGVtZ2VuZGFyeS17a2ViYWJfbW9kZWxfbmFtZX0vTGVtR2VuZGFyeXtwYXNjYWxfbW9kZWxfbmFtZX0ub25ueCcKaWYgbm90IG9zLnBhdGguZXhpc3RzKG9ubnhfcGF0aCk6CiAgICBvbm54X3BhdGggPSAnTGVtR2VuZGFyeXtwYXNjYWxfbW9kZWxfbmFtZX0ub25ueCcgIyBMb2NhbCBmYWxsYmFjawoKdHJ5OgogICAgb3J0X3Nlc3Npb24gPSBvcnQuSW5mZXJlbmNlU2Vzc2lvbihvbm54X3BhdGgsIHByb3ZpZGVycz1bJ0NVREFFeGVjdXRpb25Qcm92aWRlcicsICdDUFVFeGVjdXRpb25Qcm92aWRlciddKQogICAgcHJpbnQoIuKchSBPTk5YIFNlc3Npb24gaW5pdGlhbGl6ZWQgc3VjY2Vzc2Z1bGx5ISIpCmV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgIHByaW50KGYi4p2MIEVycm9yIGluaXRpYWxpemluZyBPTk5YIHNlc3Npb246IHtlfSIpCg=="
+        
+        cell_1_source = base64.b64decode(cell_1_b64).decode('utf-8')
+        cell_2_source = base64.b64decode(cell_2_b64).decode('utf-8').replace("{kebab_model_name}", kebab_model_name).replace("{pascal_model_name}", pascal_model_name)
+        cell_3_source = base64.b64decode(cell_3_b64).decode('utf-8').replace("{kebab_model_name}", kebab_model_name).replace("{pascal_model_name}", pascal_model_name)
+
+        notebook_content = {
+            "metadata": {
+                "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+                "language_info": {"name": "python", "version": "3.12.12"}
+            },
+            "nbformat_minor": 4,
+            "nbformat": 4,
+            "cells": [
+                {
+                    "cell_type": "markdown",
+                    "source": [f"# LemGendary SOTA Inference: {pascal_model_name}\n", "This notebook natively executes the explicit LemGendary Neural Architecture topologies directly upon Kaggle cloud hardware for both FP32 PyTorch and ONNX models."],
+                    "metadata": {}
+                },
+                {
+                    "cell_type": "code",
+                    "source": cell_1_source.splitlines(keepends=True),
+                    "metadata": {},
+                    "outputs": [],
+                    "execution_count": None
+                },
+                {
+                    "cell_type": "markdown",
+                    "source": ["## 1. PyTorch (FP32) Inference\n"],
+                    "metadata": {}
+                },
+                {
+                    "cell_type": "code",
+                    "source": cell_2_source.splitlines(keepends=True),
+                    "metadata": {},
+                    "outputs": [],
+                    "execution_count": None
+                },
+                {
+                    "cell_type": "markdown",
+                    "source": ["## 2. ONNX (FP32) Inference\n"],
+                    "metadata": {}
+                },
+                {
+                    "cell_type": "code",
+                    "source": cell_3_source.splitlines(keepends=True),
+                    "metadata": {},
+                    "outputs": [],
+                    "execution_count": None
+                }
+            ]
+        }
+
+        with open(inference_notebook_path, "w", encoding='utf-8') as f:
+            json.dump(notebook_content, f, indent=1)
+
+        # --- 2026 Kaggle Cleanup ---
+        if args.env == "kaggle":
+            print("🧹 [KAGGLE] Training complete. Purging local dataset shards to prevent /kaggle/working OOM...")
+            if os.path.exists(data_dir):
+                try:
+                    shutil.rmtree(data_dir)
+                    print("🧹 [KAGGLE] Dataset cache successfully wiped.")
+                except Exception as e:
+                    print(f"⚠️ [KAGGLE] Failed to wipe dataset cache: {e}")
+        elif args.env == "local":
+            print(f"\n🏆 [MISSION COMPLETE] Training / Test Phase ended.")
+            if os.path.exists(data_dir):
+                # Interactive Post-SOTA Data Wipe
+                ans = input(f"🧹 Do you want to approve removing the local training dataset cache ({data_dir}) to save disk space? (y/n): ").strip().lower()
+                if ans == 'y':
+                    try:
+                        shutil.rmtree(data_dir)
+                        print(f"✅ Local dataset cache '{data_dir}' has been successfully wiped.")
+                    except Exception as e:
+                        print(f"⚠️ Failed to wipe local dataset cache: {e}")
 
         # --- 2026 Resilient Artifact Sync (Windows IO Guard) ---
         # Windows often keeps a lock on newly created ONNX files for several milliseconds.
@@ -1951,16 +1968,16 @@ def main():
                 if config.get("export_to_external_folder", False):
                     shutil.copytree(export_dir, local_dir, dirs_exist_ok=True)
 
-                trained_models_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "trained-models", args.model))
+                trained_models_dir = os.path.normpath(os.path.join(project_root, "..", "LemGendaryModels", args.model))
 
                 # --- 2026 Collision Guard (Windows IO Protection) ---
                 # Only sync if the production target is actually different from the export staging area.
-                # This prevents WinError 32 when the config export_dir is already set to 'trained-models'.
+                # This prevents WinError 32 when the config export_dir is already set to '../LemGendaryModels'.
                 if os.path.abspath(export_dir) != os.path.abspath(trained_models_dir):
                     os.makedirs(trained_models_dir, exist_ok=True)
                     shutil.copytree(export_dir, trained_models_dir, dirs_exist_ok=True)
                     sync_success = True
-                    print("SUCCESS: Artifacts securely synced to local_models and trained-models.")
+                    print("SUCCESS: Artifacts securely synced to local_models and LemGendaryModels.")
                 else:
                     sync_success = True
                     print("ℹ️  [INFO] Artifacts are already in the production directory. Skipping redundant sync.")

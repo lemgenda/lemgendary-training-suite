@@ -1,7 +1,15 @@
 # LemGendary Training Suite - Modular Training Config
 # This config references the global unified definitions
 
-unified_models: "unified_models.yaml"
+unified_models: "unified_models_v2.yaml"
+
+# Dynamic Execution Pathing
+execution:
+  mode: "training" # or "single_epoch_test"
+  suffixes:
+    training: "Large"
+    single_epoch_test: "KaggleReady"
+  use_local_root_datasets: true
 
 # Global Training Defaults (can be overridden by model-specific config)
 device: "cuda" # or "cpu"
@@ -9,9 +17,15 @@ num_workers: 4 # Optimized for i7-9750H to prevent bottlenecking the GPU
 pin_memory: true
 
 # Base paths (relative to training/lemgendary-training-suite/)
-datasets_dir: "data/datasets"
-checkpoint_dir: "trained-models/checkpoints"
-export_dir: "trained-models"
+# datasets_dir: "data/datasets"
+datasets_dir: "../LemGendaryDatasets"
+datasets_fallback_dir: "../LemGendaryDatasets"
+checkpoint_dir: "checkpoints"
+export_dir: "../LemGendaryModels"
+
+# Kaggle Dataset URL Fallbacks (Used if not found locally)
+kaggle_dataset_urls:
+  LemGendizedNafNetDebluringLarge: "https://www.kaggle.com/datasets/lemtreursi/lemgendizednafnetdebluringlarge"
 
 # Default fallback values if not specified in unified_models.yaml
 default_img_size: 256

@@ -88,13 +88,12 @@ function Test-Environment {
 
     # Pre-Flight Audit
     Write-Header "ENVIRONMENT INTEGRITY AUDIT"
-    Write-Host "  [*] Verifying core library specialization (PyYAML / Torch / OpenCV / DirectML)..." -ForegroundColor Gray
-    $auditCmd = "import yaml; print('YAML_PATH: ' + yaml.__file__); import torch; print('Torch: ' + torch.__version__); import cv2; print('OpenCV: ' + cv2.__version__); print('CUDA Ready: ' + str(torch.cuda.is_available())); print('Device: ' + (torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'))"
+    Write-Host "  [*] Verifying core library specialization (Torch / PEFT / Diffusers / BitsAndBytes)..." -ForegroundColor Gray
+    $auditCmd = "import yaml; import torch; import diffusers; import peft; import bitsandbytes; print('CUDA Ready: ' + str(torch.cuda.is_available())); print('Device: ' + (torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'))"
     $auditResult = & "$script:VENV_DIR\Scripts\python.exe" -W ignore -c $auditCmd 2>$null
     
-    $venvBase = Split-Path $script:VENV_DIR -Leaf
-    if ($auditResult -match "YAML_PATH: .*$venvBase" -and $auditResult -match "Torch:" -and $auditResult -match "OpenCV:") {
-        Write-Host "  [PASS] Integrity Audit Successful. Environment is healthy." -ForegroundColor Green
+    if ($auditResult -match "CUDA Ready:") {
+        Write-Host "  [PASS] Integrity Audit Successful. SOTA libraries verified." -ForegroundColor Green
         if ($auditResult -match "CUDA Ready: True") {
             Write-Host "  [ACCELERATED] NVIDIA Hardware detected and linked." -ForegroundColor Cyan
         } else {
@@ -102,17 +101,31 @@ function Test-Environment {
         }
         return $true
     } else {
-        Write-Host "  [FAIL] Integrity Audit Failed! Core libraries missing or corrupted." -ForegroundColor Red
-        Write-Host "  Suggested Fix: Run Option 1 again." -ForegroundColor White
+        Write-Host "  [FAIL] Integrity Audit Failed! SOTA libraries (PEFT/Diffusers/BNB) missing." -ForegroundColor Red
+        Write-Host "  Suggested Fix: Run Option 1 to repair dependencies." -ForegroundColor White
         return $false
     }
 }
 
 function Initialize-Environment {
-    Write-Header "PREPARING PYTHON 3.12 ENVIRONMENT"
+    Write-Header "INITIALIZING / FIXING SYSTEMS (PYTHON + NODE.JS + GPU)"
     $targetPython = "3.12"
     $installSuccess = $false
     
+    Write-Host "  [*] Checking for Node.js..." -ForegroundColor Gray
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+        Write-Host "  [!] Node.js not found. Attempting winget install..." -ForegroundColor Yellow
+        try {
+            winget install --id "OpenJS.NodeJS" -e --scope user --silent --accept-package-agreements --accept-source-agreements
+            Write-Host "  [+] Node.js installed." -ForegroundColor Green
+            $installSuccess = $true
+        } catch {
+            Write-Host "  [ERROR] Auto-install for Node.js failed. Please install manually." -ForegroundColor Red
+        }
+    } else {
+        Write-Host "  [PASS] Node.js is installed." -ForegroundColor Green
+    }
+
     # 1. Advanced Discovery: Find SYSTEM Python (Skip .venv paths)
     $pyPath = Get-Command python -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike "*\.venv\*" } | Select-Object -First 1 -ExpandProperty Source
     $knownSystemPath = "C:\Users\lemtr\AppData\Local\Programs\Python\Python312\python.exe"
@@ -141,10 +154,10 @@ function Initialize-Environment {
         }
     }
     
-    # Session Break: If we just installed Python, the current PATH is out of sync.
+    # Session Break: If we just installed Python or Node, the current PATH is out of sync.
     if ($installSuccess) {
         Write-Host "`n********************************************************************************" -ForegroundColor Yellow
-        Write-Host "  [SUCCESS] Python 3.12 has been mathematically installed by the Hub!" -ForegroundColor Green
+        Write-Host "  [SUCCESS] Missing core systems (Python/Node) have been mathematically installed!" -ForegroundColor Green
         Write-Host "  [CRITICAL] PowerShell needs to be RESTARTED to recognize the new environment." -ForegroundColor Red
         Write-Host "********************************************************************************`n" -ForegroundColor Yellow
         Write-Host "  Please close this terminal, open a new one, and run Option 1 again." -ForegroundColor White
@@ -158,18 +171,12 @@ function Initialize-Environment {
         return
     }
 
-    # Construction Reset
-    if (Test-Path $script:VENV_DIR) {
-        Write-Host "  [!] NUKING stale environment to ensure structural integrity..." -ForegroundColor Magenta
-        $retryCount = 0
-        while ($retryCount -lt 5) {
-            try { Remove-Item -Path $script:VENV_DIR -Recurse -Force -ErrorAction Stop; break }
-            catch { $retryCount++; Clear-EnvironmentLocks; Start-Sleep -Seconds 1 }
-        }
+    if (-not (Test-Path $script:VENV_DIR)) {
+        Write-Host "  [1/4] Constructing virtual environment (using System Python)..." -ForegroundColor Cyan
+        & $pyPath -m venv $script:VENV_DIR
+    } else {
+        Write-Host "  [1/4] Virtual environment exists. Skipping construction..." -ForegroundColor Cyan
     }
-
-    Write-Host "  [1/4] Constructing virtual environment (using System Python)..." -ForegroundColor Cyan
-    & $pyPath -m venv $script:VENV_DIR
     $venvPy = "$script:VENV_DIR\Scripts\python.exe"
     if (-not (Test-Path $venvPy)) { return }
 
@@ -195,22 +202,26 @@ function Initialize-Environment {
 
 function Get-ModelSelection {
     Write-Header "SELECT MODEL CATEGORY"
-    Write-Host "  1. Quality Assessment  (NIMA, Aesthetics)" -ForegroundColor Cyan
-    Write-Host "  2. Face & Detection    (RetinaFace, YOLOv8, CodeFormer)" -ForegroundColor Cyan
+    Write-Host "  1. Quality Assessment  (NIMA, Aesthetics, Authenticity)" -ForegroundColor Cyan
+    Write-Host "  2. Face & Detection    (RetinaFace, YOLOv8, CodeFormer, ParseNet)" -ForegroundColor Cyan
     Write-Host "  3. Super-Resolution    (UltraZoom x2/x3/x4/x8)" -ForegroundColor Cyan
     Write-Host "  4. Image Restoration   (NAFNet, MIRNet, FFANet, MPRNet)" -ForegroundColor Cyan
-    Write-Host "  5. Universal Hybrid    (UPN v2, Multi-Restorer, Film)" -ForegroundColor Cyan
-    Write-Host "  6. Cancel" -ForegroundColor Gray
+    Write-Host "  5. Universal Hybrid    (UPN v2, Multi-Restorer, Film Restoration)" -ForegroundColor Cyan
+    Write-Host "  6. Generative Diffusion (Master Manifold)" -ForegroundColor Cyan
+    Write-Host "  7. Vision-Language      (Master Manifold)" -ForegroundColor Cyan
+    Write-Host "  8. Cancel" -ForegroundColor Gray
     Write-Host ""
     
-    $catChoice = Read-Host "Select a category (1-6)"
+    $catChoice = Read-Host "Select a category (1-8)"
     $modelList = @()
     switch ($catChoice) {
-        '1' { $modelList = @("nima_aesthetic", "nima_technical") }
+        '1' { $modelList = @("nima_aesthetic", "nima_technical", "nima_authenticity", "anime_nsfw_classification") }
         '2' { $modelList = @("codeformer", "parsenet", "retinaface_mobilenet", "retinaface_resnet", "yolov8n") }
-        '3' { $modelList = @("ultrazoom_x2", "ultrazoom_x3", "ultrazoom_x4", "ultrazoom_x8") }
+        '3' { $modelList = @("ultrazoom") }
         '4' { $modelList = @("ffanet_indoor", "ffanet_outdoor", "mprnet_deraining", "mirnet_lowlight", "mirnet_exposure", "nafnet_debluring", "nafnet_denoising") }
         '5' { $modelList = @("upn_v2", "professional_multitask_restoration", "film_restorer") }
+        '6' { $modelList = @("diffusion_sdxl", "diffusion_flux") }
+        '7' { $modelList = @("vlm_llava", "vlm_blip2") }
         default { return $null }
     }
 

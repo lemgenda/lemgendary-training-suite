@@ -6,6 +6,7 @@ import cv2  # pyre-ignore
 import numpy as np  # pyre-ignore
 from PIL import Image, ImageFile  # pyre-ignore
 import json
+import shutil
 from torch.utils.data import Dataset  # pyre-ignore
 from torchvision import transforms  # pyre-ignore
 
@@ -21,7 +22,7 @@ class MultiTaskDataset(Dataset):
         self.is_train = is_train
         self.env = env
         self.sync_mode = False # --- 2026 Resiliency: Fast-Skip Sync ---
-        self.split = "train" if is_train else "validate"
+        self.split = "train" if is_train else "val"
         self.data_root = config.get("datasets_dir", "../data/datasets")
         
         # --- 2026 Turbo Initialization ---
@@ -57,33 +58,59 @@ class MultiTaskDataset(Dataset):
         
         self.samples = []
         self.all_samples = []
-        dataset_names = self.model_info.get("datasets", [])
+        raw_dataset_names = self.model_info.get("datasets", [])
         
-        self.kaggle_links = {
-            "LemGendizedQualityDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-quality-dataset",
-            "LemGendizedNoiseDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-noise-dataset",
-            "LemGendizedLowLightDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-lowlight-dataset",
-            "LemGendizedFaceDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-face-dataset",
-            "LemGendizedDegradationDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-degradation-dataset",
-            "LemGendizedDetectionDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-dettection-dataset",
-            "LemGendizedSuperResDataset": "https://www.kaggle.com/datasets/lemtreursi/lemgendized-superres-dataset"
-        }
+        # --- 2026 Resiliency: Apply dynamic execution suffix ---
+        exec_mode = config.get("execution", {}).get("mode", "training")
+        suffix = config.get("execution", {}).get("suffixes", {}).get(exec_mode, "")
+        dataset_names = [f"{name}{suffix}" for name in raw_dataset_names]
+        
+        # --- 2026 Protocol Awareness: Load Data Registry ---
+        data_registry_path = os.path.join(os.path.dirname(__file__), "..", "..", "lemgendary-datasets", "unified_data.yaml")
+        if not os.path.exists(data_registry_path):
+            # Fallback if the path is different (e.g. inside training suite)
+            data_registry_path = os.path.join(os.path.dirname(__file__), "..", "unified_data.yaml")
+        
+        self.data_registry = {}
+        if os.path.exists(data_registry_path):
+            with open(data_registry_path, 'r') as f:
+                self.data_registry = yaml.safe_load(f)
+
+        self.kaggle_links = config.get("kaggle_dataset_urls", {})
+        fallback_root = config.get("datasets_fallback_dir", "../LemGendaryDatasets")
         for ds_name in dataset_names:
             ds_path = self.get_dataset_path(ds_name)
+            
+            # Unified directory check
+            def check_ds(path):
+                if self.task_type in ["text_to_image", "image_to_text"]:
+                    return os.path.exists(os.path.join(path, "parquet", self.split))
+                return os.path.exists(os.path.join(path, "images", self.split))
+
+            # Tier 1: Check Local Sandbox
+            if not check_ds(ds_path):
+                # Tier 2: Check LemGendaryDatasets Fallback Root
+                fallback_ds_path = os.path.join(fallback_root, ds_name)
+                if check_ds(fallback_ds_path):
+                    print(f"\n🔄 [DATA] Found '{ds_name}' in Fallback ({fallback_root}). Injecting to local sandbox {self.data_root}...")
+                    os.makedirs(ds_path, exist_ok=True)
+                    shutil.copytree(fallback_ds_path, ds_path, dirs_exist_ok=True)
+                else:
+                    # Tier 3: Universal 2026 Recovery (HF / Kaggle)
+                    from .data_utils import download_and_extract_dataset
+                    
+                    # Resolve source ref from registry
+                    ds_info = self.data_registry.get(ds_name, {})
+                    source_ref = ds_info.get("refs", [{}])[0].get("ref") if ds_info.get("refs") else None
+                    
+                    if not download_and_extract_dataset(ds_name, self.data_root, source_ref=source_ref):
+                        print(f"\n❌ CRITICAL: The required isolated '{ds_name}' dataset manifold was structurally NOT FOUND!")
+                        print(f"   👉 You must securely download and map it natively. [Ref: {source_ref}]")
+                        print(f"      Mapped Path Checked: {ds_path}\n")
+                        continue
+            
+            if not check_ds(ds_path): continue
             img_dir = os.path.join(ds_path, "images", self.split)
-            if not os.path.exists(img_dir):
-                # 2026 Autonomic Data Recovery Logic
-                from .data_utils import download_and_extract_dataset
-                if not download_and_extract_dataset(ds_name, self.data_root):
-                    link = self.kaggle_links.get(ds_name, f"https://www.kaggle.com/datasets/lemtreursi/{ds_name.lower()}")
-                    print(f"\n❌ CRITICAL: The required isolated '{ds_name}' dataset topological array was structurally NOT FOUND!")
-                    print(f"   👉 You must securely download and map it natively from Kaggle: {link}")
-                    print(f"      Mapped Path Checked: {img_dir}\n")
-                    continue
-                # Re-verify path after recovery by recalculating dynamic fallback mounts
-                ds_path = self.get_dataset_path(ds_name)
-                img_dir = os.path.join(ds_path, "images", self.split)
-                if not os.path.exists(img_dir): continue
                 
             cache_dir = os.path.join(self.data_root, ".cache")
             os.makedirs(cache_dir, exist_ok=True)
@@ -103,7 +130,19 @@ class MultiTaskDataset(Dataset):
                 if not getattr(self, '_scanned_already', False):
                     print(f"🔍 [DATA] Syncing Physical Manifold for '{ds_name}' (First-run disk scan)...")
                     self._scanned_already = True
-                files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+                    
+                if self.task_type in ["text_to_image", "image_to_text"]:
+                    parquet_dir = os.path.join(ds_path, "parquet", self.split)
+                    if os.path.exists(parquet_dir):
+                        files = [f for f in os.listdir(parquet_dir) if f.lower().endswith('.parquet')]
+                    else:
+                        files = []
+                        print(f"⚠️ [WARNING] Generative Task '{self.task_type}' requires Parquet schema in {parquet_dir}. None found!")
+                else:
+                    if os.path.exists(img_dir):
+                        files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+                    else:
+                        files = []
                 try:
                     with open(cache_file, 'w') as f:
                         json.dump(files, f)
@@ -214,16 +253,24 @@ class MultiTaskDataset(Dataset):
         return os.path.join(self.data_root, ds_name)
 
     def load_image(self, img_path):
-        try:
-            from PIL import Image, ImageFile
-            ImageFile.LOAD_TRUNCATED_IMAGES = True
-            # Safely handle physical file headers with Pillow, averting OpenCV C++ access violations
-            with Image.open(img_path) as img:
-                img = img.convert('RGB')
-                import numpy as np
-                return np.array(img)
-        except Exception as e:
-            return None
+        import time
+        # --- 2026 Resiliency: Multi-Pass Load Retry ---
+        for attempt in range(3):
+            try:
+                from PIL import Image, ImageFile
+                ImageFile.LOAD_TRUNCATED_IMAGES = True
+                # Safely handle physical file headers with Pillow, averting OpenCV C++ access violations
+                with Image.open(img_path) as img:
+                    img = img.convert('RGB')
+                    import numpy as np
+                    return np.array(img)
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(0.05 * (attempt + 1)) # Backoff
+                    continue
+                # print(f"DEBUG: Failed to load {img_path} after 3 attempts: {e}")
+                return None
+        return None
 
     def __getitem__(self, idx):
         # --- 2026 Resiliency: Fast-Skip Synchronization ---
@@ -238,6 +285,37 @@ class MultiTaskDataset(Dataset):
         for _ in range(50):
             ds_name, fname = self.samples[current_idx]
             ds_path = self.get_dataset_path(ds_name)
+            
+            # --- 2026: Parquet Generative Dataloader Pipeline ---
+            if self.task_type in ["text_to_image", "image_to_text"]:
+                pq_path = os.path.join(ds_path, "parquet", self.split, fname)
+                try:
+                    import pandas as pd
+                    import io
+                    # Stream single random row from partition
+                    df = pd.read_parquet(pq_path, engine='pyarrow')
+                    row = df.sample(1).iloc[0]
+                    
+                    img_bytes = row["image_bytes"]
+                    img_pil = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                    img = np.array(img_pil)
+                    img = cv2.resize(img, self.size, interpolation=cv2.INTER_AREA)
+                    tensor_img = self.fast_process(img)
+                    
+                    if self.task_type == "text_to_image":
+                        prompt = row["prompt"]
+                        aesthetic_score = row.get("aesthetic_score", 5.0)
+                        # We return a dict that matches train.py unpacking
+                        return {"pixel_values": tensor_img, "prompt": prompt, "aesthetic_score": aesthetic_score}, torch.zeros(1), self.task_type
+                    else:
+                        conversation = row["conversation"]
+                        return {"pixel_values": tensor_img, "conversation": conversation}, torch.zeros(1), self.task_type
+                except Exception as e:
+                    print(f"\n[Warning] Parquet schema failure or partition corrupted: {pq_path} - {e}")
+                    current_idx = random.randint(0, len(self.samples) - 1)
+                    continue
+
+            # Standard Image Directory Loader
             img_path = os.path.join(ds_path, "images", self.split, fname)
             
             img = self.load_image(img_path)
@@ -246,15 +324,16 @@ class MultiTaskDataset(Dataset):
                 img = cv2.resize(img, self.size, interpolation=cv2.INTER_AREA)
                 break
                 
-            print(f"\n[Warning] Corrupted image detected and permanently deleted: {img_path}")
-            try:
-                if os.path.exists(img_path): os.remove(img_path)
-                lbl_txt = img_path.replace("images", "labels").rsplit(".", 1)[0] + ".txt"
-                if os.path.exists(lbl_txt): os.remove(lbl_txt)
-                tgt_path = img_path.replace("images", "targets")
-                if os.path.exists(tgt_path): os.remove(tgt_path)
-            except Exception as e:
-                pass
+            print(f"\n[Warning] Corrupted image detected but preserved (Nuke Disabled): {img_path}")
+            # [HARDENING] 2026 Protocol: Never delete physical files during a live training session.
+            # try:
+            #     if os.path.exists(img_path): os.remove(img_path)
+            #     lbl_txt = img_path.replace("images", "labels").rsplit(".", 1)[0] + ".txt"
+            #     if os.path.exists(lbl_txt): os.remove(lbl_txt)
+            #     tgt_path = img_path.replace("images", "targets")
+            #     if os.path.exists(tgt_path): os.remove(tgt_path)
+            # except Exception as e:
+            #     pass
                 
             current_idx = random.randint(0, len(self.samples) - 1)
             
@@ -309,6 +388,17 @@ class MultiTaskDataset(Dataset):
                     except:
                         pass
             return self.fast_process(img), torch.zeros(10), "quality"
+        elif self.task_type == "classification":
+            ds_path = self.get_dataset_path(ds_name)
+            label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
+            label = 0
+            if os.path.exists(label_path):
+                with open(label_path, 'r') as f:
+                    try:
+                        label = int(f.read().strip())
+                    except:
+                        pass
+            return self.fast_process(img), torch.tensor([label], dtype=torch.long), "classification"
             
         elif self.task_type == "detection":
             ds_path = self.get_dataset_path(ds_name)

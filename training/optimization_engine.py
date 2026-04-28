@@ -170,9 +170,10 @@ class SmartTrainingGovernor:
 
         # 3. Dataset Expansion on Regression (Incremental Discovery)
         if regression_epochs >= 1 and self.current_fraction < 1.0 and not f_changed:
-            self.current_fraction = min(1.0, self.current_fraction + self.fraction_increment)
-            f_changed = True
-            msg_parts.append(f"EXPANDING VARIETY (+{self.fraction_increment*100:.0f}%) to {self.current_fraction*100:.0f}%")
+            if self.plateau_priority == "data":
+                self.current_fraction = min(1.0, self.current_fraction + self.fraction_increment)
+                f_changed = True
+                msg_parts.append(f"EXPANDING VARIETY (+{self.fraction_increment*100:.0f}%) to {self.current_fraction*100:.0f}%")
 
         # 4. Resolution Scaling & Thermal Cooling on Plateau
         if is_stagnant:

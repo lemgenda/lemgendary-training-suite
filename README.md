@@ -1,28 +1,28 @@
-# LemGendary AI Training Suite (v8.1.0-ULTRA-STABILIZED)
+# LemGendary AI Training Suite (v10.0.0-MASTER-MANIFOLD-HARDENED)
 
-> **The Professional Standard for Vision Model Training.**
+> **The 2026 Global Standard for Generative & Vision Model Training.**
 >
-> A unified, industrial-grade orchestration layer for training, optimizing, and deploying SOTA vision models natively on Windows with 2026-era Resilience Architecture.
+> A unified, industrial-grade orchestration layer for training, optimizing, and deploying SOTA vision and multimodal models natively on Windows with decoupled **2026-era Master Resilience Architecture**.
 
 ---
 
-### 📡 Mission Status: v2.5.0 (Resiliency v6.1.25)
-🚀 **Status**: Production Deployment / Active Training Loop  
-🧪 **Current Goal**: Break 35dB PSNR / Escaping 24dB Local Minima
+### 📡 Mission Status: v10.0.0 (Master Manifold Sync)
+🚀 **Status**: Phase 9 Production Hardened / Master Pipeline Active  
+🧪 **Current Goal**: Orchestrate high-fidelity 1024px fine-tuning of SDXL, Flux, and LLaVA across the Universal Kaggle Vault.
 
 ---
 
-## ⚡ 2026 Resilience Architecture (v4.5 Breakthrough)
+## ⚡ 2026 Resilience Architecture (v9.0 Breakthrough)
 
-The v7.5 release introduces the **Registry-First Dynamic Orchestration (v4.5)** and **Standardized Epoch Resumption**, ensuring binary parity across all 21+ neural models with zero maintenance debt. By unifying all metadata into a single source of truth, the suite now self-heals its dependency mappings across local and cloud clusters natively.
+The v9.0 release introduces **Root-Level Multi-Tenant Orchestration** and **Parquet Generative Schemas**, ensuring binary parity across all 21+ neural models (Restoration & Diffusion) with zero maintenance debt. By unifying all metadata into a single source of truth, the suite now self-heals its dependency mappings across isolated `LemGendaryModels` and `LemGendaryDatasets` root volumes.
 
 ### 🧵 The LemGendary Hub
 The master orchestration console for all training activities. Automatically manages `.venv` isolation, hardware-specific library selection (NVIDIA CUDA 12.1), and sequential project execution.
 
 ### 🧬 Unified Multitask DNA
-Fully synchronized with the [LemGendary Dataset Engine (v3.0)](../lemgendary-datasets/README.md).
-- **SOTA Alignment**: Automated metric scoring against PLCC, SRCC, PSNR, and mAP@0.5:0.95.
-- **Unified Multitask Loader**: High-performance pipeline for streaming massive datasets with zero-latency prefetching and Windows-hardened file-locking protection.
+Fully synchronized with the [LemGendary Dataset Engine (v6.0)](../lemgendary-datasets/README.md).
+- **Multi-Metric SOTA Targets**: Automated mathematical scoring against PSNR, SSIM, LPIPS, and FID simultaneously to prevent subjective visual regression.
+- **Unified Multitask Loader**: High-performance pipeline for streaming massive datasets, including raw PyArrow Parquet binary blocks for Diffusion (SDXL/FLUX) and VLM (LLaVA/BLIP-2) architectures.
 - **Persistent I/O Sync (v5.8)**: Shatters cold-start disk hangs on Windows. Uses a JSON mission manifest to cache the physical file structure, reducing multi-worker initialization from **8 minutes to <1 second**.
 
 ---
@@ -38,8 +38,8 @@ The master orchestration console. It manages the full lifecycle from system boot
 #### 📋 Detailed Menu Structure
 | Option | Action | Sub-Prompts & Details |
 | :--- | :--- | :--- |
-| **1. Initialize Systems** | **Environment Sync** | Installs Python 3.12, creates `.venv`, and Auto-Detects GPU. Installs PyTorch 2.4.1+cu121 (NVIDIA) or DirectML. |
-| **2. Train Model** | **Interactive Selection** | Launches the **Category Submenu**: <br>• **1. Quality**: NIMA (Aesthetic/Technical) <br>• **2. Face/Det**: YOLOv8n, RetinaFace, CodeFormer <br>• **3. SuperRes**: UltraZoom Array (x2-x8) <br>• **4. Restoration**: NAFNet, MIRNet, FFANet, MPRNet <br>• **5. Hybrid**: UPN v2, Multi-Restorer, Film |
+| **1. Initialize Systems** | **Environment Sync** | Installs Python 3.12, creates `.venv`, and Auto-Detects GPU. Installs PyTorch 2.7.0+cu121 (NVIDIA) and **Master SOTA Stack** (PEFT/Diffusers/BNB). |
+| **2. Train Model** | **Interactive Selection** | Launches the **Category Submenu**: <br>• **1. Quality**: NIMA, Aesthetics, Authenticity, **Anime NSFW Classification** <br>• **2. Face/Det**: YOLOv8n, RetinaFace, CodeFormer <br>• **3. SuperRes**: UltraZoom Array (x2-x8) <br>• **4. Restoration**: NAFNet, MIRNet, FFANet, MPRNet <br>• **5. Hybrid**: UPN v2, Multi-Restorer, Film <br>• **6. Generative**: SDXL, Flux.1 (Hardened) <br>• **7. Multimodal**: LLaVA v1.6, BLIP-2 (QLoRA) |
 | **3. Global Orchestration** | **Continuous Train** | Executes intelligent phased training with zero-latency pre-fetching and aggressive dataset SSD purging. |
 | **4. Unit Test (All)** | **Diagnostic Pass** | Runs precisely **1 functional epoch** across the entire model inventory to validate memory/VRAM. |
 | **5. Environment Janitor** | **Orphan Purge** | Force-terminates orphaned Python/PowerShell processes and releases file-system mutexes. |
@@ -60,13 +60,45 @@ python train_all.py --epochs 1 --yes
 
 ---
 
-## 📂 Project Anatomy
+## 📊 Master Model & Dataset Matrix (Kaggle-Native)
 
-- `training/` — Core backpropagation logic and stability hooks (`train.py`, `losses.py`).
-- `models/` — Specialized model architecture definitions and weight loaders.
-- `trained-models/` — Production-ready artifacts (ONNX FP16/FP32).
+The following table defines the structural mapping between the neural backbones and their high-fidelity LemGendized manifolds stored in the `lemtreursi` Kaggle vault.
+
+| Category | Model Key | Target Manifold | Kaggle Vault Link |
+| :--- | :--- | :--- | :--- |
+| **Quality** | `nima_aesthetic` | `nima_aesthetic` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizednimaaestheticlarge) |
+| **Quality** | `nima_technical` | `nima_technical` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizednimatechnicallarge) |
+| **Quality** | `nima_authenticity` | `nima_authenticity` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizednimaauthenticitylarge) |
+| **Safety** | `anime_nsfw_classification` | `classification_master_manifold` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizedclassificationmastermanifoldlarge) |
+| **Face** | `codeformer` | `codeformer` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizedcodeformerlarge) |
+| **Face** | `parsenet` | `parsenet` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizedparsenetlarge) |
+| **Detection** | `retinaface_mobilenet` | `retinaface_mobilenet` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizedretinafacemobilenetlarge) |
+| **Detection** | `yolov8n` | `yolov8n` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizedyolov8nlarge) |
+| **Restoration**| `ultrazoom` | `ultrazoom` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizedultrazoomlarge) |
+| **Restoration**| `nafnet_debluring` | `nafnet_debluring` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizednafnetdebluringlarge) |
+| **Restoration**| `nafnet_denoising` | `nafnet_denoising` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizednafnetdenoisinglarge) |
+| **Hybrid** | `upn_v2` | `upn_v2` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizedupnv2large) |
+| **Hybrid** | `professional_multitask_restoration` | `professional_multitask_restoration` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizedprofessionalmultitaskrestorationlarge) |
+| **Generative** | `diffusion_sdxl` | `diffusion_master_manifold` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizeddiffusionmastermanifoldlarge) |
+| **Generative** | `diffusion_flux` | `diffusion_master_manifold` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizeddiffusionmastermanifoldlarge) |
+| **Multimodal** | `vlm_llava` | `vision_language_master_manifold` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizedvisionlanguagemastermanifoldlarge) |
+| **Multimodal** | `vlm_blip2` | `vision_language_master_manifold` | [Access Manifold](https://www.kaggle.com/datasets/lemtreursi/lemgendizedvisionlanguagemastermanifoldlarge) |
+
+---
+
+## 📂 Project Anatomy (Decoupled Multi-Tenant)
+
+- `unified_models_v2.yaml` — **The Master Registry**: Single Source of Truth for all 21+ neural networks and data dependencies.
+- `lemgendary_models_hub.ps1` — **The Master Hub**: Interactive PowerShell console for environment management and training.
+- `train_all.py` — **The Global Orchestrator**: High-velocity phased training script with automated variety scaling.
+- `training/` — Core backpropagation logic, loss engines (`losses.py`), and the autonomous `SmartTrainingGovernor`.
+- `models/` — Specialized model architectures (Restoration, Generative, Multimodal) and task-aware heads.
+- `data/` — Data logic core (`dataset.py`) and dynamic configuration generators (YOLO/VLM).
+- `export/` — SOTA production export engines for ONNX (WebGPU) and standalone PyTorch artifacts.
+- `checkpoints/` — Strictly holds transient, active epoch binaries (`_best.pth`, `_last.pth`).
+- `../LemGendaryModels/` — Decoupled root target for final SOTA production deployment.
+- `../LemGendaryDatasets/` — Decoupled root for manifold storage and autonomous Kaggle/HF acquisition.
 - `technical_papers/` — High-fidelity architecture whitepapers and research notes.
-- `unified_models.yaml` — The Master Registry (Single Source of Truth) for all supported neural networks and data dependencies.
 
 ---
 
@@ -131,22 +163,27 @@ Hardware-aware orchestration that prevents OOM crashes and OS paging:
 - **Mission Continuity Guard (v6.1)**: Manifold leak prevention. Ensures the mission continues seamlessly after a memory recovery event.
 - **Plateau Breaker (v6.1.25)**: Engineered high-energy Manifold Jolt + Velocity Life-Support. Breaks 200-epoch stagnancy using kinetic LR resetting.
 
-### 📊 Universal SOTA Telemetry
+### 📊 Universal SOTA Telemetry (Multi-Metric 2026)
 A standardized, 17-column historical audit (`metrics.csv`) that captures the complete state of the training manifold:
-- **Telemetry Schema Guard**: Automatically detects, archives, and migrates legacy 8-column or 10-column logs into the 17-column hardware-aware standard.
+- **Multi-Metric Tracking**: Hard-enforced tracking of PSNR, SSIM, LPIPS, FID, and newly added **Classification Accuracy** for the Authenticity Scorer.
 - **Metrics Sanitizer**: Explicitly sanitizes `inf`/`NaN` artifacts and bypasses incompatible metrics to prevent numerical poison from infiltrating the Governor's logic.
-- **Auditable State**: Tracks PLCC, SRCC, PSNR, SSIM, LPIPS, FID, mAP, Data Fraction, Softmax Temp, Logit Clamp, LR, Batch Size, and Accumulation.
+- **Auditable State**: Tracks Data Fraction, Softmax Temp, Logit Clamp, LR, Batch Size, and Accumulation.
 
 ---
 
-## 🏗️ Architectural Hardening: Dethroning the Mocks (v8.0.0 Breakthrough)
+## 🏗️ Architectural Hardening: Dethroning the Mocks (v9.0.0 Breakthrough)
 
-The v8.0.0 release marks the complete transition from placeholder "Mock" classes to **Real High-Fidelity Architectures**. This ensures that every epoch contributes to empirical model convergence across the entire 21+ model inventory.
+The v9.0.0 release marks the complete integration of **True Generative Operations** and structural multi-tier fallbacks.
 
-### 🎭 Real Face & Detection Backbones
-- **CodeFormer (Real)**: Replaced UNet proxies with deep **Multi-Scale Residual UNets** featuring spatial skip connections.
-- **RetinaFace (Real)**: Integrated **MobileNetV2 features** with multi-task regression heads for Bboxes, Confidence, and Landmarks.
-- **ParseNet (Real)**: Real **Fully Convolutional Network (FCN)** implementation for 19-class semantic face parsing.
+### 🎭 Master Generative & VLM Hardening (v2026 Engine)
+- **Flux.1 & SDXL (LoRA Enabled)**: 12B parameter transformer backbones are now trainable on consumer hardware via **PEFT (Parameter-Efficient Fine-Tuning)**.
+- **Multimodal QLoRA**: LLaVA v1.6 and BLIP-2 are hardened with **4-bit NormalFloat (NF4)** quantization, allowing high-fidelity vision-language reasoning to seat in standard VRAM.
+- **Task-Aware Loss Engines**: Integrated EMD (Earth Mover's Distance) and SRCC Rank-Boost for aesthetic discovery, alongside Flow Matching for Flux.
+
+### 💎 Universal 2026 Data Protocol
+- **Protocol Routing**: `MultiTaskDataset` now autonomously routes between **Kaggle Mirrors** (`kaggle://lemtreursi/`) and **HuggingFace Origins** (`hf://`).
+- **Disk Space Guard**: 2.5x volume check prevents massive Master Manifolds (1.2TB+) from causing volume overflows during acquisition.
+- **Post-SOTA Guardian**: Interactive console hooks intercept mission completion to actively wipe local dataset caches, permanently defending disk space on constrained hardware.
 
 ### 💎 Professional Restoration Backbones
 - **Sub-Pixel Mastery**: `UltraZoom` upgraded to a real **ESPCN** sub-pixel convolution network.

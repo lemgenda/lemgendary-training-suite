@@ -23,33 +23,24 @@ def _sync_worker(model_name, epoch, config):
     zip_path = Path("/tmp") / zip_name if os.name != 'nt' else Path(os.environ.get("TEMP", "C:/Windows/Temp")) / zip_name
     
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        # Add best.pth
+        # Add best.pth from internal checkpoints fallback
         ckpt_dir = Path(config.get("checkpoint_dir", "trained-models/checkpoints"))
         best_pth = ckpt_dir / f"{model_name}_best.pth"
         if best_pth.exists():
             zipf.write(best_pth, best_pth.name)
             
-        # Add metrics.csv
-        # Usually it's in the parent folder of checkpoints, i.e., trained-models/model_name/metrics.csv
-        # In current structure, checkpoint_dir is typically trained-models/<model_name>/checkpoints
-        # Or just trained-models/<model_name>
-        metrics = ckpt_dir.parent / "metrics.csv"
-        if not metrics.exists() and (ckpt_dir / "metrics.csv").exists():
-            metrics = ckpt_dir / "metrics.csv"
-            
-        if metrics.exists():
-            zipf.write(metrics, "metrics.csv")
-            
-        # Add any exported models (e.g. ONNX/TorchScript)
-        export_dir = ckpt_dir.parent / "export"
-        if not export_dir.exists():
-            export_dir = Path("export")
-            
+        # 2026 Shift: Zip from decoupled LemGendaryModels root volume
+        project_root = Path(__file__).resolve().parent.parent
+        export_base = config.get("export_dir", "../LemGendaryModels")
+        # Ensure we accurately target the specific model's output envelope
+        export_dir = (project_root / export_base / model_name).resolve()
+        
         if export_dir.exists():
             for root, dirs, files in os.walk(export_dir):
                 for f in files:
                     fp = Path(root) / f
-                    zipf.write(fp, str(fp.relative_to(export_dir.parent)))
+                    # Add all compiled .onnx, metrics.csv, README, and external checkpoints
+                    zipf.write(fp, str(fp.relative_to(export_dir)))
                     
     # 2. Get Release ID or Create Release
     release_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"

@@ -1,18 +1,19 @@
 import os
+import sys
 import subprocess
 import time
 import psutil # pyre-ignore
 
 def prefetch():
     """
-    Isolated Worker Thread Sequence designed to mathematically download
-    Kaggle Zip arrays and extract them physically outside of the global
-    PyTorch loop constraint, ensuring 100% Zero-Latency handoffs natively!
+    Isolated Worker Thread Sequence (v2.2.0)
+    Designed to mathematically stream Kaggle and HuggingFace arrays
+    outside of the PyTorch loop, ensuring 100% Zero-Latency handoffs.
     """
     if len(sys.argv) < 3:
         return
         
-    # Example format: lemtreursi/lemgendizedfacedataset:LemGendizedFaceDataset,...
+    # Example format: hf://adamo1139/llava-instruct-150k:LlavaInstruct,...
     datasets = sys.argv[1].split(',')
     target_dir = sys.argv[2]
     
@@ -22,27 +23,35 @@ def prefetch():
     for ds_pair in datasets:
         # 2026 Process Hygiene: Suicide Check
         if not psutil.pid_exists(parent_pid):
-            print(f"⚠️ [JANITOR] Parent process {parent_pid} structurally missing. Abortion active.")
             sys.exit(1)
+            
         if not ds_pair or ':' not in ds_pair: continue
-        kaggle_id, folder_name = ds_pair.split(':')
+        source_id, folder_name = ds_pair.split(':')
         
         ds_path = os.path.join(target_dir, folder_name)
         if os.path.exists(ds_path):
-            continue # Structurally already completely cached
+            continue 
             
-        # Engage structural Mutex Lock
+        # Engage structural Mutex Lock to prevent Orchestrator from starting too early
         lock_file = os.path.join(target_dir, f"{folder_name}.lock")
         
         with open(lock_file, "w") as f:
-            f.write("STREAMING_FROM_KAGGLE_CLOUD")
+            f.write(f"STREAMING_{source_id}")
             
-        cmd = f"kaggle datasets download -d {kaggle_id} -p \"{target_dir}\" --unzip"
+        # 2026: Smart Source Router
+        if source_id.startswith("hf://"):
+            repo_id = source_id.replace("hf://", "")
+            # Leverage huggingface-cli for high-speed concurrent streaming
+            cmd = f"huggingface-cli download {repo_id} --local-dir \"{ds_path}\" --local-dir-use-symlinks False"
+        else:
+            # Fallback to standard Kaggle streaming
+            kaggle_id = source_id.replace("kaggle://", "")
+            cmd = f"kaggle datasets download -d {kaggle_id} -p \"{target_dir}\" --unzip"
         
         try:
-            subprocess.run(cmd, shell=True, check=True)
+            subprocess.run(cmd, shell=True, check=True, capture_output=True)
         except Exception:
-            pass # Suppress background errors to protect UI focus; orchestrator checks existence natively anyway
+            pass 
         finally:
             if os.path.exists(lock_file):
                 os.remove(lock_file)
