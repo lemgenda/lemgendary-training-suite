@@ -417,8 +417,8 @@
             <p class="subtitle">High-Fidelity NAFNet Restoration via SOTA Infrastructure</p>
             <div class="meta">
                 <span>By Lem Treursić</span>
-                <span>Version: 2.5.0 - Resiliency v6.1.26</span>
-                <span>Hardware: Dual T4 / GTX 1650 Survival</span>
+                <span>Version: 2.6.0 - Dynamic VRAM Sync</span>
+                <span>Hardware: NVIDIA / MPS / XPU</span>
             </div>
         </header>
 
@@ -470,6 +470,8 @@
                         <li><a href="#telemetry-parity">6.16 Telemetry Parity (v6.1.31)</a></li>
                         <li><a href="#stabilization-shield">6.17 True Stabilization Shield (v6.1.26)</a></li>
                         <li><a href="#scorecarding">6.18 Invariant Native Scorecarding (v6.2.0)</a></li>
+                        <li><a href="#universal-backend">6.19 Universal Backend Selection</a></li>
+                        <li><a href="#checkpoint-governance">6.20 Time-Aware Checkpoint Governance</a></li>
                     </ul>
                 </li>
                 <li><a href="#deployment">7. Deployment Strategy</a>
@@ -526,13 +528,13 @@
         </section>
 
         <section id="hardware">
-            <h2>3. Hardware-Aware Infrastructure: Dual-GPU SOTA Specialization</h2>
-            <p>Training massive architectures like NAFNet at high resolutions requires absolute synchronization on multi-GPU Kaggle environments.</p>
-            <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
-                <h3 id="dataparallel">3.1 The nn.DataParallel Deprecation & Single-GPU Return</h3>
-                <p>Initial attempts to harness both Tesla T4 GPUs simultaneously via PyTorch's legacy <code>nn.DataParallel</code> wrapper resulted in catastrophic hardware panics. The module slices batches into non-contiguous "virtual memory views" across the PCIe bus. When NAFNet's advanced <code>AdaptiveAvgPool2d</code> and <code>SimpleGate</code> structures attempted to run mathematical convolutions against these fragmented views, the Nvidia Turing architecture instantly panicked, throwing fatal <code>cudaErrorMisalignedAddress</code> C++ exceptions. The suite was aggressively rolled back to lock onto <code>cuda:0</code>, proving that for memory-optimized architectures, a single, structurally perfect 15GB GPU is vastly superior to a fragmented dual-GPU array.</p>
+            <h2>3. Hardware-Aware Infrastructure: Universal Acceleration</h2>
+            <p>Training massive architectures like NAFNet at high resolutions requires absolute synchronization on multi-GPU Kaggle environments and constrained local hardware.</p>
+            <div class="card">
+                <h3 id="memory-sentinel">3.1 The Headroom-Aware Memory-Sentinel</h3>
+                <p>The Sentinel has evolved to actively probe the hardware environment using <code>torch.cuda.mem_get_info()</code>. This ensures that even on 4GB hardware, the NAFNet architecture is seated with a perfectly calculated physical batch size, preventing kernel-level address misalignments and system-wide paging.</p>
             </div>
-            <div class="card" style="background:var(--card-bg); padding:20px; border-radius:12px; border:1px solid var(--border-color); margin-top:20px;">
+            <div class="card">
                 <h3 id="ovc-bridge">3.2 OVC Data Streaming Bridge (OpenCV-to-CUDA)</h3>
                 <p>The pipeline harnesses local NumPy/OpenCV workers to decode image tensors natively in CPU cache before flushing them to the GPU. This prevents data-starvation of the GPU cores completely, hiding I/O latency behind raw throughput.</p>
             </div>
@@ -695,6 +697,16 @@
                 - Validation resolution is now fully decoupled from the Governor's dynamic scaling logic.<br/>
                 - Using a <code>val_resolution</code> registry key, high-fidelity models like NAFNet are now strictly anchored to their native 640px evaluation resolution from Epoch 1 to 1000.<br/>
                 - This guarantees an unbroken, invariant scorecarding metric where every PSNR improvement genuinely reflects architectural learning rather than resolution reduction.</p>
+            </div>
+
+            <div class="card">
+                <h3 id="universal-backend">6.19 Universal Backend Selection (MPS/XPU/DirectML)</h3>
+                <p>The 2026 update introduces a <strong>Unified Hardware Handshake</strong>. By prioritizing CUDA > MPS > XPU > DirectML, the suite ensures that the same NAFNet codebase executes at maximum performance across all major silicon providers without manual intervention.</p>
+            </div>
+
+            <div class="card">
+                <h3 id="checkpoint-governance">6.20 Time-Aware Checkpoint Governance (15-min Window)</h3>
+                <p>To protect training progress on high-complexity manifolds, the suite implements a <strong>Time-Aware Checkpoint Governor</strong>. It monitors iteration velocity and dynamically recalibrates the save frequency to target a 15-minute resiliency window, ensuring that no more than 15 minutes of work is ever at risk.</p>
             </div>
         </section>
 
