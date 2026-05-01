@@ -2101,8 +2101,9 @@ def main():
                 # Copy metrics.csv to the hub_root/model subfolder explicitly to ensure it exists for the hub repo
                 hub_model_dir = os.path.join(hub_root, args.model)
                 os.makedirs(hub_model_dir, exist_ok=True)
-                if os.path.exists(metrics_csv_path):
-                    shutil.copy2(metrics_csv_path, os.path.join(hub_model_dir, "metrics.csv"))
+                hub_metrics_path = os.path.join(hub_model_dir, "metrics.csv")
+                if os.path.exists(metrics_csv_path) and os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_path):
+                    shutil.copy2(metrics_csv_path, hub_metrics_path)
                 
                 # Also ensure a copy exists in the training suite root for browser-side verification
                 shutil.copy2(metrics_csv_path, os.path.join(os.getcwd(), "metrics.csv"))
