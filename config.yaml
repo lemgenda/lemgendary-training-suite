@@ -26,6 +26,7 @@ export_dir: "../LemGendaryModels"
 # Kaggle Dataset URL Fallbacks (Used if not found locally)
 kaggle_dataset_urls:
   LemGendizedNafNetDebluringLarge: "https://www.kaggle.com/datasets/lemtreursi/lemgendizednafnetdebluringlarge"
+  LemGendizedNimaAuthenticityLarge: "https://www.kaggle.com/datasets/lemtreursi/lemgendizednimaauthenticitylarge"
 
 # Default fallback values if not specified in unified_models.yaml
 default_img_size: 256

@@ -228,22 +228,29 @@ class MultiTaskDataset(Dataset):
 
     def get_dataset_path(self, ds_name):
         if getattr(self, 'env', 'local') == 'kaggle':
-            # Kaggle mounts match the end of the URL
+            # Tier 1: Explicit mapping in config
             k_name = self.kaggle_links.get(ds_name, "").split('/')[-1]
-            base_kaggle_path = f"/kaggle/input/{k_name}"
-            # Protect against datasets natively extracted into a matching internal subfolder
-            if os.path.exists(os.path.join(base_kaggle_path, ds_name, "images")):
-                return os.path.join(base_kaggle_path, ds_name)
-            # ONLY return the Kaggle mount if the foundational topology actually exists physically
-            if os.path.exists(os.path.join(base_kaggle_path, "images")):
-                return base_kaggle_path
-            # Fallback for datasets actively recovered dynamically into working memory instead of native mounts
+            if k_name:
+                base_kaggle_path = f"/kaggle/input/{k_name}"
+                if os.path.exists(os.path.join(base_kaggle_path, "images")):
+                    return base_kaggle_path
+
+            # Tier 2: Heuristic - Check for case-insensitive folder match in /kaggle/input/
+            input_root = "/kaggle/input"
+            if os.path.exists(input_root):
+                try:
+                    for folder in os.listdir(input_root):
+                        if folder.lower() == ds_name.lower():
+                            return os.path.join(input_root, folder)
+                except:
+                    pass
+
+            # Tier 3: Fallback for datasets actively recovered dynamically
             local_fallback = os.path.join(self.data_root, ds_name)
-            if os.path.exists(os.path.join(local_fallback, ds_name, "images")):
-                return os.path.join(local_fallback, ds_name)
             if os.path.exists(local_fallback):
                 return local_fallback
-            return base_kaggle_path
+            
+            return f"/kaggle/input/{ds_name.lower()}"
             
         # 2026 Shift: Check Universal Shared Repository first
         shared_path = os.path.join(self.data_root, "_shared", ds_name)
