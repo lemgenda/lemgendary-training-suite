@@ -1028,10 +1028,11 @@ def main():
                         if torch.cuda.is_available(): torch.cuda.empty_cache()
                         if batch_size > 1:
                             old_bs = batch_size
-                            # [DISABLED] 2026: Automated Batch Scaling per User Preference
-                            # batch_size = max(1, batch_size // 2)
-                            # accumulation_steps = (effective_batch_size // batch_size) if 'effective_batch_size' in locals() else accumulation_steps * 2
-                            print(f" [RECOVERY] OOM Detected. Batch size reduction DISABLED per user preference.")
+                            # [RE-ENABLED] 2026: Automated Batch Scaling for Kaggle Stability
+                            batch_size = max(1, batch_size // 2)
+                            # effective_batch_size = old_bs * accumulation_steps (implied)
+                            accumulation_steps = accumulation_steps * 2
+                            print(f" [RECOVERY] OOM Detected. Scaling Batch: {old_bs} -> {batch_size} | Accumulation: {accumulation_steps}")
                             # Update iterator position to maintain absolute manifold parity (v6.1.7)
                             current_iter = int(i * (old_bs / batch_size))
                             if pbar: pbar.close() # Clean up zombie bar before re-initialization
@@ -1891,7 +1892,23 @@ def main():
             for attempt in range(3):
                 try:
                     os.remove(progress_ckpt_path)
-                    print(f"🧹 [JANITOR] Intra-epoch progress purged (Commit Successful).")
+                    print(f"🧹 [JANITOR] Intra-epoch progress purged.")
+                    
+                    # --- 2026 Resilience: Automated GitHub Cloud Sync ---
+                    if args.env == 'kaggle':
+                        try:
+                            import subprocess
+                            print(f"🚀 [CLOUD SYNC] Synchronizing Epoch {epoch+1} to GitHub...")
+                            subprocess.run(["git", "add", "."], capture_output=True)
+                            subprocess.run(["git", "commit", "-m", f"chore(training): checkpoint epoch {epoch+1} for {args.model}"], capture_output=True)
+                            push_res = subprocess.run(["git", "push"], capture_output=True, text=True)
+                            if push_res.returncode == 0:
+                                print(f"✅ [CLOUD SYNC] Successfully pushed to origin/main.")
+                            else:
+                                print(f"⚠️ [CLOUD SYNC] Push failed: {push_res.stderr}")
+                        except Exception as e:
+                            print(f"⚠️ [CLOUD SYNC] Error: {e}")
+                    
                     break
                 except:
                     time.sleep(1)
