@@ -449,8 +449,8 @@ def main():
 
     ds_reqs = model_info.get("datasets", [])
     if isinstance(ds_reqs, str): ds_reqs = [ds_reqs]
-    # Dynamically append suffix (Suppressed on Kaggle)
-    final_suffix = exec_suffix if args.env != 'kaggle' else ""
+    # Dynamically append suffix (KaggleReady on Kaggle, exec_suffix otherwise)
+    final_suffix = exec_suffix if args.env != 'kaggle' else "KaggleReady"
     ds_reqs = [f"{ds}{final_suffix}" if not ds.endswith(final_suffix) else ds for ds in ds_reqs]
     data_dir = config.get("datasets_dir", "data/datasets")
     if not os.path.isabs(data_dir):

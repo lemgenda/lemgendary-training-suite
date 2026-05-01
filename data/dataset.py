@@ -64,9 +64,10 @@ class MultiTaskDataset(Dataset):
         exec_mode = config.get("execution", {}).get("mode", "training")
         suffix = config.get("execution", {}).get("suffixes", {}).get(exec_mode, "")
         
-        # 2026 Resilience: On Kaggle, we prioritize attached datasets which usually omit the *Large suffix
+        # 2026 Resilience: Platform-specific suffix overrides
         if self.env == 'kaggle':
-            suffix = ""
+            # On Kaggle, we prioritize the KaggleReady manifold for high-velocity iteration
+            suffix = "KaggleReady"
             
         dataset_names = [f"{name}{suffix}" for name in raw_dataset_names]
         
