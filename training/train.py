@@ -510,7 +510,10 @@ def main():
     final_suffix = exec_suffix if args.env != 'kaggle' else "KaggleReady"
     ds_reqs = [f"{ds}{final_suffix}" if not ds.endswith(final_suffix) else ds for ds in ds_reqs]
     data_dir = config.get("datasets_dir", "data/datasets")
-    if not os.path.isabs(data_dir):
+    if args.env == 'kaggle':
+        # 2026 Kaggle Resilience: Force absolute path next to the repo to prevent "Ghost Subdir" resolution issues.
+        data_dir = "/kaggle/working/LemGendaryDatasets"
+    elif not os.path.isabs(data_dir):
         data_dir = os.path.normpath(os.path.join(project_root, data_dir))
 
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)

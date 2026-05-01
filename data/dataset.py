@@ -23,7 +23,16 @@ class MultiTaskDataset(Dataset):
         self.env = env
         self.sync_mode = False # --- 2026 Resiliency: Fast-Skip Sync ---
         self.split = "train" if is_train else "val"
-        self.data_root = config.get("datasets_dir", "../data/datasets")
+        # 2026 Resilience: Anchor data_root to the absolute workspace path to prevent relative drift.
+        self.data_root = config.get("datasets_dir", "data/datasets")
+        if not os.path.isabs(self.data_root):
+            # Resolve relative to the project root (assumed one level up from data/ folder)
+            workspace_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if self.env == 'kaggle':
+                # Force parity with train.py for Kaggle cloud environments
+                self.data_root = "/kaggle/working/LemGendaryDatasets"
+            else:
+                self.data_root = os.path.normpath(os.path.join(workspace_root, self.data_root))
         
         # --- 2026 Turbo Initialization ---
         # Set global PIL flags once during init instead of per-image load
