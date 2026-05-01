@@ -111,7 +111,16 @@ class MultiTaskDataset(Dataset):
                     if not download_and_extract_dataset(ds_name, self.data_root, source_ref=source_ref):
                         print(f"\n❌ CRITICAL: The required isolated '{ds_name}' dataset manifold was structurally NOT FOUND!")
                         print(f"   👉 You must securely download and map it natively. [Ref: {source_ref}]")
-                        print(f"      Mapped Path Checked: {ds_path}\n")
+                        print(f"      Mapped Path Checked: {ds_path}")
+                        
+                        # 2026 Diagnostics: Help the user identify why their attached dataset isn't being found
+                        if self.env == 'kaggle':
+                            input_root = "/kaggle/input"
+                            if os.path.exists(input_root):
+                                try:
+                                    print(f"      Available Manifolds in /kaggle/input: {os.listdir(input_root)}")
+                                except: pass
+                        print("") # Newline for readability
                         continue
             
             if not check_ds(ds_path): continue
@@ -234,7 +243,14 @@ class MultiTaskDataset(Dataset):
     def get_dataset_path(self, ds_name):
         if getattr(self, 'env', 'local') == 'kaggle':
             # Tier 1: Explicit mapping in config
-            k_name = self.kaggle_links.get(ds_name, "").split('/')[-1]
+            k_link = self.kaggle_links.get(ds_name)
+            if not k_link:
+                # 2026 Resilience: Check for suffixed versions in config if base name used
+                for s in ["Large", "KaggleReady"]:
+                    k_link = self.kaggle_links.get(f"{ds_name}{s}")
+                    if k_link: break
+            
+            k_name = k_link.split('/')[-1] if k_link else ""
             if k_name:
                 base_kaggle_path = f"/kaggle/input/{k_name}"
                 if os.path.exists(os.path.join(base_kaggle_path, "images")):
@@ -250,16 +266,16 @@ class MultiTaskDataset(Dataset):
                         if folder.lower() == ds_name.lower():
                             return f"{input_root}/{folder}"
                     
-                    # 2. Match without common suffixes
-                    base_name = ds_name.lower().replace("large", "").replace("kaggleready", "").replace("_", "").replace("-", "")
+                    # 2. Match without common suffixes/prefixes (e.g. match 'LemGendizedNimaAuthenticity' to 'nima-authenticity')
+                    clean_ds = ds_name.lower().replace("lemgendized", "").replace("large", "").replace("kaggleready", "").replace("_", "").replace("-", "")
                     for folder in candidates:
-                        f_low = folder.lower().replace("_", "").replace("-", "")
-                        if f_low == base_name:
+                        f_clean = folder.lower().replace("lemgendized", "").replace("large", "").replace("kaggleready", "").replace("_", "").replace("-", "")
+                        if f_clean == clean_ds:
                             return f"{input_root}/{folder}"
                             
                     # 3. Fuzzy match (contains)
                     for folder in candidates:
-                        if base_name in folder.lower().replace("_", "").replace("-", ""):
+                        if clean_ds in folder.lower().replace("_", "").replace("-", ""):
                             return f"{input_root}/{folder}"
                 except:
                     pass
