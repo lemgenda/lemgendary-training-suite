@@ -132,6 +132,15 @@ def git_hub_sync(repo_path, remote_url, message):
         import subprocess
         # 2026 Resilience: Credential Injection
         pat = os.environ.get('GITHUB_PAT')
+        
+        # If remote_url is 'origin', we must resolve the physical URL from git config
+        if remote_url == "origin":
+            try:
+                res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=repo_path, capture_output=True, text=True, timeout=10)
+                if res.returncode == 0:
+                    remote_url = res.stdout.strip()
+            except: pass
+
         if pat and "github.com" in remote_url and "@" not in remote_url:
             authenticated_url = remote_url.replace("https://", f"https://{pat}@")
         else:
@@ -900,7 +909,8 @@ def main():
         try:
             with open(metrics_csv_path, "r") as f:
                 header = f.readline().strip()
-                if len(header.split(",")) == 19:
+                # 2026 Schema: 20 columns (Epoch, Losses, Metrics, LR, Res, Data, Stabilizers, BS, Acc, Stress, AccVal)
+                if len(header.split(",")) == 20:
                     schema_ok = True
         except: pass
 
@@ -916,7 +926,7 @@ def main():
             except: pass
 
         with open(metrics_csv_path, "w") as f:
-            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Res,Data,Temp,Clamp,Batch,Acc,Stress\n")
+            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Res,Data,Temp,Clamp,Batch,Acc,Stress\n")
 
     effective_batch_size = batch_size
     # accumulation_steps is established pre-emptively during initialization.
@@ -2067,7 +2077,7 @@ def main():
             # Telemetry Sync: Logging dynamic training resolution with anchored validation metrics
             f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{curr_lr:.8f},"
                     f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim_val:.4f},{lpips_val:.4f},{fid:.4f},"
-                    f"{map50:.4f},{map50_95:.4f},{train_ds.size[0]},{train_ds.sample_fraction:.2f},"
+                    f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{train_ds.size[0]},{train_ds.sample_fraction:.2f},"
                     f"{stab['softmax_temp']:.4f},{stab.get('logit_clamp', 20.0):.1f},"
                     f"{batch_size},{accumulation_steps},{avg_sentinel_stress:.6f}\n")
         
