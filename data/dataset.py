@@ -123,6 +123,9 @@ class MultiTaskDataset(Dataset):
                                 except: pass
                         print("") # Newline for readability
                         continue
+                    
+                    # 2026 Resilience: Re-resolve path after successful download/recovery
+                    ds_path = self.get_dataset_path(ds_name)
             
             if not check_ds(ds_path): continue
             img_dir = os.path.join(ds_path, "images", self.split)
