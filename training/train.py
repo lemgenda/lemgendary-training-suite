@@ -122,6 +122,37 @@ def safe_replace(src, dst):
             time.sleep(base_delay * (1.5 ** i))
     return False
 
+def git_hub_sync(repo_path, remote_url, message):
+    """
+    2026 Resilience: Robust synchronization for external repositories.
+    Handles initialization, remotes, and pushes with rebase recovery.
+    """
+    try:
+        import subprocess
+        # 1. Check if it's a git repo
+        if not os.path.exists(os.path.join(repo_path, ".git")):
+            print(f" 🚀 [CLOUD SYNC] Initializing new repository at {repo_path}...")
+            subprocess.run(["git", "init"], cwd=repo_path, capture_output=True)
+            subprocess.run(["git", "remote", "add", "origin", remote_url], cwd=repo_path, capture_output=True)
+            subprocess.run(["git", "checkout", "-b", "main"], cwd=repo_path, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "lemgendary@ai.com"], cwd=repo_path, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "LemGendary Bot"], cwd=repo_path, capture_output=True)
+        
+        # 2. Sync
+        subprocess.run(["git", "add", "."], cwd=repo_path, capture_output=True)
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=repo_path, capture_output=True, text=True)
+        if status.stdout.strip():
+            subprocess.run(["git", "commit", "-m", message], cwd=repo_path, capture_output=True)
+            push_res = subprocess.run(["git", "push", "-u", "origin", "main"], cwd=repo_path, capture_output=True, text=True)
+            if push_res.returncode == 0:
+                print(f" ✅ [CLOUD SYNC] '{os.path.basename(repo_path)}' synchronized successfully.")
+            else:
+                # If push fails, attempt a non-destructive rebase (Production Manifold Protection)
+                subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=repo_path, capture_output=True)
+                subprocess.run(["git", "push", "origin", "main"], cwd=repo_path, capture_output=True)
+    except Exception as e:
+        print(f" ⚠️ [CLOUD SYNC] Hub Sync failed for {repo_path}: {e}")
+
 from training.losses import CombinedLoss
 
 def trigger_sota_export(model, args, config, unified_models_registry, epoch, plcc, srcc, psnr, ssim_val, lpips_val, fid):
@@ -179,6 +210,12 @@ def trigger_sota_export(model, args, config, unified_models_registry, epoch, plc
             f.write(readme_text)
 
         print(f"✅ [SOTA DEPLOYMENT] Successful! Production binaries are live in LemGendaryModels/{args.model}.")
+        
+        # 2026 Resilience: Immediate Hub Sync for SOTA artifacts (ai-models repo)
+        if args.env == 'kaggle':
+            hub_url = config.get("model_hub_repo")
+            if hub_url:
+                git_hub_sync(trained_models_dir, hub_url, f"feat(sota): deploy converged {args.model} epoch {epoch+1}")
     except Exception as e:
         print(f"⚠️  [SOTA DEPLOYMENT] Export phase failed: {e}")
 
@@ -1023,9 +1060,9 @@ def main():
                         # to physically free VRAM before invoking the empty_cache kernel.
                         inputs = targets = batch = None
                         preds = loss = None
-                        del e
                         
                         if torch.cuda.is_available(): torch.cuda.empty_cache()
+                        gc.collect()
                         if batch_size > 1:
                             old_bs = batch_size
                             # [RE-ENABLED] 2026: Automated Batch Scaling for Kaggle Stability
@@ -1033,6 +1070,12 @@ def main():
                             # effective_batch_size = old_bs * accumulation_steps (implied)
                             accumulation_steps = accumulation_steps * 2
                             print(f" [RECOVERY] OOM Detected. Scaling Batch: {old_bs} -> {batch_size} | Accumulation: {accumulation_steps}")
+                            
+                            # --- 2026 Resilience: DataLoader Re-Initialization ---
+                            # Physically recreate the loader to update internal batch_size pointers
+                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, 
+                                                     num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+                            
                             # Update iterator position to maintain absolute manifold parity (v6.1.7)
                             current_iter = int(i * (old_bs / batch_size))
                             if pbar: pbar.close() # Clean up zombie bar before re-initialization
@@ -1069,8 +1112,23 @@ def main():
                             iter_resync_triggered = True
                             break
                         else:
-                            print(f" [CRITICAL] OOM even at Batch Size 1! Resolution {train_ds.size[0]}px is too large for this hardware.")
-                            raise e
+                            # --- 2026 Resilience: Resolution Scaling (Last Stand) ---
+                            if train_ds.size[0] > 256:
+                                old_res = train_ds.size[0]
+                                new_res = 256
+                                print(f" [CRITICAL] OOM even at BS 1! Scaling Resolution: {old_res}px -> {new_res}px")
+                                train_ds.update_strategy(size=new_res)
+                                val_ds.update_strategy(size=new_res)
+                                # Re-init loader with new resolution
+                                train_loader = DataLoader(train_ds, batch_size=1, shuffle=True, 
+                                                         num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+                                current_iter = i # Stay at current sample
+                                if pbar: pbar.close()
+                                iter_resync_triggered = True
+                                break
+                            else:
+                                print(f" [CRITICAL] OOM even at 256px and Batch Size 1! Hardware is insufficient for this architecture.")
+                                raise e
                     else:
                         raise e
 
@@ -1894,21 +1952,6 @@ def main():
                     os.remove(progress_ckpt_path)
                     print(f"🧹 [JANITOR] Intra-epoch progress purged.")
                     
-                    # --- 2026 Resilience: Automated GitHub Cloud Sync ---
-                    if args.env == 'kaggle':
-                        try:
-                            import subprocess
-                            print(f"🚀 [CLOUD SYNC] Synchronizing Epoch {epoch+1} to GitHub...")
-                            subprocess.run(["git", "add", "."], capture_output=True)
-                            subprocess.run(["git", "commit", "-m", f"chore(training): checkpoint epoch {epoch+1} for {args.model}"], capture_output=True)
-                            push_res = subprocess.run(["git", "push"], capture_output=True, text=True)
-                            if push_res.returncode == 0:
-                                print(f"✅ [CLOUD SYNC] Successfully pushed to origin/main.")
-                            else:
-                                print(f"⚠️ [CLOUD SYNC] Push failed: {push_res.stderr}")
-                        except Exception as e:
-                            print(f"⚠️ [CLOUD SYNC] Error: {e}")
-                    
                     break
                 except:
                     time.sleep(1)
@@ -2004,6 +2047,25 @@ def main():
                     f"{map50:.4f},{map50_95:.4f},{train_ds.size[0]},{train_ds.sample_fraction:.2f},"
                     f"{stab['softmax_temp']:.4f},{stab.get('logit_clamp', 20.0):.1f},"
                     f"{batch_size},{accumulation_steps},{avg_sentinel_stress:.6f}\n")
+        
+        # --- 2026 Resilience: Automated Dual-Repo Cloud Sync (Kaggle Only) ---
+        if args.env == 'kaggle':
+            # 1. Sync Training Suite (Checkpoints, Logs, Code)
+            git_hub_sync(os.getcwd(), "origin", f"chore(training): sync epoch {epoch+1} for {args.model}")
+            
+            # 2. Sync AI Models Hub (Metrics, Exported Models, README)
+            hub_url = config.get("model_hub_repo")
+            if hub_url:
+                hub_root = os.path.abspath(os.path.join(export_dir, ".."))
+                # Copy latest checkpoint to export_dir/checkpoints/ for the hub repo as requested
+                hub_ckpt_dir = os.path.join(export_dir, "checkpoints")
+                os.makedirs(hub_ckpt_dir, exist_ok=True)
+                latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
+                if os.path.exists(latest_ckpt):
+                    shutil.copy2(latest_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth"))
+                
+                # Copy metrics.csv to the hub_root/model subfolder (already there, but ensuring sync)
+                git_hub_sync(hub_root, hub_url, f"chore(sync): epoch {epoch+1} metrics and checkpoints for {args.model}")
 
         prev_quality_score = current_quality_score
         if is_improving:

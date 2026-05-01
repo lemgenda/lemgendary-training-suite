@@ -46,3 +46,6 @@ stabilizers:
 # External Repository Deployment Fallbacks
 export_to_external_folder: false
 external_folder_path: "../../../local_models"
+
+# 2026 Model Hub Sync (Production Artifacts)
+model_hub_repo: "https://github.com/lemgenda/ai-models.git"
