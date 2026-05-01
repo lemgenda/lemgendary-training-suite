@@ -170,9 +170,10 @@ def git_hub_sync(repo_path, remote_url, message):
             if push_res.returncode == 0:
                 print(f" ✅ [CLOUD SYNC] '{os.path.basename(repo_path)}' synchronized successfully.")
             else:
-                print(f" 📡 [CLOUD SYNC] Push failed. Attempting rebase recovery...")
+                print(f" 📡 [CLOUD SYNC] Push failed. Attempting rebase recovery (Allowing unrelated histories)...")
                 # If push fails, attempt a non-destructive rebase (Production Manifold Protection)
-                subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=repo_path, capture_output=True, timeout=120)
+                # 2026 Resilience: --allow-unrelated-histories is essential for the first-time hub sync
+                subprocess.run(["git", "pull", "origin", "main", "--rebase", "--allow-unrelated-histories"], cwd=repo_path, capture_output=True, timeout=120)
                 subprocess.run(["git", "push", "origin", "main"], cwd=repo_path, capture_output=True, timeout=120)
                 print(f" ✅ [CLOUD SYNC] '{os.path.basename(repo_path)}' synchronized after rebase.")
         else:
@@ -2097,7 +2098,15 @@ def main():
                 if os.path.exists(latest_ckpt):
                     shutil.copy2(latest_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth"))
                 
-                # Copy metrics.csv to the hub_root/model subfolder (already there, but ensuring sync)
+                # Copy metrics.csv to the hub_root/model subfolder explicitly to ensure it exists for the hub repo
+                hub_model_dir = os.path.join(hub_root, args.model)
+                os.makedirs(hub_model_dir, exist_ok=True)
+                if os.path.exists(metrics_csv_path):
+                    shutil.copy2(metrics_csv_path, os.path.join(hub_model_dir, "metrics.csv"))
+                
+                # Also ensure a copy exists in the training suite root for browser-side verification
+                shutil.copy2(metrics_csv_path, os.path.join(os.getcwd(), "metrics.csv"))
+
                 git_hub_sync(hub_root, hub_url, f"chore(sync): epoch {epoch+1} metrics and checkpoints for {args.model}")
 
         prev_quality_score = current_quality_score
