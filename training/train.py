@@ -140,11 +140,17 @@ def git_hub_sync(repo_path, remote_url, message):
                 if res.returncode == 0:
                     remote_url = res.stdout.strip()
             except: pass
-
+        
+        # 2026 Resilience: Always ensure the local 'origin' points to the desired authenticated URL
         if pat and "github.com" in remote_url and "@" not in remote_url:
             authenticated_url = remote_url.replace("https://", f"https://{pat}@")
         else:
             authenticated_url = remote_url
+            
+        # Hard-reset origin to the authenticated URL
+        subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=10)
+        # If set-url fails (remote doesn't exist), try adding it
+        subprocess.run(["git", "remote", "add", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=10)
 
         # 1. Check if it's a git repo
         if not os.path.exists(os.path.join(repo_path, ".git")):
@@ -1748,6 +1754,12 @@ def main():
                 if t.dim() == 2: t = t.squeeze(-1)
                 preds_class = torch.argmax(p, dim=1)
                 accuracy = (preds_class == t).float().mean().item()
+                
+                # 2026 Diagnostics: Print ground truth distribution to detect label-drift
+                unique, counts = torch.unique(t, return_counts=True)
+                dist_str = ", ".join([f"Class {u.item()}: {c.item()}" for u, c in zip(unique, counts)])
+                val_pbar.write(f" 📡 [DATA AUDIT] Ground Truth Distribution: {dist_str}")
+                
                 metrics_str = f" | Accuracy: {accuracy:.4f}"
             elif train_ds.task_type in ["restoration", "enhancement", "face"] and total_samples > 0:
                 mse_val = mse_sum / max(1, total_pixels)
