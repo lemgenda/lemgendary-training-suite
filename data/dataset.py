@@ -260,23 +260,33 @@ class MultiTaskDataset(Dataset):
             input_root = "/kaggle/input"
             if os.path.exists(input_root):
                 try:
-                    candidates = os.listdir(input_root)
-                    # 1. Exact case-insensitive match
-                    for folder in candidates:
-                        if folder.lower() == ds_name.lower():
-                            return f"{input_root}/{folder}"
-                    
-                    # 2. Match without common suffixes/prefixes (e.g. match 'LemGendizedNimaAuthenticity' to 'nima-authenticity')
+                    # 2026 Resilience: Scan input root and one level of subdirectories 
+                    # (to handle 'datasets' or 'input' wrappers found in some Kaggle configurations)
+                    search_dirs = [input_root]
+                    for d in os.listdir(input_root):
+                        full_d = os.path.join(input_root, d)
+                        if os.path.isdir(full_d):
+                            search_dirs.append(full_d)
+
                     clean_ds = ds_name.lower().replace("lemgendized", "").replace("large", "").replace("kaggleready", "").replace("_", "").replace("-", "")
-                    for folder in candidates:
-                        f_clean = folder.lower().replace("lemgendized", "").replace("large", "").replace("kaggleready", "").replace("_", "").replace("-", "")
-                        if f_clean == clean_ds:
-                            return f"{input_root}/{folder}"
-                            
-                    # 3. Fuzzy match (contains)
-                    for folder in candidates:
-                        if clean_ds in folder.lower().replace("_", "").replace("-", ""):
-                            return f"{input_root}/{folder}"
+                    
+                    for s_dir in search_dirs:
+                        candidates = os.listdir(s_dir)
+                        # 1. Exact case-insensitive match
+                        for folder in candidates:
+                            if folder.lower() == ds_name.lower():
+                                return f"{s_dir}/{folder}"
+                        
+                        # 2. Match without common suffixes/prefixes
+                        for folder in candidates:
+                            f_clean = folder.lower().replace("lemgendized", "").replace("large", "").replace("kaggleready", "").replace("_", "").replace("-", "")
+                            if f_clean == clean_ds:
+                                return f"{s_dir}/{folder}"
+                                
+                        # 3. Fuzzy match (contains)
+                        for folder in candidates:
+                            if clean_ds in folder.lower().replace("_", "").replace("-", ""):
+                                return f"{s_dir}/{folder}"
                 except:
                     pass
 
