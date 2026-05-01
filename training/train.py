@@ -126,30 +126,50 @@ def git_hub_sync(repo_path, remote_url, message):
     """
     2026 Resilience: Robust synchronization for external repositories.
     Handles initialization, remotes, and pushes with rebase recovery.
+    Uses GITHUB_PAT for headless authentication on Kaggle.
     """
     try:
         import subprocess
+        # 2026 Resilience: Credential Injection
+        pat = os.environ.get('GITHUB_PAT')
+        if pat and "github.com" in remote_url and "@" not in remote_url:
+            authenticated_url = remote_url.replace("https://", f"https://{pat}@")
+        else:
+            authenticated_url = remote_url
+
         # 1. Check if it's a git repo
         if not os.path.exists(os.path.join(repo_path, ".git")):
             print(f" 🚀 [CLOUD SYNC] Initializing new repository at {repo_path}...")
-            subprocess.run(["git", "init"], cwd=repo_path, capture_output=True)
-            subprocess.run(["git", "remote", "add", "origin", remote_url], cwd=repo_path, capture_output=True)
-            subprocess.run(["git", "checkout", "-b", "main"], cwd=repo_path, capture_output=True)
-            subprocess.run(["git", "config", "user.email", "lemgendary@ai.com"], cwd=repo_path, capture_output=True)
-            subprocess.run(["git", "config", "user.name", "LemGendary Bot"], cwd=repo_path, capture_output=True)
+            subprocess.run(["git", "init"], cwd=repo_path, capture_output=True, timeout=30)
+            subprocess.run(["git", "remote", "add", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=30)
+            subprocess.run(["git", "checkout", "-b", "main"], cwd=repo_path, capture_output=True, timeout=30)
+            subprocess.run(["git", "config", "user.email", "lemgendary@ai.com"], cwd=repo_path, capture_output=True, timeout=30)
+            subprocess.run(["git", "config", "user.name", "LemGendary Bot"], cwd=repo_path, capture_output=True, timeout=30)
+        elif pat and remote_url != "origin":
+             # Update remote to include PAT for existing hub repos
+             subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=30)
         
         # 2. Sync
-        subprocess.run(["git", "add", "."], cwd=repo_path, capture_output=True)
-        status = subprocess.run(["git", "status", "--porcelain"], cwd=repo_path, capture_output=True, text=True)
+        print(f" 📡 [CLOUD SYNC] Staging changes in {os.path.basename(repo_path)}...")
+        subprocess.run(["git", "add", "."], cwd=repo_path, capture_output=True, timeout=60)
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=repo_path, capture_output=True, text=True, timeout=30)
         if status.stdout.strip():
-            subprocess.run(["git", "commit", "-m", message], cwd=repo_path, capture_output=True)
-            push_res = subprocess.run(["git", "push", "-u", "origin", "main"], cwd=repo_path, capture_output=True, text=True)
+            print(f" 📡 [CLOUD SYNC] Committing changes...")
+            subprocess.run(["git", "commit", "-m", message], cwd=repo_path, capture_output=True, timeout=60)
+            print(f" 📡 [CLOUD SYNC] Pushing to origin/main (60s timeout)...")
+            push_res = subprocess.run(["git", "push", "-u", "origin", "main"], cwd=repo_path, capture_output=True, text=True, timeout=120)
             if push_res.returncode == 0:
                 print(f" ✅ [CLOUD SYNC] '{os.path.basename(repo_path)}' synchronized successfully.")
             else:
+                print(f" 📡 [CLOUD SYNC] Push failed. Attempting rebase recovery...")
                 # If push fails, attempt a non-destructive rebase (Production Manifold Protection)
-                subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=repo_path, capture_output=True)
-                subprocess.run(["git", "push", "origin", "main"], cwd=repo_path, capture_output=True)
+                subprocess.run(["git", "pull", "origin", "main", "--rebase"], cwd=repo_path, capture_output=True, timeout=120)
+                subprocess.run(["git", "push", "origin", "main"], cwd=repo_path, capture_output=True, timeout=120)
+                print(f" ✅ [CLOUD SYNC] '{os.path.basename(repo_path)}' synchronized after rebase.")
+        else:
+            print(f" 📡 [CLOUD SYNC] No changes detected in {os.path.basename(repo_path)}.")
+    except subprocess.TimeoutExpired:
+        print(f" ⚠️ [CLOUD SYNC] Sync TIMEOUT for {repo_path}. GitHub might be unreachable or credentials requested.")
     except Exception as e:
         print(f" ⚠️ [CLOUD SYNC] Hub Sync failed for {repo_path}: {e}")
 
