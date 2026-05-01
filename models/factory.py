@@ -72,8 +72,8 @@ def get_model(model_key, config=None):
     elif model_class_name == "BLIP_2":
         return BLIP_2(**kwargs)
     
-    # Fallback for Multi-Task
-    if model_key in ["multi_task_restorer", "professional_multitask_restoration"]:
-        return MultiTaskRestorer(num_tasks=6)
+    # Final Validation
+    if not model_class_name:
+        raise ValueError(f"❌ [FACTORY ERROR] Model key '{model_key}' was not found in the unified models registry ({unified_name}). Please check your config.")
         
-    raise ValueError(f"Model architecture '{model_class_name}' for key '{model_key}' not implemented in factory.")
+    raise ValueError(f"❌ [FACTORY ERROR] Model architecture '{model_class_name}' for key '{model_key}' is not implemented in the factory routing logic.")
