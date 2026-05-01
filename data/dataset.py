@@ -473,7 +473,7 @@ class MultiTaskDataset(Dataset):
                         label = int(f.read().strip())
                     except:
                         pass
-            return self.fast_process(img), torch.tensor([label], dtype=torch.long), "classification"
+            return self.fast_process(img), torch.tensor(label, dtype=torch.long), "classification"
             
         elif self.task_type == "detection":
             ds_path = self.get_dataset_path(ds_name)
