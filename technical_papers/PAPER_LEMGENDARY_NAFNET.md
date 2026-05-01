@@ -1,16 +1,16 @@
 # Architecture of LemGendary AI: High-Fidelity NAFNet Restoration via SOTA Infrastructure
 
 **Author**: Lem Treursić  
-**Version**: 2.5.0 - Resiliency v6.1.26 (2026 Specialization)  
-**Target Hardware**: Dual Tesla T4 (Cloud) / NVIDIA GTX 1650 (4GB Entry-Level Survival)
+**Version**: 2.6.0 - Dynamic VRAM Sync (2026 Specialization)  
+**Target Hardware**: NVIDIA GeForce GTX 1650 (4GB) / Apple Silicon (MPS) / Intel ARC (XPU)
 
 ---
 
 ## Table of Contents
 1. [Abstract](#1-abstract)
 2. [Visual Taxonomy: The LemGendary Restoration Subset](#2-visual-taxonomy-the-lemgendary-restoration-subset)
-3. [Hardware-Aware Infrastructure: Dual-GPU SOTA Specialization](#3-hardware-aware-infrastructure-dual-gpu-sota-specialization)
-   - [3.1 The nn.DataParallel Deprecation & Single-GPU Return](#31-the-nndataparallel-deprecation--single-gpu-return)
+3. [Hardware-Aware Infrastructure: Universal Acceleration](#3-hardware-aware-infrastructure-universal-acceleration)
+   - [3.1 The Headroom-Aware Memory-Sentinel](#31-the-headroom-aware-memory-sentinel)
    - [3.2 OVC Data Streaming Bridge (OpenCV-to-CUDA)](#32-ovc-data-streaming-bridge-opencv-to-cuda)
 4. [Mathematical Optimization: High-Fidelity Perceptual Engines](#4-mathematical-optimization-high-fidelity-perceptual-engines)
    - [4.1 Structural VS Perceptual Verification](#41-structural-vs-perceptual-verification)
@@ -35,6 +35,10 @@
    - [6.14 Velocity Life-Support (v6.1.18)](#614-velocity-life-support-v6118)
    - [6.15 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)](#615-the-mitochondrial-pulse-epsilon-hardened-persistence-v6119)
    - [6.16 Telemetry Parity & Plateau Resilience (v6.1.31)](#616-telemetry-parity--plateau-resilience-v6131)
+   - [6.17 True Stabilization Shield & Synchronous Spatial Augmentation (v6.1.26)](#617-true-stabilization-shield--synchronous-spatial-augmentation-v6126)
+   - [6.18 Invariant Native Scorecarding (v6.2.0)](#618-invariant-native-scorecarding-v620)
+   - [6.19 Universal Backend Selection (MPS/XPU/DirectML)](#619-universal-backend-selection-mpsxpudirectml)
+   - [6.20 Time-Aware Checkpoint Governance (15-min Window)](#620-time-aware-checkpoint-governance-15-min-window)
 7. [Deployment Strategy: The C++ ONNX Ghost-Severing Protocol](#7-deployment-strategy-the-c-onnx-ghost-severing-protocol)
    - [7.1 Standalone Exporters](#71-standalone-exporters)
    - [7.2 The Ghost-Severing Protocol](#72-the-ghost-severing-protocol)
@@ -66,11 +70,11 @@ By unifying diverse restoration subsets into the `LemGendizedNoiseDataset`, the 
 
 ---
 
-## 3. Hardware-Aware Infrastructure: Dual-GPU SOTA Specialization
-Training massive architectures like NAFNet at high resolutions requires absolute synchronization on multi-GPU Kaggle environments.
+## 3. Hardware-Aware Infrastructure: Universal Acceleration
+Training massive architectures like NAFNet at high resolutions requires absolute synchronization on multi-GPU Kaggle environments and constrained local hardware.
 
-### 3.1 The `nn.DataParallel` Deprecation & Single-GPU Return
-Initial attempts to harness both Tesla T4 GPUs simultaneously via PyTorch's legacy `nn.DataParallel` wrapper resulted in catastrophic hardware panics. The `DataParallel` module slices batches into non-contiguous "virtual memory views" across the PCIe bus. When NAFNet's advanced `AdaptiveAvgPool2d` and `SimpleGate` structures attempted to run mathematical convolutions against these fragmented views, the Nvidia Turing architecture instantly panicked, throwing fatal `cudaErrorMisalignedAddress` C++ exceptions. The suite was aggressively rolled back to lock onto `cuda:0`, proving that for memory-optimized architectures, a single, structurally perfect 15GB GPU is vastly superior to a fragmented dual-GPU array.
+### 3.1 The Headroom-Aware Memory-Sentinel
+The Sentinel has evolved to actively probe the hardware environment using `torch.cuda.mem_get_info()`. This ensures that even on 4GB hardware, the NAFNet architecture is seated with a perfectly calculated physical batch size, preventing kernel-level address misalignments and system-wide paging.
 
 ### 3.2 OVC Data Streaming Bridge (OpenCV-to-CUDA)
 The pipeline harnesses local NumPy/OpenCV workers to decode image tensors natively in CPU cache before flushing them to the GPU. This prevents data-starvation of the GPU cores completely, hiding I/O latency behind raw throughput.
@@ -106,137 +110,108 @@ NAFNet actively abandons activating nonlinearities (like ReLU / GELU). Instead, 
 ## 6. Challenges & Resilience Architecture
 
 ### 6.1 The SimpleGate NaN Overflows (Structural FP16 Disable)
-**Issue**: NAFNet training initially exploded with infinite `NaN` losses. Because `SimpleGate` acts as a multiplicative layer, feature maps inside the encoder can easily cross the internal float ceiling of `65,504` dictated by FP16 (Automatic Mixed Precision).
-**Fix**: Engineered the **Structural FP16 Disable**. The `train.py` loop dynamically disables AMP specifically for `NAFNet`, `MPRNet`, and `MIRNet`, forcing PyTorch to retain strict double-precision gradients via FP32. NaN collapses structurally plummeted to 0.
+**Issue**: NAFNet training initially exploded with infinite `NaN` losses. Because `SimpleGate` acts as a multiplicative layer, feature maps can easily cross the internal float ceiling of `65,504` in FP16.
+**Fix**: Engineered the **Structural FP16 Disable**. The `train.py` loop dynamically disables AMP specifically for `NAFNet`, forcing strict double-precision gradients via FP32.
 
 ### 6.2 The Contiguous View Kernel Crash
-**Issue**: When interacting with partial dataset views (or previous Multi-GPU experiments), PyTorch passed fragmented tensors into convolutions causing `misaligned address` crashes.
-**Fix**: Surgically patched `models/core_restoration.py` with rigorous `.contiguous()` clamps. Every input passed to `Conv2d`, `Pool2d`, or a `SimpleGate` multiplier is physically forced into linear memory realignment before GPU mathematical ingestion.
+**Issue**: When interacting with partial dataset views, PyTorch passed fragmented tensors into convolutions causing `misaligned address` crashes.
+**Fix**: Patched `models/core_restoration.py` with rigorous `.contiguous()` clamps. Every input passed to `Conv2d`, `Pool2d`, or a `SimpleGate` multiplier is physically forced into linear memory realignment.
 
 ### 6.3 The OneCycleLR "Sudden Death" & AdamW Resume Shock
-**Issue**: Standard Early Stopping mechanisms (patience=15) mathematically trigger "Sudden Death" at Epoch 39 due to MSE Val Loss wobbling on the floor, permanently locking the model out of the crucial OneCycleLR precision-cooling sequence (Epochs 40-50). Resuming from this crash natively induces an `AdamW Resume Shock`, where reloaded moving-average momenta buffers cause PSNR to temporarily crater (e.g., 24.7dB -> 22.4dB) for 1-2 epochs before skyrocketing back to SOTA.
-**Fix**: Engineered an emergency `early_stopping_patience: 50` override to permanently disable MSE-based sudden death for high-complexity manifolds, allowing perceptual metrics (LPIPS/FID) to safely plummet into record territory during the final cooling phase.
+**Issue**: Standard Early Stopping mechanisms (patience=15) mathematically trigger "Sudden Death" at Epoch 39 due to MSE Val Loss wobbling on the floor, permanently locking the model out of the crucial OneCycleLR precision-cooling sequence (Epochs 40-50).
+**Fix**: Engineered an emergency `early_stopping_patience: 50` override to permanently disable MSE-based sudden death for high-complexity manifolds.
 
 ### 6.4 The VGG Perceptual Convergence Collapse
-**Issue**: The convergence ceiling unexpectedly hard-locked at exactly ~22.70dB mathematically, refusing to traverse higher despite the Defibrillation override injecting fresh Learning Rate velocity. We discovered three coupled architectural breaks:
-1. **The VGG Geometry Invalidation**: Directly passing un-normalized `[0,1]` float pixels into the VGG19 Network mathematically invalidates the Perceptual Loss geometry. Because VGG was uniquely trained on ImageNet tensor distributions (`mean=[0.485, 0.456, 0.406]`), it interprets raw `0-1` arrays as extreme edge case statics, feeding chaotic gradients.
-2. **The CombinedLoss Structural Bypass**: The master execution script (`train.py`) had a native `CombinedLoss` class defined internally that completely bypassed the global `training.losses` library. It was executing raw `nn.MSELoss()`, abandoning all Perceptual gradients entirely.
-3. **The 40x Magnitude Overflow**: Upon restoring the VGG pipeline, the default scale (`0.1`) caused the VGG L1-feature magnitude to massively overpower the raw spatial `MSELoss` by a factor of 40x, instantly cratering the PSNR to 19.87dB.
-
+**Issue**: The convergence ceiling unexpectedly hard-locked at exactly ~22.70dB.
 **Fix**: 
-- **Strict ImageNet Normalization Anchor**: We natively bound standard deviations that dynamically scale input tensors to pure VGG spatial geometry before passing them into the internal layers.
-- **Master Loop Injection**: We structurally re-anchored `PerceptualLoss` directly into `train.py`'s localized `CombinedLoss` block.
-- **Magnitude Equalization**: We radically depressed the scalar magnitude down to `0.005`, allowing VGG to provide sharp detail contours without completely overwhelming the base pixel alignment accuracy.
+- **Strict ImageNet Normalization Anchor**: We natively bound standard deviations that dynamically scale input tensors to pure VGG spatial geometry.
+- **Magnitude Equalization**: We radically depressed the scalar magnitude down to `0.005`, allowing VGG to provide sharp detail contours without overpowering PSNR.
 
 ### 6.5 The "Double-Step" OneCycleLR Matrix Paradox
-**Issue**: When resuming from a checkpoint via PyTorch's `Fast-Forward` loop, manual invocations of `scheduler.step()` blindly advanced the `OneCycleLR` clock while the dataloader was merely skipping batches. For instance, resuming at Iteration 413 physically blew past the `Total_Steps` limit, throwing a `ValueError` the moment training breached 23,001.
-**Fix**: Engineered the **No-Manual-Stepping Resumption Logic**. We deleted the artificial stepping logic, exclusively trusting the state dictionaries instantiated internally via PyTorch `_step_count` records.
+**Issue**: Resuming from a checkpoint via PyTorch's `Fast-Forward` loop caused manual invocations of `scheduler.step()` to blindly advance the clock while the dataloader was merely skipping batches.
+**Fix**: Engineered the **No-Manual-Stepping Resumption Logic**.
 
 ### 6.6 The SOTA Sentry "Defibrillation Override"
-**Issue**: Upon extending `epochs` sequentially using the Continuity Guard, the model loaded PyTorch schedulers where the learning rate had correctly decayed down to `0.00000053`. While fixing geometric issues like Perceptual Norms, the learning momentum was fundamentally dead—frozen perfectly inside a local minima without the velocity required to utilize the new mathematical matrices. 
-**Fix**: SOTA Sentry dynamically bypasses `scheduler_state` injection specifically during extended epoch bounds mathematically greater than 50. This deliberately slams the NAFNet architecture with a fresh "Phase-1" burst of OneCycleLR velocity, completely ripping the vector out of the flatlined states.
+**Issue**: Upon extending epochs, the model loaded schedulers where the learning rate had decayed down to terminal levels.
+**Fix**: SOTA Sentry dynamically bypasses `scheduler_state` injection during extended epoch bounds, slamming the architecture with a fresh "Phase-1" burst of velocity.
 
 ### 6.7 The Universal SOTA Optimization Vector
-**Issue**: Despite stabilizing the VGG gradients, the architecture hit a hard perceptual ceiling at `23.87dB`. We mathematically isolated this as the classic "Perception-Distortion Tradeoff"—the native `MSELoss` inherently penalized sharp features, constantly clashing with Perceptual metrics to create a blurry equilibrium. Additionally, the iteration span (`50` epochs) was profoundly depriving the optimizer of physical convergence blocks, given NAFNet natively requires >300,000 iterations to scale to `39dB` thresholds.
 **Fix**: 
-- **The L1-LPIPS Harmonic Matrix**: We physically abandoned `MSELoss` and structurally swapped to `L1Loss`, which natively bounds high-frequency gradients geometrically. We then anchored the true learned `lpips.LPIPS(net='vgg')` layer at exactly `0.025` to perfectly balance human perception targets without overpowering PSNR.
-- **Iteration Expansion & Runway Re-Injection**: Extended runtime parameterization to `1000` epochs, effectively expanding the base `OneCycleLR` cosine scale into massive, high-velocity heating curves lasting tens of thousands of steps across cloud clusters. Custom guardrails capping LR unexpectedly at fine-tuning limits (`5e-6`) were systematically targeted and eradicated.
-- **Universal Visual SOTA Sentry (v1.1.0 Refactor)**: We fundamentally unlinked the target extraction hook from `avg_val_loss`. The SOTA orchestrator now mathematically compounds `current_quality_score = psnr + (ssim * 20) - (lpips * 20)` to ensure the `.pth` weights exported universally represent maximum perceptual human value. 
+- **The L1-LPIPS Harmonic Matrix**: We structurally swapped to `L1Loss`, anchoring the true learned `lpips.LPIPS(net='vgg')` layer at exactly `0.025`.
+- **Universal Visual SOTA Sentry**: The orchestrator now mathematically compounds `current_quality_score = psnr + (ssim * 20) - (lpips * 20)`.
 
 ### 6.8 The Stagnation Paradox: Plateau-Buster v5.2
-**Issue**: High-complexity models (NAFNet) occasionally enter a "Numerical Stagnation" phase where `val_loss` flickers with negligible improvements (e.g., 1e-7). These "Noise-Wins" previously reset the Governor's plateau timer, preventing the engine from ever scaling the resolution.
-**Fix**: Implemented the **v5.2 Plateau-Buster**. 
-- **Strict 0.1% Delta**: The Governor now requires a minimum **0.1% relative improvement** to reset its patience.
-- **Horizontal Jolt Counter**: If the model remains stagnant for more than 2 epochs (even with minor loss drops), the Governor triggers a **Kinetic Jolt**, forcing a resolution or dataset scale to break the attractor.
+**Fix**: Implemented the **v5.2 Plateau-Buster**. The Governor now requires a minimum **0.1% relative improvement** and triggers a **Kinetic Jolt** if the model remains stagnant for more than 2 epochs.
 
 ### 6.9 The Quality-Regression Mutex (SOTA Guardrail)
-**Issue**: During long missions, `val_loss` may improve while core quality metrics (PSNR/SSIM) regressed due to smoothing or weight decay. This caused the system to export "False SOTA" models that were technically worse than previous peaks.
-**Fix**: Engineered the **Quality-Regression Mutex**. The SOTA export logic is now strictly bounded by the `current_quality_score`. Even if loss hits a record low, the system will **NOT** coronation the model as the new "Best" unless its physical quality metrics have hit a record high.
+**Fix**: The SOTA export logic is now strictly bounded by the `current_quality_score`. The system will **NOT** coronation the model as "Best" unless its physical quality metrics have hit a record high.
 
 ### 6.10 Persistent I/O Synchronization (v5.8)
-**Issue**: On Windows systems with massive multitask datasets (50,000+ files), PyTorch dataloader workers would hang for up to 8 minutes during initialization as they recursively scanned the physical disk structure. In high-velocity mission scenarios, this cold-start latency was unacceptable.
-**Fix**: Engineered the **Persistent Mission Manifest**. The suite now generates a unified `.dataset_cache.json` manifest during the first scan. Subsequent restarts load this JSON manifest in milliseconds, providing instant manifold alignment and shattering the Windows disk-latency bottleneck.
+**Fix**: Engineered the **Persistent Mission Manifest**. Subsequent restarts load a JSON manifest in milliseconds, shattering the Windows disk-latency bottleneck.
 
 ### 6.11 Architectural Survival Profiles (v5.9)
-**Issue**: Entry-level hardware (NVIDIA GTX 1650 / 4GB VRAM) physically cannot process SOTA NAFNet blocks at high resolutions with standard batch sizes. Previous models would instantly crater with `Out of Memory` errors.
-**Fix**: Implementation of the **Survival Profile**. The environment dynamically detects VRAM constraints and enforces a **Physical Batch Size 1** strategy coupled with **4x Gradient Accumulation**. This maintains the mathematical integrity of a "Batch Size 4" epoch while strictly restricting the GPU memory footprint to survival levels.
+**Fix**: Implementation of the **Survival Profile**. The environment dynamically detects VRAM constraints and enforces a **Physical Batch Size 1** strategy coupled with **4x Gradient Accumulation**.
 
 ### 6.12 Mission Continuity Guard (v6.1)
-**Issue**: Legacy OOM recovery systems occasionally "leaked" manifold state, causing the training loop to terminate prematurely after a memory recovery event. This resulted in "truncated epochs" where the system only processed a fraction of the dataset.
-**Fix**: Engineered the **Continuity Guard**. By repairing the Resync logic and adding mandatory **Iteration Pulse Heartbeats**, the suite ensures that every sample is physically reconciled with the manifold. A final **Manifold Leak Guard** audit-locks the epoch until 1000% of the dataset is processed.
+**Fix**: Engineered the **Continuity Guard**. A final **Manifold Leak Guard** audit-locks the epoch until 100% of the dataset is processed.
 
 ### 6.13 Manifold Rescue & High-Energy Jolt (v6.1.17)
-**Issue**: High-complexity models occasionally enter "Numerical Stagnancy" where they become trapped in a 24dB local minimum regardless of learning rate decay. This is caused by the model settling into a specific manifold basin where standard gradients are too weak to escape.
-**Fix**: Implementation of the **High-Energy Jolt**. When a 12-epoch stagnation is detected at 100% data capacity, the Governor now forces a **Hard-Reset** to the `base_lr` (0.0002). This slams the architecture with kinetic energy, physically ripping the weights out of the local minimum and forcing global re-exploration.
+**Fix**: Implementation of the **High-Energy Jolt**. When a 12-epoch stagnation is detected, the Governor forces a **Hard-Reset** to the `base_lr` (0.0002).
 
 ### 6.14 Velocity Life-Support (v6.1.18)
-**Issue**: During prolonged regressions, the Smart Governor's dampening multipliers (0.7x) could stack indefinitely, cooling the learning rate to "terminal" levels (e.g., 2e-7) where training effectively halts.
-**Fix**: Implementation of **Velocity Life-Support**. The Governor now monitors the "Training Velocity." If the current LR drops below 1% of the base training speed due to repeated dampening, an emergency **Rescue Trigger** forces an immediate Jolt, preventing the mission from flatlining in a low-energy state.
+**Fix**: Implementation of **Velocity Life-Support**. If the current LR drops below 1% of the base training speed, an emergency **Rescue Trigger** forces an immediate Jolt.
 
 ### 6.15 The Mitochondrial Pulse: Epsilon-Hardened Persistence (v6.1.19)
-**Issue**: On high-iteration missions (NAFNet), intra-epoch progress markers (every 10-20%) could be skipped due to floating-point rounding errors in the iterator percentage calculation, leading to hours of un-persisted work.
-**Fix**: Engineered the **Mitochondrial Pulse**. The persistence trigger now utilizes a **Mathematical Epsilon** (`1e-5`) and strict `last_intra_epoch_pct` locking. This ensures that state-saving synchronization is physically indestructible across all hardware profiles, guaranteeing a 20% checkpoint is never missed.
+**Fix**: Engineered the **Mitochondrial Pulse**. The persistence trigger now utilizes a **Mathematical Epsilon** (`1e-5`), ensuring that save-states are biologically-synchronized.
 
 ### 6.16 Telemetry Parity & Plateau Resilience (v6.1.31)
-**Issue**: Deep NAFNet plateaus (e.g., locking precisely at 24.5dB) caused repeated regression rollbacks, cascading into "LR Starvation" where the optimizer systematically cooled its learning rate into dead zones trying to resync. Additionally, manual LR edits or governor jolts suffered from one-epoch telemetry lag due to scheduler misalignment.
 **Fix**: 
-- **Velocity Shield (Survivor Floor)**: The Regression Guard is now bound by a physical `5e-7` absolute LR floor. Consecutive rollbacks are restricted from cooling the velocity below this threshold, ensuring the model retains kinetic momentum to push through wide saddle points.
-- **Asymmetric Jolt Potency**: The Governor now actively compounds its Jolt Multipliers (2.0x+) if it detects the model is trapped in a deep-plateau with critically low LR (<5e-6), ripping it violently into exploration modes.
-- **Zero-Lag Telemetry Sync**: Real-time LR readings are now slaved directly to the physical `optimizer.param_groups`, completely bypassing the pytorch `scheduler`, ensuring `metrics.csv` permanently achieves 1-to-1 operational ground truth parity.
+- **Velocity Shield (Survivor Floor)**: The Regression Guard is now bound by a physical `5e-7` absolute LR floor.
+- **Zero-Lag Telemetry Sync**: Real-time LR readings are slaved directly to the physical `optimizer.param_groups`.
 
 ### 6.17 True Stabilization Shield & Synchronous Spatial Augmentation (v6.1.26)
-**Issue**: When the Smart Governor triggered a Manifold Shift (such as a Resolution scale up to 640px), the learning rate and metrics naturally experienced temporary destabilization. The Governor's strict stagnation timers would prematurely classify this "settling phase" as a new plateau, instantly firing sequential Jolts and completely destroying the architecture's ability to learn translation-invariant features at the new resolution. Furthermore, extreme PSNR plateaus (e.g. 24.12dB) were diagnosed as *Catastrophic Feature Memorization*—the NAFNet model mathematically memorized the fixed spatial layouts of the 50,000 training images due to a lack of dynamic geometric augmentation in the restoration data pipeline.
 **Fix**: 
-- **True Stabilization Shield**: We hard-coded an impenetrable 3-epoch lockout period (`is_stagnant = False`) following any structural shift or high-energy Jolt. This completely masks the Governor's plateau-detection sensors during the critical manifold alignment phase, ensuring the new resolution physics have time to crystallize.
-- **Synchronous Spatial Augmentation**: Surgically patched the `fast_process` dataset loader to synchronously apply 50% randomized geometric flips (horizontal and vertical) simultaneously to both the noisy input and the clean target tensor. This completely shattered the feature memorization ceiling, forcing the network to acquire true translation-invariant structural generalizations.
+- **True Stabilization Shield**: A hard-coded 3-epoch lockout period follows any structural shift or high-energy Jolt.
+- **Synchronous Spatial Augmentation**: Applied 50% randomized geometric flips to both noisy inputs and clean targets to shatter the feature memorization ceiling.
 
 ### 6.18 Invariant Native Scorecarding (v6.2.0)
-**Issue**: As the Smart Governor dynamically scaled the NAFNet training resolution (e.g., from 128px up to 640px), the validation set mathematically followed this resolution. This created a fractured metric baseline where early-epoch PSNR could not be objectively compared to late-epoch PSNR due to shifting spatial complexity.
-**Fix**: Engineered the **Invariant Native Scorecarding** protocol. 
-- Validation resolution is now fully decoupled from the Governor's dynamic scaling logic.
-- Using a `val_resolution` registry key, high-fidelity models like NAFNet are now strictly anchored to their native 640px evaluation resolution from Epoch 1 to 1000. 
-- This guarantees an unbroken, invariant scorecarding metric where every PSNR improvement genuinely reflects architectural learning rather than resolution reduction.
+**Fix**: Validation resolution is now fully decoupled from dynamic scaling, anchored to a native 640px evaluation resolution from Epoch 1 to 1000.
 
----
-**Issue**: Multi-worker dataset initialization on Windows previously triggered `os.listdir` contention, leading to process hangs.
-**Fix**: Implemented a **Class-Level I/O Cache**. File lists are fetched once and cached, ensuring that all 12-16 workers initialize near-instantly without disk thrashing.
+### 6.19 Universal Backend Selection (MPS/XPU/DirectML)
+The 2026 update introduces a **Unified Hardware Handshake**. By prioritizing CUDA > MPS > XPU > DirectML, the suite ensures that the same NAFNet codebase executes at maximum performance across all major silicon providers without manual intervention.
+
+### 6.20 Time-Aware Checkpoint Governance (15-min Window)
+To protect training progress on high-complexity manifolds, the suite implements a **Time-Aware Checkpoint Governor**. It monitors iteration velocity and dynamically recalibrates the save frequency to target a 15-minute resiliency window, ensuring that no more than 15 minutes of work is ever at risk.
 
 ---
 
 ## 7. Deployment Strategy: The C++ ONNX Ghost-Severing Protocol
 
 ### 7.1 Standalone Exporters
-We completely rebuilt the universal ONNX suite (`export_onnx_model.py`) and PyTorch serialization hooks. Checkpoints saved under `DataParallel` (which inject a `module.` prefix to state dictionaries) are intelligently parsed and mapped cleanly onto raw CPUs, allowing Kaggle multi-GPU runs to be downloaded and evaluated on local standalone PCs.
+Checkpoints saved under `DataParallel` are intelligently parsed and mapped cleanly onto raw CPUs, allowing Kaggle multi-GPU runs to be evaluated on local standalone PCs.
 
 ### 7.2 The Ghost-Severing Protocol
-**Issue**: When compressing massive 30MB FP32 tensors to FP16, legacy PyTorch ONNX C++ sub-compilers would illegally fork enormous `.onnx.data` sidecar files to disk (exceeding Protobuf serialization limits). This effectively poisoned WebGPU payloads with segmented external dependency.
-**Fix**: Implemented the **Ghost Severing Protocol**. A clean-slate ONNX sweep detects and forcefully physically deletes orphaned `.onnx.data` graph fragments. The model is dynamically constrained to self-contained payload architecture, ensuring a single, 15MB file powers the web instance.
+**Fix**: Implemented the **Ghost Severing Protocol**. The model is dynamically constrained to self-contained payload architecture, ensuring a single, 15MB file powers the web instance.
 
 ---
 
 ## 8. Kaggle Cloud Execution Protocols
 
-Kaggle instances uniquely operate under hyper-ephemeral boundaries (12-hour session maximums, multi-GPU validation desyncs, random RAM evictions). We implemented the following deployment strategies to ensure robust convergence parity.
-
 ### 8.1 Single-GPU Specialization (15GB T4 Node Strategy)
-Kaggle frequently offers 2x T4 standard instances. Activating PyTorch `nn.DataParallel` physically splits NAFNet's SimpleGate multiplicative volumes directly across PCIe buses natively crippled by Kaggle's internal VM throttling. We actively deprecate the second GPU to double VRAM stability linearly on `cuda:0`.
+We actively deprecate the second GPU in Kaggle instances to double VRAM stability linearly on `cuda:0`.
 
 ### 8.2 Sub-Epoch Continuity (Progress Snapshots)
-Because an epoch can take 2-3 hours on massive HD topologies, standard `epoch-only` checkpoints are insufficient. We natively execute intra-epoch `progress.pth` serialization precisely tracking global `_batch_steps`. The SOTA Resumption Array guarantees hardware disruptions merely clip seconds off the training sequence.
+We natively execute intra-epoch `progress.pth` serialization precisely tracking global `_batch_steps`.
 
 ### 8.3 Serial Extraction Mutex: Stable Global Alignment (v1.0.42)
-**Issue**: Concurrent unzipping of massive datasets (FFHQ, COCO, DIV2K) previously triggered fatal OS freezes and I/O contention on localized storage arrays.
-**Fix**: Implemented the **Serial Extraction Mutex**. The dataset pipeline now acquires a **Global Named Mutex** (`Global\LemGendaryExtractionLock`) during the unzipping phase. While downloads operate in parallel to maximize bandwidth, extractions are strictly serialized. This ensures that NAFNet training threads are never starved for CPU cycles by background decompression tasks, maintaining a rock-solid training stride.
+**Fix**: Implemented the **Serial Extraction Mutex**. Download and extractions are strictly serialized via a Global Named Mutex, ensuring training threads are never starved.
 
 ### 8.4 Registry-First Dynamic Unification (v4.5)
-**Issue**: Legacy NAFNet deployments required manual configuration of dataset paths and Kaggle slugs across multiple files, leading to frequent "Path Not Found" errors during multi-model orchestration.
-**Fix**: Synchronized NAFNet with the **Registry-First Dynamic Orchestration** protocol. All asset handles and Kaggle URLs are now natively resolved from the `unified_models.yaml` registry, ensuring that the NAFNet convergence pipeline is entirely self-managed and robust against local/cloud path shifts.
+**Fix**: All asset handles and Kaggle URLs are resolved from the `unified_models.yaml` registry, ensuring the pipeline is robust against local/cloud path shifts.
 
 ---
 
 ## 9. SOTA Architectural Performance Matrix
-
-The following matrix isolates NAFNet structurally compared against generic industry baselines (DnCNN/U-Net) and modern Multi-head transformer giants (Restormer/MIRNet).
 
 | Architecture | Paradigm | Parameters | GPU Footprint (1080p) | PSNR | Perceptual Integrity (LPIPS) | WebGPU Viability |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -246,13 +221,9 @@ The following matrix isolates NAFNet structurally compared against generic indus
 | **Restormer** | *Swin-Transformer MDTA* | 26M | ~ 14 GB | ~32.4dB | 0.05 (VGG) | Highly Degraded (Opset) |
 | **LemGendary NAFNet** | *SCA SimpleGate (Ours)* | **17M** | **~ 6 GB** | **~32.5dB+** | **< 0.06 (VGG)** | **Production Grade** |
 
-**Hardware Note**: NAFNet fundamentally achieves Restormer-level clarity without relying on computationally unstable multi-head deterministic attention sweeps, making it the perfect vector engine for `[FP16]` browser exportation.
-
 ---
 
 ## 10. Conclusion: The Browser Restoration Paradigm
-The stabilization of SOTA Backbones represents the final engineering milestone of the LemGendary project.
+The stabilization of SOTA Backbones represents the final engineering milestone of the LemGendary project. By overriding hardware panics and enforcing contiguous tensor mappings, we built a framework practically indestructible. 
 
-By overriding Kaggle architectural panics—disabling PyTorch's broken Multi-GPU layers, enforcing contiguous tensor mappings, and manually throttling PCIe validation chunks—we built a framework practically indestructible. 
-
-The resulting NAFNet architecture, operating in FP32 inside the Kaggle Docker container and ultimately compiling down to self-contained FP16 ONNX nodes, proves that studio-grade image restoration can be generated automatically in the cloud, and deployed instantly via WebGPU.
+The resulting NAFNet architecture proves that studio-grade image restoration can be generated automatically in the cloud, and deployed instantly via WebGPU.

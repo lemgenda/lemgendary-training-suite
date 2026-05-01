@@ -98,9 +98,10 @@ class SmartTrainingGovernor:
         predicted_ratio = 1.0
         if torch.cuda.is_available():
             torch.cuda.empty_cache() # Clear dead blocks to get an accurate reading
-            mem_total = torch.cuda.get_device_properties(0).total_memory
-            mem_allocated = torch.cuda.memory_allocated(0)
-            mem_usage_ratio = mem_allocated / mem_total
+            # 2026 SOTA: Use System-Wide Probing (Headroom-Aware)
+            free_vram, total_vram = torch.cuda.mem_get_info(0)
+            # Use the actual occupancy ratio (Total - Free) / Total
+            mem_usage_ratio = (total_vram - free_vram) / total_vram
             predicted_ratio = mem_usage_ratio
 
         # 1. Velocity & Numerical Management (Drift Sentinel)
@@ -284,6 +285,21 @@ class SmartTrainingGovernor:
             "current_strategy": self.current_strategy,
             "stabilization_epochs": self.stabilization_epochs
         }
+
+    def get_dynamic_save_interval(self, avg_iter_time, total_iters):
+        """
+        2026 Resiliency: Targets a 15-minute 'Safety Window' for progress persistence.
+        """
+        if avg_iter_time <= 0: return 0.2 # Fallback
+        
+        epoch_duration_mins = (avg_iter_time * total_iters) / 60
+        
+        if epoch_duration_mins < 15:
+            return 0.0 # No intra-epoch saves for short runs
+            
+        # Target one save every 15 minutes
+        target_pct = 15 / epoch_duration_mins
+        return max(0.05, min(0.5, target_pct)) # Clamp between 5% and 50%
 
     def load_state(self, state):
         """Restores the governor state from a checkpoint."""

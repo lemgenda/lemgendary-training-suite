@@ -190,7 +190,7 @@ function Initialize-Environment {
     if ($null -ne $isNvidia) {
         Write-Host "  [+] NVIDIA GPU Detected: GTX/RTX hardware optimization active." -ForegroundColor Green
         Write-Host "  [4/4] Resolving holistic dependency graph (Unified Install)..." -ForegroundColor Cyan
-        & $venvPy -m pip install torch torchvision torchaudio onnxruntime-gpu -r $script:REQ_FILE --extra-index-url https://download.pytorch.org/whl/cu121
+        & $venvPy -m pip install -r $script:REQ_FILE --extra-index-url https://download.pytorch.org/whl/cu121
     } else {
         Write-Host "  [4/4] Resolving holistic dependency graph (Unified Install)..." -ForegroundColor Cyan
         & $venvPy -m pip install torchruntime onnxruntime-directml -r $script:REQ_FILE
@@ -291,7 +291,7 @@ while ($true) {
                     Invoke-JanitorPurge # Ensure clean start
                     $env:PYTHONPATH="$script:HUB_DIR"; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
                     $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
-                    Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "training/train.py" --model $selectedModel; Pop-Location
+                    Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" -m training.train --model $selectedModel; Pop-Location
                 }
             }
             Read-Host "Press Enter to return..."

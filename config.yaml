@@ -13,7 +13,7 @@ execution:
 
 # Global Training Defaults (can be overridden by model-specific config)
 device: "cuda" # or "cpu"
-num_workers: 4 # Optimized for i7-9750H to prevent bottlenecking the GPU
+num_workers: 0 # Forced to 0 for 4GB VRAM stability to prevent multiprocess deadlocks
 pin_memory: true
 
 # Base paths (relative to training/lemgendary-training-suite/)
@@ -29,17 +29,17 @@ kaggle_dataset_urls:
 
 # Default fallback values if not specified in unified_models.yaml
 default_img_size: 256
-default_batch_size: 16
+default_batch_size: 8 # Lowered for 4GB VRAM stability at 384px
 default_lr: 0.00025
 default_epochs: 1000
 early_stopping_patience: 250
-intra_epoch_checkpoint_pct: 0.2
+intra_epoch_checkpoint_pct: "auto"
 
 # Global Stabilizer Defaults (To prevent Infinite NaN loops across different architectures)
 stabilizers:
-  softmax_temp: 0.1
+  softmax_temp: 1.0
   emd_epsilon: 0.000001
-  logit_clamp: 20.0
+  logit_clamp: 15.0
 
 # External Repository Deployment Fallbacks
 export_to_external_folder: false

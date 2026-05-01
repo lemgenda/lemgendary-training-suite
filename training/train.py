@@ -21,6 +21,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning, message=".*pretrained.*")
 warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
 warnings.filterwarnings("ignore", category=UserWarning, module="torch")
+warnings.filterwarnings("ignore", message=r"clamping frac to range \[0, 1\]")
 
 # --- Hyper-Verbose Path Defense (2026 Specialization) ---
 # Anchor the search path to the script's own folder to bypass "Ghost Python" hijacking.
@@ -121,7 +122,7 @@ def safe_replace(src, dst):
             time.sleep(base_delay * (1.5 ** i))
     return False
 
-from .losses import CombinedLoss
+from training.losses import CombinedLoss
 
 def trigger_sota_export(model, args, config, unified_models_registry, epoch, plcc, srcc, psnr, ssim_val, lpips_val, fid):
     """
@@ -181,7 +182,7 @@ def trigger_sota_export(model, args, config, unified_models_registry, epoch, plc
     except Exception as e:
         print(f"⚠️  [SOTA DEPLOYMENT] Export phase failed: {e}")
 
-def get_dynamic_batch_size(model_key, model_info, config, device):
+def get_dynamic_batch_size(model_key, model_info, config, device, mode='train'):
     """
     Memory-Sentinel (2026): Calculates the absolute peak batch size for
     high-velocity training on any NVIDIA architecture with zero VRAM paging.
@@ -190,9 +191,13 @@ def get_dynamic_batch_size(model_key, model_info, config, device):
         return config.get("default_batch_size", 16)
 
     try:
-        total_vram = torch.cuda.get_device_properties(0).total_memory
-        # Substract 450MB for Windows/OS Overhead (calibrated for GTX 1650 specialized vram)
-        available_vram = total_vram - (450 * 1024 * 1024)
+        # 2026 SOTA: Probe ACTUAL hardware headroom (includes browser/OS overhead)
+        free_vram, total_vram = torch.cuda.mem_get_info(0)
+        # 2026 Resilience: Safety buffer for 4GB hardware. 
+        # Validation is more stable, so we can be more aggressive (0.85 instead of 0.75).
+        s_mult = 0.75 if total_vram < (5 * 1024 * 1024 * 1024) else 0.85
+        if mode == 'val': s_mult += 0.10 # More aggressive for inference
+        available_vram = free_vram * s_mult
 
         task_type = model_info.get("dataset_type", "quality")
         if isinstance(task_type, list): task_type = task_type[0]
@@ -208,24 +213,33 @@ def get_dynamic_batch_size(model_key, model_info, config, device):
             backbone_mult = 2.4 # EfficientNetV2-S has significant activation overhead at 384x384
 
         vram_coeffs = {
-            "quality": 10 * 1024 * 1024 * res_multiplier * backbone_mult,    # Aggressive SOTA (320x320 Saturation)
+            "quality": 25 * 1024 * 1024 * res_multiplier * backbone_mult,    # Calibrated for MobileNetV2 (SOTA Efficiency)
             "detection": 150 * 1024 * 1024 * res_multiplier,   # YOLOv8 (640x640)
             "restoration": 220 * 1024 * 1024 * res_multiplier  # NAFNet/MIRNet (256x256)
         }
 
         coeff = vram_coeffs.get(task_type, 180 * 1024 * 1024)
+        
+        # 2026 Resilience: Validation is much leaner (no gradients/adam states)
+        if mode == 'val':
+            coeff *= 0.6 # 40% discount for inference-only memory footprint
+            
         dynamic_batch = int(available_vram / coeff)
 
         # 2026: Paging Guard - Hard limit for 4GB cards to prevent swapping
         if total_vram < (5 * 1024 * 1024 * 1024):
-            dynamic_batch = min(dynamic_batch, 64)
+            # User confirmed 24 is stable for training and 64 for validation at 384px
+            if mode == 'train':
+                dynamic_batch = min(dynamic_batch, 24)
+            else:
+                dynamic_batch = min(dynamic_batch, 64)
 
         # Clamp to professional biological limits
         dynamic_batch = max(8, min(dynamic_batch, 128))
 
         # 2026: Concatenated Hardware Status
         gpu_name = torch.cuda.get_device_name(0)
-        print(f"📡 [MEMORY-SENTINEL] {gpu_name} ({(total_vram/1e9):.1f}GB) | Peak Batch: {dynamic_batch}")
+        print(f"📡 [MEMORY-SENTINEL] {gpu_name} ({(total_vram/1e9):.1f}GB) | {mode.capitalize()} Batch: {dynamic_batch}")
         return dynamic_batch
     except Exception as e:
         print(f"⚠️ [MEMORY-SENTINEL] Probe failed: {e}. Falling back to safe defaults.")
@@ -254,18 +268,24 @@ def main():
     unified_models_path = os.path.join(project_root, config["unified_models"])
     with open(unified_models_path, 'r') as f: unified_models_registry = yaml.safe_load(f)
 
-    # --- Device Discovery (2026 Hardware Acceleration) ---
+    # --- Device Discovery (2026 Universal Acceleration Suite) ---
     if torch.cuda.is_available():
-        gpu_name = torch.cuda.get_device_name(0)
         device = torch.device("cuda")
+        gpu_name = torch.cuda.get_device_name(0)
         torch.backends.cudnn.benchmark = True
-        print(f"[OK] [HARDWARE] NVIDIA {gpu_name} | CUDA {torch.version.cuda} | cuDNN Optimized")
+        print(f"🚀 [HARDWARE] NVIDIA {gpu_name} | CUDA {torch.version.cuda} Active")
+    elif hasattr(torch, "mps") and torch.backends.mps.is_available():
+        device = torch.device("mps")
+        print(f"🚀 [HARDWARE] Apple Silicon (Metal) Acceleration Active")
+    elif hasattr(torch, "xpu") and torch.xpu.is_available():
+        device = torch.device("xpu")
+        print(f"🚀 [HARDWARE] Intel ARC / XPU Acceleration Active")
     elif hasattr(torch, "dml") and torch.dml.is_available():
         device = torch.device("dml")
-        print(f"[OK] [HARDWARE] DirectML (AMD/Intel) Active")
+        print(f"🚀 [HARDWARE] Microsoft DirectML (AMD/Intel) Active")
     else:
         device = torch.device("cpu")
-        print(f"[WARNING] [HARDWARE] No GPU Acceleration. Defaulting to CPU.")
+        print(f"⚠️ [HARDWARE] No Accelerator Found. Defaulting to CPU (Slow).")
 
     # Load model
     if "yolo" in args.model.lower():
@@ -383,30 +403,33 @@ def main():
     elif config_batch and config_batch != "auto":
         batch_size = int(config_batch)
     else:
-        batch_size = get_dynamic_batch_size(args.model, model_info, config, device)
+        batch_size = get_dynamic_batch_size(args.model, model_info, config, device, mode='train')
+
+    # --- 2026 Resilience: Split Batch Strategy (v10.1.9) ---
+    config_val_batch = model_info.get("val_batch_size")
+    if config_val_batch and config_val_batch != "auto":
+        val_batch_size = int(config_val_batch)
+    elif config_batch == "auto" and not args.batch_size:
+        val_batch_size = get_dynamic_batch_size(args.model, model_info, config, device, mode='val')
+    else:
+        val_batch_size = model_info.get("val_batch_size", batch_size)
+    
+    if not isinstance(val_batch_size, int) or val_batch_size == "auto":
+        val_batch_size = batch_size
 
     # --- 2026 Resilience: Pre-Emptive Memory-Sentinel ---
-    # We must establish the physical batch size BEFORE initialization to ensure scheduler parity
     effective_batch_size = batch_size
     accumulation_steps = 1
-    vram = 0
-    if device.type == 'cuda':
-        vram = torch.cuda.get_device_properties(device).total_memory / (1024**3)
-
-    # Survival Profile Trigger: GTX 1650 / 4GB Guard for heavy architectures
+    vram = torch.cuda.get_device_properties(device).total_memory / (1024**3) if device.type == 'cuda' else 0
     is_heavy_model = any(x in args.model.lower() for x in ["nafnet", "mirnet", "ffanet", "mprnet"])
 
-    if vram > 0 and vram < 5.0:
-        if "technical" in args.model:
-            batch_size = 16
-            accumulation_steps = max(1, effective_batch_size // 16)
-            print(f" [MEM-SENTINEL] Pre-Emptive 4GB Lockdown: Physical Batch 16 | Accumulation {accumulation_steps}")
-        elif is_heavy_model:
-            # NAFNet/MIRNet Survival Profile
-            batch_size = 1
-            accumulation_steps = max(4, effective_batch_size) # Force at least 4 steps for stability
-            print(f" [SURVIVAL PROFILE] NAFNet 4GB Lockdown: Physical Batch 1 | Accumulation {accumulation_steps}")
-            print(f" [RESILIENCE] Correcting for 156s/batch slowdown. Manifold throttled for stability.")
+    # Memory-Sentinel now uses mem_get_info to dynamically bound batch_size.
+    if vram > 0 and vram < 5.0 and is_heavy_model:
+        # NAFNet/MIRNet Survival Profile
+        batch_size = 1
+        accumulation_steps = max(4, effective_batch_size) # Force at least 4 steps for stability
+        print(f" [SURVIVAL PROFILE] NAFNet 4GB Lockdown: Physical Batch 1 | Accumulation {accumulation_steps}")
+        print(f" [RESILIENCE] Correcting for 156s/batch slowdown. Manifold throttled for stability.")
 
     # 2026: SOTA Mission Profile - Final Consistency Audit
     print(f" [MISSION PROFILE] Physical Batch: {batch_size} | Logical (Effective) Batch: {batch_size * accumulation_steps}")
@@ -451,12 +474,12 @@ def main():
             print(f" [DATA] Windows 4GB Optimization: Capping workers at {num_workers}")
 
     print(f" [DATA] Initializing Parallel Manifold (Workers: {num_workers} | Persistent: {num_workers > 0})...")
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=True if num_workers > 0 else False, pin_memory=True if device.type=='cuda' else False)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
     val_num_workers = num_workers
     if vram > 0 and vram < 5.0 and is_heavy_model:
         val_num_workers = 0 # Force sequential validation on 4GB hardware to prevent swap-death crashes
         print(f" [DATA] NAFNet Stability Hack: Disabling validation workers on 4GB hardware.")
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=val_num_workers, persistent_workers=True if val_num_workers > 0 else False, pin_memory=True if device.type=='cuda' else False)
+    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
 
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=5e-4) # 2026: SOTA Weight Decay Stabilizer
@@ -506,6 +529,7 @@ def main():
     resume_iteration = -1
     regression_epochs = 0 # 2026 Resilience: Regression Guardrail Counter
     prev_quality_score = 0.0
+    val_resume_iteration = -1
 
     latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
     progress_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
@@ -550,12 +574,38 @@ def main():
                 if 'iteration' in ckpt:
                     resume_iteration = ckpt['iteration']
                     print(f"[INFO] [RESILIENCY] Intra-epoch progress detected. Iteration: {resume_iteration}")
+                if 'val_iteration' in ckpt:
+                    val_resume_iteration = ckpt['val_iteration']
+                    print(f"[INFO] [RESILIENCY] Intra-validation progress detected. Resume Val Iter: {val_resume_iteration}")
                 if 'governor_state' in ckpt:
                     governor.load_state(ckpt['governor_state'])
                     g_start_state = governor.get_state()
-                    train_ds.update_strategy(fraction=g_start_state['sample_fraction'], size=g_start_state['input_size'])
+                    
+                    # 2026 Resilience: Restore Save Cadence
+                    if 'last_intra_epoch_pct' in ckpt:
+                        last_intra_epoch_pct = ckpt['last_intra_epoch_pct']
+                    if 'interval_pct' in ckpt:
+                        interval_pct = ckpt['interval_pct']
+                    if 'last_val_pct' in ckpt:
+                        last_val_pct = ckpt['last_val_pct']
+                    if 'val_interval_pct' in ckpt:
+                        val_interval_pct = ckpt['val_interval_pct']
+                    
+                    # 2026 Resilience: Post-Restoration VRAM Re-Audit
+                    # Only recalculate batch size if it was set to 'auto' in the registry.
+                    res_size = g_start_state['input_size']
+                    if config_batch == "auto" and not args.batch_size:
+                        temp_info = {**model_info, "input_size": res_size}
+                        batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, mode='train')
+                        # Synchronize val_batch_size if it also followed the auto strategy
+                        if model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info:
+                            val_batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, mode='val')
+                    
+                    accumulation_steps = g_start_state.get('accumulation_steps', 1)
+                    
+                    train_ds.update_strategy(fraction=g_start_state['sample_fraction'], size=res_size)
                     # 2026: val_ds is NOT updated here — it must remain anchored at 384px!
-                    print(f" [RESILIENCY] Smart Governor state RESTORED from checkpoint (Dataset: {g_start_state['sample_fraction']*100:.0f}%). Val anchored at 384px.")
+                    print(f" [RESILIENCY] Smart Governor state RESTORED. Manifold Re-Audited: {res_size}px | Batch: {batch_size}")
                 if ckpt.get('sota_achieved', False):
                     sota_baseline_achieved = True
             else:
@@ -589,10 +639,10 @@ def main():
         probe_preds, probe_tgtes = [], []
         # 2026: Synchronized manfold audit. weights 10..1 match the user's 'inverted' dataset files.
         weights = torch.arange(10, 0, -1).float().to(device)
-        val_loader_probe = DataLoader(val_ds, batch_size=config.get('batch_size', 32), shuffle=False, num_workers=0)
+        val_loader_probe = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
         with torch.no_grad():
             for j, (p_img, p_tgt, _) in enumerate(val_loader_probe):
-                if j >= 10: break
+                if j >= 2: break # Shortened for 4GB stability
                 p_img, p_tgt = p_img.to(device), p_tgt.to(device)
                 p_out = model(p_img)
                 p_soft = torch.nn.functional.softmax(p_out / config.get('stabilizers', {}).get('softmax_temp', 0.1), dim=-1)
@@ -803,7 +853,12 @@ def main():
     # accumulation_steps is established pre-emptively during initialization.
     global_step = 0 # Absolute step tracking across the entire mission
     # 2026: SOTA Persistence Constants
-    interval_pct = float(config.get("intra_epoch_checkpoint_pct", 0.1))
+    _raw_interval = config.get("intra_epoch_checkpoint_pct", "auto")
+    if isinstance(_raw_interval, (int, float)):
+        interval_pct = float(_raw_interval)
+        print(f" 💾 [CONFIG] Static Save Interval Locked: {interval_pct*100:.1f}% (Horse Race Winner)")
+    else:
+        interval_pct = 0.0 # To be calibrated by Governor
     
     for epoch in range(start_epoch, epochs):
         last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.12) ---
@@ -838,21 +893,21 @@ def main():
             current_iter = resume_iteration
 
         while current_iter < len(train_loader):
-            # Enumerate to keep indices synced
             iter_obj = enumerate(train_loader)
-            iter_resync_triggered = False
-
-            # --- 2026: Resonance Sync Accelerator ---
             if current_iter > 0:
-                pbar_desc = f"Epoch {epoch+1}"
+                # 2026 Resilience: Engage Fast-Skip Sync to bypass I/O overhead
                 train_ds.sync_mode = True
-                with tqdm(total=current_iter, desc=" [RESONANCE SYNC]", unit="iter", colour="cyan", leave=False, file=sys.stderr, dynamic_ncols=True) as sync_pbar:
+                with tqdm(total=current_iter, desc=" ⏩ [RESILIENCY] Fast-forwarding", unit="batch", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_pbar:
                     for i, _ in iter_obj:
-                        sync_pbar.update(1)
+                        if skip_pbar.n < skip_pbar.total:
+                            skip_pbar.update(1)
                         if i >= current_iter - 1:
                             break
                 train_ds.sync_mode = False
-                if pbar: pbar.write(f" [MANIFOLD REACHED] Resonance synchronization complete.")
+            
+            # --- 2026 Resilience: Adaptive Resume Boundary ---
+            # If batch size changed, the resume iteration might exceed the new total.
+            current_iter = min(current_iter, len(train_loader))
 
             pbar = tqdm(
                 total=len(train_loader),
@@ -866,28 +921,29 @@ def main():
             )
             # Sync intra-epoch save threshold to resume point
             last_intra_epoch_pct = (current_iter / len(train_loader)) if len(train_loader) > 0 else 0.0
-            last_intra_epoch_pct = round(math.floor(last_intra_epoch_pct / interval_pct) * interval_pct, 2)
+            if interval_pct > 0:
+                last_intra_epoch_pct = round(math.floor(last_intra_epoch_pct / interval_pct) * interval_pct, 2)
             pbar.set_postfix({"loss": "..."})
 
             optimizer.zero_grad() # Initial zero
 
+            session_batches_processed = 0
             for i, batch in iter_obj:
-                # 2026: Global Index Alignment (v6.1.7 Harmony)
-                # leverage the absolute enumerate index i to maintain manifold parity.
+                # --- 2026: Global Index Alignment ---
                 current_iter = i + 1
-
-                # --- 2026: Universal Telemetry Tick (v6.1.8) ---
-                # Top-load the tick to ensure real-time visual feedback before the 45s backward pass.
-                pbar.update(1)
+                if pbar.n < pbar.total:
+                    pbar.update(1)
                 pbar.set_postfix({"loss": "..."})
                 pbar.refresh()
 
-                # --- 2026 Generative Data Unpacking ---
+                # --- 2026 Resilience: Universal Batch Unpacking ---
+                inputs, targets, tasks = batch
+
+                # --- 2026 Generative Data Processing ---
                 if train_ds.task_type in ["text_to_image", "image_to_text"]:
-                    inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                    inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
                     targets, task_idx = None, None
                 else:
-                    inputs, targets, tasks = batch
                     inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
                     if not torch.isfinite(inputs).all():
                         if pbar: pbar.write(f" [RESILIENCE] Non-finite values detected in input batch! Skipping...")
@@ -963,14 +1019,17 @@ def main():
                         if torch.cuda.is_available(): torch.cuda.empty_cache()
                         if batch_size > 1:
                             old_bs = batch_size
-                            batch_size = max(1, batch_size // 2)
-                            accumulation_steps = (effective_batch_size // batch_size) if 'effective_batch_size' in locals() else accumulation_steps * 2
-                            print(f" [RECOVERY] New Physical Batch: {batch_size} | New Accumulation: {accumulation_steps}")
+                            # [DISABLED] 2026: Automated Batch Scaling per User Preference
+                            # batch_size = max(1, batch_size // 2)
+                            # accumulation_steps = (effective_batch_size // batch_size) if 'effective_batch_size' in locals() else accumulation_steps * 2
+                            print(f" [RECOVERY] OOM Detected. Batch size reduction DISABLED per user preference.")
                             # Update iterator position to maintain absolute manifold parity (v6.1.7)
                             current_iter = int(i * (old_bs / batch_size))
                             if pbar: pbar.close() # Clean up zombie bar before re-initialization
+                            # 2026: Clamped Recovery Bar
+                            current_iter = min(current_iter, len(train_loader))
                             pbar = tqdm(
-                                train_loader,
+                                total=len(train_loader),
                                 initial=current_iter,
                                 desc=f"Epoch {epoch+1}/{epochs} [Train RECOVERY]",
                                 unit="batch",
@@ -1153,7 +1212,6 @@ def main():
                     else:
                         consecutive_nans = 0 # Batch was skip-stabilized
 
-                    # Update UI before continuing to ensure user sees the "RECOVERING" status
                     pbar.set_postfix({"loss": "RECOVERING", "retry": consecutive_nans})
                     continue
 
@@ -1198,6 +1256,25 @@ def main():
                         if param_group['lr'] < 5e-7:
                             param_group['lr'] = 5e-7
 
+                    # [DISABLED] 2026 Resilience: Intra-Epoch VRAM Sentinel (Hardened v10.1.8)
+                    # if i % 5 == 0 and device.type == 'cuda':
+                    #     free_mem, _ = torch.cuda.mem_get_info(0)
+                    #     ...
+
+                    # --- 2026: Dynamic Training Checkpoint Frequency ---
+                    # Only calibrate if config is set to "auto"
+                    session_batches_processed += 1
+                    if session_batches_processed == 30 and config.get("intra_epoch_checkpoint_pct", "auto") == "auto":
+                        # 2026: Use Smoothed Rate (it/s) to avoid warm-up skew
+                        rate = pbar.format_dict.get('rate')
+                        avg_time = (1.0 / rate) if rate and rate > 0 else (pbar.format_dict['elapsed'] / session_batches_processed)
+                        new_interval = governor.get_dynamic_save_interval(avg_time, len(train_loader))
+                        if new_interval != interval_pct:
+                            interval_pct = new_interval
+                            est_mins = (interval_pct * len(train_loader) * avg_time) / 60
+                            msg = f" 💾 [RESILIENCY] Save Interval Recalibrated: {interval_pct*100:.1f}% (~{est_mins:.1f} min window)" if interval_pct > 0 else " 💾 [RESILIENCY] Save Interval Recalibrated: OFF (Epoch < 15 min)"
+                            (pbar.write if pbar else print)(msg)
+
                     new_lr = scheduler.get_last_lr()[0]
                     if new_lr < 5e-7: new_lr = 5e-7
 
@@ -1211,7 +1288,7 @@ def main():
                     if current_pct == 1.0:
                         last_intra_epoch_pct = 1.0
                     else:
-                        last_intra_epoch_pct += interval_pct
+                        last_intra_epoch_pct = current_pct
 
                     # Clamp to prevent floating point drift
                     last_intra_epoch_pct = round(last_intra_epoch_pct, 2)
@@ -1229,27 +1306,56 @@ def main():
                             'best_quality_score': best_quality_score,
                             'epochs_no_improve': epochs_no_improve,
                             'regression_epochs': regression_epochs,
-                            'sota_achieved': sota_baseline_achieved
+                            'sota_achieved': sota_baseline_achieved,
+                            'last_intra_epoch_pct': last_intra_epoch_pct,
+                            'interval_pct': interval_pct,
+                            'avg_train_loss': (train_loss / (i + 1)) if (i + 1) > 0 else 0.0
                         }, f)
                         f.flush()
                         os.fsync(f.fileno())
                     safe_replace(temp_prog_ckpt, prog_ckpt)
                     tier_str = f"{current_pct*100:.0f}%"
 
-                    # Forcefully inject the print via a raw OS write to bypass tqdm's terminal control codes
-                    raw_msg = f"\n>>> [RESILIENCY] PROGRESS COMMITTED: Tier {tier_str} at Batch {i+1} <<<\n"
-                    sys.stderr.write(raw_msg)
-                    sys.stderr.flush()
+                    raw_msg = f"\n>>> [RESILIENCY] PROGRESS COMMITTED: {tier_str} at Batch {i+1} <<<\n"
+                    pbar.write(raw_msg)
 
 
 
         avg_train_loss = train_loss / len(train_loader)
 
+        # --- 2026 Resilience: Training-to-Validation Handover ---
+        # Commit training results to progress file immediately so if validation crashes,
+        # we don't have to re-run the training phase.
+        prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+        torch.save({
+            'epoch': epoch,
+            'iteration': len(train_loader),
+            'model_state': model.state_dict(),
+            'optimizer_state': optimizer.state_dict(),
+            'scheduler_state': scheduler.state_dict(),
+            'governor_state': governor.get_state(),
+            'best_val_loss': best_val_loss,
+            'best_quality_score': best_quality_score,
+            'avg_train_loss': avg_train_loss,
+            'epochs_no_improve': epochs_no_improve,
+            'regression_epochs': regression_epochs,
+            'sota_achieved': sota_baseline_achieved
+        }, f"{prog_ckpt}.tmp")
+        safe_replace(f"{prog_ckpt}.tmp", prog_ckpt)
+
         # --- 2026: Manifold Leak Guard ---
         if current_iter < len(train_loader):
             print(f" ⚠️ [WARNING] Manifold Leak Detected! Epoch processed {current_iter}/{len(train_loader)} batches before termination.")
 
-        pbar.close()
+        # --- 2026: SOTA Telemetry Capture (v10.1.2) ---
+        # Capture the training velocity BEFORE closing the progress bar to ensure metadata remains accessible.
+        train_speed = 0.0
+        if pbar is not None:
+            try:
+                train_speed = pbar.format_dict.get('rate', 0.0) or 0.0
+                pbar.close()
+            except:
+                pass
 
         # Validation Loop
         model.eval()  # pyre-ignore
@@ -1288,15 +1394,84 @@ def main():
                     loss_fn_vgg = lpips.LPIPS(net='vgg').eval().to(device)
                 except: pass
 
+            # --- 2026 Resilience: Validation State Recovery (v10.1.4) ---
+            if val_resume_iteration > 0:
+                ckpt = torch.load(os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth"), map_location='cpu')
+                val_loss = ckpt.get('val_loss', 0.0)
+                all_preds = ckpt.get('val_preds', [])
+                all_targets = ckpt.get('val_targets', [])
+                mse_sum = ckpt.get('mse_sum', 0.0)
+                ssim_sum = ckpt.get('ssim_sum', 0.0)
+                lpips_sum = ckpt.get('lpips_sum', 0.0)
+                total_samples = ckpt.get('total_samples', 0)
+                total_pixels = ckpt.get('total_pixels', 0)
+                avg_train_loss = ckpt.get('avg_train_loss', 0.0)
+                if fid_metric is not None and 'fid_state' in ckpt:
+                    fid_metric.load_state_dict(ckpt['fid_state'])
+                
+                # --- 2026 Resilience: Parity Guard ---
+                # Ensure the global train_loss variable is seeded to prevent zero-fills in CSV
+                train_loss = avg_train_loss * len(train_loader)
+                print(f" 🛸 [RESILIENCY] Validation state RESTORED. Resuming from iteration {val_resume_iteration}.")
+
+            if isinstance(_raw_interval, (int, float)):
+                val_interval_pct = float(_raw_interval)
+            else:
+                val_interval_pct = 0.0
+            last_val_pct = (max(0, val_resume_iteration) / len(val_loader)) if len(val_loader) > 0 else 0.0
+
+            # --- 2026 Resilience: Validation VRAM Sentinel (v10.1.5-PROACTIVE) ---
+            # Increased threshold to 750MB to ensure zero paging during high-res evaluation.
+            if device.type == 'cuda':
+                free_mem, _ = torch.cuda.mem_get_info(0)
+                if free_mem < (300 * 1024 * 1024) and batch_size > 4:
+                    print(f" 📡 [MEM-SENTINEL] Low Headroom for Validation ({free_mem/1e6:.1f}MB). Batch size reduction DISABLED per user preference.")
+                    # batch_size = max(4, batch_size // 2)
+                    # num_workers = config.get("num_workers", 0)
+                    # val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, 
+                    #                       num_workers=num_workers, pin_memory=True)
+
+            # --- 2026: Mid-Epoch Validation VRAM Audit ---
+            # Recalculate validation batch size right before starting to maximize throughput
+            if config_batch == "auto" and (model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info):
+                temp_info = {**model_info, "input_size": train_ds.size}
+                val_batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, mode='val')
+                if pbar: pbar.write(f" 📡 [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size}")
+                # Re-initialize DataLoader if batch size changed
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
+
             # 2026: Standardized Validation Telemetry. sys.stderr routes directly to PowerShell without buffering.
-            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=False, dynamic_ncols=True)
-            for batch in val_pbar:
-                # --- 2026 Generative Validation Unpacking ---
+            val_iterator = enumerate(val_loader)
+            if val_resume_iteration > 0:
+                # Engage Val-Skip Sync
+                val_ds.sync_mode = True
+                with tqdm(total=val_resume_iteration, desc=" ⏩ [RESILIENCY] Fast-forwarding Val", unit="it", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_val_pbar:
+                    for v_idx, _ in val_iterator:
+                        if skip_val_pbar.n < skip_val_pbar.total:
+                            skip_val_pbar.update(1)
+                        if v_idx >= val_resume_iteration - 1:
+                            break
+                val_ds.sync_mode = False
+            
+            # --- 2026 Resilience: Adaptive Val Boundary ---
+            val_resume_iteration = min(val_resume_iteration, len(val_loader))
+
+            val_pbar = tqdm(total=len(val_loader), initial=val_resume_iteration, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=False, dynamic_ncols=True)
+            val_session_batches = 0
+            for v_idx, batch in val_iterator:
+                # --- 2026: Global Index Alignment ---
+                current_val_iter = v_idx + 1
+                if val_pbar.n < val_pbar.total:
+                    val_pbar.update(1)
+
+                # --- 2026 Resilience: Universal Batch Unpacking ---
+                inputs, targets, tasks = batch
+
+                # --- 2026 Generative Validation Processing ---
                 if train_ds.task_type in ["text_to_image", "image_to_text"]:
-                    inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                    inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
                     targets, task_idx = None, None
                 else:
-                    inputs, targets, tasks = batch
                     inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
                     task_idx = None
                     if train_ds.task_type == "restoration":
@@ -1385,6 +1560,55 @@ def main():
                     total_samples += len(p_chunk)
                     total_pixels += len(p_chunk) * 3 * _current_h * _current_w
 
+                # --- 2026: Dynamic Validation Checkpoint Frequency ---
+                # Only calibrate if config is set to "auto"
+                val_session_batches += 1
+                if val_session_batches == 30 and config.get("intra_epoch_checkpoint_pct", "auto") == "auto":
+                    # 2026: Use Smoothed Rate (it/s) to avoid warm-up skew
+                    rate = val_pbar.format_dict.get('rate')
+                    avg_time = (1.0 / rate) if rate and rate > 0 else (val_pbar.format_dict['elapsed'] / val_session_batches)
+                    new_val_interval = governor.get_dynamic_save_interval(avg_time, len(val_loader))
+                    if new_val_interval != val_interval_pct:
+                        val_interval_pct = new_val_interval
+                        if val_interval_pct > 0:
+                            val_pbar.write(f" 💾 [RESILIENCY] Val Save Interval: {val_interval_pct*100:.1f}% (~15 min window)")
+
+                current_pct = (v_idx + 1) / len(val_loader)
+                if val_interval_pct > 0 and (current_pct >= last_val_pct + val_interval_pct - 1e-4 or current_pct == 1.0):
+                    last_val_pct = current_pct
+                    prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+                    torch.save({
+                        'epoch': epoch,
+                        'iteration': len(train_loader),
+                        'val_iteration': v_idx + 1,
+                        'val_loss': val_loss,
+                        'val_preds': all_preds,
+                        'val_targets': all_targets,
+                        'mse_sum': mse_sum,
+                        'ssim_sum': ssim_sum,
+                        'lpips_sum': lpips_sum,
+                        'total_samples': total_samples,
+                        'total_pixels': total_pixels,
+                        'avg_train_loss': avg_train_loss,
+                        'fid_state': fid_metric.state_dict() if fid_metric is not None else None,
+                        'model_state': model.state_dict(),
+                        'optimizer_state': optimizer.state_dict(),
+                        'scheduler_state': scheduler.state_dict(),
+                        'governor_state': governor.get_state(),
+                        'best_val_loss': best_val_loss,
+                        'best_quality_score': best_quality_score,
+                        'epochs_no_improve': epochs_no_improve,
+                        'regression_epochs': regression_epochs,
+                        'sota_achieved': sota_baseline_achieved,
+                        'last_val_pct': last_val_pct,
+                        'val_interval_pct': val_interval_pct
+                    }, f"{prog_ckpt}.tmp")
+                    safe_replace(f"{prog_ckpt}.tmp", prog_ckpt)
+                    raw_val_msg = f"\n>>> [RESILIENCY] VAL PROGRESS COMMITTED: {current_pct*100:.0f}% at Iter {v_idx+1} <<<\n"
+                    val_pbar.write(raw_val_msg)
+
+                # Progress commitments and state cleanup moved outside loop for manifold stability
+
                 elif train_ds.task_type == "classification":
                     all_preds.append(preds.detach().cpu())
                     all_targets.append(targets.detach().cpu())
@@ -1440,9 +1664,15 @@ def main():
         except Exception as e:
             metrics_str = f" | Metrics Error: {e}"
 
-        # --- 2026: Resonance Sync (Hardware Telemetry v1.0) ---
-        train_speed = pbar.format_dict['rate'] if pbar.format_dict['rate'] else 0.0
-        val_speed = val_pbar.format_dict['rate'] if val_pbar.format_dict['rate'] else 0.0
+        # --- 2026: Resonance Sync (Hardware Telemetry v1.1) ---
+        # train_speed is now captured pre-closure above.
+        val_speed = 0.0
+        if 'val_pbar' in locals() and val_pbar is not None:
+            try:
+                val_speed = val_pbar.format_dict.get('rate', 0.0) or 0.0
+                val_pbar.close()
+            except: pass
+            
         print(f"📡 [RESONANCE SYNC] Train: {train_speed:.2f} it/s | Val: {val_speed:.2f} it/s | Efficiency: Optimized")
 
         # 2026 Smart Telemetry (Silent Summary)
@@ -1506,11 +1736,11 @@ def main():
                 is_best = True
                 is_improving = True
                 best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid, "accuracy": accuracy}
-                pbar.write(f" -> 🏆 [SOTA GUARD] Record Quality Milestone: {best_quality_score:.4f} (Previous: {prev_best:.4f}).")
+                (pbar.write if pbar else print)(f" -> 🏆 [SOTA GUARD] Record Quality Milestone: {best_quality_score:.4f} (Previous: {prev_best:.4f}).")
             elif loss_improves:
                 best_val_loss = avg_val_loss
                 is_improving = True
-                pbar.write(f" -> 💡 [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}). Progress stabilized.")
+                (pbar.write if pbar else print)(f" -> 💡 [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}). Progress stabilized.")
             else:
                 # 2026: Horizontal Stagnation Detected.
                 # We do NOT reset is_improving, which allows the Governor to trigger a Jolt.
@@ -1540,10 +1770,21 @@ def main():
             if new_params.get('stabilization_epochs', 0) > 0:
                 print(f"🛡️ [STABILIZATION SHIELD] Manifold Locked for {new_params['stabilization_epochs']} more epochs.")
 
+            # --- 2026 Resilience: Inter-Epoch Adaptive Batch Strategy ---
+            # Recalculate batch sizes at the epoch boundary to maximize efficiency if set to 'auto'.
+            if config_batch == "auto" and not args.batch_size:
+                temp_info = {**model_info, "input_size": governor.current_res}
+                batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, mode='train')
+                if model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info:
+                    val_batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, mode='val')
+                b_changed = True # Ensure loaders are updated with the newly calculated sizes
+
             if f_changed or r_changed or b_changed:
                 if b_changed:
-                    batch_size = new_params['batch_size']
-                    accumulation_steps = new_params['accumulation_steps']
+                    # [DISABLED] 2026: Governor Batch Overwrite per User Preference
+                    # batch_size = new_params['batch_size']
+                    # accumulation_steps = new_params['accumulation_steps']
+                    print(f" 🛸 [GOVERNOR] Batch shift requested but BLOCKED per user preference.")
 
                 train_ds.update_strategy(
                     fraction=new_params['sample_fraction'] if f_changed else None,
@@ -1554,7 +1795,7 @@ def main():
                     val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
 
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
-                val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
 
             if lr_changed:
                 mult = new_params['lr_multiplier']
@@ -1627,7 +1868,6 @@ def main():
 
         # Consistent checkpoint persistence (Atomic Save)
         latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
-        backup_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_epoch_{epoch+1}.pth")
         temp_latest = f"{latest_ckpt}.tmp"
         
         with open(temp_latest, "wb") as f:
@@ -1636,9 +1876,6 @@ def main():
             os.fsync(f.fileno())
         
         safe_replace(temp_latest, latest_ckpt)
-        # 2026: SOTA Mirroring - Create a permanent backup of this epoch milestone
-        shutil.copy2(latest_ckpt, backup_ckpt)
-
         # Reset intra-epoch progress file now that the epoch is safely committed
         progress_ckpt_path = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
         if os.path.exists(progress_ckpt_path):

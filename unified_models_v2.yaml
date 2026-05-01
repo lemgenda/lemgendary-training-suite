@@ -26,9 +26,9 @@ nima_aesthetic:
     plcc: 0.95
     srcc: 0.9
   stabilizers:
-    softmax_temp: 0.1
+    softmax_temp: 1.0
     emd_epsilon: 0.0001
-    logit_clamp: 20.0
+    logit_clamp: 15.0
     rank_weight: 0.2
     rank_margin: 0.05
   optimization:

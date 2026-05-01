@@ -1,8 +1,8 @@
 # Architecture of LemGendary AI: High-Fidelity NIMA Assessment via Hardware-Aware Optimization
 
 **Author**: Lem Treursić
-**Version**: 2.9.0 - Resiliency v6.1.25 (2026 Optimization)
-**Target Hardware**: NVIDIA GeForce GTX 1650 (4GB GDDR5 / Windows 11)
+**Version**: 3.0.0 - Dynamic VRAM Sync (2026 Breakthrough)
+**Target Hardware**: NVIDIA GeForce GTX 1650 (4GB) / Apple Silicon (MPS) / Intel ARC (XPU)
 
 ---
 
@@ -10,10 +10,10 @@
 1. [Abstract](#1-abstract)
 2. [Visual Taxonomy: The LemGendary Universal Quality Subset](#2-visual-taxonomy-the-lemgendary-universal-quality-subset)
    - [2.1 The Four-Quadrant Dataset Philosophy](#21-the-four-quadrant-dataset-philosophy)
-3. [Hardware-Aware Infrastructure: The "GTX 1650" Specialization](#3-hardware-aware-infrastructure-the-gtx-1650-specialization)
-   - [3.1 Memory-Sentinel Algorithm](#31-the-memory-sentinel-algorithm-2026-calibration)
-   - [3.2 Kernel-Level Paging Protection](#32-kernel-level-paging-protection)
-   - [3.3 OVC Data Streaming Bridge](#33-ovc-data-streaming-bridge-opencv-to-cuda)
+3. [Hardware-Aware Infrastructure: Universal Acceleration](#3-hardware-aware-infrastructure-universal-acceleration)
+   - [3.1 The Headroom-Aware Memory-Sentinel](#31-the-headroom-aware-memory-sentinel)
+   - [3.2 Intra-Epoch Paging Protection](#32-intra-epoch-paging-protection)
+   - [3.3 OVC Data Streaming Bridge (OpenCV-to-CUDA)](#33-ovc-data-streaming-bridge-opencv-to-cuda)
 4. [Mathematical Optimization: The 2026 Resonance Loss](#4-mathematical-optimization-the-2026-resonance-loss)
    - [4.1 Earth Mover's Distance (EMD)](#41-earth-movers-distance-emd---the-histogram-anchor)
    - [4.2 True Rank Correlation via EMD Temperature Anchoring](#42-true-rank-correlation-via-emd-temperature-anchoring)
@@ -64,6 +64,10 @@
    - [9.2 The Impact of Data-First Engineering](#92-the-impact-of-data-first-engineering)
    - [9.3 Future Outlook: From Browser to Edge](#93-future-outlook-from-browser-to-edge)
 10. [Appendix: 2026 Dynamic Governor Logs](#10-appendix-2026-dynamic-governor-logs)
+11. [Universal Hardware Protocols (v3.0)](#11-universal-hardware-protocols-v30)
+   - [11.1 Universal Backend Selection (MPS/XPU/DirectML)](#111-universal-backend-selection-mpsxpudirectml)
+   - [11.2 Active VRAM Probing (mem_get_info)](#112-active-vram-probing-memgetinfo)
+   - [11.3 Time-Aware Checkpoint Governance](#113-time-aware-checkpoint-governance)
 
 ---
 
@@ -92,23 +96,17 @@ Traditional datasets often conflate beauty with clarity. Our LemGendized subset 
 
 ---
 
-## 3. Hardware-Aware Infrastructure: The "GTX 1650" Specialization
-Training massive architectures like **EfficientNetV2-S** at high resolutions on a 4GB card requires surgical VRAM management.
+## 3. Hardware-Aware Infrastructure: Universal Acceleration
+Training massive architectures like **EfficientNetV2-S** at high resolutions requires surgical VRAM management across diverse hardware targets.
 
-### 3.1 The Memory-Sentinel Algorithm (2026 Calibration)
-The Sentinel performs a deep-level probe of the NVIDIA GTX 1650 architecture (GDDR5/6) and the Windows 11 kernel:
-*   **DWS Protection Layer**: We reserve a specific **450MB buffer** to handle the Windows Desktop Window Manager and browser background processes, ensuring zero VRAM swapping.
-*   **Dynamic Scaling**:
-    *   **Aesthetic (MobileNetV2)**: 1.0x Coefficient - Efficient global pooling.
-    *   **Technical (EfficientNetV2-S)**: 2.4x Coefficient - Heavy activation overhead at 384x384.
-*   **Cuda Benchmark = True**: Enabled to allow the cuDNN kernel to optimize convolution algorithms specifically for the local GTX 1650 architecture before training begins.
-*   **Decoupled Gradient Accumulation**: To reach an effective batch size of **64**, the script employs a **4x Accumulation Layer** (16 physical -> 64 effective).
+### 3.1 The Headroom-Aware Memory-Sentinel
+The Sentinel has evolved from a static lookup table to an **Active Probing Engine**. Instead of assuming a fixed capacity, it invokes `torch.cuda.mem_get_info()` (or backend equivalents) to sense the true available headroom. This accounts for browser tabs, OS compositors, and external GPU tasks, ensuring that the physical batch size is always seated within the safe "Non-Paging" manifold.
 
-### 3.2 Kernel-Level Paging Protection
-On a 4GB card, the "VRAM Swap" phenomenon—where Windows moves GPU tasks into system RAM—causes performance to drop by 90-95%. The suite implements a **Sentinel Force-Lock**. By monitoring the `cuda.memory_summary()`, it dynamically interrupts the dataloader if the DWS buffer is breached, preventing a kernel-level paging event and maintaining a constant high-velocity stride.
+### 3.2 Intra-Epoch Paging Protection
+To handle dynamic system load (e.g., opening a browser mid-training), the suite implements an **Intra-Epoch VRAM Sentinel**. By probing free memory every 50 batches, the system can preemptively halt the training loop and downscale the physical batch size (compensating with gradient accumulation) before a kernel-level paging event occurs.
 
 ### 3.3 OVC Data Streaming Bridge (OpenCV-to-CUDA)
-To minimize latency on the PCIe 3.0 bus, the suite uses the **OVC Bridge**. Images are pre-processed in the CPU's L3 cache using OpenCV's optimized SIMD instructions before being mapped directly into the GPU's memory buffer. This "Prefetch-and-Map" strategy hides the I/O latency of the 384x384 high-fidelity samples, ensuring the EfficientNetV2-S kernels are never starved for data.
+To minimize latency on the PCIe 3.0 bus, the suite uses the **OVC Bridge**. Images are pre-processed in the CPU's L3 cache using OpenCV's optimized SIMD instructions before being mapped directly into the GPU's memory buffer. This "Prefetch-and-Map" strategy hides the I/O latency of the high-fidelity samples, ensuring the kernels are never starved for data.
 
 ---
 
@@ -351,4 +349,15 @@ The graduation of these models to the **ONNX / WebGPU** ecosystem marks the begi
 *   **Temporal Quality Assessment**: Expanding the Universal Matrix to video frames.
 *   **Edge Refinement**: Implementing LoRA-based local adaptation for specific user-camera characteristics.
 
-Ultimately, the LemGendary project proves that on a humble **GTX 1650**, with the right mathematical guardrails (2026 Resilience Loss) and resource monitoring (Memory-Sentinel), the gap between laboratory SOTA and consumer deployment has officially closed.
+Ultimately, the LemGendary project proves that with the right mathematical guardrails (2026 Resilience Loss) and real-time resource monitoring, the gap between laboratory SOTA and consumer deployment has officially closed.
+
+## 11. Universal Hardware Protocols (v3.0)
+
+### 11.1 Universal Backend Selection (MPS/XPU/DirectML)
+The 2026 architecture introduces a **Unified Device Handshake**. By prioritizing CUDA > MPS > XPU > DirectML, the suite ensures that the same codebase executes at maximum performance on NVIDIA, Apple Silicon, and Intel ARC hardware without manual configuration.
+
+### 11.2 Active VRAM Probing (mem_get_info)
+We have transitioned from **Theoretical Capacity** to **Actual Occupancy**. The system now probes real-time free VRAM before every session. This "Active Headroom Sensing" allows the Governor to intelligently downshift on shared machines (e.g., Windows desktops with browsers) while maximizing throughput on dedicated cloud nodes.
+
+### 11.3 Time-Aware Checkpoint Governance
+To protect both SSD lifespan and training progress, the suite implements a **15-Minute Resiliency Window**. The Governor monitors iteration velocity and dynamically recalibrates the checkpoint frequency to ensure that no more than 15 minutes of work is ever at risk.
