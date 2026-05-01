@@ -141,14 +141,13 @@ class MultiTaskDataset(Dataset):
                     print(f"⚠️ [MANIFEST] Cache corruption on {ds_name}. Re-scanning: {e}")
             
             # 2026 Resilience: Ignore empty or suspiciously small caches for training
-            if is_train and len(files) < 10:
+            # A training set with < 100 samples is likely a failed extraction/cache artifact
+            if is_train and len(files) < 100:
                 files = []
             
             if not files:
                 # 2026 Resilience: First-time scan pulse
-                if not getattr(self, '_scanned_already', False):
-                    print(f"🔍 [DATA] Syncing Physical Manifold for '{ds_name}' (First-run disk scan)...")
-                    self._scanned_already = True
+                print(f"🔍 [DATA] Syncing Physical Manifold for '{ds_name}' ({self.split} scan)...")
                     
                 if self.task_type in ["text_to_image", "image_to_text"]:
                     parquet_dir = os.path.join(ds_path, "parquet", self.split)
@@ -187,7 +186,14 @@ class MultiTaskDataset(Dataset):
         if is_train and 0.0 < self.sample_fraction < 1.0:
             import random
             random.shuffle(self.samples)
-            self.samples = self.samples[:int(len(self.samples) * self.sample_fraction)]
+            num_keep = int(len(self.samples) * self.sample_fraction)
+            
+            # Resilience Check: If we have data but subsampling kills it all, we warn
+            if num_keep == 0 and len(self.samples) > 0:
+                print(f"⚠️ [WARNING] Subsampling ({self.sample_fraction*100:.1f}%) resulting in 0 samples from {len(self.samples)} total.")
+                num_keep = 1 # Keep at least one to prevent RandomSampler crash
+                
+            self.samples = self.samples[:num_keep]
             print(f"🚀 [VELOCITY] Stochastic Subsampling ACTIVE: Using {len(self.samples)} samples ({self.sample_fraction*100:.1f}%)")
 
         self.build_transforms()
