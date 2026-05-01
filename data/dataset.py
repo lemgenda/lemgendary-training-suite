@@ -140,6 +140,10 @@ class MultiTaskDataset(Dataset):
                 except Exception as e:
                     print(f"⚠️ [MANIFEST] Cache corruption on {ds_name}. Re-scanning: {e}")
             
+            # 2026 Resilience: Ignore empty or suspiciously small caches for training
+            if is_train and len(files) < 10:
+                files = []
+            
             if not files:
                 # 2026 Resilience: First-time scan pulse
                 if not getattr(self, '_scanned_already', False):
@@ -155,12 +159,18 @@ class MultiTaskDataset(Dataset):
                         print(f"⚠️ [WARNING] Generative Task '{self.task_type}' requires Parquet schema in {parquet_dir}. None found!")
                 else:
                     if os.path.exists(img_dir):
-                        files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+                        all_items = os.listdir(img_dir)
+                        files = [f for f in all_items if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+                        if not files:
+                            print(f"⚠️ [WARNING] No valid images found in {img_dir}. (Total items: {len(all_items)})")
                     else:
                         files = []
+                        print(f"⚠️ [WARNING] Image directory NOT FOUND: {img_dir}")
+                
+                print(f"✅ [SCAN] Discovered {len(files)} samples for {ds_name} ({self.split})")
+                
                 try:
                     # 2026 Resilience: Only persist cache if we actually found data
-                    # This prevents 'poisoning' the cache with empty results from failed extractions
                     if len(files) > 0:
                         with open(cache_file, 'w') as f:
                             json.dump(files, f)
