@@ -66,13 +66,24 @@ def _handle_kaggle(ds_name, data_dir, ref):
             if "datasets/" in ref: slug = ref.split("datasets/")[-1]
             elif "kaggle://" in ref: slug = ref.replace("kaggle://", "")
             
-        os.makedirs(data_dir, exist_ok=True)
-        api.dataset_download_files(slug, path=data_dir, quiet=False, unzip=True)
+        ds_path = os.path.join(data_dir, ds_name)
+        os.makedirs(ds_path, exist_ok=True)
+        api.dataset_download_files(slug, path=ds_path, quiet=False, unzip=True)
         
         # Cleanup orphaned zip if unzip=True left any
         import glob
-        for z in glob.glob(os.path.join(data_dir, "*.zip")):
+        for z in glob.glob(os.path.join(ds_path, "*.zip")):
             os.remove(z)
+            
+        # 2026 Resilience: Check for double-nesting (e.g. ds_name/ds_name/images)
+        # Some Kaggle zips contain the folder itself.
+        subfolders = [f for f in os.listdir(ds_path) if os.path.isdir(os.path.join(ds_path, f))]
+        if len(subfolders) == 1 and subfolders[0].lower() == ds_name.lower():
+            nested_path = os.path.join(ds_path, subfolders[0])
+            print(f"   📦 [RESILIENCE] Correcting double-nested manifold: {subfolders[0]}")
+            for item in os.listdir(nested_path):
+                shutil.move(os.path.join(nested_path, item), ds_path)
+            os.rmdir(nested_path)
             
         print(f"   ✅ Kaggle {ds_name} mapped natively.\n")
         return True

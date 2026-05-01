@@ -475,6 +475,14 @@ def main():
             print(f" [DATA] Windows 4GB Optimization: Capping workers at {num_workers}")
 
     print(f" [DATA] Initializing Parallel Manifold (Workers: {num_workers} | Persistent: {num_workers > 0})...")
+    # --- 2026 Resilience: Empty Dataset Guard ---
+    if len(train_ds) == 0:
+        print(f"\n❌ [CRITICAL ERROR] Training dataset for '{args.model}' has ZERO samples.")
+        print(f"   👉 This usually means the dataset structure is incorrect or extraction failed.")
+        print(f"   👉 Expected structure: {os.path.join(data_dir, 'LemGendized' + args.model.replace('_', ' ').title().replace(' ', '') + final_suffix, 'images', 'train')}")
+        print(f"   👉 Recommended action: Wipe the 'manifests' and '../LemGendaryDatasets' folders and restart.")
+        sys.exit(1)
+
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
     val_num_workers = num_workers
     if vram > 0 and vram < 5.0 and is_heavy_model:

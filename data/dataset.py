@@ -159,8 +159,11 @@ class MultiTaskDataset(Dataset):
                     else:
                         files = []
                 try:
-                    with open(cache_file, 'w') as f:
-                        json.dump(files, f)
+                    # 2026 Resilience: Only persist cache if we actually found data
+                    # This prevents 'poisoning' the cache with empty results from failed extractions
+                    if len(files) > 0:
+                        with open(cache_file, 'w') as f:
+                            json.dump(files, f)
                 except Exception as e:
                     print(f"⚠️ [MANIFEST] Failed to persist cache for {ds_name}: {e}")
                 
