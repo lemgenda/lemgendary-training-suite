@@ -63,6 +63,11 @@ class MultiTaskDataset(Dataset):
         # --- 2026 Resiliency: Apply dynamic execution suffix ---
         exec_mode = config.get("execution", {}).get("mode", "training")
         suffix = config.get("execution", {}).get("suffixes", {}).get(exec_mode, "")
+        
+        # 2026 Resilience: On Kaggle, we prioritize attached datasets which usually omit the *Large suffix
+        if self.env == 'kaggle':
+            suffix = ""
+            
         dataset_names = [f"{name}{suffix}" for name in raw_dataset_names]
         
         # --- 2026 Protocol Awareness: Load Data Registry ---
@@ -235,13 +240,27 @@ class MultiTaskDataset(Dataset):
                 if os.path.exists(os.path.join(base_kaggle_path, "images")):
                     return base_kaggle_path
 
-            # Tier 2: Heuristic - Check for case-insensitive folder match in /kaggle/input/
+            # Tier 2: Heuristic - Check for variations in /kaggle/input/
             input_root = "/kaggle/input"
             if os.path.exists(input_root):
                 try:
-                    for folder in os.listdir(input_root):
+                    candidates = os.listdir(input_root)
+                    # 1. Exact case-insensitive match
+                    for folder in candidates:
                         if folder.lower() == ds_name.lower():
-                            return os.path.join(input_root, folder)
+                            return f"{input_root}/{folder}"
+                    
+                    # 2. Match without common suffixes
+                    base_name = ds_name.lower().replace("large", "").replace("kaggleready", "").replace("_", "").replace("-", "")
+                    for folder in candidates:
+                        f_low = folder.lower().replace("_", "").replace("-", "")
+                        if f_low == base_name:
+                            return f"{input_root}/{folder}"
+                            
+                    # 3. Fuzzy match (contains)
+                    for folder in candidates:
+                        if base_name in folder.lower().replace("_", "").replace("-", ""):
+                            return f"{input_root}/{folder}"
                 except:
                     pass
 
