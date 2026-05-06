@@ -51,6 +51,7 @@ class SmartTrainingGovernor:
         self.min_temp = 0.4 if self.task_type == "quality" else 0.1
         self.current_temp = self.stab.get("softmax_temp", self.min_temp)
         self.current_clamp = self.stab.get("logit_clamp", 15.0)
+        self.min_clamp = 10.0
         self.max_clamp = 45.0
         
         self.prev_quality = 0.0
