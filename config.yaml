@@ -20,7 +20,7 @@ pin_memory: true
 # datasets_dir: "data/datasets"
 datasets_dir: "../LemGendaryDatasets"
 datasets_fallback_dir: "../LemGendaryDatasets"
-checkpoint_dir: "checkpoints"
+checkpoint_dir: "trained-models/checkpoints"
 export_dir: "../LemGendaryModels"
 
 # Kaggle Dataset URL Fallbacks (Used if not found locally)
