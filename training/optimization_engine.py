@@ -206,8 +206,14 @@ class SmartTrainingGovernor:
         self.stabilization_epochs = state.get("stabilization_epochs", 0)
 
     def recoil(self):
-        """Universal Tactical Retreat."""
-        self.current_fraction = max(0.15, self.current_fraction - 0.2)
-        self.current_temp = min(0.6, self.current_temp * 1.5)
+        """Universal Tactical Retreat (v7.1: Deep Descent)."""
+        old_frac = self.current_fraction
+        # Allow deeper retreat if already at floor to break state-deadlock
+        reduction = 0.2 if old_frac > 0.25 else 0.1
+        self.current_fraction = max(0.05, old_frac - reduction)
+        
+        # Increase manifold excitation to shake out of the "poisoned" state
+        self.current_temp = min(1.5, self.current_temp * 1.3)
         self.stabilization_epochs = 3
-        return "⚡ [GOVERNOR] RECOIL: Retreating to 15% Data for stabilization."
+        
+        return f"⚡ [GOVERNOR] RECOIL: Deep Descent {old_frac*100:.0f}% -> {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
