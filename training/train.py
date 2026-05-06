@@ -2462,6 +2462,7 @@ print(f"[INFO] Using device: {device}")
                         "        print(\"✅ Clone successful!\")\n",
                         "    else:\n",
                         "        print(\"❌ Failed to clone repository. (Did you attach the GITHUB_PAT secret?)\")\n",
+                        "        print(\"🔒 If access is denied, please request access via: lemgenda.obrt@gmail.com\")\n",
                         "        print(res.stderr.replace(pat, '***') if pat else res.stderr)\n",
                         "%cd lemgendary-training-suite\n"
                     ],
@@ -2481,11 +2482,16 @@ print(f"[INFO] Using device: {device}")
                         "pat = os.environ.get('GITHUB_PAT', '')\n",
                         "repo_url = f\"https://lemgenda:{pat}@github.com/lemgenda/lemgendary-training-suite.git\" if pat else \"https://github.com/lemgenda/lemgendary-training-suite.git\"\n",
                         "res = subprocess.run(f'git pull {repo_url} main', shell=True, capture_output=True, text=True)\n",
-                        "if 'Already up to date.' in res.stdout:\n",
-                        "    print('✅ LemGendary Training Suite is already up to date')\n",
+                        "if res.returncode == 0:\n",
+                        "    if 'Already up to date.' in res.stdout:\n",
+                        "        print('✅ LemGendary Training Suite is already up to date')\n",
+                        "    else:\n",
+                        "        print('🚀 LemGendary Training Suite changes pulled')\n",
+                        "        print(res.stdout)\n",
                         "else:\n",
-                        "    print('🚀 LemGendary Training Suite changes pulled')\n",
-                        "    print(res.stdout)\n"
+                        "    print(\"❌ Failed to pull updates.\")\n",
+                        "    print(\"🔒 If access is denied, please request access via: lemgenda.obrt@gmail.com\")\n",
+                        "    print(res.stderr.replace(pat, '***') if pat else res.stderr)\n"
                     ],
                     "metadata": {},
                     "outputs": [],
