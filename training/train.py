@@ -2805,6 +2805,8 @@ print(f"[INFO] Using device: {device}")
                         "if not os.path.exists(os.path.join(hub_root, '.git')):\n",
                         "    os.makedirs(hub_root, exist_ok=True)\n",
                         "    subprocess.run(['git', 'init'], cwd=hub_root)\n",
+                        "    subprocess.run(['git', 'config', 'user.email', 'lem.treursic@gmail.com'], cwd=hub_root)\n",
+                        "    subprocess.run(['git', 'config', 'user.name', 'lemgenda'], cwd=hub_root)\n",
                         "    subprocess.run(['git', 'remote', 'add', 'origin', f'https://github.com/{hub_user}/{hub_repo}.git'], cwd=hub_root)\n",
                         "\n",
                         "hub_model_dir = os.path.join(hub_root, model_key)\n",
