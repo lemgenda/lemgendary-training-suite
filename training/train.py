@@ -241,12 +241,20 @@ def trigger_sota_export(model, args, config, unified_models_registry, epoch, plc
         metrics_dict = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
         readme_text = build_model_readme(args.model, unified_models_registry, epoch+1, metrics_dict)
 
-        # Deployment Sync
-        trained_models_dir = os.path.normpath(os.path.join(os.getcwd(), "..", "LemGendaryModels", args.model))
-        os.makedirs(trained_models_dir, exist_ok=True)
-        with open(os.path.join(trained_models_dir, "README.md"), "w") as f:
+        # Deployment Sync: Mirror production binaries to the Hub
+        trained_models_hub_dir = os.path.normpath(os.path.join(os.getcwd(), "..", "LemGendaryModels", args.model))
+        os.makedirs(trained_models_hub_dir, exist_ok=True)
+        with open(os.path.join(trained_models_hub_dir, "README.md"), "w") as f:
             f.write(readme_text)
 
+        # 2026 Resilience: Auto-Mirror production binaries
+        export_output_dir = os.path.join(os.getcwd(), "trained-models", args.model)
+        if os.path.exists(export_output_dir):
+            print(f"   -> Mirroring production binaries to Hub...")
+            for f_name in os.listdir(export_output_dir):
+                if f_name.endswith(('.pt', '.onnx', '.json')):
+                    shutil.copy2(os.path.join(export_output_dir, f_name), os.path.join(trained_models_hub_dir, f_name))
+        
         print(f"✅ [SOTA DEPLOYMENT] Successful! Production binaries are live in LemGendaryModels/{args.model}.")
         
     except Exception as e:
