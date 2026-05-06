@@ -10,7 +10,8 @@ tmp/
 kaggle.json
 .kaggle_token
 #GitHub PAT
-.github_PAT
+.SUITE_PAT
+.GITHUB_PAT
 
 # ML Artifacts (Avoid committing binary weights)
 # trained-models/
