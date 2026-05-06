@@ -521,11 +521,10 @@ def main():
     effective_batch_size = batch_size
     accumulation_steps = 1
     vram = torch.cuda.get_device_properties(device).total_memory / (1024**3) if device.type == 'cuda' else 0
-    # 2026 Resilience: High-Resolution Detection (v2.1)
-    # Even lightweight models like NIMA/MobileNet become "Heavy" at > 448px resolution
     res_raw = model_info.get("input_size", 224)
     current_res = res_raw[1] if isinstance(res_raw, list) else res_raw
-    is_heavy_model = any(x in args.model.lower() for x in ["nafnet", "mirnet", "ffanet", "mprnet"]) or int(current_res) > 448
+    is_heavy_arch = any(x in args.model.lower() for x in ["nafnet", "mirnet", "ffanet", "mprnet"])
+    is_heavy_manifold = is_heavy_arch or int(current_res) > 448
 
     # --- 2026 Resilience: Universal Accumulation Stride (v11.5) ---
     # We maintain the "Effective Batch" across any hardware by adjusting accumulation 
@@ -535,8 +534,8 @@ def main():
         accumulation_steps = max(1, target_eff // batch_size)
         print(f" 🛸 [STRIDE-SYNC] Physical Batch {batch_size} < Target {target_eff}. Accumulation: {accumulation_steps}")
 
-    # Survival Profile remains for the absolute lower-bound
-    if vram > 0 and vram < 5.0 and is_heavy_model:
+    # Survival Profile remains for the absolute lower-bound (Mathematically Heavy Architectures)
+    if vram > 0 and vram < 5.0 and is_heavy_arch:
         batch_size = 1
         accumulation_steps = max(accumulation_steps, 4)
         print(f" [SURVIVAL PROFILE] Low-VRAM Heavy Lockdown: Physical 1 | Accumulation {accumulation_steps}")
@@ -596,12 +595,30 @@ def main():
         print(f"   👉 Recommended action: Wipe the 'manifests' and '../LemGendaryDatasets' folders and restart.")
         sys.exit(1)
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
-    # 2026 Resilience: Universal Sequential Validation (v11.6)
-    # Heavy models (NAFNet or High-Res) benefit from sequential validation on ALL hardware
-    # by eliminating multiprocessing overhead and preventing intermittent OOMs during fork.
+    # --- 2026 Resilience: Pre-Flight Resumption Engine ---
+    # We must initialize all continuity variables before they are used in the data infrastructure.
+    resume_iteration = -1
+    start_epoch = 0
+    ckpt_loaded = False
+    
+    checkpoint_dir = config.get("checkpoint_dir", "checkpoints")
+    latest_ckpt = os.path.join(checkpoint_dir, f"{args.model}_latest.pth")
+    progress_ckpt_path = os.path.join(checkpoint_dir, f"{args.model}_progress.pth")
+    best_ckpt_path = os.path.join(checkpoint_dir, f"{args.model}_best.pth")
+    
+    candidates = []
+    if os.path.exists(latest_ckpt): candidates.append((os.path.getmtime(latest_ckpt), latest_ckpt))
+    if os.path.exists(progress_ckpt_path): candidates.append((os.path.getmtime(progress_ckpt_path), progress_ckpt_path))
+    
+    # 2026 Resilience: Adaptive Worker Strategy
+    # If we detect a potential resume, we start with 0 workers to eliminate startup lag during fast-forwarding.
+    has_resume_candidate = len(candidates) > 0
+    active_workers = 0 if has_resume_candidate else num_workers
+    
+    # --- 2026: Mission Data Infrastructure (v6.0) ---
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, pin_memory=True if device.type=='cuda' else False)
     val_num_workers = num_workers
-    if is_heavy_model:
+    if is_heavy_manifold:
         val_num_workers = 0 
         print(f" 📡 [DATA-SENTINEL] Heavy Manifold detected. Enforcing sequential validation for stability.")
     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
@@ -722,6 +739,7 @@ def main():
                     # 2026 Resilience: Post-Restoration VRAM Re-Audit
                     # Only recalculate batch size if it was set to 'auto' in the registry.
                     res_size = g_start_state['input_size']
+                    old_batch_size = batch_size
                     if config_batch == "auto" and not args.batch_size:
                         temp_info = {**model_info, "input_size": res_size}
                         batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, model, mode='train')
@@ -731,7 +749,45 @@ def main():
                     
                     accumulation_steps = g_start_state.get('accumulation_steps', 1)
                     
+                    # 2026 Resilience: Proportional Iteration Scaling (The "Slide-Rule" Fix)
+                    # If the loader length changes (due to Batch Size or Fraction shifts), we must
+                    # scale the iteration to prevent skipping the whole epoch or starting from 0.
+                    # 2026 SOTA: We now prioritize 'loader_len' saved in the checkpoint for absolute parity.
+                    source_batch = g_start_state.get('batch_size', batch_size)
+                    source_fraction = g_start_state.get('sample_fraction', 1.0)
+                    source_loader_len = ckpt.get('loader_len')
+                    
+                    if source_loader_len:
+                        ghost_loader_len = source_loader_len
+                        print(f" [RESILIENCY] Using verified checkpoint loader length: {ghost_loader_len}")
+                    else:
+                        # Fallback for legacy checkpoints (Ghost Loader Estimation)
+                        ghost_loader_len = int((len(train_ds.all_samples) * source_fraction) / max(1, source_batch))
+                        print(f" [RESILIENCY] Estimating Ghost Loader length: {ghost_loader_len}")
+                    
+                    # 2. Update to current strategy
                     train_ds.update_strategy(fraction=g_start_state['sample_fraction'], size=res_size)
+                    
+                    if batch_size != old_batch_size:
+                        print(f" [RESILIENCY] Batch Size Shift detected ({old_batch_size} -> {batch_size}). Synchronizing loader...")
+                        try:
+                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, 
+                                                     num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+                        except Exception as e:
+                            print(f" ⚠️ [RESILIENCY] Loader synchronization failed: {e}. Falling back to default.")
+                    
+                    new_loader_len = len(train_loader)
+                    
+                    if resume_iteration > 0 and ghost_loader_len > 0:
+                        raw_pct = resume_iteration / ghost_loader_len
+                        # 2026 Resilience: Clamp to prevent index overflow
+                        pct = min(0.999, raw_pct)
+                        resume_iteration = int(pct * new_loader_len)
+                        print(f" 🛰️ [TELEMETRY] Resume Diagnostic:")
+                        print(f"    - Source Batch: {source_batch} | Source Fraction: {source_fraction*100:.1f}%")
+                        print(f"    - Source/Ghost Length: {ghost_loader_len} | New Length: {new_loader_len}")
+                        print(f"    - Scaled Progress: {pct*100:.1f}% -> Iteration {resume_iteration}/{new_loader_len}")
+
                     # 2026: val_ds is NOT updated here — it must remain anchored at 384px!
                     print(f" [RESILIENCY] Smart Governor state RESTORED. Manifold Re-Audited: {res_size}px | Batch: {batch_size}")
                 if ckpt.get('sota_achieved', False):
@@ -1029,17 +1085,44 @@ def main():
             current_iter = resume_iteration
 
         while current_iter < len(train_loader):
+            # 2026: We check if we need to hot-swap from serial to parallel workers
+            if train_loader.num_workers == 0 and current_iter == 0 and num_workers > 0:
+                print(f" 🛰️ [MISSION CONTROL] Transitioning to Parallel Data Pipeline ({num_workers} workers)...")
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+
             iter_obj = enumerate(train_loader)
             if current_iter > 0:
                 # 2026 Resilience: Engage Fast-Skip Sync to bypass I/O overhead
+                # Optimization: Since we initialized with 0 workers, this is now instantaneous.
                 train_ds.sync_mode = True
                 with tqdm(total=current_iter, desc=" ⏩ [RESILIENCY] Fast-forwarding", unit="batch", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_pbar:
                     for i, _ in iter_obj:
-                        if skip_pbar.n < skip_pbar.total:
-                            skip_pbar.update(1)
+                        skip_pbar.update(1)
                         if i >= current_iter - 1:
                             break
                 train_ds.sync_mode = False
+                
+                # --- WORKER HOT-SWAP ---
+                # Now that we've reached the target batch, we swap to the full worker count
+                # 2026: Optimization - Skip hot-swap if we are already in serial mode or num_workers is 0
+                if num_workers > 0 and train_loader.num_workers == 0:
+                    print(f" 🛰️ [MISSION CONTROL] Fast-forward complete. Engaging Parallel Pipeline ({num_workers} workers)...")
+                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+                    iter_obj = enumerate(train_loader)
+                    # We must align the new loader's iterator (deterministic due to seeds)
+                    for i, _ in iter_obj:
+                        if i >= current_iter - 1: break
+                else:
+                    # In serial mode, we can just continue with the existing iterator
+                    print(f" 🛰️ [MISSION CONTROL] Fast-forward complete. Continuing in Serial Mode.")
+                
+                # 2026 Resilience: Soft-Start Guard (Manifold Seating)
+                # We dampen momentum slightly to prevent 'shock' NaNs on re-entry
+                print(f" 🛡️ [RESILIENCE] Engaging Soft-Start Guard (Momentum Dampened for 100 iterations)")
+                for state in optimizer.state.values():
+                    for k, v in state.items():
+                        if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
+                            v.mul_(0.85) # 15% dampening for smooth entry
             
             # --- 2026 Resilience: Adaptive Resume Boundary ---
             # If batch size changed, the resume iteration might exceed the new total.
@@ -1184,9 +1267,15 @@ def main():
                             # --- 2026 Resilience: Emergency Recovery Save (v6.1.10) ---
                             # Immediately lock in the new hardware profile and position
                             recovery_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+                            
+                            # 2026: Synchronize Governor before save to ensure metadata parity
+                            governor.current_batch = batch_size
+                            governor.current_acc = accumulation_steps
+                            
                             torch.save({
                                 'epoch': epoch,
                                 'iteration': current_iter,
+                                'loader_len': len(train_loader), # Save actual length for correct resume scaling
                                 'model_state': model.state_dict(),
                                 'optimizer_state': optimizer.state_dict(),
                                 'scheduler_state': scheduler.state_dict(),
@@ -1453,10 +1542,16 @@ def main():
                     last_intra_epoch_pct = round(last_intra_epoch_pct, 2)
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
                     temp_prog_ckpt = f"{prog_ckpt}.tmp"
+                    
+                    # 2026: Ensure Governor is synced with current session variables before save
+                    governor.current_batch = batch_size
+                    governor.current_acc = accumulation_steps
+                    
                     with open(temp_prog_ckpt, "wb") as f:
                         torch.save({
                             'epoch': epoch,
                             'iteration': i,
+                            'loader_len': len(train_loader),
                             'model_state': model.state_dict(),
                             'optimizer_state': optimizer.state_dict(),
                             'scheduler_state': scheduler.state_dict(),
@@ -2033,8 +2128,14 @@ def main():
         best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
 
         # Finalize Checkpoint State (Capturing latest Metric Shift)
+        # 2026: Ensure Governor is synced with current session variables before save
+        governor.current_batch = batch_size
+        governor.current_acc = accumulation_steps
+        
         ckpt_state = {
             'epoch': epoch,
+            'iteration': len(train_loader), # Mark epoch as finished for absolute parity
+            'loader_len': len(train_loader),
             'model_state': model.state_dict(),  # pyre-ignore
             'optimizer_state': optimizer.state_dict(),
             'scheduler_state': scheduler.state_dict(),
