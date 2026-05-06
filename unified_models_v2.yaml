@@ -32,6 +32,7 @@ nima_aesthetic:
     logit_clamp: 15.0
     rank_weight: 0.2
     rank_margin: 0.05
+    numerical_sentinel: [-15.0, 15.0]
   optimization:
     enabled: true
     initial_fraction: 0.75

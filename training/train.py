@@ -1088,6 +1088,16 @@ def main():
 
         sentinel_stresses = [] # --- 2026 Resilience: Global Stress Tracking (v5.7) ---
 
+        # --- 2026 Telemetry: Epoch State Anchor ---
+        # Capture variables BEFORE governor audit modifies them for the *next* epoch
+        epoch_lr = optimizer.param_groups[0]['lr']
+        epoch_res = train_ds.size[0]
+        epoch_fraction = train_ds.sample_fraction
+        epoch_temp = stab['softmax_temp']
+        epoch_clamp = stab.get('logit_clamp', 20.0)
+        epoch_batch = batch_size
+        epoch_acc = accumulation_steps
+
         pbar = None # Will be initialized after resonance sync
 
         # --- 2026 Resilience: Dynamic Iterator Bridge ---
@@ -2271,14 +2281,12 @@ def main():
         # We record the metrics AFTER all Governor transitions and Regression Guard rollbacks
         # to ensure the CSV reflects the EXACT state that will be used for the next epoch's training.
         with open(metrics_csv_path, "a") as f:
-            # Ground Truth LR: Using the optimizer's active param_groups to bypass scheduler lag
-            curr_lr = optimizer.param_groups[0]['lr']
-            # Telemetry Sync: Logging dynamic training resolution with anchored validation metrics
-            f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{curr_lr:.8f},"
+            # Telemetry Sync: Use epoch-anchored parameters
+            f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{epoch_lr:.8f},"
                     f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim_val:.4f},{lpips_val:.4f},{fid:.4f},"
-                    f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{train_ds.size[0]},{train_ds.sample_fraction:.2f},"
-                    f"{stab['softmax_temp']:.4f},{stab.get('logit_clamp', 20.0):.1f},"
-                    f"{batch_size},{accumulation_steps},{avg_sentinel_stress:.6f}\n")
+                    f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{epoch_res},{epoch_fraction:.2f},"
+                    f"{epoch_temp:.4f},{epoch_clamp:.1f},"
+                    f"{epoch_batch},{epoch_acc},{avg_sentinel_stress:.6f}\n")
         
         prev_quality_score = current_quality_score
         # --- 2026 Resilience: Model Hub Sync (v6.2.0) ---
