@@ -2424,23 +2424,36 @@ def main():
                 check_ahead = subprocess.run(["git", "rev-list", "--count", "origin/main..main"], cwd=hub_root, capture_output=True, text=True)
                 ahead_count = int(check_ahead.stdout.strip()) if check_ahead.returncode == 0 else 0
                 
-                if ahead_count > 0:
-                    print(f" 📡 [HUB SYNC] Local branch is ahead by {ahead_count} commits. Force-syncing...")
+                check_behind = subprocess.run(["git", "rev-list", "--count", "main..origin/main"], cwd=hub_root, capture_output=True, text=True)
+                behind_count = int(check_behind.stdout.strip()) if check_behind.returncode == 0 else 0
 
-                subprocess.run(["git", "checkout", "main"], cwd=hub_root, capture_output=True)
-                # Pull with rebase to ensure we are ahead of remote
-                pull_res = subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
-                
+                if ahead_count > 0 or behind_count > 0:
+                    print(f" 📡 [HUB SYNC] Divergence detected (Ahead: {ahead_count} | Behind: {behind_count}). Aligning...")
+                    
+                    # 2026 Resilience: Squash & Force-Align Strategy (v14.0)
+                    # We soft-reset to origin/main to consolidate all local changes into a single update
+                    subprocess.run(["git", "checkout", "main"], cwd=hub_root, capture_output=True)
+                    subprocess.run(["git", "reset", "--soft", "origin/main"], cwd=hub_root, capture_output=True)
+                    subprocess.run(["git", "add", "."], cwd=hub_root, capture_output=True)
+                    
+                    # Only commit if there are actually changes to push
+                    dirty = subprocess.run(["git", "diff-index", "--quiet", "HEAD", "--"], cwd=hub_root)
+                    if dirty.returncode != 0:
+                        type_label = "SOTA" if is_best else "Progress"
+                        consolidated_msg = f"Consolidated {type_label} update for {args.model} (Epoch {epoch+1})"
+                        subprocess.run(["git", "commit", "-m", consolidated_msg], cwd=hub_root, capture_output=True)
+
                 res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
                 if res.returncode == 0:
                     print(f"🏆 [HUB SYNC] Hub updated successfully!")
                 else:
-                    # Final attempt: If push fails, it's likely a persistent divergence. Try one more rebase.
-                    print(f" ⚠️ [HUB SYNC] Push rejected. Attempting emergency rebase recovery...")
+                    # Final Emergency Strategy: If still failing, it's a conflict we can't soft-align.
+                    # We try one last rebase-theirs as a fallback.
+                    print(f" ⚠️ [HUB SYNC] Push rejected. Falling back to rebase recovery...")
                     subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
                     res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
                     if res.returncode == 0:
-                        print(f"🏆 [HUB SYNC] Hub updated successfully after emergency recovery!")
+                        print(f"🏆 [HUB SYNC] Hub updated successfully via rebase!")
                     else:
                         print(f"⚠️ [HUB SYNC] Push failed! Error:\n{res.stderr.strip()}")
         except Exception as e:
