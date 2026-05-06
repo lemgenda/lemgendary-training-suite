@@ -9,10 +9,11 @@ nima_aesthetic:
   checkpoint: NIMAAestheticWeights_FP32.pth
   input_size:
     - 3
-    - 224
-    - 224
-  val_resolution: 384
+    - 512
+    - 512
+  val_resolution: 640
   batch_size: auto
+  val_batch_size: auto
   learning_rate: 3.0e-05
   loss_fn: emd
   dataset_type: quality
@@ -26,26 +27,31 @@ nima_aesthetic:
     plcc: 0.95
     srcc: 0.9
   stabilizers:
-    softmax_temp: 1.0
+    softmax_temp: 0.5
     emd_epsilon: 0.0001
     logit_clamp: 15.0
     rank_weight: 0.2
     rank_margin: 0.05
   optimization:
     enabled: true
-    initial_fraction: 0.1
+    initial_fraction: 0.75
     fraction_increment: 0.15
     res_ladder:
       - 112
       - 224
       - 384
-    plateau_patience: 4
+      - 512
+      - 640
+    plateau_patience: 6
     cooling_factor: 0.85
     plateau_priority: resolution
     clamp_range:
       - 15.0
       - 45.0
     jolt_multiplier: 1.5
+    target_effective_batch: 24
+    min_delta: 0.001
+    swa_start_pct: 0.65
 nima_technical:
   name: LemGendary NIMA Technical Scorer
   class_name: NIMA_Model
@@ -56,8 +62,9 @@ nima_technical:
     - 3
     - 384
     - 384
-  val_resolution: 384
+  val_resolution: 768
   batch_size: auto
+  val_batch_size: auto
   learning_rate: 1.8e-05
   kwargs:
     backbone: efficientnet_v2_s
@@ -89,36 +96,46 @@ nima_technical:
       - 15.0
       - 50.0
     jolt_multiplier: 1.5
+    target_effective_batch: 16
+    min_delta: 0.0005
+    swa_start_pct: 0.75
 nima_authenticity:
   name: LemGendary Authenticity Scorer (AI vs Human)
-  class_name: AuthenticityScorer
+  class_name: NIMA_Model
   category: enhance
   filename: AuthenticityScorer
   checkpoint: AuthenticityScorerWeights_FP32.pth
   input_size:
     - 3
-    - 384
-    - 384
-  val_resolution: 384
+    - 256
+    - 256
+  val_resolution: 768
   batch_size: auto
+  val_batch_size: auto
   learning_rate: 2.5e-05
-  loss_fn: cross_entropy
-  dataset_type: classification
+  kwargs:
+    backbone: efficientnet_v2_s
+  loss_fn: emd
+  dataset_type: quality
   optimal_key: nima_authenticity
-  architecture_type: EfficientNetV2-S (Binary Classifier)
+  architecture_type: EfficientNetV2-S (Distribution Scorer)
   description: DeepFake and AI-generated image detection model built on EfficientNetV2.
   datasets:
     - LemGendizedNimaAuthenticity
   sota_targets:
     accuracy: 0.95
+    plcc: 0.95
+    srcc: 0.95
   optimization:
     enabled: true
-    initial_fraction: 0.15
+    initial_fraction: 0.10
     fraction_increment: 0.20
     res_ladder:
       - 256
       - 384
       - 512
+      - 640
+      - 768
     plateau_patience: 4
     cooling_factor: 0.85
 upn_v2:

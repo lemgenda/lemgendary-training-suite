@@ -244,14 +244,31 @@ class MultiTaskDataset(Dataset):
         print(f"📡 [DATASET RECALIBRATED] Fraction: {self.sample_fraction*100:.1f}% | Size: {self.size}")
 
     def fast_process(self, img):
-        """High-speed 2026 data pipeline bypassing PIL overhead."""
+        """High-speed 2026 data pipeline with active augmentation support."""
         if img is None:
             return torch.zeros((3, self.size[0], self.size[1]))
         
-        # Fast Resize
+        # 2026 Resilience: INTER_AREA is mathematically superior for downsampling 
+        # (prevents Moire and aliasing artifacts in aesthetic features)
         if img.shape[:2] != self.size:
-            img = cv2.resize(img, (self.size[1], self.size[0]), interpolation=cv2.INTER_LINEAR)
+            img = cv2.resize(img, (self.size[1], self.size[0]), interpolation=cv2.INTER_AREA)
             
+        # --- 2026: SOTA Hyper-Fast Augmentations (CV2-based) ---
+        if self.is_train and self.task_type == "quality":
+            import random
+            # 50% chance Horizontal Flip (Aesthetics are usually invariant to mirroring)
+            if random.random() > 0.5:
+                img = cv2.flip(img, 1)
+            
+            # Subtle Color Jitter (Direct NumPy implementation for speed)
+            if self.model_key == "nima_aesthetic":
+                brightness = random.uniform(0.9, 1.1)
+                contrast = random.uniform(0.9, 1.1)
+                img = np.clip(img * brightness, 0, 255)
+                # Simple contrast adjustment
+                mean = np.mean(img, axis=(0, 1), keepdims=True)
+                img = np.clip((img - mean) * contrast + mean, 0, 255)
+
         # Fast Normalization
         img = img.astype(np.float32) / 255.0
         if self.task_type == "quality":
@@ -261,10 +278,8 @@ class MultiTaskDataset(Dataset):
             img = (img - mean) / std
             
         # --- 2026: SOTA Integrity Shield ---
-        # Ensure the final tensor is numerically safe before handing it to the GPU
         tensor = torch.from_numpy(img.transpose(2, 0, 1))
         if not torch.isfinite(tensor).all():
-            print(f"\n⚠️  [INTEGRITY] Non-finite values detected in processed sample! Zeroing out to prevent singularity...")
             return torch.zeros_like(tensor)
             
         return tensor

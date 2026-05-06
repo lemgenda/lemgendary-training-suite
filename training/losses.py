@@ -18,7 +18,7 @@ class CombinedLoss(nn.Module):
         self.perc = None
 
         # 2026: SOTA Rank-Boost Weights (Standard 10..1 mapping)
-        self.register_buffer('rank_weights', torch.arange(10, 0, -1).float())
+        self.register_buffer('rank_weights', torch.arange(1, 11).float())
 
         if self.task_type in ["restoration", "enhancement"]:
             try:
