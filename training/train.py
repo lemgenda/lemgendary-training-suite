@@ -1922,7 +1922,7 @@ def main():
                         p_bin = (p_mean >= 5.5).astype(np.float32)
                         t_bin = (t_mean >= 5.5).astype(np.float32)
                         accuracy = float(np.mean(p_bin == t_bin))
-                        metrics_str = f" | Acc: {accuracy:.4f} | SRCC: {srcc:.4f} | RM: {rank_margin:.4f}"
+                        metrics_str = f" | Acc: {accuracy:.4f} | PLCC: {plcc:.4f} | SRCC: {srcc:.4f} | RM: {rank_margin:.4f}"
                     else:
                         metrics_str = f" | PLCC: {plcc:.4f} | SRCC: {srcc:.4f} | RM: {rank_margin:.4f}"
             elif train_ds.task_type == "classification" and len(all_preds) > 0:
