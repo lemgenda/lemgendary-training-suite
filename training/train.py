@@ -11,6 +11,7 @@ import shutil
 import gc
 import math
 import base64
+from datetime import datetime
 
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
@@ -2288,7 +2289,8 @@ def main():
                         # 3. Local Git Push (Automated)
                         print(f"🚀 [LOCAL HUB] Achievement Unlocked: Mirroring SOTA {args.model} to LemGendaryModels...")
                         subprocess.run(["git", "add", "."], cwd=hub_model_dir, capture_output=True)
-                        subprocess.run(["git", "commit", "-m", f"feat(sota): local deploy {args.model} (Quality: {current_quality_score:.4f})"], cwd=hub_model_dir, capture_output=True)
+                        commit_msg = f"Update new best weights and metrics for {args.model} from {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        subprocess.run(["git", "commit", "-m", commit_msg], cwd=hub_model_dir, capture_output=True)
                         res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_model_dir, capture_output=True, text=True)
                         if res.returncode == 0:
                             print(f"🏆 [LOCAL HUB] SOTA {args.model} successfully pushed to GitHub!")
@@ -2339,7 +2341,8 @@ def main():
                         shutil.copy2(metrics_csv_path, os.path.join(hub_model_dir, "metrics.csv"))
 
                     # 4. Global Push (Models Only)
-                    git_hub_sync(hub_root, hub_url, f"feat(sota): deploy converged {args.model} epoch {epoch+1} (Quality: {current_quality_score:.4f})")
+                    commit_msg = f"Update new best weights and metrics for {args.model} from {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    git_hub_sync(hub_root, hub_url, commit_msg)
 
             except Exception as e:
                 print(f" [WARNING] [HUB-SYNC] Deployment skipped: {e}")
@@ -2848,9 +2851,11 @@ print(f"[INFO] Using device: {device}")
                         "    print('✅ Metrics mirrored.')\n",
                         "\n",
                         "print('🛰️ Pushing to GitHub...')\n",
+                        "from datetime import datetime\n",
+                        "commit_msg = f'Update new best weights and metrics for {model_key} from {datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")}'\n",
                         "subprocess.run(['git', 'remote', 'set-url', 'origin', hub_url], cwd=hub_root)\n",
                         "subprocess.run(['git', 'add', '.'], cwd=hub_root)\n",
-                        "subprocess.run(['git', 'commit', '-m', f'feat(sota): manual deploy {model_key}'], cwd=hub_root)\n",
+                        "subprocess.run(['git', 'commit', '-m', commit_msg], cwd=hub_root)\n",
                         "res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root, capture_output=True, text=True)\n",
                         "if res.returncode == 0:\n",
                         "    print('🏆 SOTA Deployment Successful!')\n",
