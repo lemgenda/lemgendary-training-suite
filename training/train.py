@@ -649,6 +649,44 @@ def main():
         "plcc": 0.0, "srcc": 0.0, "psnr": 0.0, "ssim": 0.0, "lpips": 0.05, "fid": 50.0
     }
 
+    # --- 2026 Resilience: Hub Checkpoint Restore (v12.0) ---
+    # Automatically pull the best checkpoint from the Hub repo to the training checkpoints folder.
+    try:
+        pat = os.environ.get('GITHUB_PAT', '')
+        if args.env == 'kaggle':
+            hub_root = "/kaggle/working/LemGendaryModels"
+        else:
+            hub_root = os.path.normpath(os.path.join(os.getcwd(), "..", "LemGendaryModels"))
+            
+        if os.path.exists(os.path.join(hub_root, ".git")):
+            print(f"🔄 [HUB RESTORE] Synchronizing Hub for latest SOTA baseline...")
+            if args.env == 'kaggle' and pat:
+                hub_user = args.hub_user or config.get("hub_user", "lemgenda")
+                hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
+                hub_url = f"https://{hub_user}:{pat}@github.com/{hub_user}/{hub_repo}.git"
+                subprocess.run(["git", "remote", "set-url", "origin", hub_url], cwd=hub_root, capture_output=True)
+            
+            # Pull latest to ensure we have the absolute SOTA
+            subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
+            
+            hub_best_path = os.path.join(hub_root, args.model, "checkpoints", f"{args.model}_best.pth")
+            local_best_path = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
+            
+            if os.path.exists(hub_best_path):
+                do_restore = False
+                if not os.path.exists(local_best_path):
+                    do_restore = True
+                else:
+                    if os.path.getmtime(hub_best_path) > os.path.getmtime(local_best_path):
+                        do_restore = True
+                
+                if do_restore:
+                    print(f"📥 [HUB RESTORE] Restoring SOTA checkpoint from Hub: {os.path.basename(hub_best_path)}")
+                    os.makedirs(os.path.dirname(local_best_path), exist_ok=True)
+                    shutil.copy2(hub_best_path, local_best_path)
+    except Exception as e:
+        print(f"⚠️ [HUB RESTORE] Automatic sync failed: {e}")
+
     # --- 2026: Global Historical Best Guardrail ---
     # We probe the 'best.pth' artifact to establish a high-water mark for the entire project.
     # This prevents regression epochs in a new session from overwriting a previous SOTA peak.
