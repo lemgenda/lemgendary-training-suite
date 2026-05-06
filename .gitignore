@@ -19,6 +19,6 @@ kaggle.json
 # *.pth
 # *.pt
 # *.onnx
-/checkpoints/*_progress.pth
+*_progress.pth
 # Ignore throwaway scripts
 scratch/
