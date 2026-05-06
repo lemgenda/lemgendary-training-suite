@@ -2802,7 +2802,7 @@ print(f"[INFO] Using device: {device}")
                         "hub_url = f'https://{hub_user}:{pat}@github.com/{hub_user}/{hub_repo}.git'\n",
                         "\n",
                         "print(f'🚀 Preparing SOTA Sync for {model_key}...')\n",
-                        "if not os.path.exists(hub_root):\n",
+                        "if not os.path.exists(os.path.join(hub_root, '.git')):\n",
                         "    os.makedirs(hub_root, exist_ok=True)\n",
                         "    subprocess.run(['git', 'init'], cwd=hub_root)\n",
                         "    subprocess.run(['git', 'remote', 'add', 'origin', f'https://github.com/{hub_user}/{hub_repo}.git'], cwd=hub_root)\n",
