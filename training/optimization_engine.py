@@ -195,7 +195,7 @@ class SmartTrainingGovernor:
         self.current_fraction = state.get("sample_fraction", self.current_fraction)
         raw_res = state.get("input_size", self.current_res)
         self.current_res = raw_res[1] if isinstance(raw_res, list) else raw_res
-        self.current_temp = state.get("softmax_temp", self.current_temp)
+        self.current_temp = max(self.min_temp, state.get("softmax_temp", self.current_temp))
         self.current_clamp = state.get("logit_clamp", self.current_clamp)
         self.current_batch = state.get("batch_size", self.current_batch)
         self.current_acc = state.get("accumulation_steps", self.current_acc)
