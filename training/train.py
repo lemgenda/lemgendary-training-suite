@@ -2152,10 +2152,10 @@ def main():
 
             if f_changed or r_changed or b_changed:
                 if b_changed:
-                    # [DISABLED] 2026: Governor Batch Overwrite per User Preference
-                    # batch_size = new_params['batch_size']
-                    # accumulation_steps = new_params['accumulation_steps']
-                    print(f" 🛸 [GOVERNOR] Batch shift requested but BLOCKED per user preference.")
+                    # 2026: Governor Batch Management Re-Enabled for High-Headroom Manifolds
+                    batch_size = new_params['batch_size']
+                    accumulation_steps = new_params['accumulation_steps']
+                    print(f" 🛸 [GOVERNOR] Batch shift synchronized: {batch_size} (Acc: {accumulation_steps})")
 
                 train_ds.update_strategy(
                     fraction=new_params['sample_fraction'] if f_changed else None,
