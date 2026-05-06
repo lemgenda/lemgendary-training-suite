@@ -649,8 +649,8 @@ def main():
         "plcc": 0.0, "srcc": 0.0, "psnr": 0.0, "ssim": 0.0, "lpips": 0.05, "fid": 50.0
     }
 
-    # --- 2026 Resilience: Hub Checkpoint Restore (v12.0) ---
-    # Automatically pull the best checkpoint from the Hub repo to the training checkpoints folder.
+    # --- 2026 Resilience: Hub Checkpoint Pathing (v13.0) ---
+    # We prioritize the Hub repo for 'latest' and 'best' checkpoints to reduce suite size.
     try:
         pat = os.environ.get('GITHUB_PAT', '')
         if args.env == 'kaggle':
@@ -658,34 +658,22 @@ def main():
         else:
             hub_root = os.path.normpath(os.path.join(os.getcwd(), "..", "LemGendaryModels"))
             
+        hub_model_dir = os.path.join(hub_root, args.model)
+        hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
+        os.makedirs(hub_ckpt_dir, exist_ok=True)
+
         if os.path.exists(os.path.join(hub_root, ".git")):
-            print(f"🔄 [HUB RESTORE] Synchronizing Hub for latest SOTA baseline...")
+            print(f"🔄 [HUB SYNC] Synchronizing Hub repo for stateless resume...")
             if args.env == 'kaggle' and pat:
                 hub_user = args.hub_user or config.get("hub_user", "lemgenda")
                 hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
                 hub_url = f"https://{hub_user}:{pat}@github.com/{hub_user}/{hub_repo}.git"
                 subprocess.run(["git", "remote", "set-url", "origin", hub_url], cwd=hub_root, capture_output=True)
             
-            # Pull latest to ensure we have the absolute SOTA
+            # Pull latest to ensure we have the absolute SOTA and Latest state
             subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
-            
-            hub_best_path = os.path.join(hub_root, args.model, "checkpoints", f"{args.model}_best.pth")
-            local_best_path = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
-            
-            if os.path.exists(hub_best_path):
-                do_restore = False
-                if not os.path.exists(local_best_path):
-                    do_restore = True
-                else:
-                    if os.path.getmtime(hub_best_path) > os.path.getmtime(local_best_path):
-                        do_restore = True
-                
-                if do_restore:
-                    print(f"📥 [HUB RESTORE] Restoring SOTA checkpoint from Hub: {os.path.basename(hub_best_path)}")
-                    os.makedirs(os.path.dirname(local_best_path), exist_ok=True)
-                    shutil.copy2(hub_best_path, local_best_path)
     except Exception as e:
-        print(f"⚠️ [HUB RESTORE] Automatic sync failed: {e}")
+        print(f"⚠️ [HUB SYNC] Hub synchronization failed: {e}")
 
     # --- 2026: Global Historical Best Guardrail ---
     # We probe the 'best.pth' artifact to establish a high-water mark for the entire project.
@@ -718,11 +706,12 @@ def main():
     val_resume_iteration = 0
     restored_avg_train_loss = None # 2026: Carry-over for resume reporting
 
-    latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
-    progress_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
-    best_fallback = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
+    # Priority: 1. Local Progress (fastest) 2. Hub Latest 3. Hub Best
+    latest_hub = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
+    best_hub = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
+    progress_local = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
 
-    fallback_chain = [latest_ckpt, progress_ckpt, best_fallback]
+    fallback_chain = [progress_local, latest_hub, best_hub]
     candidates = []
     for ckpt in fallback_chain:
         if os.path.exists(ckpt):
@@ -733,7 +722,8 @@ def main():
 
     for _, attempt_ckpt in candidates:
         try:
-            print(f"Resuming training from checkpoint: {attempt_ckpt}")
+            loc_label = "HUB" if "LemGendaryModels" in attempt_ckpt else "LOCAL"
+            print(f"Resuming training from {loc_label} checkpoint: {attempt_ckpt}")
             ckpt = torch.load(attempt_ckpt, map_location=device, weights_only=False) # pyre-ignore
             if 'model_state' in ckpt:
                 model.load_state_dict(ckpt['model_state'], strict=True)
@@ -2330,70 +2320,48 @@ def main():
         # --- 2026 Resilience: Model Hub Sync (v6.2.0) ---
         if is_improving:
             epochs_no_improve = 0
-            if is_best:
-                best_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
-                temp_best = f"{best_ckpt}.tmp"
-                torch.save(ckpt_state, temp_best) # pyre-ignore
-                safe_replace(temp_best, best_ckpt)
-
-                # --- 2026 Resilience: Hub Mirroring (Automated Backup) ---
-                try:
-                    if args.env == 'kaggle':
-                        hub_root = "/kaggle/working/LemGendaryModels"
-                    else:
-                        hub_root = os.path.join(os.path.dirname(project_root), "LemGendaryModels")
-                        
-                    hub_model_dir = os.path.join(hub_root, args.model)
-                    hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
-                    os.makedirs(hub_ckpt_dir, exist_ok=True)
-
-                    # 1. Sync Best Checkpoint as Backup
-                    shutil.copy2(best_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_best.pth"))
-                    
-                    # 2. Sync Metrics Audit Trail
-                    if os.path.exists(metrics_csv_path):
-                        shutil.copy2(metrics_csv_path, os.path.join(hub_model_dir, "metrics.csv"))
-
-                    # 3. Local Git Push (Automated)
-                    print(f"🚀 [HUB SYNC] Mirroring SOTA {args.model} to LemGendaryModels...")
-                    subprocess.run(["git", "add", "."], cwd=hub_root, capture_output=True)
-                    commit_msg = f"Update new best weights and metrics for {args.model} from {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                    subprocess.run(["git", "commit", "-m", commit_msg], cwd=hub_root, capture_output=True)
-                    
-                    # 2026 Resilience: Auto-Push logic for both Local and Kaggle (if PAT exists)
-                    pat = os.environ.get('GITHUB_PAT', '')
-                    should_push = False
-                    
-                    if args.env == 'kaggle':
-                        if pat:
-                            hub_user = args.hub_user or config.get("hub_user", "lemgenda")
-                            hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
-                            hub_url = f"https://{hub_user}:{pat}@github.com/{hub_user}/{hub_repo}.git"
-                            subprocess.run(["git", "remote", "set-url", "origin", hub_url], cwd=hub_root, capture_output=True)
-                            should_push = True
-                        else:
-                            print(f"📡 [HUB SYNC] GITHUB_PAT not found. Skipping auto-push (Manual sync cell required).")
-                    else:
-                        # Local environment assumes SSH or cached credentials
-                        should_push = True
-
-                    if should_push:
-                        # 2026 Resilience: Always pull before pushing to minimize rejections
-                        print(f"🔄 [HUB SYNC] Synchronizing with remote...")
-                        subprocess.run(["git", "checkout", "-B", "main"], cwd=hub_root, capture_output=True)
-                        subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
-                        
-                        res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
-                        if res.returncode == 0:
-                            print(f"🏆 [HUB SYNC] SOTA {args.model} successfully pushed to GitHub!")
-                        else:
-                            print(f"⚠️ [HUB SYNC] Push failed (Commit saved locally): {res.stderr[:100]}...")
-                except Exception as e:
-                    print(f"⚠️ [HUB SYNC] Mirroring failed: {e}")
         else:
-            epochs_no_improve += 1  # pyre-ignore
+            epochs_no_improve += 1
             regression_epochs += 1
             print(f" -> No improvement for {epochs_no_improve} epoch(s).")
+
+        # --- 2026 Resilience: Hub Mirroring & Sync (v13.0 Stateless) ---
+        # Latest and Best are now stored DIRECTLY in the Hub repository to keep Suite repo clean.
+        try:
+            latest_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
+            best_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
+            
+            # 1. Save state (Latest always, Best on improvement)
+            torch.save(ckpt_state, latest_hub_path)
+            if is_best:
+                shutil.copy2(latest_hub_path, best_hub_path)
+                print(f"🏆 [HUB SYNC] New SOTA archived to Hub.")
+            
+            # 2. Sync Metrics Audit Trail
+            if os.path.exists(metrics_csv_path):
+                shutil.copy2(metrics_csv_path, os.path.join(hub_model_dir, "metrics.csv"))
+
+            # 3. Git Sync (Automated)
+            subprocess.run(["git", "add", "."], cwd=hub_root, capture_output=True)
+            type_label = "SOTA" if is_best else "Progress"
+            commit_msg = f"Update {type_label} artifacts for {args.model} (Epoch {epoch+1})"
+            subprocess.run(["git", "commit", "-m", commit_msg], cwd=hub_root, capture_output=True)
+            
+            # 2026 Resilience: Proactive Push (Only on SOTA or regularly on Kaggle)
+            # We push every epoch on Kaggle to ensure stateless resilience.
+            do_push = should_push and (is_best or args.env == 'kaggle')
+            
+            if do_push:
+                print(f"🚀 [HUB SYNC] Synchronizing with remote Hub...")
+                subprocess.run(["git", "checkout", "-B", "main"], cwd=hub_root, capture_output=True)
+                subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
+                res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
+                if res.returncode == 0:
+                    print(f"🏆 [HUB SYNC] Hub updated successfully!")
+                else:
+                    print(f"⚠️ [HUB SYNC] Push failed (Commit saved locally).")
+        except Exception as e:
+            print(f"⚠️ [HUB SYNC] Hub synchronization failed: {e}")
 
         # --- Automated Cloud Hub Deployment ---
         if args.auto_sync:

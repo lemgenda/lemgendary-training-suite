@@ -13,7 +13,8 @@ kaggle.json
 .SUITE_PAT
 .GITHUB_PAT
 
-# ML Artifacts (Avoid committing progress binary weights)
-*_progress.pth
+# ML Artifacts (Checkpoints are managed via Hub repository)
+*.pth
+*.pt
 # Ignore throwaway scripts
 scratch/
