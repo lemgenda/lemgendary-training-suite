@@ -2862,7 +2862,8 @@ print(f"[INFO] Using device: {device}")
                         "        print(f'🧹 [RESILIENCE] Purging stale rebase directory: {rb_dir}')\n",
                         "        shutil.rmtree(rb_dir, ignore_errors=True)\n",
                         "    \n",
-                        "    subprocess.run(['git', 'pull', '--rebase', 'origin', 'main'], cwd=hub_root)\n",
+                        "    subprocess.run(['git', 'pull', '--rebase', '-X', 'theirs', 'origin', 'main'], cwd=hub_root)\n",
+                        "    subprocess.run(['git', 'checkout', 'main'], cwd=hub_root)\n",
                         "    res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root, capture_output=True, text=True)\n",
                         "    print('🏆 SOTA Deployment Successful (after rebase)!' if res.returncode == 0 else f'❌ Final Push Failure: {res.stderr}')\n"
                     ],
