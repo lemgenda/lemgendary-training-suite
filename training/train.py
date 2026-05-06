@@ -1928,7 +1928,7 @@ def main():
                     rank_margin = float(np.mean(np.abs(p_mean - t_mean)))
                     
                     # 2026 Resilience: Binned Accuracy for Authenticity Distribution
-                    if args.model == "nima_authenticity":
+                    if "nima_authenticity" in args.model:
                         # Threshold at 5.5 (Midpoint of 1-10 NIMA scale)
                         p_bin = (p_mean >= 5.5).astype(np.float32)
                         t_bin = (t_mean >= 5.5).astype(np.float32)
