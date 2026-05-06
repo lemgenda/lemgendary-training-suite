@@ -248,11 +248,6 @@ def trigger_sota_export(model, args, config, unified_models_registry, epoch, plc
 
         print(f"✅ [SOTA DEPLOYMENT] Successful! Production binaries are live in LemGendaryModels/{args.model}.")
         
-        # 2026 Resilience: Immediate Hub Sync for SOTA artifacts (ai-models repo)
-        if args.env == 'kaggle':
-            hub_url = config.get("model_hub_repo")
-            if hub_url:
-                git_hub_sync(trained_models_dir, hub_url, f"feat(sota): deploy converged {args.model} epoch {epoch+1}")
     except Exception as e:
         print(f"⚠️  [SOTA DEPLOYMENT] Export phase failed: {e}")
 
