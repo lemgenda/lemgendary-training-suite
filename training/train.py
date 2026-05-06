@@ -352,6 +352,7 @@ def main():
     parser.add_argument("--prefetch_datasets", type=str, default="", help="Comma separated kaggle endpoint list natively executed asynchronously sequentially upon passing SOTA.")
     parser.add_argument("--hub_user", type=str, default=None, help="GitHub username for model hub")
     parser.add_argument("--hub_repo", type=str, default=None, help="GitHub repository name for model hub")
+    parser.add_argument("--auto_sync", action="store_true", help="Enable automated cloud synchronization per epoch (Kaggle only)")
     args = parser.parse_args()
 
     # Load config structures explicitly securely
@@ -2274,46 +2275,47 @@ def main():
             print(f" -> No improvement for {epochs_no_improve} epoch(s).")
 
         # --- Automated Cloud Hub Deployment ---
-        try:
-            hub_user = args.hub_user or config.get("hub_user", "lemgenda")
-            hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
-            hub_url = f"https://github.com/{hub_user}/{hub_repo}.git"
+        if args.auto_sync:
+            try:
+                hub_user = args.hub_user or config.get("hub_user", "lemgenda")
+                hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
+                hub_url = f"https://github.com/{hub_user}/{hub_repo}.git"
 
-            if hub_url:
-                # Resolve Hub Root
-                hub_root = "/kaggle/working/hub" if args.env == 'kaggle' else os.path.join(os.getcwd(), "hub")
-                hub_model_dir = os.path.join(hub_root, args.model)
-                hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
+                if hub_url:
+                    # Resolve Hub Root
+                    hub_root = "/kaggle/working/hub" if args.env == 'kaggle' else os.path.join(os.getcwd(), "hub")
+                    hub_model_dir = os.path.join(hub_root, args.model)
+                    hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
 
-                # Ensure hub is correctly initialized
-                if not os.path.exists(os.path.join(hub_root, ".git")):
-                    print(f" 🚀 [CLOUD SYNC] Initializing production hub at {hub_root}...")
-                    os.makedirs(hub_ckpt_dir, exist_ok=True)
-                    subprocess.run(["git", "init"], cwd=hub_root, capture_output=True)
-                    subprocess.run(["git", "remote", "add", "origin", hub_url], cwd=hub_root, capture_output=True)
+                    # Ensure hub is correctly initialized
+                    if not os.path.exists(os.path.join(hub_root, ".git")):
+                        print(f" 🚀 [CLOUD SYNC] Initializing production hub at {hub_root}...")
+                        os.makedirs(hub_ckpt_dir, exist_ok=True)
+                        subprocess.run(["git", "init"], cwd=hub_root, capture_output=True)
+                        subprocess.run(["git", "remote", "add", "origin", hub_url], cwd=hub_root, capture_output=True)
 
-                # 1. Sync Best Checkpoint (Primary SOTA Artifact)
-                best_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
-                if os.path.exists(best_ckpt):
-                    os.makedirs(hub_ckpt_dir, exist_ok=True)
-                    shutil.copy2(best_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_best.pth"))
-                
-                # 2. Sync Latest Checkpoint (Resumption Anchor)
-                latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
-                if os.path.exists(latest_ckpt):
-                    os.makedirs(hub_ckpt_dir, exist_ok=True)
-                    shutil.copy2(latest_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth"))
-                
-                # 3. Sync Metrics (Audit Trail)
-                if os.path.exists(metrics_csv_path):
-                    os.makedirs(hub_model_dir, exist_ok=True)
-                    shutil.copy2(metrics_csv_path, os.path.join(hub_model_dir, "metrics.csv"))
+                    # 1. Sync Best Checkpoint (Primary SOTA Artifact)
+                    best_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
+                    if os.path.exists(best_ckpt):
+                        os.makedirs(hub_ckpt_dir, exist_ok=True)
+                        shutil.copy2(best_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_best.pth"))
+                    
+                    # 2. Sync Latest Checkpoint (Resumption Anchor)
+                    latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
+                    if os.path.exists(latest_ckpt):
+                        os.makedirs(hub_ckpt_dir, exist_ok=True)
+                        shutil.copy2(latest_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth"))
+                    
+                    # 3. Sync Metrics (Audit Trail)
+                    if os.path.exists(metrics_csv_path):
+                        os.makedirs(hub_model_dir, exist_ok=True)
+                        shutil.copy2(metrics_csv_path, os.path.join(hub_model_dir, "metrics.csv"))
 
-                # 4. Global Push (Models Only)
-                git_hub_sync(hub_root, hub_url, f"feat(sota): deploy converged {args.model} epoch {epoch+1} (Quality: {current_quality_score:.4f})")
+                    # 4. Global Push (Models Only)
+                    git_hub_sync(hub_root, hub_url, f"feat(sota): deploy converged {args.model} epoch {epoch+1} (Quality: {current_quality_score:.4f})")
 
-        except Exception as e:
-            print(f" [WARNING] [HUB-SYNC] Deployment skipped: {e}")
+            except Exception as e:
+                print(f" [WARNING] [HUB-SYNC] Deployment skipped: {e}")
 
         if epochs_no_improve >= patience:
             print(f"\n[Early Stopping] Model structurally converged. Halting training to prevent overfitting.")
@@ -2720,6 +2722,116 @@ print(f"[INFO] Using device: {device}")
                         f"# -> {dataset_slug}\n",
                         "\n",
                         f"!python training/train.py --model {args.model} --env kaggle --hub_user {{HUB_USER}} --hub_repo {{HUB_REPO}}\n"
+                    ],
+                    "metadata": {},
+                    "outputs": [],
+                    "execution_count": None
+                {
+                    "cell_type": "markdown",
+                    "source": ["## 5. SOTA Cloud Sync\n", "Manually push your best models and metrics to the production hub."],
+                    "metadata": {}
+                },
+                {
+                    "cell_type": "code",
+                    "source": [
+                        "import os, shutil, subprocess\n",
+                        "hub_root = '/kaggle/working/hub'\n",
+                        "hub_user = HUB_USER\n",
+                        "hub_repo = HUB_REPO\n",
+                        "model_key = '" + args.model + "'\n",
+                        "pat = os.environ.get('GITHUB_PAT', '')\n",
+                        "hub_url = f'https://{hub_user}:{pat}@github.com/{hub_user}/{hub_repo}.git'\n",
+                        "\n",
+                        "print(f'🚀 Preparing SOTA Sync for {model_key}...')\n",
+                        "if not os.path.exists(hub_root):\n",
+                        "    os.makedirs(hub_root, exist_ok=True)\n",
+                        "    subprocess.run(['git', 'init'], cwd=hub_root)\n",
+                        "    subprocess.run(['git', 'remote', 'add', 'origin', f'https://github.com/{hub_user}/{hub_repo}.git'], cwd=hub_root)\n",
+                        "\n",
+                        "hub_model_dir = os.path.join(hub_root, model_key)\n",
+                        "hub_ckpt_dir = os.path.join(hub_model_dir, 'checkpoints')\n",
+                        "os.makedirs(hub_ckpt_dir, exist_ok=True)\n",
+                        "\n",
+                        "# Mirror Artifacts\n",
+                        "best_pth = f'/kaggle/working/lemgendary-training-suite/trained-models/checkpoints/{model_key}_best.pth'\n",
+                        "metrics_csv = '/kaggle/working/lemgendary-training-suite/trained-models/checkpoints/metrics.csv'\n",
+                        "\n",
+                        "if os.path.exists(best_pth):\n",
+                        "    shutil.copy2(best_pth, os.path.join(hub_ckpt_dir, f'{model_key}_best.pth'))\n",
+                        "    print('✅ Best checkpoint mirrored.')\n",
+                        "if os.path.exists(metrics_csv):\n",
+                        "    shutil.copy2(metrics_csv, os.path.join(hub_model_dir, 'metrics.csv'))\n",
+                        "    print('✅ Metrics mirrored.')\n",
+                        "\n",
+                        "print('🛰️ Pushing to GitHub...')\n",
+                        "subprocess.run(['git', 'remote', 'set-url', 'origin', hub_url], cwd=hub_root)\n",
+                        "subprocess.run(['git', 'add', '.'], cwd=hub_root)\n",
+                        "subprocess.run(['git', 'commit', '-m', f'feat(sota): manual deploy {model_key}'], cwd=hub_root)\n",
+                        "res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root, capture_output=True, text=True)\n",
+                        "if res.returncode == 0:\n",
+                        "    print('🏆 SOTA Deployment Successful!')\n",
+                        "else:\n",
+                        "    print('❌ Push failed. Attempting rebase...')\n",
+                        "    subprocess.run(['git', 'pull', '--rebase', 'origin', 'main'], cwd=hub_root)\n",
+                        "    res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root, capture_output=True, text=True)\n",
+                        "    print('🏆 SOTA Deployment Successful (after rebase)!' if res.returncode == 0 else f'❌ Final Push Failure: {res.stderr}')\n"
+                    ],
+                    "metadata": {},
+                    "outputs": [],
+                    "execution_count": None
+                },
+                {
+                    "cell_type": "markdown",
+                    "source": [
+                        "## 5. SOTA Cloud Sync\n",
+                        "Manually push your best models and metrics to the production hub."
+                    ],
+                    "metadata": {}
+                },
+                {
+                    "cell_type": "code",
+                    "source": [
+                        "import os, shutil, subprocess\n",
+                        "hub_root = '/kaggle/working/hub'\n",
+                        "hub_user = HUB_USER\n",
+                        "hub_repo = HUB_REPO\n",
+                        "model_key = '" + args.model + "'\n",
+                        "pat = os.environ.get('GITHUB_PAT', '')\n",
+                        "hub_url = f'https://{hub_user}:{pat}@github.com/{hub_user}/{hub_repo}.git'\n",
+                        "\n",
+                        "print(f'🚀 Preparing SOTA Sync for {model_key}...')\n",
+                        "if not os.path.exists(hub_root):\n",
+                        "    os.makedirs(hub_root, exist_ok=True)\n",
+                        "    subprocess.run(['git', 'init'], cwd=hub_root)\n",
+                        "    subprocess.run(['git', 'remote', 'add', 'origin', f'https://github.com/{hub_user}/{hub_repo}.git'], cwd=hub_root)\n",
+                        "\n",
+                        "hub_model_dir = os.path.join(hub_root, model_key)\n",
+                        "hub_ckpt_dir = os.path.join(hub_model_dir, 'checkpoints')\n",
+                        "os.makedirs(hub_ckpt_dir, exist_ok=True)\n",
+                        "\n",
+                        "# Mirror Artifacts\n",
+                        "best_pth = f'/kaggle/working/lemgendary-training-suite/trained-models/checkpoints/{model_key}_best.pth'\n",
+                        "metrics_csv = '/kaggle/working/lemgendary-training-suite/trained-models/checkpoints/metrics.csv'\n",
+                        "\n",
+                        "if os.path.exists(best_pth):\n",
+                        "    shutil.copy2(best_pth, os.path.join(hub_ckpt_dir, f'{model_key}_best.pth'))\n",
+                        "    print('✅ Best checkpoint mirrored.')\n",
+                        "if os.path.exists(metrics_csv):\n",
+                        "    shutil.copy2(metrics_csv, os.path.join(hub_model_dir, 'metrics.csv'))\n",
+                        "    print('✅ Metrics mirrored.')\n",
+                        "\n",
+                        "print('🛰️ Pushing to GitHub...')\n",
+                        "subprocess.run(['git', 'remote', 'set-url', 'origin', hub_url], cwd=hub_root)\n",
+                        "subprocess.run(['git', 'add', '.'], cwd=hub_root)\n",
+                        "subprocess.run(['git', 'commit', '-m', f'feat(sota): manual deploy {model_key}'], cwd=hub_root)\n",
+                        "res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root, capture_output=True, text=True)\n",
+                        "if res.returncode == 0:\n",
+                        "    print('🏆 SOTA Deployment Successful!')\n",
+                        "else:\n",
+                        "    print('❌ Push failed. Attempting rebase...')\n",
+                        "    subprocess.run(['git', 'pull', '--rebase', 'origin', 'main'], cwd=hub_root)\n",
+                        "    res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root, capture_output=True, text=True)\n",
+                        "    print('🏆 SOTA Deployment Successful (after rebase)!' if res.returncode == 0 else f'❌ Final Push Failure: {res.stderr}')\n"
                     ],
                     "metadata": {},
                     "outputs": [],
