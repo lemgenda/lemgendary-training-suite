@@ -13,12 +13,8 @@ kaggle.json
 .SUITE_PAT
 .GITHUB_PAT
 
-# ML Artifacts (Avoid committing binary weights)
-# trained-models/
-# checkpoints/
-# *.pth
-# *.pt
-# *.onnx
-*_progress.pth
+/checkpoints/
+!/checkpoints/*_latest.pth
+!/checkpoints/*_best.pth
 # Ignore throwaway scripts
 scratch/
