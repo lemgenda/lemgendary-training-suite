@@ -2344,12 +2344,12 @@ def main():
             commit_msg = f"Update {type_label} artifacts for {args.model} (Epoch {epoch+1})"
             subprocess.run(["git", "commit", "-m", commit_msg], cwd=hub_root, capture_output=True)
             
-            # 2026 Resilience: Auto-Push strategy
+            # 2026 Resilience: Auto-Push strategy (Universal every-epoch sync)
             pat = os.environ.get('GITHUB_PAT', '')
             should_push = (args.env != 'kaggle') or bool(pat)
             
-            # We push every epoch on Kaggle to ensure stateless resilience.
-            do_push = should_push and (is_best or args.env == 'kaggle')
+            # We push every epoch to ensure absolute stateless resilience and real-time auditability.
+            do_push = should_push
             
             if do_push:
                 print(f"🚀 [HUB SYNC] Synchronizing with remote Hub...")
