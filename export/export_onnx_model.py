@@ -56,7 +56,7 @@ def main():
         return
 
     # 3. Checkpoint Discovery
-    ckpt_dir_rel = config.get("checkpoint_dir", "trained-models/checkpoints")
+    ckpt_dir_rel = config.get("checkpoint_dir", "checkpoints")
     ckpt_dir = os.path.normpath(os.path.join(project_root, ckpt_dir_rel))
     ckpt_path = os.path.join(ckpt_dir, f"{args.model}_best.pth")
     if not os.path.exists(ckpt_path):
@@ -79,7 +79,7 @@ def main():
     # 4. Production Synchronization
     model_filename = model_info.get("filename", args.model)
     base_name = f"LemGendary{model_filename}"
-    production_dir_rel = os.path.join(config.get("export_dir", "trained-models"), args.model)
+    production_dir_rel = os.path.join(config.get("export_dir", "../LemGendaryModels"), args.model)
     production_dir = os.path.normpath(os.path.join(project_root, production_dir_rel))
     os.makedirs(production_dir, exist_ok=True)
     
