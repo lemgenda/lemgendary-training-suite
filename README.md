@@ -121,12 +121,14 @@ When training completes (or SOTA is breached), the Governor automatically:
 - Generates fully-configured Kaggle Inference Notebooks.
 - Instantly pushes these artifacts to your designated `LemGendaryModels` repository via automated Git commands.
 
-### 2. Kaggle Auto-Push (PAT Guide)
-To allow Kaggle to autonomously push completed SOTA artifacts back to your GitHub Model Hub (without downloading massive zip files), you must configure a **GitHub Personal Access Token (PAT)** in Kaggle:
-1. Generate a **Fine-Grained PAT** in GitHub (Developer Settings -> Personal access tokens) with `Read and write` access to your Model Hub repository.
+### 2. Kaggle Dual-Token (PAT) Guide
+To securely clone the private training suite and autonomously push SOTA artifacts back to your GitHub Model Hub, you must configure two **GitHub Personal Access Tokens (PAT)** in Kaggle Secrets:
+1. Generate **Fine-Grained PATs** in GitHub (Developer Settings -> Personal access tokens):
+   - **SUITE_PAT**: Needs `Read` access to your private `lemgendary-training-suite` repository.
+   - **GITHUB_PAT**: Needs `Read and write` access to your `lemgendary-pretrained-models` repository.
 2. In your Kaggle Notebook, click **Add-ons -> Secrets**.
-3. Create a new secret named `GITHUB_PAT` and paste your token.
-4. Attach it to your notebook. The suite will detect this and automatically execute cloud-syncs on every SOTA breach.
+3. Create two new secrets (`SUITE_PAT` and `GITHUB_PAT`) and paste your respective tokens.
+4. Attach them to your notebook. The suite will detect these and automatically authenticate cloud-cloning and execute cloud-syncs on every SOTA breach.
 
 ### 3. Universal Hardware Inference
 All generated inference notebooks and training engines are natively configured to fall back to **DirectML** on local machines. This provides immediate, zero-config GPU acceleration for **AMD** and **Intel** graphics cards on Windows while preserving maximum **NVIDIA CUDA** performance on Kaggle.

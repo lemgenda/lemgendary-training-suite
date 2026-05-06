@@ -9,6 +9,8 @@ tmp/
 # Kaggle API tokens
 kaggle.json
 .kaggle_token
+#GitHub PAT
+.github_PAT
 
 # ML Artifacts (Avoid committing binary weights)
 # trained-models/
