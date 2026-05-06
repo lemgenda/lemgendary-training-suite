@@ -660,6 +660,7 @@ def main():
             
         hub_model_dir = os.path.join(hub_root, args.model)
         hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
+        local_ckpt_dir = config["checkpoint_dir"]
         os.makedirs(hub_ckpt_dir, exist_ok=True)
 
         if os.path.exists(os.path.join(hub_root, ".git")):
@@ -902,10 +903,10 @@ def main():
                 best_quality_score = -1.0
                 sota_baseline_achieved = False
 
-                if 'best_fallback' in locals() and os.path.exists(best_fallback):
+                if 'best_hub' in locals() and os.path.exists(best_hub):
                     try:
-                        os.remove(best_fallback)
-                        print(f"[INFO] [REGRESSION PURGE] Destroyed physically corrupted _best.pth from disk.")
+                        os.remove(best_hub)
+                        print(f"[INFO] [REGRESSION PURGE] Destroyed physically corrupted _best.pth from Hub.")
                     except:
                         pass
         model.train()
@@ -2347,7 +2348,10 @@ def main():
             commit_msg = f"Update {type_label} artifacts for {args.model} (Epoch {epoch+1})"
             subprocess.run(["git", "commit", "-m", commit_msg], cwd=hub_root, capture_output=True)
             
-            # 2026 Resilience: Proactive Push (Only on SOTA or regularly on Kaggle)
+            # 2026 Resilience: Auto-Push strategy
+            pat = os.environ.get('GITHUB_PAT', '')
+            should_push = (args.env != 'kaggle') or bool(pat)
+            
             # We push every epoch on Kaggle to ensure stateless resilience.
             do_push = should_push and (is_best or args.env == 'kaggle')
             
