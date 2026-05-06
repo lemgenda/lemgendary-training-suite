@@ -2794,7 +2794,7 @@ print(f"[INFO] Using device: {device}")
                     "cell_type": "code",
                     "source": [
                         "import os, shutil, subprocess\n",
-                        "hub_root = '/kaggle/working/hub'\n",
+                        "hub_root = '/kaggle/working/LemGendaryModels'\n",
                         "hub_user = HUB_USER\n",
                         "hub_repo = HUB_REPO\n",
                         "model_key = '" + args.model + "'\n",
