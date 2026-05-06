@@ -2079,19 +2079,32 @@ def main():
                 'rank_margin': rank_margin, 'accuracy': accuracy
             }
 
-            for k, target_v in sota_targets.items():
-                val = curr_metrics.get(k, 0.0)
-                direction = METRIC_DIRECTIONS.get(k, True)
-                weight = METRIC_WEIGHTS.get(k, 1)
-
-                if direction:
-                    current_quality_score += val * weight
+            # --- 2026: Metric Singularity Shield (v1.2.1) ---
+            # Detecting Manifold Collapse (NaN correlation) in Quality tasks
+            if train_ds.task_type == "quality":
+                if np.isnan(plcc) or np.isnan(srcc):
+                    print(f" 🚩 [NUCLEAR] Metric Singularity detected! (PLCC: {plcc} | SRCC: {srcc}). Manifold collapsed.")
+                    print(f" 🛡️ [RESILIENCE] Triggering Tactical Recoil and Rollback to recover distribution...")
+                    current_quality_score = 0.0
+                    # Trigger Recoil on the Governor
+                    governor.recoil()
+                    # Force a rollback check
+                    is_improving = False
+                    is_best = False
                 else:
-                    # Inverted: We use standard 2026 normalization for restoration metrics
-                    if k == 'fid': current_quality_score += (100.0 - val) * weight
-                    elif k == 'lpips': current_quality_score += (1.0 - val) * weight
-                    elif k == 'rank_margin': current_quality_score += (10.0 - val) * weight # Corrected: Margin is 0-9 scale
-                    else: current_quality_score += (1.0 / (val + 1e-6)) * weight
+                    for k, target_v in sota_targets.items():
+                        val = curr_metrics.get(k, 0.0)
+                        direction = METRIC_DIRECTIONS.get(k, True)
+                        weight = METRIC_WEIGHTS.get(k, 1)
+
+                        if direction:
+                            current_quality_score += val * weight
+                        else:
+                            # Inverted: We use standard 2026 normalization for restoration metrics
+                            if k == 'fid': current_quality_score += (100.0 - val) * weight
+                            elif k == 'lpips': current_quality_score += (1.0 - val) * weight
+                            elif k == 'rank_margin': current_quality_score += (10.0 - val) * weight # Corrected: Margin is 0-9 scale
+                            else: current_quality_score += (1.0 / (val + 1e-6)) * weight
 
             # --- 2026 Resilience: Meaningful Improvement Delta (Hardened v4.1) ---
             # For high-resolution restoration, we need 0.5% improvement to reset the plateau clock.

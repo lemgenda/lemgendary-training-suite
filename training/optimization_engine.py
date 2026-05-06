@@ -48,7 +48,7 @@ class SmartTrainingGovernor:
         self.stab = stabilizers or {}
         self.task_type = model_info.get("dataset_type", "quality")
         if isinstance(self.task_type, list): self.task_type = self.task_type[0]
-        self.min_temp = 0.4 if self.task_type == "quality" else 0.1
+        self.min_temp = 0.5 if self.task_type == "quality" else 0.1
         self.current_temp = self.stab.get("softmax_temp", self.min_temp)
         self.current_clamp = self.stab.get("logit_clamp", 15.0)
         self.min_clamp = 10.0
