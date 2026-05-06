@@ -1047,7 +1047,7 @@ def main():
             except: pass
 
         with open(metrics_csv_path, "w") as f:
-            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Res,Data,Temp,Clamp,Batch,Acc,Stress\n")
+            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Res,Data,Temp,Clamp,Batch,Accumulation,Stress\n")
 
     effective_batch_size = batch_size
     # accumulation_steps is established pre-emptively during initialization.
