@@ -668,7 +668,7 @@ def main():
     resume_iteration = -1
     regression_epochs = 0 # 2026 Resilience: Regression Guardrail Counter
     prev_quality_score = 0.0
-    val_resume_iteration = -1
+    val_resume_iteration = 0
     restored_avg_train_loss = None # 2026: Carry-over for resume reporting
 
     latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
@@ -717,6 +717,13 @@ def main():
                 if 'val_iteration' in ckpt:
                     val_resume_iteration = ckpt['val_iteration']
                     print(f"[INFO] [RESILIENCY] Intra-validation progress detected. Resume Val Iter: {val_resume_iteration}")
+                
+                # Proportional Scaling for Validation (v11.1)
+                source_val_loader_len = ckpt.get('val_loader_len')
+                if val_resume_iteration > 0 and source_val_loader_len:
+                    val_pct = val_resume_iteration / source_val_loader_len
+                    val_resume_iteration = int(min(0.999, val_pct) * len(val_loader))
+                    print(f" [RESILIENCY] Scaled Validation Progress: {val_pct*100:.1f}% -> Iteration {val_resume_iteration}/{len(val_loader)}")
                 if 'avg_train_loss' in ckpt:
                     restored_avg_train_loss = ckpt['avg_train_loss']
                 if 'governor_state' in ckpt:
@@ -1581,6 +1588,8 @@ def main():
         torch.save({
             'epoch': epoch,
             'iteration': len(train_loader),
+            'val_iteration': 0,
+            'val_loader_len': len(val_loader),
             'model_state': model.state_dict(),
             'optimizer_state': optimizer.state_dict(),
             'scheduler_state': scheduler.state_dict(),
@@ -1839,6 +1848,7 @@ def main():
                         'epoch': epoch,
                         'iteration': len(train_loader),
                         'val_iteration': v_idx + 1,
+                        'val_loader_len': len(val_loader),
                         'val_loss': val_loss,
                         'val_preds': all_preds,
                         'val_targets': all_targets,
@@ -2412,7 +2422,9 @@ def main():
 # Governor Audit Moved to Pre-Log Phase (v6.1.16)
 
         # Reset intra-epoch skip/resume counters
-        resume_iteration = -1
+        resume_iteration = 0
+        val_resume_iteration = 0
+        current_iter = 0
 
 
     print(f"\n--- Exporting {args.model} to SOTA Counterparts ---")
