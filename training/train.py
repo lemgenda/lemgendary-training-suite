@@ -2288,10 +2288,10 @@ def main():
 
                         # 3. Local Git Push (Automated)
                         print(f"🚀 [LOCAL HUB] Achievement Unlocked: Mirroring SOTA {args.model} to LemGendaryModels...")
-                        subprocess.run(["git", "add", "."], cwd=hub_model_dir, capture_output=True)
+                        subprocess.run(["git", "add", "."], cwd=hub_root, capture_output=True)
                         commit_msg = f"Update new best weights and metrics for {args.model} from {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                        subprocess.run(["git", "commit", "-m", commit_msg], cwd=hub_model_dir, capture_output=True)
-                        res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_model_dir, capture_output=True, text=True)
+                        subprocess.run(["git", "commit", "-m", commit_msg], cwd=hub_root, capture_output=True)
+                        res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
                         if res.returncode == 0:
                             print(f"🏆 [LOCAL HUB] SOTA {args.model} successfully pushed to GitHub!")
                         else:
