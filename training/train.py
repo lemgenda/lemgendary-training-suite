@@ -2391,60 +2391,6 @@ print(f"[INFO] Using device: {device}")
                 },
                 {
                     "cell_type": "markdown",
-                    "source": ["## 2. Environment Synchronization\n", "Cloning the latest training suite and enforcing native dependencies."],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "code",
-                    "source": [
-                        "import os\n",
-                        "if not os.path.exists('lemgendary-training-suite'):\n",
-                        "    print(\"🚀 Cloning LemGendary environment...\")\n",
-                        "    !git clone https://github.com/lemgenda/lemgendary-training-suite.git\n",
-                        "%cd lemgendary-training-suite\n"
-                    ],
-                    "metadata": {},
-                    "outputs": [],
-                    "execution_count": None
-                },
-                {
-                    "cell_type": "markdown",
-                    "source": ["### Pull Latest Updates (Run this when you just need to pull)"],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "code",
-                    "source": [
-                        "import subprocess\n",
-                        "res = subprocess.run(['git', 'pull', 'origin', 'main'], capture_output=True, text=True)\n",
-                        "if 'Already up to date.' in res.stdout:\n",
-                        "    print('✅ LemGendary Training Suite is already up to date')\n",
-                        "else:\n",
-                        "    print('🚀 LemGendary Training Suite changes pulled')\n",
-                        "    print(res.stdout)\n"
-                    ],
-                    "metadata": {},
-                    "outputs": [],
-                    "execution_count": None
-                },
-                {
-                    "cell_type": "markdown",
-                    "source": ["### Install Dependencies"],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "code",
-                    "source": [
-                        "print(\"📦 Installing requirements...\")\n",
-                        "!pip install -q -r requirements.txt\n",
-                        "print(\"✅ Core systems online.\")\n"
-                    ],
-                    "metadata": {},
-                    "outputs": [],
-                    "execution_count": None
-                },
-                {
-                    "cell_type": "markdown",
                     "source": [
                         "## 2. GitHub Personal Access Token (PAT) Guide\n",
                         "To add your GitHub Personal Access Token (PAT) to Kaggle, you first need to generate it on GitHub and then input it into the \"Secrets\" section of the Kaggle notebook editor.\n",
@@ -2492,6 +2438,70 @@ print(f"[INFO] Using device: {device}")
                         "    _os.environ[\"GITHUB_PAT\"] = _c.get_secret(\"GITHUB_PAT\")\n",
                         "    print(\"✅ Successfully mounted GITHUB_PAT. Automated GitHub Cloud Sync is active.\")\n",
                         "except Exception: pass\n"
+                    ],
+                    "metadata": {},
+                    "outputs": [],
+                    "execution_count": None
+                },
+                {
+                    "cell_type": "markdown",
+                    "source": ["## 3. Environment Synchronization\n", "Cloning the latest training suite and enforcing native dependencies."],
+                    "metadata": {}
+                },
+                {
+                    "cell_type": "code",
+                    "source": [
+                        "import os\n",
+                        "import subprocess\n",
+                        "if not os.path.exists('lemgendary-training-suite'):\n",
+                        "    print(\"🚀 Cloning LemGendary environment...\")\n",
+                        "    pat = os.environ.get('GITHUB_PAT', '')\n",
+                        "    repo_url = f\"https://lemgenda:{pat}@github.com/lemgenda/lemgendary-training-suite.git\" if pat else \"https://github.com/lemgenda/lemgendary-training-suite.git\"\n",
+                        "    res = subprocess.run(f'git clone {repo_url}', shell=True, capture_output=True, text=True)\n",
+                        "    if res.returncode == 0:\n",
+                        "        print(\"✅ Clone successful!\")\n",
+                        "    else:\n",
+                        "        print(\"❌ Failed to clone repository. (Did you attach the GITHUB_PAT secret?)\")\n",
+                        "        print(res.stderr.replace(pat, '***') if pat else res.stderr)\n",
+                        "%cd lemgendary-training-suite\n"
+                    ],
+                    "metadata": {},
+                    "outputs": [],
+                    "execution_count": None
+                },
+                {
+                    "cell_type": "markdown",
+                    "source": ["### Pull Latest Updates (Run this when you just need to pull)"],
+                    "metadata": {}
+                },
+                {
+                    "cell_type": "code",
+                    "source": [
+                        "import os, subprocess\n",
+                        "pat = os.environ.get('GITHUB_PAT', '')\n",
+                        "repo_url = f\"https://lemgenda:{pat}@github.com/lemgenda/lemgendary-training-suite.git\" if pat else \"https://github.com/lemgenda/lemgendary-training-suite.git\"\n",
+                        "res = subprocess.run(f'git pull {repo_url} main', shell=True, capture_output=True, text=True)\n",
+                        "if 'Already up to date.' in res.stdout:\n",
+                        "    print('✅ LemGendary Training Suite is already up to date')\n",
+                        "else:\n",
+                        "    print('🚀 LemGendary Training Suite changes pulled')\n",
+                        "    print(res.stdout)\n"
+                    ],
+                    "metadata": {},
+                    "outputs": [],
+                    "execution_count": None
+                },
+                {
+                    "cell_type": "markdown",
+                    "source": ["### Install Dependencies"],
+                    "metadata": {}
+                },
+                {
+                    "cell_type": "code",
+                    "source": [
+                        "print(\"📦 Installing requirements...\")\n",
+                        "!pip install -q -r requirements.txt\n",
+                        "print(\"✅ Core systems online.\")\n"
                     ],
                     "metadata": {},
                     "outputs": [],
