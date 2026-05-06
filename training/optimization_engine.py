@@ -61,9 +61,9 @@ class SmartTrainingGovernor:
     def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None):
         if not self.enabled: return False, False, False, False, False, False, ""
         
-        # 1. Improvement Logic (Entropy-Aware)
+        # 1. Improvement Logic (Velocity-Gated v7.0)
         improvement = current_quality - self.prev_quality
-        quality_improved = improvement > self.min_delta
+        significant_improvement = current_quality > (best_quality + self.min_delta)
         
         # Stabilization Shield: Don't trigger changes while the manifold is "cooling"
         if self.stabilization_epochs > 0:
@@ -75,17 +75,31 @@ class SmartTrainingGovernor:
         self.lr_multiplier = 1.0
         msg_parts = []
 
-        # 2. Regression Handling (Instant & Tiered)
-        if not quality_improved and current_quality < self.prev_quality:
+        # 2. Plateau Variance Check (Plateau Detection v7.0)
+        # If we haven't had a significant improvement in 'effective_patience' epochs,
+        # we trigger escalation even if we hit "micro-SOTAs" (noise).
+        res_scalar = self.current_res[1] if isinstance(self.current_res, list) else self.current_res
+        res_factor = max(1.0, float(res_scalar) / self.res_ladder[0])
+        frac_factor = 1.5 if self.current_fraction >= 1.0 else 1.0
+        effective_patience = max(3, int(self.plateau_patience * res_factor * frac_factor))
+        
+        # Use significant_improvement to reset the counter, not just any improvement
+        if significant_improvement:
+            self.stagnation_counter = 0
+        else:
+            self.stagnation_counter = epochs_no_improve
+
+        is_stagnant = self.stagnation_counter >= effective_patience
+        
+        # 3. Regression Handling (Instant & Tiered)
+        if not significant_improvement and current_quality < self.prev_quality:
             self.consecutive_drift += 1
             
-            # --- INSTANT VELOCITY DAMPING (User Request) ---
-            # Micro-adjust on EVERY regression to maintain forward momentum
+            # --- INSTANT VELOCITY DAMPING ---
             self.lr_multiplier = 0.98 
             lr_changed = True
             self.current_clamp = max(self.min_clamp, self.current_clamp - 0.5)
             c_changed = True
-            msg_parts.append(f"MICRO-ADJUST: Instant LR Cool (0.98x) | Clamp Guide (-0.5)")
 
             if self.consecutive_drift >= 3:
                 self.lr_multiplier = 0.7 # Tiered Cooling
@@ -94,25 +108,14 @@ class SmartTrainingGovernor:
         else:
             self.consecutive_drift = 0
 
-        # 3. Dynamic Meta-Patience Curriculum
-        # We scale patience based on manifold complexity:
-        # - Higher resolution = Higher patience (heavy manifolds take longer to seat)
-        # - Higher data fraction = Higher patience (foundation must be rock solid)
-        res_scalar = self.current_res[1] if isinstance(self.current_res, list) else self.current_res
-        res_factor = max(1.0, float(res_scalar) / self.res_ladder[0])
-        frac_factor = 1.5 if self.current_fraction >= 1.0 else 1.0
-        effective_patience = max(3, int(self.plateau_patience * res_factor * frac_factor))
-        
-        is_stagnant = epochs_no_improve >= effective_patience
-        
+        # 4. Autonomous Escalation Loop
         if is_stagnant:
-            self.stagnation_counter += 1
             # --- STAGE 1: MASTER THE DATA ---
             if self.current_fraction < 1.0:
                 old_frac = self.current_fraction
                 self.current_fraction = min(1.0, self.current_fraction + self.fraction_increment)
                 f_changed = True
-                msg_parts.append(f"FOUNDATION: Expanding Data {old_frac*100:.0f}% -> {self.current_fraction*100:.0f}%")
+                msg_parts.append(f"STAGNATION: Escalating Data {old_frac*100:.0f}% -> {self.current_fraction*100:.0f}% to break plateau")
                 self.stabilization_epochs = 2
             
             # --- STAGE 2: MASTER THE PIXELS ---
@@ -121,7 +124,7 @@ class SmartTrainingGovernor:
                 if current_idx < len(self.res_ladder) - 1:
                     next_res = self.res_ladder[current_idx + 1]
                     
-                    # QUADRATIC VRAM SCALING (Universal Law)
+                    # QUADRATIC VRAM SCALING
                     res_ratio = next_res / self.current_res
                     vram_growth_factor = res_ratio ** 2.2 
                     
@@ -133,18 +136,18 @@ class SmartTrainingGovernor:
                     r_changed = True
                     b_changed = True
                     
-                    # --- SAWTOOTH RESET (User Request) ---
+                    # --- SAWTOOTH RESET ---
                     # Reset data variety to 50% to allow fast adaptation to new pixels
                     old_frac = self.current_fraction
                     self.current_fraction = 0.5
                     f_changed = True
                     
-                    # Thermal Relief
-                    self.current_temp = min(0.6, self.current_temp * 1.2)
+                    # Thermal Excitation: Heat the manifold to escape the local minima
+                    self.current_temp = min(1.5, self.current_temp * 1.5)
                     t_changed = True
                     
-                    msg_parts.append(f"SAWTOOTH SHIFT: Resolution to {next_res}px | Data Reset {old_frac*100:.0f}%->50% | Batch {self.current_batch}")
-                    self.stabilization_epochs = 4
+                    msg_parts.append(f"AUTONOMOUS ESCALATION: Resolution to {next_res}px | Temp Heatup {self.current_temp:.2f} | Data Reset 50%")
+                    self.stabilization_epochs = 5 # Longer stabilization for resolution jumps
                 
                 # --- STAGE 3: FINE-TUNE PRECISION ---
                 else:
