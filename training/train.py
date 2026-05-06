@@ -2603,7 +2603,7 @@ print(f"[INFO] Using device: {device}")
                         "        print(\"❌ Failed to clone repository. (Did you attach the SUITE_PAT secret?)\")\n",
                         "        print(\"🔒 If access is denied, please request access via: lemgenda.obrt@gmail.com\")\n",
                         "        print(res.stderr.replace(pat, '***') if pat else res.stderr)\n",
-                        "if os.path.exists(suite_path): %cd {suite_path}\n"
+                        "if os.path.exists(suite_path): os.chdir(suite_path)\n"
                     ],
                     "metadata": {},
                     "outputs": [],
