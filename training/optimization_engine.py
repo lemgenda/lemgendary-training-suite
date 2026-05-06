@@ -97,7 +97,8 @@ class SmartTrainingGovernor:
         # We scale patience based on manifold complexity:
         # - Higher resolution = Higher patience (heavy manifolds take longer to seat)
         # - Higher data fraction = Higher patience (foundation must be rock solid)
-        res_factor = max(1.0, self.current_res / self.res_ladder[0])
+        res_scalar = self.current_res[1] if isinstance(self.current_res, list) else self.current_res
+        res_factor = max(1.0, float(res_scalar) / self.res_ladder[0])
         frac_factor = 1.5 if self.current_fraction >= 1.0 else 1.0
         effective_patience = max(3, int(self.plateau_patience * res_factor * frac_factor))
         
@@ -191,7 +192,8 @@ class SmartTrainingGovernor:
     def load_state(self, state):
         if not state: return
         self.current_fraction = state.get("sample_fraction", self.current_fraction)
-        self.current_res = state.get("input_size", self.current_res)
+        raw_res = state.get("input_size", self.current_res)
+        self.current_res = raw_res[1] if isinstance(raw_res, list) else raw_res
         self.current_temp = state.get("softmax_temp", self.current_temp)
         self.current_clamp = state.get("logit_clamp", self.current_clamp)
         self.current_batch = state.get("batch_size", self.current_batch)
