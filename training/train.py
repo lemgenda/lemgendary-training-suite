@@ -82,8 +82,13 @@ def cleanup_active_processes(*args):
     _active_processes.clear()
 
 atexit.register(cleanup_active_processes)
-signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
-signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+def graceful_exit(signum, frame):
+    """Silent shutdown protocol for Ctrl+C / SIGTERM."""
+    cleanup_active_processes()
+    os._exit(0)
+
+signal.signal(signal.SIGINT, graceful_exit)
+signal.signal(signal.SIGTERM, graceful_exit)
 
 from data.dataset import MultiTaskDataset
 from models.factory import get_model
@@ -1446,7 +1451,7 @@ def main():
                             thermal_steps_left = 2500
 
                         print(f" [RECOVERY] Engaging SOTA Auto-Rollback & 50% LR Cooling...")
-                        best_ckpt_path = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
+                        best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                         if os.path.exists(best_ckpt_path):
                             ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
                             model.load_state_dict(ckpt['model_state'])
@@ -2203,18 +2208,8 @@ def main():
             'sota_achieved': sota_baseline_achieved
         }
 
-        # Consistent checkpoint persistence (Atomic Save)
-        latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
-        temp_latest = f"{latest_ckpt}.tmp"
-        
-        with open(temp_latest, "wb") as f:
-            torch.save(ckpt_state, f)
-            f.flush()
-            os.fsync(f.fileno())
-        
-        safe_replace(temp_latest, latest_ckpt)
         # Reset intra-epoch progress file now that the epoch is safely committed
-        progress_ckpt_path = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+        progress_ckpt_path = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
         if os.path.exists(progress_ckpt_path):
             for attempt in range(3):
                 try:
@@ -2236,7 +2231,7 @@ def main():
 
             if regression_epochs >= 3:
                 print(f"🚀 [REGRESSION GUARD] Triple-Epoch drift threshold breached! Hard-Resetting to SOTA best weights...")
-                best_ckpt_path = os.path.join(config.get("checkpoint_dir", "trained-models/checkpoints"), f"{args.model}_best.pth")
+                best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                 if os.path.exists(best_ckpt_path):
                     # Notify Governor to perform a Tactical Retreat (Recoil)
                     ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
@@ -2293,7 +2288,8 @@ def main():
                     # --- 2026: SOTA Resilience (Physical Purge) ---
                     # To prevent the suite from 'accidentally' resuming from the drifted state after a crash,
                     # we physically purge the poisoned latest and progress checkpoints.
-                    for doomed in [latest_ckpt, progress_ckpt_path]:
+                    latest_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
+                    for doomed in [latest_hub_path, progress_ckpt_path]:
                         if os.path.exists(doomed):
                             try:
                                 os.remove(doomed)
@@ -2376,37 +2372,38 @@ def main():
 
                 if hub_url:
                     # Resolve Hub Root
-                    hub_root = "/kaggle/working/hub" if args.env == 'kaggle' else os.path.join(os.getcwd(), "hub")
-                    hub_model_dir = os.path.join(hub_root, args.model)
-                    hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
+                    # --- 2026 Resilience: Cloud Hub Mirroring (Production Sync) ---
+                    target_hub_root = "/kaggle/working/hub" if args.env == 'kaggle' else os.path.join(os.getcwd(), "hub")
+                    target_hub_model_dir = os.path.join(target_hub_root, args.model)
+                    target_hub_ckpt_dir = os.path.join(target_hub_model_dir, "checkpoints")
 
-                    # Ensure hub is correctly initialized
-                    if not os.path.exists(os.path.join(hub_root, ".git")):
-                        print(f" 🚀 [CLOUD SYNC] Initializing production hub at {hub_root}...")
-                        os.makedirs(hub_ckpt_dir, exist_ok=True)
-                        subprocess.run(["git", "init"], cwd=hub_root, capture_output=True)
-                        subprocess.run(["git", "remote", "add", "origin", hub_url], cwd=hub_root, capture_output=True)
+                    # Ensure production hub is correctly initialized
+                    if not os.path.exists(os.path.join(target_hub_root, ".git")):
+                        print(f" 🚀 [CLOUD SYNC] Initializing production hub at {target_hub_root}...")
+                        os.makedirs(target_hub_ckpt_dir, exist_ok=True)
+                        subprocess.run(["git", "init"], cwd=target_hub_root, capture_output=True)
+                        subprocess.run(["git", "remote", "add", "origin", hub_url], cwd=target_hub_root, capture_output=True)
 
                     # 1. Sync Best Checkpoint (Primary SOTA Artifact)
-                    best_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
-                    if os.path.exists(best_ckpt):
-                        os.makedirs(hub_ckpt_dir, exist_ok=True)
-                        shutil.copy2(best_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_best.pth"))
+                    best_ckpt_src = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
+                    if os.path.exists(best_ckpt_src):
+                        os.makedirs(target_hub_ckpt_dir, exist_ok=True)
+                        shutil.copy2(best_ckpt_src, os.path.join(target_hub_ckpt_dir, f"{args.model}_best.pth"))
                     
                     # 2. Sync Latest Checkpoint (Resumption Anchor)
-                    latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
-                    if os.path.exists(latest_ckpt):
-                        os.makedirs(hub_ckpt_dir, exist_ok=True)
-                        shutil.copy2(latest_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth"))
+                    latest_ckpt_src = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
+                    if os.path.exists(latest_ckpt_src):
+                        os.makedirs(target_hub_ckpt_dir, exist_ok=True)
+                        shutil.copy2(latest_ckpt_src, os.path.join(target_hub_ckpt_dir, f"{args.model}_latest.pth"))
                     
                     # 3. Sync Metrics (Audit Trail)
                     if os.path.exists(metrics_csv_path):
-                        os.makedirs(hub_model_dir, exist_ok=True)
-                        shutil.copy2(metrics_csv_path, os.path.join(hub_model_dir, "metrics.csv"))
+                        os.makedirs(target_hub_model_dir, exist_ok=True)
+                        shutil.copy2(metrics_csv_path, os.path.join(target_hub_model_dir, "metrics.csv"))
 
                     # 4. Global Push (Models Only)
                     commit_msg = f"Update new best weights and metrics for {args.model} from {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                    git_hub_sync(hub_root, hub_url, commit_msg)
+                    git_hub_sync(target_hub_root, hub_url, commit_msg)
 
             except Exception as e:
                 print(f" [WARNING] [HUB-SYNC] Deployment skipped: {e}")
