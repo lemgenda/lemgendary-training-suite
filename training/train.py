@@ -2404,6 +2404,25 @@ def main():
             
             if do_push:
                 print(f"🚀 [HUB SYNC] Synchronizing with remote Hub...")
+                
+                # --- 2026 Resilience: Headless Authentication Injection ---
+                pat = os.environ.get('GITHUB_PAT') or os.environ.get('HUB_PAT', '')
+                if pat:
+                    try:
+                        # Resolve physical URL
+                        rem_res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=hub_root, capture_output=True, text=True)
+                        if rem_res.returncode == 0:
+                            raw_url = rem_res.stdout.strip()
+                            if "github.com" in raw_url and "@" not in raw_url:
+                                auth_url = raw_url.replace("https://", f"https://{pat}@")
+                                subprocess.run(["git", "remote", "set-url", "origin", auth_url], cwd=hub_root, capture_output=True)
+                        
+                        # Disable interactive prompts
+                        subprocess.run(["git", "config", "credential.helper", ""], cwd=hub_root, capture_output=True)
+                        subprocess.run(["git", "config", "user.email", "lemgendary@ai.com"], cwd=hub_root, capture_output=True)
+                        subprocess.run(["git", "config", "user.name", "lemgenda"], cwd=hub_root, capture_output=True)
+                    except: pass
+
                 subprocess.run(["git", "checkout", "main"], cwd=hub_root, capture_output=True)
                 subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
                 res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
