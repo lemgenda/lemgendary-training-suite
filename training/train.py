@@ -129,6 +129,20 @@ def safe_replace(src, dst):
             time.sleep(base_delay * (1.5 ** i))
     return False
 
+def load_pat():
+    """2026 Resilience: Securely mount PATs from local files if missing from environment."""
+    for pat_name, file_name in [('GITHUB_PAT', '.GITHUB_PAT'), ('SUITE_PAT', '.SUITE_PAT')]:
+        if not os.environ.get(pat_name):
+            # Check current dir and parent (workspace root)
+            for path in [file_name, os.path.join('..', file_name)]:
+                if os.path.exists(path):
+                    try:
+                        with open(path, 'r') as f:
+                            val = f.read().strip()
+                            if val:
+                                os.environ[pat_name] = val
+                    except: pass
+
 def git_hub_sync(repo_path, remote_url, message):
     """
     2026 Resilience: Robust synchronization for external repositories.
@@ -369,6 +383,9 @@ def main():
     parser.add_argument("--hub_repo", type=str, default=None, help="GitHub repository name for model hub")
     parser.add_argument("--auto_sync", action="store_true", help="Enable automated cloud synchronization per epoch (Kaggle only)")
     args = parser.parse_args()
+
+    # 2026 Resilience: Securely mount PATs for automated Hub Sync
+    load_pat()
 
     # Load config structures explicitly securely
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -668,16 +685,31 @@ def main():
         local_ckpt_dir = config["checkpoint_dir"]
         os.makedirs(hub_ckpt_dir, exist_ok=True)
 
+        hub_user = args.hub_user or config.get("hub_user", "lemgenda")
+        hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
+        hub_url = f"https://github.com/{hub_user}/{hub_repo}.git"
+        if pat:
+            authenticated_url = f"https://{hub_user}:{pat}@github.com/{hub_user}/{hub_repo}.git"
+        else:
+            authenticated_url = hub_url
+
         if os.path.exists(os.path.join(hub_root, ".git")):
             print(f"🔄 [HUB SYNC] Synchronizing Hub repo for stateless resume...")
-            if args.env == 'kaggle' and pat:
-                hub_user = args.hub_user or config.get("hub_user", "lemgenda")
-                hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
-                hub_url = f"https://{hub_user}:{pat}@github.com/{hub_user}/{hub_repo}.git"
-                subprocess.run(["git", "remote", "set-url", "origin", hub_url], cwd=hub_root, capture_output=True)
-            
+            subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=hub_root, capture_output=True)
             # Pull latest to ensure we have the absolute SOTA and Latest state
             subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
+        else:
+            print(f"🚀 [HUB SYNC] Initializing Hub at {hub_root}...")
+            if os.path.exists(hub_root):
+                # If directory exists but no .git, it might be a partial/failed clone
+                try: shutil.rmtree(hub_root, ignore_errors=True)
+                except: pass
+            
+            os.makedirs(os.path.dirname(hub_root), exist_ok=True)
+            res = subprocess.run(["git", "clone", authenticated_url, hub_root], capture_output=True, text=True)
+            if res.returncode != 0:
+                print(f"⚠️ [HUB SYNC] Initial clone failed. Creating local-only hub structure.")
+                os.makedirs(hub_ckpt_dir, exist_ok=True)
     except Exception as e:
         print(f"⚠️ [HUB SYNC] Hub synchronization failed: {e}")
 
@@ -2336,7 +2368,10 @@ def main():
             
             # 2. Sync Metrics Audit Trail
             if os.path.exists(metrics_csv_path):
-                shutil.copy2(metrics_csv_path, os.path.join(hub_model_dir, "metrics.csv"))
+                hub_metrics_path = os.path.join(hub_model_dir, "metrics.csv")
+                # 2026 Resilience: Avoid shutil.SameFileError if export_dir is already in the Hub
+                if os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_path):
+                    shutil.copy2(metrics_csv_path, hub_metrics_path)
 
             # 3. Git Sync (Automated)
             subprocess.run(["git", "add", "."], cwd=hub_root, capture_output=True)
@@ -2353,7 +2388,7 @@ def main():
             
             if do_push:
                 print(f"🚀 [HUB SYNC] Synchronizing with remote Hub...")
-                subprocess.run(["git", "checkout", "-B", "main"], cwd=hub_root, capture_output=True)
+                subprocess.run(["git", "checkout", "main"], cwd=hub_root, capture_output=True)
                 subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
                 res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
                 if res.returncode == 0:
@@ -2524,475 +2559,11 @@ def main():
         with open(os.path.join(export_dir, "README.md"), "w") as f:
             f.write(readme_text)
 
-        # --- 2026 Kaggle Notebook/Inference Generator ---
-        print(f"✨ [EXPORT] Generating Kaggle Inference Notebook...")
-        import json
-        inference_notebook_path = os.path.join(export_dir, "kaggle_inference.ipynb")
-        pascal_model_name = args.model.replace("_", " ").title().replace(" ", "")
-        kebab_model_name = args.model.replace("_", "-")
-        
-        # Derive the actual Kaggle dataset slug from the config fallback URLs if possible
-        dataset_slug = f"lemgendary-{kebab_model_name}"
-        for key, url in config.get("kaggle_dataset_urls", {}).items():
-            if pascal_model_name in key:
-                dataset_slug = url.split("/")[-1]
-                break
+        # --- 2026 Kaggle Notebook/Inference Generator (v12.0 Stateless) ---
+        from training.notebook_generator import generate_inference_notebook, generate_usage_notebook
+        generate_inference_notebook(args.model, export_dir, unified_models_registry, config)
+        generate_usage_notebook(args.model, export_dir, unified_models_registry, config)
 
-        cell_1_source_raw = """import os
-import numpy as np
-from PIL import Image
-import importlib
-
-def get_device():
-    try:
-        t_mod = 'tor' + 'ch'
-        torch = importlib.import_module(t_mod)
-        return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    except ImportError:
-        return 'cpu'
-
-device = get_device()
-print(f"[INFO] Using device: {device}")
-"""
-        cell_1_b64 = base64.b64encode(cell_1_source_raw.encode()).decode()
-        cell_2_b64 = base64.b64encode(f"model_path = '/kaggle/input/{{dataset_slug}}/LemGendary{{pascal_model_name}}.pth'\nif not os.path.exists(model_path):\n    model_path = 'LemGendary{{pascal_model_name}}.pth' # Local fallback\n\ntry:\n    t_mod = 'tor' + 'ch'\n    torch = importlib.import_module(t_mod)\n    model = torch.load(model_path, map_location=device)\n    model.eval()\n    print('[OK] PyTorch Model loaded successfully!')\nexcept Exception as e:\n    print(f'[ERROR] Error loading PyTorch model: {{e}}')\n".encode()).decode()
-        cell_3_b64 = base64.b64encode(f"onnx_path = '/kaggle/input/{{dataset_slug}}/LemGendary{{pascal_model_name}}.onnx'\nif not os.path.exists(onnx_path):\n    onnx_path = 'LemGendary{{pascal_model_name}}.onnx' # Local fallback\n\ntry:\n    o_mod = 'on' + 'nxrun' + 'time'\n    ort = importlib.import_module(o_mod)\n    ort_session = ort.InferenceSession(onnx_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])\n    print('[OK] ONNX Session initialized successfully!')\nexcept Exception as e:\n    print(f'[ERROR] Error initializing ONNX session: {{e}}')\n".encode()).decode()
-
-        cell_1_source = base64.b64decode(cell_1_b64).decode('utf-8')
-        cell_2_source = base64.b64decode(cell_2_b64).decode('utf-8').replace("{dataset_slug}", dataset_slug).replace("{pascal_model_name}", pascal_model_name)
-        cell_3_source = base64.b64decode(cell_3_b64).decode('utf-8').replace("{dataset_slug}", dataset_slug).replace("{pascal_model_name}", pascal_model_name)
-
-        notebook_content = {
-            "metadata": {
-                "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-                "language_info": {"name": "python", "version": "3.12.12"}
-            },
-            "nbformat_minor": 4,
-            "nbformat": 4,
-            "cells": [
-                {
-                    "cell_type": "markdown",
-                    "source": [
-                        f"# LemGendary Master Deployment: {pascal_model_name}\n",
-                        "This unified notebook handles environment synchronization, SOTA inference, and automated cloud training."
-                    ],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "markdown",
-                    "source": [
-                        "## 1. Cloud Sync Configuration\n",
-                        "Set your target GitHub repository for model checkpoints and metrics."
-                    ],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "code",
-                    "source": [
-                        "# Configuration: Set your target repository here\n",
-                        "HUB_USER = 'lemgenda'\n",
-                        "HUB_REPO = 'lemgendary-pretrained-models'\n"
-                    ],
-                    "metadata": {},
-                    "outputs": [],
-                    "execution_count": None
-                },
-                {
-                    "cell_type": "markdown",
-                    "source": [
-                        "## 2. GitHub Personal Access Token (PAT) Guide\n",
-                        "To securely clone the training suite and automatically push SOTA models, you need two GitHub Personal Access Tokens (PATs) added to Kaggle Secrets.\n",
-                        "\n",
-                        "### 1. Generate Your GitHub Tokens\n",
-                        "You can create tokens by following these steps in your GitHub account settings:\n",
-                        "- **Navigate to Developer Settings**: Click your profile picture (top-right) -> Settings -> scroll to the bottom left and click Developer settings.\n",
-                        "- **Select Token Type**: In the left sidebar, click Personal access tokens.\n",
-                        "  - **Fine-grained tokens (Recommended)**: Best for specific repositories.\n",
-                        "  - **Tokens (classic)**: Good for general API use.\n",
-                        "- **Generate Token**: Click Generate new token. Give it a descriptive name (e.g., \"Kaggle Access\") and set an expiration date.\n",
-                        "- **Set Permissions**: If using classic tokens, select the `repo` scope. If using **fine-grained tokens**, set the following under Repository Permissions:\n",
-                        "  - **SUITE_PAT**: Needs `Read` access to `lemgendary-training-suite` (Allows you to download the private codebase).\n",
-                        "  - **GITHUB_PAT**: Needs `Read and write` access to `lemgendary-pretrained-models` (Allows auto-pushing SOTA artifacts).\n",
-                        "- **Copy the Token**: Click Generate token and copy the value immediately. GitHub will not show it to you again.\n",
-                        "\n",
-                        "### 2. Add the Tokens to Kaggle Secrets\n",
-                        "Kaggle allows you to store credentials securely so they aren't exposed in your code.\n",
-                        "- **Open a Kaggle Notebook**: Navigate to any Kaggle Notebook editor.\n",
-                        "- **Access Secrets**: In the top menu bar of the editor, click Add-ons and select Secrets.\n",
-                        "- **Add New Secrets**:\n",
-                        "  - Click Add a new secret.\n",
-                        "  - **Label**: Enter `SUITE_PAT`, paste the first token.\n",
-                        "  - **Label**: Enter `GITHUB_PAT`, paste the second token.\n",
-                        "- **Save & Attach**: Click Save. Ensure BOTH checkboxes are checked so they are attached to your current notebook."
-                    ],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "code",
-                    "source": [
-                        "# ==========================================\n",
-                        "# 🔐 Kaggle Secrets: GitHub PAT Sync\n",
-                        "# ==========================================\n",
-                        "# This securely loads your GitHub Personal Access Tokens\n",
-                        "# to allow downloading the private suite and auto-pushing artifacts!\n",
-                        "try:\n",
-                        "    # Nuclear Stealth: Total string fragmentation for cloud-only modules\n",
-                        "    import base64 as _b64\n",
-                        "    _k = 'a2Fn' + 'Z2xlX' + '3NlY3' + 'JldHM='\n",
-                        "    _m = __import__(_b64.b64decode(_k).decode())\n",
-                        "    _c = getattr(_m, 'UserS' + 'ecrets' + 'Client')()\n",
-                        "    import os as _os\n",
-                        "    try:\n",
-                        "        _os.environ[\"SUITE_PAT\"] = _c.get_secret(\"SUITE_PAT\")\n",
-                        "        print(\"✅ Successfully mounted SUITE_PAT for Training Suite clone access.\")\n",
-                        "    except Exception: pass\n",
-                        "    try:\n",
-                        "        _os.environ[\"GITHUB_PAT\"] = _c.get_secret(\"GITHUB_PAT\")\n",
-                        "        print(\"✅ Successfully mounted GITHUB_PAT for Automated SOTA Cloud Sync.\")\n",
-                        "    except Exception: pass\n",
-                        "except Exception: pass\n"
-                    ],
-                    "metadata": {},
-                    "outputs": [],
-                    "execution_count": None
-                },
-                {
-                    "cell_type": "markdown",
-                    "source": ["## 3. Environment Synchronization\n", "Cloning the latest training suite and enforcing native dependencies."],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "code",
-                    "source": [
-                        "import os, subprocess\n",
-                        "suite_path = '/kaggle/working/lemgendary-training-suite'\n",
-                        "if not os.path.exists(suite_path):\n",
-                        "    print(\"🚀 Cloning LemGendary environment...\")\n",
-                        "    pat = os.environ.get('SUITE_PAT', '')\n",
-                        "    repo_url = f\"https://lemgenda:{pat}@github.com/lemgenda/lemgendary-training-suite.git\" if pat else \"https://github.com/lemgenda/lemgendary-training-suite.git\"\n",
-                        "    res = subprocess.run(f'git clone {repo_url} {suite_path}', shell=True, capture_output=True, text=True)\n",
-                        "    if res.returncode == 0:\n",
-                        "        print(\"✅ Clone successful!\")\n",
-                        "    else:\n",
-                        "        print(\"❌ Failed to clone repository. (Did you attach the SUITE_PAT secret?)\")\n",
-                        "        print(\"🔒 If access is denied, please request access via: lemgenda.obrt@gmail.com\")\n",
-                        "        print(res.stderr.replace(pat, '***') if pat else res.stderr)\n",
-                        "if os.path.exists(suite_path): os.chdir(suite_path)\n"
-                    ],
-                    "metadata": {},
-                    "outputs": [],
-                    "execution_count": None
-                },
-                {
-                    "cell_type": "markdown",
-                    "source": ["### Pull Latest Updates (Run this when you just need to pull)"],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "code",
-                    "source": [
-                        "import os, subprocess\n",
-                        "suite_path = '/kaggle/working/lemgendary-training-suite'\n",
-                        "if os.path.exists(suite_path):\n",
-                        "    pat = os.environ.get('SUITE_PAT', '')\n",
-                        "    repo_url = f\"https://lemgenda:{pat}@github.com/lemgenda/lemgendary-training-suite.git\" if pat else \"https://github.com/lemgenda/lemgendary-training-suite.git\"\n",
-                        "    res = subprocess.run(f'git -C {suite_path} pull {repo_url} main', shell=True, capture_output=True, text=True)\n",
-                        "    if res.returncode == 0:\n",
-                        "        if 'Already up to date.' in res.stdout:\n",
-                        "            print('✅ LemGendary Training Suite is already up to date')\n",
-                        "        else:\n",
-                        "            print('🚀 LemGendary Training Suite changes pulled')\n",
-                        "            print(res.stdout)\n",
-                        "    else:\n",
-                        "        print(\"❌ Failed to pull updates. (Did you attach the SUITE_PAT secret?)\")\n",
-                        "        print(\"🔒 If access is denied, please request access via: lemgenda.obrt@gmail.com\")\n",
-                        "        print(res.stderr.replace(pat, '***') if pat else res.stderr)\n",
-                        "else:\n",
-                        "    print(\"⚠️ Training suite not found in root. Please run the clone cell first.\")\n"
-                    ],
-                    "metadata": {},
-                    "outputs": [],
-                    "execution_count": None
-                },
-                {
-                    "cell_type": "markdown",
-                    "source": ["### Install Dependencies"],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "code",
-                    "source": [
-                        "print(\"📦 Installing requirements...\")\n",
-                        "!pip install -q -r requirements.txt\n",
-                        "print(\"✅ Core systems online.\")\n"
-                    ],
-                    "metadata": {},
-                    "outputs": [],
-                    "execution_count": None
-                },
-                {
-                    "cell_type": "markdown",
-                    "source": ["## 3. Runtime and Stealth Model Loading\n"],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "code",
-                    "source": [
-                        "import os, numpy as np, base64\n",
-                        "from PIL import Image\n",
-                        "\n",
-                        "try:\n",
-                        "    t_key = 'dG' + '9y' + 'Y2g='\n",
-                        "    torch = __import__(base64.b64decode(t_key).decode())\n",
-                        "    \n",
-                        "    # Universal Hardware Acceleration (NVIDIA/AMD/Intel)\n",
-                        "    if getattr(getattr(torch, 'cu' + 'da'), 'is_avai' + 'lable')():\n",
-                        "        device = getattr(torch, 'dev' + 'ice')('cuda')\n",
-                        "    else:\n",
-                        "        try:\n",
-                        "            tdml = __import__('torch_directml')\n",
-                        "            device = tdml.device()\n",
-                        "        except ImportError:\n",
-                        "            device = getattr(torch, 'dev' + 'ice')('cpu')\n",
-                        "    \n",
-                        "    # Ultra-Fuzzy Path Resolution (v5.7 Stealth: Expanded Scope)\n",
-                        "    import glob\n",
-                        "    search_patterns = [\n",
-                        "        f'/kaggle/working/lemgendary-training-suite/trained-models/**/" + pascal_model_name + "*.pt',\n",
-                        "        f'/kaggle/working/lemgendary-training-suite/trained-models/**/" + args.model + "*.pt',\n",
-                        "        f'/kaggle/input/**/*" + pascal_model_name + "*.pt',\n",
-                        "        f'/kaggle/input/**/*" + args.model + "*.pt',\n",
-                        "        f'/kaggle/working/**/*" + pascal_model_name + "*.pt',\n",
-                        "        f'/kaggle/working/**/*" + args.model + "*.pt',\n",
-                        "        f'/kaggle/input/**/*" + pascal_model_name + "*.pth',\n",
-                        "        f'/kaggle/input/**/*" + args.model + "*.pth',\n",
-                        "        f'/kaggle/working/**/*" + pascal_model_name + "*.pth',\n",
-                        "        f'/kaggle/working/**/*" + args.model + "*.pth',\n",
-                        "    ]\n",
-                        "    paths = []\n",
-                        "    for pattern in search_patterns: paths.extend(glob.glob(pattern, recursive=True))\n",
-                        "    \n",
-                        "    # Priority: 1. .pt files, 2. 'latest'/'best' in name, 3. alphabetically\n",
-                        "    paths.sort(key=lambda x: (x.endswith('.pt'), 'latest' in x or 'best' in x), reverse=True)\n",
-                        "    model_path = next((p for p in paths if os.path.exists(p)), None)\n",
-                        "    \n",
-                        "    if model_path:\n",
-                        "        print(f'[INFO] Stealth Match Found: {model_path}')\n",
-                        "        ld_func = getattr(torch, 'lo' + 'ad')\n",
-                        "        # 2026 Resilience: Handle PyTorch 2.6+ weights_only enforcement\n",
-                        "        try:\n",
-                        "            loaded = ld_func(model_path, map_location=device, weights_only=False)\n",
-                        "        except TypeError:\n",
-                        "            loaded = ld_func(model_path, map_location=device)\n",
-                        "        \n",
-                        "        if isinstance(loaded, dict):\n",
-                        "            print(f'[INFO] Training checkpoint (dict) detected. Attempting Dynamic Architecture Mapping...')\n",
-                        "            suite_path = '/kaggle/working/lemgendary-training-suite'\n",
-                        "            if os.path.exists(suite_path):\n",
-                        "                import sys\n",
-                        "                if suite_path not in sys.path: sys.path.insert(0, suite_path)\n",
-                        "                try:\n",
-                        "                    import yaml\n",
-                        "                    from models.factory import get_model\n",
-                        "                    with open(os.path.join(suite_path, 'config.yaml'), 'r') as f: config = yaml.safe_load(f)\n",
-                        "                    model = get_model('" + args.model + "', config).to(device)\n",
-                        "                    state = loaded['model_state'] if 'model_state' in loaded else loaded\n",
-                        "                    model.load_state_dict(state)\n",
-                        "                    print(f'[OK] Dynamic Model successfully reconstructed from checkpoint!')\n",
-                        "                except Exception as ex: \n",
-                        "                    print(f'[ERROR] Dynamic Load Failed: {ex}')\n",
-                        "                    model = loaded # Fallback\n",
-                        "            else:\n",
-                        "                print(f'[WARNING] Training suite not found. Cannot reconstruct architecture from dict.')\n",
-                        "                model = loaded\n",
-                        "        else:\n",
-                        "            model = loaded\n",
-                        "            \n",
-                        "        if hasattr(model, 'eval'):\n",
-                        "            model.eval()\n",
-                        "            print(f'[OK] Active Model loaded on {device}!')\n",
-                        "        else:\n",
-                        "            print(f'[WARNING] Loaded object has no eval() method. (Type: {type(model)})')\n",
-                        "    else:\n",
-                        "        print('[INFO] No pre-trained weights found in /kaggle/input/. Starting fresh.')\n",
-                        "except Exception as e: print(f'[ERROR] PyTorch: {e}')\n",
-                        "\n",
-                        "try:\n",
-                        "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
-                        "    ort = __import__(base64.b64decode(o_key).decode())\n",
-                        "    # Ultra-Fuzzy Path Resolution (v5.6 Stealth)\n",
-                        "    import glob\n",
-                        "    search_patterns = [\n",
-                        "        f'/kaggle/input/**/*' + pascal_model_name + '*.onnx',\n",
-                        "        f'/kaggle/input/**/*' + args.model + '*.onnx',\n",
-                        "        f'/kaggle/working/**/*' + pascal_model_name + '*.onnx',\n",
-                        "        f'/kaggle/working/**/*' + args.model + '*.onnx',\n",
-                        "    ]\n",
-                        "    paths = []\n",
-                        "    for pattern in search_patterns: \n",
-                        "        matches = glob.glob(pattern, recursive=True)\n",
-                        "        if matches: paths.extend(matches)\n",
-                        "    \n",
-                        "    # 2026 Resilience: Path Deduplication and Priority Sorting\n",
-                        "    paths = list(set(paths))\n",
-                        "    paths.sort(key=lambda x: ('latest' in x or 'best' in x), reverse=True)\n",
-                        "    \n",
-                        "    onnx_path = next((p for p in paths if os.path.exists(p)), None)\n",
-                        "    \n",
-                        "    if onnx_path:\n",
-                        "        Sess_Class = getattr(ort, 'Infere' + 'nceSess' + 'ion')\n",
-                        "        available = [p for p in ['CUDAExecutionProvider', 'DmlExecutionProvider', 'CPUExecutionProvider'] if p in ort.get_available_providers()]\n",
-                        "        ort_session = Sess_Class(onnx_path, providers=available)\n",
-                        "        print(f'[OK] ONNX Session initialized from {onnx_path}!')\n",
-                        "    else:\n",
-                        "        if paths:\n",
-                        "            print(f'[INFO] Candidates found but filtered due to architecture mismatch: {paths}')\n",
-                        "        print('[INFO] No matching ONNX matrix found.')\n",
-                        "except Exception as e: print(f'[ERROR] ONNX: {e}')\n"
-                    ],
-                    "metadata": {},
-                    "outputs": [],
-                    "execution_count": None
-                },
-                {
-                    "cell_type": "markdown",
-                    "source": ["## 4. Automated Cloud Training\n"],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "code",
-                    "source": [
-                        "# EXPLICIT CLOUD METADATA REQUIREMENT:\n",
-                        f"# Ensure ALL 1 datasets below are physically mounted via Kaggle 'Add Data':\n",
-                        f"# -> {dataset_slug}\n",
-                        "\n",
-                        f"!python training/train.py --model {args.model} --env kaggle --hub_user {{HUB_USER}} --hub_repo {{HUB_REPO}}\n"
-                    ],
-                    "metadata": {},
-                    "outputs": [],
-                    "execution_count": None
-                },
-                {
-                    "cell_type": "markdown",
-                    "source": [
-                        "## 5. SOTA Cloud Sync\n",
-                        "Manually push your best models and metrics to the production hub."
-                    ],
-                    "metadata": {}
-                },
-                {
-                    "cell_type": "code",
-                    "source": [
-                        "import os, shutil, subprocess\n",
-                        "hub_root = '/kaggle/working/LemGendaryModels'\n",
-                        "hub_user = HUB_USER\n",
-                        "hub_repo = HUB_REPO\n",
-                        "model_key = '" + args.model + "'\n",
-                        "pat = os.environ.get('GITHUB_PAT', '')\n",
-                        "hub_url = f'https://{hub_user}:{pat}@github.com/{hub_user}/{hub_repo}.git'\n",
-                        "\n",
-                        "print(f'🚀 Preparing SOTA Sync for {model_key}...')\n",
-                        "# 2026 Resilience: Purge redundant 'hub' directory to prevent path confusion\n",
-                        "if os.path.exists('/kaggle/working/hub'):\n",
-                        "    print('🧹 [RESILIENCE] Purging redundant hub directory...')\n",
-                        "    shutil.rmtree('/kaggle/working/hub', ignore_errors=True)\n",
-                        "\n",
-                        "if not os.path.exists(os.path.join(hub_root, '.git')):\n",
-                        "    print(f'🛰️ Initializing SOTA Hub at {hub_root}...')\n",
-                        "    if os.path.exists(hub_root): shutil.rmtree(hub_root, ignore_errors=True)\n",
-                        "    os.makedirs(hub_root, exist_ok=True)\n",
-                        "    subprocess.run(['git', 'clone', hub_url, hub_root])\n",
-                        "    subprocess.run(['git', 'branch', '-M', 'main'], cwd=hub_root)\n",
-                        "\n",
-                        "# 2026 Resilience: Always update URL to ensure PAT is current\n",
-                        "subprocess.run(['git', 'remote', 'set-url', 'origin', hub_url], cwd=hub_root)\n",
-                        "subprocess.run(['git', 'config', 'user.email', 'lem.treursic@gmail.com'], cwd=hub_root)\n",
-                        "subprocess.run(['git', 'config', 'user.name', 'lemgenda'], cwd=hub_root)\n",
-                        "\n",
-                        "hub_model_dir = os.path.join(hub_root, model_key)\n",
-                        "hub_ckpt_dir = os.path.join(hub_model_dir, 'checkpoints')\n",
-                        "os.makedirs(hub_ckpt_dir, exist_ok=True)\n",
-                        "\n",
-                        "# Mirror Artifacts\n",
-                        "best_pth = f'/kaggle/working/lemgendary-training-suite/trained-models/checkpoints/{model_key}_best.pth'\n",
-                        "metrics_csv = '/kaggle/working/lemgendary-training-suite/trained-models/checkpoints/metrics.csv'\n",
-                        "\n",
-                        "if os.path.exists(best_pth):\n",
-                        "    shutil.copy2(best_pth, os.path.join(hub_ckpt_dir, f'{model_key}_best.pth'))\n",
-                        "    print('✅ Best checkpoint mirrored.')\n",
-                        "if os.path.exists(metrics_csv):\n",
-                        "    shutil.copy2(metrics_csv, os.path.join(hub_model_dir, 'metrics.csv'))\n",
-                        "    print('✅ Metrics mirrored.')\n",
-                        "\n",
-                        "print('🛰️ Pushing to GitHub...')\n",
-                        "from datetime import datetime\n",
-                        "commit_msg = f'Update new best weights and metrics for {model_key} from {datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")}' \n",
-                        "\n",
-                        "# 2026 Resilience: Force switch to 'main' BEFORE committing to ensure work isn't lost on master/detached HEAD\n",
-                        "subprocess.run(['git', 'remote', 'set-url', 'origin', hub_url], cwd=hub_root)\n",
-                        "subprocess.run(['git', 'checkout', '-B', 'main'], cwd=hub_root)\n",
-                        "\n",
-                        "subprocess.run(['git', 'add', '.'], cwd=hub_root)\n",
-                        "# Check if there are actually any changes to commit\n",
-                        "check_change = subprocess.run(['git', 'diff-index', '--quiet', 'HEAD', '--'], cwd=hub_root)\n",
-                        "if check_change.returncode != 0:\n",
-                        "    subprocess.run(['git', 'commit', '-m', commit_msg], cwd=hub_root)\n",
-                        "    res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root, capture_output=True, text=True)\n",
-                        "    if res.returncode == 0:\n",
-                        "        print('🏆 SOTA Deployment Successful!')\n",
-                        "    else:\n",
-                        "        print('❌ Push failed. Attempting rebase cleanup...')\n",
-                        "        subprocess.run(['git', 'rebase', '--abort'], cwd=hub_root)\n",
-                        "        # 2026 Resilience: Force removal of stale rebase directories if abort fails\n",
-                        "        import shutil\n",
-                        "        rb_dir = os.path.join(hub_root, '.git', 'rebase-merge')\n",
-                        "        if os.path.exists(rb_dir):\n",
-                        "            print(f'🧹 [RESILIENCE] Purging stale rebase directory: {rb_dir}')\n",
-                        "            shutil.rmtree(rb_dir, ignore_errors=True)\n",
-                        "        \n",
-                        "        # 2026 Resilience: Automatically favor local SOTA artifacts during binary conflicts\n",
-                        "        subprocess.run(['git', 'pull', '--rebase', '-X', 'theirs', 'origin', 'main'], cwd=hub_root)\n",
-                        "        \n",
-                        "        # Ensure we are not in a detached HEAD state\n",
-                        "        subprocess.run(['git', 'checkout', 'main'], cwd=hub_root)\n",
-                        "        \n",
-                        "        res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root, capture_output=True, text=True)\n",
-                        "        print('🏆 SOTA Deployment Successful (after rebase)!' if res.returncode == 0 else f'❌ Final Push Failure: {res.stderr}')\n",
-                        "else:\n",
-                        "    print('✅ Everything up-to-date. No new SOTA milestones detected.')\n"
-                    ],
-                    "metadata": {},
-                    "outputs": [],
-                    "execution_count": None
-                }
-            ]
-        }
-
-        with open(inference_notebook_path, "w", encoding="utf-8") as f:
-            json.dump(notebook_content, f, indent=1)
-
-        # --- 2026 Kaggle Cleanup ---
-        if args.env == "kaggle":
-            print("🧹 [KAGGLE] Training complete. Purging local dataset shards to prevent /kaggle/working OOM...")
-            if os.path.exists(data_dir):
-                try:
-                    shutil.rmtree(data_dir)
-                    print("🧹 [KAGGLE] Dataset cache successfully wiped.")
-                except Exception as e:
-                    print(f"⚠️ [KAGGLE] Failed to wipe dataset cache: {e}")
-        elif args.env == "local":
-            print(f"\n🏆 [MISSION COMPLETE] Training / Test Phase ended.")
-            if os.path.exists(data_dir):
-                # Interactive Post-SOTA Data Wipe
-                ans = input(f"🧹 Do you want to approve removing the local training dataset cache ({data_dir}) to save disk space? (y/n): ").strip().lower()
-                if ans == 'y':
-                    try:
-                        shutil.rmtree(data_dir)
-                        print(f"✅ Local dataset cache '{data_dir}' has been successfully wiped.")
-                    except Exception as e:
-                        print(f"⚠️ Failed to wipe local dataset cache: {e}")
-
-        # --- 2026 Resilient Artifact Sync (Windows IO Guard) ---
         # Windows often keeps a lock on newly created ONNX files for several milliseconds.
         # We implementation a settle-period and retry loop to ensure production sync succeeds.
         sync_success = False
@@ -3027,6 +2598,20 @@ print(f"[INFO] Using device: {device}")
 
         if not sync_success:
             print("⚠️  [WARNING] Model was trained and exported, but final sync failed. Artifacts remain in the export directory.")
+        elif args.auto_sync:
+            # --- 2026 SOTA Hub Finalization (Production Push) ---
+            try:
+                print(f"🚀 [HUB PUSH] Finalizing SOTA deployment for {args.model}...")
+                hub_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryModels"))
+                hub_user = args.hub_user or config.get("hub_user", "lemgenda")
+                hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
+                hub_url = f"https://github.com/{hub_user}/{hub_repo}.git"
+                
+                commit_msg = f"🏆 SOTA Deployment: {args.model} (Final Matrix & Usage Notebook)"
+                git_hub_sync(hub_root, hub_url, commit_msg)
+                print(f"✅ [SUCCESS] {args.model} production binaries and documentation are now live on GitHub!")
+            except Exception as e_push:
+                print(f"⚠️  [WARNING] [HUB-PUSH] Final deployment failed: {e_push}")
 
     except Exception as e:
         print(f"ONNX Export Failure: {e}")

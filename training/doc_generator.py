@@ -144,6 +144,9 @@ The **{name}** is a professional-grade AI model optimized for the `{task}` lifec
 
 {usage_snippet}
 
+> [!TIP]
+> **Implementation Guide**: For high-performance deployment including ONNX (FP32/FP16) and standalone PyTorch snippets, refer to the **[{model_key}_usage.ipynb]({model_key}_usage.ipynb)** notebook in this directory.
+
 - **Input Requirements**: RGB Image Tensors normalized to ImageNet stats.
 - **Output Characteristics**: {task.capitalize()} predictive arrays.
 - **Failures**: Large aspect ratio distortions during the standard resize phases.
