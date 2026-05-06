@@ -2340,22 +2340,16 @@ def main():
                         should_push = True
 
                     if should_push:
-                        # Ensure we are on main branch before pushing
+                        # 2026 Resilience: Always pull before pushing to minimize rejections
+                        print(f"🔄 [HUB SYNC] Synchronizing with remote...")
                         subprocess.run(["git", "checkout", "-B", "main"], cwd=hub_root, capture_output=True)
+                        subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
+                        
                         res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
                         if res.returncode == 0:
                             print(f"🏆 [HUB SYNC] SOTA {args.model} successfully pushed to GitHub!")
                         else:
-                            # 2026 Resilience: Handle potential merge conflicts during auto-push
-                            if "rejected" in res.stderr:
-                                print(f"🔄 [HUB SYNC] Conflict detected. Attempting rebase sync...")
-                                subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
-                                res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
-                            
-                            if res.returncode == 0:
-                                print(f"🏆 [HUB SYNC] SOTA {args.model} successfully pushed to GitHub (after rebase)!")
-                            else:
-                                print(f"⚠️ [HUB SYNC] Push failed (Commit saved locally): {res.stderr[:100]}...")
+                            print(f"⚠️ [HUB SYNC] Push failed (Commit saved locally): {res.stderr[:100]}...")
                 except Exception as e:
                     print(f"⚠️ [HUB SYNC] Mirroring failed: {e}")
         else:
