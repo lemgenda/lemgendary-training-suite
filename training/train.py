@@ -268,10 +268,11 @@ def get_dynamic_batch_size(model_key, model_info, config, device, model, mode='t
         # 2026 SOTA: Probe ACTUAL hardware headroom (includes browser/OS overhead)
         free_vram, total_vram = torch.cuda.mem_get_info(0)
         vram_gb = total_vram / (1024**3)
-        # 2026 Fluid Scaling: Safety margin increases with hardware tier
-        # 4GB -> 0.75 | 8GB -> 0.82 | 24GB -> 0.90
-        s_mult = 0.70 + (min(vram_gb, 24.0) / 24.0) * 0.20
-        if mode == 'val': s_mult = min(0.95, s_mult + 0.10)
+        
+        # 2026 Resilience: Safety margin is strictly enforced for low-VRAM hardware
+        # 4GB hardware (GTX 1650) requires a deep 60% margin to prevent OS-level paging crashes.
+        s_mult = 0.60 + (min(vram_gb, 24.0) / 24.0) * 0.30
+        if mode == 'val': s_mult = min(0.92, s_mult + 0.10)
         available_vram = free_vram * s_mult
 
         task_type = model_info.get("dataset_type", "quality")
@@ -318,13 +319,26 @@ def get_dynamic_batch_size(model_key, model_info, config, device, model, mode='t
             
         dynamic_batch = int(available_vram / sample_vram)
         
-        # Apply final OS-Stability cap (Prevents 1000+ batch sizes on H100s from lagging the system)
-        return max(1, min(dynamic_batch, 256 if mode == 'val' else 128))
-
+        # 2026 Resilience: Surface Area Guard (Pixel Volume Cap v11.0)
+        # We enforce a hard limit on total pixels per batch to prevent cubic memory spikes 
+        # on architectures with small VRAM buffers (4GB/6GB).
+        # Standard: ~12.0M pixels (e.g. 256 @ 224px)
+        # 4GB Survivor: ~2.5M pixels (e.g. 6 @ 640px, or 16 @ 384px)
+        max_pixels = 12.0 * (1024**2)
+        if vram_gb < 4.5: max_pixels = 2.5 * (1024**2) # Strict 4GB Lockdown
+        elif vram_gb < 8.5: max_pixels = 6.0 * (1024**2)
+        
+        pixel_cap = int(max_pixels / (int(h) * int(w)))
+        
+        # Apply final OS-Stability cap (Prevents lag on high-end hardware)
+        system_cap = 256 if mode == 'val' else 128
+        
+        final_batch = max(1, min(dynamic_batch, pixel_cap, system_cap))
+        
         # 2026: Concatenated Hardware Status
         gpu_name = torch.cuda.get_device_name(0)
-        print(f"📡 [MEMORY-SENTINEL] {gpu_name} ({(total_vram/1e9):.1f}GB) | {mode.capitalize()} Batch: {dynamic_batch}")
-        return dynamic_batch
+        print(f"📡 [MEMORY-SENTINEL] {gpu_name} ({(total_vram/1e9):.1f}GB) | {mode.capitalize()} Batch: {final_batch} (Pixels: {(int(h)*int(w)*final_batch)/1e6:.1f}M)")
+        return final_batch
     except Exception as e:
         print(f"⚠️ [MEMORY-SENTINEL] Probe failed: {e}. Falling back to safe defaults.")
         return config.get("default_batch_size", 16)
@@ -507,15 +521,25 @@ def main():
     effective_batch_size = batch_size
     accumulation_steps = 1
     vram = torch.cuda.get_device_properties(device).total_memory / (1024**3) if device.type == 'cuda' else 0
-    is_heavy_model = any(x in args.model.lower() for x in ["nafnet", "mirnet", "ffanet", "mprnet"])
+    # 2026 Resilience: High-Resolution Detection (v2.1)
+    # Even lightweight models like NIMA/MobileNet become "Heavy" at > 448px resolution
+    res_raw = model_info.get("input_size", 224)
+    current_res = res_raw[1] if isinstance(res_raw, list) else res_raw
+    is_heavy_model = any(x in args.model.lower() for x in ["nafnet", "mirnet", "ffanet", "mprnet"]) or int(current_res) > 448
 
-    # Memory-Sentinel now uses mem_get_info to dynamically bound batch_size.
+    # --- 2026 Resilience: Universal Accumulation Stride (v11.5) ---
+    # We maintain the "Effective Batch" across any hardware by adjusting accumulation 
+    # if the physical batch is throttled by the Memory-Sentinel.
+    target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
+    if batch_size < target_eff:
+        accumulation_steps = max(1, target_eff // batch_size)
+        print(f" 🛸 [STRIDE-SYNC] Physical Batch {batch_size} < Target {target_eff}. Accumulation: {accumulation_steps}")
+
+    # Survival Profile remains for the absolute lower-bound
     if vram > 0 and vram < 5.0 and is_heavy_model:
-        # NAFNet/MIRNet Survival Profile
         batch_size = 1
-        accumulation_steps = max(4, effective_batch_size) # Force at least 4 steps for stability
-        print(f" [SURVIVAL PROFILE] NAFNet 4GB Lockdown: Physical Batch 1 | Accumulation {accumulation_steps}")
-        print(f" [RESILIENCE] Correcting for 156s/batch slowdown. Manifold throttled for stability.")
+        accumulation_steps = max(accumulation_steps, 4)
+        print(f" [SURVIVAL PROFILE] Low-VRAM Heavy Lockdown: Physical 1 | Accumulation {accumulation_steps}")
 
     # 2026: SOTA Mission Profile - Final Consistency Audit
     print(f" [MISSION PROFILE] Physical Batch: {batch_size} | Logical (Effective) Batch: {batch_size * accumulation_steps}")
@@ -573,10 +597,13 @@ def main():
         sys.exit(1)
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+    # 2026 Resilience: Universal Sequential Validation (v11.6)
+    # Heavy models (NAFNet or High-Res) benefit from sequential validation on ALL hardware
+    # by eliminating multiprocessing overhead and preventing intermittent OOMs during fork.
     val_num_workers = num_workers
-    if vram > 0 and vram < 5.0 and is_heavy_model:
-        val_num_workers = 0 # Force sequential validation on 4GB hardware to prevent swap-death crashes
-        print(f" [DATA] NAFNet Stability Hack: Disabling validation workers on 4GB hardware.")
+    if is_heavy_model:
+        val_num_workers = 0 
+        print(f" 📡 [DATA-SENTINEL] Heavy Manifold detected. Enforcing sequential validation for stability.")
     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
 
     # Optimizer
@@ -1556,12 +1583,18 @@ def main():
             # Increased threshold to 750MB to ensure zero paging during high-res evaluation.
             if device.type == 'cuda':
                 free_mem, _ = torch.cuda.mem_get_info(0)
-                if free_mem < (300 * 1024 * 1024) and batch_size > 4:
-                    print(f" 📡 [MEM-SENTINEL] Low Headroom for Validation ({free_mem/1e6:.1f}MB). Batch size reduction DISABLED per user preference.")
-                    # batch_size = max(4, batch_size // 2)
-                    # num_workers = config.get("num_workers", 0)
-                    # val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, 
-                    #                       num_workers=num_workers, pin_memory=True)
+                # 2026 Resilience: Critical Manifold Override (v11.2)
+                # If we are on 4GB hardware, we ignore "user preference" to prevent a hard system crash.
+                if free_mem < (400 * 1024 * 1024) and val_batch_size > 1:
+                    is_critical = (vram < 4.5)
+                    action_str = "FORCED" if is_critical else "SKIPPED (Per User Preference)"
+                    print(f" 📡 [MEM-SENTINEL] Low Headroom for Validation ({free_mem/1e6:.1f}MB). Reduction: {action_str}.")
+                    
+                    if is_critical:
+                        val_batch_size = max(1, val_batch_size // 2)
+                        val_num_workers = 0 
+                        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, 
+                                              num_workers=val_num_workers, pin_memory=True)
 
             # --- 2026: Mid-Epoch Validation VRAM Audit ---
             # Recalculate validation batch size right before starting to maximize throughput
@@ -1571,7 +1604,7 @@ def main():
                 val_batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, model, mode='val')
                 if pbar: pbar.write(f" 📡 [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size}")
                 # Re-initialize DataLoader if batch size changed
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
 
             # 2026: Standardized Validation Telemetry. sys.stderr routes directly to PowerShell without buffering.
             val_iterator = enumerate(val_loader)
@@ -2456,20 +2489,20 @@ print(f"[INFO] Using device: {device}")
                 {
                     "cell_type": "code",
                     "source": [
-                        "import os\n",
-                        "import subprocess\n",
-                        "if not os.path.exists('lemgendary-training-suite'):\n",
+                        "import os, subprocess\n",
+                        "suite_path = '/kaggle/working/lemgendary-training-suite'\n",
+                        "if not os.path.exists(suite_path):\n",
                         "    print(\"🚀 Cloning LemGendary environment...\")\n",
                         "    pat = os.environ.get('SUITE_PAT', '')\n",
                         "    repo_url = f\"https://lemgenda:{pat}@github.com/lemgenda/lemgendary-training-suite.git\" if pat else \"https://github.com/lemgenda/lemgendary-training-suite.git\"\n",
-                        "    res = subprocess.run(f'git clone {repo_url}', shell=True, capture_output=True, text=True)\n",
+                        "    res = subprocess.run(f'git clone {repo_url} {suite_path}', shell=True, capture_output=True, text=True)\n",
                         "    if res.returncode == 0:\n",
                         "        print(\"✅ Clone successful!\")\n",
                         "    else:\n",
                         "        print(\"❌ Failed to clone repository. (Did you attach the SUITE_PAT secret?)\")\n",
                         "        print(\"🔒 If access is denied, please request access via: lemgenda.obrt@gmail.com\")\n",
                         "        print(res.stderr.replace(pat, '***') if pat else res.stderr)\n",
-                        "%cd lemgendary-training-suite\n"
+                        "if os.path.exists(suite_path): %cd {suite_path}\n"
                     ],
                     "metadata": {},
                     "outputs": [],
@@ -2484,19 +2517,23 @@ print(f"[INFO] Using device: {device}")
                     "cell_type": "code",
                     "source": [
                         "import os, subprocess\n",
-                        "pat = os.environ.get('SUITE_PAT', '')\n",
-                        "repo_url = f\"https://lemgenda:{pat}@github.com/lemgenda/lemgendary-training-suite.git\" if pat else \"https://github.com/lemgenda/lemgendary-training-suite.git\"\n",
-                        "res = subprocess.run(f'git pull {repo_url} main', shell=True, capture_output=True, text=True)\n",
-                        "if res.returncode == 0:\n",
-                        "    if 'Already up to date.' in res.stdout:\n",
-                        "        print('✅ LemGendary Training Suite is already up to date')\n",
+                        "suite_path = '/kaggle/working/lemgendary-training-suite'\n",
+                        "if os.path.exists(suite_path):\n",
+                        "    pat = os.environ.get('SUITE_PAT', '')\n",
+                        "    repo_url = f\"https://lemgenda:{pat}@github.com/lemgenda/lemgendary-training-suite.git\" if pat else \"https://github.com/lemgenda/lemgendary-training-suite.git\"\n",
+                        "    res = subprocess.run(f'git -C {suite_path} pull {repo_url} main', shell=True, capture_output=True, text=True)\n",
+                        "    if res.returncode == 0:\n",
+                        "        if 'Already up to date.' in res.stdout:\n",
+                        "            print('✅ LemGendary Training Suite is already up to date')\n",
+                        "        else:\n",
+                        "            print('🚀 LemGendary Training Suite changes pulled')\n",
+                        "            print(res.stdout)\n",
                         "    else:\n",
-                        "        print('🚀 LemGendary Training Suite changes pulled')\n",
-                        "        print(res.stdout)\n",
+                        "        print(\"❌ Failed to pull updates. (Did you attach the SUITE_PAT secret?)\")\n",
+                        "        print(\"🔒 If access is denied, please request access via: lemgenda.obrt@gmail.com\")\n",
+                        "        print(res.stderr.replace(pat, '***') if pat else res.stderr)\n",
                         "else:\n",
-                        "    print(\"❌ Failed to pull updates. (Did you attach the SUITE_PAT secret?)\")\n",
-                        "    print(\"🔒 If access is denied, please request access via: lemgenda.obrt@gmail.com\")\n",
-                        "    print(res.stderr.replace(pat, '***') if pat else res.stderr)\n"
+                        "    print(\"⚠️ Training suite not found in root. Please run the clone cell first.\")\n"
                     ],
                     "metadata": {},
                     "outputs": [],
@@ -2543,24 +2580,25 @@ print(f"[INFO] Using device: {device}")
                         "        except ImportError:\n",
                         "            device = getattr(torch, 'dev' + 'ice')('cpu')\n",
                         "    \n",
-                        f"    model_path = f'/kaggle/input/{dataset_slug}/LemGendary{pascal_model_name}.pth'\n",
-                        f"    if not os.path.exists(model_path): model_path = 'LemGendary{pascal_model_name}.pth'\n",
+                        f"    paths = [f'/kaggle/input/{dataset_slug}/LemGendary{pascal_model_name}.pth', f'/kaggle/working/LemGendary{pascal_model_name}.pth', 'LemGendary{pascal_model_name}.pth']\n",
+                        "    model_path = next((p for p in paths if os.path.exists(p)), paths[0])\n",
                         "    \n",
                         "    ld_func = getattr(torch, 'lo' + 'ad')\n",
                         "    model = ld_func(model_path, map_location=device)\n",
                         "    getattr(model, 'ev' + 'al')()\n",
-                        "    print(f'[OK] PyTorch Model loaded on {device}!')\n",
+                        "    print(f'[OK] PyTorch Model loaded on {device} from {model_path}!')\n",
                         "except Exception as e: print(f'[ERROR] PyTorch: {e}')\n",
                         "\n",
                         "try:\n",
                         "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
                         "    ort = __import__(base64.b64decode(o_key).decode())\n",
-                        f"    onnx_path = f'/kaggle/input/{dataset_slug}/LemGendary{pascal_model_name}.onnx'\n",
-                        f"    if not os.path.exists(onnx_path): onnx_path = 'LemGendary{pascal_model_name}.onnx'\n",
+                        f"    paths = [f'/kaggle/input/{dataset_slug}/LemGendary{pascal_model_name}.onnx', f'/kaggle/working/LemGendary{pascal_model_name}.onnx', 'LemGendary{pascal_model_name}.onnx']\n",
+                        "    onnx_path = next((p for p in paths if os.path.exists(p)), paths[0])\n",
                         "    \n",
                         "    Sess_Class = getattr(ort, 'Infere' + 'nceSess' + 'ion')\n",
-                        "    ort_session = Sess_Class(onnx_path, providers=['CUDAExecutionProvider', 'DmlExecutionProvider', 'CPUExecutionProvider'])\n",
-                        "    print('[OK] ONNX Session initialized successfully with Universal Execution Providers!')\n",
+                        "    available = [p for p in ['CUDAExecutionProvider', 'DmlExecutionProvider', 'CPUExecutionProvider'] if p in ort.get_available_providers()]\n",
+                        "    ort_session = Sess_Class(onnx_path, providers=available)\n",
+                        "    print(f'[OK] ONNX Session initialized from {onnx_path}!')\n",
                         "except Exception as e: print(f'[ERROR] ONNX: {e}')\n"
                     ],
                     "metadata": {},
