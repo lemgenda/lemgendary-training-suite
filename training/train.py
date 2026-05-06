@@ -2269,6 +2269,33 @@ def main():
                 temp_best = f"{best_ckpt}.tmp"
                 torch.save(ckpt_state, temp_best) # pyre-ignore
                 safe_replace(temp_best, best_ckpt)
+
+                # --- 2026 Resilience: Local Hub Mirroring (Automated) ---
+                if args.env == 'local':
+                    try:
+                        hub_root = os.path.join(os.path.dirname(project_root), "LemGendaryModels")
+                        hub_model_dir = os.path.join(hub_root, args.model)
+                        hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
+                        os.makedirs(hub_ckpt_dir, exist_ok=True)
+
+                        # 1. Sync Best Checkpoint
+                        shutil.copy2(best_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_best.pth"))
+                        
+                        # 2. Sync Metrics
+                        if os.path.exists(metrics_csv_path):
+                            shutil.copy2(metrics_csv_path, os.path.join(hub_model_dir, "metrics.csv"))
+
+                        # 3. Local Git Push (Automated)
+                        print(f"🚀 [LOCAL HUB] Achievement Unlocked: Mirroring SOTA {args.model} to LemGendaryModels...")
+                        subprocess.run(["git", "add", "."], cwd=hub_model_dir, capture_output=True)
+                        subprocess.run(["git", "commit", "-m", f"feat(sota): local deploy {args.model} (Quality: {current_quality_score:.4f})"], cwd=hub_model_dir, capture_output=True)
+                        res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_model_dir, capture_output=True, text=True)
+                        if res.returncode == 0:
+                            print(f"🏆 [LOCAL HUB] SOTA {args.model} successfully pushed to GitHub!")
+                        else:
+                            print(f"⚠️ [LOCAL HUB] Push failed (Commit saved locally): {res.stderr[:100]}...")
+                    except Exception as e:
+                        print(f"⚠️ [LOCAL HUB] Mirroring failed: {e}")
         else:
             epochs_no_improve += 1  # pyre-ignore
             regression_epochs += 1
