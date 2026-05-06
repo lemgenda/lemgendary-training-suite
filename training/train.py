@@ -2265,6 +2265,7 @@ def main():
                     f"{batch_size},{accumulation_steps},{avg_sentinel_stress:.6f}\n")
         
         prev_quality_score = current_quality_score
+        # --- 2026 Resilience: Model Hub Sync (v6.2.0) ---
         if is_improving:
             epochs_no_improve = 0
             if is_best:
@@ -2272,73 +2273,56 @@ def main():
                 temp_best = f"{best_ckpt}.tmp"
                 torch.save(ckpt_state, temp_best) # pyre-ignore
                 safe_replace(temp_best, best_ckpt)
-                
-                # Immediate SOTA Mirroring to External Hub Directory
-                try:
-                    export_ckpt_dir = os.path.join(export_dir, "checkpoints")
-                    os.makedirs(export_ckpt_dir, exist_ok=True)
-                    shutil.copy2(best_ckpt, os.path.join(export_ckpt_dir, f"{args.model}_best.pth"))
-                except Exception as e:
-                    print(f" [WARNING] Failed to mirror SOTA checkpoint: {e}")
         else:
             epochs_no_improve += 1  # pyre-ignore
             regression_epochs += 1
             print(f" -> No improvement for {epochs_no_improve} epoch(s).")
-            if epochs_no_improve >= patience:
-                print(f"\n[Early Stopping] Model structurally converged. Halting training to prevent overfitting.")
-                break
 
-        # --- 2026 Resilience: Dual-Repo Hub Sync (Local & Kaggle) ---
+        # --- Automated Cloud Hub Deployment ---
         try:
             hub_user = args.hub_user or config.get("hub_user", "lemgenda")
             hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
             hub_url = f"https://github.com/{hub_user}/{hub_repo}.git"
 
-            # Fallback for legacy explicit URL configs
-            if not args.hub_user and not args.hub_repo and config.get("model_hub_repo"):
-                hub_url = config.get("model_hub_repo")
-
             if hub_url:
                 # Resolve Hub Root
-                if args.env == 'kaggle':
-                    hub_root = "/kaggle/working/hub"
-                    # Initialize LFS in Kaggle workspace to handle large weights
-                    import subprocess
-                    os.makedirs(hub_root, exist_ok=True)
-                    subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
-                    subprocess.run(["git", "lfs", "track", "*.pth"], cwd=hub_root, capture_output=True)
-                else:
-                    hub_root = os.path.abspath(os.path.join(export_dir, ".."))
-                
-                os.makedirs(hub_root, exist_ok=True)
+                hub_root = "/kaggle/working/hub" if args.env == 'kaggle' else os.path.join(os.getcwd(), "hub")
                 hub_model_dir = os.path.join(hub_root, args.model)
                 hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
-                os.makedirs(hub_ckpt_dir, exist_ok=True)
+
+                # Ensure hub is correctly initialized
+                if not os.path.exists(os.path.join(hub_root, ".git")):
+                    print(f" 🚀 [CLOUD SYNC] Initializing production hub at {hub_root}...")
+                    os.makedirs(hub_ckpt_dir, exist_ok=True)
+                    subprocess.run(["git", "init"], cwd=hub_root, capture_output=True)
+                    subprocess.run(["git", "remote", "add", "origin", hub_url], cwd=hub_root, capture_output=True)
 
                 # 1. Sync Best Checkpoint (Primary SOTA Artifact)
                 best_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
                 if os.path.exists(best_ckpt):
+                    os.makedirs(hub_ckpt_dir, exist_ok=True)
                     shutil.copy2(best_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_best.pth"))
                 
                 # 2. Sync Latest Checkpoint (Resumption Anchor)
                 latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
                 if os.path.exists(latest_ckpt):
+                    os.makedirs(hub_ckpt_dir, exist_ok=True)
                     shutil.copy2(latest_ckpt, os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth"))
                 
                 # 3. Sync Metrics (Audit Trail)
-                metrics_csv_path = os.path.join(config["checkpoint_dir"], "metrics.csv")
                 if os.path.exists(metrics_csv_path):
+                    os.makedirs(hub_model_dir, exist_ok=True)
                     shutil.copy2(metrics_csv_path, os.path.join(hub_model_dir, "metrics.csv"))
-                    shutil.copy2(metrics_csv_path, os.path.join(os.getcwd(), "metrics.csv"))
 
-                git_hub_sync(hub_root, hub_url, f"feat(sota): deploy new best manifold for {args.model} (Quality: {current_quality_score:.4f})")
-                
-                # 4. Secondary Sync: Training Code (Kaggle Only)
-                if args.env == 'kaggle':
-                    git_hub_sync(os.getcwd(), "origin", f"chore(training): sync epoch {epoch+1} logs for {args.model}")
+                # 4. Global Push (Models Only)
+                git_hub_sync(hub_root, hub_url, f"feat(sota): deploy converged {args.model} epoch {epoch+1} (Quality: {current_quality_score:.4f})")
 
         except Exception as e:
             print(f" [WARNING] [HUB-SYNC] Deployment skipped: {e}")
+
+        if epochs_no_improve >= patience:
+            print(f"\n[Early Stopping] Model structurally converged. Halting training to prevent overfitting.")
+            break
 
         # Aggressive memory cleanup for low-VRAM 4GB cards (GTX 1650)
         if torch.cuda.is_available(): torch.cuda.empty_cache()
