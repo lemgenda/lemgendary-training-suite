@@ -173,14 +173,17 @@ def git_hub_sync(repo_path, remote_url, message):
         # If set-url fails (remote doesn't exist), try adding it
         subprocess.run(["git", "remote", "add", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=10)
 
+        # 2026 Resilience: Force local identity and disable credential manager to prevent interactive prompts
+        subprocess.run(["git", "config", "user.email", "lemgendary@ai.com"], cwd=repo_path, capture_output=True, timeout=10)
+        subprocess.run(["git", "config", "user.name", "lemgenda"], cwd=repo_path, capture_output=True, timeout=10)
+        subprocess.run(["git", "config", "credential.helper", ""], cwd=repo_path, capture_output=True, timeout=10)
+
         # 1. Check if it's a git repo
         if not os.path.exists(os.path.join(repo_path, ".git")):
             print(f" 🚀 [CLOUD SYNC] Initializing new repository at {repo_path}...")
             subprocess.run(["git", "init"], cwd=repo_path, capture_output=True, timeout=30)
             subprocess.run(["git", "remote", "add", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=30)
             subprocess.run(["git", "checkout", "-b", "main"], cwd=repo_path, capture_output=True, timeout=30)
-            subprocess.run(["git", "config", "user.email", "lemgendary@ai.com"], cwd=repo_path, capture_output=True, timeout=30)
-            subprocess.run(["git", "config", "user.name", "LemGendary Bot"], cwd=repo_path, capture_output=True, timeout=30)
         elif pat and remote_url != "origin":
              # Update remote to include PAT for existing hub repos
              subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=30)
