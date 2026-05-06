@@ -2408,32 +2408,41 @@ def main():
                 # --- 2026 Resilience: Headless Authentication Injection ---
                 pat = os.environ.get('GITHUB_PAT') or os.environ.get('HUB_PAT', '')
                 if pat:
-                    print(f" 📡 [HUB SYNC] Authentication token detected (Masked: {pat[:4]}...{pat[-4:]})")
                     try:
                         rem_res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=hub_root, capture_output=True, text=True)
                         if rem_res.returncode == 0:
                             raw_url = rem_res.stdout.strip()
-                            # Always ensure the latest PAT is injected even if @ exists
                             base_url = raw_url.split('@')[-1] if '@' in raw_url else raw_url.replace("https://", "")
                             auth_url = f"https://{pat}@{base_url}"
                             subprocess.run(["git", "remote", "set-url", "origin", auth_url], cwd=hub_root, capture_output=True)
                         
                         subprocess.run(["git", "config", "credential.helper", ""], cwd=hub_root, capture_output=True)
                     except: pass
-                else:
-                    print(f" ⚠️ [HUB SYNC] No GITHUB_PAT/HUB_PAT found. Push may fail on Cloud hardware.")
+
+                # 2026 Resilience: Check for divergence (Ahead/Behind)
+                subprocess.run(["git", "fetch", "origin"], cwd=hub_root, capture_output=True)
+                check_ahead = subprocess.run(["git", "rev-list", "--count", "origin/main..main"], cwd=hub_root, capture_output=True, text=True)
+                ahead_count = int(check_ahead.stdout.strip()) if check_ahead.returncode == 0 else 0
+                
+                if ahead_count > 0:
+                    print(f" 📡 [HUB SYNC] Local branch is ahead by {ahead_count} commits. Force-syncing...")
 
                 subprocess.run(["git", "checkout", "main"], cwd=hub_root, capture_output=True)
                 # Pull with rebase to ensure we are ahead of remote
                 pull_res = subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
-                if pull_res.returncode != 0:
-                    print(f" ⚠️ [HUB SYNC] Pull/Rebase failed: {pull_res.stderr.strip()}")
-
+                
                 res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
                 if res.returncode == 0:
                     print(f"🏆 [HUB SYNC] Hub updated successfully!")
                 else:
-                    print(f"⚠️ [HUB SYNC] Push failed! Error:\n{res.stderr.strip()}")
+                    # Final attempt: If push fails, it's likely a persistent divergence. Try one more rebase.
+                    print(f" ⚠️ [HUB SYNC] Push rejected. Attempting emergency rebase recovery...")
+                    subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
+                    res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
+                    if res.returncode == 0:
+                        print(f"🏆 [HUB SYNC] Hub updated successfully after emergency recovery!")
+                    else:
+                        print(f"⚠️ [HUB SYNC] Push failed! Error:\n{res.stderr.strip()}")
         except Exception as e:
             print(f"⚠️ [HUB SYNC] Hub synchronization critical failure: {e}")
 
