@@ -1244,7 +1244,8 @@ def main():
             optimizer.zero_grad() # Initial zero
 
             session_batches_processed = 0
-            for i, batch in iter_obj:
+            try:
+                for i, batch in iter_obj:
                 # --- 2026: Global Index Alignment ---
                 current_iter = i + 1
                 if pbar.n < pbar.total:
@@ -1596,6 +1597,9 @@ def main():
                     scaler.step(optimizer)
                     scaler.update()
                     optimizer.zero_grad()
+
+            except IndexError:
+                print(f"\n🛑 [RESILIENCY] Mid-epoch Manifold Shift detected. Finalizing epoch early to align with new data scale.")
 
                     # Natively prevent 'lr_scheduler before optimizer' UserWarning during AMP nan-skips
                     skip_lr_sched = (scale_before > scaler.get_scale())

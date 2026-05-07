@@ -379,7 +379,9 @@ class MultiTaskDataset(Dataset):
             return torch.zeros((3, self.size[0], self.size[1])), torch.zeros(1), self.task_type
 
         import random
-        current_idx = idx
+        # --- 2026 Resiliency: Manifold Shift Protection ---
+        # If the dataset shrunken mid-epoch (e.g. via RECOIL), clamp to valid range
+        current_idx = idx if idx < len(self.samples) else random.randint(0, len(self.samples) - 1)
         
         for _ in range(50):
             ds_name, fname = self.samples[current_idx]
