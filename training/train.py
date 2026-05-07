@@ -241,6 +241,7 @@ def git_hub_sync(repo_path, remote_url, message):
         subprocess.run(["git", "config", "user.email", "lemgendary@ai.com"], cwd=repo_path, capture_output=True, timeout=10)
         subprocess.run(["git", "config", "user.name", "lemgenda"], cwd=repo_path, capture_output=True, timeout=10)
         subprocess.run(["git", "config", "credential.helper", ""], cwd=repo_path, capture_output=True, timeout=10)
+        subprocess.run(["git", "config", "pull.rebase", "true"], cwd=repo_path, capture_output=True, timeout=10)
 
         # 1. Check if it's a git repo
         if not os.path.exists(os.path.join(repo_path, ".git")):
@@ -267,7 +268,7 @@ def git_hub_sync(repo_path, remote_url, message):
                 print(f" 📡 [CLOUD SYNC] Push failed. Attempting rebase recovery (Allowing unrelated histories)...")
                 # If push fails, attempt a non-destructive rebase (Production Manifold Protection)
                 # 2026 Resilience: --allow-unrelated-histories is essential for the first-time hub sync
-                subprocess.run(["git", "pull", "origin", "main", "--rebase", "--allow-unrelated-histories"], cwd=repo_path, capture_output=True, timeout=120)
+                subprocess.run(["git", "pull", "origin", "main", "--rebase", "-X", "theirs", "--allow-unrelated-histories"], cwd=repo_path, capture_output=True, timeout=120)
                 subprocess.run(["git", "push", "origin", "main"], cwd=repo_path, capture_output=True, timeout=120)
                 print(f" ✅ [CLOUD SYNC] '{os.path.basename(repo_path)}' synchronized after rebase.")
         else:

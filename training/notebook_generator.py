@@ -60,7 +60,8 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    else: print(f'❌ [ERROR] Clone failed: {res.stderr}')\n",
         "else:\n",
         "    print('✅ [OK] Suite resident. Pulling latest...')\n",
-        "    subprocess.run(['git', 'pull'], cwd=suite_path)\n"
+        "    subprocess.run(['git', 'config', 'pull.rebase', 'true'], cwd=suite_path)\n",
+        "    subprocess.run(['git', 'pull', '--rebase'], cwd=suite_path)\n"
     ]
 
     symlink_source = [
@@ -124,7 +125,8 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "else: \n",
         "    print('🔄 [HUB] Syncing hub structure...')\n",
         "    subprocess.run(['git', 'remote', 'set-url', 'origin', hub_url], cwd=hub_root)\n",
-        "    subprocess.run(['git', 'pull', 'origin', 'main'], cwd=hub_root, env=env)\n",
+        "    subprocess.run(['git', 'config', 'pull.rebase', 'true'], cwd=hub_root)\n",
+        "    subprocess.run(['git', 'pull', '--rebase', '-X', 'theirs', 'origin', 'main'], cwd=hub_root, env=env)\n",
         "    print('✅ [OK] Hub Structure Synced.')\n",
         "\n",
         "# --- 2026 Resilience: Clear Stale Locks ---\n",
@@ -184,9 +186,11 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "print('📡 [SYNC] Pushing finalized SOTA to Hub...')\n",
         "subprocess.run(['git', 'config', 'user.email', 'lem.treursic@gmail.com'], cwd=hub_root)\n",
         "subprocess.run(['git', 'config', 'user.name', 'lemgenda'], cwd=hub_root)\n",
+        "subprocess.run(['git', 'config', 'pull.rebase', 'true'], cwd=hub_root)\n",
         "subprocess.run(['git', 'add', '.'], cwd=hub_root)\n",
         "msg = f'Finalize {model_key} @ {datetime.datetime.now().isoformat()}'\n",
         "subprocess.run(['git', 'commit', '-m', msg], cwd=hub_root)\n",
+        "subprocess.run(['git', 'pull', '--rebase', '-X', 'theirs', 'origin', 'main'], cwd=hub_root)\n",
         "subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root)\n",
         "print('✅ [DONE] Deployment Complete.')\n"
     ]
