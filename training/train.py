@@ -1238,10 +1238,8 @@ def main():
                 initial=current_iter,
                 desc=f"Epoch {epoch+1}/{epochs} [Train]",
                 unit="batch",
-                colour="green",
-                file=sys.stderr,
                 dynamic_ncols=True,
-                leave=False
+                leave=True
             )
             # Sync intra-epoch save threshold to resume point
             last_intra_epoch_pct = (current_iter / len(train_loader)) if len(train_loader) > 0 else 0.0
@@ -1330,10 +1328,17 @@ def main():
                                 
                                 if isinstance(preds, (tuple, list)):
                                     p_p = preds[0]
-                                    sentinel_stresses.append(((p_p < min_v) | (p_p > max_v)).float().mean().item())
+                                    # 2026 Resilience: Dual-Stage Audit (Stress + Pressure)
+                                    # Stress: Absolute saturation/instability (exceeds clamp)
+                                    # Pressure: Proximity to saturation (within 10% of clamp)
+                                    stress_mask = (p_p < min_v) | (p_p > max_v)
+                                    pressure_mask = (p_p < min_v * 0.9) | (p_p > max_v * 0.9)
+                                    sentinel_stresses.append(pressure_mask.float().mean().item())
                                     preds = (torch.clamp(p_p, min=min_v, max=max_v), *preds[1:])
                                 else:
-                                    sentinel_stresses.append(((preds < min_v) | (preds > max_v)).float().mean().item())
+                                    stress_mask = (preds < min_v) | (preds > max_v)
+                                    pressure_mask = (preds < min_v * 0.9) | (preds > max_v * 0.9)
+                                    sentinel_stresses.append(pressure_mask.float().mean().item())
                                     preds = torch.clamp(preds, min=min_v, max=max_v)
                             loss = criterion(preds, targets, task_idx) / accumulation_steps # pyre-ignore
                 except RuntimeError as e:
@@ -1648,6 +1653,13 @@ def main():
 
                 # Threshold-based saving ensures persistence is never skipped due to batch-jumps.
                 current_pct = (i + 1) / len(train_loader)
+                
+                # --- 2026: Heartbeat Telemetry (v1.2) ---
+                if (i + 1) % max(1, len(train_loader) // 10) == 0:
+                    current_stress = np.mean(sentinel_stresses[-accumulation_steps:]) if sentinel_stresses else 0.0
+                    heartbeat_msg = f" ❤️ [HEARTBEAT] Epoch {epoch+1} | Progress: {current_pct*100:.1f}% | Loss: {loss.item()*accumulation_steps:.6f} | Pressure: {current_stress*100:.2f}% | LR: {new_lr:.2e}"
+                    if pbar: pbar.write(heartbeat_msg)
+                    else: print(heartbeat_msg, file=sys.stderr, flush=True)
 
                 if last_intra_epoch_pct < 0:
                     last_intra_epoch_pct = 0.0
@@ -1838,7 +1850,7 @@ def main():
             # --- 2026 Resilience: Adaptive Val Boundary ---
             val_resume_iteration = min(val_resume_iteration, len(val_loader))
 
-            val_pbar = tqdm(total=len(val_loader), initial=val_resume_iteration, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=False, dynamic_ncols=True)
+            val_pbar = tqdm(total=len(val_loader), initial=val_resume_iteration, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=True, file=sys.stderr, dynamic_ncols=True)
             val_session_batches = 0
             for v_idx, batch in val_iterator:
                 # --- 2026: Global Index Alignment ---
@@ -2070,15 +2082,15 @@ def main():
                 val_pbar.close()
             except: pass
             
-        print(f"📡 [RESONANCE SYNC] Train: {train_speed:.2f} it/s | Val: {val_speed:.2f} it/s | Efficiency: Optimized")
+        print(f"📡 [RESONANCE SYNC] Train: {train_speed:.2f} it/s | Val: {val_speed:.2f} it/s | Efficiency: Optimized", file=sys.stderr)
 
         # 2026 Smart Telemetry (Silent Summary)
         smart_meta = f" | Data: {train_ds.sample_fraction*100:.0f}% | Res: {train_ds.size[0]} | T: {stab['softmax_temp']:.2f}"
         summary_line = f"Epoch {epoch+1} Summary | Train: {avg_train_loss:.6f} | Val: {avg_val_loss:.6f}{metrics_str}{smart_meta}"
-        print(f"\n{'='*80}")
-        print(f" {summary_line}")
-        print(f"{'='*80}\n")
-        sys.stdout.flush()
+        print(f"\n{'='*80}", file=sys.stderr)
+        print(f" {summary_line}", file=sys.stderr)
+        print(f"{'='*80}\n", file=sys.stderr)
+        sys.stderr.flush()
 
         # 2026: SOTA Hyperparameter management is now handled by the Smart Governor below.
 
@@ -2430,9 +2442,9 @@ def main():
             
             # We push every epoch to ensure absolute stateless resilience and real-time auditability.
             if should_push:
-                print(f"🚀 [HUB SYNC] Synchronizing with remote Hub...")
+                print(f"🚀 [HUB SYNC] Synchronizing with remote Hub...", file=sys.stderr)
             else:
-                print(f" ℹ️ [HUB SYNC] Push skipped (PAT not found in Secrets or non-push environment).")
+                print(f" ℹ️ [HUB SYNC] Push skipped (PAT not found in Secrets or non-push environment).", file=sys.stderr)
                 
             if should_push:
                 try:
