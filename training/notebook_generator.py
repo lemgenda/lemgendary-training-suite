@@ -140,7 +140,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                 "cell_type": "markdown",
                 "source": [
                     f"# LemGendary Master Deployment: {pascal_model_name} (v12.0 Stateless)\n",
-                    "This unified notebook handles environment synchronization, SOTA inference, and automated cloud training."
+                    "This unified notebook handles environment synchronization, SOTA inference, and automated cloud training.\n"
                 ],
                 "metadata": {}
             },
@@ -148,7 +148,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                 "cell_type": "markdown",
                 "source": [
                     "## 1. Cloud Sync Configuration\n",
-                    "Set your target GitHub repository for model checkpoints and metrics."
+                    "Set your target GitHub repository for model checkpoints and metrics.\n"
                 ],
                 "metadata": {}
             },
@@ -167,7 +167,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                 "cell_type": "markdown",
                 "source": [
                     "## 2. Stealth Model Loading\n",
-                    "Identifying and restoring weights from the Hub or Dataset input."
+                    "Identifying and restoring weights from the Hub or Dataset input.\n"
                 ],
                 "metadata": {}
             },
@@ -182,7 +182,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                 "cell_type": "markdown",
                 "source": [
                     "## 3. SOTA Training Matrix\n",
-                    "Execute the high-velocity training pipeline with the v10.0 'Manifold Anchor' Governor."
+                    "Execute the high-velocity training pipeline with the v10.0 'Manifold Anchor' Governor.\n"
                 ],
                 "metadata": {}
             },
@@ -197,7 +197,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                 "cell_type": "markdown",
                 "source": [
                     "## 5. SOTA Cloud Sync\n",
-                    "Manually push your best models and metrics to the production hub."
+                    "Manually push your best models and metrics to the production hub.\n"
                 ],
                 "metadata": {}
             },
@@ -214,7 +214,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     output_path = os.path.join(export_dir, "kaggle_inference.ipynb")
     os.makedirs(export_dir, exist_ok=True)
     with open(output_path, "w", encoding='utf-8') as f:
-        json.dump(notebook_content, f, indent=2)
+        json.dump(notebook_content, f, indent=4)
     print(f"[OK] Generated Stateless Notebook: {output_path}")
 
 def generate_usage_notebook(model_key, export_dir, unified_models_registry=None, config=None):
@@ -318,7 +318,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
                 "cell_type": "markdown",
                 "source": [
                     f"# LemGendary SOTA Usage: {pascal_model_name}\n",
-                    "Implementation guide for production-grade model integration."
+                    "Implementation guide for production-grade model integration.\n"
                 ],
                 "metadata": {}
             },
@@ -326,7 +326,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
                 "cell_type": "markdown",
                 "source": [
                     "## 1. PyTorch Standalone (FP32)\n",
-                    "Best for local research, further training, or high-fidelity Python backends. This format includes the full architecture definition."
+                    "Best for local research, further training, or high-fidelity Python backends. This format includes the full architecture definition.\n"
                 ],
                 "metadata": {}
             },
@@ -341,7 +341,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
                 "cell_type": "markdown",
                 "source": [
                     "## 2. ONNX Matrix (FP32 + External Weights)\n",
-                    "Optimized for desktop deployment where precision is critical. Uses a decoupled `.data` file for stability."
+                    "Optimized for desktop deployment where precision is critical. Uses a decoupled `.data` file for stability.\n"
                 ],
                 "metadata": {}
             },
@@ -356,7 +356,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
                 "cell_type": "markdown",
                 "source": [
                     "## 3. ONNX Production (FP16 Embedded)\n",
-                    "Production-ready standalone matrix. Optimized for WebGPU, mobile, and low-latency edge inference."
+                    "Production-ready standalone matrix. Optimized for WebGPU, mobile, and low-latency edge inference.\n"
                 ],
                 "metadata": {}
             },
@@ -372,7 +372,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
     
     output_path = os.path.join(export_dir, f"{model_key}_usage.ipynb")
     with open(output_path, "w", encoding='utf-8') as f:
-        json.dump(notebook_content, f, indent=1)
+        json.dump(notebook_content, f, indent=4)
     print(f"[OK] Generated Usage Notebook: {output_path}")
 
 if __name__ == "__main__":
