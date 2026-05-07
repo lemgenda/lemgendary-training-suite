@@ -75,13 +75,27 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "found = []\n",
         "for p in patterns: found.extend(glob.glob(os.path.join(data_root, p), recursive=True))\n",
         "\n",
+        "try:\n",
+        "    struct_cmd = \"find /kaggle/input -type d -name 'train' | grep 'images/train'\"\n",
+        "    import subprocess\n",
+        "    struct_paths = subprocess.run(struct_cmd, shell=True, capture_output=True, text=True).stdout.strip().split('\\n')\n",
+        "    for sp in struct_paths:\n",
+        "        if sp: found.append(os.path.dirname(os.path.dirname(sp)))\n",
+        "except: pass\n",
+        "\n",
         "for d in sorted(list(set(found))):\n",
         "    if os.path.isdir(d):\n",
-        "        link_name = os.path.join(target_dir, os.path.basename(d))\n",
-        "        if not os.path.exists(link_name):\n",
-        "            os.symlink(d, link_name)\n",
-        "            print(f'✅ [LINKED] {os.path.basename(d)}')\n",
-        "        else: print(f'✅ [EXISTS] {os.path.basename(d)}')\n"
+        "        # Handle both lowercase slugs and PascalCase names\n",
+        "        bname = os.path.basename(d)\n",
+        "        links = [bname]\n",
+        "        if bname.lower() != bname: links.append(bname.lower())\n",
+        "        \n",
+        "        for link in links:\n",
+        "            link_name = os.path.join(target_dir, link)\n",
+        "            if not os.path.exists(link_name):\n",
+        "                try: os.symlink(d, link_name)\n",
+        "                except: pass\n",
+        "                print(f'✅ [LINKED] {link} -> {d}')\n"
     ]
 
     install_source = [
