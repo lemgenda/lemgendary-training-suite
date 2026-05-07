@@ -20,6 +20,7 @@ class MultiTaskDataset(Dataset):
     def __init__(self, config, model_key=None, is_train=True, env="local", sample_fraction=1.0):
         self.is_train = is_train
         self.env = env
+        self.sample_fraction = sample_fraction
         self.sync_mode = False 
         self.split = "train" if is_train else "val"
         self.data_root = config.get("datasets_dir", "data/datasets")
@@ -70,6 +71,11 @@ class MultiTaskDataset(Dataset):
                 self.all_samples.append((ds_name, f))
         
         self.samples = list(self.all_samples)
+        if self.is_train and self.sample_fraction < 1.0:
+            import random
+            random.seed(42) # Deterministic sampling
+            random.shuffle(self.samples)
+            self.samples = self.samples[:max(1, int(len(self.samples) * self.sample_fraction))]
 
     def build_transforms(self):
         # 2026 Resilience: LANCZOS is superior for Aesthetic/Quality manifolds
@@ -136,6 +142,15 @@ class MultiTaskDataset(Dataset):
             return img_tensor, torch.zeros(10), "quality"
             
         return img_tensor, torch.zeros(1), self.task_type
+
+    def update_strategy(self, size=None):
+        """Dynamic resolution scaling for curriculum learning (Task 16.2)."""
+        if size:
+            if isinstance(size, (int, float)):
+                self.size = (int(size), int(size))
+            elif isinstance(size, (list, tuple)):
+                self.size = (int(size[0]), int(size[1]))
+            self.build_transforms()
 
     def get_distribution(self):
         """Task 9.3: Analyze label manifold for stratified balancing."""
