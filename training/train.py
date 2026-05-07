@@ -766,6 +766,7 @@ def main():
             # Pull latest to ensure we have the absolute SOTA and Latest state
             subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
             # 2026 Resilience: Ensure binary weights are smudged
+            subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
             subprocess.run(["git", "lfs", "pull"], cwd=hub_root, capture_output=True)
         else:
             print(f"🚀 [HUB SYNC] Initializing Hub at {hub_root}...")
