@@ -19,11 +19,9 @@ sys.setrecursionlimit(2000)
 
 # Suppress noisy Triton, torchvision, and serialization warnings (benign across GTX/RTX training)
 warnings.filterwarnings("ignore", category=UserWarning, module="triton")
-warnings.filterwarnings("ignore", category=FutureWarning)
-warnings.filterwarnings("ignore", category=UserWarning, message=".*pretrained.*")
-warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
-warnings.filterwarnings("ignore", category=UserWarning, module="torch")
-warnings.filterwarnings("ignore", message=r"clamping frac to range \[0, 1\]")
+warnings.filterwarnings("ignore", category=FutureWarning, module="diffusers")
+warnings.filterwarnings("ignore", message=".*Flax classes are deprecated.*")
+warnings.filterwarnings("ignore", message=".*clamping frac to range \[0, 1\]")
 
 # --- Hyper-Verbose Path Defense (2026 Specialization) ---
 # Anchor the search path to the script's own folder to bypass "Ghost Python" hijacking.

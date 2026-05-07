@@ -125,7 +125,7 @@ nima_authenticity:
     - LemGendizedNimaAuthenticity
   stabilizers:
     softmax_temp: 0.4
-    emd_epsilon: 1e-05
+    emd_epsilon: 0.00001
     logit_clamp: 15.0
     numerical_sentinel:
       - -15.0

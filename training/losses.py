@@ -59,8 +59,8 @@ class CombinedLoss(nn.Module):
             tgt_f = target.float()
 
             # NIMA specific Earth Mover's Distance (EMD) with sharpened Logit Anchoring
-            p_probs = F.softmax(pred_f.clamp(min=-self.stab.get('logit_clamp', 20.0), max=self.stab.get('logit_clamp', 20.0)) / self.stab.get("softmax_temp", 1.0), dim=-1)
-            t_probs = tgt_f / torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=self.stab.get("emd_epsilon", 1e-6))
+            p_probs = F.softmax(pred_f.clamp(min=-float(self.stab.get('logit_clamp', 20.0)), max=float(self.stab.get('logit_clamp', 20.0))) / float(self.stab.get("softmax_temp", 1.0)), dim=-1)
+            t_probs = tgt_f / torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=float(self.stab.get("emd_epsilon", 1e-6)))
 
             cdf_p = torch.cumsum(p_probs, dim=-1)
             cdf_t = torch.cumsum(t_probs, dim=-1)
