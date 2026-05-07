@@ -49,6 +49,7 @@ class SmartTrainingGovernor:
         self.lr_multiplier = 1.0
         self.last_action_epoch = 0
         self.epoch_count = 0
+        self.min_delta = opt.get("min_delta", 0.0005)
         
     def get_phase(self):
         res_idx = self.res_ladder.index(self.current_res)
@@ -86,7 +87,7 @@ class SmartTrainingGovernor:
             deltas = [q_values[i] - q_values[i-1] for i in range(1, len(q_values))]
             if all(deltas[i] * deltas[i-1] < 0 for i in range(1, len(deltas))): is_turbulent = True
 
-        is_flat = abs(delta_q) < 0.0005 and len(self.history) >= 2
+        is_flat = abs(delta_q) < self.min_delta and len(self.history) >= 2
         is_regressing = delta_q < -0.01 
 
         # 4. LOOP DETECTION (v10.0)
