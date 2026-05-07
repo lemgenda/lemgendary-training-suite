@@ -123,6 +123,13 @@ nima_authenticity:
   description: DeepFake and AI-generated image detection model built on EfficientNetV2.
   datasets:
     - LemGendizedNimaAuthenticity
+  stabilizers:
+    softmax_temp: 0.4
+    emd_epsilon: 1e-05
+    logit_clamp: 15.0
+    numerical_sentinel:
+      - -15.0
+      - 15.0
   sota_targets:
     accuracy: 0.95
     plcc: 0.95

@@ -523,8 +523,51 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
     print(f"[OK] Generated Usage Notebook: {output_path}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, required=True)
-    parser.add_argument("--dir", type=str, default=".")
+    import yaml
+    parser = argparse.ArgumentParser(description="LemGendary Notebook Orchestrator (v15.0 Nuclear)")
+    parser.add_argument("--model", type=str, help="Generate notebooks for a specific model key.")
+    parser.add_argument("--all", action="store_true", help="Regenerate the entire Notebook Matrix for all registry models.")
+    parser.add_argument("--dir", type=str, help="Override export directory.")
     args = parser.parse_args()
-    generate_inference_notebook(args.model, args.dir)
+
+    # 1. Load Environmental Matrix
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    config_path = os.path.join(base_dir, "config.yaml")
+    
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    
+    registry_path = os.path.join(base_dir, config.get("unified_models", "unified_models_v2.yaml"))
+    with open(registry_path, "r") as f:
+        registry = yaml.safe_load(f)
+
+    # 2. Resolve Export Target
+    default_export = os.path.abspath(os.path.join(base_dir, config.get("export_dir", "../LemGendaryModels")))
+    export_root = args.dir if args.dir else default_export
+
+    # 3. Execution Logic
+    models_to_gen = []
+    if args.all:
+        models_to_gen = [k for k in registry.keys() if k != "_registry_metadata"]
+        print(f"[NUCLEAR] Initiating Global Notebook Refresh for {len(models_to_gen)} models...")
+    elif args.model:
+        if args.model in registry:
+            models_to_gen = [args.model]
+        else:
+            print(f"[ERROR] Model '{args.model}' not found in registry.")
+            exit(1)
+    else:
+        parser.print_help()
+        exit(0)
+
+    for m_key in models_to_gen:
+        m_dir = os.path.join(export_root, m_key)
+        os.makedirs(m_dir, exist_ok=True)
+        
+        # A. Stateless Inference (Training/Resume/Cloud)
+        generate_inference_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
+        
+        # B. Production Usage (PTH/ONNX FP32/ONNX FP16)
+        generate_usage_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
+
+    print("\n[SUCCESS] Notebook Matrix Synchronized.")

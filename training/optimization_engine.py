@@ -116,6 +116,16 @@ class SmartTrainingGovernor:
             self.stabilization_epochs = 3
             msg_parts.append(f"RECOIL: Strategic retreat to {self.current_fraction*100:.0f}%")
 
+        # --- PROACTIVE COOLING (2026 Resilience v11.0) ---
+        # Detect high-stress manifolds (clamping > 15%) before they collapse into NaNs
+        elif sentinel_trigger_rate > 0.15:
+            self.current_temp = min(1.2, self.current_temp * 1.2)
+            self.lr_multiplier = 0.75
+            lr_changed = True
+            t_changed = True
+            self.stabilization_epochs = 2
+            msg_parts.append(f"🧊 PROACTIVE COOLING: Stress {sentinel_trigger_rate*100:.1f}% detected. Heating Temp -> {self.current_temp:.2f} | 0.75x LR Anchor")
+
         # --- PROPULSION: FLATLINE/STAGNATION ---
         elif is_flat or (current_quality > 0.94 and delta_q < 0.001):
             # Check if NEXT state is a failure state
