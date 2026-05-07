@@ -96,11 +96,21 @@ class MultiTaskDataset(Dataset):
     def get_dataset_path(self, ds_name):
         path = os.path.join(self.data_root, ds_name)
         if self.env == 'kaggle' and not os.path.exists(path):
-            # 2026 Resilience: Kaggle input slugs are often lowercase
+            # 2026 Nuclear Resilience: Kaggle slugs use hyphens and "large/mini" suffixes
             try:
+                target_clean = ds_name.lower().replace("-", "").replace("_", "").replace("kaggleready", "").replace("large", "").replace("mini", "")
                 for d in os.listdir(self.data_root):
-                    if d.lower() == ds_name.lower():
-                        return os.path.join(self.data_root, d)
+                    d_clean = d.lower().replace("-", "").replace("_", "").replace("kaggleready", "").replace("large", "").replace("mini", "")
+                    if target_clean in d_clean or d_clean in target_clean:
+                        found_path = os.path.join(self.data_root, d)
+                        # 2026 Deep-Manifold Support: Check for nested folders of the same name
+                        # (Kaggle often wraps the PascalCase folder inside a lowercase slug)
+                        try:
+                            for inner in os.listdir(found_path):
+                                if inner.lower().replace("-", "").replace("_", "") == target_clean:
+                                    return os.path.join(found_path, inner)
+                        except: pass
+                        return found_path
             except: pass
         return path
 
