@@ -2555,20 +2555,31 @@ def main():
                 hub_user = args.hub_user or config.get("hub_user", "lemgenda")
                 hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
                 hub_url = f"https://github.com/{hub_user}/{hub_repo}.git"
+                pat = os.environ.get('GITHUB_PAT') or os.environ.get('HUB_PAT', '')
 
                 if hub_url:
+                    # 2026 Resilience: Inject PAT into clone URL for private hubs and authenticated LFS
+                    auth_hub_url = hub_url
+                    if pat:
+                        auth_hub_url = hub_url.replace("https://github.com", f"https://{pat}@github.com")
+                    
                     # Resolve Hub Root
-                    # --- 2026 Resilience: Cloud Hub Mirroring (Production Sync) ---
-                    target_hub_root = "/kaggle/working/hub" if args.env == 'kaggle' else os.path.join(os.getcwd(), "hub")
+                    target_hub_root = "/kaggle/working/LemGendaryModels" if args.env == 'kaggle' else os.path.join(os.getcwd(), "hub")
                     target_hub_model_dir = os.path.join(target_hub_root, args.model)
                     target_hub_ckpt_dir = os.path.join(target_hub_model_dir, "checkpoints")
 
-                    # Ensure production hub is correctly initialized
                     if not os.path.exists(os.path.join(target_hub_root, ".git")):
-                        print(f" 🚀 [CLOUD SYNC] Initializing production hub at {target_hub_root}...")
-                        os.makedirs(target_hub_ckpt_dir, exist_ok=True)
-                        subprocess.run(["git", "init"], cwd=target_hub_root, capture_output=True)
-                        subprocess.run(["git", "remote", "add", "origin", hub_url], cwd=target_hub_root, capture_output=True)
+                        print(f"🚀 [HUB SYNC] Initializing Hub at {target_hub_root}...", file=sys.stderr)
+                        os.makedirs(target_hub_root, exist_ok=True)
+                        # 2026 Resilience: Skip Smudge on initial clone to bypass LFS quota/bandwidth issues
+                        clone_env = os.environ.copy()
+                        clone_env["GIT_LFS_SKIP_SMUDGE"] = "1"
+                        clone_env["GIT_TERMINAL_PROMPT"] = "0"
+                        res = subprocess.run(["git", "clone", auth_hub_url, target_hub_root], capture_output=True, text=True, env=clone_env, timeout=120)
+                        if res.returncode != 0:
+                            print(f"⚠️ [HUB SYNC] Initial clone failed. Falling back to local init. Error: {res.stderr.strip()}", file=sys.stderr)
+                            subprocess.run(["git", "init"], cwd=target_hub_root, capture_output=True)
+                            subprocess.run(["git", "remote", "add", "origin", auth_hub_url], cwd=target_hub_root, capture_output=True)
 
                     # 1. Sync Best Checkpoint (Primary SOTA Artifact)
                     best_ckpt_src = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
@@ -2589,7 +2600,7 @@ def main():
 
                     # 4. Global Push (Models Only)
                     commit_msg = f"Update new best weights and metrics for {args.model} from {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                    git_hub_sync(target_hub_root, hub_url, commit_msg)
+                    git_hub_sync(target_hub_root, auth_hub_url, commit_msg)
 
             except Exception as e:
                 print(f" [WARNING] [HUB-SYNC] Deployment skipped: {e}")
