@@ -820,26 +820,40 @@ def main():
     # Priority Candidate Selection (v15.0):
     # We probe metadata to find the ABSOLUTE highest epoch/iteration across all locations.
     candidates = []
+    hub_max_epoch = -1
     for ckpt in fallback_chain:
         if os.path.exists(ckpt):
             try:
                 # 2026 Resilience: Fast-probe metadata without loading full state_dict
-                # We use weights_only=True to prevent security warnings and speed up probing
                 meta = torch.load(ckpt, map_location='cpu', weights_only=False) # Metadata check
                 epoch = meta.get('epoch', 0)
-                # If it's a 'latest' or 'best' file, it represents a COMPLETED epoch (+1 logic)
                 effective_epoch = epoch + 1 if ("_latest.pth" in ckpt or "_best.pth" in ckpt) else epoch
                 mtime = os.path.getmtime(ckpt)
                 candidates.append((effective_epoch, mtime, ckpt))
+                if "LemGendaryModels" in ckpt:
+                    hub_max_epoch = max(hub_max_epoch, effective_epoch)
             except:
-                # If corrupt, still include by mtime as a desperate fallback
                 candidates.append((0, os.path.getmtime(ckpt), ckpt))
+
+    # --- 2026 Resilience: Poisoned Progress Purge ---
+    # If a local progress file is found but it is significantly behind the Hub (e.g. Kaggle crash artifact),
+    # we purge it to prevent the "Epoch 1 Resume" trap.
+    if hub_max_epoch > 0:
+        for i, (epoch, mtime, ckpt) in enumerate(candidates):
+            if "checkpoints" in ckpt and "LemGendaryModels" not in ckpt: # Local checkpoint
+                if epoch < hub_max_epoch:
+                    print(f" 🔥 [RESILIENCE] Purging poisoned local progress (Epoch {epoch}) in favor of Hub SOTA (Epoch {hub_max_epoch}).")
+                    try: os.remove(ckpt)
+                    except: pass
+                    # Remove from candidates
+                    candidates[i] = (-1, 0, ckpt)
 
     ckpt_loaded = False
     # Sort by Epoch (Descending), then MTime (Descending)
     candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
-    for _, _, attempt_ckpt in candidates:
+    for epoch_val, _, attempt_ckpt in candidates:
+        if epoch_val < 0: continue # Skip purged candidates
         try:
             loc_label = "HUB" if "LemGendaryModels" in attempt_ckpt else "LOCAL"
             print(f"Resuming training from {loc_label} checkpoint: {attempt_ckpt}")
