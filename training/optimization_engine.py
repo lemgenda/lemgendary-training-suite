@@ -49,6 +49,8 @@ class SmartTrainingGovernor:
         self.prev_loss = 999.0
         self.best_quality = 0.0
         self.stabilization_epochs = 0
+        self.cooldown_remaining = 0 # New: Blocks Jolt/Sharpening after failure
+        self.thermal_floor = {} # New: {(res, frac): min_safe_temp}
         self.lr_multiplier = 1.0
         self.last_action_epoch = 0
         self.epoch_count = 0
@@ -74,6 +76,9 @@ class SmartTrainingGovernor:
         else:
             self.recovery_streak = 0
         
+        if self.cooldown_remaining > 0:
+            self.cooldown_remaining -= 1
+        
         # 1. Update Memory
         self.history.append((current_quality, current_loss))
         if len(self.history) > 5: self.history.pop(0)
@@ -89,7 +94,8 @@ class SmartTrainingGovernor:
                 self.stabilization_epochs -= 1
                 self.prev_quality = current_quality
                 if current_loss: self.prev_loss = current_loss
-                return False, False, False, False, False, False, "📡 Anchoring Manifold..."
+                status_msg = f"📡 Anchoring Manifold... (Cooldown: {self.cooldown_remaining})" if self.cooldown_remaining > 0 else "📡 Anchoring Manifold..."
+                return False, False, False, False, False, False, status_msg
 
         f_changed = r_changed = lr_changed = t_changed = c_changed = b_changed = False
         self.lr_multiplier = 1.0
@@ -132,6 +138,11 @@ class SmartTrainingGovernor:
             self.lr_multiplier = 0.7 
             lr_changed = True
             self.stabilization_epochs = 3
+            self.cooldown_remaining = 5 # NPP Loop Mitigation: Force 5-epoch meditation
+            
+            # Record the breaking point temperature
+            self.thermal_floor[str(current_state)] = self.current_temp * 1.1
+            
             msg_parts.append(f"RECOIL: Strategic retreat to {self.current_fraction*100:.0f}%")
 
         # --- PROACTIVE COOLING (2026 Resilience) ---
@@ -147,7 +158,7 @@ class SmartTrainingGovernor:
         elif is_flat or (current_quality > 0.90 and delta_q < self.min_delta):
             # 2026: The Jolt - Breaking Plateaus with LR Propulsion
             # Senior Update: Added Jolt cooldown (5 epochs)
-            jolt_ready = (self.epoch_count - getattr(self, 'last_jolt_epoch', -10)) > 5
+            jolt_ready = (self.epoch_count - getattr(self, 'last_jolt_epoch', -10)) > 5 and self.cooldown_remaining == 0
             if is_flat and jolt_ready:
                 jolt = self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5)
                 self.lr_multiplier = float(jolt)
@@ -189,10 +200,16 @@ class SmartTrainingGovernor:
 
         # --- Senior Feature: Gradual Temperature Sharpening (Success Branch) ---
         if not (is_regressing or is_turbulent or sentinel_trigger_rate > 0.15) and self.current_temp > self.min_temp:
-            # Slow cooling (98% per epoch) to sharpen the manifold foundation
-            self.current_temp = max(self.min_temp, self.current_temp * 0.98)
-            t_changed = True
-            msg_parts.append(f"💎 SHARPENING: Temp -> {self.current_temp:.2f}")
+            # Check thermal floor for current state
+            floor = self.thermal_floor.get(str(current_state), self.min_temp)
+            
+            if self.cooldown_remaining == 0 and self.current_temp > floor:
+                # Slow cooling (98% per epoch) to sharpen the manifold foundation
+                self.current_temp = max(floor, self.current_temp * 0.98)
+                t_changed = True
+                msg_parts.append(f"💎 SHARPENING: Temp -> {self.current_temp:.2f}")
+            elif self.cooldown_remaining > 0:
+                msg_parts.append(f"🧘 MEDITATION: Cooldown active ({self.cooldown_remaining} epochs)")
 
         self.prev_quality = current_quality
         if current_loss: self.prev_loss = current_loss
@@ -219,6 +236,8 @@ class SmartTrainingGovernor:
             "accumulation_steps": self.current_acc,
             "stabilization_epochs": self.stabilization_epochs,
             "failure_log": self.failure_log, # CRITICAL: Persist memory
+            "thermal_floor": self.thermal_floor, # New
+            "cooldown_remaining": self.cooldown_remaining, # New
             "epoch_count": self.epoch_count,
             "best_quality": self.best_quality
         }
@@ -234,6 +253,8 @@ class SmartTrainingGovernor:
         self.current_acc = state.get("accumulation_steps", self.current_acc)
         self.stabilization_epochs = state.get("stabilization_epochs", 0)
         self.failure_log = state.get("failure_log", {}) # CRITICAL: Load memory
+        self.thermal_floor = state.get("thermal_floor", {}) # New
+        self.cooldown_remaining = state.get("cooldown_remaining", 0) # New
         self.epoch_count = state.get("epoch_count", self.epoch_count)
         self.best_quality = state.get("best_quality", self.best_quality)
 
