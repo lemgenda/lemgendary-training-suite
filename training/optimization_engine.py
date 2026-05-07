@@ -5,13 +5,13 @@ import numpy as np
 
 class SmartTrainingGovernor:
     """
-    2026 Universal Autonomous Optimization Engine.
+    2026 Universal Autonomous Optimization Engine (v15.5 Nuclear).
     
-    v10.0 Manifold Anchor:
-    - State-Loop Detection (Prevents circular 'Escalate-Recoil' cycles)
-    - Failure Path Memory (Blacklists breaking points)
-    - Surgical State-Loop Penalties (LR/Temp anchoring for failed states)
-    - Numerical Shakeups (Forcing manifold diversification)
+    Numerical Priority Protocol (NPP) Features:
+    - State-Persistence Guard (Failure logs survive reloads)
+    - Turbulence Dampening (Prevents noise-induced recoils)
+    - Proportional Manifold Stride (Balanced scaling)
+    - Surgical State-Loop Penalties (Blacklists breaking points)
     """
     def __init__(self, model_info, stabilizers=None):
         self.model_info = model_info
@@ -42,7 +42,7 @@ class SmartTrainingGovernor:
         self.current_temp = self.stab.get("softmax_temp", self.min_temp)
         self.current_clamp = self.stab.get("logit_clamp", 15.0)
         
-        # --- Surgical Memory (v10.0) ---
+        # --- Surgical Memory (v15.5) ---
         self.history = [] # Last 5 epochs [quality, loss]
         self.failure_log = {} # {(res, round(frac,2)): failure_count}
         self.prev_quality = 0.0
@@ -65,12 +65,12 @@ class SmartTrainingGovernor:
         if not self.enabled: return False, False, False, False, False, False, ""
         self.epoch_count += 1
 
-        # --- 2026: Aggressive Recovery (v15.2) ---
+        # --- NPP: Aggressive Recovery ---
         if sentinel_trigger_rate == 0:
             self.recovery_streak += 1
             if self.recovery_streak >= 2 and self.stabilization_epochs > 0:
                 self.stabilization_epochs = 0
-                print("🚀 [RECOVERY] Stress at zero. Breaking stabilization lock.")
+                print("🚀 [NPP] Stress at zero. Breaking stabilization lock.")
         else:
             self.recovery_streak = 0
         
@@ -91,34 +91,35 @@ class SmartTrainingGovernor:
         msg_parts = []
         phase = self.get_phase()
 
-        # 3. Diagnosis
+        # 3. NPP Diagnosis: Turbulence Dampening
         delta_q = current_quality - self.prev_quality
         is_turbulent = False
         if len(self.history) >= 3:
             q_values = [h[0] for h in self.history[-3:]]
             deltas = [q_values[i] - q_values[i-1] for i in range(1, len(q_values))]
-            if all(deltas[i] * deltas[i-1] < 0 for i in range(1, len(deltas))): is_turbulent = True
+            # NPP: Turbulence requires a minimum magnitude to prevent noise triggers
+            if all(deltas[i] * deltas[i-1] < 0 for i in range(1, len(deltas))):
+                if all(abs(d) > self.min_delta * 2 for d in deltas):
+                    is_turbulent = True
 
         is_flat = abs(delta_q) < self.min_delta and len(self.history) >= 2
         is_regressing = delta_q < -0.01 
 
-        # 4. LOOP DETECTION (v10.0)
+        # 4. NPP LOOP DETECTION
         current_state = (self.current_res, round(self.current_fraction, 2))
-        failures = self.failure_log.get(current_state, 0)
+        failures = self.failure_log.get(str(current_state), 0) # Store as string for JSON safety
         
-        # If we just hit a regression or turbulence in a known shaky state, it counts as a failure
         if is_regressing or is_turbulent:
-            self.failure_log[current_state] = failures + 1
-            msg_parts.append(f"⚠️ FAILURE LOGGED: State {current_state} (Count: {self.failure_log[current_state]})")
+            self.failure_log[str(current_state)] = failures + 1
+            msg_parts.append(f"⚠️ NPP FAILURE: State {current_state} (Count: {self.failure_log[str(current_state)]})")
             
-            # --- EMERGENCY RECOIL (Surgical v10.0) ---
-            if self.failure_log[current_state] >= 2:
-                # We are stuck in a loop. Trigger Numerical Shakeup.
+            # --- EMERGENCY RECOIL (v15.5) ---
+            if self.failure_log[str(current_state)] >= 2:
                 self.current_clamp = max(10.0, self.current_clamp - 5.0)
                 c_changed = True
                 self.current_temp = min(1.8, self.current_temp * 1.5)
                 t_changed = True
-                msg_parts.append("⛓️ LOOP DETECTED: Forcing Numerical Shakeup to diversify manifold")
+                msg_parts.append("⛓️ NPP LOOP: Forcing Numerical Shakeup")
             
             old_frac = self.current_fraction
             self.current_fraction = max(0.15, self.current_fraction - 0.15)
@@ -128,33 +129,31 @@ class SmartTrainingGovernor:
             self.stabilization_epochs = 3
             msg_parts.append(f"RECOIL: Strategic retreat to {self.current_fraction*100:.0f}%")
 
-        # --- PROACTIVE COOLING (2026 Resilience v11.0) ---
-        # Detect high-stress manifolds (clamping > 15%) before they collapse into NaNs
+        # --- PROACTIVE COOLING (2026 Resilience) ---
         elif sentinel_trigger_rate > 0.15:
             self.current_temp = min(1.2, self.current_temp * 1.2)
             self.lr_multiplier = 0.75
             lr_changed = True
             t_changed = True
             self.stabilization_epochs = 2
-            msg_parts.append(f"🧊 PROACTIVE COOLING: Stress {sentinel_trigger_rate*100:.1f}% detected. Heating Temp -> {self.current_temp:.2f} | 0.75x LR Anchor")
+            msg_parts.append(f"🧊 COOLING: Stress {sentinel_trigger_rate*100:.1f}% -> Temp {self.current_temp:.2f}")
 
-        # --- PROPULSION: FLATLINE/STAGNATION ---
-        elif is_flat or (current_quality > 0.94 and delta_q < 0.001):
-            # Check if NEXT state is a failure state
-            next_frac = min(1.0, self.current_fraction + 0.2)
+        # --- PROPULSION: NPP Manifold Stride ---
+        elif is_flat or (current_quality > 0.90 and delta_q < 0.001):
+            next_frac = min(1.0, self.current_fraction + 0.15) # NPP: Smaller steps
             next_state = (self.current_res, round(next_frac, 2))
             
-            if self.failure_log.get(next_state, 0) > 0:
-                # Approach with caution: Lower LR before entering known failure zone
-                self.lr_multiplier = 0.5
+            if self.failure_log.get(str(next_state), 0) > 0:
+                self.lr_multiplier = 0.6 # NPP: More cautious approach
                 lr_changed = True
-                msg_parts.append(f"⚓ ANCHOR: Known breaking point ahead. Approaching with 0.5x LR.")
+                msg_parts.append(f"⚓ ANCHOR: Caution ahead (Previous Failures). 0.6x LR.")
             
             if phase == "FOUNDATION" or phase == "EXPANSION":
-                self.current_fraction = next_frac
-                f_changed = True
-                msg_parts.append(f"PROPULSION: Data -> {self.current_fraction*100:.0f}%")
-                self.stabilization_epochs = 1
+                if self.current_fraction < 1.0:
+                    self.current_fraction = next_frac
+                    f_changed = True
+                    msg_parts.append(f"PROPULSION: Data -> {self.current_fraction*100:.0f}%")
+                    self.stabilization_epochs = 1
             elif phase == "DEEPENING":
                 current_idx = self.res_ladder.index(self.current_res)
                 next_res = self.res_ladder[current_idx + 1]
@@ -177,9 +176,7 @@ class SmartTrainingGovernor:
         if current_loss: self.prev_loss = current_loss
         
         final_msg = f"🚀 [{phase}] " + " | ".join(msg_parts) if msg_parts else ""
-        # 2026 Nuclear Stealth: Only print if an actual intervention message exists
-        if final_msg:
-            print(final_msg)
+        if final_msg: print(final_msg)
             
         return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, final_msg
 
@@ -199,80 +196,9 @@ class SmartTrainingGovernor:
             "batch_size": self.current_batch,
             "accumulation_steps": self.current_acc,
             "stabilization_epochs": self.stabilization_epochs,
-            "failure_log": self.failure_log
-        }
-
-    def load_state(self, state):
-        if not state: return
-        self.current_fraction = state.get("sample_fraction", self.current_fraction)
-        raw_res = state.get("input_size", self.current_res)
-        self.current_res = raw_res[1] if isinstance(raw_res, list) else raw_res
-        self.current_temp = state.get("softmax_temp", self.current_temp)
-        self.current_clamp = state.get("logit_clamp", self.current_clamp)
-        self.current_batch = state.get("batch_size", self.current_batch)
-        self.current_acc = state.get("accumulation_steps", self.current_acc)
-        self.stabilization_epochs = state.get("stabilization_epochs", 0)
-        self.failure_log = state.get("failure_log", {})
-
-    def recoil(self):
-        old_frac = self.current_fraction
-        self.current_fraction = max(0.15, old_frac - 0.15)
-        self.current_temp = min(1.5, self.current_temp * 1.3)
-        self.stabilization_epochs = 3
-        return f"⚡ [GOVERNOR] RECOIL: Strategic Retreat to {self.current_fraction*100:.0f}%"
-
-    def get_dynamic_save_interval(self, avg_iter_time, total_iters):
-        if avg_iter_time <= 0: return 0.2 
-        epoch_duration_mins = (avg_iter_time * total_iters) / 60
-        target_pct = 15 / max(1, epoch_duration_mins)
-        return max(0.05, min(0.5, target_pct))
-
-    def get_state(self):
-        return {
-            "sample_fraction": self.current_fraction,
-            "input_size": self.current_res,
-            "softmax_temp": self.current_temp,
-            "logit_clamp": self.current_clamp,
-            "lr_multiplier": self.lr_multiplier,
-            "batch_size": self.current_batch,
-            "accumulation_steps": self.current_acc,
-            "stabilization_epochs": self.stabilization_epochs
-        }
-
-    def load_state(self, state):
-        if not state: return
-        self.current_fraction = state.get("sample_fraction", self.current_fraction)
-        raw_res = state.get("input_size", self.current_res)
-        self.current_res = raw_res[1] if isinstance(raw_res, list) else raw_res
-        self.current_temp = state.get("softmax_temp", self.current_temp)
-        self.current_clamp = state.get("logit_clamp", self.current_clamp)
-        self.current_batch = state.get("batch_size", self.current_batch)
-        self.current_acc = state.get("accumulation_steps", self.current_acc)
-        self.stabilization_epochs = state.get("stabilization_epochs", 0)
-
-    def recoil(self):
-        old_frac = self.current_fraction
-        self.current_fraction = max(0.15, old_frac - 0.15)
-        self.current_temp = min(1.5, self.current_temp * 1.3)
-        self.stabilization_epochs = 3
-        return f"⚡ [GOVERNOR] RECOIL: Strategic Retreat to {self.current_fraction*100:.0f}%"
-
-    def get_dynamic_save_interval(self, avg_iter_time, total_iters):
-        if avg_iter_time <= 0: return 0.2 
-        epoch_duration_mins = (avg_iter_time * total_iters) / 60
-        target_pct = 15 / max(1, epoch_duration_mins)
-        return max(0.05, min(0.5, target_pct))
-
-    def get_state(self):
-        return {
-            "sample_fraction": self.current_fraction,
-            "input_size": self.current_res,
-            "softmax_temp": self.current_temp,
-            "logit_clamp": self.current_clamp,
-            "lr_multiplier": self.lr_multiplier,
-            "batch_size": self.current_batch,
-            "accumulation_steps": self.current_acc,
-            "stabilization_epochs": self.stabilization_epochs
+            "failure_log": self.failure_log, # CRITICAL: Persist memory
+            "epoch_count": self.epoch_count,
+            "best_quality": self.best_quality
         }
 
     def load_state(self, state):
@@ -285,11 +211,14 @@ class SmartTrainingGovernor:
         self.current_batch = state.get("batch_size", self.current_batch)
         self.current_acc = state.get("accumulation_steps", self.current_acc)
         self.stabilization_epochs = state.get("stabilization_epochs", 0)
+        self.failure_log = state.get("failure_log", {}) # CRITICAL: Load memory
+        self.epoch_count = state.get("epoch_count", self.epoch_count)
+        self.best_quality = state.get("best_quality", self.best_quality)
 
     def recoil(self):
+        """Emergency Tactical Retreat triggered by hardware or manifold failure."""
         old_frac = self.current_fraction
-        # Recoil is now smarter: it never drops below 15% unless absolutely necessary
         self.current_fraction = max(0.15, old_frac - 0.15)
         self.current_temp = min(1.5, self.current_temp * 1.3)
         self.stabilization_epochs = 3
-        return f"⚡ [GOVERNOR] RECOIL: Strategic Retreat to {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
+        return f"⚡ [NPP] RECOIL: Retreat to {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"

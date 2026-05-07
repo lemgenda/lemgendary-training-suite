@@ -159,6 +159,14 @@ def git_hub_sync(repo_path, remote_url, message):
         # 2026 Resilience: Credential Injection
         pat = os.environ.get('GITHUB_PAT')
         
+        # --- 2026 NPP: Git Lock Buster ---
+        lock_file = os.path.join(repo_path, ".git", "index.lock")
+        if os.path.exists(lock_file):
+            try:
+                os.remove(lock_file)
+                print(f" 🛡️ [LOCK BUSTER] Removed stale Git lock in {os.path.basename(repo_path)}")
+            except: pass
+        
         # If remote_url is 'origin', we must resolve the physical URL from git config
         if remote_url == "origin":
             try:
