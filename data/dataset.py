@@ -94,8 +94,6 @@ class MultiTaskDataset(Dataset):
         self.transform = transforms.Compose(transform_list)
 
     def get_dataset_path(self, ds_name):
-        if self.env == 'kaggle':
-            return f"/kaggle/input/{ds_name.lower()}"
         return os.path.join(self.data_root, ds_name)
 
     def load_image(self, img_path):
