@@ -172,7 +172,10 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "os.chdir('/kaggle/working/lemgendary-training-suite')\n",
         "print(f'🚀 [NUCLEAR] Initiating Training Matrix for {model_key}...')\n",
         "cmd = [sys.executable, 'training/train.py', '--model', f'{model_key}', '--env', 'kaggle', '--auto_sync']\n",
-        "subprocess.run(cmd)\n"
+        "try:\n",
+        "    subprocess.run(cmd)\n",
+        "except KeyboardInterrupt:\n",
+        "    print('\\n🛑 [TERMINATED] Training interrupted by user.')\n"
     ]
 
     push_source = [

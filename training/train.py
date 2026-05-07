@@ -1246,7 +1246,7 @@ def main():
             except: pass
 
         with open(metrics_csv_path, "w") as f:
-            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Res,Data,Temp,Clamp,Batch,Accumulation,Stress\n")
+            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n")
 
     effective_batch_size = batch_size
     # accumulation_steps is established pre-emptively during initialization.
@@ -2536,7 +2536,7 @@ def main():
             f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{epoch_lr:.8f},"
                     f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim_val:.4f},{lpips_val:.4f},{fid:.4f},"
                     f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{epoch_res},{epoch_fraction:.2f},"
-                    f"{epoch_temp:.4f},{epoch_clamp:.1f},"
+                    f"{epoch_temp:.4f},{epoch_clamp:.1f},{governor.cooldown_remaining},"
                     f"{epoch_batch},{epoch_acc},{avg_sentinel_stress:.6f}\n")
         
         prev_quality_score = current_quality_score
