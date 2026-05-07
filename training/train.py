@@ -765,6 +765,8 @@ def main():
             subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=hub_root, capture_output=True)
             # Pull latest to ensure we have the absolute SOTA and Latest state
             subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
+            # 2026 Resilience: Ensure binary weights are smudged
+            subprocess.run(["git", "lfs", "pull"], cwd=hub_root, capture_output=True)
         else:
             print(f"🚀 [HUB SYNC] Initializing Hub at {hub_root}...")
             if os.path.exists(hub_root):
@@ -774,7 +776,10 @@ def main():
             
             os.makedirs(os.path.dirname(hub_root), exist_ok=True)
             res = subprocess.run(["git", "clone", authenticated_url, hub_root], capture_output=True, text=True)
-            if res.returncode != 0:
+            if res.returncode == 0:
+                # 2026 Resilience: Ensure binary weights are smudged after initial clone
+                subprocess.run(["git", "lfs", "pull"], cwd=hub_root, capture_output=True)
+            else:
                 print(f"⚠️ [HUB SYNC] Initial clone failed. Creating local-only hub structure.")
                 os.makedirs(hub_ckpt_dir, exist_ok=True)
     except Exception as e:
