@@ -7,11 +7,11 @@ class SmartTrainingGovernor:
     """
     2026 Universal Autonomous Optimization Engine.
     
-    A backbone-agnostic curriculum manager that treats models as high-dimensional
-    manifolds. It masterfully balances Data Breadth (Fraction) before Spatial Depth (Resolution),
-    proactively managing VRAM via Gradient Accumulation and LR Scaling.
-    
-    v6.0: Refactored for Universal Curriculum (Data-First) and Quadratic VRAM Scaling.
+    v8.0 Nuclear Propulsion: 
+    - Data Starvation Detection (Prevents regression at low fractions)
+    - Loss-Gradient Priority (Momentum-aware escalation)
+    - Proactive Spatial Scaling (Resolution jumps for high-acc plateaus)
+    - Dynamic LR Warping
     """
     def __init__(self, model_info, stabilizers=None):
         self.model_info = model_info
@@ -26,17 +26,18 @@ class SmartTrainingGovernor:
         self.cooling_factor = opt.get("cooling_factor", 0.8)
         
         # --- Stabilization Constants ---
-        self.min_delta = opt.get("min_delta", 2e-3) # Failsafe default
+        self.min_delta = opt.get("min_delta", 1e-4) # Higher sensitivity for SOTA
         self.stabilization_epochs = 0
         self.consecutive_drift = 0
         self.stagnation_counter = 0
+        self.starvation_counter = 0
         
-        # --- Hardware Sentinel (Backbone-Agnostic) ---
+        # --- Hardware Sentinel ---
         raw_batch = model_info.get("batch_size", "auto")
         self.target_effective_batch = opt.get("target_effective_batch", 24)
         self.current_batch = 16 if raw_batch == "auto" else int(raw_batch)
         self.current_acc = 1
-        self.vram_safety_margin = 0.88 # Aggressive but safe 88% ceiling
+        self.vram_safety_margin = 0.88 
         
         # --- Spatial State ---
         raw_size = model_info.get("input_size", 224)
@@ -51,133 +52,121 @@ class SmartTrainingGovernor:
         self.min_temp = 0.5 if self.task_type == "quality" else 0.1
         self.current_temp = self.stab.get("softmax_temp", self.min_temp)
         self.current_clamp = self.stab.get("logit_clamp", 15.0)
-        self.min_clamp = 10.0
-        self.max_clamp = 45.0
         
         self.prev_quality = 0.0
+        self.prev_loss = 999.0
         self.lr_multiplier = 1.0
-        self.current_strategy = "Building Foundation"
+        self.current_strategy = "Nuclear Propulsion"
 
-    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None):
+    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None):
         if not self.enabled: return False, False, False, False, False, False, ""
         
-        # 1. Improvement Logic (Velocity-Gated v7.0)
+        # 1. Manifold Physics Analysis
         improvement = current_quality - self.prev_quality
         significant_improvement = current_quality > (best_quality + self.min_delta)
+        loss_improving = (current_loss < self.prev_loss) if current_loss is not None else True
         
-        # Stabilization Shield: Don't trigger changes while the manifold is "cooling"
         if self.stabilization_epochs > 0:
             self.stabilization_epochs -= 1
             self.prev_quality = current_quality
-            return False, False, False, False, False, False, "📡 Manifold Stabilizing..."
+            if current_loss: self.prev_loss = current_loss
+            return False, False, False, False, False, False, "📡 Manifold Cooling..."
 
         f_changed = r_changed = lr_changed = t_changed = c_changed = b_changed = False
         self.lr_multiplier = 1.0
         msg_parts = []
 
-        # 2. Plateau Variance Check (Plateau Detection v7.0)
-        # If we haven't had a significant improvement in 'effective_patience' epochs,
-        # we trigger escalation even if we hit "micro-SOTAs" (noise).
-        res_scalar = self.current_res[1] if isinstance(self.current_res, list) else self.current_res
-        res_factor = max(1.0, float(res_scalar) / self.res_ladder[0])
-        frac_factor = 1.5 if self.current_fraction >= 1.0 else 1.0
-        effective_patience = max(3, int(self.plateau_patience * res_factor * frac_factor))
-        
-        # Use significant_improvement to reset the counter, not just any improvement
+        # 2. Velocity Calculation
+        effective_patience = max(3, self.plateau_patience)
         if significant_improvement:
             self.stagnation_counter = 0
+            self.starvation_counter = 0
         else:
-            self.stagnation_counter = epochs_no_improve
+            self.stagnation_counter += 1
 
-        is_stagnant = self.stagnation_counter >= effective_patience
+        # 3. STARVATION DETECTION (Critical v8.0)
+        # If we are at a low fraction and quality is dropping but loss is healthy, the model is starving.
+        is_starving = False
+        if self.current_fraction < 0.15 and not significant_improvement and not loss_improving:
+            self.starvation_counter += 1
+            if self.starvation_counter >= 2:
+                is_starving = True
+                msg_parts.append("STARVATION DETECTED: Model is forgetting distribution at low fraction.")
+
+        # 4. PROACTIVE RESOLUTION JUMP (v8.0)
+        # If accuracy is very high but flat, don't wait for data mastery—jump resolution.
+        high_fidelity_plateau = (current_quality > 0.94 and self.stagnation_counter >= 3)
         
-        # 3. Regression Handling (Instant & Tiered)
-        if not significant_improvement and current_quality < self.prev_quality:
-            self.consecutive_drift += 1
+        # 5. Decision Matrix
+        if is_starving or self.stagnation_counter >= effective_patience or high_fidelity_plateau:
             
-            # --- INSTANT VELOCITY DAMPING ---
-            self.lr_multiplier = 0.98 
-            lr_changed = True
-            self.current_clamp = max(self.min_clamp, self.current_clamp - 0.5)
-            c_changed = True
-
-            if self.consecutive_drift >= 3:
-                self.lr_multiplier = 0.7 # Tiered Cooling
-                msg_parts.append(f"RECOVERY: Hard Cooling 0.7x due to sustained drift")
-                self.consecutive_drift = 0
-        else:
-            self.consecutive_drift = 0
-
-        # 4. Autonomous Escalation Loop
-        if is_stagnant:
-            # --- STAGE 1: MASTER THE DATA ---
-            if self.current_fraction < 1.0:
+            # --- CURRICULUM ESCALATION ---
+            if self.current_fraction < 1.0 and not high_fidelity_plateau:
                 old_frac = self.current_fraction
-                self.current_fraction = min(1.0, self.current_fraction + self.fraction_increment)
+                # Force aggressive jump if starving
+                jump = self.fraction_increment * (2 if is_starving else 1)
+                self.current_fraction = min(1.0, self.current_fraction + jump)
                 f_changed = True
-                msg_parts.append(f"STAGNATION: Escalating Data {old_frac*100:.0f}% -> {self.current_fraction*100:.0f}% to break plateau")
+                reason = "STARVATION" if is_starving else "STAGNATION"
+                msg_parts.append(f"PROPULSION: {reason} | Escalating Data to {self.current_fraction*100:.0f}%")
                 self.stabilization_epochs = 2
+                self.starvation_counter = 0
             
-            # --- STAGE 2: MASTER THE PIXELS ---
+            # --- SPATIAL ESCALATION ---
             else:
                 current_idx = self.res_ladder.index(self.current_res)
                 if current_idx < len(self.res_ladder) - 1:
                     next_res = self.res_ladder[current_idx + 1]
-                    
-                    # QUADRATIC VRAM SCALING
                     res_ratio = next_res / self.current_res
-                    vram_growth_factor = res_ratio ** 2.2 
+                    vram_growth = res_ratio ** 2.2 
                     
-                    # Proactively drop batch size
-                    self.current_batch = max(1, int(self.current_batch / vram_growth_factor))
+                    self.current_batch = max(1, int(self.current_batch / vram_growth))
                     self.current_acc = max(1, self.target_effective_batch // self.current_batch)
-                    
                     self.current_res = next_res
-                    r_changed = True
-                    b_changed = True
+                    r_changed = b_changed = True
                     
-                    # --- SAWTOOTH RESET ---
-                    # Reset data variety to 50% to allow fast adaptation to new pixels
-                    old_frac = self.current_fraction
+                    # Reset curriculum for new spatial depth
                     self.current_fraction = 0.5
                     f_changed = True
                     
-                    # Thermal Excitation: Heat the manifold to escape the local minima
-                    self.current_temp = min(1.5, self.current_temp * 1.5)
+                    # Thermal Excitation
+                    self.current_temp = min(1.5, self.current_temp * 1.3)
                     t_changed = True
                     
-                    msg_parts.append(f"AUTONOMOUS ESCALATION: Resolution to {next_res}px | Temp Heatup {self.current_temp:.2f} | Data Reset 50%")
-                    self.stabilization_epochs = 5 # Longer stabilization for resolution jumps
-                
-                # --- STAGE 3: FINE-TUNE PRECISION ---
+                    reason = "HIGH-FIDELITY PLATEAU" if high_fidelity_plateau else "STAGNATION"
+                    msg_parts.append(f"AUTONOMOUS JUMP: {reason} | Resolution -> {next_res}px | Temp -> {self.current_temp:.2f}")
+                    self.stabilization_epochs = 4
                 else:
-                    self.lr_multiplier = 0.5 # Deep Cooling
+                    # Final Precision Phase
+                    self.lr_multiplier = 0.5
                     lr_changed = True
-                    self.current_temp = max(self.min_temp, self.current_temp * self.cooling_factor)
-                    t_changed = True
-                    self.current_clamp = min(self.max_clamp, self.current_clamp + 5.0)
-                    c_changed = True
-                    msg_parts.append("REFINEMENT: Max Curriculum reached. Deep Cooling & Precision Clamp enabled.")
-                    self.current_strategy = "Precision Tuning"
+                    msg_parts.append("REFINEMENT: SOTA Boundary reached. Deep Cooling enabled.")
+
+        # 6. Drift Correction (Damping)
+        elif not significant_improvement and not loss_improving:
+            self.consecutive_drift += 1
+            if self.consecutive_drift >= 3:
+                self.lr_multiplier = 0.8
+                lr_changed = True
+                msg_parts.append("DRIFT: Micro-cooling 0.8x to stabilize manifold")
+                self.consecutive_drift = 0
+        else:
+            self.consecutive_drift = 0
 
         self.prev_quality = current_quality
-        final_msg = "⚡ [GOVERNOR] " + " | ".join(msg_parts) if msg_parts else ""
+        if current_loss: self.prev_loss = current_loss
+        
+        final_msg = "🚀 [GOVERNOR] " + " | ".join(msg_parts) if msg_parts else ""
         if not final_msg:
-            status = "STABLE" if regression_epochs == 0 else "REGRESSING" 
-            patience_left = effective_patience - epochs_no_improve
-            print(f"📡 [GOVERNOR] Scanning Manifold... [Status: {status}] [Patience: {patience_left}/{effective_patience}]")
+            patience_left = effective_patience - self.stagnation_counter
+            print(f"📡 [GOVERNOR] Monitoring Manifold... [Acc: {current_quality:.4f}] [Patience: {patience_left}/{effective_patience}]")
             
         return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, final_msg
 
     def get_dynamic_save_interval(self, avg_iter_time, total_iters):
-        """
-        2026 Resiliency: Targets a 15-minute 'Safety Window' for progress persistence.
-        """
         if avg_iter_time <= 0: return 0.2 
         epoch_duration_mins = (avg_iter_time * total_iters) / 60
-        if epoch_duration_mins < 15:
-            return 0.0 
-        target_pct = 15 / epoch_duration_mins
+        target_pct = 15 / max(1, epoch_duration_mins)
         return max(0.05, min(0.5, target_pct))
 
     def get_state(self):
@@ -189,7 +178,6 @@ class SmartTrainingGovernor:
             "lr_multiplier": self.lr_multiplier,
             "batch_size": self.current_batch,
             "accumulation_steps": self.current_acc,
-            "current_strategy": self.current_strategy,
             "stabilization_epochs": self.stabilization_epochs
         }
 
@@ -202,18 +190,12 @@ class SmartTrainingGovernor:
         self.current_clamp = state.get("logit_clamp", self.current_clamp)
         self.current_batch = state.get("batch_size", self.current_batch)
         self.current_acc = state.get("accumulation_steps", self.current_acc)
-        self.current_strategy = state.get("current_strategy", self.current_strategy)
         self.stabilization_epochs = state.get("stabilization_epochs", 0)
 
     def recoil(self):
-        """Universal Tactical Retreat (v7.1: Deep Descent)."""
         old_frac = self.current_fraction
-        # Allow deeper retreat if already at floor to break state-deadlock
-        reduction = 0.2 if old_frac > 0.25 else 0.1
-        self.current_fraction = max(0.05, old_frac - reduction)
-        
-        # Increase manifold excitation to shake out of the "poisoned" state
+        # Recoil is now smarter: it never drops below 15% unless absolutely necessary
+        self.current_fraction = max(0.15, old_frac - 0.15)
         self.current_temp = min(1.5, self.current_temp * 1.3)
         self.stabilization_epochs = 3
-        
-        return f"⚡ [GOVERNOR] RECOIL: Deep Descent {old_frac*100:.0f}% -> {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
+        return f"⚡ [GOVERNOR] RECOIL: Strategic Retreat to {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
