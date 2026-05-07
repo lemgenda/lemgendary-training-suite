@@ -2496,6 +2496,22 @@ def main():
         try:
             latest_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
             best_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
+
+            # 2026 Resilience: Hub Protection Lock (v15.5)
+            # We MUST ensure we don't overwrite a SOTA Hub state with a stale/failed session state.
+            if os.path.exists(latest_hub_path):
+                try:
+                    # We use weights_only=False to read metadata keys correctly
+                    hub_ckpt = torch.load(latest_hub_path, map_location='cpu', weights_only=False)
+                    hub_epoch = hub_ckpt.get('epoch', -1)
+                    if hub_epoch > epoch:
+                        print(f" 🛡️ [HUB LOCK] Hub has a HIGHER epoch ({hub_epoch+1}) than local session ({epoch+1}).", file=sys.stderr)
+                        print(f" 🛡️ [HUB LOCK] Aborting Hub push to prevent clobbering. Please pull the latest state.", file=sys.stderr)
+                        # We still update local progress, but skip the Hub push
+                        safe_torch_save(ckpt_state, progress_local)
+                        return
+                except Exception as e:
+                    print(f" ⚠️ [HUB LOCK] Failed to audit Hub parity: {e}. Proceeding with caution...", file=sys.stderr)
             
             # 1. Save state (Latest always, Best on improvement)
             safe_torch_save(ckpt_state, latest_hub_path)
