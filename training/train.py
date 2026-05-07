@@ -2475,8 +2475,15 @@ def main():
                 if os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_path):
                     shutil.copy2(metrics_csv_path, hub_metrics_path)
 
-            # 3. Git Sync (Automated)
-            subprocess.run(["git", "add", "."], cwd=hub_root, capture_output=True)
+            # 3. Git Sync (Atomic & Multi-Model Safe)
+            # We only add files related to THIS model to prevent clobbering other training sessions
+            model_dir = os.path.join(hub_root, args.model)
+            metrics_file = os.path.join(hub_root, args.model, "metrics.csv")
+            
+            subprocess.run(["git", "add", model_dir], cwd=hub_root, capture_output=True)
+            if os.path.exists(metrics_file):
+                subprocess.run(["git", "add", metrics_file], cwd=hub_root, capture_output=True)
+                
             type_label = "SOTA" if is_best else "Progress"
             commit_msg = f"Update {type_label} artifacts for {args.model} (Epoch {epoch+1})"
             subprocess.run(["git", "commit", "-m", commit_msg], cwd=hub_root, capture_output=True)
@@ -2519,21 +2526,11 @@ def main():
                 check_behind = subprocess.run(["git", "rev-list", "--count", "main..origin/main"], cwd=hub_root, capture_output=True, text=True)
                 behind_count = int(check_behind.stdout.strip()) if check_behind.returncode == 0 else 0
 
-                if ahead_count > 0 or behind_count > 0:
-                    print(f" 📡 [HUB SYNC] Divergence detected (Ahead: {ahead_count} | Behind: {behind_count}). Aligning...")
-                    
-                    # 2026 Resilience: Squash & Force-Align Strategy (v14.0)
-                    # We soft-reset to origin/main to consolidate all local changes into a single update
-                    subprocess.run(["git", "checkout", "main"], cwd=hub_root, capture_output=True)
-                    subprocess.run(["git", "reset", "--soft", "origin/main"], cwd=hub_root, capture_output=True)
-                    subprocess.run(["git", "add", "."], cwd=hub_root, capture_output=True)
-                    
-                    # Only commit if there are actually changes to push
-                    dirty = subprocess.run(["git", "diff-index", "--quiet", "HEAD", "--"], cwd=hub_root)
-                    if dirty.returncode != 0:
-                        type_label = "SOTA" if is_best else "Progress"
-                        consolidated_msg = f"Consolidated {type_label} update for {args.model} (Epoch {epoch+1})"
-                        subprocess.run(["git", "commit", "-m", consolidated_msg], cwd=hub_root, capture_output=True)
+                if behind_count > 0:
+                    print(f" 📡 [HUB SYNC] Remote updates detected (Behind: {behind_count}). Rebase-aligning...", file=sys.stderr)
+                    # 2026 Resilience: Rebase-Only Strategy (Multi-Model Safe)
+                    # We pull with rebase to ensure our commits are applied ON TOP of the remote ones.
+                    subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True, env=git_env, timeout=60)
 
                 res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True, env=git_env, timeout=60)
                 if res.returncode == 0:
