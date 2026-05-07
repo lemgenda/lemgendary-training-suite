@@ -169,14 +169,17 @@ class MultiTaskDataset(Dataset):
             
         return img_tensor, torch.zeros(1), self.task_type
 
-    def update_strategy(self, size=None):
-        """Dynamic resolution scaling for curriculum learning (Task 16.2)."""
+    def update_strategy(self, size=None, fraction=None):
+        """Dynamic manifold scaling for curriculum learning (v16.2)."""
         if size:
             if isinstance(size, (int, float)):
                 self.size = (int(size), int(size))
             elif isinstance(size, (list, tuple)):
                 self.size = (int(size[0]), int(size[1]))
             self.build_transforms()
+        if fraction is not None:
+            self.sample_fraction = fraction
+            self._load_manifest(self.model_info)
 
     def get_distribution(self):
         """Task 9.3: Analyze label manifold for stratified balancing."""

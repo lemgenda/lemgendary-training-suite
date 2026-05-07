@@ -1277,6 +1277,7 @@ def main():
             print(f" [RESILIENCY] Restored baseline training loss: {restored_avg_train_loss:.8f}")
         consecutive_nans = 0
         consecutive_singularities = 0
+        consecutive_stress_events = 0
         # 2026: DataLoader Determinism Guard (Zero Data Leakage Resume)
         # Seeds the random samplers uniquely per-epoch but deterministically,
         # so fast-forwarding doesn't skip or duplicate unseen images upon restart.
@@ -1727,15 +1728,20 @@ def main():
                     scaler.unscale_(optimizer)
                     total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
                     
-                    # 2026 Resilience: Gradient Sentinel Injection
+                    # 2026 Resilience: Gradient Sentinel Injection (Noise-Filtered)
                     if total_norm > 15.0:
-                         print(f" ⚠️ [SENTINEL] Extreme Gradient Stress (Norm: {total_norm:.2f}). Triggering NPP Recoil...")
-                         recoil_msg = governor.recoil()
-                         if recoil_msg: print(recoil_msg)
+                        consecutive_stress_events += 1
+                        recoil_msg = governor.recoil()
+                        if consecutive_stress_events % 10 == 1:
+                            print(f" ⚠️ [SENTINEL] Extreme Gradient Stress (Norm: {total_norm:.2f}). NPP Recoil active (x{consecutive_stress_events}).")
+                            if recoil_msg: print(recoil_msg)
+                    else:
+                        consecutive_stress_events = 0
                     
                     if i > 50 and loss.item() * accumulation_steps > (train_loss / i) * 5.0:
-                         print(f" ⚠️ [SENTINEL] Sudden Loss Spike detected. Manifold unstable. NPP Recoil active.")
-                         governor.recoil()
+                        if consecutive_stress_events % 10 == 0:
+                            print(f" ⚠️ [SENTINEL] Sudden Loss Spike detected. Manifold unstable. NPP Recoil active.")
+                        governor.recoil()
 
                     scale_before = scaler.get_scale()
                     scaler.step(optimizer)
