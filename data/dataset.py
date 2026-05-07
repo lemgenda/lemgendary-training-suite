@@ -94,24 +94,34 @@ class MultiTaskDataset(Dataset):
         self.transform = transforms.Compose(transform_list)
 
     def get_dataset_path(self, ds_name):
+        # 1. Standard Resolution
         path = os.path.join(self.data_root, ds_name)
-        if self.env == 'kaggle' and not os.path.exists(path):
-            # 2026 Nuclear Resilience: Kaggle slugs use hyphens and "large/mini" suffixes
-            try:
-                target_clean = ds_name.lower().replace("-", "").replace("_", "").replace("kaggleready", "").replace("large", "").replace("mini", "")
+        if os.path.exists(os.path.join(path, 'images', 'train')):
+            return path
+            
+        # 2. Nuclear Brute-Force (Kaggle Only)
+        if self.env == 'kaggle':
+            # Clean target for matching (e.g., LemGendizedNimaAuthenticityKaggleReady -> lemgendizednimaauthenticity)
+            target = ds_name.lower().replace("-", "").replace("_", "").replace("kaggleready", "").replace("large", "").replace("mini", "")
+            
+            # Priority 1: Check existing symlink directory
+            if os.path.exists(self.data_root):
                 for d in os.listdir(self.data_root):
-                    d_clean = d.lower().replace("-", "").replace("_", "").replace("kaggleready", "").replace("large", "").replace("mini", "")
-                    if target_clean in d_clean or d_clean in target_clean:
-                        found_path = os.path.join(self.data_root, d)
-                        # 2026 Deep-Manifold Support: Check for nested folders of the same name
-                        # (Kaggle often wraps the PascalCase folder inside a lowercase slug)
-                        try:
-                            for inner in os.listdir(found_path):
-                                if inner.lower().replace("-", "").replace("_", "") == target_clean:
-                                    return os.path.join(found_path, inner)
-                        except: pass
-                        return found_path
-            except: pass
+                    d_path = os.path.join(self.data_root, d)
+                    if os.path.isdir(d_path):
+                        # Deep scan inside the symlink for the image folder
+                        for r, dirs, _ in os.walk(d_path):
+                            if 'images' in dirs and os.path.exists(os.path.join(r, 'images', 'train')):
+                                return r
+
+            # Priority 2: Absolute Brute-Force Scan of /kaggle/input
+            # This handles cases where symlinking failed or paths are deeply nested
+            for r, dirs, _ in os.walk('/kaggle/input'):
+                if 'images' in dirs and os.path.exists(os.path.join(r, 'images', 'train')):
+                    # Verify this is the CORRECT dataset (contains our target string)
+                    if target in r.lower().replace("-", "").replace("_", ""):
+                        return r
+
         return path
 
     def load_image(self, img_path):
