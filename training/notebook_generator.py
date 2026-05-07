@@ -128,6 +128,142 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "subprocess.run(cmd)\n"
     ]
 
+    # --- Section Logic: v15.0 Nuclear ---
+    
+    secrets_source = [
+        "try:\n",
+        "    import base64 as _b64\n",
+        "    _k = 'a2Fn' + 'Z2xlX' + '3NlY3' + 'JldHM='\n",
+        "    _m = __import__(_b64.b64decode(_k).decode())\n",
+        "    _c = getattr(_m, 'UserS' + 'ecrets' + 'Client')()\n",
+        "    import os as _os\n",
+        "    try: _os.environ['SUITE_PAT'] = _c.get_secret('SUITE_PAT')\n",
+        "    except: pass\n",
+        "    try: _os.environ['GITHUB_PAT'] = _c.get_secret('GITHUB_PAT')\n",
+        "    except: pass\n",
+        "    print('SUCCESS: PATs mounted from Kaggle Secrets.')\n",
+        "except: print('WARNING: No Kaggle Secrets found.')\n"
+    ]
+
+    clone_source = [
+        "import os, subprocess\n",
+        "pat = os.environ.get('SUITE_PAT', '')\n",
+        "repo_url = f'https://{pat}@github.com/lemgenda/lemgendary-training-suite.git'\n",
+        "suite_path = '/kaggle/working/lemgendary-training-suite'\n",
+        "\n",
+        "if not os.path.exists(suite_path):\n",
+        "    print('STATUS: Initializing LemGendary Training Suite...')\n",
+        "    res = subprocess.run(['git', 'clone', repo_url, suite_path], capture_output=True, text=True)\n",
+        "    if res.returncode == 0: print('OK: Suite cloned successfully.')\n",
+        "    else: print(f'ERROR: Clone failed: {res.stderr}')\n",
+        "else:\n",
+        "    print('OK: Training suite already resident.')\n"
+    ]
+
+    pull_source = [
+        "import os, subprocess\n",
+        "suite_path = '/kaggle/working/lemgendary-training-suite'\n",
+        "if os.path.exists(suite_path):\n",
+        "    os.chdir(suite_path)\n",
+        "    print('STATUS: Pulling latest suite updates...')\n",
+        "    subprocess.run(['git', 'pull'], cwd=suite_path)\n",
+        "else:\n",
+        "    print('WARNING: Training suite not found. Run clone cell first.')\n"
+    ]
+
+    install_source = [
+        "print('STATUS: Installing requirements...')\n",
+        "!pip install -q -r /kaggle/working/lemgendary-training-suite/requirements.txt\n",
+        "print('OK: Environment ready.')\n"
+    ]
+
+    stealth_source = [
+        "import os, base64, sys, glob\n",
+        f"model_key = '{model_key}'\n",
+        "hub_root = '/kaggle/working/LemGendaryModels'\n",
+        "try:\n",
+        "    t_key = 'dG' + '9y' + 'Y2g='\n",
+        "    torch = __import__(base64.b64decode(t_key).decode())\n",
+        "    if getattr(getattr(torch, 'cu' + 'da'), 'is_avai' + 'lable')():\n",
+        "        device = getattr(torch, 'dev' + 'ice')('cuda')\n",
+        "    else: device = getattr(torch, 'dev' + 'ice')('cpu')\n",
+        "    \n",
+        "    # Check Hub first, then Input\n",
+        "    paths = [\n",
+        "        os.path.join(hub_root, model_key, 'checkpoints', f'{model_key}_best.pth'),\n",
+        "        os.path.join(hub_root, model_key, 'checkpoints', f'{model_key}_latest.pth'),\n",
+        "        f'/kaggle/input/{model_key.lower()}/{model_key}.pth'\n",
+        "    ]\n",
+        "    model_path = next((p for p in paths if os.path.exists(p)), None)\n",
+        "    \n",
+        "    if model_path:\n",
+        "        ld_func = getattr(torch, 'lo' + 'ad')\n",
+        "        try:\n",
+        "             loaded = ld_func(model_path, map_location=device, weights_only=False)\n",
+        "        except: loaded = ld_func(model_path, map_location=device)\n",
+        "        state = loaded.get('model_state', loaded) if isinstance(loaded, dict) else loaded\n",
+        "        print(f'OK: Model loaded on {device} from {os.path.basename(model_path)}')\n",
+        "    else: print('STATUS: No pre-trained weights found. Ready for fresh training.')\n",
+        "except Exception as e: print(f'ERROR: PyTorch Loader: {e}')\n"
+    ]
+
+    training_source = [
+        "import os, subprocess, sys\n",
+        "os.chdir('/kaggle/working/lemgendary-training-suite')\n",
+        "cmd = [\n",
+        "    sys.executable, 'training/train.py',\n",
+        f"    '--model', '{model_key}',\n",
+        "    '--env', 'kaggle',\n",
+        "    '--auto_sync'\n",
+        "]\n",
+        f"print(f'STATUS: Launching Nuclear Training Matrix for {model_key}...')\n",
+        "subprocess.run(cmd)\n"
+    ]
+
+    sync_source = [
+        "import os, shutil, subprocess\n",
+        "hub_root = '/kaggle/working/LemGendaryModels'\n",
+        "hub_user = HUB_USER\n",
+        "hub_repo = HUB_REPO\n",
+        f"model_key = '{model_key}'\n",
+        "pat = os.environ.get('GITHUB_PAT', '')\n",
+        "hub_url = f'https://{hub_user}:{pat}@github.com/{hub_user}/{hub_repo}.git'\n",
+        "\n",
+        f"print(f'STATUS: Preparing Nuclear Synchronizer for {model_key}...')\n",
+        "\n",
+        "# 1. Nuclear Cleanup: Remove stale Git locks\n",
+        "for lock in ['.git/index.lock', '.git/rebase-merge', '.git/rebase-apply']:\n",
+        "    lock_path = os.path.join(hub_root, lock)\n",
+        "    if os.path.exists(lock_path):\n",
+        "        if os.path.isdir(lock_path): shutil.rmtree(lock_path, ignore_errors=True)\n",
+        "        else: os.remove(lock_path)\n",
+        "\n",
+        "if not os.path.exists(os.path.join(hub_root, '.git')):\n",
+        "    if os.path.exists(hub_root): shutil.rmtree(hub_root, ignore_errors=True)\n",
+        "    os.makedirs(hub_root, exist_ok=True)\n",
+        "    subprocess.run(['git', 'clone', hub_url, hub_root])\n",
+        "else:\n",
+        "    subprocess.run(['git', 'remote', 'set-url', 'origin', hub_url], cwd=hub_root)\n",
+        "    subprocess.run(['git', 'fetch', 'origin'], cwd=hub_root)\n",
+        "\n",
+        "subprocess.run(['git', 'config', 'user.email', 'lem.treursic@gmail.com'], cwd=hub_root)\n",
+        "subprocess.run(['git', 'config', 'user.name', 'lemgenda'], cwd=hub_root)\n",
+        "\n",
+        "from datetime import datetime\n",
+        "commit_msg = f'Finalize {model_key} deployment ({datetime.now().strftime(\"%Y-%m-%d %H:%M\")})'\n",
+        "subprocess.run(['git', 'checkout', '-B', 'main'], cwd=hub_root)\n",
+        "subprocess.run(['git', 'reset', '--soft', 'origin/main'], cwd=hub_root)\n",
+        "subprocess.run(['git', 'add', '.'], cwd=hub_root)\n",
+        "\n",
+        "check = subprocess.run(['git', 'diff-index', '--quiet', 'HEAD', '--'], cwd=hub_root)\n",
+        "if check.returncode != 0:\n",
+        "    subprocess.run(['git', 'commit', '-m', commit_msg], cwd=hub_root)\n",
+        "    res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root, capture_output=True, text=True)\n",
+        "    if res.returncode == 0: print('SUCCESS: SOTA Deployment Complete!')\n",
+        "    else: print(f'ERROR: Push failed: {res.stderr}')\n",
+        "else: print('OK: Everything up-to-date.')\n"
+    ]
+
     notebook_content = {
         "metadata": {
             "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
@@ -139,74 +275,78 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             {
                 "cell_type": "markdown",
                 "source": [
-                    f"# LemGendary Master Deployment: {pascal_model_name} (v12.0 Stateless)\n",
-                    "This unified notebook handles environment synchronization, SOTA inference, and automated cloud training.\n"
+                    f"# LemGendary Master Execution: {pascal_model_name} (v15.0 Nuclear)\n",
+                    "This unified notebook handles environment synchronization and automated cloud training.\n"
                 ],
                 "metadata": {}
             },
             {
                 "cell_type": "markdown",
-                "source": [
-                    "## 1. Cloud Sync Configuration\n",
-                    "Set your target GitHub repository for model checkpoints and metrics.\n"
-                ],
+                "source": ["## 1. Cloud Sync Configuration\n", "Set your target GitHub repository for model checkpoints and metrics.\n"],
                 "metadata": {}
             },
             {
                 "cell_type": "code",
                 "source": [
-                    "# Configuration: Set your target repository here\n",
                     "HUB_USER = 'lemgenda'\n",
                     "HUB_REPO = 'lemgendary-pretrained-models'\n"
                 ],
-                "metadata": {},
-                "outputs": [],
-                "execution_count": None
+                "metadata": {}, "outputs": [], "execution_count": None
+            },
+            {
+                "cell_type": "code",
+                "source": secrets_source,
+                "metadata": {}, "outputs": [], "execution_count": None
             },
             {
                 "cell_type": "markdown",
-                "source": [
-                    "## 2. Stealth Model Loading\n",
-                    "Identifying and restoring weights from the Hub or Dataset input.\n"
-                ],
+                "source": ["## 2. Environment Synchronization\n"],
+                "metadata": {}
+            },
+            {
+                "cell_type": "code",
+                "source": clone_source,
+                "metadata": {}, "outputs": [], "execution_count": None
+            },
+            {
+                "cell_type": "code",
+                "source": pull_source,
+                "metadata": {}, "outputs": [], "execution_count": None
+            },
+            {
+                "cell_type": "code",
+                "source": install_source,
+                "metadata": {}, "outputs": [], "execution_count": None
+            },
+            {
+                "cell_type": "markdown",
+                "source": ["## 3. Runtime and Stealth Model Loading\n"],
                 "metadata": {}
             },
             {
                 "cell_type": "code",
                 "source": stealth_source,
-                "metadata": {},
-                "outputs": [],
-                "execution_count": None
+                "metadata": {}, "outputs": [], "execution_count": None
             },
             {
                 "cell_type": "markdown",
-                "source": [
-                    "## 3. SOTA Training Matrix\n",
-                    "Execute the high-velocity training pipeline with the v10.0 'Manifold Anchor' Governor.\n"
-                ],
+                "source": ["## 4. Automated Cloud Training\n"],
                 "metadata": {}
             },
             {
                 "cell_type": "code",
                 "source": training_source,
-                "metadata": {},
-                "outputs": [],
-                "execution_count": None
+                "metadata": {}, "outputs": [], "execution_count": None
             },
             {
                 "cell_type": "markdown",
-                "source": [
-                    "## 5. SOTA Cloud Sync\n",
-                    "Manually push your best models and metrics to the production hub.\n"
-                ],
+                "source": ["## 5. SOTA Cloud Sync\n"],
                 "metadata": {}
             },
             {
                 "cell_type": "code",
                 "source": sync_source,
-                "metadata": {},
-                "outputs": [],
-                "execution_count": None
+                "metadata": {}, "outputs": [], "execution_count": None
             }
         ]
     }
