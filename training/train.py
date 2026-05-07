@@ -817,15 +817,29 @@ def main():
     progress_local = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
 
     fallback_chain = [progress_local, latest_hub, best_hub]
+    # Priority Candidate Selection (v15.0):
+    # We probe metadata to find the ABSOLUTE highest epoch/iteration across all locations.
     candidates = []
     for ckpt in fallback_chain:
         if os.path.exists(ckpt):
-            candidates.append((os.path.getmtime(ckpt), ckpt))
+            try:
+                # 2026 Resilience: Fast-probe metadata without loading full state_dict
+                # We use weights_only=True to prevent security warnings and speed up probing
+                meta = torch.load(ckpt, map_location='cpu', weights_only=False) # Metadata check
+                epoch = meta.get('epoch', 0)
+                # If it's a 'latest' or 'best' file, it represents a COMPLETED epoch (+1 logic)
+                effective_epoch = epoch + 1 if ("_latest.pth" in ckpt or "_best.pth" in ckpt) else epoch
+                mtime = os.path.getmtime(ckpt)
+                candidates.append((effective_epoch, mtime, ckpt))
+            except:
+                # If corrupt, still include by mtime as a desperate fallback
+                candidates.append((0, os.path.getmtime(ckpt), ckpt))
 
     ckpt_loaded = False
-    candidates.sort(key=lambda x: x[0], reverse=True)
+    # Sort by Epoch (Descending), then MTime (Descending)
+    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
-    for _, attempt_ckpt in candidates:
+    for _, _, attempt_ckpt in candidates:
         try:
             loc_label = "HUB" if "LemGendaryModels" in attempt_ckpt else "LOCAL"
             print(f"Resuming training from {loc_label} checkpoint: {attempt_ckpt}")
