@@ -52,6 +52,57 @@ try:
     from torch.optim.swa_utils import AveragedModel, SWALR, update_bn # 2026 SOTA: Smooth Generalization
     from training.optimization_engine import SmartTrainingGovernor
 except ImportError as e:
+    ...
+
+# --- 2026 Resilience: Disk Space Sentinel (v1.0) ---
+def safe_torch_save(obj, path):
+    """Saves a torch object with disk-space auditing and atomic replacement."""
+    import shutil
+    dir_name = os.path.dirname(path)
+    if not dir_name: dir_name = "."
+    # 1. Audit Disk Space
+    try:
+        total, used, free = shutil.disk_usage(dir_name)
+        free_gb = free / (1024**3)
+        if free_gb < 1.0: # Less than 1GB remaining
+            print(f" ⚠️ [DISK SENTINEL] Low disk space detected ({free_gb:.2f}GB). Engaging Emergency Pruning...", file=sys.stderr)
+            # Prune all .tmp and old progress files
+            for f in os.listdir(dir_name):
+                if f.endswith(".tmp") or "_progress.pth" in f:
+                    try: 
+                        f_path = os.path.join(dir_name, f)
+                        if os.path.abspath(f_path) != os.path.abspath(path): 
+                            os.remove(f_path)
+                    except: pass
+            
+            # Final check
+            _, _, free = shutil.disk_usage(dir_name)
+            if free / (1024**3) < 0.2: # Less than 200MB
+                print(f" ❌ [DISK SENTINEL] DISK FULL! Cannot save {os.path.basename(path)}. Aborting save to preserve manifold.", file=sys.stderr)
+                return False
+    except: pass
+
+    # 2. Atomic Save
+    tmp_path = f"{path}.tmp"
+    try:
+        torch.save(obj, tmp_path)
+        # Use safe_replace if available, else os.replace
+        try:
+            from training.train import safe_replace
+        except:
+            def safe_replace(src, dst):
+                if os.path.exists(dst): os.remove(dst)
+                os.rename(src, dst)
+        
+        safe_replace(tmp_path, path)
+        return True
+    except Exception as e:
+        print(f" ❌ [DISK SENTINEL] Save failed for {os.path.basename(path)}: {e}", file=sys.stderr)
+        if os.path.exists(tmp_path):
+            try: os.remove(tmp_path)
+            except: pass
+        return False
+
     print(f"\n--- LemGendary Crash Diagnostics ---")
     print(f"Executable: {sys.executable}")
     print(f"Script Location: {__file__}")
@@ -1388,7 +1439,7 @@ def main():
                             governor.current_batch = batch_size
                             governor.current_acc = accumulation_steps
                             
-                            torch.save({
+                            safe_torch_save({
                                 'epoch': epoch,
                                 'iteration': current_iter,
                                 'loader_len': len(train_loader), # Save actual length for correct resume scaling
@@ -1401,8 +1452,7 @@ def main():
                                 'epochs_no_improve': epochs_no_improve,
                                 'regression_epochs': regression_epochs,
                                 'sota_achieved': sota_baseline_achieved
-                            }, f"{recovery_ckpt}.tmp")
-                            safe_replace(f"{recovery_ckpt}.tmp", recovery_ckpt)
+                            }, recovery_ckpt)
 
                             iter_resync_triggered = True
                             break
@@ -1679,27 +1729,23 @@ def main():
                     governor.current_batch = batch_size
                     governor.current_acc = accumulation_steps
                     
-                    with open(temp_prog_ckpt, "wb") as f:
-                        torch.save({
-                            'epoch': epoch,
-                            'iteration': i,
-                            'loader_len': len(train_loader),
-                            'model_state': model.state_dict(),
-                            'optimizer_state': optimizer.state_dict(),
-                            'scheduler_state': scheduler.state_dict(),
-                            'governor_state': governor.get_state(),
-                            'best_val_loss': best_val_loss,
-                            'best_quality_score': best_quality_score,
-                            'epochs_no_improve': epochs_no_improve,
-                            'regression_epochs': regression_epochs,
-                            'sota_achieved': sota_baseline_achieved,
-                            'last_intra_epoch_pct': last_intra_epoch_pct,
-                            'interval_pct': interval_pct,
-                            'avg_train_loss': (train_loss / (i + 1)) if (i + 1) > 0 else 0.0
-                        }, f)
-                        f.flush()
-                        os.fsync(f.fileno())
-                    safe_replace(temp_prog_ckpt, prog_ckpt)
+                    safe_torch_save({
+                        'epoch': epoch,
+                        'iteration': i,
+                        'loader_len': len(train_loader),
+                        'model_state': model.state_dict(),
+                        'optimizer_state': optimizer.state_dict(),
+                        'scheduler_state': scheduler.state_dict(),
+                        'governor_state': governor.get_state(),
+                        'best_val_loss': best_val_loss,
+                        'best_quality_score': best_quality_score,
+                        'epochs_no_improve': epochs_no_improve,
+                        'regression_epochs': regression_epochs,
+                        'sota_achieved': sota_baseline_achieved,
+                        'last_intra_epoch_pct': last_intra_epoch_pct,
+                        'interval_pct': interval_pct,
+                        'avg_train_loss': (train_loss / (i + 1)) if (i + 1) > 0 else 0.0
+                    }, prog_ckpt)
                     tier_str = f"{current_pct*100:.0f}%"
 
                     pbar.write(f" 💾 [RESILIENCY] PROGRESS COMMITTED: {tier_str} (Batch {i+1})")
@@ -1712,7 +1758,7 @@ def main():
         # Commit training results to progress file immediately so if validation crashes,
         # we don't have to re-run the training phase.
         prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
-        torch.save({
+        safe_torch_save({
             'epoch': epoch,
             'iteration': len(train_loader),
             'val_iteration': 0,
@@ -1727,8 +1773,7 @@ def main():
             'epochs_no_improve': epochs_no_improve,
             'regression_epochs': regression_epochs,
             'sota_achieved': sota_baseline_achieved
-        }, f"{prog_ckpt}.tmp")
-        safe_replace(f"{prog_ckpt}.tmp", prog_ckpt)
+        }, prog_ckpt)
 
         # --- 2026: Manifold Leak Guard ---
         if current_iter < len(train_loader):
@@ -2418,10 +2463,10 @@ def main():
             best_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
             
             # 1. Save state (Latest always, Best on improvement)
-            torch.save(ckpt_state, latest_hub_path)
+            safe_torch_save(ckpt_state, latest_hub_path)
             if is_best:
                 shutil.copy2(latest_hub_path, best_hub_path)
-                print(f"🏆 [HUB SYNC] New SOTA archived to Hub.")
+                print(f"🏆 [HUB SYNC] New SOTA archived to Hub.", file=sys.stderr)
             
             # 2. Sync Metrics Audit Trail
             if os.path.exists(metrics_csv_path):
@@ -2448,15 +2493,23 @@ def main():
                 
             if should_push:
                 try:
-                    rem_res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=hub_root, capture_output=True, text=True)
-                    if rem_res.returncode == 0:
-                        raw_url = rem_res.stdout.strip()
-                        base_url = raw_url.split('@')[-1] if '@' in raw_url else raw_url.replace("https://", "")
-                        auth_url = f"https://{pat}@{base_url}"
-                        subprocess.run(["git", "remote", "set-url", "origin", auth_url], cwd=hub_root, capture_output=True)
+                    # 2026 Resilience: Headless Authentication Hardening
+                    git_env = os.environ.copy()
+                    git_env["GIT_TERMINAL_PROMPT"] = "0"
                     
-                    subprocess.run(["git", "config", "credential.helper", ""], cwd=hub_root, capture_output=True)
-                except: pass
+                    if pat:
+                        rem_res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=hub_root, capture_output=True, text=True, env=git_env, timeout=10)
+                        if rem_res.returncode == 0:
+                            raw_url = rem_res.stdout.strip()
+                            base_url = raw_url.split('@')[-1] if '@' in raw_url else raw_url.replace("https://", "")
+                            auth_url = f"https://{pat}@{base_url}"
+                            subprocess.run(["git", "remote", "set-url", "origin", auth_url], cwd=hub_root, capture_output=True, env=git_env, timeout=10)
+                    
+                    # 2026 Resilience: Disable LFS lock verification to prevent hanging on public Hubs
+                    subprocess.run(["git", "config", "lfs.https://github.com/.locksverify", "false"], cwd=hub_root, capture_output=True, env=git_env, timeout=10)
+                    subprocess.run(["git", "config", "credential.helper", ""], cwd=hub_root, capture_output=True, env=git_env, timeout=10)
+                except Exception as e:
+                    print(f" ⚠️ [HUB SYNC] Auth hardening failed: {e}", file=sys.stderr)
 
                 # 2026 Resilience: Check for divergence (Ahead/Behind)
                 subprocess.run(["git", "fetch", "origin"], cwd=hub_root, capture_output=True)
@@ -2482,15 +2535,15 @@ def main():
                         consolidated_msg = f"Consolidated {type_label} update for {args.model} (Epoch {epoch+1})"
                         subprocess.run(["git", "commit", "-m", consolidated_msg], cwd=hub_root, capture_output=True)
 
-                res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
+                res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True, env=git_env, timeout=60)
                 if res.returncode == 0:
                     print(f"🏆 [HUB SYNC] Hub updated successfully!")
                 else:
                     # Final Emergency Strategy: If still failing, it's a conflict we can't soft-align.
                     # We try one last rebase-theirs as a fallback.
                     print(f" ⚠️ [HUB SYNC] Push rejected. Falling back to rebase recovery...")
-                    subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
-                    res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True)
+                    subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True, env=git_env, timeout=60)
+                    res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True, env=git_env, timeout=60)
                     if res.returncode == 0:
                         print(f"🏆 [HUB SYNC] Hub updated successfully via rebase!")
                     else:
@@ -2498,7 +2551,8 @@ def main():
         except Exception as e:
             print(f"⚠️ [HUB SYNC] Hub synchronization critical failure: {e}")
 
-        # --- Automated Cloud Hub Deployment ---
+
+# --- Automated Cloud Hub Deployment ---
         if args.auto_sync:
             try:
                 hub_user = args.hub_user or config.get("hub_user", "lemgenda")
