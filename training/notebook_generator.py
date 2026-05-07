@@ -71,7 +71,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "os.makedirs(target_dir, exist_ok=True)\n",
         "\n",
         "print(f'🔍 [DATA] Resolving manifolds for {model_key}...')\n",
-        "patterns = [f'*{model_key.lower()}*', f'*{model_key.replace(\"_\", \"\")}*', 'lemgendary-*']\n",
+        "patterns = [f'*{model_key.lower()}*', f'*{model_key.replace(\"_\", \"-\")}*', f'*{model_key.replace(\"_\", \"\")}*', 'lemgendary-*']\n",
         "found = []\n",
         "for p in patterns: found.extend(glob.glob(os.path.join(data_root, p)))\n",
         "\n",
