@@ -80,10 +80,10 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "pat = os.environ.get('GITHUB_PAT', '')\n",
         "hub_url = f'https://{hub_user}:{pat}@github.com/{hub_user}/{hub_repo}.git'\n",
         "\n",
-        "print(f'🚀 [HUB SYNC] Preparing SOTA Synchronizer for {model_key}...')\n",
+        "print(f'[HUB SYNC] Preparing SOTA Synchronizer for {model_key}...')\n",
         "\n",
         "if not os.path.exists(os.path.join(hub_root, '.git')):\n",
-        "    print(f'🛰️ Initializing SOTA Hub at {hub_root}...')\n",
+        "    print(f'STATUS: Initializing SOTA Hub at {hub_root}...')\n",
         "    if os.path.exists(hub_root) and not os.path.exists(os.path.join(hub_root, '.git')):\n",
         "        shutil.rmtree(hub_root, ignore_errors=True)\n",
         "    \n",
@@ -92,11 +92,11 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        subprocess.run(['git', 'clone', hub_url, hub_root])\n",
         "        subprocess.run(['git', 'branch', '-M', 'main'], cwd=hub_root)\n",
         "else:\n",
-        "    print(f'✅ SOTA Hub already active at {hub_root}. Staying in sync...')\n",
+        "    print(f'OK: SOTA Hub already active at {hub_root}. Staying in sync...')\n",
         "    subprocess.run(['git', 'remote', 'set-url', 'origin', hub_url], cwd=hub_root)\n",
         "    subprocess.run(['git', 'pull', '--rebase', '-X', 'theirs', 'origin', 'main'], cwd=hub_root)\n",
         "\n",
-        "print('📤 Pushing finalized artifacts to GitHub...')\n",
+        "print('PUSHING finalized artifacts to GitHub...')\n",
         "from datetime import datetime\n",
         "commit_msg = f'Finalize {model_key} deployment from Kaggle ({datetime.now().strftime(\"%Y-%m-%d %H:%M\")})'\n",
         "\n",
@@ -105,9 +105,27 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "res = subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root, capture_output=True, text=True)\n",
         "\n",
         "if res.returncode == 0:\n",
-        "    print('🏆 SOTA Deployment Successful! Repository is live.')\n",
+        "    print('SUCCESS: SOTA Deployment Complete! Repository is live.')\n",
         "else:\n",
-        "    print(f'❌ Deployment Failed: {res.stderr}')\n"
+        "    print(f'ERROR: Deployment Failed: {res.stderr}')\n"
+    ]
+
+    training_source = [
+        "import os, subprocess, sys\n",
+        "# 1. Arm Environment\n",
+        "os.environ['PYTHONIOENCODING'] = 'utf-8'\n",
+        "os.environ['KAGGLE_KERNEL_RUN_TYPE'] = 'Interactive'\n",
+        "\n",
+        "# 2. Launch Universal Training Pipeline\n",
+        "cmd = [\n",
+        "    sys.executable, 'training/train.py',\n",
+        f"    '--model', '{model_key}',\n",
+        "    '--env', 'kaggle',\n",
+        "    '--auto_sync' # [RESILIENCE] Enable autonomous every-epoch hub mirroring\n",
+        "]\n",
+        "\n",
+        f"print(f'[SOTA] Launching Training Matrix for {model_key}...')\n",
+        "subprocess.run(cmd)\n"
     ]
 
     notebook_content = {
@@ -170,23 +188,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             },
             {
                 "cell_type": "code",
-                "source": [
-                    "import os, subprocess, sys\n",
-                    "# 1. Arm Environment\n",
-                    "os.environ['PYTHONIOENCODING'] = 'utf-8'\n",
-                    "os.environ['KAGGLE_KERNEL_RUN_TYPE'] = 'Interactive'\n",
-                    "\n",
-                    "# 2. Launch Universal Training Pipeline\n",
-                    "cmd = [\n",
-                    "    sys.executable, 'training/train.py',\n",
-                    f"    '--model', '{model_key}',\n",
-                    "    '--env', 'kaggle',\n",
-                    "    '--auto_sync' # 🚀 Enable autonomous every-epoch hub mirroring\n",
-                    "]\n",
-                    "\n",
-                    "print(f'🔥 Launching SOTA Training Matrix for {model_key}...')\n",
-                    "subprocess.run(cmd)\n"
-                ],
+                "source": training_source,
                 "metadata": {},
                 "outputs": [],
                 "execution_count": None
@@ -212,7 +214,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     output_path = os.path.join(export_dir, "kaggle_inference.ipynb")
     os.makedirs(export_dir, exist_ok=True)
     with open(output_path, "w", encoding='utf-8') as f:
-        json.dump(notebook_content, f, indent=1)
+        json.dump(notebook_content, f, indent=2)
     print(f"[OK] Generated Stateless Notebook: {output_path}")
 
 def generate_usage_notebook(model_key, export_dir, unified_models_registry=None, config=None):
