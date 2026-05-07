@@ -778,6 +778,7 @@ def main():
             res = subprocess.run(["git", "clone", authenticated_url, hub_root], capture_output=True, text=True)
             if res.returncode == 0:
                 # 2026 Resilience: Ensure binary weights are smudged after initial clone
+                subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
                 subprocess.run(["git", "lfs", "pull"], cwd=hub_root, capture_output=True)
             else:
                 print(f"⚠️ [HUB SYNC] Initial clone failed. Creating local-only hub structure.")
