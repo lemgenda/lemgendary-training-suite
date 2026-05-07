@@ -94,7 +94,15 @@ class MultiTaskDataset(Dataset):
         self.transform = transforms.Compose(transform_list)
 
     def get_dataset_path(self, ds_name):
-        return os.path.join(self.data_root, ds_name)
+        path = os.path.join(self.data_root, ds_name)
+        if self.env == 'kaggle' and not os.path.exists(path):
+            # 2026 Resilience: Kaggle input slugs are often lowercase
+            try:
+                for d in os.listdir(self.data_root):
+                    if d.lower() == ds_name.lower():
+                        return os.path.join(self.data_root, d)
+            except: pass
+        return path
 
     def load_image(self, img_path):
         """Fallback Shield: Returns Neutral-Gray tensor on I/O failure (Task 9.1)."""
