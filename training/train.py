@@ -1321,7 +1321,13 @@ def main():
                             preds = model(inputs)
                             sentinel = stab.get('numerical_sentinel')
                             if sentinel and len(sentinel) == 2:
-                                min_v, max_v = float(sentinel[0]), float(sentinel[1])
+                                # 2026 Resilience: Sync Sentinel with Active Logit Clamp
+                                # If the manifold is restricted (e.g. clamp=10), we must check stress against 10, not 15.
+                                s_min, s_max = float(sentinel[0]), float(sentinel[1])
+                                current_clamp = stab.get('logit_clamp', s_max)
+                                min_v = max(s_min, -current_clamp)
+                                max_v = min(s_max, current_clamp)
+                                
                                 if isinstance(preds, (tuple, list)):
                                     p_p = preds[0]
                                     sentinel_stresses.append(((p_p < min_v) | (p_p > max_v)).float().mean().item())
