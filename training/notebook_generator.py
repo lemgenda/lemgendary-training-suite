@@ -216,8 +216,11 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    '--env', 'kaggle',\n",
         "    '--auto_sync'\n",
         "]\n",
-        f"print(f'STATUS: Launching Nuclear Training Matrix for {model_key}...')\n",
-        "subprocess.run(cmd)\n"
+        "try:\n",
+        f"    print(f'STATUS: Launching Nuclear Training Matrix for {model_key}...')\n",
+        "    subprocess.run(cmd)\n",
+        "except KeyboardInterrupt:\n",
+        "    print('\\n🛑 [ABORT] Training matrix manually halted by user.')\n"
     ]
 
     sync_source = [

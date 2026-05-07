@@ -21,7 +21,14 @@ sys.setrecursionlimit(2000)
 warnings.filterwarnings("ignore", category=UserWarning, module="triton")
 warnings.filterwarnings("ignore", category=FutureWarning, module="diffusers")
 warnings.filterwarnings("ignore", message=".*Flax classes are deprecated.*")
-warnings.filterwarnings("ignore", message=".*clamping frac to range \[0, 1\]")
+warnings.filterwarnings("ignore", message=r".*clamping frac to range \[0, 1\]")
+
+# 2026: Nuclear Silence (Hard-kill diffusers/transformers noise)
+os.environ["DIFFUSERS_VERBOSITY"] = "error"
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+import logging
+logging.getLogger("diffusers").setLevel(logging.ERROR)
+logging.getLogger("transformers").setLevel(logging.ERROR)
 
 # --- Hyper-Verbose Path Defense (2026 Specialization) ---
 # Anchor the search path to the script's own folder to bypass "Ghost Python" hijacking.
