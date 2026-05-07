@@ -1,54 +1,59 @@
-# LemGendary Training Suite - Modular Training Config
-# This config references the global unified definitions
+# ==========================================================================
+# 🚀 LemGendary Training Suite - NUCLEAR v16.0 CONFIGURATION
+# ==========================================================================
 
+# Core Manifold Version
+version: "16.0.0-nuclear"
 unified_models: "unified_models_v2.yaml"
 
-# Dynamic Execution Pathing
+# --- Hardware Profiles (Task 12.4) ---
+# Optimized for sequential SOTA training on restricted hardware.
+hardware:
+  target_device: "cuda"
+  vram_limit_gb: 4.0
+  num_workers: 0 # Forced to 0 for stability on 4GB VRAM
+  pin_memory: true
+  use_fp16: true
+
+# --- Smart Governor Tuning (Task 12.2) ---
+governor:
+  emergency_breakout_threshold: 0.10 # 10% quality drop shatters the lock
+  jolt_cooldown_epochs: 5
+  sharpening_cooling_rate: 0.98
+  min_softmax_temp: 0.1
+  stabilization_lock_epochs: 3
+  logit_clamp: 10.0
+
+# --- Fleet & Synchronization (Task 12.3) ---
+fleet:
+  auto_sync: true
+  inter_model_cooldown_seconds: 2
+  retry_attempts: 3
+  model_hub_repo: "https://github.com/lemgenda/lemgendary-pretrained-models.git"
+  failure_log: "fleet_failure_report.json"
+
+# --- Orchestration Paths ---
+paths:
+  datasets_root: "../LemGendaryDatasets"
+  checkpoints_root: "checkpoints"
+  export_root: "../LemGendaryModels"
+
+# --- Training Defaults ---
+defaults:
+  img_size: 256
+  batch_size: 8 # Optimized for 384px at 4GB VRAM
+  lr: 0.00025
+  epochs: 1000
+  patience: 250
+
+# --- Security & Stealth ---
+security:
+  mask_tokens: true
+  stealth_mode: true
+
+# --- Execution Matrix ---
 execution:
-  mode: "training" # or "single_epoch_test"
+  mode: "training" # choices: ["training", "single_epoch_test", "vetting"]
   suffixes:
     training: "Large"
     single_epoch_test: "KaggleReady"
-  use_local_root_datasets: true
-
-# Global Training Defaults (can be overridden by model-specific config)
-device: "cuda" # or "cpu"
-num_workers: 0 # Forced to 0 for 4GB VRAM stability to prevent multiprocess deadlocks
-pin_memory: true
-
-# Base paths (relative to training/lemgendary-training-suite/)
-# datasets_dir: "data/datasets"
-datasets_dir: "../LemGendaryDatasets"
-datasets_fallback_dir: "../LemGendaryDatasets"
-checkpoint_dir: "checkpoints"
-export_dir: "../LemGendaryModels"
-
-# Kaggle Dataset URL Fallbacks (Used if not found locally)
-kaggle_dataset_urls:
-  LemGendizedNafNetDebluringLarge: "https://www.kaggle.com/datasets/lemtreursi/lemgendizednafnetdebluringlarge"
-  LemGendizedNimaAuthenticityKaggleReady: "https://www.kaggle.com/datasets/lemtreursi/lemgendizednimaauthenticitykaggleready"
-  LemGendizedNimaAuthenticityLarge: "https://www.kaggle.com/datasets/lemtreursi/lemgendizednimaauthenticitylarge"
-
-# Default fallback values if not specified in unified_models.yaml
-default_img_size: 256
-default_batch_size: 8 # Lowered for 4GB VRAM stability at 384px
-default_lr: 0.00025
-default_epochs: 1000
-early_stopping_patience: 250
-intra_epoch_checkpoint_pct: "auto"
-
-# Global Stabilizer Defaults (To prevent Infinite NaN loops across different architectures)
-stabilizers:
-  softmax_temp: 1.0
-  emd_epsilon: 0.000001
-  logit_clamp: 15.0
-
-# External Repository Deployment Fallbacks
-export_to_external_folder: false
-external_folder_path: "../../../local_models"
-
-# 2026 Model Hub Sync (Production Artifacts)
-model_hub_repo: "https://github.com/lemgenda/lemgendary-pretrained-models.git"
-
-# Nuclear Stealth (v1.0): Reduce terminal clutter while keeping mission-critical data.
-stealth_mode: true

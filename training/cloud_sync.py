@@ -1,90 +1,95 @@
 import os
 import threading
-import zipfile
-import requests
+import subprocess
+import shutil
+import pandas as pd
 from pathlib import Path
+from datetime import datetime
 
-def _sync_worker(model_name, epoch, config):
-    pat = os.environ.get("GITHUB_PAT")
-    if not pat:
-        return
+# [SENIOR HARDENING v16.0 - SYNC_ID: 1042]
+
+class CloudSyncManager:
+    """
+    Nuclear-Hardened SOTA Synchronizer (v16.0).
+    Handles atomic Git-LFS pushes with rebase-resilience and metric-merge protection.
+    """
+    def __init__(self, model_name, epoch, config):
+        self.model_name = model_name
+        self.epoch = epoch
+        self.config = config
+        self.pat = os.environ.get("GITHUB_PAT", "")
+        self.hub_user = "lemgenda"
+        self.hub_repo = "lemgendary-pretrained-models"
+        self.hub_root = Path("/kaggle/working/LemGendaryModels") if os.name != 'nt' else Path(config.get("export_dir", "../LemGendaryModels")).resolve()
+
+    def _mask_pat(self, text):
+        if not self.pat: return text
+        return text.replace(self.pat, "***STEALTH***")
+
+    def _run_git(self, args, cwd=None):
+        """Atomic Git Runner with Stealth Masking."""
+        try:
+            res = subprocess.run(['git'] + args, cwd=cwd or self.hub_root, capture_output=True, text=True)
+            if res.returncode != 0:
+                print(f"❌ [GIT ERROR] {self._mask_pat(res.stderr)}")
+                return False
+            return True
+        except Exception as e:
+            print(f"❌ [SYS ERROR] {e}")
+            return False
+
+    def sync(self):
+        if not self.pat:
+            print("⚠️ [SYNC] GITHUB_PAT missing. Skipping autonomous manifold push.")
+            return
+
+        print(f"\n📡 [CLOUD SYNC] Manifold Synchronization Phase (Epoch {self.epoch})...")
         
-    print(f"\n☁️ [CLOUD SYNC] Initiating async artifact push for {model_name} (Epoch {epoch})...")
-    repo = "lemgenda/ai-models"
-    tag = "kaggle-latest"
-    
-    headers = {
-        "Authorization": f"token {pat}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    
-    # 1. Zip the artifacts
-    zip_name = f"{model_name}_artifacts.zip"
-    zip_path = Path("/tmp") / zip_name if os.name != 'nt' else Path(os.environ.get("TEMP", "C:/Windows/Temp")) / zip_name
-    
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        # Add best.pth from internal checkpoints fallback
-        ckpt_dir = Path(config.get("checkpoint_dir", "trained-models/checkpoints"))
-        best_pth = ckpt_dir / f"{model_name}_best.pth"
-        if best_pth.exists():
-            zipf.write(best_pth, best_pth.name)
+        # 1. Ensure Hub is initialized and anchored
+        if not (self.hub_root / ".git").exists():
+            print("🛸 [SYNC] Hub not initialized. Readying for first-contact...")
+            return
+
+        # 2. Metric Merge-Persistence (Task 8.2)
+        # We read the remote state before adding local changes to prevent history loss
+        metrics_file = self.hub_root / self.model_name / "metrics.csv"
+        if metrics_file.exists():
+            # Force a rebase to get the latest remote metrics
+            self._run_git(['fetch', 'origin'])
+            self._run_git(['rebase', 'origin/main'])
             
-        # 2026 Shift: Zip from decoupled LemGendaryModels root volume
-        project_root = Path(__file__).resolve().parent.parent
-        export_base = config.get("export_dir", "../LemGendaryModels")
-        # Ensure we accurately target the specific model's output envelope
-        export_dir = (project_root / export_base / model_name).resolve()
+        # 3. Finalize Local Manifest
+        # The train.py already exported files to the hub_root directory.
+        # We just need to stage and push.
         
-        if export_dir.exists():
-            for root, dirs, files in os.walk(export_dir):
-                for f in files:
-                    fp = Path(root) / f
-                    # Add all compiled .onnx, metrics.csv, README, and external checkpoints
-                    zipf.write(fp, str(fp.relative_to(export_dir)))
-                    
-    # 2. Get Release ID or Create Release
-    release_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
-    r = requests.get(release_url, headers=headers)
-    
-    if r.status_code == 404:
-        # Create it
-        post_url = f"https://api.github.com/repos/{repo}/releases"
-        payload = {"tag_name": tag, "name": "Latest Kaggle Artifacts", "body": "Auto-pushed from Kaggle Cloud Training."}
-        r = requests.post(post_url, headers=headers, json=payload)
+        # 4. Atomic Push with Rebase-Loop (Task 8.1)
+        self._run_git(['config', 'user.email', 'lem.treursic@gmail.com'])
+        self._run_git(['config', 'user.name', 'lemgenda'])
+        self._run_git(['lfs', 'install'])
+        self._run_git(['add', '.'])
         
-    if r.status_code not in (200, 201):
-        print(f"☁️ [CLOUD SYNC] Failed to resolve release: {r.text}")
-        return
-        
-    release_data = r.json()
-    release_id = release_data["id"]
-    upload_url = release_data["upload_url"].split("{")[0]
-    
-    # 3. Delete existing asset if it exists
-    for asset in release_data.get("assets", []):
-        if asset["name"] == zip_name:
-            requests.delete(asset["url"], headers=headers)
+        # Check if there are changes to commit
+        check = subprocess.run(['git', 'diff-index', '--quiet', 'HEAD', '--'], cwd=self.hub_root)
+        if check.returncode != 0:
+            commit_msg = f"SOTA Update: {self.model_name} | Epoch {self.epoch} | {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            self._run_git(['commit', '-m', commit_msg])
             
-    # 4. Upload new asset
-    upload_headers = headers.copy()
-    upload_headers["Content-Type"] = "application/zip"
-    
-    print(f"☁️ [CLOUD SYNC] Pushing {zip_path.stat().st_size / (1024*1024):.1f} MB to GitHub Releases...")
-    with open(zip_path, 'rb') as f:
-        r = requests.post(f"{upload_url}?name={zip_name}", headers=upload_headers, data=f)
-        
-    if r.status_code == 201:
-        print(f"✅ [CLOUD SYNC] Artifacts for {model_name} successfully uploaded to GitHub!")
-    else:
-        print(f"❌ [CLOUD SYNC] Upload failed: {r.status_code} - {r.text}")
-        
-    # Cleanup
-    if zip_path.exists():
-        zip_path.unlink()
+            # Rebase-Loop to handle concurrent pushes from other kernels
+            for attempt in range(3):
+                print(f"🚀 [SYNC] Attempting Atomic Push (Try {attempt+1}/3)...")
+                if self._run_git(['push', 'origin', 'main']):
+                    print(f"✅ [SYNC] Manifold successfully synchronized to Hub!")
+                    return
+                else:
+                    print("🔄 [SYNC] Collision detected. Synchronizing remote manifold...")
+                    self._run_git(['pull', '--rebase', '-X', 'theirs', 'origin', 'main'])
+            
+            print("❌ [SYNC] Exhausted push attempts. Manifold out of sync.")
+        else:
+            print("✅ [SYNC] Everything up-to-date. No manifold drift detected.")
 
 def trigger_cloud_sync(model_name, epoch, config):
-    if not os.environ.get("GITHUB_PAT"):
-        return
-        
-    t = threading.Thread(target=_sync_worker, args=(model_name, epoch, config), daemon=True)
+    """Entry point for training loop to trigger background sync."""
+    manager = CloudSyncManager(model_name, epoch, config)
+    t = threading.Thread(target=manager.sync, daemon=True)
     t.start()

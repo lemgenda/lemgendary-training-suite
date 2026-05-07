@@ -159,7 +159,7 @@ METRIC_DIRECTIONS = {
 
 # Standard Weights for Quality Score calculation (Multiplier applied to normalized 0.0-1.0 range)
 METRIC_WEIGHTS = {
-    'plcc': 50, 'srcc': 50, 'psnr': 1, 'ssim': 40,
+    'plcc': 50, 'srcc': 50, 'psnr': 10, 'ssim': 40,
     'lpips': 40, 'fid': 1, 'map50': 100, 'map50_95': 100,
     'rank_margin': 20, 'accuracy': 100
 }
@@ -718,8 +718,23 @@ def main():
         print(f" 📡 [DATA-SENTINEL] Heavy Manifold detected. Enforcing sequential validation for stability.")
     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
 
-    # Optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=5e-4) # 2026: SOTA Weight Decay Stabilizer
+    # --- 2026 Senior Hardening: Surgical Weight Decay (Task 4.3) ---
+    # Never apply L2 regularization to Bias or Norm parameters to preserve distribution scale.
+    decay = []
+    no_decay = []
+    for name, param in model.named_parameters():
+        if not param.requires_grad: continue
+        if len(param.shape) == 1 or name.endswith(".bias") or ".norm" in name:
+            no_decay.append(param)
+        else:
+            decay.append(param)
+    
+    optim_groups = [
+        {'params': decay, 'weight_decay': 5e-4},
+        {'params': no_decay, 'weight_decay': 0.0}
+    ]
+    optimizer = torch.optim.AdamW(optim_groups, lr=lr)
+    print(f" 🛡️ [SENIOR] Surgical Weight Decay active: {len(decay)} decayed | {len(no_decay)} regularized (Biases/Norms excluded).")
 
     # --- 2026 Structural Shift: Resume Logic (Metadata Protection Phase) ---
     # We load weights and optimizer state BEFORE the scheduler is born.
@@ -765,9 +780,10 @@ def main():
             subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=hub_root, capture_output=True)
             # Pull latest to ensure we have the absolute SOTA and Latest state
             subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
-            # 2026 Resilience: Ensure binary weights are smudged
+            # 2026 Resilience: Ensure binary weights are smudged surgically
             subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
-            subprocess.run(["git", "lfs", "pull"], cwd=hub_root, capture_output=True)
+            print(f"📦 [LFS] Syncing surgical manifold for {args.model}...")
+            subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
         else:
             print(f"🚀 [HUB SYNC] Initializing Hub at {hub_root}...")
             if os.path.exists(hub_root):
@@ -776,16 +792,22 @@ def main():
                 except: pass
             
             os.makedirs(os.path.dirname(hub_root), exist_ok=True)
-            res = subprocess.run(["git", "clone", authenticated_url, hub_root], capture_output=True, text=True)
+            res = subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", authenticated_url, hub_root], capture_output=True, text=True)
             if res.returncode == 0:
-                # 2026 Resilience: Ensure binary weights are smudged after initial clone
+                print('✅ [HUB SYNC] Hub structure initialized (Stateless).')
                 subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
-                subprocess.run(["git", "lfs", "pull"], cwd=hub_root, capture_output=True)
+                # Surgical LFS Pull: Only pull the checkpoints for the current model
+                print(f"📦 [LFS] Hydrating surgical manifold for {args.model}...")
+                subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
             else:
-                print(f"⚠️ [HUB SYNC] Initial clone failed. Creating local-only hub structure.")
+                err_msg = res.stderr.strip()
+                print(f"⚠️ [HUB SYNC] Initial clone failed. Error: {err_msg}")
+                if "repository not found" in err_msg.lower() or "authentication" in err_msg.lower():
+                    print("   👉 [AUTH] Ensure GITHUB_PAT is valid and has 'repo' scope.")
+                print(f"⚠️ [HUB SYNC] Creating local-only hub structure as fallback.")
                 os.makedirs(hub_ckpt_dir, exist_ok=True)
     except Exception as e:
-        print(f"⚠️ [HUB SYNC] Hub synchronization failed: {e}")
+        print(f"⚠️ [HUB SYNC] Hub synchronization critical failure: {e}")
 
     # --- 2026: Global Historical Best Guardrail ---
     # We probe the 'best.pth' artifact to establish a high-water mark for the entire project.
@@ -822,6 +844,15 @@ def main():
     latest_hub = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
     best_hub = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
     progress_local = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
+
+    # --- 2026 Resilience: Stale Lock Clearance (Task 13.1) ---
+    # If a previous run crashed, clear the .processing locks to allow resume.
+    for ckpt_path in [progress_local, latest_hub, best_hub]:
+        proc_file = ckpt_path + ".processing"
+        if os.path.exists(proc_file):
+            print(f"🗑️ [RESILIENCE] Clearing stale lock: {os.path.basename(proc_file)}")
+            try: os.remove(proc_file)
+            except: pass
 
     fallback_chain = [progress_local, latest_hub, best_hub]
     # Priority Candidate Selection (v15.0):
@@ -1692,9 +1723,19 @@ def main():
 
                 # Step only after accumulating enough gradients
                 if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_loader):
-                    # --- 2026: SOTA Gradient Clipping (Tightened to 0.5 for stability) ---
+                    # --- 2026: SOTA Gradient Clipping & Sentinel Injection (v1.0) ---
                     scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+                    total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+                    
+                    # 2026 Resilience: Gradient Sentinel Injection
+                    if total_norm > 15.0:
+                         print(f" ⚠️ [SENTINEL] Extreme Gradient Stress (Norm: {total_norm:.2f}). Triggering NPP Recoil...")
+                         recoil_msg = governor.recoil()
+                         if recoil_msg: print(recoil_msg)
+                    
+                    if i > 50 and loss.item() * accumulation_steps > (train_loss / i) * 5.0:
+                         print(f" ⚠️ [SENTINEL] Sudden Loss Spike detected. Manifold unstable. NPP Recoil active.")
+                         governor.recoil()
 
                     scale_before = scaler.get_scale()
                     scaler.step(optimizer)
@@ -2302,6 +2343,11 @@ def main():
 
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                
+                # 2026 Senior Hardening: VRAM De-fragmentation (Task 4.2)
+                if device.type == 'cuda':
+                    torch.cuda.empty_cache()
+                    print(f" 🛡️ [SENIOR] VRAM De-fragmentation pulse (empty_cache) triggered for {governor.current_res}px jump.")
 
             if lr_changed:
                 mult = new_params['lr_multiplier']
@@ -2312,28 +2358,33 @@ def main():
                     if 'min_lr' in param_group: param_group['min_lr'] *= mult
                 if hasattr(scheduler, 'base_lrs'):
                     scheduler.base_lrs = [l * mult for l in scheduler.base_lrs]
-                if hasattr(scheduler, 'max_lrs'):
-                    scheduler.max_lrs = [l * mult for l in scheduler.max_lrs]
-                print(f"📉 [VELOCITY SYNC] Learning Rate scaled by {mult}x across Unified Pipeline.")
-
-                # --- 2026: Mission Defibrillation (v6.1.19) ---
-                # If a High-Energy Jolt occurs, the current scheduler curve is likely
-                # too decayed to support the new manifold. We re-initialize a fresh OneCycle phase.
-                if mult > 2.0 and isinstance(scheduler, torch.optim.lr_scheduler.OneCycleLR):
-                    print(f"🔄 [MISSION DEFIBRILLATION] Re-initializing OneCycleLR curve for High-Energy Manifold.")
+                
+                # 2026 Senior Hardening: Momentum Dampening (Task 4.1)
+                for state in optimizer.state.values():
+                    for k, v in state.items():
+                        if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
+                            v.mul_(0.8) # 20% dampening for smooth transition
+                print(f"📉 [VELOCITY SYNC] Learning Rate scaled {mult}x | Momentum Dampened (20%).")
+                           # --- 2026: Mission Defibrillation (v6.2.0) ---
+                # If a High-Energy Jolt occurs or Resolution Changes, the current scheduler curve
+                # is likely out of sync with the new manifold. We re-calculate steps and re-initialize.
+                if (mult > 2.0 or r_changed) and isinstance(scheduler, torch.optim.lr_scheduler.OneCycleLR):
+                    print(f"🔄 [MISSION DEFIBRILLATION] Re-calculating steps for {governor.current_res}px Manifold.")
                     steps_per_epoch = len(train_loader) // accumulation_steps
                     if steps_per_epoch == 0: steps_per_epoch = 1
+                    
+                    # Recalculate remaining steps in the mission
+                    remaining_epochs = epochs - epoch
+                    new_total_steps = (epoch * steps_per_epoch) + (remaining_epochs * steps_per_epoch)
 
-                    # Target a 'Fresh Life': Resetting the curve to an equivalent of 10% progress
-                    # or the start of the mission to allow for a new warm-up and annealing phase.
+                    # Resetting the curve to allow for a new warm-up and annealing phase.
                     scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                        optimizer, max_lr=lr*1.2, total_steps=total_steps,
+                        optimizer, max_lr=optimizer.param_groups[0]['lr'] * 1.2, total_steps=new_total_steps,
                         pct_start=dynamic_pct_start, anneal_strategy='cos'
                     )
-                    # We sync the scheduler's 'last_epoch' (step counter) to the start of the current epoch
-                    # to effectively 'rewind' the mission time.
+                    # Sync the scheduler's 'last_epoch' to the current absolute step
                     scheduler.last_epoch = epoch * steps_per_epoch
-                    print(f" [MISSION SHIELD] Scheduler manifold RE-ANCHORED. Step counter: {scheduler.last_epoch} of {total_steps}.")
+                    print(f" [MISSION SHIELD] Scheduler manifold RE-ANCHORED. Step counter: {scheduler.last_epoch} of {new_total_steps}.")
 
             if t_changed or c_changed:
                 stab['softmax_temp'] = new_params['softmax_temp']

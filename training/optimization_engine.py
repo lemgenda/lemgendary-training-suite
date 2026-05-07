@@ -80,11 +80,16 @@ class SmartTrainingGovernor:
         self.best_quality = max(self.best_quality, current_quality)
         
         # 2. Guard: Stabilization
+        # Senior Update: Emergency Breakout if manifold is clearly collapsing
         if self.stabilization_epochs > 0:
-            self.stabilization_epochs -= 1
-            self.prev_quality = current_quality
-            if current_loss: self.prev_loss = current_loss
-            return False, False, False, False, False, False, "📡 Anchoring Manifold..."
+            if current_quality < self.best_quality * 0.90 and self.best_quality > 0:
+                print(f" 🚩 [GOVERNOR] Emergency Shield Breakout! Quality dropped {(1-current_quality/self.best_quality)*100:.1f}%. Manifold collapsing.")
+                self.stabilization_epochs = 0
+            else:
+                self.stabilization_epochs -= 1
+                self.prev_quality = current_quality
+                if current_loss: self.prev_loss = current_loss
+                return False, False, False, False, False, False, "📡 Anchoring Manifold..."
 
         f_changed = r_changed = lr_changed = t_changed = c_changed = b_changed = False
         self.lr_multiplier = 1.0
@@ -139,7 +144,17 @@ class SmartTrainingGovernor:
             msg_parts.append(f"🧊 COOLING: Stress {sentinel_trigger_rate*100:.1f}% -> Temp {self.current_temp:.2f}")
 
         # --- PROPULSION: NPP Manifold Stride ---
-        elif is_flat or (current_quality > 0.90 and delta_q < 0.001):
+        elif is_flat or (current_quality > 0.90 and delta_q < self.min_delta):
+            # 2026: The Jolt - Breaking Plateaus with LR Propulsion
+            # Senior Update: Added Jolt cooldown (5 epochs)
+            jolt_ready = (self.epoch_count - getattr(self, 'last_jolt_epoch', -10)) > 5
+            if is_flat and jolt_ready:
+                jolt = self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5)
+                self.lr_multiplier = float(jolt)
+                lr_changed = True
+                self.last_jolt_epoch = self.epoch_count
+                msg_parts.append(f"⚡ JOLT: Breaking Plateau with {jolt}x LR Propulsion")
+            
             next_frac = min(1.0, self.current_fraction + 0.15) # NPP: Smaller steps
             next_state = (self.current_res, round(next_frac, 2))
             
@@ -171,6 +186,13 @@ class SmartTrainingGovernor:
                 self.lr_multiplier = 0.5
                 lr_changed = True
                 msg_parts.append("REFINEMENT: SOTA Precision Cooling")
+
+        # --- Senior Feature: Gradual Temperature Sharpening (Success Branch) ---
+        if not (is_regressing or is_turbulent or sentinel_trigger_rate > 0.15) and self.current_temp > self.min_temp:
+            # Slow cooling (98% per epoch) to sharpen the manifold foundation
+            self.current_temp = max(self.min_temp, self.current_temp * 0.98)
+            t_changed = True
+            msg_parts.append(f"💎 SHARPENING: Temp -> {self.current_temp:.2f}")
 
         self.prev_quality = current_quality
         if current_loss: self.prev_loss = current_loss

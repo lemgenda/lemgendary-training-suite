@@ -26,7 +26,7 @@ class CombinedLoss(nn.Module):
                 # 2026: Mission Pulse - Restore transparency for slow perceptual engine loading
                 print(" [MISSION] Initializing Neural Perceptual Engine (LPIPS/VGG16)...")
                 # Natively trained perceptual alignment! Exponentially more stable than crude VGG L1
-                self.perc = lpips.LPIPS(net='vgg').to('cuda' if torch.cuda.is_available() else 'cpu')
+                self.perc = lpips.LPIPS(net='vgg')
                 self.perc.eval()
                 for param in self.perc.parameters():
                     param.requires_grad = False

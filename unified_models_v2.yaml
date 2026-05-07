@@ -710,7 +710,7 @@ vlm_llava:
     plateau_patience: 8
     plateau_priority: data
   stabilizers:
-    softmax_temp: 0.05
+    softmax_temp: 0.1 # 2026 Resilience: Relaxed foundation temperature.
   datasets:
     - vision_language_master_manifold
 vlm_blip2:
@@ -741,7 +741,7 @@ vlm_blip2:
     plateau_patience: 8
     plateau_priority: data
   stabilizers:
-    softmax_temp: 0.05
+    softmax_temp: 0.1 # 2026 Resilience: Relaxed foundation temperature.
   datasets:
     - vision_language_master_manifold
 anime_nsfw_classification:
