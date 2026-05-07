@@ -70,13 +70,13 @@ The master orchestration console. It manages the full lifecycle from system boot
 
 | Feature | Description | Status |
 | :--- | :--- | :--- |
-| **Stateless Resume** | Direct loading of checkpoints from Hub repo to bypass suite bloat. | ✅ v13.0 Active |
-| **Autonomous Sync** | Every-epoch pushes on Kaggle for zero-loss cloud training. | ✅ v13.0 Active |
-| **Proactive Rebase** | Conflict-free synchronization via pull-before-push protocols. | ✅ v13.0 Active |
-| **Sawtooth Governor** | Proactive scaling of Res/Data via Foundation resetting. | ✅ v6.1 Active |
+| **Manifold Anchor** | v10.0: Loop-Proof Optimization with Failure Path Memory. | ✅ v10.0 Active |
+| **Surgical Matrix** | Instant Trend Diagnosis: Swift fixes for jitter/stagnation. | ✅ v10.0 Active |
+| **Path Memory** | Blacklists breaking points to prevent circular recoil loops. | ✅ v10.0 Active |
+| **Sawtooth Governor** | Proactive scaling of Res/Data via Foundation resetting. | ✅ v10.0 Active |
 | **Active VRAM Prober** | Real-time forward/backward pass for exact batch sizing. | ✅ v6.1 Active |
-| **Instant Damping** | Zero-patience micro-adjustments on manifold regression. | ✅ v6.1 Active |
-| **Meta-Patience** | Dynamic stagnation gating based on manifold complexity. | ✅ v6.1 Active |
+| **Instant Damping** | Zero-patience micro-adjustments on manifold regression. | ✅ v10.0 Active |
+| **Numerical Shakeup** | Forces manifold diversification to break local minima deadlocks. | ✅ v10.0 Active |
 | **Binned Accuracy** | SOTA binned-matching logic for Authenticity classification. | ✅ v11.2 Active |
 
 ---

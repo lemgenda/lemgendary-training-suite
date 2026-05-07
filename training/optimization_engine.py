@@ -154,8 +154,9 @@ class SmartTrainingGovernor:
         if current_loss: self.prev_loss = current_loss
         
         final_msg = f"🚀 [{phase}] " + " | ".join(msg_parts) if msg_parts else ""
-        if not final_msg:
-            print(f"📡 [{phase}] Monitoring... [Acc: {current_quality:.4f}] [Failures: {failures}]")
+        # 2026 Nuclear Stealth: Only print if an actual intervention message exists
+        if final_msg:
+            print(final_msg)
             
         return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, final_msg
 

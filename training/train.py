@@ -1485,14 +1485,13 @@ def main():
                                     param.requires_grad = False
                             thermal_steps_left = 2500
 
-                        print(f" [RECOVERY] Engaging SOTA Auto-Rollback & 50% LR Cooling...")
+                        print(f" [RECOVERY] Engaging SOTA Auto-Rollback & Governor Recoil...")
                         best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                         if os.path.exists(best_ckpt_path):
                             ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
                             model.load_state_dict(ckpt['model_state'])
 
                             # 2026: Surgical Buffer Audit (The Ghost-Buster)
-                            # Ensure no NaNs remain in non-learnable BatchNorm stats or other buffers
                             sanitized_count = 0
                             for buf in model.buffers():
                                 if not torch.isfinite(buf).all():
@@ -1504,14 +1503,24 @@ def main():
                             if 'optimizer_state' in ckpt:
                                 optimizer.load_state_dict(ckpt['optimizer_state'])
 
-                            # Halve the learning rate to re-seat the model into a stable manifold
+                            # 2026: SOTA Governor Sync (Recoil Integration)
+                            # Notify Governor to perform a Tactical Retreat (Recoil) and log failure
+                            recoil_msg = governor.recoil()
+                            if recoil_msg: print(recoil_msg)
+                            
+                            g_state = governor.get_state()
+                            train_ds.update_strategy(fraction=g_state['sample_fraction'], size=g_state['input_size'])
+                            if "val_resolution" not in model_info:
+                                val_ds.update_strategy(size=g_state['input_size'])
+
+                            # Halve the learning rate to 'seat' the model back into the stable manifold
                             for param_group in optimizer.param_groups:
                                 param_group['lr'] = param_group['lr'] * 0.5
 
                             if hasattr(scheduler, 'base_lrs'):
-                                scheduler.base_lrs = [lr * 0.5 for lr in scheduler.base_lrs]
+                                scheduler.base_lrs = [l * 0.5 for l in scheduler.base_lrs]
                             if hasattr(scheduler, 'max_lrs'):
-                                scheduler.max_lrs = [lr * 0.5 for lr in scheduler.max_lrs]
+                                scheduler.max_lrs = [l * 0.5 for l in scheduler.max_lrs]
 
                             # 2026 Resilience: Momentum Decay instead of Clear
                         # We only clear the state if it actually contains NaNs.
@@ -1662,8 +1671,7 @@ def main():
                     safe_replace(temp_prog_ckpt, prog_ckpt)
                     tier_str = f"{current_pct*100:.0f}%"
 
-                    raw_msg = f"\n>>> [RESILIENCY] PROGRESS COMMITTED: {tier_str} at Batch {i+1} <<<\n"
-                    pbar.write(raw_msg)
+                    pbar.write(f" 💾 [RESILIENCY] PROGRESS COMMITTED: {tier_str} (Batch {i+1})")
 
 
 
@@ -1717,7 +1725,7 @@ def main():
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
             gc.collect()
-            if stab.get('vram_purge'): print(" [MEM] VRAM Defibrillation Pulse triggered. Clearing manifold for validation...")
+            if stab.get('vram_purge'): val_pbar.write(" [MEM] VRAM Defibrillation Pulse triggered.")
 
             # --- 2026: Incremental Canonical Eval (RAM Protection v5.0) ---
             CANONICAL_EVAL_SIZE = 384
@@ -1960,8 +1968,7 @@ def main():
                         'val_interval_pct': val_interval_pct
                     }, f"{prog_ckpt}.tmp")
                     safe_replace(f"{prog_ckpt}.tmp", prog_ckpt)
-                    raw_val_msg = f"\n>>> [RESILIENCY] VAL PROGRESS COMMITTED: {current_pct*100:.0f}% at Iter {v_idx+1} <<<\n"
-                    val_pbar.write(raw_val_msg)
+                    val_pbar.write(f" 💾 [RESILIENCY] VAL PROGRESS COMMITTED: {current_pct*100:.0f}% (Iter {v_idx+1})")
 
                 # Progress commitments and state cleanup moved outside loop for manifold stability
 
@@ -2143,7 +2150,8 @@ def main():
             current_quality_score, best_quality_score, epochs_no_improve, regression_epochs,
             sentinel_trigger_rate=avg_sentinel_stress,
             current_lr=optimizer.param_groups[0]['lr'],
-            base_lr=lr  # Corrected: Using resolved lr variable instead of args.lr (which might be None)
+            base_lr=lr,
+            current_loss=avg_val_loss
         )
 
         if smart_msg:
@@ -2165,8 +2173,10 @@ def main():
 
             if f_changed or r_changed or b_changed:
                 if b_changed:
-                    # 2026: Governor Batch Management Re-Enabled for High-Headroom Manifolds
-                    batch_size = new_params['batch_size']
+                    # 2026: Prioritize Hardware Probe if 'auto', otherwise use Governor's estimation
+                    if config_batch != "auto" or args.batch_size:
+                        batch_size = new_params['batch_size']
+                    
                     accumulation_steps = new_params['accumulation_steps']
                     print(f" 🛸 [GOVERNOR] Batch shift synchronized: {batch_size} (Acc: {accumulation_steps})")
 
@@ -2262,8 +2272,7 @@ def main():
             for attempt in range(3):
                 try:
                     os.remove(progress_ckpt_path)
-                    print(f"🧹 [JANITOR] Intra-epoch progress purged.")
-                    
+                    # Silent purge
                     break
                 except:
                     time.sleep(1)

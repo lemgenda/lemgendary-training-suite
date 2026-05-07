@@ -68,7 +68,7 @@ def _handle_kaggle(ds_name, data_dir, ref):
             
         ds_path = os.path.join(data_dir, ds_name)
         os.makedirs(ds_path, exist_ok=True)
-        api.dataset_download_files(slug, path=ds_path, quiet=False, unzip=True)
+        api.dataset_download_files(slug, path=ds_path, quiet=True, unzip=True)
         
         # Cleanup orphaned zip if unzip=True left any
         import glob
@@ -85,7 +85,7 @@ def _handle_kaggle(ds_name, data_dir, ref):
                 shutil.move(os.path.join(nested_path, item), ds_path)
             os.rmdir(nested_path)
             
-        print(f"   ✅ Kaggle {ds_name} mapped natively.\n")
+        print(f"   ✅ Kaggle {ds_name} mapped natively.")
         return True
     except Exception as e:
         print(f"   ❌ Kaggle Error: {e}")

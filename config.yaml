@@ -49,3 +49,6 @@ external_folder_path: "../../../local_models"
 
 # 2026 Model Hub Sync (Production Artifacts)
 model_hub_repo: "https://github.com/lemgenda/lemgendary-pretrained-models.git"
+
+# Nuclear Stealth (v1.0): Reduce terminal clutter while keeping mission-critical data.
+stealth_mode: true

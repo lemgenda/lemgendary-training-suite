@@ -163,6 +163,37 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             {
                 "cell_type": "markdown",
                 "source": [
+                    "## 3. SOTA Training Matrix\n",
+                    "Execute the high-velocity training pipeline with the v10.0 'Manifold Anchor' Governor."
+                ],
+                "metadata": {}
+            },
+            {
+                "cell_type": "code",
+                "source": [
+                    "import os, subprocess, sys\n",
+                    "# 1. Arm Environment\n",
+                    "os.environ['PYTHONIOENCODING'] = 'utf-8'\n",
+                    "os.environ['KAGGLE_KERNEL_RUN_TYPE'] = 'Interactive'\n",
+                    "\n",
+                    "# 2. Launch Universal Training Pipeline\n",
+                    "cmd = [\n",
+                    "    sys.executable, 'training/train.py',\n",
+                    f"    '--model', '{model_key}',\n",
+                    "    '--env', 'kaggle',\n",
+                    "    '--auto_sync' # 🚀 Enable autonomous every-epoch hub mirroring\n",
+                    "]\n",
+                    "\n",
+                    "print(f'🔥 Launching SOTA Training Matrix for {model_key}...')\n",
+                    "subprocess.run(cmd)\n"
+                ],
+                "metadata": {},
+                "outputs": [],
+                "execution_count": None
+            },
+            {
+                "cell_type": "markdown",
+                "source": [
                     "## 5. SOTA Cloud Sync\n",
                     "Manually push your best models and metrics to the production hub."
                 ],
