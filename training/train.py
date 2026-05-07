@@ -2075,9 +2075,10 @@ def main():
         # 2026 Smart Telemetry (Silent Summary)
         smart_meta = f" | Data: {train_ds.sample_fraction*100:.0f}% | Res: {train_ds.size[0]} | T: {stab['softmax_temp']:.2f}"
         summary_line = f"Epoch {epoch+1} Summary | Train: {avg_train_loss:.6f} | Val: {avg_val_loss:.6f}{metrics_str}{smart_meta}"
-        print(f"{summary_line}")
-
-        # 2026: SOTA Hyperparameter management is now handled by the Smart Governor below.
+        print(f"\n{'='*80}")
+        print(f" {summary_line}")
+        print(f"{'='*80}\n")
+        sys.stdout.flush()
 
         # 2026: SOTA Hyperparameter management is now handled by the Smart Governor below.
 
@@ -2424,28 +2425,26 @@ def main():
             subprocess.run(["git", "commit", "-m", commit_msg], cwd=hub_root, capture_output=True)
             
             # 2026 Resilience: Auto-Push strategy (Universal every-epoch sync)
-            pat = os.environ.get('GITHUB_PAT', '')
+            pat = os.environ.get('GITHUB_PAT') or os.environ.get('HUB_PAT', '')
             should_push = (args.env != 'kaggle') or bool(pat)
             
             # We push every epoch to ensure absolute stateless resilience and real-time auditability.
-            do_push = should_push
-            
-            if do_push:
+            if should_push:
                 print(f"🚀 [HUB SYNC] Synchronizing with remote Hub...")
+            else:
+                print(f" ℹ️ [HUB SYNC] Push skipped (PAT not found in Secrets or non-push environment).")
                 
-                # --- 2026 Resilience: Headless Authentication Injection ---
-                pat = os.environ.get('GITHUB_PAT') or os.environ.get('HUB_PAT', '')
-                if pat:
-                    try:
-                        rem_res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=hub_root, capture_output=True, text=True)
-                        if rem_res.returncode == 0:
-                            raw_url = rem_res.stdout.strip()
-                            base_url = raw_url.split('@')[-1] if '@' in raw_url else raw_url.replace("https://", "")
-                            auth_url = f"https://{pat}@{base_url}"
-                            subprocess.run(["git", "remote", "set-url", "origin", auth_url], cwd=hub_root, capture_output=True)
-                        
-                        subprocess.run(["git", "config", "credential.helper", ""], cwd=hub_root, capture_output=True)
-                    except: pass
+            if should_push:
+                try:
+                    rem_res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=hub_root, capture_output=True, text=True)
+                    if rem_res.returncode == 0:
+                        raw_url = rem_res.stdout.strip()
+                        base_url = raw_url.split('@')[-1] if '@' in raw_url else raw_url.replace("https://", "")
+                        auth_url = f"https://{pat}@{base_url}"
+                        subprocess.run(["git", "remote", "set-url", "origin", auth_url], cwd=hub_root, capture_output=True)
+                    
+                    subprocess.run(["git", "config", "credential.helper", ""], cwd=hub_root, capture_output=True)
+                except: pass
 
                 # 2026 Resilience: Check for divergence (Ahead/Behind)
                 subprocess.run(["git", "fetch", "origin"], cwd=hub_root, capture_output=True)
