@@ -45,10 +45,10 @@ To recognize these issues in under 5 minutes of monitoring, observe these three 
 *   **Remedy**: Reset optimizer state; use **Lookahead Optimizer**; or increase Momentum parameters.
 
 ## 4. Best Practices Checklist
-- [ ] **Baseline First**: Build a simple model first. If a complex one fails, the issue is data.
-- [ ] **Warm-up Strategy**: Use a linear warm-up for the first 5% of training.
-- [ ] **AdamW over Adam**: Decouple weight decay from gradient updates.
-- [ ] **One Change at a Time**: Only alter one hyperparameter per run.
+- [x] **Baseline First**: Build a simple model first. If a complex one fails, the issue is data.
+- [x] **Warm-up Strategy**: Use a linear warm-up for the first 5% of training.
+- [x] **AdamW over Adam**: Decouple weight decay from gradient updates.
+- [x] **One Change at a Time**: Only alter one hyperparameter per run.
 
 ---
 
@@ -84,11 +84,11 @@ Based on the **`unified_models_v2.yaml`** stack, these are the optimal progressi
 - [x] **Atomic Save Protocol**: Use the `.tmp` swap method to prevent corrupted weights.
 
 ### 🛠️ Critical "FIX's" (SOTA Blockers)
-- [ ] **Metric Rebalancing**: Change `METRIC_WEIGHTS['psnr']` from `1` to `10` in `train.py`. Currently, PSNR is effectively ignored in the Quality Score.
-- [ ] **LPIPS Device Agnosticism**: Patch `losses.py` to use `device` mapping instead of hardcoded `'cuda'`.
-- [ ] **Implement the "Propulsion Jolt"**: Update `optimization_engine.py` to apply the `jolt_multiplier` (1.5x) when the model hits a **Flat Plateau** (Delta < 0.0005).
-- [ ] **DataLoader Hot-Reload**: Re-initialize the `DataLoader` whenever the Governor triggers a **Spatial Jump** (Resolution change) to avoid VRAM paging.
-- [ ] **VLM Temperature Relaxation**: Increase `vlm_llava` `softmax_temp` to `0.1` during the Foundation phase, then sharpen to `0.05` only in Refinement.
+- [x] **Metric Rebalancing**: Change `METRIC_WEIGHTS['psnr']` from `1` to `10` in `train.py`. Currently, PSNR is effectively ignored in the Quality Score.
+- [x] **LPIPS Device Agnosticism**: Patch `losses.py` to use `device` mapping instead of hardcoded `'cuda'`.
+- [x] **Implement the "Propulsion Jolt"**: Update `optimization_engine.py` to apply the `jolt_multiplier` (1.5x) when the model hits a **Flat Plateau** (Delta < 0.0005).
+- [x] **DataLoader Hot-Reload**: Re-initialize the `DataLoader` whenever the Governor triggers a **Spatial Jump** (Resolution change) to avoid VRAM paging.
+- [x] **VLM Temperature Relaxation**: Increase `vlm_llava` `softmax_temp` to `0.1` during the Foundation phase, then sharpen to `0.05` only in Refinement.
 
 ### 🔬 Deep Diagnostic Triggers
 
@@ -128,6 +128,7 @@ Based on the **`unified_models_v2.yaml`** stack, these are the optimal progressi
 - [x] **Task 8.2: Metrics Merge-Persistence** (Target: `cloud_sync.py`)
 - [x] **Task 8.3: Diagnostic Stealth (Token Masking)** (Target: `cloud_sync.py`)
 - [x] **Task 8.4: Multi-Threaded Sync Manager** (Target: `cloud_sync.py`)
+- [x] **Task 8.5: NPP Loop Mitigation** (Target: `optimization_engine.py`)
 - [x] **Task 9.1: Neutral Grey Fallback Shield** (Target: `dataset.py`)
 - [x] **Task 9.2: High-Fidelity LANCZOS Scaling** (Target: `dataset.py`)
 - [x] **Task 9.3: Stratified Label Distribution** (Target: `dataset.py`)
@@ -160,6 +161,7 @@ Based on the **`unified_models_v2.yaml`** stack, these are the optimal progressi
 | **Stability Guard** | Reactive; issues identified after epoch failure. | **Proactive Sentinels**: Real-time batch-level gradient/loss monitoring. |
 | **Stabilization Lock** | Blind 3-epoch lock; risk of undetected collapse. | **Emergency Breakout**: Shield shatters if quality drops >10%. |
 | **Plateau Jolt** | Passive; risk of infinite LR propulsion loops. | **Capped Propulsion**: 5-epoch cooldown between Jolts. |
+| **NPP Loop Mitigation** | Stagnation at 256px due to "Momentum Shock". | **Meditation Mode**: Mandatory 5-epoch cooldown after recoil. |
 | **VLM Foundation** | Brittle (0.05 Temp); early divergence risk. | **Auto-Sharpening**: 98% per-epoch cooling toward min_temp. |
 | **Momentum Physics** | Persistent; risk of "Momentum Shock" on jumps. | **Adaptive Dampening**: Buffers cooled 20% on manifold shifts. |
 | **VRAM Hygiene** | Fragmented; high OOM risk on resolution jumps. | **Proactive De-frag**: Atomic `empty_cache()` on spatial jumps. |
@@ -190,5 +192,9 @@ Based on the **`unified_models_v2.yaml`** stack, these are the optimal progressi
 | **Session Resume** | Brittle; fails if `.processing` lock exists. | **Atomic Clearance**: Automatic purging of stale session locks. |
 | **Hub Diagnostics** | "Clone Failed" (Generic). | **Verbose Recovery**: Detailed stderr reporting for auth/network issues. |
 | **Matrix Sync** | Manual notebook updates. | **Global Refresh**: Automated 46-model notebook synchronization. |
+| **Resumption Shield** | Momentum shock causes false recoils. | **Auto-Shield**: Ignores quality drops on first epoch of new session. |
+| **Stride Protocol** | Fixed 0.90 barrier; slow early progress. | **Dynamic Thresholds**: 0.75 for Foundation, 0.90 for Refinement. |
+| **Recovery Velocity** | Fixed 5-epoch penalty; slow restoration. | **Adaptive Meditation**: Rapid quality gains shorten cooldown by 2x. |
+| **Metric Standard** | Fragmented CSV schemas across fleet. | **Universal 21-Col**: Unified telemetry across all 46 models. |
 
 **Status: The LemGendary Training Suite is now SOTA-Autonomous & Nuclear-Hardened.**

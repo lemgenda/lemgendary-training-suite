@@ -1229,8 +1229,8 @@ def main():
         try:
             with open(metrics_csv_path, "r") as f:
                 header = f.readline().strip()
-                # 2026 Schema: 20 columns (Epoch, Losses, Metrics, LR, Res, Data, Stabilizers, BS, Acc, Stress, AccVal)
-                if len(header.split(",")) == 20:
+                # 2026 Schema: 21 columns (v9.0 includes Cooldown)
+                if len(header.split(",")) == 21:
                     schema_ok = True
         except: pass
 
@@ -2573,7 +2573,8 @@ def main():
             # 1. Save state (Latest always, Best on improvement)
             safe_torch_save(ckpt_state, latest_hub_path)
             if is_best:
-                shutil.copy2(latest_hub_path, best_hub_path)
+                if os.path.abspath(latest_hub_path) != os.path.abspath(best_hub_path):
+                    shutil.copy2(latest_hub_path, best_hub_path)
                 print(f"🏆 [HUB SYNC] New SOTA archived to Hub.", file=sys.stderr)
             
             # 2. Sync Metrics Audit Trail
@@ -2691,20 +2692,23 @@ def main():
 
                     # 1. Sync Best Checkpoint (Primary SOTA Artifact)
                     best_ckpt_src = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
-                    if os.path.exists(best_ckpt_src):
+                    best_ckpt_dst = os.path.join(target_hub_ckpt_dir, f"{args.model}_best.pth")
+                    if os.path.exists(best_ckpt_src) and os.path.abspath(best_ckpt_src) != os.path.abspath(best_ckpt_dst):
                         os.makedirs(target_hub_ckpt_dir, exist_ok=True)
-                        shutil.copy2(best_ckpt_src, os.path.join(target_hub_ckpt_dir, f"{args.model}_best.pth"))
+                        shutil.copy2(best_ckpt_src, best_ckpt_dst)
                     
                     # 2. Sync Latest Checkpoint (Resumption Anchor)
                     latest_ckpt_src = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
-                    if os.path.exists(latest_ckpt_src):
+                    latest_ckpt_dst = os.path.join(target_hub_ckpt_dir, f"{args.model}_latest.pth")
+                    if os.path.exists(latest_ckpt_src) and os.path.abspath(latest_ckpt_src) != os.path.abspath(latest_ckpt_dst):
                         os.makedirs(target_hub_ckpt_dir, exist_ok=True)
-                        shutil.copy2(latest_ckpt_src, os.path.join(target_hub_ckpt_dir, f"{args.model}_latest.pth"))
+                        shutil.copy2(latest_ckpt_src, latest_ckpt_dst)
                     
                     # 3. Sync Metrics (Audit Trail)
-                    if os.path.exists(metrics_csv_path):
+                    hub_metrics_dst = os.path.join(target_hub_model_dir, "metrics.csv")
+                    if os.path.exists(metrics_csv_path) and os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_dst):
                         os.makedirs(target_hub_model_dir, exist_ok=True)
-                        shutil.copy2(metrics_csv_path, os.path.join(target_hub_model_dir, "metrics.csv"))
+                        shutil.copy2(metrics_csv_path, hub_metrics_dst)
 
                     # 4. Global Push (Models Only)
                     commit_msg = f"Update new best weights and metrics for {args.model} from {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"

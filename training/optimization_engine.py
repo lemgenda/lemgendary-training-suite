@@ -54,6 +54,7 @@ class SmartTrainingGovernor:
         self.lr_multiplier = 1.0
         self.last_action_epoch = 0
         self.epoch_count = 0
+        self.session_epoch_count = 0 # 2026: Resumption Shield tracking
         self.min_delta = opt.get("min_delta", 0.0005)
         
     def get_phase(self):
@@ -66,6 +67,17 @@ class SmartTrainingGovernor:
     def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None):
         if not self.enabled: return False, False, False, False, False, False, ""
         self.epoch_count += 1
+        self.session_epoch_count += 1
+        
+        # 2026 Resilience: Resumption Shield
+        # Ignore massive quality drops in the first epoch of a session (Momentum Shock)
+        # unless loss also explodes (NaN).
+        is_resuming = self.session_epoch_count == 1 and self.epoch_count > 1
+        if is_resuming:
+            # Bypass audit for resumption epoch
+            self.prev_quality = current_quality
+            if current_loss: self.prev_loss = current_loss
+            return False, False, False, False, False, False, "🛡️ [SHIELD] Resumption Shield Active. Buffering Momentum Shock."
 
         # --- NPP: Aggressive Recovery ---
         if sentinel_trigger_rate == 0:
@@ -88,13 +100,19 @@ class SmartTrainingGovernor:
         # Senior Update: Emergency Breakout if manifold is clearly collapsing
         if self.stabilization_epochs > 0:
             if current_quality < self.best_quality * 0.90 and self.best_quality > 0:
-                print(f" 🚩 [GOVERNOR] Emergency Shield Breakout! Quality dropped {(1-current_quality/self.best_quality)*100:.1f}%. Manifold collapsing.")
+                msg_parts.append(f"🚩 [BREAKOUT] Shield shattered! Quality dropped {(1-current_quality/self.best_quality)*100:.1f}%.")
                 self.stabilization_epochs = 0
             else:
                 self.stabilization_epochs -= 1
+                # 2026: Recovery Velocity (Shorten cooldown if model is recovering fast)
+                if current_quality - self.prev_quality > 0.05 and self.cooldown_remaining > 0:
+                    self.cooldown_remaining = max(0, self.cooldown_remaining - 2)
+                    msg_parts.append("⚡ [RECOVERY] Rapid quality gain detected. Meditation shortened.")
+                
                 self.prev_quality = current_quality
                 if current_loss: self.prev_loss = current_loss
                 status_msg = f"📡 Anchoring Manifold... (Cooldown: {self.cooldown_remaining})" if self.cooldown_remaining > 0 else "📡 Anchoring Manifold..."
+                if msg_parts: status_msg = " | ".join(msg_parts) + " | " + status_msg
                 return False, False, False, False, False, False, status_msg
 
         f_changed = r_changed = lr_changed = t_changed = c_changed = b_changed = False
@@ -155,7 +173,9 @@ class SmartTrainingGovernor:
             msg_parts.append(f"🧊 COOLING: Stress {sentinel_trigger_rate*100:.1f}% -> Temp {self.current_temp:.2f}")
 
         # --- PROPULSION: NPP Manifold Stride ---
-        elif is_flat or (current_quality > 0.90 and delta_q < self.min_delta):
+        # 2026: Dynamic Stride Thresholds (Foundation vs Refinement)
+        stride_threshold = 0.75 if self.current_res < 512 else 0.90
+        if is_flat or (current_quality > stride_threshold and delta_q < self.min_delta):
             # 2026: The Jolt - Breaking Plateaus with LR Propulsion
             # Senior Update: Added Jolt cooldown (5 epochs)
             jolt_ready = (self.epoch_count - getattr(self, 'last_jolt_epoch', -10)) > 5 and self.cooldown_remaining == 0
@@ -200,12 +220,19 @@ class SmartTrainingGovernor:
 
         # --- Senior Feature: Gradual Temperature Sharpening (Success Branch) ---
         if not (is_regressing or is_turbulent or sentinel_trigger_rate > 0.15) and self.current_temp > self.min_temp:
+            # 2026: VLM Temperature Relaxation (Foundation vs Refinement)
+            if self.task_type != "quality":
+                phase_min = 0.05 if phase == "REFINEMENT" else 0.1
+            else:
+                phase_min = self.min_temp # NIMA remains at 0.5 for stability
+                
             # Check thermal floor for current state
-            floor = self.thermal_floor.get(str(current_state), self.min_temp)
+            floor = max(phase_min, self.thermal_floor.get(str(current_state), self.min_temp))
             
             if self.cooldown_remaining == 0 and self.current_temp > floor:
-                # Slow cooling (98% per epoch) to sharpen the manifold foundation
-                self.current_temp = max(floor, self.current_temp * 0.98)
+                # 2026: Accelerated Sharpening for high-entropy phases
+                sharpen_rate = 0.95 if self.current_temp > 1.2 else 0.98
+                self.current_temp = max(floor, self.current_temp * sharpen_rate)
                 t_changed = True
                 msg_parts.append(f"💎 SHARPENING: Temp -> {self.current_temp:.2f}")
             elif self.cooldown_remaining > 0:
@@ -215,7 +242,6 @@ class SmartTrainingGovernor:
         if current_loss: self.prev_loss = current_loss
         
         final_msg = f"🚀 [{phase}] " + " | ".join(msg_parts) if msg_parts else ""
-        if final_msg: print(final_msg)
             
         return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, final_msg
 
