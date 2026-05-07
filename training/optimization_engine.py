@@ -22,6 +22,9 @@ class SmartTrainingGovernor:
         self.res_ladder = opt.get("res_ladder", [224, 384, 512, 640])
         self.target_effective_batch = opt.get("target_effective_batch", 24)
         
+        # 2026: Numerical Stress Audit (Sentinel Response)
+        self.recovery_streak = 0
+        
         # --- Persistent State ---
         self.current_fraction = opt.get("initial_fraction", 0.1)
         self.current_batch = 16 if model_info.get("batch_size") == "auto" else int(model_info.get("batch_size"))
@@ -61,6 +64,15 @@ class SmartTrainingGovernor:
     def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None):
         if not self.enabled: return False, False, False, False, False, False, ""
         self.epoch_count += 1
+
+        # --- 2026: Aggressive Recovery (v15.2) ---
+        if sentinel_trigger_rate == 0:
+            self.recovery_streak += 1
+            if self.recovery_streak >= 2 and self.stabilization_epochs > 0:
+                self.stabilization_epochs = 0
+                print("🚀 [RECOVERY] Stress at zero. Breaking stabilization lock.")
+        else:
+            self.recovery_streak = 0
         
         # 1. Update Memory
         self.history.append((current_quality, current_loss))
