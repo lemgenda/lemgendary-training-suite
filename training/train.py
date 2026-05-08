@@ -691,13 +691,53 @@ def main():
         print(f"   👉 Recommended action: Wipe the 'manifests' and '../LemGendaryDatasets' folders and restart.")
         sys.exit(1)
 
+    # --- 2026 Resilience: Kaggle Checkpoint Recovery (Task 12.1) ---
+    if args.env == 'kaggle':
+        print(f"📡 [KAGGLE] Initiating Checkpoint & Metric Recovery...")
+        # Search for: Lemgendary_[model]_Checkpoints
+        search_target = f"lemgendary_{args.model}_checkpoints".lower().replace("-", "_")
+        possible_roots = []
+        for r, dirs, _ in os.walk('/kaggle/input'):
+            # Match case-insensitive and with underscore/hyphen variations
+            for d in dirs:
+                if search_target in d.lower().replace("-", "_"):
+                    possible_roots.append(os.path.join(r, d))
+        
+        # Priority: Models root, then deepest path (usually contains /pytorch/default/1/)
+        if possible_roots:
+            # Sort by depth to find the actual data root (Kaggle models are nested)
+            recovery_root = sorted(possible_roots, key=lambda x: x.count(os.sep), reverse=True)[0]
+            print(f"   -> [FOUND] Recovery manifold at: {recovery_root}")
+            
+            # Recovery 1: metrics.csv
+            src_metrics = os.path.join(recovery_root, "metrics.csv")
+            dst_metrics = os.path.join(project_root, "metrics.csv")
+            if os.path.exists(src_metrics) and (not os.path.exists(dst_metrics) or os.path.getmtime(src_metrics) > os.path.getmtime(dst_metrics)):
+                shutil.copy2(src_metrics, dst_metrics)
+                print(f"   -> [RECOVERED] metrics.csv")
+            
+            # Recovery 2: Checkpoints
+            src_ckpt_dir = os.path.join(recovery_root, "checkpoints")
+            dst_ckpt_dir = os.path.normpath(os.path.join(project_root, config.get("checkpoint_dir", "checkpoints")))
+            os.makedirs(dst_ckpt_dir, exist_ok=True)
+            if os.path.exists(src_ckpt_dir):
+                for f in os.listdir(src_ckpt_dir):
+                    if f.endswith('.pth'):
+                        src_f = os.path.join(src_ckpt_dir, f)
+                        dst_f = os.path.join(dst_ckpt_dir, f)
+                        if not os.path.exists(dst_f) or os.path.getmtime(src_f) > os.path.getmtime(dst_f):
+                            shutil.copy2(src_f, dst_f)
+                            print(f"   -> [RECOVERED] {f}")
+
     # --- 2026 Resilience: Pre-Flight Resumption Engine ---
     # We must initialize all continuity variables before they are used in the data infrastructure.
     resume_iteration = -1
     start_epoch = 0
     ckpt_loaded = False
     
-    checkpoint_dir = config.get("checkpoint_dir", "checkpoints")
+    checkpoint_dir = os.path.normpath(os.path.join(project_root, config.get("checkpoint_dir", "checkpoints")))
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    
     latest_ckpt = os.path.join(checkpoint_dir, f"{args.model}_latest.pth")
     progress_ckpt_path = os.path.join(checkpoint_dir, f"{args.model}_progress.pth")
     best_ckpt_path = os.path.join(checkpoint_dir, f"{args.model}_best.pth")
@@ -2657,6 +2697,36 @@ def main():
                         print(f"⚠️ [HUB SYNC] Push failed! Error:\n{res.stderr.strip()}")
         except Exception as e:
             print(f"⚠️ [HUB SYNC] Hub synchronization critical failure: {e}")
+
+        # --- 2026 Resilience: Kaggle Persistent Output (Task 12.2) ---
+        if args.env == 'kaggle':
+            try:
+                # Structure: /kaggle/working/persistence/Lemgendary_[Model]_Checkpoints/
+                # Matches the model artifact format for easy re-upload/persistence
+                persistence_root = "/kaggle/working/persistence"
+                model_name_formatted = f"Lemgendary_{args.model.replace('_', ' ').title().replace(' ', '_')}_Checkpoints"
+                model_out_dir = os.path.join(persistence_root, model_name_formatted)
+                ckpt_out_dir = os.path.join(model_out_dir, "checkpoints")
+                os.makedirs(ckpt_out_dir, exist_ok=True)
+                
+                # 1. Sync metrics.csv
+                if os.path.exists(metrics_csv_path):
+                    shutil.copy2(metrics_csv_path, os.path.join(model_out_dir, "metrics.csv"))
+                
+                # 2. Sync Latest Checkpoint
+                latest_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
+                if os.path.exists(latest_hub_path):
+                    shutil.copy2(latest_hub_path, os.path.join(ckpt_out_dir, f"{args.model}_latest.pth"))
+                    
+                # 3. Sync Best Checkpoint
+                best_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
+                if os.path.exists(best_hub_path):
+                    # Only copy if it exists (might not exist if is_best was never True)
+                    shutil.copy2(best_hub_path, os.path.join(ckpt_out_dir, f"{args.model}_best.pth"))
+                
+                print(f"💾 [PERSISTENCE] Local manifold updated: {model_name_formatted}")
+            except Exception as e:
+                print(f"⚠️ [PERSISTENCE] Failed to update local manifold: {e}")
 
 
 # --- Automated Cloud Hub Deployment ---

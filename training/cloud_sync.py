@@ -5,6 +5,7 @@ import shutil
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+import kagglehub
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1042]
 
@@ -21,6 +22,17 @@ class CloudSyncManager:
         self.hub_user = "lemgenda"
         self.hub_repo = "lemgendary-pretrained-models"
         self.hub_root = Path("/kaggle/working/LemGendaryModels") if os.name != 'nt' else Path(config.get("export_dir", "../LemGendaryModels")).resolve()
+        
+        # --- Kaggle Hybrid Configuration ---
+        fleet_config = config.get("fleet", {})
+        self.kaggle_username = fleet_config.get("kaggle_username", "lemgenda")
+        # Kaggle slugs use hyphens, internal keys use underscores
+        self.model_slug = self.model_name.replace("_", "-")
+        self.kaggle_handle = f"{self.kaggle_username}/{self.model_slug}/pytorch/default"
+        
+        # Paths
+        paths_config = config.get("paths", {})
+        self.checkpoint_dir = Path(paths_config.get("checkpoints_root", "checkpoints")).resolve()
 
     def _mask_pat(self, text):
         if not self.pat: return text
@@ -39,11 +51,46 @@ class CloudSyncManager:
             return False
 
     def sync(self):
-        if not self.pat:
-            print("⚠️ [SYNC] GITHUB_PAT missing. Skipping autonomous manifold push.")
+        """Unified Hybrid Sync: GitHub (Metrics) + Kaggle (Checkpoints)"""
+        print(f"\n📡 [CLOUD SYNC] Hybrid Synchronization Phase (Epoch {self.epoch})...")
+        
+        # Phase 1: GitHub Manifold Sync (Metrics & Docs)
+        self._sync_to_github()
+        
+        # Phase 2: Kaggle Hub Sync (Best/Latest Binaries)
+        # Only triggered if we are in a cloud environment or explicitly enabled
+        fleet_config = self.config.get("fleet", {})
+        if os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or fleet_config.get("force_kaggle_sync"):
+            self._sync_to_kaggle()
+
+    def _sync_to_kaggle(self):
+        """Programmatic SOTA Checkpoint Sync to Kaggle Hub."""
+        if not self.checkpoint_dir.exists():
             return
 
-        print(f"\n📡 [CLOUD SYNC] Manifold Synchronization Phase (Epoch {self.epoch})...")
+        # We only upload if there are actually checkpoint files to sync
+        ckpts = list(self.checkpoint_dir.glob(f"{self.model_name}_*.pth"))
+        if not ckpts:
+            print(f"📦 [KAGGLER] No checkpoints found for {self.model_name} in {self.checkpoint_dir}. Skipping.")
+            return
+
+        try:
+            print(f"🚀 [KAGGLER] Syncing SOTA Manifold to Kaggle: {self.kaggle_handle}...")
+            # We upload the entire checkpoint folder to capture _best and _latest
+            kagglehub.model_upload(
+                handle=self.kaggle_handle,
+                local_model_dir=str(self.checkpoint_dir),
+                version_notes=f"SOTA Update: {self.model_name} | Epoch {self.epoch} | {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            )
+            print(f"✅ [KAGGLER] Manifold successfully synchronized to Kaggle Hub!")
+        except Exception as e:
+            print(f"⚠️ [KAGGLER] Hub Sync failed: {e}")
+
+    def _sync_to_github(self):
+        """Legacy Git-LFS Sync for Metrics and Documentation."""
+        if not self.pat:
+            print("⚠️ [SYNC] GITHUB_PAT missing. Skipping GitHub manifold push.")
+            return
         
         # 1. Ensure Hub is initialized and anchored
         if not (self.hub_root / ".git").exists():

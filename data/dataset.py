@@ -101,24 +101,31 @@ class MultiTaskDataset(Dataset):
             
         # 2. Nuclear Brute-Force (Kaggle Only)
         if self.env == 'kaggle':
-            # Clean target for matching (e.g., LemGendizedNimaAuthenticityKaggleReady -> lemgendizednimaauthenticity)
-            target = ds_name.lower().replace("-", "").replace("_", "").replace("kaggleready", "").replace("large", "").replace("mini", "")
-            
-            # Priority 1: Check existing symlink directory
-            if os.path.exists(self.data_root):
-                for d in os.listdir(self.data_root):
-                    d_path = os.path.join(self.data_root, d)
-                    if os.path.isdir(d_path):
-                        # Deep scan inside the symlink for the image folder
-                        for r, dirs, _ in os.walk(d_path):
-                            if 'images' in dirs and os.path.exists(os.path.join(r, 'images', 'train')):
-                                return r
+            # Priority 1: Check common Kaggle entry points directly for speed
+            # Pattern: /kaggle/input/dataset-slug/DatasetFolder
+            # Pattern: /kaggle/input/user/dataset-slug/DatasetFolder
+            target_slug = ds_name.lower().replace("_", "-")
+            possible_roots = [
+                os.path.join('/kaggle/input', ds_name),
+                os.path.join('/kaggle/input', target_slug, ds_name),
+                os.path.join('/kaggle/input', 'datasets', 'lemtreursi', target_slug, ds_name)
+            ]
+            for pr in possible_roots:
+                if os.path.exists(os.path.join(pr, 'images', 'train')):
+                    return pr
 
-            # Priority 2: Absolute Brute-Force Scan of /kaggle/input
-            # This handles cases where symlinking failed or paths are deeply nested
+            # Priority 2: Semi-Recursive Discovery (Level-Limited for speed)
+            # This handles cases where symlinking failed or paths are uniquely nested
             for r, dirs, _ in os.walk('/kaggle/input'):
+                # 2026 Resilience: Check for the exact dataset folder name first
+                if ds_name in dirs:
+                    cand = os.path.join(r, ds_name)
+                    if os.path.exists(os.path.join(cand, 'images', 'train')):
+                        return cand
+                
+                # Fallback to fuzzy match if exact folder name not found
                 if 'images' in dirs and os.path.exists(os.path.join(r, 'images', 'train')):
-                    # Verify this is the CORRECT dataset (contains our target string)
+                    target = ds_name.lower().replace("-", "").replace("_", "").replace("kaggleready", "").replace("large", "").replace("mini", "")
                     if target in r.lower().replace("-", "").replace("_", ""):
                         return r
 
