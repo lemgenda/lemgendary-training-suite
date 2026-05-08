@@ -40,28 +40,33 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    _m = __import__(_b64.b64decode(_k).decode())\n",
         "    _c = getattr(_m, 'UserS' + 'ecrets' + 'Client')()\n",
         "    import os as _os\n",
-        "    for p in ['SUITE_PAT', 'GITHUB_PAT']:\n",
-        "        try: _os.environ[p] = _c.get_secret(p)\n",
-        "        except: pass\n",
-        "    print('✅ [AUTH] PATs mounted from Kaggle Secrets.')\n",
-        "except: print('⚠️ [AUTH] No Kaggle Secrets found. Ensure GITHUB_PAT is set if repo is private.')\n"
+        "    # 2026: Restore PAT mounting for authenticated suite clones\n",
+        "    _os.environ['GITHUB_PAT'] = _c.get_secret('GITHUB_PAT')\n",
+        "    _os.environ['SUITE_PAT'] = _c.get_secret('SUITE_PAT')\n",
+        "    print('✅ [AUTH] Kaggle Secrets (GITHUB_PAT/SUITE_PAT) mounted.')\n",
+        "except Exception as e: print(f'⚠️ [AUTH] Secret mounting failed: {e}')\n"
     ]
 
     clone_source = [
         "import os, subprocess, shutil\n",
-        "pat = os.environ.get('SUITE_PAT', os.environ.get('GITHUB_PAT', ''))\n",
-        "repo_url = f'https://{pat}@github.com/lemgenda/lemgendary-training-suite.git'\n",
+        "repo_url = 'https://github.com/lemgenda/lemgendary-training-suite.git'\n",
         "suite_path = '/kaggle/working/lemgendary-training-suite'\n",
+        "pat = os.environ.get('SUITE_PAT', os.environ.get('GITHUB_PAT', ''))\n",
+        "if pat: auth_url = repo_url.replace('https://', f'https://{pat}@')\n",
+        "else: auth_url = repo_url\n",
+        "\n",
+        "env = os.environ.copy()\n",
+        "env['GIT_TERMINAL_PROMPT'] = '0'\n",
         "\n",
         "if not os.path.exists(suite_path):\n",
         "    print('🚀 [SUITE] Initializing LemGendary Training Suite...')\n",
-        "    res = subprocess.run(['git', 'clone', repo_url, suite_path], capture_output=True, text=True)\n",
+        "    res = subprocess.run(['git', 'clone', auth_url, suite_path], capture_output=True, text=True, env=env)\n",
         "    if res.returncode == 0: print('✅ [OK] Suite cloned.')\n",
         "    else: print(f'❌ [ERROR] Clone failed: {res.stderr}')\n",
         "else:\n",
-        "    print('✅ [OK] Suite resident. Pulling latest...')\n",
-        "    subprocess.run(['git', 'config', 'pull.rebase', 'true'], cwd=suite_path)\n",
-        "    subprocess.run(['git', 'pull', '--rebase'], cwd=suite_path)\n"
+        "    print('✅ [OK] Suite resident. Syncing origin and pulling latest...')\n",
+        "    subprocess.run(['git', 'remote', 'set-url', 'origin', auth_url], cwd=suite_path, env=env)\n",
+        "    subprocess.run(['git', 'pull'], cwd=suite_path, env=env)\n"
     ]
 
     symlink_source = [
@@ -106,64 +111,52 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     ]
 
     hub_prep_source = [
-        "import os, shutil, subprocess\n",
-        "hub_root = '/kaggle/working/LemGendaryModels'\n",
-        "HUB_USER, HUB_REPO = 'lemgenda', 'lemgendary-pretrained-models'\n",
-        "pat = os.environ.get('GITHUB_PAT', '')\n",
-        "hub_url = f'https://{pat}@github.com/{HUB_USER}/{HUB_REPO}.git'\n",
-        "env = os.environ.copy()\n",
-        "env['GIT_LFS_SKIP_SMUDGE'] = '1'\n",
-        "\n",
-        "print('🛸 [HUB] Preparing SOTA Checkpoint Repository...')\n",
-        "if not os.path.exists(os.path.join(hub_root, '.git')):\n",
-        "    if os.path.exists(hub_root): shutil.rmtree(hub_root, ignore_errors=True)\n",
-        "    print(f'🚀 [HUB] Initializing shallow hub structure from {HUB_REPO}...')\n",
-        "    # 2026: Use blob filtering AND skip smudge to bypass LFS quota during initialization\n",
-        "    res = subprocess.run(['git', 'clone', '--depth', '1', '--filter=blob:none', hub_url, hub_root], env=env, capture_output=True, text=True)\n",
-        "    if res.returncode == 0: print('✅ [OK] Hub Structure Initialized.')\n",
-        "    else: print(f'⚠️ [HUB] Clone failed: {res.stderr.strip()}')\n",
-        "else: \n",
-        "    print('🔄 [HUB] Syncing hub structure...')\n",
-        "    subprocess.run(['git', 'remote', 'set-url', 'origin', hub_url], cwd=hub_root)\n",
-        "    subprocess.run(['git', 'config', 'pull.rebase', 'true'], cwd=hub_root)\n",
-        "    subprocess.run(['git', 'pull', '--rebase', '-X', 'theirs', 'origin', 'main'], cwd=hub_root, env=env)\n",
-        "    print('✅ [OK] Hub Structure Synced.')\n",
-        "\n",
-        "# --- 2026 Resilience: Clear Stale Locks ---\n",
-        "for root, dirs, files in os.walk(hub_root):\n",
-        "    for f in files:\n",
-        "        if f.endswith('.processing'):\n",
-        "            print(f'🗑️ [RESILIENCE] Clearing stale lock: {f}')\n",
-        "            os.remove(os.path.join(root, f))\n"
-    ]
-
-    lfs_source = [
-        "import subprocess\n",
+        "import os\n",
         "hub_root = '/kaggle/working/LemGendaryModels'\n",
         f"model_key = '{model_key}'\n",
-        "print(f'📦 [SOTA] Hydrating surgical manifold for {model_key}...')\n",
-        "subprocess.run(['git', 'lfs', 'install'], cwd=hub_root)\n",
-        "subprocess.run(['git', 'lfs', 'pull', '--include', f'{model_key}/checkpoints/*.pth'], cwd=hub_root)\n",
-        "print('✅ [OK] Model Binaries Ready.')\n"
+        "model_dir = os.path.join(hub_root, model_key)\n",
+        "ckpt_dir = os.path.join(model_dir, 'checkpoints')\n",
+        "\n",
+        "print(f'🛸 [HUB] Initializing Lean Manifold for {model_key}...')\n",
+        "os.makedirs(ckpt_dir, exist_ok=True)\n",
+        "print(f'✅ [OK] Manifold structure ready at {model_dir}')\n"
     ]
 
     stealth_source = [
-        "import os, base64, torch, glob\n",
+        "import os, base64, torch, glob, shutil\n",
         f"model_key = '{model_key}'\n",
         "hub_root = '/kaggle/working/LemGendaryModels'\n",
+        "model_hub_dir = os.path.join(hub_root, model_key)\n",
+        "ckpt_hub_dir = os.path.join(model_hub_dir, 'checkpoints')\n",
+        "os.makedirs(ckpt_hub_dir, exist_ok=True)\n",
         "device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
         "\n",
+        "# 2026 NUCLEAR: Prioritize Kaggle Inputs and recover to Hub\n",
+        "input_pattern = f'/kaggle/input/**/checkpoints/{model_key}*.pth'\n",
+        "input_ckpts = glob.glob(input_pattern, recursive=True)\n",
+        "\n",
+        "if input_ckpts:\n",
+        "    print(f'📡 [RECOVERY] Hydrating hub from Kaggle Inputs...')\n",
+        "    for src in input_ckpts:\n",
+        "        fname = os.path.basename(src)\n",
+        "        dst = os.path.join(ckpt_hub_dir, fname)\n",
+        "        if not os.path.exists(dst) or os.path.getsize(src) > os.path.getsize(dst):\n",
+        "            shutil.copy2(src, dst)\n",
+        "            print(f'   -> [OK] Recovered {fname}')\n",
+        "\n",
         "search_paths = [\n",
-        "    os.path.join(hub_root, model_key, 'checkpoints', f'{model_key}_best.pth'),\n",
-        "    os.path.join(hub_root, model_key, 'checkpoints', f'{model_key}_latest.pth'),\n",
-        "    f'/kaggle/input/**/{model_key}*.pth'\n",
+        "    os.path.join(ckpt_hub_dir, f'{model_key}_best.pth'),\n",
+        "    os.path.join(ckpt_hub_dir, f'{model_key}_latest.pth')\n",
         "]\n",
         "found = []\n",
-        "for p in search_paths: found.extend(glob.glob(p, recursive=True))\n",
-        "model_path = next((p for p in found if os.path.exists(p) and os.path.getsize(p) > 1024), None)\n",
+        "for p in search_paths: \n",
+        "    if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024: # 10MB Threshold for LFS protection\n",
+        "        found.append(p)\n",
+        "\n",
+        "model_path = found[0] if found else None\n",
         "\n",
         "if model_path:\n",
-        "    print(f'💎 [SOTA] Loading pre-trained weights: {os.path.basename(model_path)}')\n",
+        "    print(f'💎 [SOTA] Loading pre-trained weights: {model_path}')\n",
         "    ckpt = torch.load(model_path, map_location=device, weights_only=False)\n",
         "    print(f'✅ [OK] Weights anchored on {device}.')\n",
         "else: print('⚠️ [SOTA] No existing weights found. Starting from scratch.')\n"
@@ -264,11 +257,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             {
                 "cell_type": "code",
                 "source": hub_prep_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "code",
-                "source": lfs_source,
                 "metadata": {}, "outputs": [], "execution_count": None
             },
             {
