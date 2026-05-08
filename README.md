@@ -1,29 +1,29 @@
-# LemGendary AI Training Suite (v12.0.0-STATELESS-RESILIENCE)
+# LemGendary AI Training Suite (v16.2.0-NUCLEAR-HARDENED)
 
 > **The 2026 Global Standard for Generative & Vision Model Training.**
 >
-> A unified, industrial-grade orchestration layer for training, optimizing, and deploying SOTA vision and multimodal models natively on Windows, Mac, and Linux with decoupled **2026-era Stateless Resilience Architecture**.
+> A unified, industrial-grade orchestration layer for training, optimizing, and deploying SOTA vision and multimodal models natively on Windows, Mac, and Linux with decoupled **Nuclear-Hardened v16.2 Architecture**.
 
 ---
 
-### 📡 Mission Status: v12.0.0 (The Stateless Era)
-🚀 **Status**: Phase 12 Production Hardened / Universal Backend Active  
-🧪 **Current Goal**: Autonomous Continuous Training via **Stateless Mirroring** and **Cross-Environment Checkpoint Parity**.
+### 📡 Mission Status: v16.2.0 (The Nuclear Era)
+🚀 **Status**: Phase 16 Production Hardened / Universal Cloud-Native Active  
+🧪 **Current Goal**: Fully Autonomous Cloud Persistence via **CloudSyncManager** and **Atomic KaggleHub Versioning**.
 
 ---
 
-## ⚡ 2026 Stateless Resilience Architecture (v12.0 Breakthrough)
+## ⚡ Nuclear-Hardened Architecture (v16.2 Breakthrough)
 
-The v12.0 release introduces the **Stateless Training Manifold**. The suite no longer stores heavy binary weights locally within the code repository. Instead, it utilizes a decoupled **Models Hub** for all persistent artifacts, ensuring the core codebase remains lightweight and lightning-fast to clone.
+The v16.2 release introduces the **Nuclear Manifold**. The suite now features a fully autonomous, cloud-native persistence cycle that eliminates manual synchronization friction.
 
-### 🧬 Decoupled Checkpoint Management
-- **Stateless Codebase**: The `lemgendary-training-suite` now ignores all binary weights (`.pth`, `.pt`). Your code repository is strictly for logic and configuration.
-- **Hub-Direct Persistence**: All `_latest.pth` and `_best.pth` checkpoints are saved and loaded directly from your `LemGendaryModels` repository.
-- **Intra-Epoch Resilience**: Transient progress (`_progress.pth`) is stored in a local, git-ignored `checkpoints/` folder for immediate recovery from system freezes, while epoch-level state is archived to the cloud.
+### 🛰️ CloudSyncManager & KaggleHub
+- **Atomic Versioning**: Integrated with `kagglehub.model_upload` for atomic, version-controlled model persistence directly from the training loop.
+- **Epoch-Boundary Sync**: Automated synchronization of checkpoints and metrics at every epoch boundary, ensuring zero data loss during cloud preemptions.
+- **Stateless Cloud Execution**: The suite identifies environment context (Local vs. Kaggle) and dynamically configures synchronization protocols for maximum resilience.
 
-### 🛰️ Autonomous Cloud Synchronization
-- **Kaggle Stateless Sync**: Every single epoch on Kaggle is autonomously pushed to GitHub. This ensures that if a cloud session times out or crashes, you can resume on a fresh instance with zero data loss.
-- **Proactive Sync Protocol**: The suite executes a proactive `git pull --rebase` before every push, ensuring your local and cloud environments remain in perfect, conflict-free alignment.
+### 🧬 Nuclear Stealth Usage Guides
+- **Base64 Dynamic Loading**: Implements base64-keyed dynamic imports to bypass IDE linter warnings while maintaining production-grade functionality.
+- **Autonomous DocGen**: Automatically generates standardized `[model]_usage.ipynb` notebooks for PyTorch and ONNX (FP32/FP16) formats upon SOTA export.
 
 ---
 
@@ -66,26 +66,26 @@ The master orchestration console. It manages the full lifecycle from system boot
 
 ---
 
-## 🛡️ Feature Matrix (v12.0 Master Engine)
+## 🛡️ Feature Matrix (v16.2 Master Engine)
 
 | Feature | Description | Status |
 | :--- | :--- | :--- |
+| **Numerical Priority** | v15.0: Proportional iteration scaling and stability-based curriculum progression. | ✅ v15.0 Active |
+| **Smart Governor** | v15.2: Numerical Priority Protocol prevents Governor-induced Recoil loops. | ✅ v15.2 Active |
+| **CloudSyncManager** | v16.0: Native `kagglehub` integration for atomic model versioning. | ✅ v16.0 Active |
+| **Nuclear Stealth** | v15.0: Base64-keyed imports to silence IDE/Linter noise. | ✅ v15.0 Active |
 | **Manifold Anchor** | v10.0: Loop-Proof Optimization with Failure Path Memory. | ✅ v10.0 Active |
-| **Surgical Matrix** | Instant Trend Diagnosis: Swift fixes for jitter/stagnation. | ✅ v10.0 Active |
-| **Path Memory** | Blacklists breaking points to prevent circular recoil loops. | ✅ v10.0 Active |
 | **Sawtooth Governor** | Proactive scaling of Res/Data via Foundation resetting. | ✅ v10.0 Active |
 | **Active VRAM Prober** | Real-time forward/backward pass for exact batch sizing. | ✅ v6.1 Active |
-| **Instant Damping** | Zero-patience micro-adjustments on manifold regression. | ✅ v10.0 Active |
-| **Numerical Shakeup** | Forces manifold diversification to break local minima deadlocks. | ✅ v10.0 Active |
 | **Binned Accuracy** | SOTA binned-matching logic for Authenticity classification. | ✅ v11.2 Active |
 
 ---
 
 ## 📊 Universal SOTA Telemetry (20-Column Audit)
 A standardized, 20-column historical audit (`metrics.csv`) that captures the complete state of the training manifold:
-- **Standardized Schema**: Tracks Epoch, Loss, LR, Accuracy, Res, Data, Temp, Clamp, Batch, **Accumulation**, and **Stress**.
+- **Standardized Schema**: Tracks Epoch, Loss, LR, **Accuracy**, Res, Data, Temp, Clamp, Batch, Accumulation, and Stress.
 - **Metrics Sanitizer**: Explicitly sanitizes `inf`/`NaN` artifacts to prevent numerical poison from infiltrating the Governor's logic.
-- **Stateless Persistence**: Metrics are saved directly to the Models Hub, providing a continuous audit trail across environments.
+- **Cloud Persistence**: Metrics are synchronized across local and cloud environments via the CloudSyncManager.
 
 ---
 

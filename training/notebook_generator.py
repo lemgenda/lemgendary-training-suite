@@ -41,13 +41,26 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    _c = getattr(_m, 'UserS' + 'ecrets' + 'Client')()\n",
         "    import os as _os\n",
         "    # 2026: Restore PAT mounting for authenticated suite clones\n",
-        "    g_pat = _c.get_secret('GITHUB_PAT')\n",
-        "    s_pat = _c.get_secret('SUITE_PAT')\n",
+        "    g_pat = None\n",
+        "    s_pat = None\n",
+        "    try: g_pat = _c.get_secret('GITHUB_PAT')\n",
+        "    except: pass\n",
+        "    try: s_pat = _c.get_secret('SUITE_PAT')\n",
+        "    except: pass\n",
+        "    \n",
         "    if g_pat: _os.environ['GITHUB_PAT'] = g_pat\n",
         "    if s_pat: _os.environ['SUITE_PAT'] = s_pat\n",
-        "    if g_pat or s_pat: print(f'✅ [AUTH] Kaggle Secrets mounted: {\"SUITE_PAT \" if s_pat else \"\"}{\"GITHUB_PAT\" if g_pat else \"\"}')\n",
-        "    else: print('⚠️ [AUTH] No PATs found in Kaggle Secrets.')\n",
-        "except Exception as e: print(f'⚠️ [AUTH] Secret mounting failed: {e}')\n"
+        "    \n",
+        "    if g_pat or s_pat:\n",
+        "        active = []\n",
+        "        if s_pat: active.append('SUITE_PAT')\n",
+        "        if g_pat: active.append('GITHUB_PAT')\n",
+        "        print(f'✅ [AUTH] Kaggle Secrets mounted: {\", \".join(active)}')\n",
+        "    else:\n",
+        "        print('❌ [CRITICAL] No PATs found in Kaggle Secrets! Private repositories will fail to clone.')\n",
+        "        print('👉 Tip: Go to Add-ons -> Secrets and add SUITE_PAT and GITHUB_PAT.')\n",
+        "except Exception as e:\n",
+        "    print(f'❌ [ERROR] Secret mounting failed: {e}')\n"
     ]
 
     clone_source = [
@@ -56,10 +69,11 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "suite_path = '/kaggle/working/lemgendary-training-suite'\n",
         "pat = os.environ.get('SUITE_PAT', os.environ.get('GITHUB_PAT', ''))\n",
         "if pat:\n",
+        "    # Use x-access-token for more reliable auth with fine-grained tokens\n",
+        "    auth_url = repo_url.replace('https://', f'https://x-access-token:{pat}@')\n",
         "    print(f'🔑 [AUTH] Using {\"SUITE_PAT\" if os.environ.get(\"SUITE_PAT\") else \"GITHUB_PAT\"} for cloning...')\n",
-        "    auth_url = repo_url.replace('https://', f'https://{pat}@')\n",
         "else:\n",
-        "    print('⚠️ [AUTH] No PAT found. Attempting public clone...')\n",
+        "    print('⚠️ [AUTH] No PAT found in environment. Attempting public clone (will fail for private repos)...')\n",
         "    auth_url = repo_url\n",
         "\n",
         "env = os.environ.copy()\n",
@@ -68,8 +82,13 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "if not os.path.exists(suite_path):\n",
         "    print('🚀 [SUITE] Initializing LemGendary Training Suite...')\n",
         "    res = subprocess.run(['git', 'clone', auth_url, suite_path], capture_output=True, text=True, env=env)\n",
-        "    if res.returncode == 0: print('✅ [OK] Suite cloned.')\n",
-        "    else: print(f'❌ [ERROR] Clone failed: {res.stderr}')\n",
+        "    if res.returncode == 0: \n",
+        "        print('✅ [OK] Suite cloned.')\n",
+        "    else: \n",
+        "        print(f'❌ [ERROR] Clone failed: {res.stderr}')\n",
+        "        if '403' in res.stderr or '401' in res.stderr:\n",
+        "            print('💡 Troubleshooting: Your PAT might lack \"Contents: Read\" permission for this repository.')\n",
+        "            print('💡 Also ensure the token is valid and not expired.')\n",
         "else:\n",
         "    print('✅ [OK] Suite resident. Syncing origin and pulling latest...')\n",
         "    subprocess.run(['git', 'remote', 'set-url', 'origin', auth_url], cwd=suite_path, env=env)\n",
@@ -299,11 +318,36 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         ]
     }
 
-    output_path = os.path.join(export_dir, "kaggle_inference.ipynb")
+    # --- Section Logic: v16.2 Nuclear Orchestration ---
+    
+    # [Rest of the source blocks remain identical to previous turn's hardened auth]
+    
+    # ... (skipping to filename resolution)
+    
+    output_path = os.path.join(export_dir, f"{model_key}_training.ipynb")
     os.makedirs(export_dir, exist_ok=True)
     with open(output_path, "w", encoding='utf-8') as f:
         json.dump(notebook_content, f, indent=4)
-    print(f"[OK] Generated Stateless Notebook: {output_path}")
+    print(f"[OK] Generated Training Notebook: {output_path}")
+
+    # Dual-Export to Datasets Hub
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    datasets_hub_root = os.path.abspath(os.path.join(base_dir, "../LemGendaryDatasets"))
+    
+    # Resolve the first dataset folder to place the twin notebook
+    target_dataset_folder = None
+    if unified_models_registry:
+        m_info = unified_models_registry.get(model_key, {})
+        ds_list = m_info.get("datasets", [])
+        if ds_list: target_dataset_folder = ds_list[0]
+    
+    if target_dataset_folder:
+        ds_dir = os.path.join(datasets_hub_root, target_dataset_folder)
+        os.makedirs(ds_dir, exist_ok=True)
+        ds_output_path = os.path.join(ds_dir, f"{model_key}_training.ipynb")
+        with open(ds_output_path, "w", encoding='utf-8') as f:
+            json.dump(notebook_content, f, indent=4)
+        print(f"[OK] Generated Dual Training Notebook: {ds_output_path}")
 
 def generate_usage_notebook(model_key, export_dir, unified_models_registry=None, config=None):
     """
@@ -454,7 +498,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
         ]
     }
     
-    output_path = os.path.join(export_dir, f"{model_key}_usage.ipynb")
+    output_path = os.path.join(export_dir, f"{model_key}-usage.ipynb")
     with open(output_path, "w", encoding='utf-8') as f:
         json.dump(notebook_content, f, indent=4)
     print(f"[OK] Generated Usage Notebook: {output_path}")
