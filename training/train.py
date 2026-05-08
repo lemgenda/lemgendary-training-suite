@@ -10,8 +10,8 @@ import time
 import shutil
 import gc
 import math
-import base64
 from datetime import datetime
+from training.cloud_sync import trigger_cloud_sync
 
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
@@ -2784,6 +2784,10 @@ def main():
                     # 4. Global Push (Models Only)
                     commit_msg = f"Update new best weights and metrics for {args.model} from {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     git_hub_sync(target_hub_root, auth_hub_url, commit_msg)
+
+                # 2026: Trigger Background Cloud Sync (Nuclear-Hardened v16.2)
+                if args.env == 'kaggle':
+                    trigger_cloud_sync(args.model, epoch + 1, config)
 
             except Exception as e:
                 print(f" [WARNING] [HUB-SYNC] Deployment skipped: {e}")

@@ -19,13 +19,13 @@ class CloudSyncManager:
         self.epoch = epoch
         self.config = config
         self.pat = os.environ.get("GITHUB_PAT", "")
-        self.hub_user = "lemgenda"
+        self.hub_user = config.get("hub_user", "lemgenda")
         self.hub_repo = "lemgendary-pretrained-models"
         self.hub_root = Path("/kaggle/working/LemGendaryModels") if os.name != 'nt' else Path(config.get("export_dir", "../LemGendaryModels")).resolve()
         
         # --- Kaggle Hybrid Configuration ---
         fleet_config = config.get("fleet", {})
-        self.kaggle_username = fleet_config.get("kaggle_username", "lemgenda")
+        self.kaggle_username = config.get("kaggle_username", "lemgenda")
         # Kaggle slugs use hyphens, internal keys use underscores
         self.model_slug = self.model_name.replace("_", "-")
         self.kaggle_handle = f"{self.kaggle_username}/{self.model_slug}/pytorch/default"
