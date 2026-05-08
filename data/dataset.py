@@ -116,18 +116,26 @@ class MultiTaskDataset(Dataset):
 
             # Priority 2: Semi-Recursive Discovery (Level-Limited for speed)
             # This handles cases where symlinking failed or paths are uniquely nested
-            for r, dirs, _ in os.walk('/kaggle/input'):
-                # 2026 Resilience: Check for the exact dataset folder name first
-                if ds_name in dirs:
-                    cand = os.path.join(r, ds_name)
-                    if os.path.exists(os.path.join(cand, 'images', 'train')):
+            # Priority 2: Surgical Discovery (Avoid slow os.walk)
+            try:
+                import subprocess
+                # 1. Look for exact folder name (maxdepth 3)
+                cmd = f"find /kaggle/input -maxdepth 3 -type d -name '{ds_name}'"
+                res = subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                for cand in res:
+                    if cand and os.path.exists(os.path.join(cand, 'images', 'train')):
                         return cand
                 
-                # Fallback to fuzzy match if exact folder name not found
-                if 'images' in dirs and os.path.exists(os.path.join(r, 'images', 'train')):
-                    target = ds_name.lower().replace("-", "").replace("_", "").replace("kaggleready", "").replace("large", "").replace("mini", "")
-                    if target in r.lower().replace("-", "").replace("_", ""):
-                        return r
+                # 2. Look for any 'images/train' (maxdepth 4) and match name
+                cmd = "find /kaggle/input -maxdepth 4 -type d -path '*/images/train'"
+                res = subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                target = ds_name.lower().replace("-", "").replace("_", "").replace("kaggleready", "").replace("large", "").replace("mini", "")
+                for sp in res:
+                    if sp:
+                        r = os.path.dirname(os.path.dirname(sp))
+                        if target in r.lower().replace("-", "").replace("_", ""):
+                            return r
+            except: pass
 
         return path
 

@@ -10,8 +10,19 @@ import time
 import shutil
 import gc
 import math
+# --- Hyper-Verbose Path Defense (2026 Specialization) ---
+# Anchor the search path to the script's own folder to bypass "Ghost Python" hijacking.
+script_dir = os.path.dirname(os.path.abspath(__file__))
+workspace_root = os.path.dirname(script_dir)
+venv_site_pkgs = os.path.normpath(os.path.join(workspace_root, ".venv", "Lib", "site-packages"))
+
+# Anchor both the workspace and venv site-packages BEFORE any domestic imports
+if workspace_root not in sys.path:
+    sys.path.insert(0, workspace_root)
+if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
+    sys.path.insert(0, venv_site_pkgs)
+
 from datetime import datetime
-from training.cloud_sync import trigger_cloud_sync
 
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
@@ -30,17 +41,7 @@ import logging
 logging.getLogger("diffusers").setLevel(logging.ERROR)
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
-# --- Hyper-Verbose Path Defense (2026 Specialization) ---
-# Anchor the search path to the script's own folder to bypass "Ghost Python" hijacking.
-script_dir = os.path.dirname(os.path.abspath(__file__))
-workspace_root = os.path.dirname(script_dir)
-venv_site_pkgs = os.path.normpath(os.path.join(workspace_root, ".venv", "Lib", "site-packages"))
-
-# Anchor both the workspace and venv site-packages BEFORE any domestic imports
-if workspace_root not in sys.path:
-    sys.path.insert(0, workspace_root)
-if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
-    sys.path.insert(0, venv_site_pkgs)
+from training.cloud_sync import trigger_cloud_sync
 
 try:
     import yaml
@@ -697,11 +698,17 @@ def main():
         # Search for: Lemgendary_[model]_Checkpoints
         search_target = f"lemgendary_{args.model}_checkpoints".lower().replace("-", "_")
         possible_roots = []
-        for r, dirs, _ in os.walk('/kaggle/input'):
-            # Match case-insensitive and with underscore/hyphen variations
-            for d in dirs:
+        # Tiered Discovery: Check top-level first, then surgical find
+        if os.path.exists('/kaggle/input'):
+            for d in os.listdir('/kaggle/input'):
                 if search_target in d.lower().replace("-", "_"):
-                    possible_roots.append(os.path.join(r, d))
+                    possible_roots.append(os.path.join('/kaggle/input', d))
+        
+        if not possible_roots:
+            try:
+                res = subprocess.run(f"find /kaggle/input -maxdepth 3 -type d -name '*{search_target}*'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                possible_roots.extend([p for p in res if p])
+            except: pass
         
         # Priority: Models root, then deepest path (usually contains /pytorch/default/1/)
         if possible_roots:
