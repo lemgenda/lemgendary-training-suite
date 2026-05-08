@@ -51,16 +51,20 @@ class CloudSyncManager:
             return False
 
     def sync(self):
-        """Unified Hybrid Sync: GitHub (Metrics) + Kaggle (Checkpoints)"""
-        print(f"\n📡 [CLOUD SYNC] Hybrid Synchronization Phase (Epoch {self.epoch})...")
+        """Unified Hybrid Sync: Kaggle (SOTA Source of Truth)"""
+        print(f"\n📡 [CLOUD SYNC] Cloud Synchronization Phase (Epoch {self.epoch})...")
         
-        # Phase 1: GitHub Manifold Sync (Metrics & Docs)
-        self._sync_to_github()
+        # 2026: On Kaggle, we bypass GitHub entirely to keep the manifold lean and PAT-free.
+        # Checkpoints and metrics.csv are pushed ONLY to the Kaggle Model artifact.
+        is_kaggle = os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.environ.get("KAGGLE_WORKING_DIR")
         
-        # Phase 2: Kaggle Hub Sync (Best/Latest Binaries)
-        # Only triggered if we are in a cloud environment or explicitly enabled
-        fleet_config = self.config.get("fleet", {})
-        if os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or fleet_config.get("force_kaggle_sync"):
+        if is_kaggle:
+            print("🚀 [KAGGLER] Operating in Kaggle-Native mode. GitHub sync bypassed.")
+            self._sync_to_kaggle()
+        else:
+            # Local/Custom environment: Use legacy hybrid sync
+            print("🔄 [HYBRID] Operating in Hybrid mode. Syncing to GitHub and Kaggle.")
+            self._sync_to_github()
             self._sync_to_kaggle()
 
     def _sync_to_kaggle(self):

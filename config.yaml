@@ -27,7 +27,7 @@ governor:
 # --- Fleet & Synchronization (Task 12.3) ---
 fleet:
   auto_sync: true
-  kaggle_username: "lemgenda"
+  kaggle_username: "lemtreursi"
   force_kaggle_sync: false # Trigger Kaggle Model upload even on local machine
   inter_model_cooldown_seconds: 2
   retry_attempts: 3
