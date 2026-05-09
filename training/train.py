@@ -735,7 +735,7 @@ def main():
             try:
                 for target in search_targets:
                     if target == "lemgendary": continue
-                    res = subprocess.run(f"find /kaggle/input -maxdepth 5 -type d -name '*{target}*'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                    res = subprocess.run(f"find /kaggle/input -maxdepth 8 -type d -name '*{target}*'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
                     possible_roots.extend([p for p in res if p])
             except: pass
         
