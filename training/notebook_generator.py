@@ -22,13 +22,13 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     
     hardware_sentinel_source = [
         "import torch, sys\n",
-        "print('🛰️ [SENTINEL] Auditing Hardware Manifold...')\n",
+        "print('[OK] [SENTINEL] Auditing Hardware Manifold...')\n",
         "if not torch.cuda.is_available():\n",
-        "    print('❌ [CRITICAL] NO GPU DETECTED! Training aborted to preserve quota.')\n",
+        "    print('[ERROR] [CRITICAL] NO GPU DETECTED! Training aborted to preserve quota.')\n",
         "    sys.exit(1)\n",
         "props = torch.cuda.get_device_properties(0)\n",
-        "print(f'✅ [ACTIVE] {props.name}')\n",
-        "print(f'✅ [VRAM] {props.total_memory / 1024**3:.1f} GB')\n",
+        "print(f'[OK] [ACTIVE] {props.name}')\n",
+        "print(f'[OK] [VRAM] {props.total_memory / 1024**3:.1f} GB')\n",
         "if props.total_memory / 1024**3 < 10.0:\n",
         "    print('⚠️ [WARNING] Low VRAM detected. Suite will enable Survival Profiles automatically.')\n"
     ]
@@ -302,14 +302,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
 
 
 
-    persistence_source = [
-        "import os, subprocess, sys\n",
-        f"model_key = '{model_key}'\n",
-        "print(f'🚀 [PERSISTENCE] Manual sync triggered for {model_key}...')\n",
-        "cmd = [sys.executable, 'training/checkpoint_sync.py', '--model', model_key, '--target', '/kaggle/working/persistence']\n",
-        "os.chdir('/kaggle/working/lemgendary-training-suite')\n",
-        "subprocess.run(cmd)\n"
-    ]
 
     notebook_content = {
         "metadata": {
@@ -400,26 +392,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             {
                 "cell_type": "code",
                 "source": training_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 8. Manual Persistence Sync\n", "Run this cell to manually sync current checkpoints to the persistence folder.\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": persistence_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 9. SOTA Deployment (Push)\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": push_source,
                 "metadata": {}, "outputs": [], "execution_count": None
             }
         ]
