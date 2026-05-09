@@ -296,7 +296,7 @@ def trigger_sota_export(model, args, config, unified_models_registry, epoch, plc
         os.makedirs(export_dir, exist_ok=True)
 
         model_info = unified_models_registry.get(args.model, {})
-        size_raw = model_info.get("input_size", config.get("default_img_size", 256))
+        size_raw = model_info.get("input_size", config.get("defaults", {}).get("img_size", 256))
         if isinstance(size_raw, list):
             h, w = (int(size_raw[1]), int(size_raw[2])) if len(size_raw)==3 else (int(size_raw[0]), int(size_raw[1]))
         else:
@@ -355,7 +355,7 @@ def get_dynamic_batch_size(model_key, model_info, config, device, model, mode='t
     high-velocity training on any NVIDIA architecture with zero VRAM paging.
     """
     if device.type != 'cuda':
-        return config.get("default_batch_size", 16)
+        return config.get("defaults", {}).get("batch_size", 16)
 
     try:
         # 2026 SOTA: Probe ACTUAL hardware headroom (includes browser/OS overhead)
@@ -434,7 +434,7 @@ def get_dynamic_batch_size(model_key, model_info, config, device, model, mode='t
         return final_batch
     except Exception as e:
         print(f"⚠️ [MEMORY-SENTINEL] Probe failed: {e}. Falling back to safe defaults.")
-        return config.get("default_batch_size", 16)
+        return config.get("defaults", {}).get("batch_size", 16)
 
 def main():
     # 2026 Resilience: Force UTF-8 encoding for Windows terminals to support emojis
@@ -504,8 +504,8 @@ def main():
 
         model = YOLO(model_pt)
 
-        epochs = args.epochs or config.get("default_epochs", 50)
-        batch_size = args.batch_size or config.get("default_batch_size", 16)
+        epochs = args.epochs or config.get("defaults", {}).get("epochs", 50)
+        batch_size = args.batch_size or config.get("defaults", {}).get("batch_size", 16)
 
         print(f"Starting Ultralytics YOLO Training for {args.model}...")
 
@@ -590,8 +590,8 @@ def main():
 
     # --- 2026 Hyperparameter Priority Engine (Memory-Sentinel) ---
     model_info = unified_models_registry.get(args.model, {})
-    epochs = args.epochs or model_info.get("epochs") or config.get("default_epochs", 50)
-    lr = args.lr or model_info.get("learning_rate") or config.get("default_lr", 1e-4)
+    epochs = args.epochs or model_info.get("epochs") or config.get("defaults", {}).get("epochs", 50)
+    lr = args.lr or model_info.get("learning_rate") or config.get("defaults", {}).get("lr", 1e-4)
 
     # Priority: CLI > Model_Config (if not 'auto') > Memory-Sentinel > Global_Config
     config_batch = model_info.get("batch_size")
