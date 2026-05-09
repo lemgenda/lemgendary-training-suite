@@ -718,6 +718,7 @@ def main():
             args.model.lower().replace("-", "_"),
             args.model.lower().replace("_", "-"),
             reg_filename.lower() if reg_filename else None,
+            f"{args.model.lower().replace('_', '-')}-checkpoints",
             "lemgendary"
         }
         search_targets = {t for t in search_targets if t}
@@ -758,7 +759,7 @@ def main():
             src_metrics = next((p for p in metrics_search if os.path.exists(p)), None)
             if not src_metrics:
                 try:
-                    res = subprocess.run(f"find {recovery_root} -maxdepth 4 -name 'metrics.csv'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                    res = subprocess.run(f"find {recovery_root} -maxdepth 8 -name 'metrics.csv'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
                     if res and res[0]: src_metrics = res[0]
                 except: pass
 
@@ -792,17 +793,19 @@ def main():
                         elif "progress" in f: target_f = f"{args.model}_progress.pth"
                         
                         dst_f = os.path.join(hub_ckpt_dir, target_f)
-                        if not os.path.exists(dst_f) or os.path.getsize(src_f) > os.path.getsize(dst_f):
+                        if not os.path.exists(dst_f) or os.path.getmtime(src_f) > os.path.getmtime(dst_f):
                             shutil.copy2(src_f, dst_f)
                             print(f"   -> [RECOVERED] {f} -> {target_f}")
                             found_any = True
             
             # Deep recursive backup for orphaned .pth files
             try:
-                res = subprocess.run(f"find {recovery_root} -name '*.pth'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                # 2026 Resilience: Exhaustive search for all .pth files in the manifold
+                res = subprocess.run(f"find {recovery_root} -maxdepth 8 -name '*.pth'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
                 for src_f in res:
                     if src_f and os.path.exists(src_f):
                         f = os.path.basename(src_f)
+                        # Ensure the file belongs to our model or is a generic latest/best
                         if args.model in f or reg_filename in f or "latest" in f or "best" in f:
                             target_f = f
                             if "latest" in f: target_f = f"{args.model}_latest.pth"
@@ -810,7 +813,7 @@ def main():
                             elif "progress" in f: target_f = f"{args.model}_progress.pth"
                             
                             dst_f = os.path.join(hub_ckpt_dir, target_f)
-                            if not os.path.exists(dst_f):
+                            if not os.path.exists(dst_f) or os.path.getmtime(src_f) > os.path.getmtime(dst_f):
                                 shutil.copy2(src_f, dst_f)
                                 print(f"   -> [RECOVERED-DEEP] {f} -> {target_f}")
                                 found_any = True
@@ -2373,14 +2376,6 @@ def main():
         # --- 2026: Autonomous Cloud Synchronization (v16.2 Nuclear) ---
         # Trigger background sync to Kaggle Hub at the epoch boundary.
         # This persists the latest SOTA, metrics.csv, and logs.
-        try:
-            from training.cloud_sync import trigger_cloud_sync
-            trigger_cloud_sync(args.model, epoch + 1, config)
-        except Exception as e:
-            print(f"⚠️ [CLOUD SYNC] Failed to initiate background sync: {e}", file=sys.stderr)
-            swa_scheduler.step()
-            print(f"🛸 [SWA] Shadow Weights Synchronized (Epoch {epoch+1})")
-
         # --- 2026: Universal SOTA-Priority Quality Assessment ---
         is_best = False
         is_improving = False
@@ -2686,7 +2681,7 @@ def main():
         # We record the metrics AFTER all Governor transitions and Regression Guard rollbacks
         # to ensure the CSV reflects the EXACT state that will be used for the next epoch's training.
         with open(metrics_csv_path, "a") as f:
-            # Telemetry Sync: Use epoch-anchored parameters
+            f.flush()
             f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{epoch_lr:.8f},"
                     f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim_val:.4f},{lpips_val:.4f},{fid:.4f},"
                     f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{epoch_res},{epoch_fraction:.2f},"
@@ -2741,15 +2736,16 @@ def main():
             # 2026: Legacy Git Sync purged.
             # 2026 Resilience: Synchronization is now handled by CloudSyncManager (v16.2)
             # which manages the atomic push cycle via background threads.
+            if args.env == 'kaggle':
+                try:
+                    from training.cloud_sync import trigger_cloud_sync
+                    trigger_cloud_sync(args.model, epoch + 1, config)
+                except Exception as e:
+                    print(f"⚠️ [CLOUD SYNC] Critical background sync failure: {e}", file=sys.stderr)
         except Exception as e:
             print(f"⚠️ [HUB SYNC] Model Hub Mirroring critical failure: {e}")
 
         # 2026 Resilience: Legacy Persistence and Auto-Sync purged. 
-        if args.env == 'kaggle':
-            try:
-                # CloudSyncManager handles all manifold persistence.
-                pass
-            except: pass
 
 
 # --- Automated Cloud Hub Deployment ---
@@ -2758,7 +2754,7 @@ def main():
                 hub_user = args.hub_user or config.get("hub_user", "lemgenda")
                 hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
                 hub_url = f"https://github.com/{hub_user}/{hub_repo}.git"
-                pat = os.environ.get('GITHUB_PAT') or os.environ.get('HUB_PAT', '')
+                pat = os.environ.get('GITHUB_PAT') or os.environ.get('HUB_PAT', '') or os.environ.get('ACCESS_TOKEN_RECOVERY', '')
 
                 if hub_url:
                     # 2026 Resilience: Inject PAT into clone URL for private hubs and authenticated LFS
@@ -2810,7 +2806,11 @@ def main():
 
                 # 2026: Trigger Background Cloud Sync (Nuclear-Hardened v16.2)
                 if args.env == 'kaggle':
-                    trigger_cloud_sync(args.model, epoch + 1, config)
+                    try:
+                        from training.cloud_sync import trigger_cloud_sync
+                        trigger_cloud_sync(args.model, epoch + 1, config)
+                    except Exception as e:
+                        print(f"⚠️ [CLOUD SYNC] Critical background sync failure: {e}", file=sys.stderr)
 
             except Exception as e:
                 print(f" [WARNING] [HUB-SYNC] Deployment skipped: {e}")
