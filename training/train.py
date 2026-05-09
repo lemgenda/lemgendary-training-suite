@@ -717,22 +717,36 @@ def main():
             print(f"   -> [FOUND] Recovery manifold at: {recovery_root}")
             
             # Recovery 1: metrics.csv
-            src_metrics = os.path.join(recovery_root, "metrics.csv")
-            dst_metrics = os.path.join(project_root, "metrics.csv")
-            if os.path.exists(src_metrics) and (not os.path.exists(dst_metrics) or os.path.getmtime(src_metrics) > os.path.getmtime(dst_metrics)):
-                shutil.copy2(src_metrics, dst_metrics)
-                print(f"   -> [RECOVERED] metrics.csv")
+            # Search for metrics.csv in recovery_root or its model-specific subfolder
+            metrics_search = [
+                os.path.join(recovery_root, "metrics.csv"),
+                os.path.join(recovery_root, args.model, "metrics.csv"),
+                os.path.join(recovery_root, "models", args.model, "metrics.csv") # Legacy support
+            ]
+            src_metrics = next((p for p in metrics_search if os.path.exists(p)), None)
+            
+            # Destination should be hub_model_dir/metrics.csv to match export_dir
+            dst_metrics = os.path.join(hub_model_dir, "metrics.csv")
+            if src_metrics and (not os.path.exists(dst_metrics) or os.path.getmtime(src_metrics) > os.path.getmtime(dst_metrics)):
+                try:
+                    shutil.copy2(src_metrics, dst_metrics)
+                    print(f"   -> [RECOVERED] metrics.csv")
+                except: pass
             
             # Recovery 2: Checkpoints
             src_ckpt_dir = os.path.join(recovery_root, "checkpoints")
-            dst_ckpt_dir = os.path.normpath(os.path.join(project_root, config.get("checkpoint_dir", "checkpoints")))
+            if not os.path.exists(src_ckpt_dir):
+                 # Handle Kaggle Model nesting: model_name/checkpoints/
+                 src_ckpt_dir = os.path.join(recovery_root, args.model, "checkpoints")
+                 
+            dst_ckpt_dir = hub_ckpt_dir # Standardize to hub
             os.makedirs(dst_ckpt_dir, exist_ok=True)
             if os.path.exists(src_ckpt_dir):
                 for f in os.listdir(src_ckpt_dir):
                     if f.endswith('.pth'):
                         src_f = os.path.join(src_ckpt_dir, f)
                         dst_f = os.path.join(dst_ckpt_dir, f)
-                        if not os.path.exists(dst_f) or os.path.getmtime(src_f) > os.path.getmtime(dst_f):
+                        if not os.path.exists(dst_f) or os.path.getsize(src_f) > os.path.getsize(dst_f):
                             shutil.copy2(src_f, dst_f)
                             print(f"   -> [RECOVERED] {f}")
 
@@ -787,11 +801,11 @@ def main():
     # --- 2026 Structural Shift: Resume Logic (Metadata Protection Phase) ---
     # We load weights and optimizer state BEFORE the scheduler is born.
     # This ensures OneCycleLR injects its keys into the final, active optimizer state.
-    base_export = config.get("export_dir", os.path.join("..", "LemGendaryModels", "models"))
-    export_dir = os.path.join(os.path.dirname(__file__), "..", base_export, args.model)
+    # 2026 Resilience: export_dir must be anchored to hub_model_dir for consistency.
+    export_dir = hub_model_dir
     os.makedirs(export_dir, exist_ok=True)
 
-    config["checkpoint_dir"] = os.path.normpath(os.path.join(project_root, config.get("checkpoint_dir", "checkpoints")))
+    config["checkpoint_dir"] = os.path.normpath(os.path.join(project_root, config.get("paths", {}).get("checkpoints_root", "checkpoints")))
     os.makedirs(config["checkpoint_dir"], exist_ok=True)
     best_val_loss = float('inf')
     best_quality_score = -1.0
@@ -808,11 +822,14 @@ def main():
         if args.env == 'kaggle':
             hub_root = "/kaggle/working/LemGendaryModels"
         else:
-            hub_root = os.path.normpath(os.path.join(os.getcwd(), "..", "LemGendaryModels"))
+            # Anchor to project root via config paths if available
+            p_paths = config.get("paths", {})
+            export_root_raw = p_paths.get("export_root", "../LemGendaryModels")
+            hub_root = os.path.normpath(os.path.join(project_root, export_root_raw))
             
         hub_model_dir = os.path.join(hub_root, args.model)
         hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
-        local_ckpt_dir = config["checkpoint_dir"]
+        local_ckpt_dir = config.get("paths", {}).get("checkpoints_root", "checkpoints")
         os.makedirs(hub_ckpt_dir, exist_ok=True)
 
         hub_user = args.hub_user or config.get("hub_user", "lemgenda")
@@ -834,26 +851,32 @@ def main():
             subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
         else:
             print(f"🚀 [HUB SYNC] Initializing Hub at {hub_root}...")
-            if os.path.exists(hub_root):
-                # If directory exists but no .git, it might be a partial/failed clone
-                try: shutil.rmtree(hub_root, ignore_errors=True)
-                except: pass
-            
-            os.makedirs(os.path.dirname(hub_root), exist_ok=True)
-            res = subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", authenticated_url, hub_root], capture_output=True, text=True)
-            if res.returncode == 0:
-                print('✅ [HUB SYNC] Hub structure initialized (Stateless).')
-                subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
-                # Surgical LFS Pull: Only pull the checkpoints for the current model
-                print(f"📦 [LFS] Hydrating surgical manifold for {args.model}...")
-                subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
-            else:
-                err_msg = res.stderr.strip()
-                print(f"⚠️ [HUB SYNC] Initial clone failed. Error: {err_msg}")
-                if "repository not found" in err_msg.lower() or "authentication" in err_msg.lower():
-                    print("   👉 [AUTH] Ensure GITHUB_PAT is valid and has 'repo' scope.")
-                print(f"⚠️ [HUB SYNC] Creating local-only hub structure as fallback.")
+            # 2026: On Kaggle, skip cloning if LFS is likely to fail or if user wants lean manifold.
+            # We prioritize recovery from Kaggle Inputs.
+            if args.env == 'kaggle':
+                print("⚠️ [HUB SYNC] Kaggle detected. Bypassing massive Git clone to avoid LFS quota limits.")
                 os.makedirs(hub_ckpt_dir, exist_ok=True)
+            else:
+                if os.path.exists(hub_root):
+                    # If directory exists but no .git, it might be a partial/failed clone
+                    try: shutil.rmtree(hub_root, ignore_errors=True)
+                    except: pass
+                
+                os.makedirs(os.path.dirname(hub_root), exist_ok=True)
+                res = subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", authenticated_url, hub_root], capture_output=True, text=True)
+                if res.returncode == 0:
+                    print('✅ [HUB SYNC] Hub structure initialized (Stateless).')
+                    subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
+                    # Surgical LFS Pull: Only pull the checkpoints for the current model
+                    print(f"📦 [LFS] Hydrating surgical manifold for {args.model}...")
+                    subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
+                else:
+                    err_msg = res.stderr.strip()
+                    print(f"⚠️ [HUB SYNC] Initial clone failed. Error: {err_msg}")
+                    if "repository not found" in err_msg.lower() or "authentication" in err_msg.lower():
+                        print("   👉 [AUTH] Ensure GITHUB_PAT is valid and has 'repo' scope.")
+                    print(f"⚠️ [HUB SYNC] Creating local-only hub structure as fallback.")
+                    os.makedirs(hub_ckpt_dir, exist_ok=True)
     except Exception as e:
         print(f"⚠️ [HUB SYNC] Hub synchronization critical failure: {e}")
 
