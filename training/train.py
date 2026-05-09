@@ -692,6 +692,22 @@ def main():
         print(f"   👉 Recommended action: Wipe the 'manifests' and '../LemGendaryDatasets' folders and restart.")
         sys.exit(1)
 
+    # --- 2026 Resilience: Hub Checkpoint Pathing (v13.0) ---
+    # We prioritize the Hub repo for 'latest' and 'best' checkpoints to reduce suite size.
+    pat = os.environ.get('GITHUB_PAT', '')
+    if args.env == 'kaggle':
+        hub_root = "/kaggle/working/LemGendaryModels"
+    else:
+        # Anchor to project root via config paths if available
+        p_paths = config.get("paths", {})
+        export_root_raw = p_paths.get("export_root", "../LemGendaryModels")
+        hub_root = os.path.normpath(os.path.join(project_root, export_root_raw))
+        
+    hub_model_dir = os.path.join(hub_root, args.model)
+    hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
+    local_ckpt_dir = os.path.normpath(os.path.join(project_root, config.get("paths", {}).get("checkpoints_root", "checkpoints")))
+    os.makedirs(hub_ckpt_dir, exist_ok=True)
+
     # --- 2026 Resilience: Kaggle Checkpoint Recovery (Task 12.1) ---
     if args.env == 'kaggle':
         print(f"📡 [KAGGLE] Initiating Checkpoint & Metric Recovery...")
@@ -709,7 +725,7 @@ def main():
         # Tier 2: Surgical find only if Tier 1 yields too many or no results
         if not possible_roots:
             try:
-                res = subprocess.run(f"find /kaggle/input -maxdepth 4 -type d -name '*{search_target}*'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                res = subprocess.run(f"find /kaggle/input -maxdepth 5 -type d -name '*{search_target}*'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
                 possible_roots.extend([p for p in res if p])
             except: pass
         
@@ -726,32 +742,51 @@ def main():
                 os.path.join(recovery_root, args.model, "metrics.csv"),
                 os.path.join(recovery_root, "models", args.model, "metrics.csv") # Legacy support
             ]
+            # 2026: Recursive search if shallow search fails
             src_metrics = next((p for p in metrics_search if os.path.exists(p)), None)
-            
-            # Destination should be hub_model_dir/metrics.csv to match export_dir
-            dst_metrics = os.path.join(hub_model_dir, "metrics.csv")
-            if src_metrics and (not os.path.exists(dst_metrics) or os.path.getmtime(src_metrics) > os.path.getmtime(dst_metrics)):
+            if not src_metrics:
                 try:
+                    res = subprocess.run(f"find {recovery_root} -name 'metrics.csv'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                    if res and res[0]: src_metrics = res[0]
+                except: pass
+
+            dst_metrics = os.path.join(hub_model_dir, "metrics.csv")
+            if src_metrics:
+                try:
+                    os.makedirs(os.path.dirname(dst_metrics), exist_ok=True)
                     shutil.copy2(src_metrics, dst_metrics)
-                    print(f"   -> [RECOVERED] metrics.csv")
+                    print(f"   -> [RECOVERED] metrics.csv from {os.path.basename(os.path.dirname(src_metrics))}")
                 except: pass
             
             # Recovery 2: Checkpoints
-            src_ckpt_dir = os.path.join(recovery_root, "checkpoints")
-            if not os.path.exists(src_ckpt_dir):
-                 # Handle Kaggle Model nesting: model_name/checkpoints/
-                 src_ckpt_dir = os.path.join(recovery_root, args.model, "checkpoints")
-                 
-            dst_ckpt_dir = hub_ckpt_dir # Standardize to hub
-            os.makedirs(dst_ckpt_dir, exist_ok=True)
-            if os.path.exists(src_ckpt_dir):
-                for f in os.listdir(src_ckpt_dir):
-                    if f.endswith('.pth'):
-                        src_f = os.path.join(src_ckpt_dir, f)
-                        dst_f = os.path.join(dst_ckpt_dir, f)
-                        if not os.path.exists(dst_f) or os.path.getsize(src_f) > os.path.getsize(dst_f):
+            # Search for checkpoints folder or just .pth files
+            src_ckpt_dirs = [
+                os.path.join(recovery_root, "checkpoints"),
+                os.path.join(recovery_root, args.model, "checkpoints"),
+                recovery_root # Some datasets put .pth directly in root
+            ]
+            
+            for s_dir in src_ckpt_dirs:
+                if os.path.exists(s_dir):
+                    for f in os.listdir(s_dir):
+                        if f.endswith('.pth') and (args.model in f or "latest" in f or "best" in f):
+                            src_f = os.path.join(s_dir, f)
+                            dst_f = os.path.join(hub_ckpt_dir, f)
+                            if not os.path.exists(dst_f) or os.path.getsize(src_f) > os.path.getsize(dst_f):
+                                shutil.copy2(src_f, dst_f)
+                                print(f"   -> [RECOVERED] {f}")
+            
+            # 2026: Recursive backup for orphaned .pth files
+            try:
+                res = subprocess.run(f"find {recovery_root} -name '*.pth'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                for src_f in res:
+                    if src_f and os.path.exists(src_f):
+                        f = os.path.basename(src_f)
+                        dst_f = os.path.join(hub_ckpt_dir, f)
+                        if not os.path.exists(dst_f):
                             shutil.copy2(src_f, dst_f)
-                            print(f"   -> [RECOVERED] {f}")
+                            print(f"   -> [RECOVERED-DEEP] {f}")
+            except: pass
 
     # --- 2026 Resilience: Pre-Flight Resumption Engine ---
     # We must initialize all continuity variables before they are used in the data infrastructure.
@@ -801,23 +836,7 @@ def main():
     optimizer = torch.optim.AdamW(optim_groups, lr=lr)
     print(f" 🛡️ [SENIOR] Surgical Weight Decay active: {len(decay)} decayed | {len(no_decay)} regularized (Biases/Norms excluded).")
 
-    # --- 2026 Resilience: Hub Checkpoint Pathing (v13.0) ---
-    # We prioritize the Hub repo for 'latest' and 'best' checkpoints to reduce suite size.
     try:
-        pat = os.environ.get('GITHUB_PAT', '')
-        if args.env == 'kaggle':
-            hub_root = "/kaggle/working/LemGendaryModels"
-        else:
-            # Anchor to project root via config paths if available
-            p_paths = config.get("paths", {})
-            export_root_raw = p_paths.get("export_root", "../LemGendaryModels")
-            hub_root = os.path.normpath(os.path.join(project_root, export_root_raw))
-            
-        hub_model_dir = os.path.join(hub_root, args.model)
-        hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
-        local_ckpt_dir = config.get("paths", {}).get("checkpoints_root", "checkpoints")
-        os.makedirs(hub_ckpt_dir, exist_ok=True)
-
         hub_user = args.hub_user or config.get("hub_user", "lemgenda")
         hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
         hub_url = f"https://github.com/{hub_user}/{hub_repo}.git"
