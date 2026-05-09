@@ -89,12 +89,16 @@ class CloudSyncManager:
 
         try:
             print(f"🚀 [KAGGLER] Syncing SOTA Manifold to Kaggle: {self.kaggle_handle}...")
-            # We upload the entire model folder to capture metrics.csv and all checkpoints
-            kagglehub.model_upload(
-                handle=self.kaggle_handle,
-                local_model_dir=str(self.model_dir),
-                version_notes=f"SOTA Update: {self.model_name} | Epoch {self.epoch} | {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-            )
+            # 2026 Resilience: Suppress noisy kagglehub upload progress bars to keep console clean
+            import contextlib
+            with open(os.devnull, 'w') as devnull:
+                with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+                    # We upload the entire model folder to capture metrics.csv and all checkpoints
+                    kagglehub.model_upload(
+                        handle=self.kaggle_handle,
+                        local_model_dir=str(self.model_dir),
+                        version_notes=f"SOTA Update: {self.model_name} | Epoch {self.epoch} | {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                    )
             print(f"✅ [KAGGLER] Manifold successfully synchronized to Kaggle Hub!")
         except Exception as e:
             print(f"⚠️ [KAGGLER] Hub Sync failed: {e}")
