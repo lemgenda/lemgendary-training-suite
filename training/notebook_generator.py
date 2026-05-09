@@ -224,18 +224,20 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     ]
 
     push_source = [
-        "import os, subprocess, datetime\n",
-        "hub_root = '/kaggle/working/LemGendaryModels'\n",
-        "print('📡 [SYNC] Pushing finalized SOTA to Hub...')\n",
-        "subprocess.run(['git', 'config', 'user.email', 'lem.treursic@gmail.com'], cwd=hub_root)\n",
-        "subprocess.run(['git', 'config', 'user.name', 'lemgenda'], cwd=hub_root)\n",
-        "subprocess.run(['git', 'config', 'pull.rebase', 'true'], cwd=hub_root)\n",
-        "subprocess.run(['git', 'add', '.'], cwd=hub_root)\n",
-        "msg = f'Finalize {model_key} @ {datetime.datetime.now().isoformat()}'\n",
-        "subprocess.run(['git', 'commit', '-m', msg], cwd=hub_root)\n",
-        "subprocess.run(['git', 'pull', '--rebase', '-X', 'theirs', 'origin', 'main'], cwd=hub_root)\n",
-        "subprocess.run(['git', 'push', 'origin', 'main'], cwd=hub_root)\n",
-        "print('✅ [DONE] Deployment Complete.')\n"
+        "import os, kagglehub\n",
+        f"model_key = '{model_key}'\n",
+        "local_path = f'/kaggle/working/LemGendaryModels/{model_key}'\n",
+        "model_handle = f'lemgenda/{model_key}'\n",
+        "\n",
+        "if os.path.exists(local_path):\n",
+        "    print(f'📡 [KAGGLE] Pushing finalized SOTA to {model_handle}...')\n",
+        "    try:\n",
+        "        # 2026: Atomic Push via KaggleHub (Nuclear-Hardened v16.2)\n",
+        "        kagglehub.model_upload(model_handle, local_path, version_notes='v16.2 Nuclear-Hardened Sync')\n",
+        "        print('✅ [DONE] Deployment Complete.')\n",
+        "    except Exception as e:\n",
+        "        print(f'❌ [ERROR] Deployment failed: {e}')\n",
+        "else: print(f'⚠️ [ERROR] Local manifold not found at {local_path}')\n"
     ]
 
     notebook_content = {
