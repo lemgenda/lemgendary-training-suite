@@ -36,9 +36,10 @@ class CloudSyncManager:
         self.kaggle_handle = config.get("kaggle_handle", f"{self.kaggle_username}/{self.model_slug}/pytorch/default")
         
         # Paths
-        # 2026 Resilience: SOTA checkpoints are stored within the Model Hub manifold.
-        # We must sync the Hub's internal checkpoint directory, not the local suite folder.
-        self.checkpoint_dir = self.hub_root / self.model_name / "checkpoints"
+        # 2026 Resilience: SOTA checkpoints and metrics are stored within the Model Hub manifold.
+        # We sync the model's root directory to capture both metrics.csv and the checkpoints folder.
+        self.model_dir = self.hub_root / self.model_name
+        self.checkpoint_dir = self.model_dir / "checkpoints"
 
     def _mask_pat(self, text):
         if not self.pat: return text
@@ -61,7 +62,7 @@ class CloudSyncManager:
         print(f"\n📡 [CLOUD SYNC] Cloud Synchronization Phase (Epoch {self.epoch})...")
         
         # 2026: On Kaggle, we bypass GitHub entirely to keep the manifold lean and PAT-free.
-        # Checkpoints and metrics.csv are pushed ONLY to the Kaggle Model artifact.
+        # Checkpoints and metrics.csv are pushed DIRECTLY to the Kaggle Model artifact.
         is_kaggle = os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.environ.get("KAGGLE_WORKING_DIR")
         
         if is_kaggle:
@@ -86,10 +87,10 @@ class CloudSyncManager:
 
         try:
             print(f"🚀 [KAGGLER] Syncing SOTA Manifold to Kaggle: {self.kaggle_handle}...")
-            # We upload the entire checkpoint folder to capture _best and _latest
+            # We upload the entire model folder to capture metrics.csv and all checkpoints
             kagglehub.model_upload(
                 handle=self.kaggle_handle,
-                local_model_dir=str(self.checkpoint_dir),
+                local_model_dir=str(self.model_dir),
                 version_notes=f"SOTA Update: {self.model_name} | Epoch {self.epoch} | {datetime.now().strftime('%Y-%m-%d %H:%M')}"
             )
             print(f"✅ [KAGGLER] Manifold successfully synchronized to Kaggle Hub!")
