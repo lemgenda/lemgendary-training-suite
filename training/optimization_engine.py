@@ -132,6 +132,18 @@ class SmartTrainingGovernor:
                     is_turbulent = True
 
         is_flat = abs(delta_q) < self.min_delta and len(self.history) >= 2
+        
+        # 2026 NPP: Fidelity Floor (Task 12.7)
+        # If the model is stuck in a low-quality manifold (e.g. Accuracy high but SRCC low),
+        # we relax the 'flatness' constraint to allow Jolts through the noise.
+        fidelity_floor = self.best_quality * 0.8
+        is_trapped = current_quality < fidelity_floor and len(self.history) >= 4
+        if is_trapped:
+            # Relax min_delta by 4x to ignore low-level metric jitter
+            effective_min_delta = self.min_delta * 4
+            is_flat = abs(delta_q) < effective_min_delta
+            if is_flat: msg_parts.append("🕸️ [TRAPPED] Fidelity Floor reached. Relaxing stagnation guard.")
+
         is_regressing = delta_q < -0.01 
         is_collapsed = current_quality < 0.05 # Near-zero or negative correlation
         
@@ -182,10 +194,13 @@ class SmartTrainingGovernor:
             jolt_ready = (self.epoch_count - getattr(self, 'last_jolt_epoch', -10)) > 5 and self.cooldown_remaining == 0
             if is_flat and jolt_ready:
                 jolt = self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5)
+                # NPP: If trapped, increase Jolt intensity to break the classification trap
+                if is_trapped: jolt *= 1.5
                 self.lr_multiplier = float(jolt)
                 lr_changed = True
                 self.last_jolt_epoch = self.epoch_count
-                msg_parts.append(f"⚡ JOLT: Breaking Plateau with {jolt}x LR Propulsion")
+                msg_parts.append(f"⚡ JOLT: Breaking Plateau with {jolt:.2f}x LR Propulsion")
+
             
             next_frac = min(1.0, self.current_fraction + 0.15) # NPP: Smaller steps
             next_state = (self.current_res, round(next_frac, 2))
