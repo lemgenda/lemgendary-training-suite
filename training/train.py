@@ -2214,6 +2214,10 @@ def main():
         # Calculate Universal Validation Metrics
         metrics_str = ""
         plcc = srcc = psnr = ssim_val = lpips_val = fid = map50 = map50_95 = rank_margin = accuracy = 0.0
+        
+        # Calculate Universal Validation Metrics
+        metrics_str = ""
+        plcc = srcc = psnr = ssim_val = lpips_val = fid = map50 = map50_95 = rank_margin = accuracy = 0.0
         # Set baseline for non-negative metrics
         # --- 2026: Incremental Canonical Eval (RAM Protection v5.0) ---
         # We process metrics in manageable chunks to avoid System RAM OOM on large datasets.
@@ -2244,6 +2248,21 @@ def main():
                         metrics_str = f" | Acc: {accuracy:.4f} | PLCC: {plcc:.4f} | SRCC: {srcc:.4f} | RM: {rank_margin:.4f}"
                     else:
                         metrics_str = f" | PLCC: {plcc:.4f} | SRCC: {srcc:.4f} | RM: {rank_margin:.4f}"
+
+                    # 2026 Resilience: Post-Validation Polarity Audit (v4.5)
+                    # If the epoch ends with negative correlation, we trigger a Head Reset immediately
+                    # to prevent wasting subsequent epochs on an inverted manifold.
+                    if srcc < -0.05:
+                        print(f"\n⚠️ [POLARITY] Manifold inversion detected (SRCC: {srcc:.4f}). Triggering Emergency Head Reset...")
+                        target_layers = []
+                        if hasattr(model, 'classifier'): target_layers = [l for l in model.classifier if isinstance(l, nn.Linear)]
+                        elif hasattr(model, 'head'): target_layers = [model.head]
+                        for layer in target_layers:
+                            torch.nn.init.xavier_uniform_(layer.weight)
+                            torch.nn.init.zeros_(layer.bias)
+                        optimizer.state.clear() # Flush momentum to seat the new head
+                        sota_baseline_achieved = False
+                        best_quality_score = -1.0
             elif train_ds.task_type == "classification" and len(all_preds) > 0:
                 p = torch.cat(all_preds)
                 t = torch.cat(all_targets)

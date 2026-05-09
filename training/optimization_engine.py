@@ -133,12 +133,13 @@ class SmartTrainingGovernor:
 
         is_flat = abs(delta_q) < self.min_delta and len(self.history) >= 2
         is_regressing = delta_q < -0.01 
-
+        is_collapsed = current_quality < 0.05 # Near-zero or negative correlation
+        
         # 4. NPP LOOP DETECTION
         current_state = (self.current_res, round(self.current_fraction, 2))
         failures = self.failure_log.get(str(current_state), 0) # Store as string for JSON safety
         
-        if is_regressing or is_turbulent:
+        if is_regressing or is_turbulent or is_collapsed:
             self.failure_log[str(current_state)] = failures + 1
             msg_parts.append(f"⚠️ NPP FAILURE: State {current_state} (Count: {self.failure_log[str(current_state)]})")
             
