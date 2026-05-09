@@ -301,6 +301,7 @@ class SmartTrainingGovernor:
         raw_res = state.get("input_size", self.current_res)
         self.current_res = raw_res[1] if isinstance(raw_res, list) else raw_res
         self.current_temp = max(self.min_temp, state.get("softmax_temp", self.current_temp))
+        if self.task_type == "quality": self.current_temp = min(1.0, self.current_temp)
         self.current_clamp = state.get("logit_clamp", self.current_clamp)
         self.current_batch = state.get("batch_size", self.current_batch)
         self.current_acc = state.get("accumulation_steps", self.current_acc)
@@ -316,5 +317,6 @@ class SmartTrainingGovernor:
         old_frac = self.current_fraction
         self.current_fraction = max(0.15, old_frac - 0.15)
         self.current_temp = min(1.5, self.current_temp * 1.3)
+        if self.task_type == "quality": self.current_temp = min(1.0, self.current_temp)
         self.stabilization_epochs = 3
         return f"⚡ [NPP] RECOIL: Retreat to {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"

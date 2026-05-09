@@ -1567,7 +1567,7 @@ def main():
                             sentinel = stab.get('numerical_sentinel')
                             if sentinel and len(sentinel) == 2:
                                 # 2026 Resilience: Sync Sentinel with Active Logit Clamp
-                                # If the manifold is restricted (e.g. clamp=10), we must check stress against 10, not 15.
+                                # If the manifold is restricted, we must check stress against 10, not 15.
                                 s_min, s_max = float(sentinel[0]), float(sentinel[1])
                                 current_clamp = stab.get('logit_clamp', s_max)
                                 min_v = max(s_min, -current_clamp)
@@ -2307,7 +2307,8 @@ def main():
                     # 2026 Resilience: Post-Validation Polarity Audit (v4.5)
                     # If the epoch ends with negative correlation, we trigger a Head Reset immediately
                     # to prevent wasting subsequent epochs on an inverted manifold.
-                    if srcc < -0.05 or plcc < -0.05:
+                    # 2026 Hardening: Stricter PLCC trigger (-0.02) to prevent entropy loops.
+                    if srcc < -0.05 or plcc < -0.02:
                         print(f"\n⚠️ [POLARITY] Manifold inversion detected (SRCC: {srcc:.4f} | PLCC: {plcc:.4f}). Triggering Emergency Head Reset...")
                         target_layers = []
                         if hasattr(model, 'classifier'): target_layers = [l for l in model.classifier if isinstance(l, nn.Linear)]
@@ -2761,7 +2762,9 @@ def main():
 
 
 # --- Automated Cloud Hub Deployment ---
-        if args.auto_sync:
+        # 2026 Resilience: Disable Git-based sync on Kaggle to prevent I/O contention and rebase rollbacks.
+        # We rely on the hardened trigger_cloud_sync (Kaggle Hub) for persistence.
+        if args.auto_sync and args.env != 'kaggle':
             try:
                 hub_user = args.hub_user or config.get("hub_user", "lemgenda")
                 hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
