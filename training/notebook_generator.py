@@ -439,11 +439,12 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     
     if target_dataset_folder:
         ds_dir = os.path.join(datasets_hub_root, target_dataset_folder)
-        os.makedirs(ds_dir, exist_ok=True)
-        ds_output_path = os.path.join(ds_dir, f"{model_key}_training.ipynb")
-        with open(ds_output_path, "w", encoding='utf-8') as f:
-            json.dump(notebook_content, f, indent=4)
-        print(f"[OK] Generated Dual Training Notebook: {ds_output_path}")
+        if os.path.exists(ds_dir):
+            ds_output_path = os.path.join(ds_dir, f"{model_key}_training.ipynb")
+            with open(ds_output_path, "w", encoding='utf-8') as f:
+                json.dump(notebook_content, f, indent=4)
+            print(f"[OK] Generated Dual Training Notebook: {ds_output_path}")
+
 
 def generate_usage_notebook(model_key, export_dir, unified_models_registry=None, config=None):
     """
