@@ -89,17 +89,39 @@ class CloudSyncManager:
 
         try:
             print(f"🚀 [KAGGLER] Syncing SOTA Manifold to Kaggle: {self.kaggle_handle}...")
-            # 2026 Resilience: Suppress noisy kagglehub upload progress bars to keep console clean
-            import contextlib
+            # 2026 Resilience: Run upload in a subprocess to isolate verbose/crashing I/O
+            import subprocess
+            import sys
+            
+            # Escape backslashes for the script string
+            safe_model_dir = str(self.model_dir).replace('\\', '/')
+            
+            upload_script = f"""
+import kagglehub, os, sys
+try:
+    kagglehub.model_upload(
+        handle='{self.kaggle_handle}',
+        local_model_dir='{safe_model_dir}',
+        version_notes='SOTA Update: {self.model_name} | Epoch {self.epoch}'
+    )
+    sys.exit(0)
+except Exception as e:
+    # We print to stdout so it's captured in the devnull or log if we ever enable it
+    print(e)
+    sys.exit(1)
+"""
             with open(os.devnull, 'w') as devnull:
-                with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
-                    # We upload the entire model folder to capture metrics.csv and all checkpoints
-                    kagglehub.model_upload(
-                        handle=self.kaggle_handle,
-                        local_model_dir=str(self.model_dir),
-                        version_notes=f"SOTA Update: {self.model_name} | Epoch {self.epoch} | {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-                    )
-            print(f"✅ [KAGGLER] Manifold successfully synchronized to Kaggle Hub!")
+                res = subprocess.run(
+                    [sys.executable, "-c", upload_script],
+                    stdout=devnull,
+                    stderr=devnull,
+                    env=os.environ.copy()
+                )
+            
+            if res.returncode == 0:
+                print(f"✅ [KAGGLER] Manifold successfully synchronized to Kaggle Hub!")
+            else:
+                print(f"⚠️ [KAGGLER] Hub Sync subprocess returned error code {res.returncode}")
         except Exception as e:
             print(f"⚠️ [KAGGLER] Hub Sync failed: {e}")
 

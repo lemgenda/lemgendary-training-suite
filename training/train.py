@@ -2736,14 +2736,18 @@ def main():
             # 2026: Legacy Git Sync purged.
             # 2026 Resilience: Synchronization is now handled by CloudSyncManager (v16.2)
             # which manages the atomic push cycle via background threads.
-            if args.env == 'kaggle':
-                try:
-                    from training.cloud_sync import trigger_cloud_sync
-                    trigger_cloud_sync(args.model, epoch + 1, config)
-                except Exception as e:
-                    print(f"⚠️ [CLOUD SYNC] Critical background sync failure: {e}", file=sys.stderr)
         except Exception as e:
             print(f"⚠️ [HUB SYNC] Model Hub Mirroring critical failure: {e}")
+
+        # --- 2026: SOTA Cloud Synchronization Phase ---
+        # We trigger the background sync at the VERY end of the loop,
+        # ensuring all local files (metrics.csv, checkpoints) are closed and flushed.
+        if args.env == 'kaggle':
+            try:
+                from training.cloud_sync import trigger_cloud_sync
+                trigger_cloud_sync(args.model, epoch + 1, config)
+            except Exception as e:
+                print(f"⚠️ [CLOUD SYNC] Critical background sync failure: {e}", file=sys.stderr)
 
         # 2026 Resilience: Legacy Persistence and Auto-Sync purged. 
 
@@ -2803,14 +2807,6 @@ def main():
                     # 4. Global Push (Models Only)
                     commit_msg = f"Update new best weights and metrics for {args.model} from {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     git_hub_sync(target_hub_root, auth_hub_url, commit_msg)
-
-                # 2026: Trigger Background Cloud Sync (Nuclear-Hardened v16.2)
-                if args.env == 'kaggle':
-                    try:
-                        from training.cloud_sync import trigger_cloud_sync
-                        trigger_cloud_sync(args.model, epoch + 1, config)
-                    except Exception as e:
-                        print(f"⚠️ [CLOUD SYNC] Critical background sync failure: {e}", file=sys.stderr)
 
             except Exception as e:
                 print(f" [WARNING] [HUB-SYNC] Deployment skipped: {e}")
