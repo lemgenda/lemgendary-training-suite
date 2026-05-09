@@ -695,25 +695,28 @@ def main():
     # --- 2026 Resilience: Kaggle Checkpoint Recovery (Task 12.1) ---
     if args.env == 'kaggle':
         print(f"📡 [KAGGLE] Initiating Checkpoint & Metric Recovery...")
-        # Search for: Lemgendary_[model]_Checkpoints
-        search_target = f"lemgendary_{args.model}_checkpoints".lower().replace("-", "_")
+        # 2026: Fast-Probe Discovery (Tiered)
+        search_target = args.model.lower().replace("-", "_")
         possible_roots = []
-        # Tiered Discovery: Check top-level first, then surgical find
+        
         if os.path.exists('/kaggle/input'):
+            # Tier 1: Instant Top-Level Filter
             for d in os.listdir('/kaggle/input'):
-                if search_target in d.lower().replace("-", "_"):
+                d_lower = d.lower().replace("-", "_")
+                if search_target in d_lower or "lemgendary" in d_lower:
                     possible_roots.append(os.path.join('/kaggle/input', d))
         
+        # Tier 2: Surgical find only if Tier 1 yields too many or no results
         if not possible_roots:
             try:
-                res = subprocess.run(f"find /kaggle/input -maxdepth 3 -type d -name '*{search_target}*'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                res = subprocess.run(f"find /kaggle/input -maxdepth 4 -type d -name '*{search_target}*'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
                 possible_roots.extend([p for p in res if p])
             except: pass
         
         # Priority: Models root, then deepest path (usually contains /pytorch/default/1/)
         if possible_roots:
             # Sort by depth to find the actual data root (Kaggle models are nested)
-            recovery_root = sorted(possible_roots, key=lambda x: x.count(os.sep), reverse=True)[0]
+            recovery_root = sorted(list(set(possible_roots)), key=lambda x: x.count(os.sep), reverse=True)[0]
             print(f"   -> [FOUND] Recovery manifold at: {recovery_root}")
             
             # Recovery 1: metrics.csv
