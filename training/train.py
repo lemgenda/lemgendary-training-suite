@@ -801,23 +801,6 @@ def main():
     optimizer = torch.optim.AdamW(optim_groups, lr=lr)
     print(f" 🛡️ [SENIOR] Surgical Weight Decay active: {len(decay)} decayed | {len(no_decay)} regularized (Biases/Norms excluded).")
 
-    # --- 2026 Structural Shift: Resume Logic (Metadata Protection Phase) ---
-    # We load weights and optimizer state BEFORE the scheduler is born.
-    # This ensures OneCycleLR injects its keys into the final, active optimizer state.
-    # 2026 Resilience: export_dir must be anchored to hub_model_dir for consistency.
-    export_dir = hub_model_dir
-    os.makedirs(export_dir, exist_ok=True)
-
-    config["checkpoint_dir"] = os.path.normpath(os.path.join(project_root, config.get("paths", {}).get("checkpoints_root", "checkpoints")))
-    os.makedirs(config["checkpoint_dir"], exist_ok=True)
-    best_val_loss = float('inf')
-    best_quality_score = -1.0
-
-    # --- 2026: SOTA Metric Persistence Buffer ---
-    best_metrics = {
-        "plcc": 0.0, "srcc": 0.0, "psnr": 0.0, "ssim": 0.0, "lpips": 0.05, "fid": 50.0
-    }
-
     # --- 2026 Resilience: Hub Checkpoint Pathing (v13.0) ---
     # We prioritize the Hub repo for 'latest' and 'best' checkpoints to reduce suite size.
     try:
@@ -882,6 +865,23 @@ def main():
                     os.makedirs(hub_ckpt_dir, exist_ok=True)
     except Exception as e:
         print(f"⚠️ [HUB SYNC] Hub synchronization critical failure: {e}")
+
+    # --- 2026 Structural Shift: Resume Logic (Metadata Protection Phase) ---
+    # We load weights and optimizer state BEFORE the scheduler is born.
+    # This ensures OneCycleLR injects its keys into the final, active optimizer state.
+    # 2026 Resilience: export_dir must be anchored to hub_model_dir for consistency.
+    export_dir = hub_model_dir
+    os.makedirs(export_dir, exist_ok=True)
+
+    config["checkpoint_dir"] = os.path.normpath(os.path.join(project_root, config.get("paths", {}).get("checkpoints_root", "checkpoints")))
+    os.makedirs(config["checkpoint_dir"], exist_ok=True)
+    best_val_loss = float('inf')
+    best_quality_score = -1.0
+
+    # --- 2026: SOTA Metric Persistence Buffer ---
+    best_metrics = {
+        "plcc": 0.0, "srcc": 0.0, "psnr": 0.0, "ssim": 0.0, "lpips": 0.05, "fid": 50.0
+    }
 
     # --- 2026: Global Historical Best Guardrail ---
     # We probe the 'best.pth' artifact to establish a high-water mark for the entire project.
