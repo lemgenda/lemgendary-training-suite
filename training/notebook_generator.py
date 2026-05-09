@@ -5,7 +5,7 @@ import argparse
 
 def generate_inference_notebook(model_key, export_dir, unified_models_registry=None, config=None):
     """
-    Generates a v16.0 Nuclear Stateless Inference Notebook for Kaggle.
+    Generates a v16.2 Nuclear-Hardened Inference Notebook for Kaggle.
     """
     pascal_model_name = model_key.replace("_", " ").title().replace(" ", "")
     kebab_model_name = model_key.replace("_", "-")
@@ -242,6 +242,53 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "else: print(f'⚠️ [ERROR] Local manifold not found at {local_path}')\n"
     ]
 
+    checkpoint_recovery_source = [
+        "import os, shutil, subprocess, glob\n",
+        f"model_key = '{model_key}'\n",
+        "print(f'📡 [RECOVERY] Searching for SOTA checkpoints for {model_key}...')\n",
+        "hub_root = '/kaggle/working/LemGendaryModels'\n",
+        "model_hub_dir = os.path.join(hub_root, model_key)\n",
+        "ckpt_hub_dir = os.path.join(model_hub_dir, 'checkpoints')\n",
+        "os.makedirs(ckpt_hub_dir, exist_ok=True)\n",
+        "\n",
+        "found_ckpts = []\n",
+        "try:\n",
+        "    res = subprocess.run(f\"find /kaggle/input -maxdepth 4 -type f -name '*{model_key.replace('_', '*')}*.pth'\", shell=True, capture_output=True, text=True).stdout.strip().split('\\n')\n",
+        "    found_ckpts = [p for p in res if p]\n",
+        "except: pass\n",
+        "\n",
+        "if found_ckpts:\n",
+        "    print(f'   -> [FOUND] {len(found_ckpts)} binaries in Kaggle Input.')\n",
+        "    for src in found_ckpts:\n",
+        "        fname = os.path.basename(src)\n",
+        "        dst = os.path.join(ckpt_hub_dir, fname)\n",
+        "        if not os.path.exists(dst) or os.path.getsize(src) > os.path.getsize(dst):\n",
+        "            shutil.copy2(src, dst)\n",
+        "            print(f'   -> [OK] Recovered {fname}')\n",
+        "    \n",
+        "    metrics_found = False\n",
+        "    for src in found_ckpts:\n",
+        "        for d in [os.path.dirname(os.path.dirname(src)), os.path.dirname(src)]:\n",
+        "            m_path = os.path.join(d, 'metrics.csv')\n",
+        "            if os.path.exists(m_path):\n",
+        "                try:\n",
+        "                    shutil.copy2(m_path, os.path.join(model_hub_dir, 'metrics.csv'))\n",
+        "                    print(f'   -> [OK] Recovered metrics.csv from {os.path.basename(d)}')\n",
+        "                    metrics_found = True; break\n",
+        "                except: pass\n",
+        "        if metrics_found: break\n",
+        "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs.')\n"
+    ]
+
+    persistence_source = [
+        "import os, subprocess, sys\n",
+        f"model_key = '{model_key}'\n",
+        "print(f'🚀 [PERSISTENCE] Manual sync triggered for {model_key}...')\n",
+        "cmd = [sys.executable, 'training/checkpoint_sync.py', '--model', model_key, '--target', '/kaggle/working/persistence']\n",
+        "os.chdir('/kaggle/working/lemgendary-training-suite')\n",
+        "subprocess.run(cmd)\n"
+    ]
+
     notebook_content = {
         "metadata": {
             "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
@@ -253,7 +300,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             {
                 "cell_type": "markdown",
                 "source": [
-                    f"# LemGendary Master Execution: {pascal_model_name} (v16.0 Nuclear)\n",
+                    f"# LemGendary Master Execution: {pascal_model_name} (v16.2 Nuclear-Hardened)\n",
                     "This unified notebook handles environment synchronization and automated cloud training.\n"
                 ],
                 "metadata": {}
@@ -295,17 +342,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             },
             {
                 "cell_type": "markdown",
-                "source": ["## 4. Multi-Path Data Resolution\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": symlink_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 5. SOTA Hub Synchronization (Pull)\n"],
+                "source": ["## 4. SOTA Hub Synchronization (Pull)\n"],
                 "metadata": {}
             },
             {
@@ -315,12 +352,22 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             },
             {
                 "cell_type": "markdown",
-                "source": ["## 6. Stealth Model Loading\n"],
+                "source": ["## 5. Multi-Path Data Resolution\n"],
                 "metadata": {}
             },
             {
                 "cell_type": "code",
-                "source": stealth_source,
+                "source": symlink_source,
+                "metadata": {}, "outputs": [], "execution_count": None
+            },
+            {
+                "cell_type": "markdown",
+                "source": ["## 6. Checkpoint & Metric Recovery\n"],
+                "metadata": {}
+            },
+            {
+                "cell_type": "code",
+                "source": checkpoint_recovery_source,
                 "metadata": {}, "outputs": [], "execution_count": None
             },
             {
@@ -335,7 +382,17 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             },
             {
                 "cell_type": "markdown",
-                "source": ["## 8. SOTA Deployment (Push)\n"],
+                "source": ["## 8. Manual Persistence Sync\n", "Run this cell to manually sync current checkpoints to the persistence folder.\n"],
+                "metadata": {}
+            },
+            {
+                "cell_type": "code",
+                "source": persistence_source,
+                "metadata": {}, "outputs": [], "execution_count": None
+            },
+            {
+                "cell_type": "markdown",
+                "source": ["## 9. SOTA Deployment (Push)\n"],
                 "metadata": {}
             },
             {
@@ -346,11 +403,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         ]
     }
 
-    # --- Section Logic: v16.2 Nuclear Orchestration ---
-    
-    # [Rest of the source blocks remain identical to previous turn's hardened auth]
-    
-    # ... (skipping to filename resolution)
     
     output_path = os.path.join(export_dir, f"{model_key}_training.ipynb")
     os.makedirs(export_dir, exist_ok=True)
@@ -533,7 +585,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
 
 if __name__ == "__main__":
     import yaml
-    parser = argparse.ArgumentParser(description="LemGendary Notebook Orchestrator (v16.0 Nuclear)")
+    parser = argparse.ArgumentParser(description="LemGendary Notebook Orchestrator (v16.2 Nuclear)")
     parser.add_argument("--model", type=str, help="Generate notebooks for a specific model key.")
     parser.add_argument("--all", action="store_true", help="Regenerate the entire Notebook Matrix for all registry models.")
     parser.add_argument("--dir", type=str, help="Override export directory.")
