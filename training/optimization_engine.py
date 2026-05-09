@@ -97,6 +97,7 @@ class SmartTrainingGovernor:
         self.best_quality = max(self.best_quality, current_quality)
         
         # 2. Guard: Stabilization
+        msg_parts = []
         # Senior Update: Emergency Breakout if manifold is clearly collapsing
         if self.stabilization_epochs > 0:
             if current_quality < self.best_quality * 0.90 and self.best_quality > 0:
@@ -117,7 +118,6 @@ class SmartTrainingGovernor:
 
         f_changed = r_changed = lr_changed = t_changed = c_changed = b_changed = False
         self.lr_multiplier = 1.0
-        msg_parts = []
         phase = self.get_phase()
 
         # 3. NPP Diagnosis: Turbulence Dampening
