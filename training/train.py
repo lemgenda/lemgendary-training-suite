@@ -2686,31 +2686,11 @@ def main():
                 if os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_path):
                     shutil.copy2(metrics_csv_path, hub_metrics_path)
 
-            # 3. Git Sync (Atomic & Multi-Model Safe)
-            # We only add files related to THIS model to prevent clobbering other training sessions
-            model_dir = os.path.join(hub_root, args.model)
-            metrics_file = os.path.join(hub_root, args.model, "metrics.csv")
+            # 2026: Legacy Git Sync purged.
             
-            subprocess.run(["git", "add", model_dir], cwd=hub_root, capture_output=True)
-            if os.path.exists(metrics_file):
-                subprocess.run(["git", "add", metrics_file], cwd=hub_root, capture_output=True)
+            
+            
                 
-            type_label = "SOTA" if is_best else "Progress"
-            commit_msg = f"Update {type_label} artifacts for {args.model} (Epoch {epoch+1})"
-            subprocess.run(["git", "commit", "-m", commit_msg], cwd=hub_root, capture_output=True)
-            
-            # 2026 Resilience: Auto-Push strategy (Universal every-epoch sync)
-            pat = os.environ.get('GITHUB_PAT') or os.environ.get('HUB_PAT', '')
-            should_push = (args.env != 'kaggle') or bool(pat)
-            
-            # We push every epoch to ensure absolute stateless resilience and real-time auditability.
-            if should_push:
-                print(f"🚀 [HUB SYNC] Synchronizing with remote Hub...", file=sys.stderr)
-            else:
-                print(f" ℹ️ [HUB SYNC] Push skipped (PAT not found in Secrets or non-push environment).", file=sys.stderr)
-                
-            if should_push:
-                try:
                     # 2026 Resilience: Headless Authentication Hardening
                     git_env = os.environ.copy()
                     git_env["GIT_TERMINAL_PROMPT"] = "0"
@@ -2718,16 +2698,7 @@ def main():
                     if pat:
                         rem_res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=hub_root, capture_output=True, text=True, env=git_env, timeout=10)
                         if rem_res.returncode == 0:
-                            raw_url = rem_res.stdout.strip()
-                            base_url = raw_url.split('@')[-1] if '@' in raw_url else raw_url.replace("https://", "")
-                            auth_url = f"https://{pat}@{base_url}"
-                            subprocess.run(["git", "remote", "set-url", "origin", auth_url], cwd=hub_root, capture_output=True, env=git_env, timeout=10)
-                    
-                    # 2026 Resilience: Disable LFS lock verification to prevent hanging on public Hubs
-                    subprocess.run(["git", "config", "lfs.https://github.com/.locksverify", "false"], cwd=hub_root, capture_output=True, env=git_env, timeout=10)
-                    subprocess.run(["git", "config", "credential.helper", ""], cwd=hub_root, capture_output=True, env=git_env, timeout=10)
-                except Exception as e:
-                    print(f" ⚠️ [HUB SYNC] Auth hardening failed: {e}", file=sys.stderr)
+                            # 2026: Legacy sync blocks purged.
 
                 # 2026 Resilience: Check for divergence (Ahead/Behind)
                 subprocess.run(["git", "fetch", "origin"], cwd=hub_root, capture_output=True)
@@ -2737,11 +2708,6 @@ def main():
                 check_behind = subprocess.run(["git", "rev-list", "--count", "main..origin/main"], cwd=hub_root, capture_output=True, text=True)
                 behind_count = int(check_behind.stdout.strip()) if check_behind.returncode == 0 else 0
 
-                if behind_count > 0:
-                    print(f" 📡 [HUB SYNC] Remote updates detected (Behind: {behind_count}). Rebase-aligning...", file=sys.stderr)
-                    # 2026 Resilience: Rebase-Only Strategy (Multi-Model Safe)
-                    # We pull with rebase to ensure our commits are applied ON TOP of the remote ones.
-                    subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True, env=git_env, timeout=60)
 
                 res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True, env=git_env, timeout=60)
                 if res.returncode == 0:
@@ -2759,35 +2725,12 @@ def main():
         except Exception as e:
             print(f"⚠️ [HUB SYNC] Hub synchronization critical failure: {e}")
 
-        # --- 2026 Resilience: Kaggle Persistent Output (Task 12.2) ---
+        # 2026 Resilience: Legacy Persistence and Auto-Sync purged. 
         if args.env == 'kaggle':
             try:
-                # Structure: /kaggle/working/persistence/Lemgendary_[Model]_Checkpoints/
-                # Matches the model artifact format for easy re-upload/persistence
-                persistence_root = "/kaggle/working/persistence"
-                model_name_formatted = f"Lemgendary_{args.model.replace('_', ' ').title().replace(' ', '_')}_Checkpoints"
-                model_out_dir = os.path.join(persistence_root, model_name_formatted)
-                ckpt_out_dir = os.path.join(model_out_dir, "checkpoints")
-                os.makedirs(ckpt_out_dir, exist_ok=True)
-                
-                # 1. Sync metrics.csv
-                if os.path.exists(metrics_csv_path):
-                    shutil.copy2(metrics_csv_path, os.path.join(model_out_dir, "metrics.csv"))
-                
-                # 2. Sync Latest Checkpoint
-                latest_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
-                if os.path.exists(latest_hub_path):
-                    shutil.copy2(latest_hub_path, os.path.join(ckpt_out_dir, f"{args.model}_latest.pth"))
-                    
-                # 3. Sync Best Checkpoint
-                best_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
-                if os.path.exists(best_hub_path):
-                    # Only copy if it exists (might not exist if is_best was never True)
-                    shutil.copy2(best_hub_path, os.path.join(ckpt_out_dir, f"{args.model}_best.pth"))
-                
-                print(f"💾 [PERSISTENCE] Local manifold updated: {model_name_formatted}")
-            except Exception as e:
-                print(f"⚠️ [PERSISTENCE] Failed to update local manifold: {e}")
+                # CloudSyncManager handles all manifold persistence.
+                pass
+            except: pass
 
 
 # --- Automated Cloud Hub Deployment ---

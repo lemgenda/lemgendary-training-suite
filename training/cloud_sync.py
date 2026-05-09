@@ -98,8 +98,11 @@ class CloudSyncManager:
 
     def _sync_to_github(self):
         """Legacy Git-LFS Sync for Metrics and Documentation."""
-        if not self.pat:
-            print("⚠️ [SYNC] GITHUB_PAT missing. Skipping GitHub manifold push.")
+        # 2026 Resilience: Only enforce PAT if in a headless cloud environment.
+        # On local, we use the linked account.
+        is_cloud = os.environ.get("KAGGLE_WORKING_DIR") or "/kaggle/working" in str(self.hub_root)
+        if not self.pat and is_cloud:
+            print("⚠️ [SYNC] GITHUB_PAT missing in Cloud environment. Skipping push.")
             return
         
         # 1. Ensure Hub is initialized and anchored
