@@ -712,81 +712,114 @@ def main():
     if args.env == 'kaggle':
         print(f"📡 [KAGGLE] Initiating Checkpoint & Metric Recovery...")
         # 2026: Fast-Probe Discovery (Tiered)
-        search_target = args.model.lower().replace("-", "_")
-        possible_roots = []
+        model_info = unified_models_registry.get(args.model, {})
+        reg_filename = model_info.get("filename", "")
+        search_targets = {
+            args.model.lower().replace("-", "_"),
+            args.model.lower().replace("_", "-"),
+            reg_filename.lower() if reg_filename else None,
+            "lemgendary"
+        }
+        search_targets = {t for t in search_targets if t}
         
+        possible_roots = []
         if os.path.exists('/kaggle/input'):
             # Tier 1: Instant Top-Level Filter
             for d in os.listdir('/kaggle/input'):
                 d_lower = d.lower().replace("-", "_")
-                if search_target in d_lower or "lemgendary" in d_lower:
+                if any(target in d_lower for target in search_targets):
                     possible_roots.append(os.path.join('/kaggle/input', d))
         
         # Tier 2: Surgical find only if Tier 1 yields too many or no results
         if not possible_roots:
             try:
-                res = subprocess.run(f"find /kaggle/input -maxdepth 5 -type d -name '*{search_target}*'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
-                possible_roots.extend([p for p in res if p])
+                for target in search_targets:
+                    if target == "lemgendary": continue
+                    res = subprocess.run(f"find /kaggle/input -maxdepth 5 -type d -name '*{target}*'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                    possible_roots.extend([p for p in res if p])
             except: pass
         
-        # Priority: Models root, then deepest path (usually contains /pytorch/default/1/)
-        if possible_roots:
-            # Sort by depth to find the actual data root (Kaggle models are nested)
-            recovery_root = sorted(list(set(possible_roots)), key=lambda x: x.count(os.sep), reverse=True)[0]
-            print(f"   -> [FOUND] Recovery manifold at: {recovery_root}")
+        # Priority: Process ALL possible roots to maximize recovery
+        possible_roots = sorted(list(set(possible_roots)), key=lambda x: x.count(os.sep), reverse=True)
+        
+        found_any = False
+        for recovery_root in possible_roots:
+            print(f"   -> [PROBING] Manifold: {recovery_root}")
             
             # Recovery 1: metrics.csv
-            # Search for metrics.csv in recovery_root or its model-specific subfolder
             metrics_search = [
                 os.path.join(recovery_root, "metrics.csv"),
                 os.path.join(recovery_root, args.model, "metrics.csv"),
+                os.path.join(recovery_root, reg_filename, "metrics.csv") if reg_filename else None,
                 os.path.join(recovery_root, "models", args.model, "metrics.csv") # Legacy support
             ]
-            # 2026: Recursive search if shallow search fails
+            metrics_search = [p for p in metrics_search if p]
+            
             src_metrics = next((p for p in metrics_search if os.path.exists(p)), None)
             if not src_metrics:
                 try:
-                    res = subprocess.run(f"find {recovery_root} -name 'metrics.csv'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                    res = subprocess.run(f"find {recovery_root} -maxdepth 4 -name 'metrics.csv'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
                     if res and res[0]: src_metrics = res[0]
                 except: pass
 
             dst_metrics = os.path.join(hub_model_dir, "metrics.csv")
-            if src_metrics:
+            if src_metrics and not os.path.exists(dst_metrics):
                 try:
                     os.makedirs(os.path.dirname(dst_metrics), exist_ok=True)
                     shutil.copy2(src_metrics, dst_metrics)
                     print(f"   -> [RECOVERED] metrics.csv from {os.path.basename(os.path.dirname(src_metrics))}")
+                    found_any = True
                 except: pass
             
             # Recovery 2: Checkpoints
-            # Search for checkpoints folder or just .pth files
             src_ckpt_dirs = [
                 os.path.join(recovery_root, "checkpoints"),
                 os.path.join(recovery_root, args.model, "checkpoints"),
-                recovery_root # Some datasets put .pth directly in root
+                os.path.join(recovery_root, reg_filename, "checkpoints") if reg_filename else None,
+                recovery_root 
             ]
+            src_ckpt_dirs = [p for p in src_ckpt_dirs if p and os.path.exists(p)]
             
             for s_dir in src_ckpt_dirs:
-                if os.path.exists(s_dir):
-                    for f in os.listdir(s_dir):
-                        if f.endswith('.pth') and (args.model in f or "latest" in f or "best" in f):
-                            src_f = os.path.join(s_dir, f)
-                            dst_f = os.path.join(hub_ckpt_dir, f)
-                            if not os.path.exists(dst_f) or os.path.getsize(src_f) > os.path.getsize(dst_f):
-                                shutil.copy2(src_f, dst_f)
-                                print(f"   -> [RECOVERED] {f}")
+                if not os.path.exists(s_dir): continue
+                for f in os.listdir(s_dir):
+                    if f.endswith('.pth') and (args.model in f or reg_filename in f or "latest" in f or "best" in f):
+                        src_f = os.path.join(s_dir, f)
+                        # Standardize name for resumption engine
+                        target_f = f
+                        if "latest" in f: target_f = f"{args.model}_latest.pth"
+                        elif "best" in f: target_f = f"{args.model}_best.pth"
+                        elif "progress" in f: target_f = f"{args.model}_progress.pth"
+                        
+                        dst_f = os.path.join(hub_ckpt_dir, target_f)
+                        if not os.path.exists(dst_f) or os.path.getsize(src_f) > os.path.getsize(dst_f):
+                            shutil.copy2(src_f, dst_f)
+                            print(f"   -> [RECOVERED] {f} -> {target_f}")
+                            found_any = True
             
-            # 2026: Recursive backup for orphaned .pth files
+            # Deep recursive backup for orphaned .pth files
             try:
                 res = subprocess.run(f"find {recovery_root} -name '*.pth'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
                 for src_f in res:
                     if src_f and os.path.exists(src_f):
                         f = os.path.basename(src_f)
-                        dst_f = os.path.join(hub_ckpt_dir, f)
-                        if not os.path.exists(dst_f):
-                            shutil.copy2(src_f, dst_f)
-                            print(f"   -> [RECOVERED-DEEP] {f}")
+                        if args.model in f or reg_filename in f or "latest" in f or "best" in f:
+                            target_f = f
+                            if "latest" in f: target_f = f"{args.model}_latest.pth"
+                            elif "best" in f: target_f = f"{args.model}_best.pth"
+                            elif "progress" in f: target_f = f"{args.model}_progress.pth"
+                            
+                            dst_f = os.path.join(hub_ckpt_dir, target_f)
+                            if not os.path.exists(dst_f):
+                                shutil.copy2(src_f, dst_f)
+                                print(f"   -> [RECOVERED-DEEP] {f} -> {target_f}")
+                                found_any = True
             except: pass
+
+        
+        if not found_any:
+            print(f"   -> [NOTICE] No valid manifolds or checkpoints found in /kaggle/input.")
+
 
     # --- 2026 Resilience: Pre-Flight Resumption Engine ---
     # We must initialize all continuity variables before they are used in the data infrastructure.

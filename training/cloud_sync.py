@@ -24,16 +24,18 @@ class CloudSyncManager:
         self.hub_root = Path("/kaggle/working/LemGendaryModels") if os.name != 'nt' else Path(config.get("export_dir", "../LemGendaryModels")).resolve()
         
         # --- Kaggle Hybrid Configuration ---
-        # 2026 Resilience: Prioritize lemtreursi for checkpoint manifolds
+        # 2026 Resilience: Ensure we use the configured username (defaults to lemtreursi)
+        # to avoid 'models.create' permission denied errors on the 'lemgenda' org.
         self.kaggle_username = config.get("kaggle_username", "lemtreursi")
         
-        # 2026: Descriptive slug mapping to match lemgendary-nima-authenticity-checkpoints format
-        slug_prefix = "lemgendary-"
+        # 2026: Standardized slug mapping (e.g. lemgendary-nima-authenticity)
+        slug_prefix = config.get("kaggle_slug_prefix", "lemgendary-")
         clean_name = self.model_name.replace("_", "-")
-        self.model_slug = f"{slug_prefix}{clean_name}-checkpoints"
+        self.model_slug = f"{slug_prefix}{clean_name}"
         
-        # Use explicit override from config if available
+        # 2026: Standardized Kaggle Model handle (lowercase framework)
         self.kaggle_handle = config.get("kaggle_handle", f"{self.kaggle_username}/{self.model_slug}/pytorch/default")
+
         
         # Paths
         # 2026 Resilience: SOTA checkpoints and metrics are stored within the Model Hub manifold.
