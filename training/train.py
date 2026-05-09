@@ -2687,41 +2687,40 @@ def main():
                     shutil.copy2(metrics_csv_path, hub_metrics_path)
 
             # 2026: Legacy Git Sync purged.
+            # 2026 Resilience: Headless Authentication Hardening
+            git_env = os.environ.copy()
+            git_env["GIT_TERMINAL_PROMPT"] = "0"
+            pat = os.environ.get('GITHUB_PAT') or os.environ.get('SUITE_PAT')
             
+            if pat:
+                rem_res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=hub_root, capture_output=True, text=True, env=git_env, timeout=10)
+                if rem_res.returncode == 0:
+                    current_url = rem_res.stdout.strip()
+                    if "github.com" in current_url and "@" not in current_url:
+                        new_url = current_url.replace("https://", f"https://{pat}@")
+                        subprocess.run(["git", "remote", "set-url", "origin", new_url], cwd=hub_root, capture_output=True, env=git_env)
+
+            # 2026 Resilience: Check for divergence (Ahead/Behind)
+            subprocess.run(["git", "fetch", "origin"], cwd=hub_root, capture_output=True)
+            check_ahead = subprocess.run(["git", "rev-list", "--count", "origin/main..main"], cwd=hub_root, capture_output=True, text=True)
+            ahead_count = int(check_ahead.stdout.strip()) if check_ahead.returncode == 0 else 0
             
-            
-                
-                    # 2026 Resilience: Headless Authentication Hardening
-                    git_env = os.environ.copy()
-                    git_env["GIT_TERMINAL_PROMPT"] = "0"
-                    
-                    if pat:
-                        rem_res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=hub_root, capture_output=True, text=True, env=git_env, timeout=10)
-                        if rem_res.returncode == 0:
-                            # 2026: Legacy sync blocks purged.
+            check_behind = subprocess.run(["git", "rev-list", "--count", "main..origin/main"], cwd=hub_root, capture_output=True, text=True)
+            behind_count = int(check_behind.stdout.strip()) if check_behind.returncode == 0 else 0
 
-                # 2026 Resilience: Check for divergence (Ahead/Behind)
-                subprocess.run(["git", "fetch", "origin"], cwd=hub_root, capture_output=True)
-                check_ahead = subprocess.run(["git", "rev-list", "--count", "origin/main..main"], cwd=hub_root, capture_output=True, text=True)
-                ahead_count = int(check_ahead.stdout.strip()) if check_ahead.returncode == 0 else 0
-                
-                check_behind = subprocess.run(["git", "rev-list", "--count", "main..origin/main"], cwd=hub_root, capture_output=True, text=True)
-                behind_count = int(check_behind.stdout.strip()) if check_behind.returncode == 0 else 0
-
-
+            res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True, env=git_env, timeout=60)
+            if res.returncode == 0:
+                print(f"🏆 [HUB SYNC] Hub updated successfully!")
+            else:
+                # Final Emergency Strategy: If still failing, it's a conflict we can't soft-align.
+                # We try one last rebase-theirs as a fallback.
+                print(f" ⚠️ [HUB SYNC] Push rejected. Falling back to rebase recovery...")
+                subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True, env=git_env, timeout=60)
                 res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True, env=git_env, timeout=60)
                 if res.returncode == 0:
-                    print(f"🏆 [HUB SYNC] Hub updated successfully!")
+                    print(f"🏆 [HUB SYNC] Hub updated successfully via rebase!")
                 else:
-                    # Final Emergency Strategy: If still failing, it's a conflict we can't soft-align.
-                    # We try one last rebase-theirs as a fallback.
-                    print(f" ⚠️ [HUB SYNC] Push rejected. Falling back to rebase recovery...")
-                    subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True, env=git_env, timeout=60)
-                    res = subprocess.run(["git", "push", "origin", "main"], cwd=hub_root, capture_output=True, text=True, env=git_env, timeout=60)
-                    if res.returncode == 0:
-                        print(f"🏆 [HUB SYNC] Hub updated successfully via rebase!")
-                    else:
-                        print(f"⚠️ [HUB SYNC] Push failed! Error:\n{res.stderr.strip()}")
+                    print(f"⚠️ [HUB SYNC] Push failed! Error:\n{res.stderr.strip()}")
         except Exception as e:
             print(f"⚠️ [HUB SYNC] Hub synchronization critical failure: {e}")
 
