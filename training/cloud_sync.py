@@ -28,13 +28,13 @@ class CloudSyncManager:
         # to avoid 'models.create' permission denied errors on the 'lemgenda' org.
         self.kaggle_username = config.get("kaggle_username", "lemtreursi")
         
-        # 2026: Standardized slug mapping (e.g. lemgendary-nima-authenticity)
+        # 2026: Standardized Kaggle Handle construction
+        model_slug = self.model_name.replace("_", "-")
         slug_prefix = config.get("kaggle_slug_prefix", "lemgendary-")
-        clean_name = self.model_name.replace("_", "-")
-        self.model_slug = f"{slug_prefix}{clean_name}"
+        slug_suffix = config.get("kaggle_slug_suffix", "-checkpoints")
         
-        # 2026: Standardized Kaggle Model handle (lowercase framework)
-        self.kaggle_handle = config.get("kaggle_handle", f"{self.kaggle_username}/{self.model_slug}/pytorch/default")
+        # Enforce absolute parity with user identity
+        self.kaggle_handle = f"{self.kaggle_username}/{slug_prefix}{model_slug}{slug_suffix}/pytorch/default"
 
         
         # Paths

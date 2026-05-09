@@ -29,6 +29,7 @@ fleet:
   auto_sync: true
   kaggle_username: "lemtreursi"
   kaggle_slug_prefix: "lemgendary-" # Default prefix for Kaggle Model slugs
+  kaggle_slug_suffix: "-checkpoints" # Standardized suffix for model checkpoints
   force_kaggle_sync: false # Trigger Kaggle Model upload even on local machine
   inter_model_cooldown_seconds: 2
   retry_attempts: 3
