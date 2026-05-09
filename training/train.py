@@ -2689,6 +2689,8 @@ def main():
             # 2026: Legacy Git Sync purged.
             # 2026 Resilience: Synchronization is now handled by CloudSyncManager (v16.2)
             # which manages the atomic push cycle via background threads.
+        except Exception as e:
+            print(f"⚠️ [HUB SYNC] Model Hub Mirroring critical failure: {e}")
 
         # 2026 Resilience: Legacy Persistence and Auto-Sync purged. 
         if args.env == 'kaggle':
