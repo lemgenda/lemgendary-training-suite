@@ -64,7 +64,7 @@ class SmartTrainingGovernor:
         if res_idx < len(self.res_ladder) - 1: return "DEEPENING"
         return "REFINEMENT"
 
-    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None):
+    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0):
         if not self.enabled: return False, False, False, False, False, False, ""
         self.epoch_count += 1
         self.session_epoch_count += 1
@@ -145,7 +145,16 @@ class SmartTrainingGovernor:
             if is_flat: msg_parts.append("🕸️ [TRAPPED] Fidelity Floor reached. Relaxing stagnation guard.")
 
         is_regressing = delta_q < -0.01 
-        is_collapsed = current_quality < 0.05 # Near-zero or negative correlation
+        is_collapsed = (current_quality < 0.05) or (plcc < -0.1) # Near-zero or negative correlation
+        
+        # --- 2026: Thermal Shock Guard (v6.2.1) ---
+        # If the linear correlation (PLCC) flips negative, the manifold is diffusing.
+        # We must 'Shock' the temperature back to sharpness to restore bin separation.
+        if plcc < -0.01 and self.current_temp > 0.7:
+            self.current_temp = 0.5
+            self.current_clamp = 20.0
+            t_changed = c_changed = True
+            msg_parts.append("❄️ [THERMAL SHOCK] PLCC negative. Sharpening manifold (Temp -> 0.5).")
         
         # 4. NPP LOOP DETECTION
         current_state = (self.current_res, round(self.current_fraction, 2))

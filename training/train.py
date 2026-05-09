@@ -2307,8 +2307,8 @@ def main():
                     # 2026 Resilience: Post-Validation Polarity Audit (v4.5)
                     # If the epoch ends with negative correlation, we trigger a Head Reset immediately
                     # to prevent wasting subsequent epochs on an inverted manifold.
-                    if srcc < -0.05:
-                        print(f"\n⚠️ [POLARITY] Manifold inversion detected (SRCC: {srcc:.4f}). Triggering Emergency Head Reset...")
+                    if srcc < -0.05 or plcc < -0.05:
+                        print(f"\n⚠️ [POLARITY] Manifold inversion detected (SRCC: {srcc:.4f} | PLCC: {plcc:.4f}). Triggering Emergency Head Reset...")
                         target_layers = []
                         if hasattr(model, 'classifier'): target_layers = [l for l in model.classifier if isinstance(l, nn.Linear)]
                         elif hasattr(model, 'head'): target_layers = [model.head]
@@ -2459,7 +2459,8 @@ def main():
             sentinel_trigger_rate=avg_sentinel_stress,
             current_lr=optimizer.param_groups[0]['lr'],
             base_lr=lr,
-            current_loss=avg_val_loss
+            current_loss=avg_val_loss,
+            plcc=plcc # 2026 Resilience: Pass PLCC for thermal shock auditing
         )
 
         if smart_msg:
