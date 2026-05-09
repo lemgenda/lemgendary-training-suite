@@ -2317,6 +2317,15 @@ def main():
         # --- 2026: SOTA Weight Averaging Phase ---
         if epoch >= swa_start:
             swa_model.update_parameters(model)
+
+        # --- 2026: Autonomous Cloud Synchronization (v16.2 Nuclear) ---
+        # Trigger background sync to Kaggle Hub at the epoch boundary.
+        # This persists the latest SOTA, metrics.csv, and logs.
+        try:
+            from training.cloud_sync import trigger_cloud_sync
+            trigger_cloud_sync(args.model, epoch + 1, config)
+        except Exception as e:
+            print(f"⚠️ [CLOUD SYNC] Failed to initiate background sync: {e}", file=sys.stderr)
             swa_scheduler.step()
             print(f"🛸 [SWA] Shadow Weights Synchronized (Epoch {epoch+1})")
 
