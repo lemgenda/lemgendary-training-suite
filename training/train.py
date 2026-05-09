@@ -268,8 +268,8 @@ def git_hub_sync(repo_path, remote_url, message):
             else:
                 print(f" 📡 [CLOUD SYNC] Push failed. Attempting rebase recovery (Allowing unrelated histories)...")
                 # If push fails, attempt a non-destructive rebase (Production Manifold Protection)
-                # 2026 Resilience: --allow-unrelated-histories is essential for the first-time hub sync
-                subprocess.run(["git", "pull", "origin", "main", "--rebase", "-X", "theirs", "--allow-unrelated-histories"], cwd=repo_path, capture_output=True, timeout=120)
+                # 2026 Resilience: -X ours is essential to keep our newly trained weights during rebase
+                subprocess.run(["git", "pull", "origin", "main", "--rebase", "-X", "ours", "--allow-unrelated-histories"], cwd=repo_path, capture_output=True, timeout=120)
                 subprocess.run(["git", "push", "origin", "main"], cwd=repo_path, capture_output=True, timeout=120)
                 print(f" ✅ [CLOUD SYNC] '{os.path.basename(repo_path)}' synchronized after rebase.")
         else:
@@ -2315,6 +2315,13 @@ def main():
                         for layer in target_layers:
                             torch.nn.init.xavier_uniform_(layer.weight)
                             torch.nn.init.zeros_(layer.bias)
+                        
+                        # 2026 Resilience: Force Thermal Lockdown and LR Cooling
+                        governor.current_temp = 0.5
+                        governor.lr_multiplier = 0.5
+                        for param_group in optimizer.param_groups:
+                            param_group['lr'] *= 0.5
+                        
                         optimizer.state.clear() # Flush momentum to seat the new head
                         sota_baseline_achieved = False
                         best_quality_score = -1.0

@@ -250,6 +250,8 @@ class SmartTrainingGovernor:
                 phase_min = 0.05 if phase == "REFINEMENT" else 0.1
             else:
                 phase_min = self.min_temp # NIMA remains at 0.5 for stability
+                # Hard Cap for NIMA to prevent numerical diffusion/negative correlation
+                self.current_temp = min(1.0, self.current_temp) 
                 
             # Check thermal floor for current state
             floor = max(phase_min, self.thermal_floor.get(str(current_state), self.min_temp))
