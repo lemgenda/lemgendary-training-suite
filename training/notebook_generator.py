@@ -55,12 +55,12 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        active = []\n",
         "        if s_pat: active.append('SUITE_PAT')\n",
         "        if g_pat: active.append('GITHUB_PAT')\n",
-        "        print(f'✅ [AUTH] Kaggle Secrets mounted: {\", \".join(active)}')\n",
+        "        print(f'[OK] [AUTH] Kaggle Secrets mounted: {\", \".join(active)}')\n",
         "    else:\n",
-        "        print('❌ [CRITICAL] No PATs found in Kaggle Secrets! Private repositories will fail to clone.')\n",
-        "        print('👉 Tip: Go to Add-ons -> Secrets and add SUITE_PAT and GITHUB_PAT.')\n",
+        "        print('[ERROR] [CRITICAL] No PATs found in Kaggle Secrets! Private repositories will fail to clone.')\n",
+        "        print('[TIP] Tip: Go to Add-ons -> Secrets and add SUITE_PAT and GITHUB_PAT.')\n",
         "except Exception as e:\n",
-        "    print(f'❌ [ERROR] Secret mounting failed: {e}')\n"
+        "    print(f'[ERROR] Secret mounting failed: {e}')\n"
     ]
 
     clone_source = [
@@ -140,13 +140,13 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            if not os.path.exists(link_name):\n",
         "                try: os.symlink(d, link_name)\n",
         "                except: pass\n",
-        "                print(f'✅ [LINKED] {link} -> {d}')\n"
+        "                print(f'[OK] [LINKED] {link} -> {d}')\n"
     ]
 
     install_source = [
-        "print('🛠️ [ENV] Installing Nuclear Dependencies...')\n",
+        "print('[ENV] Installing Nuclear Dependencies...')\n",
         "!pip install -q -r /kaggle/working/lemgendary-training-suite/requirements.txt\n",
-        "print('✅ [OK] Environment Ready.')\n"
+        "print('[OK] Environment Ready.')\n"
     ]
 
     hub_prep_source = [
@@ -156,9 +156,9 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "model_dir = os.path.join(hub_root, model_key)\n",
         "ckpt_dir = os.path.join(model_dir, 'checkpoints')\n",
         "\n",
-        "print(f'🛸 [HUB] Initializing Lean Manifold for {model_key}...')\n",
+        "print(f'[HUB] Initializing Lean Manifold for {model_key}...')\n",
         "os.makedirs(ckpt_dir, exist_ok=True)\n",
-        "print(f'✅ [OK] Manifold structure ready at {model_dir}')\n"
+        "print(f'[OK] Manifold structure ready at {model_dir}')\n"
     ]
 
     stealth_source = [
@@ -177,7 +177,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "except: input_ckpts = []\n",
         "\n",
         "if input_ckpts:\n",
-        "    print(f'📡 [RECOVERY] Hydrating hub from Kaggle Inputs...')\n",
+        "    print(f'[RECOVERY] Hydrating hub from Kaggle Inputs...')\n",
         "    for src in input_ckpts:\n",
         "        fname = os.path.basename(src)\n",
         "        dst = os.path.join(ckpt_hub_dir, fname)\n",
@@ -193,7 +193,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            dst_met = os.path.join(model_hub_dir, 'metrics.csv')\n",
         "            if not os.path.exists(dst_met) or os.path.getsize(src_met) > os.path.getsize(dst_met):\n",
         "                shutil.copy2(src_met, dst_met)\n",
-        "                print(f'📊 [RECOVERY] Hydrated metrics.csv from {os.path.basename(os.path.dirname(src_met))}')\n",
+        "                print(f'[OK] [RECOVERY] Hydrated metrics.csv from {os.path.basename(os.path.dirname(src_met))}')\n",
         "    except: pass\n",
         "\n",
         "search_paths = [p for p in glob.glob(os.path.join(ckpt_hub_dir, '*.pth')) if any(x in os.path.basename(p) for x in [model_key, model_key.replace('_', '-')])]\n",
@@ -215,12 +215,12 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     training_source = [
         "import os, subprocess, sys\n",
         "os.chdir('/kaggle/working/lemgendary-training-suite')\n",
-        "print(f'🚀 [NUCLEAR] Initiating Training Matrix for {model_key}...')\n",
+        "print(f'[LAUNCH] [NUCLEAR] Initiating Training Matrix for {model_key}...')\n",
         "cmd = [sys.executable, 'training/train.py', '--model', f'{model_key}', '--env', 'kaggle', '--auto_sync']\n",
         "try:\n",
         "    subprocess.run(cmd)\n",
         "except KeyboardInterrupt:\n",
-        "    print('\\n🛑 [TERMINATED] Training interrupted by user.')\n"
+        "    print('\\n[TERMINATED] Training interrupted by user.')\n"
     ]
 
     push_source = [

@@ -744,12 +744,12 @@ vlm_blip2:
     softmax_temp: 0.1 # 2026 Resilience: Relaxed foundation temperature.
   datasets:
     - vision_language_master_manifold
-anime_nsfw_classification:
-  name: LemGendary Anime NSFW Classifier
+universal_nsfw_classification:
+  name: LemGendary Universal NSFW Classifier
   class_name: NIMA_Model
   category: enhance
-  filename: AnimeNSFWClassifier
-  checkpoint: AnimeNSFWClassifierWeights_FP32.pth
+  filename: UniversalNSFWClassifier
+  checkpoint: UniversalNSFWClassifierWeights_FP32.pth
   input_size:
     - 3
     - 224
@@ -758,9 +758,9 @@ anime_nsfw_classification:
   learning_rate: 3.0e-05
   loss_fn: cross_entropy
   dataset_type: classification
-  optimal_key: anime_nsfw_classification
+  optimal_key: universal_nsfw_classification
   architecture_type: MobileNetV2 (Categorical Anchor)
-  description: High-fidelity anime safety filter and NSFW classifier.
+  description: Universal safety filter and NSFW classifier for realistic and anime content.
   datasets:
     - classification_master_manifold
   sota_targets:
