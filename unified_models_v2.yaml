@@ -11,10 +11,9 @@ nima_aesthetic:
     - 3
     - 512
     - 512
-  val_resolution: 640
-  batch_size: auto
-  val_batch_size: auto
+  val_resolution: 768
   learning_rate: 3.0e-05
+
   loss_fn: emd
   dataset_type: quality
   optimal_key: nima_aesthetic
@@ -38,11 +37,9 @@ nima_aesthetic:
     initial_fraction: 0.75
     fraction_increment: 0.15
     res_ladder:
-      - 112
-      - 224
-      - 384
       - 512
       - 640
+
     plateau_patience: 6
     cooling_factor: 0.85
     plateau_priority: resolution
@@ -61,12 +58,11 @@ nima_technical:
   checkpoint: NIMATechnicalWeights_FP32.pth
   input_size:
     - 3
-    - 384
-    - 384
+    - 512
+    - 512
   val_resolution: 768
-  batch_size: auto
-  val_batch_size: auto
   learning_rate: 1.8e-05
+
   kwargs:
     backbone: efficientnet_v2_s
   loss_fn: emd
@@ -83,13 +79,13 @@ nima_technical:
     rank_margin: 0.05
   optimization:
     enabled: true
-    initial_fraction: 0.1
+    initial_fraction: 0.50
     fraction_increment: 0.15
     res_ladder:
-      - 256
-      - 384
       - 512
+      - 640
       - 768
+
     plateau_patience: 4
     cooling_factor: 0.85
     plateau_priority: resolution
@@ -111,9 +107,8 @@ nima_authenticity:
     - 512
     - 512
   val_resolution: 768
-  batch_size: auto
-  val_batch_size: auto
   learning_rate: 2.5e-05
+
   kwargs:
     backbone: efficientnet_v2_s
   loss_fn: emd
@@ -124,7 +119,8 @@ nima_authenticity:
   datasets:
     - LemGendizedNimaAuthenticity
   stabilizers:
-    softmax_temp: 0.4
+    softmax_temp: 0.5
+
     emd_epsilon: 0.00001
     logit_clamp: 15.0
     numerical_sentinel:
@@ -142,7 +138,8 @@ nima_authenticity:
       - 512
       - 640
       - 768
-    plateau_patience: 4
+    plateau_patience: 6
+
     cooling_factor: 0.85
 
 upn_v2:
@@ -155,8 +152,8 @@ upn_v2:
     - 3
     - 256
     - 256
-  batch_size: 16
   learning_rate: 0.0001
+
   loss_fn: mse
   dataset_type: restoration
   needs_synthesis: true
@@ -168,11 +165,13 @@ upn_v2:
   description: Universal parameter predictor for image restoration
   optimization:
     enabled: true
-    initial_fraction: 0.1
+    initial_fraction: 0.25
     fraction_increment: 0.25
     res_ladder:
-      - 128
       - 256
+      - 384
+      - 512
+
     plateau_patience: 4
     cooling_factor: 0.85
   datasets:
@@ -187,8 +186,8 @@ film_restorer:
     - 3
     - 256
     - 256
-  batch_size: 8
   learning_rate: 0.0001
+
   loss_fn: l1
   dataset_type: restoration
   needs_synthesis: true
@@ -196,15 +195,15 @@ film_restorer:
   description: Universal image restoration autoencoder
   optimization:
     enabled: true
-    initial_fraction: 0.1
+    initial_fraction: 0.25
     fraction_increment: 0.15
     res_ladder:
-      - 112
-      - 224
+      - 256
       - 384
       - 512
     plateau_patience: 8
     cooling_factor: 0.8
+
   datasets:
     - LemGendizedFilmRestorer
 codeformer:
@@ -217,8 +216,8 @@ codeformer:
     - 3
     - 256
     - 256
-  batch_size: 32
   learning_rate: 0.0005
+
   loss_fn: mse
   dataset_type: face
   needs_synthesis: true
@@ -226,11 +225,12 @@ codeformer:
   description: Face restoration model
   optimization:
     enabled: true
-    initial_fraction: 0.15
+    initial_fraction: 0.25
     fraction_increment: 0.1
     res_ladder:
       - 256
       - 512
+
     plateau_patience: 12
     cooling_factor: 0.7
     plateau_priority: data
@@ -240,7 +240,8 @@ codeformer:
   datasets:
     - LemGendizedCodeFormer
   sota_targets:
-    fid: 8.0
+    fid: 6.0
+
     lpips: 0.06
     psnr: 33.0
     ssim: 0.92
@@ -254,8 +255,8 @@ parsenet:
     - 3
     - 256
     - 256
-  batch_size: 32
   learning_rate: 0.0005
+
   loss_fn: cross_entropy
   dataset_type: segmentation
   num_classes: 19
@@ -263,6 +264,16 @@ parsenet:
   description: Face parsing model for segmentation
   datasets:
     - LemGendizedParseNet
+  optimization:
+    enabled: true
+    initial_fraction: 0.25
+    fraction_increment: 0.25
+    res_ladder:
+      - 256
+      - 512
+    plateau_patience: 8
+    plateau_priority: data
+
 retinaface_mobilenet:
   name: LemGendary RetinaFace MobileNet Detection
   class_name: RetinaFace
@@ -273,8 +284,8 @@ retinaface_mobilenet:
     - 3
     - 224
     - 224
-  batch_size: 80
   learning_rate: 0.0005
+
   loss_fn: retinaface
   dataset_type: face_detection
   output_names:
@@ -285,6 +296,17 @@ retinaface_mobilenet:
   description: MobileNet-based face detection
   datasets:
     - LemGendizedRetinaFaceMobileNet
+  optimization:
+    enabled: true
+    initial_fraction: 0.25
+    fraction_increment: 0.25
+    res_ladder:
+      - 224
+      - 448
+      - 640
+    plateau_patience: 10
+    plateau_priority: data
+
 retinaface_resnet:
   name: LemGendary RetinaFace ResNet Detection
   class_name: RetinaFace
@@ -295,8 +317,8 @@ retinaface_resnet:
     - 3
     - 224
     - 224
-  batch_size: 64
   learning_rate: 0.0005
+
   loss_fn: retinaface
   dataset_type: face_detection
   output_names:
@@ -307,6 +329,18 @@ retinaface_resnet:
   description: ResNet-based face detection
   datasets:
     - LemGendizedRetinaFaceResNet
+  optimization:
+    enabled: true
+    initial_fraction: 0.25
+    fraction_increment: 0.25
+    res_ladder:
+      - 224
+      - 448
+      - 640
+      - 800
+    plateau_patience: 10
+    plateau_priority: data
+
 ffanet_indoor:
   name: LemGendary FFANet Dehazing (Indoor)
   class_name: FFANet
@@ -329,6 +363,17 @@ ffanet_indoor:
     numerical_sentinel:
       - -0.2
       - 1.2
+  optimization:
+    enabled: true
+    initial_fraction: 0.25
+    fraction_increment: 0.15
+    res_ladder:
+      - 256
+      - 384
+      - 512
+    plateau_patience: 8
+    cooling_factor: 0.85
+
 ffanet_outdoor:
   name: LemGendary FFANet Dehazing (Outdoor)
   class_name: FFANet
@@ -351,6 +396,17 @@ ffanet_outdoor:
     numerical_sentinel:
       - -0.2
       - 1.2
+  optimization:
+    enabled: true
+    initial_fraction: 0.25
+    fraction_increment: 0.15
+    res_ladder:
+      - 256
+      - 384
+      - 512
+    plateau_patience: 8
+    cooling_factor: 0.85
+
 mirnet_lowlight:
   name: LemGendary MIRNet v2 Low-Light Enhancement
   class_name: MIRNet
@@ -361,8 +417,8 @@ mirnet_lowlight:
     - 3
     - 256
     - 256
-  batch_size: 8
   learning_rate: 5.0e-05
+
   loss_fn: l1
   dataset_type: restoration
   optimal_key: mirnet_lowlight
@@ -377,7 +433,19 @@ mirnet_lowlight:
     psnr: 24.7
     ssim: 0.90
     lpips: 0.08
-    fid: 18.0
+    fid: 12.0
+
+  optimization:
+    enabled: true
+    initial_fraction: 0.25
+    fraction_increment: 0.15
+    res_ladder:
+      - 256
+      - 384
+      - 512
+    plateau_patience: 8
+    cooling_factor: 0.85
+
 mirnet_exposure:
   name: LemGendary MIRNet v2 Exposure Correction
   class_name: MIRNet
@@ -388,8 +456,8 @@ mirnet_exposure:
     - 3
     - 256
     - 256
-  batch_size: 8
   learning_rate: 5.0e-05
+
   loss_fn: l1
   dataset_type: restoration
   optimal_key: mirnet_exposure
@@ -404,7 +472,19 @@ mirnet_exposure:
     psnr: 24.7
     ssim: 0.90
     lpips: 0.08
-    fid: 18.0
+    fid: 12.0
+
+  optimization:
+    enabled: true
+    initial_fraction: 0.25
+    fraction_increment: 0.15
+    res_ladder:
+      - 256
+      - 384
+      - 512
+    plateau_patience: 8
+    cooling_factor: 0.85
+
 mprnet_deraining:
   name: LemGendary MPRNet Deraining
   class_name: MPRNet
@@ -415,8 +495,8 @@ mprnet_deraining:
     - 3
     - 256
     - 256
-  batch_size: 16
   learning_rate: 5.0e-05
+
   loss_fn: l1
   dataset_type: restoration
   optimal_key: mprnet_deraining
@@ -431,7 +511,19 @@ mprnet_deraining:
     psnr: 32.7
     ssim: 0.93
     lpips: 0.07
-    fid: 15.0
+    fid: 12.0
+
+  optimization:
+    enabled: true
+    initial_fraction: 0.25
+    fraction_increment: 0.15
+    res_ladder:
+      - 256
+      - 384
+      - 512
+    plateau_patience: 8
+    cooling_factor: 0.85
+
 nafnet_debluring:
   name: LemGendary NAFNet Debluring
   class_name: NAFNet
@@ -442,25 +534,25 @@ nafnet_debluring:
     - 3
     - 640
     - 640
-  batch_size: 4
   learning_rate: 5.0e-05
+
   loss_fn: l1
   dataset_type: restoration
   optimal_key: nafnet_debluring
   description: NAFNet image debluring
   optimization:
     enabled: true
-    initial_fraction: 0.15
+    initial_fraction: 0.25
     fraction_increment: 0.15
     res_ladder:
-      - 128
       - 256
       - 384
       - 512
       - 640
-    plateau_patience: 10
+    plateau_patience: 8
     cooling_factor: 0.8
     plateau_priority: resolution
+
   datasets:
     - LemGendizedNafNetDebluring
   stabilizers:
@@ -471,7 +563,8 @@ nafnet_debluring:
     psnr: 33.7
     ssim: 0.94
     lpips: 0.06
-    fid: 15.0
+    fid: 12.0
+
 nafnet_denoising:
   name: LemGendary NAFNet Denoising
   class_name: NAFNet
@@ -482,19 +575,17 @@ nafnet_denoising:
     - 3
     - 640
     - 640
-  val_resolution: 640
-  batch_size: 4
   learning_rate: 5.0e-05
+
   loss_fn: l1
   dataset_type: restoration
   optimal_key: nafnet_denoising
   description: NAFNet image denoising
   optimization:
     enabled: true
-    initial_fraction: 0.1
+    initial_fraction: 0.25
     fraction_increment: 0.15
     res_ladder:
-      - 128
       - 256
       - 384
       - 512
@@ -503,6 +594,7 @@ nafnet_denoising:
     cooling_factor: 0.8
     plateau_priority: resolution
     jolt_multiplier: 5.0
+
   datasets:
     - LemGendizedNafNetDenoising
   stabilizers:
@@ -524,8 +616,8 @@ yolov8n:
     - 3
     - 640
     - 640
-  batch_size: 32
   learning_rate: 0.01
+
   loss_fn: yolo
   dataset_type:
     - detection
@@ -557,8 +649,8 @@ professional_multitask_restoration:
     - 3
     - 640
     - 640
-  batch_size: 4
   learning_rate: 0.0001
+
   loss_fn: hybrid_restoration
   dataset_type: restoration
   needs_synthesis: true
@@ -567,14 +659,14 @@ professional_multitask_restoration:
     and Low-Light
   optimization:
     enabled: true
-    initial_fraction: 0.15
+    initial_fraction: 0.25
     fraction_increment: 0.15
     res_ladder:
-      - 128
       - 256
       - 384
       - 512
       - 640
+
     plateau_patience: 15
     cooling_factor: 0.8
     plateau_priority: data
@@ -594,8 +686,8 @@ ultrazoom:
     - 3
     - 512
     - 512
-  batch_size: 32
   learning_rate: 0.0005
+
   loss_fn: mse
   dataset_type: restoration
   optimal_key: ultrazoom
@@ -604,13 +696,13 @@ ultrazoom:
     - LemGendizedUltraZoom
   optimization:
     enabled: true
-    initial_fraction: 0.15
+    initial_fraction: 0.25
     fraction_increment: 0.15
     res_ladder:
-      - 128
       - 256
       - 384
       - 512
+
     plateau_patience: 10
     plateau_priority: resolution
   sota_targets:
@@ -627,22 +719,22 @@ diffusion_sdxl:
     - 3
     - 1024
     - 1024
-  val_resolution: 512
-  batch_size: 4
+  val_resolution: 1024
   learning_rate: 1.0e-05
+
   loss_fn: diffusion_loss
   dataset_type: text_to_image
   optimal_key: diffusion_sdxl
   description: Unified SDXL model tuned on high-res Master Manifold
   optimization:
     enabled: true
-    initial_fraction: 0.1
+    initial_fraction: 0.20
     fraction_increment: 0.15
     res_ladder:
-      - 256
       - 512
       - 768
       - 1024
+
     plateau_patience: 10
     plateau_priority: resolution
   sota_targets:
@@ -659,22 +751,22 @@ diffusion_flux:
     - 3
     - 512
     - 512
-  val_resolution: 512
-  batch_size: 2
+  val_resolution: 1024
   learning_rate: 5.0e-06
+
   loss_fn: flow_matching
   dataset_type: text_to_image
   optimal_key: diffusion_flux
   description: Unified FLUX.1 model tuned on complex Midjourney + Master Manifold
   optimization:
     enabled: true
-    initial_fraction: 0.1
+    initial_fraction: 0.20
     fraction_increment: 0.15
     res_ladder:
-      - 256
       - 512
       - 768
       - 1024
+
     plateau_patience: 12
     plateau_priority: resolution
   sota_targets:
@@ -691,22 +783,24 @@ vlm_llava:
     - 3
     - 336
     - 336
-  val_resolution: 336
-  batch_size: 8
+  val_resolution: 448
   learning_rate: 2.0e-05
+
   loss_fn: cross_entropy
   dataset_type: image_to_text
   optimal_key: vlm_llava
   description: Unified LLaVA model tuned on Vision-Language Master Manifold
   optimization:
     enabled: true
-    initial_fraction: 0.1
+    initial_fraction: 0.20
     fraction_increment: 0.2
     res_ladder:
       - 224
       - 336
       - 448
-    plateau_patience: 8
+
+    plateau_patience: 10
+
     plateau_priority: data
   stabilizers:
     softmax_temp: 0.1 # 2026 Resilience: Relaxed foundation temperature.
@@ -722,22 +816,24 @@ vlm_blip2:
     - 3
     - 224
     - 224
-  val_resolution: 224
-  batch_size: 16
+  val_resolution: 448
   learning_rate: 0.0001
+
   loss_fn: contrastive_captioning
   dataset_type: image_to_text
   optimal_key: vlm_blip2
   description: Unified BLIP-2 model tuned on Master Manifold
   optimization:
     enabled: true
-    initial_fraction: 0.1
+    initial_fraction: 0.20
     fraction_increment: 0.2
     res_ladder:
       - 224
       - 336
       - 448
-    plateau_patience: 8
+
+    plateau_patience: 10
+
     plateau_priority: data
   stabilizers:
     softmax_temp: 0.1 # 2026 Resilience: Relaxed foundation temperature.
@@ -753,8 +849,8 @@ universal_nsfw_classification:
     - 3
     - 224
     - 224
-  batch_size: 64
   learning_rate: 3.0e-05
+
   loss_fn: cross_entropy
   dataset_type: classification
   optimal_key: universal_nsfw_classification

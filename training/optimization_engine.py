@@ -27,7 +27,7 @@ class SmartTrainingGovernor:
         
         # --- Persistent State ---
         self.current_fraction = opt.get("initial_fraction", 0.1)
-        self.current_batch = 16 if model_info.get("batch_size") == "auto" else int(model_info.get("batch_size"))
+        self.current_batch = int(model_info.get("batch_size", 16)) if model_info.get("batch_size") and model_info.get("batch_size") != "auto" else 16
         self.current_acc = 1
         
         raw_size = model_info.get("input_size", 224)
