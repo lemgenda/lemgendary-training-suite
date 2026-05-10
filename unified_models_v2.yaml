@@ -34,7 +34,7 @@ nima_aesthetic:
     numerical_sentinel: [-15.0, 15.0]
   optimization:
     enabled: true
-    initial_fraction: 0.75
+    initial_fraction: 0.25
     fraction_increment: 0.15
     res_ladder:
       - 512
@@ -79,7 +79,7 @@ nima_technical:
     rank_margin: 0.05
   optimization:
     enabled: true
-    initial_fraction: 0.50
+    initial_fraction: 0.25
     fraction_increment: 0.15
     res_ladder:
       - 512
@@ -132,7 +132,7 @@ nima_authenticity:
     srcc: 0.95
   optimization:
     enabled: true
-    initial_fraction: 0.50
+    initial_fraction: 0.25
     fraction_increment: 0.20
     res_ladder:
       - 512
@@ -532,8 +532,8 @@ nafnet_debluring:
   checkpoint: NAFNet-DebluringWeights_FP32.pth
   input_size:
     - 3
-    - 640
-    - 640
+    - 256
+    - 256
   learning_rate: 5.0e-05
 
   loss_fn: l1
@@ -573,8 +573,8 @@ nafnet_denoising:
   checkpoint: NAFNet-DenoisingWeights_FP32.pth
   input_size:
     - 3
-    - 640
-    - 640
+    - 256
+    - 256
   learning_rate: 5.0e-05
 
   loss_fn: l1
@@ -605,7 +605,7 @@ nafnet_denoising:
     psnr: 33.7
     ssim: 0.94
     lpips: 0.06
-    fid: 15.0
+    fid: 12.0
 yolov8n:
   name: LemGendary YOLOv8n Multi-Task Model
   class_name: YOLO
@@ -614,8 +614,8 @@ yolov8n:
   checkpoint: yolov8n.pt
   input_size:
     - 3
-    - 640
-    - 640
+    - 320
+    - 320
   learning_rate: 0.01
 
   loss_fn: yolo
@@ -647,8 +647,8 @@ professional_multitask_restoration:
   checkpoint: ProfessionalMultiRestorerWeights_FP32.pth
   input_size:
     - 3
-    - 640
-    - 640
+    - 256
+    - 256
   learning_rate: 0.0001
 
   loss_fn: hybrid_restoration
@@ -674,6 +674,7 @@ professional_multitask_restoration:
     psnr: 32.0
     ssim: 0.93
     lpips: 0.07
+    fid: 12.0
   datasets:
     - LemGendizedProfessionalMultitaskRestoration
 ultrazoom:
@@ -684,8 +685,8 @@ ultrazoom:
   checkpoint: UltraZoom(Master)Weights_FP32.pth
   input_size:
     - 3
-    - 512
-    - 512
+    - 256
+    - 256
   learning_rate: 0.0005
 
   loss_fn: mse
@@ -709,6 +710,7 @@ ultrazoom:
     psnr: 34.0
     ssim: 0.95
     lpips: 0.04
+    fid: 10.0
 diffusion_sdxl:
   name: LemGendary SDXL Master Diffusion
   class_name: StableDiffusionXL
@@ -717,8 +719,8 @@ diffusion_sdxl:
   checkpoint: SDXL-Master-Weights_FP16.safetensors
   input_size:
     - 3
-    - 1024
-    - 1024
+    - 512
+    - 512
   val_resolution: 1024
   learning_rate: 1.0e-05
 
@@ -781,8 +783,8 @@ vlm_llava:
   checkpoint: LLaVA-v1.5-Weights_BF16.safetensors
   input_size:
     - 3
-    - 336
-    - 336
+    - 224
+    - 224
   val_resolution: 448
   learning_rate: 2.0e-05
 

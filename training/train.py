@@ -1437,6 +1437,14 @@ def main():
         interval_pct = 0.0 # To be calibrated by Governor
     
     for epoch in range(start_epoch, epochs):
+        # --- 2026: Mission Profile - Surgical Overrides ---
+        # If NAFNet started at 640 (legacy config or resume), force it to 256 for Epoch 2 Foundation.
+        if args.model == "nafnet_debluring" and epoch == 1:
+            if train_ds.size[0] != 256:
+                print(f" 🎯 [MISSION OVERRIDE] Forcing NAFNet Deblur to 256px for Epoch 2 Foundation.")
+                train_ds.update_strategy(size=256)
+                governor.current_res = 256
+
         last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.12) ---
         # 2026: SOTA Stabilization and Thermal Sharding
         # Physical batch constraints are now established pre-emptively during initialization.
