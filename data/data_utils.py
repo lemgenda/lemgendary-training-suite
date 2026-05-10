@@ -17,7 +17,7 @@ def check_disk_space(required_bytes, target_path):
         return False
     return True
 
-def download_and_extract_dataset(ds_name, data_dir, source_ref=None):
+def download_and_extract_dataset(ds_name, data_dir, config, source_ref=None):
     """Universal Acquisition Engine (v16.0 Nuclear)."""
     ds_path = os.path.join(data_dir, ds_name)
     if os.path.exists(ds_path): return True
@@ -28,30 +28,49 @@ def download_and_extract_dataset(ds_name, data_dir, source_ref=None):
         pass
 
     if not ref or "kaggle" in ref:
-        return _handle_kaggle(ds_name, data_dir, ref)
+        return _handle_kaggle(ds_name, data_dir, config, ref)
     return False
 
-def _handle_kaggle(ds_name, data_dir, ref):
-    """Atomic Kaggle Recovery (v16.0)."""
-    print(f"🚀 [DATA] Recovering {ds_name} from Kaggle Manifold...")
+def _handle_kaggle(ds_name, data_dir, config, ref):
+    """Atomic Kaggle Recovery (v16.2 Nuclear)."""
+    print(f"[DATA] Recovering {ds_name} from Kaggle Manifold...")
     try:
-        from kaggle.api.kaggle_api_extended import KaggleApi
-        api = KaggleApi()
-        api.authenticate()
+        import kagglehub
+        import shutil
         
-        slug = f"lemtreursi/{ds_name.lower()}"
-        if ref and "datasets/" in ref: slug = ref.split("datasets/")[-1]
+        # 2026 Resilience: Use configured username or default to lemtreursi
+        username = config.get("fleet", {}).get("kaggle_username", "lemtreursi")
+        
+        slug = f"{username}/{ds_name.lower().replace('_', '-')}"
+        if ref and "datasets/" in ref: 
+            slug = ref.split("datasets/")[-1]
+        elif ref and "kaggle://" in ref:
+            slug = ref.replace("kaggle://", "")
             
+        print(f"   -> Pulling: {slug}")
+        print("   -> Starting download (this may take a while for large manifolds)...")
+        cache_path = kagglehub.dataset_download(slug)
+        print(f"   -> Download complete. Cache path: {cache_path}")
+        
         ds_path = os.path.join(data_dir, ds_name)
-        os.makedirs(ds_path, exist_ok=True)
-        api.dataset_download_files(slug, path=ds_path, quiet=True, unzip=True)
-        
-        # Cleanup zips
-        for f in os.listdir(ds_path):
-            if f.endswith(".zip"): os.remove(os.path.join(ds_path, f))
+        if not os.path.exists(ds_path):
+            os.makedirs(ds_path, exist_ok=True)
             
-        print(f"✅ [DATA] {ds_name} successfully mapped.")
+        # 2026 Resilience: Move from cache to datasets_root
+        if os.path.isfile(cache_path):
+            shutil.copy2(cache_path, os.path.join(ds_path, os.path.basename(cache_path)))
+        else:
+            # Recursive directory merge
+            for item in os.listdir(cache_path):
+                s = os.path.join(cache_path, item)
+                d = os.path.join(ds_path, item)
+                if os.path.isdir(s):
+                    shutil.copytree(s, d, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(s, d)
+            
+        print(f"✅ [DATA] {ds_name} successfully synchronized to manifold.")
         return True
     except Exception as e:
-        print(f"❌ [DATA ERROR] {e}")
+        print(f"❌ [DATA ERROR] Acquisition failed for {ds_name}: {e}")
         return False

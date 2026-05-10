@@ -153,6 +153,7 @@ signal.signal(signal.SIGINT, graceful_exit)
 signal.signal(signal.SIGTERM, graceful_exit)
 
 from data.dataset import MultiTaskDataset
+from data.data_utils import download_and_extract_dataset
 from models.factory import get_model
 
 # --- 2026: SOTA Metric Registry & Polarity Definitions ---
@@ -672,6 +673,17 @@ def main():
     elif not os.path.isabs(data_dir):
         data_dir = os.path.normpath(os.path.join(project_root, data_dir))
 
+    # --- 2026: Auto-Recovery Dataset Downloader (v16.2 Nuclear) ---
+    if args.env != 'kaggle':
+        for ds in ds_reqs:
+            ds_path = os.path.join(data_dir, ds)
+            if not os.path.exists(ds_path):
+                print(f" [SEARCH] [DATA] Required manifold '{ds}' missing locally.")
+                # Attempt to download from Kaggle
+                success = download_and_extract_dataset(ds, data_dir, config)
+                if not success:
+                    print(f" [WARNING] [DATA] Auto-acquisition failed for {ds}. Manual intervention may be required.")
+
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
     # --- 2026: SOTA Validation Synchronization ---
     # Validation mirrors the Governor's training resolution, UNLESS explicitly
@@ -694,9 +706,8 @@ def main():
     # --- 2026 Resilience: Empty Dataset Guard ---
     if len(train_ds) == 0:
         print(f"\n❌ [CRITICAL ERROR] Training dataset for '{args.model}' has ZERO samples.")
-        print(f"   👉 This usually means the dataset structure is incorrect or extraction failed.")
-        print(f"   👉 Expected structure: {os.path.join(data_dir, 'LemGendized' + args.model.replace('_', ' ').title().replace(' ', '') + final_suffix, 'images', 'train')}")
-        print(f"   👉 Recommended action: Wipe the 'manifests' and '../LemGendaryDatasets' folders and restart.")
+        print(f"   👉 This manifold '{ds_reqs[0]}' is missing or empty in {data_dir}.")
+        print(f"   👉 Recommended action: Run 'lemgendary_datasets_hub.ps1' Option 1 to acquire raw sources, then Option 2 to compile.")
         sys.exit(1)
 
     # --- 2026 Resilience: Hub Checkpoint Pathing (v13.0) ---

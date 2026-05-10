@@ -56,6 +56,8 @@ class SmartTrainingGovernor:
         self.epoch_count = 0
         self.session_epoch_count = 0 # 2026: Resumption Shield tracking
         self.min_delta = opt.get("min_delta", 0.0005)
+        self.spatial_lock_remaining = 0 # 2026 v15.9: Blocks recoil after jump
+        self.last_res_jump_epoch = -100
         
     def get_phase(self):
         res_idx = self.res_ladder.index(self.current_res)
@@ -166,6 +168,15 @@ class SmartTrainingGovernor:
             t_changed = c_changed = True
             msg_parts.append("❄️ [THERMAL SHOCK] PLCC negative. Sharpening manifold (Temp -> 0.5).")
         
+        # --- 2026 NPP v15.9: Spatial Lock ---
+        if self.spatial_lock_remaining > 0:
+            self.spatial_lock_remaining -= 1
+            # Suppress quality regression unless loss is exploding (>25% increase)
+            loss_is_exploding = (current_loss > self.prev_loss * 1.25) if current_loss and self.prev_loss else False
+            if is_regressing and not loss_is_exploding:
+                is_regressing = False
+                msg_parts.append(f"🔒 [SPATIAL LOCK] Buffering transition (Patience: {self.spatial_lock_remaining})")
+
         # 4. NPP LOOP DETECTION
         current_state = (self.current_res, round(self.current_fraction, 2))
         failures = self.failure_log.get(str(current_state), 0) # Store as string for JSON safety
@@ -194,18 +205,31 @@ class SmartTrainingGovernor:
                 t_changed = True
                 msg_parts.append("⛓️ NPP LOOP: Forcing Numerical Shakeup")
             
-            old_frac = self.current_fraction
-            self.current_fraction = max(0.15, self.current_fraction - 0.15)
-            f_changed = True
-            self.lr_multiplier = 0.7 
-            lr_changed = True
-            self.stabilization_epochs = 1 if self.task_type == "quality" else 3
-            self.cooldown_remaining = 3 if self.task_type == "quality" else 5 # NPP Loop Mitigation: Faster recovery for quality tasks
             
-            # Record the breaking point temperature
-            self.thermal_floor[str(current_state)] = self.current_temp * 1.1
+            # --- 2026 NPP v15.9: Strategic Spatial Retreat ---
+            if self.epoch_count - self.last_res_jump_epoch < 8:
+                # If we fail shortly after a jump, retreat to previous resolution at 100% data
+                # instead of resetting the current resolution to 15% data.
+                res_idx = self.res_ladder.index(self.current_res)
+                if res_idx > 0:
+                    self.current_res = self.res_ladder[res_idx - 1]
+                    self.current_fraction = 1.0 
+                    r_changed = f_changed = True
+                    self.lr_multiplier = 0.5
+                    lr_changed = True
+                    self.stabilization_epochs = 3
+                    self.cooldown_remaining = 5
+                    msg_parts.append(f"↩️ [SPATIAL RETREAT] Resetting to {self.current_res}px @ 100% Data Anchor")
             
-            msg_parts.append(f"RECOIL: Strategic retreat to {self.current_fraction*100:.0f}%")
+            if not r_changed:
+                old_frac = self.current_fraction
+                self.current_fraction = max(0.15, self.current_fraction - 0.15)
+                f_changed = True
+                self.lr_multiplier = 0.7 
+                lr_changed = True
+                self.stabilization_epochs = 1 if self.task_type == "quality" else 3
+                self.cooldown_remaining = 3 if self.task_type == "quality" else 5 
+                msg_parts.append(f"RECOIL: Strategic retreat to {self.current_fraction*100:.0f}%")
 
         # --- PROACTIVE COOLING (2026 Resilience) ---
         elif sentinel_trigger_rate > 0.15:
@@ -258,7 +282,9 @@ class SmartTrainingGovernor:
                 r_changed = b_changed = True
                 self.current_fraction = 0.5
                 f_changed = True
-                msg_parts.append(f"SPATIAL JUMP: {next_res}px | Data Reset 50%")
+                self.last_res_jump_epoch = self.epoch_count
+                self.spatial_lock_remaining = 3 # v15.9: 3 epochs of patience for the new resolution
+                msg_parts.append(f"SPATIAL JUMP: {next_res}px | Data Reset 50% | Lock: ON")
                 self.stabilization_epochs = 3
             else:
                 self.lr_multiplier = 0.5
@@ -316,6 +342,8 @@ class SmartTrainingGovernor:
             "failure_log": self.failure_log, # CRITICAL: Persist memory
             "thermal_floor": self.thermal_floor, # New
             "cooldown_remaining": self.cooldown_remaining, # New
+            "spatial_lock_remaining": self.spatial_lock_remaining, # v15.9
+            "last_res_jump_epoch": self.last_res_jump_epoch, # v15.9
             "epoch_count": self.epoch_count,
             "best_quality": self.best_quality
         }
@@ -334,6 +362,8 @@ class SmartTrainingGovernor:
         self.failure_log = state.get("failure_log", {}) # CRITICAL: Load memory
         self.thermal_floor = state.get("thermal_floor", {}) # New
         self.cooldown_remaining = state.get("cooldown_remaining", 0) # New
+        self.spatial_lock_remaining = state.get("spatial_lock_remaining", 0) # v15.9
+        self.last_res_jump_epoch = state.get("last_res_jump_epoch", -100) # v15.9
         self.epoch_count = state.get("epoch_count", self.epoch_count)
         self.best_quality = state.get("best_quality", self.best_quality)
 
