@@ -367,6 +367,12 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         # 2026 Resilience: Total VRAM Discovery
         free_vram, total_vram = torch.cuda.mem_get_info(0)
         vram_gb = total_vram / (1024**3)
+        
+        # 2026 Resilience: Paging Awareness (Shared Memory Guard)
+        # If free VRAM is critically low (< 15% of total), we must assume 
+        # we are already paging into slow Shared Memory.
+        is_exhausted = (free_vram / total_vram) < 0.15
+        
         # 2026 Resilience: Tightened safety buffer (30% overhead for 4GB hardware)
         safety_multiplier = 0.70 if vram_gb < 4.5 else 0.85
         available_vram = free_vram * safety_multiplier 
@@ -400,8 +406,9 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 else:
                     loss = output.mean()
                 loss.backward()
-                # Adam/Optimizer state is usually 2x-3x param size
-                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 1.25 
+                # 2026 Resilience: Adam/Optimizer state is usually 3x-4x param size
+                # v20.0: Strict 3.0x multiplier to account for full gradient volume
+                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 3.0 
             else:
                 with torch.no_grad():
                     _ = model(dummy_input)
@@ -416,17 +423,28 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             
         dynamic_batch = int(available_vram / sample_vram)
         
-        # --- Pixel Volume Cap (v17.5) ---
-        max_pixels = 12.0 * (1024**2)
-        if vram_gb < 4.5: max_pixels = 2.5 * (1024**2) # Strict 4GB Lockdown (Conservative v17.5)
-        elif vram_gb < 8.5: max_pixels = 7.0 * (1024**2)
-        elif vram_gb < 16.5: max_pixels = 16.0 * (1024**2)
+        # --- Pixel Volume Cap (v20.0 Strict) ---
+        # v20.0: Validation allows for 2x pixel volume since no gradients/shit are stored.
+        val_mult = 2.0 if mode == 'val' else 1.0
+        max_pixels = 12.0 * (1024**2) * val_mult
+        if vram_gb < 4.5: max_pixels = 0.4 * (1024**2) * val_mult # Sub-Nuclear 4GB Lockdown (v22.0 - Targets Batch 6)
+        elif vram_gb < 8.5: max_pixels = 5.0 * (1024**2) * val_mult
+        elif vram_gb < 16.5: max_pixels = 12.0 * (1024**2) * val_mult
         else: max_pixels = 36.0 * (1024**2) 
         
         pixel_cap = int(max_pixels / (h * w))
         system_cap = 256 if mode == 'val' else 128
         
         final_batch = max(1, min(dynamic_batch, pixel_cap, system_cap))
+        
+        # --- Exhaustion Emergency Clamp (v18.0) ---
+        if is_exhausted and vram_gb < 6.0:
+            final_batch = min(final_batch, 4) # Force-clamp to tiny batch if card is nearly full
+            print(f" ⚠️ [MEMORY-SENTINEL] Dedicated VRAM exhausted ({free_vram/1e6:.1f}MB free). Hard-clamping Batch to {final_batch} to avoid Shared Memory paging.")
+        elif vram_gb < 4.5 and free_vram < 500 * 1024 * 1024:
+            # v19.0: Secondary safety clamp for 4GB cards with low headroom
+            final_batch = min(final_batch, 8)
+            print(f" ⚠️ [MEMORY-SENTINEL] Low Headroom Detected ({free_vram/1e6:.1f}MB free). Clamping to {final_batch}.")
         
         gpu_name = torch.cuda.get_device_name(0)
         print(f"📡 [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M)")
@@ -669,8 +687,11 @@ def main():
     # --- 2026 Windows Stability Overrides ---
     if os.name == 'nt' or sys.platform == 'win32':
         if vram_gb < 4.5:
-            num_workers = min(num_workers, 2) # Cap workers to prevent I/O thrashing on 4GB hardware
-            print(f" [DATA] Windows 4GB Optimization: Capping workers at {num_workers}")
+            num_workers = 0 # Force-disable workers on 4GB hardware (Lockdown v18.5)
+            print(f" 🛡️ [DATA] Windows 4GB Lockdown: Forcing Serial Mode (0 workers) for stability.")
+        else:
+            num_workers = min(num_workers, 2)
+            print(f" [DATA] Windows Optimization: Capping workers at {num_workers}")
 
     print(f" [DATA] Initializing Parallel Manifold (Workers: {num_workers} | Persistent: {num_workers > 0})...")
     # --- 2026 Resilience: Empty Dataset Guard ---
@@ -1473,7 +1494,8 @@ def main():
 
         while current_iter < len(train_loader):
             # 2026: We check if we need to hot-swap from serial to parallel workers
-            if train_loader.num_workers == 0 and current_iter == 0 and num_workers > 0:
+            # v18.5: Hardened Shield check to prevent transition if in recovery or on 4GB hardware
+            if train_loader.num_workers == 0 and current_iter == 0 and num_workers > 0 and not (in_recovery_mode and vram_gb < 6.0):
                 print(f" 🛰️ [MISSION CONTROL] Transitioning to Parallel Data Pipeline ({num_workers} workers)...")
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
 
