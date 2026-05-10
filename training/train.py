@@ -606,6 +606,14 @@ def main():
     config_batch = model_info.get("batch_size")
 
 
+    # --- 2026 Resilience: Smart Training Governor ---
+    global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0, "vram_purge": True})
+    model_stab = model_info.get("stabilizers", {})
+    stab = {**global_stab, **model_stab}
+    governor = SmartTrainingGovernor(model_info, stabilizers=stab)
+    sample_fraction = governor.current_fraction
+    val_anchor_size = model_info.get("val_resolution", governor.current_res)
+
     # --- 2026 Resilience: Pre-Emptive Memory-Sentinel ---
     batch_size = args.batch_size or audit_hardware_vram(args.model, model_info, config, device, model, mode='train')
     val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val')
@@ -617,14 +625,6 @@ def main():
     print(f" [MISSION PROFILE] Physical Batch: {batch_size} | Accumulation: {accumulation_steps} | Effective: {batch_size * accumulation_steps}")
     print(f" [VAL PROFILE] Physical Batch: {val_batch_size} @ {val_anchor_size}px")
 
-
-    # 2026: SOTA Smart Pipeline - Initialize with Governor's Efficiency Strategy (Default 10%)
-    # Hyper-Dynamic Stabilizer Injection
-    global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0, "vram_purge": True})
-    model_stab = model_info.get("stabilizers", {})
-    stab = {**global_stab, **model_stab}
-    governor = SmartTrainingGovernor(model_info, stabilizers=stab)
-    sample_fraction = governor.current_fraction
     # --- 2026: Auto-Recovery Dataset Downloader (Option 2) ---
     # Dynamic execution suffix parsing
     exec_config = config.get("execution", {})
@@ -657,10 +657,6 @@ def main():
                     print(f" [WARNING] [DATA] Auto-acquisition failed for {ds}. Manual intervention may be required.")
 
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
-    # --- 2026: SOTA Validation Synchronization ---
-    # Validation mirrors the Governor's training resolution, UNLESS explicitly
-    # anchored in unified_models.yaml for invariant scorecarding (e.g., val_resolution: 640).
-    val_anchor_size = model_info.get("val_resolution", governor.current_res)
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
     val_ds.update_strategy(size=val_anchor_size)
     print(f" [DATA] Validation Manifold SYNCED to {val_anchor_size}px native resolution.")
