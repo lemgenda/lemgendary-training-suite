@@ -1113,7 +1113,8 @@ def main():
                         # If a _progress.pth is effectively finished (>= 99.9%), and we are loading it,
                         # it is likely a poisoned artifact from a previous resumption skip.
                         if raw_pct >= 0.999 and "_progress.pth" in attempt_ckpt:
-                            print(f" ⚠️ [RESILIENCY] Terminal progress detected in {os.path.basename(attempt_ckpt)}. Resetting to Iteration 0 to prevent rush.")
+                            print(f" ⚠️ [RESILIENCY] Terminal progress detected in {os.path.basename(attempt_ckpt)}. Advancing to next epoch (Epoch {start_epoch + 2}) to prevent rush.")
+                            start_epoch += 1
                             resume_iteration = 0
                             pct = 0.0
                         else:
