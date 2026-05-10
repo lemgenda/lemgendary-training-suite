@@ -397,31 +397,53 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         ]
     }
 
-    
     output_path = os.path.join(export_dir, f"{model_key}_training.ipynb")
-    os.makedirs(export_dir, exist_ok=True)
-    with open(output_path, "w", encoding='utf-8') as f:
-        json.dump(notebook_content, f, indent=4)
-    print(f"[OK] Generated Training Notebook: {output_path}")
+    
+    # --- 2026 Resilience: Dual-Export & Manifold Synchronization ---
 
-    # Dual-Export to Datasets Hub
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     datasets_hub_root = os.path.abspath(os.path.join(base_dir, "../LemGendaryDatasets"))
     
-    # Resolve the first dataset folder to place the twin notebook
+    # 1. Primary Model Export (Verified JSON)
+    os.makedirs(export_dir, exist_ok=True)
+    try:
+        json_str = json.dumps(notebook_content, indent=4)
+        json.loads(json_str) # Hard Validation
+        with open(output_path, "w", encoding='utf-8') as f:
+            f.write(json_str)
+        print(f"[OK] Generated Training Notebook: {output_path}")
+    except Exception as e:
+        print(f"[ERROR] JSON Validation failed for {model_key}: {e}")
+        return
+
+    # 2. Dataset Manifold Synchronization
     target_dataset_folder = None
     if unified_models_registry:
         m_info = unified_models_registry.get(model_key, {})
         ds_list = m_info.get("datasets", [])
-        if ds_list: target_dataset_folder = ds_list[0]
-    
-    if target_dataset_folder:
-        ds_dir = os.path.join(datasets_hub_root, target_dataset_folder)
-        if os.path.exists(ds_dir):
-            ds_output_path = os.path.join(ds_dir, f"{model_key}_training.ipynb")
-            with open(ds_output_path, "w", encoding='utf-8') as f:
-                json.dump(notebook_content, f, indent=4)
-            print(f"[OK] Generated Dual Training Notebook: {ds_output_path}")
+        if ds_list: 
+            target_dataset_folder = ds_list[0]
+            
+            # 2026: Resolve PascalCase folder naming with prefix/suffix (Parity with Dataset Hub)
+            pascal_ds_name = target_dataset_folder.replace("_", " ").title().replace(" ", "")
+            # Default to standard LemGendized prefix if not otherwise specified
+            manifold_folder = f"LemGendized{pascal_ds_name}"
+            
+            ds_dir = os.path.join(datasets_hub_root, manifold_folder)
+            if os.path.exists(ds_dir):
+                ds_output_path = os.path.join(ds_dir, f"{model_key}_training.ipynb")
+                with open(ds_output_path, "w", encoding='utf-8') as f:
+                    f.write(json_str)
+                print(f"[OK] Synchronized Manifold Notebook: {ds_output_path}")
+            else:
+                # Fallback to raw dataset key if prefixed folder not found
+                ds_dir_raw = os.path.join(datasets_hub_root, target_dataset_folder)
+                if os.path.exists(ds_dir_raw):
+                    ds_output_path = os.path.join(ds_dir_raw, f"{model_key}_training.ipynb")
+                    with open(ds_output_path, "w", encoding='utf-8') as f:
+                        f.write(json_str)
+                    print(f"[OK] Synchronized Raw Dataset Notebook: {ds_output_path}")
+
 
 
 def generate_usage_notebook(model_key, export_dir, unified_models_registry=None, config=None):

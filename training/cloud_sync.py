@@ -92,10 +92,16 @@ class CloudSyncManager:
             # 2026 Resilience: Run upload in a subprocess to isolate verbose/crashing I/O
             import subprocess
             import sys
-            
+            # 2026 Resilience: Kernel Format Sentinel
+            # Enforce rich-text .ipynb standard by purging raw scripts from the documentation manifold.
+            for py_file in self.model_dir.glob("*.py"):
+                if "training" in py_file.name or "usage" in py_file.name:
+                    print(f"🗑️ [JANITOR] Purging raw script artifact: {py_file.name}")
+                    py_file.unlink()
+
             # Escape backslashes for the script string
             safe_model_dir = str(self.model_dir).replace('\\', '/')
-            
+
             upload_script = f"""
 import kagglehub, os, sys
 try:
