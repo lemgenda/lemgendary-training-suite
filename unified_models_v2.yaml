@@ -108,8 +108,8 @@ nima_authenticity:
   checkpoint: AuthenticityScorerWeights_FP32.pth
   input_size:
     - 3
-    - 256
-    - 256
+    - 512
+    - 512
   val_resolution: 768
   batch_size: auto
   val_batch_size: auto
@@ -136,16 +136,15 @@ nima_authenticity:
     srcc: 0.95
   optimization:
     enabled: true
-    initial_fraction: 0.10
+    initial_fraction: 0.50
     fraction_increment: 0.20
     res_ladder:
-      - 256
-      - 384
       - 512
       - 640
       - 768
     plateau_patience: 4
     cooling_factor: 0.85
+
 upn_v2:
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2
