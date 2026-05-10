@@ -144,7 +144,10 @@ class SmartTrainingGovernor:
             is_flat = abs(delta_q) < effective_min_delta
             if is_flat: msg_parts.append("🕸️ [TRAPPED] Fidelity Floor reached. Relaxing stagnation guard.")
 
-        is_regressing = delta_q < -0.01 
+        # 2026 NPP v15.6: Relaxed Regression Gate for high-noise Quality manifolds
+        # Prevents "Panic Recoils" during natural SRCC/PLCC jitter
+        regress_threshold = -0.03 if self.task_type == "quality" else -0.01
+        is_regressing = delta_q < regress_threshold 
         is_collapsed = (current_quality < 0.05) or (plcc < -0.1) # Near-zero or negative correlation
         
         # --- 2026: Thermal Shock Guard (v6.2.1) ---
@@ -177,8 +180,8 @@ class SmartTrainingGovernor:
             f_changed = True
             self.lr_multiplier = 0.7 
             lr_changed = True
-            self.stabilization_epochs = 3
-            self.cooldown_remaining = 5 # NPP Loop Mitigation: Force 5-epoch meditation
+            self.stabilization_epochs = 1 if self.task_type == "quality" else 3
+            self.cooldown_remaining = 3 if self.task_type == "quality" else 5 # NPP Loop Mitigation: Faster recovery for quality tasks
             
             # Record the breaking point temperature
             self.thermal_floor[str(current_state)] = self.current_temp * 1.1
