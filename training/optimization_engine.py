@@ -274,10 +274,6 @@ class SmartTrainingGovernor:
             elif phase == "DEEPENING":
                 current_idx = self.res_ladder.index(self.current_res)
                 next_res = self.res_ladder[current_idx + 1]
-                res_ratio = next_res / self.current_res
-                vram_growth = res_ratio ** 2.2 
-                self.current_batch = max(1, int(self.current_batch / vram_growth))
-                self.current_acc = max(1, self.target_effective_batch // self.current_batch)
                 self.current_res = next_res
                 r_changed = b_changed = True
                 self.current_fraction = 0.5

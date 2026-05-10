@@ -355,92 +355,84 @@ def trigger_sota_export(model, args, config, unified_models_registry, epoch, plc
     except Exception as e:
         print(f"⚠️  [SOTA DEPLOYMENT] Export phase failed: {e}")
 
-def get_dynamic_batch_size(model_key, model_info, config, device, model, mode='train'):
+def audit_hardware_vram(model_key, model_info, config, device, model, res_override=None, mode='train'):
     """
-    Memory-Sentinel (2026): Calculates the absolute peak batch size for
-    high-velocity training on any NVIDIA architecture with zero VRAM paging.
+    2026 Memory-Sentinel: Atomic Hardware Probe (v17.0 Nuclear).
+    Performs a real-world VRAM test at the specified resolution to find the 
+    absolute physical limit of the current GPU.
     """
-    if device.type != 'cuda':
-        return config.get("defaults", {}).get("batch_size", 16)
-
     try:
-        # 2026 SOTA: Probe ACTUAL hardware headroom (includes browser/OS overhead)
+        if device.type != 'cuda': return config.get("defaults", {}).get("batch_size", 16)
+        
+        # 2026 Resilience: Total VRAM Discovery
         free_vram, total_vram = torch.cuda.mem_get_info(0)
         vram_gb = total_vram / (1024**3)
+        available_vram = free_vram * 0.85 # 15% system overhead
         
-        # 2026 Resilience: Safety margin is strictly enforced for low-VRAM hardware
-        # 4GB hardware (GTX 1650) requires a deep 60% margin to prevent OS-level paging crashes.
-        s_mult = 0.60 + (min(vram_gb, 24.0) / 24.0) * 0.30
-        if mode == 'val': s_mult = min(0.92, s_mult + 0.10)
-        available_vram = free_vram * s_mult
-
-        task_type = model_info.get("dataset_type", "quality")
-        if isinstance(task_type, list): task_type = task_type[0]
-
-        # 2026 Res-Aware Scaling: Normalize by baseline 224x224 surface area
-        size_raw = model_info.get("input_size", config.get("default_img_size", 256))
-        # 2026 Resilience: Override with val_resolution if in validation mode to prevent paging
-        if mode == 'val' and "val_resolution" in model_info:
-            size_raw = model_info["val_resolution"]
-            
-        h, w = (size_raw[1], size_raw[2]) if isinstance(size_raw, list) and len(size_raw) == 3 else (size_raw, size_raw) if isinstance(size_raw, int) else (size_raw[0], size_raw[1])
-        res_multiplier = (int(h) * int(w)) / (224 * 224)
-
-        # 2026 SOTA: Active Hardware Probing
-        # We perform a single forward/backward pass to measure EXACT memory footprint 
-        # on this specific hardware + backbone + resolution combination.
+        # Use resolution from override or model_info
+        res = res_override
+        if res is None:
+            res_raw = model_info.get("input_size", 224)
+            res = res_raw[1] if isinstance(res_raw, list) else res_raw
+        
+        h = w = int(res)
+        
+        # --- The Probe (v17.2) ---
+        # We instantiate a single-sample manifold to measure exact activation/gradient volume
+        torch.cuda.empty_cache()
+        before_probe = torch.cuda.memory_allocated(0)
+        
         try:
-            torch.cuda.empty_cache()
-            before_probe = torch.cuda.memory_allocated(0)
+            # 2026: Deterministic dummy input matching architecture requirements
+            if "diffusion" in model_key.lower():
+                dummy_input = {"pixel_values": torch.randn(1, 3, h, w).to(device)}
+            else:
+                dummy_input = torch.randn(1, 3, h, w).to(device)
             
-            # Create a dummy input matching the current mission profile
-            dummy_input = torch.randn(1, 3, h, w).to(device)
-            
-            # Simulate a training step to capture activation + gradient + optimizer state
+            model.eval() 
             if mode == 'train':
+                model.train()
                 output = model(dummy_input)
-                loss = output.sum()
+                if isinstance(output, dict):
+                    loss = sum(v.mean() for v in output.values() if isinstance(v, torch.Tensor))
+                else:
+                    loss = output.mean()
                 loss.backward()
-                # Estimate optimizer state (Adam is usually 2x params)
-                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 1.15 # 15% safety buffer
+                # Adam/Optimizer state is usually 2x-3x param size
+                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 1.25 
             else:
                 with torch.no_grad():
-                    output = model(dummy_input)
-                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 1.10 # 10% safety buffer for inference
+                    _ = model(dummy_input)
+                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 1.15 
             
-            torch.cuda.empty_cache() # Clean up probe artifacts
-            
+            torch.cuda.empty_cache()
             if sample_vram <= 0: raise ValueError("Probe failed to measure manifold")
             
         except Exception as e:
-            # Universal Fallback: Use a conservative resolution-aware estimate if probe fails
-            sample_vram = 40 * 1024 * 1024 * res_multiplier
+            res_multiplier = (h * w) / (224 * 224)
+            sample_vram = 60 * 1024 * 1024 * res_multiplier 
             
         dynamic_batch = int(available_vram / sample_vram)
         
-        # 2026 Resilience: Surface Area Guard (Pixel Volume Cap v11.0)
-        # We enforce a hard limit on total pixels per batch to prevent cubic memory spikes 
-        # on architectures with small VRAM buffers (4GB/6GB).
-        # Standard: ~12.0M pixels (e.g. 256 @ 224px)
-        # 4GB Survivor: ~2.5M pixels (e.g. 6 @ 640px, or 16 @ 384px)
+        # --- Pixel Volume Cap (v17.5) ---
         max_pixels = 12.0 * (1024**2)
-        if vram_gb < 4.5: max_pixels = 2.5 * (1024**2) # Strict 4GB Lockdown
-        elif vram_gb < 8.5: max_pixels = 6.0 * (1024**2)
+        if vram_gb < 4.5: max_pixels = 3.0 * (1024**2) # Strict 4GB Lockdown (Safety buffer adjusted)
+        elif vram_gb < 8.5: max_pixels = 8.0 * (1024**2)
+        elif vram_gb < 16.5: max_pixels = 18.0 * (1024**2)
+        else: max_pixels = 36.0 * (1024**2) 
         
-        pixel_cap = int(max_pixels / (int(h) * int(w)))
-        
-        # Apply final OS-Stability cap (Prevents lag on high-end hardware)
+        pixel_cap = int(max_pixels / (h * w))
         system_cap = 256 if mode == 'val' else 128
         
         final_batch = max(1, min(dynamic_batch, pixel_cap, system_cap))
         
-        # 2026: Concatenated Hardware Status
         gpu_name = torch.cuda.get_device_name(0)
-        print(f"📡 [MEMORY-SENTINEL] {gpu_name} ({(total_vram/1e9):.1f}GB) | {mode.capitalize()} Batch: {final_batch} (Pixels: {(int(h)*int(w)*final_batch)/1e6:.1f}M)")
+        print(f"📡 [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M)")
         return final_batch
     except Exception as e:
-        print(f"⚠️ [MEMORY-SENTINEL] Probe failed: {e}. Falling back to safe defaults.")
-        return config.get("defaults", {}).get("batch_size", 16)
+        print(f"⚠️ [MEMORY-SENTINEL] Probe critical failure: {e}. Defaulting to safe baseline.")
+        return 1
+
 
 def main():
     # 2026 Resilience: Force UTF-8 encoding for Windows terminals to support emojis
@@ -489,6 +481,18 @@ def main():
     else:
         device = torch.device("cpu")
         print(f"⚠️ [HARDWARE] No Accelerator Found. Defaulting to CPU (Slow).")
+    
+    # 2026 Resilience: Global Hardware Discovery
+    vram_gb = 0
+    if device.type == 'cuda':
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+    
+    model_info = unified_models_registry.get(args.model, {})
+    is_heavy_arch = any(x in args.model.lower() for x in ["nafnet", "mirnet", "ffanet", "mprnet"])
+    raw_size = model_info.get("input_size", 224)
+    current_res = raw_size[1] if isinstance(raw_size, list) else raw_size
+    is_heavy_manifold = is_heavy_arch or int(current_res) > 448
+
 
     # Load model
     if "yolo" in args.model.lower():
@@ -595,56 +599,24 @@ def main():
     model = get_model(args.model, config).to(device)
 
     # --- 2026 Hyperparameter Priority Engine (Memory-Sentinel) ---
-    model_info = unified_models_registry.get(args.model, {})
     epochs = args.epochs or model_info.get("epochs") or config.get("defaults", {}).get("epochs", 50)
     lr = args.lr or model_info.get("learning_rate") or config.get("defaults", {}).get("lr", 1e-4)
 
     # Priority: CLI > Model_Config (if not 'auto') > Memory-Sentinel > Global_Config
     config_batch = model_info.get("batch_size")
-    if args.batch_size:
-        batch_size = args.batch_size
-    elif config_batch and config_batch != "auto":
-        batch_size = int(config_batch)
-    else:
-        batch_size = get_dynamic_batch_size(args.model, model_info, config, device, model, mode='train')
 
-    # --- 2026 Resilience: Split Batch Strategy (v10.1.9) ---
-    config_val_batch = model_info.get("val_batch_size")
-    if config_val_batch and config_val_batch != "auto":
-        val_batch_size = int(config_val_batch)
-    elif config_batch == "auto" and not args.batch_size:
-        val_batch_size = get_dynamic_batch_size(args.model, model_info, config, device, model, mode='val')
-    else:
-        val_batch_size = model_info.get("val_batch_size", batch_size)
-    
-    if not isinstance(val_batch_size, int) or val_batch_size == "auto":
-        val_batch_size = batch_size
 
     # --- 2026 Resilience: Pre-Emptive Memory-Sentinel ---
-    effective_batch_size = batch_size
-    accumulation_steps = 1
-    vram = torch.cuda.get_device_properties(device).total_memory / (1024**3) if device.type == 'cuda' else 0
-    res_raw = model_info.get("input_size", 224)
-    current_res = res_raw[1] if isinstance(res_raw, list) else res_raw
-    is_heavy_arch = any(x in args.model.lower() for x in ["nafnet", "mirnet", "ffanet", "mprnet"])
-    is_heavy_manifold = is_heavy_arch or int(current_res) > 448
-
-    # --- 2026 Resilience: Universal Accumulation Stride (v11.5) ---
-    # We maintain the "Effective Batch" across any hardware by adjusting accumulation 
-    # if the physical batch is throttled by the Memory-Sentinel.
+    batch_size = args.batch_size or audit_hardware_vram(args.model, model_info, config, device, model, mode='train')
+    val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val')
+    
+    # --- 2026 Resilience: Universal Accumulation Stride (v12.0) ---
     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
-    if batch_size < target_eff:
-        accumulation_steps = max(1, target_eff // batch_size)
-        print(f" 🛸 [STRIDE-SYNC] Physical Batch {batch_size} < Target {target_eff}. Accumulation: {accumulation_steps}")
+    accumulation_steps = max(1, target_eff // batch_size)
+    
+    print(f" [MISSION PROFILE] Physical Batch: {batch_size} | Accumulation: {accumulation_steps} | Effective: {batch_size * accumulation_steps}")
+    print(f" [VAL PROFILE] Physical Batch: {val_batch_size} @ {val_anchor_size}px")
 
-    # Survival Profile remains for the absolute lower-bound (Mathematically Heavy Architectures)
-    if vram > 0 and vram < 5.0 and is_heavy_arch:
-        batch_size = 1
-        accumulation_steps = max(accumulation_steps, 4)
-        print(f" [SURVIVAL PROFILE] Low-VRAM Heavy Lockdown: Physical 1 | Accumulation {accumulation_steps}")
-
-    # 2026: SOTA Mission Profile - Final Consistency Audit
-    print(f" [MISSION PROFILE] Physical Batch: {batch_size} | Logical (Effective) Batch: {batch_size * accumulation_steps}")
 
     # 2026: SOTA Smart Pipeline - Initialize with Governor's Efficiency Strategy (Default 10%)
     # Hyper-Dynamic Stabilizer Injection
@@ -698,7 +670,7 @@ def main():
     num_workers = config.get("num_workers", 4)
     # --- 2026 Windows Stability Overrides ---
     if os.name == 'nt' or sys.platform == 'win32':
-        if 'vram' in locals() and vram < 5.0:
+        if vram_gb < 4.5:
             num_workers = min(num_workers, 2) # Cap workers to prevent I/O thrashing on 4GB hardware
             print(f" [DATA] Windows 4GB Optimization: Capping workers at {num_workers}")
 
@@ -1057,7 +1029,8 @@ def main():
                     # If we resume from 'progress', we restart the SAME epoch and fast-forward iterations.
                     if "_latest.pth" in attempt_ckpt or "_best.pth" in attempt_ckpt:
                         start_epoch += 1
-                        print(f"[INFO] [RESILIENCY] Completed epoch summary detected. Resuming from Epoch {start_epoch + 1}.")
+                        resume_iteration = 0
+                        print(f"[INFO] [RESILIENCY] Completed epoch summary detected. Resuming from Epoch {start_epoch + 1} (Iteration 0).")
                     else:
                         print(f"[INFO] [RESILIENCY] Mid-epoch progress detected. Resuming from Epoch {start_epoch + 1}.")
 
@@ -1066,7 +1039,7 @@ def main():
                 if 'best_metrics' in ckpt: best_metrics = ckpt['best_metrics']
                 if 'epochs_no_improve' in ckpt:
                     start_epochs_no_improve = ckpt['epochs_no_improve']
-                if 'iteration' in ckpt:
+                if 'iteration' in ckpt and not ("_latest.pth" in attempt_ckpt or "_best.pth" in attempt_ckpt):
                     resume_iteration = ckpt['iteration']
                     print(f"[INFO] [RESILIENCY] Intra-epoch progress detected. Iteration: {resume_iteration}")
                 if 'val_iteration' in ckpt:
@@ -1101,10 +1074,10 @@ def main():
                     old_batch_size = batch_size
                     if config_batch == "auto" and not args.batch_size:
                         temp_info = {**model_info, "input_size": res_size}
-                        batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, model, mode='train')
+                        batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='train')
                         # Synchronize val_batch_size if it also followed the auto strategy
                         if model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info:
-                            val_batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, model, mode='val')
+                            val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val')
                     
                     accumulation_steps = g_start_state.get('accumulation_steps', 1)
                     
@@ -1139,9 +1112,19 @@ def main():
                     
                     if resume_iteration > 0 and ghost_loader_len > 0:
                         raw_pct = resume_iteration / ghost_loader_len
-                        # 2026 Resilience: Clamp to prevent index overflow
-                        pct = min(0.999, raw_pct)
-                        resume_iteration = int(pct * new_loader_len)
+                        
+                        # 2026 Resilience: Terminal Progress Guard (The "Anti-Rush" Patch)
+                        # If a _progress.pth is effectively finished (>= 99.9%), and we are loading it,
+                        # it is likely a poisoned artifact from a previous resumption skip.
+                        if raw_pct >= 0.999 and "_progress.pth" in attempt_ckpt:
+                            print(f" ⚠️ [RESILIENCY] Terminal progress detected in {os.path.basename(attempt_ckpt)}. Resetting to Iteration 0 to prevent rush.")
+                            resume_iteration = 0
+                            pct = 0.0
+                        else:
+                            # 2026 Resilience: Clamp to prevent index overflow
+                            pct = min(0.999, raw_pct)
+                            resume_iteration = int(pct * new_loader_len)
+
                         print(f" 🛰️ [TELEMETRY] Resume Diagnostic:")
                         print(f"    - Source Batch: {source_batch} | Source Fraction: {source_fraction*100:.1f}%")
                         print(f"    - Source/Ghost Length: {ghost_loader_len} | New Length: {new_loader_len}")
@@ -1437,14 +1420,6 @@ def main():
         interval_pct = 0.0 # To be calibrated by Governor
     
     for epoch in range(start_epoch, epochs):
-        # --- 2026: Mission Profile - Surgical Overrides ---
-        # If NAFNet started at 640 (legacy config or resume), force it to 256 for Epoch 2 Foundation.
-        if args.model == "nafnet_debluring" and epoch == 1:
-            if train_ds.size[0] != 256:
-                print(f" 🎯 [MISSION OVERRIDE] Forcing NAFNet Deblur to 256px for Epoch 2 Foundation.")
-                train_ds.update_strategy(size=256)
-                governor.current_res = 256
-
         last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.12) ---
         # 2026: SOTA Stabilization and Thermal Sharding
         # Physical batch constraints are now established pre-emptively during initialization.
@@ -2130,7 +2105,7 @@ def main():
                 # 2026 Resilience: Critical Manifold Override (v11.2)
                 # If we are on 4GB hardware, we ignore "user preference" to prevent a hard system crash.
                 if free_mem < (400 * 1024 * 1024) and val_batch_size > 1:
-                    is_critical = (vram < 4.5)
+                    is_critical = (vram_gb < 4.5)
                     action_str = "FORCED" if is_critical else "SKIPPED (Per User Preference)"
                     print(f" 📡 [MEM-SENTINEL] Low Headroom for Validation ({free_mem/1e6:.1f}MB). Reduction: {action_str}.")
                     
@@ -2145,7 +2120,7 @@ def main():
             if config_batch == "auto" and (model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info):
                 # 2026 Resilience: Must use val_ds.size to prevent paging if validation is anchored higher than training
                 temp_info = {**model_info, "input_size": val_ds.size}
-                val_batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, model, mode='val')
+                val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val')
                 if pbar: pbar.write(f" 📡 [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size}")
                 # Re-initialize DataLoader if batch size changed
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
@@ -2539,23 +2514,30 @@ def main():
             if new_params.get('stabilization_epochs', 0) > 0:
                 print(f"🛡️ [STABILIZATION SHIELD] Manifold Locked for {new_params['stabilization_epochs']} more epochs.")
 
-            # --- 2026 Resilience: Inter-Epoch Adaptive Batch Strategy ---
-            # Recalculate batch sizes at the epoch boundary to maximize efficiency if set to 'auto'.
-            if config_batch == "auto" and not args.batch_size:
-                temp_info = {**model_info, "input_size": governor.current_res}
-                batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, model, mode='train')
-                if model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info:
-                    val_batch_size = get_dynamic_batch_size(args.model, temp_info, config, device, model, mode='val')
-                b_changed = True # Ensure loaders are updated with the newly calculated sizes
+            # --- 2026 Resilience: Inter-Epoch Adaptive Batch Strategy (v17.0) ---
+            # Recalculate batch sizes at the epoch boundary to maximize efficiency.
+            if not args.batch_size:
+                if r_changed or config_batch == "auto" or config_batch is None:
+                    temp_info = {**model_info, "input_size": governor.current_res}
+                    batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='train')
+                    
+                    # Validation resolution might be anchored
+                    v_res = model_info.get("val_resolution", governor.current_res)
+                    val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, res_override=v_res, mode='val')
+                    
+                    # Recalculate accumulation to maintain Effective Batch
+                    target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
+                    accumulation_steps = max(1, target_eff // batch_size)
+                    
+                    b_changed = True 
+                    print(f" 🛸 [GOVERNOR] Hardware Re-Audit Complete: {batch_size} (Acc: {accumulation_steps}) @ {governor.current_res}px")
 
             if f_changed or r_changed or b_changed:
-                if b_changed:
-                    # 2026: Prioritize Hardware Probe if 'auto', otherwise use Governor's estimation
-                    if config_batch != "auto" or args.batch_size:
-                        batch_size = new_params['batch_size']
-                    
-                    accumulation_steps = new_params['accumulation_steps']
-                    print(f" 🛸 [GOVERNOR] Batch shift synchronized: {batch_size} (Acc: {accumulation_steps})")
+                if b_changed and (config_batch != "auto" and config_batch is not None and not args.batch_size):
+                     # If we didn't re-audit (e.g. manual batch set in config but resolution jumped)
+                     # we use the Governor's suggestion, but this path is now secondary.
+                     batch_size = new_params['batch_size']
+                     accumulation_steps = new_params['accumulation_steps']
 
                 train_ds.update_strategy(
                     fraction=new_params['sample_fraction'] if f_changed else None,
