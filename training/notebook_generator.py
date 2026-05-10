@@ -594,11 +594,18 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             }
         ]
     }
-    
     output_path = os.path.join(export_dir, f"{model_key}-usage.ipynb")
-    with open(output_path, "w", encoding='utf-8') as f:
-        json.dump(notebook_content, f, indent=4)
-    print(f"[OK] Generated Usage Notebook: {output_path}")
+    
+    # --- 2026 Resilience: Export Hardening ---
+    try:
+        json_str = json.dumps(notebook_content, indent=4)
+        json.loads(json_str) # Hard Validation
+        with open(output_path, "w", encoding='utf-8') as f:
+            f.write(json_str)
+        print(f"[OK] Generated Usage Notebook: {output_path}")
+    except Exception as e:
+        print(f"[ERROR] JSON Validation failed for {model_key} usage: {e}")
+
 
 if __name__ == "__main__":
     import yaml
