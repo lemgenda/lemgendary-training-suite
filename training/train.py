@@ -367,7 +367,9 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         # 2026 Resilience: Total VRAM Discovery
         free_vram, total_vram = torch.cuda.mem_get_info(0)
         vram_gb = total_vram / (1024**3)
-        available_vram = free_vram * 0.85 # 15% system overhead
+        # 2026 Resilience: Tightened safety buffer (30% overhead for 4GB hardware)
+        safety_multiplier = 0.70 if vram_gb < 4.5 else 0.85
+        available_vram = free_vram * safety_multiplier 
         
         # Use resolution from override or model_info
         res = res_override
@@ -416,9 +418,9 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         
         # --- Pixel Volume Cap (v17.5) ---
         max_pixels = 12.0 * (1024**2)
-        if vram_gb < 4.5: max_pixels = 3.0 * (1024**2) # Strict 4GB Lockdown (Safety buffer adjusted)
-        elif vram_gb < 8.5: max_pixels = 8.0 * (1024**2)
-        elif vram_gb < 16.5: max_pixels = 18.0 * (1024**2)
+        if vram_gb < 4.5: max_pixels = 2.5 * (1024**2) # Strict 4GB Lockdown (Conservative v17.5)
+        elif vram_gb < 8.5: max_pixels = 7.0 * (1024**2)
+        elif vram_gb < 16.5: max_pixels = 16.0 * (1024**2)
         else: max_pixels = 36.0 * (1024**2) 
         
         pixel_cap = int(max_pixels / (h * w))
@@ -1059,10 +1061,13 @@ def main():
                         last_intra_epoch_pct = ckpt['last_intra_epoch_pct']
                     if 'interval_pct' in ckpt:
                         interval_pct = ckpt['interval_pct']
-                    if 'last_val_pct' in ckpt:
-                        last_val_pct = ckpt['last_val_pct']
                     if 'val_interval_pct' in ckpt:
                         val_interval_pct = ckpt['val_interval_pct']
+                    
+                    # Restore Recovery Shield State
+                    if 'in_recovery_mode' in ckpt:
+                        in_recovery_mode = ckpt['in_recovery_mode']
+                        if in_recovery_mode: print(" [RESILIENCY] Serial Recovery Shield RESTORED (Active).")
                     
                     # 2026 Resilience: Post-Restoration VRAM Re-Audit
                     # Only recalculate batch size if it was set to 'auto' in the registry.
@@ -1679,7 +1684,8 @@ def main():
                                 'best_quality_score': best_quality_score,
                                 'epochs_no_improve': epochs_no_improve,
                                 'regression_epochs': regression_epochs,
-                                'sota_achieved': sota_baseline_achieved
+                                'sota_achieved': sota_baseline_achieved,
+                                'in_recovery_mode': in_recovery_mode
                             }, recovery_ckpt)
 
                             iter_resync_triggered = True
