@@ -7,7 +7,7 @@ class CombinedLoss(nn.Module):
     LemGendary 2026 Unified Loss Engine
     Supports Restoration (L1+LPIPS), Quality (EMD+RankBoost), and Classification (CE).
     """
-    def __init__(self, task_type="restoration", stabilizers=None):
+    def __init__(self, task_type="restoration", stabilizers=None, use_perc=False):
         super().__init__()
         self.task_type = task_type
         # 2026 Resilience: Dynamic injection from config hierarchy
@@ -20,8 +20,14 @@ class CombinedLoss(nn.Module):
         # 2026: SOTA Rank-Boost Weights (Standard 10..1 mapping)
         self.register_buffer('rank_weights', torch.arange(1, 11).float())
 
-        if self.task_type in ["restoration", "enhancement"]:
+        if self.task_type in ["restoration", "enhancement"] and use_perc:
             try:
+                # 2026 Resilience: Surgical Memory Reclamation before heavy Perceptual Engine load
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
                 import lpips
                 # 2026: Mission Pulse - Restore transparency for slow perceptual engine loading
                 print(" [MISSION] Initializing Neural Perceptual Engine (LPIPS/VGG16)...")
@@ -32,6 +38,7 @@ class CombinedLoss(nn.Module):
                     param.requires_grad = False
             except Exception as e:
                 print(f"⚠️ [RESILIENCE] LPIPS failed to bind ({e}). Defaulting to pure L1.")
+
 
     def forward(self, pred, target, task_idx=None):
         if self.task_type in ["restoration", "enhancement"]:

@@ -1333,13 +1333,25 @@ def main():
 
     # --- 2026: Polarity Manifold Anchor (v4.0) ---
     # We freeze the backbone for the entire first epoch to force the Head to match the 1..10 ground truth.
+    # 2026 Resilience: Only apply to 'quality' tasks (NIMA). Restoration models (NAFNet) must remain unfrozen.
     thermal_steps_left = 0
-    if start_epoch == 0:
+    if start_epoch == 0 and train_ds.task_type == "quality":
         print(" [POLARITY ANCHOR] Freezing backbone for Epoch 1 to establish positive manifold...")
+        trainable_params = 0
         for name, param in model.named_parameters():
-            if "classifier" not in name and "fc" not in name and "head" not in name:
+            if any(k in name for k in ["classifier", "fc", "head", "to_rgb", "output"]):
+                param.requires_grad = True
+                trainable_params += 1
+            else:
                 param.requires_grad = False
-        thermal_steps_left = len(train_loader)
+        
+        # 2026 Safety: If no head was detected, unfreeze everything to prevent grad_fn failure.
+        if trainable_params == 0:
+            print(" ⚠️ [POLARITY ANCHOR] No specialized head detected. Reverting to full-unfreeze.")
+            for param in model.parameters(): param.requires_grad = True
+        else:
+            thermal_steps_left = len(train_loader)
+
 
     # --- 2026: Hyper-Dynamic Stabilizer Injection ---
     global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0})
@@ -1358,11 +1370,22 @@ def main():
         
     print(f" [STABILIZER] Active Parameters: Temp={stab['softmax_temp']} | Eps={stab['emd_epsilon']} | Clamp={stab['logit_clamp']}")
 
-    criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab).to(device)
-    # 2026 Resilience: Enable AMP only on architectures with hardware Tensor Core support (RTX, Tesla, A100, H100, L4)
+    # --- 2026 Resilience: Surgical Loss Logic ---
+    # Only load the heavy Perceptual Engine (LPIPS) if explicitly requested OR if we have > 6GB VRAM.
+    # This prevents the "Manifold Collapse" hang on 4GB GTX cards.
+    use_lpips = "lpips" in str(model_info.get("loss_fn", "")).lower()
+    vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 0
+    if vram_gb < 5.0 and "nafnet" in args.model.lower():
+        # High-res restorers on 4GB hardware MUST bypass LPIPS to remain stable.
+        use_lpips = False
+        
+    criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab, use_perc=use_lpips).to(device)
+    # 2026 Resilience: Enable AMP for architectures with Tensor Cores OR GTX 16-series (Turing)
+    # Turing GTX (1650/1660) supports FP16 for memory savings even without Tensor Cores.
     gpu_name = torch.cuda.get_device_name(0) if device.type == 'cuda' else ""
-    use_amp = any(k in gpu_name for k in ['RTX', 'Tesla', 'A100', 'H100', 'L4'])
+    use_amp = any(k in gpu_name for k in ['RTX', 'Tesla', 'A100', 'H100', 'L4', 'GTX 16'])
     scaler = torch.amp.GradScaler('cuda', enabled=use_amp) # pyre-ignore
+
 
     # Initialize metrics for export stability (Avoids NameErrors on skip)
     # Initialize metrics for export stability
@@ -1883,13 +1906,17 @@ def main():
                     total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
                     
                     # 2026 Resilience: Gradient Sentinel Injection (Noise-Filtered)
-                    if total_norm > 15.0:
+                    # Task-Specific Threshold: NIMA (EMD) naturally has spikier gradients.
+                    stress_threshold = 25.0 if train_ds.task_type == "quality" else 15.0
+                    if total_norm > stress_threshold:
                         consecutive_stress_events += 1
                         recoil_msg = governor.recoil()
-                        if consecutive_stress_events % 10 == 1:
+                        # 2026: Log Dampening - Only print every 50 consecutive events to reduce 'Noise'
+                        if consecutive_stress_events % 50 == 1:
                             print(f" ⚠️ [SENTINEL] Extreme Gradient Stress (Norm: {total_norm:.2f}). NPP Recoil active (x{consecutive_stress_events}).")
                             if recoil_msg: print(recoil_msg)
                     else:
+
                         consecutive_stress_events = 0
                     
                     if i > 50 and loss.item() * accumulation_steps > (train_loss / i) * 5.0:

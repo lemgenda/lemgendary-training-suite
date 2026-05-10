@@ -30,11 +30,18 @@ class CloudSyncManager:
         
         # 2026: Standardized Kaggle Handle construction
         model_slug = self.model_name.replace("_", "-")
+        
+        # 2026 Resilience: Preferred Naming Alignment
+        # Correcting 'aesthetic' -> 'aesthetics' for NIMA manifolds per user request.
+        if "nima-aesthetic" in model_slug:
+            model_slug = model_slug.replace("nima-aesthetic", "nima-aesthetics")
+
         slug_prefix = config.get("kaggle_slug_prefix", "lemgendary-")
         slug_suffix = config.get("kaggle_slug_suffix", "-checkpoints")
         
         # Enforce absolute parity with user identity
         self.kaggle_handle = f"{self.kaggle_username}/{slug_prefix}{model_slug}{slug_suffix}/pytorch/default"
+
 
         
         # Paths
