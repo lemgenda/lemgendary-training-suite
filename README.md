@@ -18,6 +18,7 @@ The v16.2.8 release marks the end of "low-resolution warm-up." The suite now enf
 
 ### 🛰️ Dynamic Memory-Sentinel (Batch Decoupling)
 - **100% Autonomous Batching**: Manual `batch_size` settings have been removed from the registry. The suite now uses active VRAM probing to calculate the absolute peak physical batch size and gradient accumulation for your specific hardware.
+- **Atomic Re-Audit (v17.0)**: The suite now performs a fresh hardware probe every time the resolution ladder jumps (e.g., 256px → 384px) or validation begins. This ensures peak physical throughput at low resolutions while automatically throttling for high-res stability.
 - **VRAM Defibrillation**: Proactive memory purging between training and high-res validation to ensure zero-paging on restricted hardware (4GB-8GB).
 
 ### 🧬 Hardened Resolution Ladders
