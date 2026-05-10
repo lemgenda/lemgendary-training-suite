@@ -170,6 +170,14 @@ class SmartTrainingGovernor:
         current_state = (self.current_res, round(self.current_fraction, 2))
         failures = self.failure_log.get(str(current_state), 0) # Store as string for JSON safety
 
+        # --- 2026 NPP v15.8: Resonance Shield ---
+        # Quality tasks (SRCC/PLCC) are naturally turbulent. We disable Turbulence Recoils 
+        # for these tasks and only rely on sustained Regression or Collapse.
+        if self.task_type == "quality":
+            is_turbulent = False # Turbulence is expected in high-entropy NIMA manifolds
+            if is_expanding: msg_parts.append("📡 [RESONANCE] Turbulence detected but shielded. Holding manifold.")
+
+        should_retreat = (is_regressing or is_turbulent or is_collapsed)
         if is_expanding and loss_is_stable and not is_collapsed:
             should_retreat = False
             if is_regressing: msg_parts.append("🛡️ [MOMENTUM] Jitter detected but Loss is stable. Holding manifold.")
