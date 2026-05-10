@@ -1416,6 +1416,8 @@ def main():
     else:
         interval_pct = 0.0 # To be calibrated by Governor
     
+    in_recovery_mode = False # 2026 Resilience: OOM Shield (v17.2)
+    
     for epoch in range(start_epoch, epochs):
         last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.12) ---
         # 2026: SOTA Stabilization and Thermal Sharding
@@ -1484,8 +1486,9 @@ def main():
                 
                 # --- WORKER HOT-SWAP ---
                 # Now that we've reached the target batch, we swap to the full worker count
-                # 2026: Optimization - Skip hot-swap if we are already in serial mode or num_workers is 0
-                if num_workers > 0 and train_loader.num_workers == 0:
+                # 2026 Resilience: Skip hot-swap if we are already in serial mode or num_workers is 0
+                # v17.2: Also skip if we are in OOM Recovery Mode on low-end hardware
+                if num_workers > 0 and train_loader.num_workers == 0 and not (in_recovery_mode and vram_gb < 6.0):
                     print(f" 🛰️ [MISSION CONTROL] Fast-forward complete. Engaging Parallel Pipeline ({num_workers} workers)...")
                     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
                     iter_obj = enumerate(train_loader)
@@ -1633,7 +1636,8 @@ def main():
                             batch_size = max(1, batch_size // 2)
                             # effective_batch_size = old_bs * accumulation_steps (implied)
                             accumulation_steps = accumulation_steps * 2
-                            print(f" [RECOVERY] OOM Detected. Scaling Batch: {old_bs} -> {batch_size} | Accumulation: {accumulation_steps}")
+                            in_recovery_mode = True # Activate Serial Shield
+                            print(f" [RECOVERY] OOM Detected. Scaling Batch: {old_bs} -> {batch_size} | Accumulation: {accumulation_steps} | Shield: ACTIVE")
                             
                             # --- 2026 Resilience: DataLoader Re-Initialization ---
                             # Physically recreate the loader to update internal batch_size pointers
