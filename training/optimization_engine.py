@@ -250,8 +250,6 @@ class SmartTrainingGovernor:
                 phase_min = 0.05 if phase == "REFINEMENT" else 0.1
             else:
                 phase_min = self.min_temp # NIMA remains at 0.5 for stability
-                # Hard Cap for NIMA to prevent numerical diffusion/negative correlation
-                self.current_temp = min(1.0, self.current_temp) 
                 
             # Check thermal floor for current state
             floor = max(phase_min, self.thermal_floor.get(str(current_state), self.min_temp))
@@ -267,6 +265,11 @@ class SmartTrainingGovernor:
 
         self.prev_quality = current_quality
         if current_loss: self.prev_loss = current_loss
+        
+        # --- 2026: Universal Nuclear Safety Gate (Exit Point) ---
+        if self.task_type == "quality":
+            self.current_temp = min(1.0, self.current_temp)
+            self.current_clamp = min(25.0, self.current_clamp) # Prevent logit explosion
         
         final_msg = f"🚀 [{phase}] " + " | ".join(msg_parts) if msg_parts else ""
             
