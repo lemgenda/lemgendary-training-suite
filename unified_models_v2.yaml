@@ -216,7 +216,7 @@ codeformer:
     - 3
     - 256
     - 256
-  learning_rate: 0.0005
+  learning_rate: 5.0e-05
 
   loss_fn: mse
   dataset_type: face
@@ -255,7 +255,7 @@ parsenet:
     - 3
     - 256
     - 256
-  learning_rate: 0.0005
+  learning_rate: 5.0e-05
 
   loss_fn: cross_entropy
   dataset_type: segmentation
@@ -687,7 +687,7 @@ ultrazoom:
     - 3
     - 256
     - 256
-  learning_rate: 0.0005
+  learning_rate: 1.0e-04
 
   loss_fn: mse
   dataset_type: restoration
@@ -819,7 +819,7 @@ vlm_blip2:
     - 224
     - 224
   val_resolution: 448
-  learning_rate: 0.0001
+  learning_rate: 2.0e-05
 
   loss_fn: contrastive_captioning
   dataset_type: image_to_text
