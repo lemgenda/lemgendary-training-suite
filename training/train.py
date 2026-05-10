@@ -1645,9 +1645,10 @@ def main():
                             print(f" [RECOVERY] OOM Detected. Scaling Batch: {old_bs} -> {batch_size} | Accumulation: {accumulation_steps} | Shield: ACTIVE")
                             
                             # --- 2026 Resilience: DataLoader Re-Initialization ---
-                            # Physically recreate the loader to update internal batch_size pointers
+                            # v17.5: Enforce Shield to prevent worker deadlocks on low-VRAM hardware
+                            _workers = 0 if in_recovery_mode and vram_gb < 6.0 else num_workers
                             train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, 
-                                                     num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+                                                     num_workers=_workers, pin_memory=True if device.type=='cuda' else False)
                             
                             # Update iterator position to maintain absolute manifold parity (v6.1.7)
                             current_iter = int(i * (old_bs / batch_size))
@@ -2554,8 +2555,10 @@ def main():
                 if "val_resolution" not in model_info:
                     val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
 
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=num_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                # v17.5: Enforce Shield during inter-epoch resolution jumps
+                _workers = 0 if in_recovery_mode and vram_gb < 6.0 else num_workers
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                 
                 # 2026 Senior Hardening: VRAM De-fragmentation (Task 4.2)
                 if device.type == 'cuda':
