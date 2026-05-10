@@ -42,8 +42,8 @@ class NIMA_Model(nn.Module):
         logits = torch.clamp(logits, -10.0, 10.0)
         
         # 2026: SOTA Autonomous Sharpening (Task 10.1)
-        # We apply softmax with temperature at the model level for SOTA fidelity.
-        return nn.functional.softmax(logits / self.softmax_temp, dim=1)
+        # We return raw logits to ensure compatibility with the Unified Loss Engine (EMD+RankBoost).
+        return logits
 
 class AuthenticityScorer(nn.Module):
     """

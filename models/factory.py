@@ -67,7 +67,7 @@ def get_model(model_key, config=None):
                 kwargs = unified[model_key].get("kwargs", {})
 
     if model_class_name in _MODEL_REGISTRY:
-        print(f"🏗️ [FACTORY] Instantiating {model_class_name} for key: {model_key}")
+        print(f" [FACTORY] Instantiating {model_class_name} for key: {model_key}")
         return _MODEL_REGISTRY[model_class_name](**kwargs)
     
-    raise ValueError(f"❌ [FACTORY ERROR] Model architecture '{model_class_name}' not found or implemented.")
+    raise ValueError(f" [FACTORY ERROR] Model architecture '{model_class_name}' not found or implemented.")
