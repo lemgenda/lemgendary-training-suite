@@ -150,6 +150,13 @@ class SmartTrainingGovernor:
         is_regressing = delta_q < regress_threshold 
         is_collapsed = (current_quality < 0.05) or (plcc < -0.1) # Near-zero or negative correlation
         
+        # --- 2026 NPP v15.7: Momentum Guard ---
+        # If Loss is stable/decreasing, we assume the regression is just metric noise.
+        # We only retreat if BOTH quality drops AND loss explodes (>5% increase).
+        loss_is_stable = (current_loss <= self.prev_loss * 1.05) if current_loss and self.prev_loss else True
+        is_expanding = phase in ["FOUNDATION", "EXPANSION"]
+        
+        should_retreat = (is_regressing or is_turbulent or is_collapsed)
         # --- 2026: Thermal Shock Guard (v6.2.1) ---
         # If the linear correlation (PLCC) flips negative, the manifold is diffusing.
         # We must 'Shock' the temperature back to sharpness to restore bin separation.
@@ -162,8 +169,12 @@ class SmartTrainingGovernor:
         # 4. NPP LOOP DETECTION
         current_state = (self.current_res, round(self.current_fraction, 2))
         failures = self.failure_log.get(str(current_state), 0) # Store as string for JSON safety
-        
-        if is_regressing or is_turbulent or is_collapsed:
+
+        if is_expanding and loss_is_stable and not is_collapsed:
+            should_retreat = False
+            if is_regressing: msg_parts.append("🛡️ [MOMENTUM] Jitter detected but Loss is stable. Holding manifold.")
+
+        if should_retreat:
             self.failure_log[str(current_state)] = failures + 1
             msg_parts.append(f"⚠️ NPP FAILURE: State {current_state} (Count: {self.failure_log[str(current_state)]})")
             
