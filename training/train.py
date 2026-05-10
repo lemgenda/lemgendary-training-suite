@@ -65,16 +65,21 @@ def safe_torch_save(obj, path):
     try:
         total, used, free = shutil.disk_usage(dir_name)
         free_gb = free / (1024**3)
-        if free_gb < 1.0: # Less than 1GB remaining
-            print(f" ⚠️ [DISK SENTINEL] Low disk space detected ({free_gb:.2f}GB). Engaging Emergency Pruning...", file=sys.stderr)
-            # Prune all .tmp and old progress files
-            for f in os.listdir(dir_name):
-                if f.endswith(".tmp") or "_progress.pth" in f:
-                    try: 
-                        f_path = os.path.join(dir_name, f)
-                        if os.path.abspath(f_path) != os.path.abspath(path): 
-                            os.remove(f_path)
-                    except: pass
+        # 2026 Resilience: Relaxed threshold for high-res manifolds (5GB soft-gate)
+        if free_gb < 5.0: 
+            if free_gb < 1.0:
+                print(f" ⚠️ [DISK SENTINEL] CRITICAL: Low disk space detected ({free_gb:.2f}GB). Engaging Emergency Pruning...", file=sys.stderr)
+                # Prune all .tmp and old progress files
+                for f in os.listdir(dir_name):
+                    if f.endswith(".tmp") or "_progress.pth" in f:
+                        try: 
+                            f_path = os.path.join(dir_name, f)
+                            if os.path.abspath(f_path) != os.path.abspath(path): 
+                                os.remove(f_path)
+                        except: pass
+            else:
+                # Soft Warning (Passive) - No pruning unless < 1GB
+                pass
             
             # Final check
             _, _, free = shutil.disk_usage(dir_name)
@@ -658,7 +663,9 @@ def main():
     # Dynamically append suffix (KaggleReady on Kaggle, exec_suffix otherwise)
     final_suffix = exec_suffix if args.env != 'kaggle' else "KaggleReady"
     ds_reqs = [f"{ds}{final_suffix}" if not ds.endswith(final_suffix) else ds for ds in ds_reqs]
-    data_dir = config.get("datasets_dir", "data/datasets")
+    # 2026 Resilience: Map to the modern 'paths' structure in config.yaml
+    p_paths = config.get("paths", {})
+    data_dir = p_paths.get("datasets_root", config.get("datasets_dir", "data/datasets"))
     if args.env == 'kaggle':
         # 2026 Kaggle Resilience: Force absolute path next to the repo to prevent "Ghost Subdir" resolution issues.
         data_dir = "/kaggle/working/LemGendaryDatasets"
@@ -1337,7 +1344,10 @@ def main():
     print(f" [STABILIZER] Active Parameters: Temp={stab['softmax_temp']} | Eps={stab['emd_epsilon']} | Clamp={stab['logit_clamp']}")
 
     criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab).to(device)
-    scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
+    # 2026 Resilience: Enable AMP only on architectures with hardware Tensor Core support (RTX, Tesla, A100, H100, L4)
+    gpu_name = torch.cuda.get_device_name(0) if device.type == 'cuda' else ""
+    use_amp = any(k in gpu_name for k in ['RTX', 'Tesla', 'A100', 'H100', 'L4'])
+    scaler = torch.amp.GradScaler('cuda', enabled=use_amp) # pyre-ignore
 
     # Initialize metrics for export stability (Avoids NameErrors on skip)
     # Initialize metrics for export stability
@@ -2604,17 +2614,17 @@ def main():
                 except:
                     time.sleep(1)
 
-        # --- 2026: SOTA Regression Guardrail (Resilience v3.0) ---
-        # Greedy Rollback: If quality drops > 1.5% below best for 3 epochs, reset and cool LR.
-        # Drift Sentinel: If quality regresses for 2 consecutive epochs, dampen LR immediately.
-        if sota_targets and current_quality_score < (best_quality_score * 0.985) and not is_best:
+        # --- 2026: SOTA Regression Guardrail (Resilience v3.1 Hardened) ---
+        # 2026 NPP: Relaxed thresholds for Quality tasks to allow for natural SRCC/PLCC jitter.
+        drift_gate = 0.95 if train_ds.task_type == "quality" else 0.985
+        regression_limit = 5 if train_ds.task_type == "quality" else 3
+
+        if sota_targets and current_quality_score < (best_quality_score * drift_gate) and not is_best:
             regression_epochs += 1
-            print(f" -> ⚠️  [REGRESSION] Performance drift detected ({regression_epochs}/3). Distance to SOTA: {(1 - current_quality_score/best_quality_score)*100:.2f}%")
+            print(f" -> ⚠️  [REGRESSION] Performance drift detected ({regression_epochs}/{regression_limit}). Distance to SOTA: {(1 - current_quality_score/best_quality_score)*100:.2f}%")
 
-            # 2026: Drift Sentinel logic has been migrated to the Smart Governor.
-
-            if regression_epochs >= 3:
-                print(f"🚀 [REGRESSION GUARD] Triple-Epoch drift threshold breached! Hard-Resetting to SOTA best weights...")
+            if regression_epochs >= regression_limit:
+                print(f"🚀 [REGRESSION GUARD] {regression_limit}-Epoch drift threshold breached! Hard-Resetting to SOTA best weights...")
                 best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                 if os.path.exists(best_ckpt_path):
                     # Notify Governor to perform a Tactical Retreat (Recoil)

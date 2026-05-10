@@ -23,7 +23,9 @@ class MultiTaskDataset(Dataset):
         self.sample_fraction = sample_fraction
         self.sync_mode = False 
         self.split = "train" if is_train else "val"
-        self.data_root = config.get("datasets_dir", "data/datasets")
+        # 2026 Resilience: Map to the modern 'paths' structure in config.yaml
+        p_paths = config.get("paths", {})
+        self.data_root = p_paths.get("datasets_root", config.get("datasets_dir", "data/datasets"))
         
         if not os.path.isabs(self.data_root):
             workspace_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -58,7 +60,11 @@ class MultiTaskDataset(Dataset):
     def _load_manifest(self, config):
         raw_dataset_names = self.model_info.get("datasets", [])
         suffix = "KaggleReady" if self.env == 'kaggle' else config.get("execution", {}).get("suffixes", {}).get(config.get("execution", {}).get("mode", "training"), "")
-        dataset_names = [f"{name}{suffix}" for name in raw_dataset_names]
+        # 2026 Resilience: Support 'LemGendized' prefix automatically
+        dataset_names = []
+        for name in raw_dataset_names:
+            dataset_names.append(f"{name}{suffix}")
+            dataset_names.append(f"LemGendized{name}{suffix}")
         
         for ds_name in dataset_names:
             ds_path = self.get_dataset_path(ds_name)
