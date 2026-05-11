@@ -11,6 +11,7 @@ nima_aesthetic:
     - 3
     - 512
     - 512
+  batch_size: auto
   val_resolution: 768
   learning_rate: 3.0e-05
 
@@ -60,6 +61,7 @@ nima_technical:
     - 3
     - 512
     - 512
+  batch_size: auto
   val_resolution: 768
   learning_rate: 1.8e-05
 
@@ -106,6 +108,7 @@ nima_authenticity:
     - 3
     - 512
     - 512
+  batch_size: auto
   val_resolution: 768
   learning_rate: 2.5e-05
 
@@ -534,6 +537,7 @@ nafnet_debluring:
     - 3
     - 256
     - 256
+  batch_size: auto
   learning_rate: 5.0e-05
 
   loss_fn: l1
@@ -575,6 +579,7 @@ nafnet_denoising:
     - 3
     - 256
     - 256
+  batch_size: auto
   learning_rate: 5.0e-05
 
   loss_fn: l1

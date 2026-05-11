@@ -435,6 +435,10 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         pixel_cap = int(max_pixels / (h * w))
         system_cap = 256 if mode == 'val' else 128
         
+        # 2026: Diagnostic Telemetry (v18.7)
+        if vram_gb < 4.5:
+            print(f" 🔍 [SENTINEL-DEBUG] Res: {h}x{w} | VRAM: {vram_gb:.2f}GB | MaxPx: {max_pixels} | Cap: {pixel_cap} | Mode: {mode}")
+        
         final_batch = max(1, min(dynamic_batch, pixel_cap, system_cap))
         
         # --- Exhaustion Emergency Clamp (v18.0) ---
@@ -635,7 +639,9 @@ def main():
     val_anchor_size = model_info.get("val_resolution", governor.current_res)
 
     # --- 2026 Resilience: Pre-Emptive Memory-Sentinel ---
-    batch_size = args.batch_size or audit_hardware_vram(args.model, model_info, config, device, model, mode='train')
+    # We use the Governor's current resolution (which may have been restored from checkpoint)
+    # to ensure the initial batch audit is physically accurate for the current manifold.
+    batch_size = args.batch_size or audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
     val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val')
     
     # --- 2026 Resilience: Universal Accumulation Stride (v12.0) ---
@@ -1094,12 +1100,11 @@ def main():
                     # Only recalculate batch size if it was set to 'auto' in the registry.
                     res_size = g_start_state['input_size']
                     old_batch_size = batch_size
-                    if config_batch == "auto" and not args.batch_size:
-                        temp_info = {**model_info, "input_size": res_size}
-                        batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='train')
+                    if (config_batch == "auto" or config_batch is None) and not args.batch_size:
+                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='train')
                         # Synchronize val_batch_size if it also followed the auto strategy
                         if model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info:
-                            val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val')
+                            val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='val')
                     
                     accumulation_steps = g_start_state.get('accumulation_steps', 1)
                     
@@ -2553,12 +2558,11 @@ def main():
             # Recalculate batch sizes at the epoch boundary to maximize efficiency.
             if not args.batch_size:
                 if r_changed or config_batch == "auto" or config_batch is None:
-                    temp_info = {**model_info, "input_size": governor.current_res}
-                    batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='train')
+                    batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
                     
                     # Validation resolution might be anchored
                     v_res = model_info.get("val_resolution", governor.current_res)
-                    val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, res_override=v_res, mode='val')
+                    val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
                     
                     # Recalculate accumulation to maintain Effective Batch
                     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
@@ -2963,13 +2967,34 @@ def main():
         if breached and not sota_baseline_achieved:
             if not is_max_res:
                 print(f"\n🚀 [SOTA PROGRESSION] {msg} breached at {governor.current_res}px! Forcing Resolution Jump to next ladder rung...")
-                governor.audit_epoch(
+                f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
                     current_quality=val_loss, 
                     best_quality=best_val_loss, 
                     epochs_no_improve=0, 
                     regression_epochs=0, 
                     force_jump=True
                 )
+                
+                # --- 2026: SOTA-Sync (v18.2) ---
+                # We must immediately apply these changes to the loaders before the next epoch starts
+                if smart_msg: print(smart_msg)
+                new_params = governor.get_state()
+                if f_changed or r_changed or b_changed:
+                    if not args.batch_size:
+                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
+                        v_res = model_info.get("val_resolution", governor.current_res)
+                        val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
+                        target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
+                        accumulation_steps = max(1, target_eff // batch_size)
+                    
+                    train_ds.update_strategy(fraction=new_params['sample_fraction'] if f_changed else None, size=new_params['input_size'] if r_changed else None)
+                    if "val_resolution" not in model_info:
+                        val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
+                    
+                    _workers = 0 if in_recovery_mode and vram_gb < 6.0 else num_workers
+                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                    if device.type == 'cuda': torch.cuda.empty_cache()
             else:
                 print(f"\n🌟 [MISSION COMPLETE] {msg} mathematically breached at Final Resolution ({governor.current_res}px)! Engaging 1-Epoch Reinforcement SOTA Countdown...")
                 sota_baseline_achieved = True
