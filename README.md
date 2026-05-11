@@ -8,7 +8,7 @@
 
 ### 📡 Mission Status: v16.2.8 (High-Fidelity Era)
 🚀 **Status**: High-Fidelity Calibration Active / Global Registry Hardened  
-🧪 **Current Goal**: Transition the entire fleet to a **224px-512px Resolution Floor** and **Dynamic Memory-Sentinel** batching.
+🧪 **Current Goal**: Finalize the **Resolution Ladder (256px-640px)** with **Ladder-Aware SOTA Guards** and **Manifold Hardening**.
 
 ---
 
@@ -26,7 +26,12 @@ The v16.2.8 release marks the end of "low-resolution warm-up." The suite now enf
 
 ### 🧬 Hardened Resolution Ladders
 - **Quality Scorer Floor**: NIMA Aesthetic and Technical scorers now start at **512px**, forcing the detection of high-frequency noise and artistic composition immediately.
-- **Restoration Baseline**: All restoration models (NAFNet, MIRNet, etc.) now start at a minimum of **256px**, bypassing the structural "blur" caused by ultra-low resolution warm-up.
+- **Restoration Baseline**: All restoration models (NAFNet, MIRNet, etc.) now start at a minimum of **256px**, climbing to **640px** via the autonomous ladder.
+
+### 🚀 Ladder-Aware SOTA Guard (v18.0)
+- **Quality-Driven Progression**: Reaching SOTA targets at sub-maximal resolutions no longer terminates training. Instead, the Governor triggers a **Forced Spatial Jump** to the next rung (e.g., 256px → 384px).
+- **SOTA Hardening Guard (v19.0)**: Enforces a mandatory **2-epoch "Hardening Period"** for every resolution rung. Even if SOTA is hit instantly, the model must stay for 2 epochs to solidify weights before the next jump.
+- **Mission Completion**: Full SOTA export and hub synchronization only occur after the model has conquered the **Final Resolution** (e.g., 640px).
 
 ---
 
@@ -67,9 +72,8 @@ The master orchestration console for system bootstrapping and cloud sync.
 | **4GB Iron-Clamp** | Hardware-aware pixel ceilings to prevent System RAM paging. | ✅ v22.0 Active |
 | **High-Fidelity Floor**| Minimum starting resolutions of 224px-512px across all manifolds. | ✅ v16.2.8 Active |
 | **Numerical Priority** | Proportional iteration scaling based on manifold stress. | ✅ v15.0 Active |
-| **Smart Governor** | Sawtooth curriculum resets to prevent local minima traps. | ✅ v15.2 Active |
-| **CloudSyncManager** | Native `kagglehub` integration for atomic model versioning. | ✅ v16.0 Active |
-| **Nuclear Stealth** | Base64-keyed imports to silence IDE/Linter noise. | ✅ v15.0 Active |
+| **SOTA-Force Jump** | Quality-driven progression that propellant models to higher resolutions. | ✅ v18.0 Active |
+| **Manifold Hardening**| 2-epoch mandatory stabilization period before any resolution jump. | ✅ v19.0 Active |
 | **Manifold Anchor** | Loop-Proof Optimization with Failure Path Memory. | ✅ v10.0 Active |
 
 ---

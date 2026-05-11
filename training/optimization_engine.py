@@ -73,6 +73,13 @@ class SmartTrainingGovernor:
 
         if force_jump:
             try:
+                # 2026 Resilience: Hardening Guard (v19.0)
+                # We must stay at a resolution for at least 2 epochs before we can jump.
+                # This ensures weights are stable even if SOTA was hit on the first epoch.
+                epochs_at_res = self.epoch_count - self.last_res_jump_epoch
+                if epochs_at_res < 2:
+                    return False, False, False, False, False, False, f"🛡️ [HARDENING] SOTA hit early, but locking at {self.current_res}px for weight stabilization (Manifold Maturity: {epochs_at_res}/2)."
+
                 current_idx = self.res_ladder.index(self.current_res)
                 if current_idx < len(self.res_ladder) - 1:
                     next_res = self.res_ladder[current_idx + 1]
@@ -363,7 +370,7 @@ class SmartTrainingGovernor:
         if not state: return
         self.current_fraction = state.get("sample_fraction", self.current_fraction)
         raw_res = state.get("input_size", self.current_res)
-        self.current_res = raw_res[1] if isinstance(raw_res, list) else raw_res
+        self.current_res = raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res
         self.current_temp = max(self.min_temp, state.get("softmax_temp", self.current_temp))
         if self.task_type == "quality": self.current_temp = min(1.0, self.current_temp)
         self.current_clamp = state.get("logit_clamp", self.current_clamp)

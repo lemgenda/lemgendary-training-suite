@@ -17,6 +17,7 @@ sys.setrecursionlimit(2000)
 def main():
     parser = argparse.ArgumentParser(description="LemGendary SOTA Exporter: Checkpoint to FP32/FP16 ONNX")
     parser.add_argument("--model", type=str, required=True, help="Model key from unified_models.yaml")
+    parser.add_argument("--checkpoint", type=str, help="Path to specific .pth checkpoint to export")
     parser.add_argument("--yes", action="store_true", help="Bypass interactive prompts for automated 2026 pipelines")
     args = parser.parse_args()
 
@@ -56,9 +57,13 @@ def main():
         return
 
     # 3. Checkpoint Discovery
-    ckpt_dir_rel = config.get("checkpoint_dir", "checkpoints")
-    ckpt_dir = os.path.normpath(os.path.join(project_root, ckpt_dir_rel))
-    ckpt_path = os.path.join(ckpt_dir, f"{args.model}_best.pth")
+    if args.checkpoint:
+        ckpt_path = os.path.normpath(args.checkpoint)
+    else:
+        ckpt_dir_rel = config.get("checkpoint_dir", "checkpoints")
+        ckpt_dir = os.path.normpath(os.path.join(project_root, ckpt_dir_rel))
+        ckpt_path = os.path.join(ckpt_dir, f"{args.model}_best.pth")
+    
     if not os.path.exists(ckpt_path):
         print(f" Error: SOTA Checkpoint not found at {ckpt_path}")
         return
