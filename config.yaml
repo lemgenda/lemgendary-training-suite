@@ -44,8 +44,8 @@ paths:
 
 # --- Training Defaults ---
 defaults:
-  img_size: 256
-  batch_size: 8 # Optimized for 384px at 4GB VRAM
+  img_size: auto
+  batch_size: auto # Dynamic Hardware Audit enabled (Iron-Clamp v22.0)
   lr: 0.00025
   epochs: 1000
   patience: 250

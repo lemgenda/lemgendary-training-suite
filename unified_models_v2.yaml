@@ -560,7 +560,7 @@ nafnet_debluring:
       - -0.2
       - 1.2
   sota_targets:
-    psnr: 33.7
+    psnr: 42.0
     ssim: 0.94
     lpips: 0.06
     fid: 12.0
@@ -602,7 +602,7 @@ nafnet_denoising:
       - -0.2
       - 1.2
   sota_targets:
-    psnr: 33.7
+    psnr: 42.0
     ssim: 0.94
     lpips: 0.06
     fid: 12.0

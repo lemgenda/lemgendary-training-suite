@@ -66,10 +66,25 @@ class SmartTrainingGovernor:
         if res_idx < len(self.res_ladder) - 1: return "DEEPENING"
         return "REFINEMENT"
 
-    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0):
-        if not self.enabled: return False, False, False, False, False, False, ""
+    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, force_jump=False):
+        if not self.enabled and not force_jump: return False, False, False, False, False, False, ""
         self.epoch_count += 1
         self.session_epoch_count += 1
+
+        if force_jump:
+            try:
+                current_idx = self.res_ladder.index(self.current_res)
+                if current_idx < len(self.res_ladder) - 1:
+                    next_res = self.res_ladder[current_idx + 1]
+                    self.current_res = next_res
+                    self.current_fraction = 0.5
+                    self.last_res_jump_epoch = self.epoch_count
+                    self.spatial_lock_remaining = 3
+                    self.stabilization_epochs = 3
+                    return True, True, False, False, False, True, f"🚀 [SOTA-FORCE] Jumping to {next_res}px Manifold..."
+                else:
+                    return False, False, False, False, False, False, "✅ [SOTA-MAX] Already at maximum resolution."
+            except: pass
         
         # 2026 Resilience: Resumption Shield
         # Ignore massive quality drops in the first epoch of a session (Momentum Shock)

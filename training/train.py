@@ -2511,8 +2511,9 @@ def main():
                 (pbar.write if pbar else print)(f" -> 🏆 [SOTA GUARD] Record Quality Milestone: {best_quality_score:.4f} (Previous: {prev_best:.4f}).")
             elif loss_improves:
                 best_val_loss = avg_val_loss
+                is_best = True
                 is_improving = True
-                (pbar.write if pbar else print)(f" -> 💡 [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}). Progress stabilized.")
+                (pbar.write if pbar else print)(f" -> 💡 [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}). Exporting SOTA weights.")
             else:
                 # 2026: Horizontal Stagnation Detected.
                 # We do NOT reset is_improving, which allows the Governor to trigger a Jolt.
@@ -2528,12 +2529,16 @@ def main():
         # --- 2026: SOTA Smart Optimization Audit (v6.1.17) ---
         # Moved BEFORE CSV write and Checkpoint creation to ensure total manifold parity.
         f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
-            current_quality_score, best_quality_score, epochs_no_improve, regression_epochs,
+            current_quality=current_quality_score, 
+            best_quality=best_quality_score, 
+            epochs_no_improve=epochs_no_improve, 
+            regression_epochs=regression_epochs,
             sentinel_trigger_rate=avg_sentinel_stress,
             current_lr=optimizer.param_groups[0]['lr'],
             base_lr=lr,
             current_loss=avg_val_loss,
-            plcc=plcc # 2026 Resilience: Pass PLCC for thermal shock auditing
+            plcc=plcc,
+            force_jump=False
         )
 
         if smart_msg:
@@ -2808,6 +2813,15 @@ def main():
                 if os.path.abspath(latest_hub_path) != os.path.abspath(best_hub_path):
                     shutil.copy2(latest_hub_path, best_hub_path)
                 print(f"🏆 [HUB SYNC] New SOTA archived to Hub.", file=sys.stderr)
+                
+                # --- 2026: Real-Time SOTA Export (v17.2 Hardening) ---
+                # We trigger the full export suite (ONNX + Notebooks) on every new BEST
+                # so the Hub is always ready for production deployment.
+                try:
+                    metrics_to_report = best_metrics if best_quality_score > -1.0 else {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
+                    trigger_sota_export(args, model, device, config, unified_models_registry, epoch, metrics_to_report, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root)
+                except Exception as e_exp:
+                    print(f" ⚠️ [REAL-TIME EXPORT] Failed to generate production artifacts: {e_exp}", file=sys.stderr)
             
             # 2. Sync Metrics Audit Trail
             if os.path.exists(metrics_csv_path):
@@ -2937,10 +2951,29 @@ def main():
                 breached = True
                 msg = "Legacy SOTA NIMA Baseline (PLCC > 0.95, SRCC > 0.90)"
 
+        # --- 2026: Ladder-Aware SOTA Guard (v18.0) ---
+        is_max_res = False
+        try:
+            if hasattr(governor, 'res_ladder') and governor.res_ladder:
+                is_max_res = governor.current_res >= max(governor.res_ladder)
+            else:
+                is_max_res = True # Default to true if no ladder exists
+        except: is_max_res = True
+
         if breached and not sota_baseline_achieved:
-            print(f"\n🌟 [ACHIEVEMENT UNLOCKED] {msg} mathematically breached! Engaging 1-Epoch Reinforcement SOTA Countdown...")
-            sota_baseline_achieved = True
-            sota_countdown = 1
+            if not is_max_res:
+                print(f"\n🚀 [SOTA PROGRESSION] {msg} breached at {governor.current_res}px! Forcing Resolution Jump to next ladder rung...")
+                governor.audit_epoch(
+                    current_quality=val_loss, 
+                    best_quality=best_val_loss, 
+                    epochs_no_improve=0, 
+                    regression_epochs=0, 
+                    force_jump=True
+                )
+            else:
+                print(f"\n🌟 [MISSION COMPLETE] {msg} mathematically breached at Final Resolution ({governor.current_res}px)! Engaging 1-Epoch Reinforcement SOTA Countdown...")
+                sota_baseline_achieved = True
+                sota_countdown = 1
 
             if args.prefetch_datasets:
                 print(f"\n[Zero-Latency Pre-Fetch] Triggering parallel background data streams natively for next workflow phase!")
@@ -2958,25 +2991,19 @@ def main():
             print(f"   -> SOTA Cooldown Epochs remaining: {sota_countdown}")
             sota_countdown -= 1  # pyre-ignore
 
-# Governor Audit Moved to Pre-Log Phase (v6.1.16)
-
         # Reset intra-epoch skip/resume counters
         resume_iteration = 0
         val_resume_iteration = 0
         current_iter = 0
 
-
-    print(f"\n--- Exporting {args.model} to SOTA Counterparts ---")
-
-    # Final SWA Synchronization (Manifold Stabilization)
-    if epoch >= swa_start:
-        print("🧱 [SWA] Finalizing Stochastic Weight Average for production deployment...")
-        update_bn(train_loader, swa_model, device=device)
-        model = swa_model.module # Extract the averaged weights back into the main model
-
+def trigger_sota_export(args, model, device, config, unified_models_registry, epoch, best_metrics, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root):
+    """
+    Standardized 2026 SOTA Export Suite. 
+    Handles ONNX conversion, PyTorch Unity synthesis, documentation, and Hub mirroring.
+    """
+    import shutil
     try:
-        model.eval()  # pyre-ignore
-
+        model.eval()
         model_info = unified_models_registry.get(args.model, {})
         size_raw = model_info.get("input_size", config.get("default_img_size", 256))
         if isinstance(size_raw, list):
@@ -2984,90 +3011,39 @@ def main():
         else:
             h, w = int(size_raw), int(size_raw)
 
-        dummy_input = torch.randn(1, 3, h, w).to(device)
-
-        model_filename = model_info.get("filename", args.model)
-        base_name = f"LemGendary{model_filename}"
-
-        # --- 2026 SOTA Universal Export Suite Synchronization (v1.0.49) ---
-        # We delegate all export logic to the specialized standalone suite to ensure zero-leak binaries.
+        # --- 2026 SOTA Universal Export Suite Synchronization ---
         python_exe = sys.executable
         export_script_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "export")
 
-        # 1. Standardized ONNX Matrix (Lean-Synthesis + External Data FP32)
+        # 1. Standardized ONNX Matrix
         print(f"✨ [EXPORT] Triggering Universal ONNX Matrix Synthesis...")
         onnx_script = os.path.join(export_script_dir, "export_onnx_model.py")
         subprocess.call([python_exe, onnx_script, "--model", args.model, "--yes"])
 
-        # 2. Standardized PyTorch Standalone (Architecture + Weights Unity)
+        # 2. Standardized PyTorch Standalone
         print(f"✨ [EXPORT] Triggering Standalone PyTorch Unity Synthesis...")
         torch_script = os.path.join(export_script_dir, "export_torch_model.py")
         subprocess.call([sys.executable, torch_script, "--model", args.model, "--yes"])
 
-        # 2026 Resilience: We use the PERSISTENT best_metrics for the final README
-        # to ensure doc-weight parity if the final epoch was a regression.
-        metrics_to_report = best_metrics if best_quality_score > -1.0 else {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
+        # 3. README Documentation
         from training.doc_generator import build_model_readme
-        readme_text = build_model_readme(args.model, unified_models_registry, epoch+1, metrics_to_report)
+        readme_text = build_model_readme(args.model, unified_models_registry, epoch+1, best_metrics)
         with open(os.path.join(export_dir, "README.md"), "w") as f:
             f.write(readme_text)
 
-        # --- 2026 Kaggle Notebook/Inference Generator (v12.0 Stateless) ---
+        # 4. Notebook Generation
         from training.notebook_generator import generate_inference_notebook, generate_usage_notebook
         generate_inference_notebook(args.model, export_dir, unified_models_registry, config)
         generate_usage_notebook(args.model, export_dir, unified_models_registry, config)
 
-        # Windows often keeps a lock on newly created ONNX files for several milliseconds.
-        # We implementation a settle-period and retry loop to ensure production sync succeeds.
-        sync_success = False
-        for attempt in range(1, 4):
-            try:
-                if attempt > 1:
-                    print(f"🔄 [RESILIENCY] Sync attempt {attempt}/3... (Waiting for Windows IO recovery)")
-                    time.sleep(2)
-
-                if config.get("export_to_external_folder", False):
-                    shutil.copytree(export_dir, local_dir, dirs_exist_ok=True)
-
-                trained_models_dir = os.path.normpath(os.path.join(project_root, "..", "LemGendaryModels", args.model))
-
-                # --- 2026 Collision Guard (Windows IO Protection) ---
-                # Only sync if the production target is actually different from the export staging area.
-                # This prevents WinError 32 when the config export_dir is already set to '../LemGendaryModels'.
-                if os.path.abspath(export_dir) != os.path.abspath(trained_models_dir):
-                    os.makedirs(trained_models_dir, exist_ok=True)
-                    shutil.copytree(export_dir, trained_models_dir, dirs_exist_ok=True)
-                    sync_success = True
-                    print("SUCCESS: Artifacts securely synced to local_models and LemGendaryModels.")
-                else:
-                    sync_success = True
-                    print("ℹ️  [INFO] Artifacts are already in the production directory. Skipping redundant sync.")
-                break
-            except Exception as e:
-                if attempt == 3:
-                    print(f"❌ [CRITICAL] Artifact sync failed after 3 attempts: {e}")
-                else:
-                    time.sleep(1)
-
-        if not sync_success:
-            print("⚠️  [WARNING] Model was trained and exported, but final sync failed. Artifacts remain in the export directory.")
-        elif args.auto_sync:
-            # --- 2026 SOTA Hub Finalization (Production Push) ---
-            try:
-                print(f"🚀 [HUB PUSH] Finalizing SOTA deployment for {args.model}...")
-                hub_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryModels"))
-                hub_user = args.hub_user or config.get("hub_user", "lemgenda")
-                hub_repo = args.hub_repo or config.get("hub_repo", "lemgendary-pretrained-models")
-                hub_url = f"https://github.com/{hub_user}/{hub_repo}.git"
-                
-                commit_msg = f"🏆 SOTA Deployment: {args.model} (Final Matrix & Usage Notebook)"
-                git_hub_sync(hub_root, hub_url, commit_msg)
-                print(f"✅ [SUCCESS] {args.model} production binaries and documentation are now live on GitHub!")
-            except Exception as e_push:
-                print(f"⚠️  [WARNING] [HUB-PUSH] Final deployment failed: {e_push}")
-
+        # 5. Hub Synchronization
+        if os.path.abspath(export_dir) != os.path.abspath(hub_model_dir):
+            os.makedirs(hub_model_dir, exist_ok=True)
+            shutil.copytree(export_dir, hub_model_dir, dirs_exist_ok=True)
+            print(f"✅ [SUCCESS] {args.model} production binaries and documentation synced to Hub.")
+            
     except Exception as e:
-        print(f"ONNX Export Failure: {e}")
+        print(f"⚠️ [EXPORT FAILURE] {e}")
 
 if __name__ == "__main__":
     try:
