@@ -1345,14 +1345,14 @@ def main():
 
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
 
-    # 2026 Schema Guard: Force-rebuild or transition the CSV to 18-column hardware-aware parity
+    # 2026 Schema Guard: Force-rebuild or transition the CSV to 23-column hardware-aware parity
     schema_ok = False
     if os.path.exists(metrics_csv_path):
         try:
-            with open(metrics_csv_path, "r") as f:
+            with open(metrics_csv_path, "r", encoding='utf-8') as f:
                 header = f.readline().strip()
-                # 2026 Schema: 21 columns (v9.0 includes Cooldown)
-                if len(header.split(",")) == 21:
+                # 2026 Schema: 23 columns (v9.2 includes Rank_Margin + Quality_Score)
+                if len(header.split(",")) == 23:
                     schema_ok = True
         except: pass
 
@@ -1364,11 +1364,11 @@ def main():
                 if os.path.exists(legacy_path):
                     legacy_path = legacy_path.replace(".csv", f"_{int(time.time())}.csv")
                 os.rename(metrics_csv_path, legacy_path)
-                print(f" [TELEMETRY] Legacy or corrupted metrics detected. Archiving to {os.path.basename(legacy_path)} and initializing 18-column SOTA log.")
+                print(f" [TELEMETRY] Legacy or corrupted metrics detected. Archiving to {os.path.basename(legacy_path)} and initializing 23-column SOTA log.")
             except: pass
 
-        with open(metrics_csv_path, "w") as f:
-            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n")
+        with open(metrics_csv_path, "w", encoding='utf-8') as f:
+            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Rank_Margin,Quality_Score,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n")
 
     effective_batch_size = batch_size
     # accumulation_steps is established pre-emptively during initialization.
@@ -2706,13 +2706,13 @@ def main():
         # --- 2026: SOTA Telemetry Sync (Resilience v3.1) ---
         # We record the metrics AFTER all Governor transitions and Regression Guard rollbacks
         # to ensure the CSV reflects the EXACT state that will be used for the next epoch's training.
-        with open(metrics_csv_path, "a") as f:
-            f.flush()
+        with open(metrics_csv_path, "a", encoding='utf-8') as f:
             f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{epoch_lr:.8f},"
                     f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim_val:.4f},{lpips_val:.4f},{fid:.4f},"
-                    f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{epoch_res},{epoch_fraction:.2f},"
-                    f"{epoch_temp:.4f},{epoch_clamp:.1f},{governor.cooldown_remaining},"
-                    f"{epoch_batch},{epoch_acc},{avg_sentinel_stress:.6f}\n")
+                    f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{rank_margin:.4f},{current_quality_score:.4f},"
+                    f"{epoch_res},{epoch_fraction:.2f},{epoch_temp:.4f},{epoch_clamp:.1f},"
+                    f"{governor.cooldown_remaining},{epoch_batch},{epoch_acc},{avg_sentinel_stress:.6f}\n")
+            f.flush()
 
         prev_quality_score = current_quality_score
         # --- 2026 Resilience: Model Hub Sync (v6.2.0) ---
