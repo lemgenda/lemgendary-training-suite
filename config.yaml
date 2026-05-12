@@ -17,6 +17,15 @@ hardware:
 
 # --- Smart Governor Tuning (Task 12.2) ---
 governor:
+  # --- 2026 Dynamic Manifold Schema (v17.0) ---
+  manifold:
+    resolution_stride: 128       # Universal rung increment (px)
+    max_resolution: 1024         # Hard ceiling for resolution scaling
+    initial_fraction: 0.50       # Default starting data variety
+    fraction_increment: 0.15     # Expansion step size
+    maturity_soak: 5             # Mandatory epochs per rung (Universal)
+    plateau_patience: 6          # Epochs to wait before next rung jump
+
   emergency_breakout_threshold: 0.10 # 10% quality drop shatters the lock
   jolt_cooldown_epochs: 5
   sharpening_cooling_rate: 0.98

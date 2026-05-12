@@ -6,42 +6,69 @@ import numpy as np
 class SmartTrainingGovernor:
     """
     2026 Universal Autonomous Optimization Engine (v15.5 Nuclear).
-    
+
     Numerical Priority Protocol (NPP) Features:
     - State-Persistence Guard (Failure logs survive reloads)
     - Turbulence Dampening (Prevents noise-induced recoils)
     - Proportional Manifold Stride (Balanced scaling)
     - Surgical State-Loop Penalties (Blacklists breaking points)
     """
-    def __init__(self, model_info, stabilizers=None):
+    def __init__(self, model_info, config=None, stabilizers=None):
         self.model_info = model_info
+        self.config = config or {}
         opt = model_info.get("optimization", {})
+        manifold_defaults = self.config.get("governor", {}).get("manifold", {})
+
         self.enabled = opt.get("enabled", True)
-        
+
         # --- Curriculum Ladder ---
-        self.res_ladder = opt.get("res_ladder", [224, 384, 512, 640])
-        self.target_effective_batch = opt.get("target_effective_batch", 24)
-        
+        self.res_ladder = opt.get("res_ladder")
+        self.target_effective_batch = opt.get("target_effective_batch", manifold_defaults.get("target_effective_batch", 24))
+        self.manifold_maturity = opt.get("manifold_maturity", manifold_defaults.get("maturity_soak", 5)) # 2026: Mandatory soak period (epochs)
+
         # 2026: Numerical Stress Audit (Sentinel Response)
         self.recovery_streak = 0
-        
+
         # --- Persistent State ---
-        self.current_fraction = opt.get("initial_fraction", 0.1)
+        self.current_fraction = opt.get("initial_fraction", manifold_defaults.get("initial_fraction", 0.5))
         self.current_batch = int(model_info.get("batch_size", 16)) if model_info.get("batch_size") and model_info.get("batch_size") != "auto" else 16
         self.current_acc = 1
-        
+
         raw_size = model_info.get("input_size", 224)
-        self.current_res = raw_size[1] if isinstance(raw_size, list) else raw_size
-        if self.current_res not in self.res_ladder:
-            self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
-            
+        self.current_res = raw_size[1] if isinstance(raw_size, (list, tuple)) else raw_size
+
+        # 2026: Dynamic Ladder Generation (Task 12.2.8)
+        if not self.res_ladder:
+            stride = manifold_defaults.get("resolution_stride", 128)
+            max_res = manifold_defaults.get("max_resolution", 1024)
+            # Build ladder starting from current_res up to max_res
+            self.res_ladder = []
+            curr = self.current_res
+            while curr <= max_res:
+                self.res_ladder.append(curr)
+                curr += stride
+            if not self.res_ladder: self.res_ladder = [self.current_res]
+
         self.stab = stabilizers or {}
         self.task_type = model_info.get("dataset_type", "quality")
         if isinstance(self.task_type, list): self.task_type = self.task_type[0]
+
+        # --- 2026 Resilience: Hardware Resolution Cap (v19.1) ---
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if torch.cuda.is_available() else 8.0
+        if vram_gb < 4.5 and self.task_type == "restoration":
+            max_safe_res = 640
+            self.res_ladder = [r for r in self.res_ladder if r <= max_safe_res]
+            if not self.res_ladder: self.res_ladder = [max_safe_res]
+            if self.current_res > max_safe_res:
+                print(f" 🛡️ [GOVERNOR] Hardware Cap Active: Downscaling {self.current_res}px -> {max_safe_res}px for stability.")
+                self.current_res = max_safe_res
+
+        if self.current_res not in self.res_ladder:
+            self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
         self.min_temp = 0.5 if self.task_type == "quality" else 0.1
         self.current_temp = self.stab.get("softmax_temp", self.min_temp)
         self.current_clamp = self.stab.get("logit_clamp", 15.0)
-        
+
         # --- Surgical Memory (v15.5) ---
         self.history = [] # Last 5 epochs [quality, loss]
         self.failure_log = {} # {(res, round(frac,2)): failure_count}
@@ -58,7 +85,7 @@ class SmartTrainingGovernor:
         self.min_delta = opt.get("min_delta", 0.0005)
         self.spatial_lock_remaining = 0 # 2026 v15.9: Blocks recoil after jump
         self.last_res_jump_epoch = -100
-        
+
     def get_phase(self):
         res_idx = self.res_ladder.index(self.current_res)
         if res_idx == 0 and self.current_fraction < 0.5: return "FOUNDATION"
@@ -74,11 +101,12 @@ class SmartTrainingGovernor:
         if force_jump:
             try:
                 # 2026 Resilience: Hardening Guard (v19.0)
-                # We must stay at a resolution for at least 2 epochs before we can jump.
+                # We must stay at a resolution for at least manifold_maturity epochs before we can jump.
                 # This ensures weights are stable even if SOTA was hit on the first epoch.
                 epochs_at_res = self.epoch_count - self.last_res_jump_epoch
-                if epochs_at_res < 2:
-                    return False, False, False, False, False, False, f"🛡️ [HARDENING] SOTA hit early, but locking at {self.current_res}px for weight stabilization (Manifold Maturity: {epochs_at_res}/2)."
+                print(f" 🔍 [HARDENING-DEBUG] Current Res: {self.current_res}px | Epochs at Res: {epochs_at_res} | Maturity Required: {self.manifold_maturity}")
+                if epochs_at_res < self.manifold_maturity:
+                    return False, False, False, False, False, False, f"🛡️ [HARDENING] SOTA hit early, but locking at {self.current_res}px for weight stabilization (Manifold Maturity: {epochs_at_res}/{self.manifold_maturity})."
 
                 current_idx = self.res_ladder.index(self.current_res)
                 if current_idx < len(self.res_ladder) - 1:
@@ -92,7 +120,7 @@ class SmartTrainingGovernor:
                 else:
                     return False, False, False, False, False, False, "✅ [SOTA-MAX] Already at maximum resolution."
             except: pass
-        
+
         # 2026 Resilience: Resumption Shield
         # Ignore massive quality drops in the first epoch of a session (Momentum Shock)
         # unless loss also explodes (NaN).
@@ -111,15 +139,15 @@ class SmartTrainingGovernor:
                 print("🚀 [NPP] Stress at zero. Breaking stabilization lock.")
         else:
             self.recovery_streak = 0
-        
+
         if self.cooldown_remaining > 0:
             self.cooldown_remaining -= 1
-        
+
         # 1. Update Memory
         self.history.append((current_quality, current_loss))
         if len(self.history) > 5: self.history.pop(0)
         self.best_quality = max(self.best_quality, current_quality)
-        
+
         # 2. Guard: Stabilization
         msg_parts = []
         # Senior Update: Emergency Breakout if manifold is clearly collapsing
@@ -133,7 +161,7 @@ class SmartTrainingGovernor:
                 if current_quality - self.prev_quality > 0.05 and self.cooldown_remaining > 0:
                     self.cooldown_remaining = max(0, self.cooldown_remaining - 2)
                     msg_parts.append("⚡ [RECOVERY] Rapid quality gain detected. Meditation shortened.")
-                
+
                 self.prev_quality = current_quality
                 if current_loss: self.prev_loss = current_loss
                 status_msg = f"📡 Anchoring Manifold... (Cooldown: {self.cooldown_remaining})" if self.cooldown_remaining > 0 else "📡 Anchoring Manifold..."
@@ -156,7 +184,7 @@ class SmartTrainingGovernor:
                     is_turbulent = True
 
         is_flat = abs(delta_q) < self.min_delta and len(self.history) >= 2
-        
+
         # 2026 NPP: Fidelity Floor (Task 12.7)
         # If the model is stuck in a low-quality manifold (e.g. Accuracy high but SRCC low),
         # we relax the 'flatness' constraint to allow Jolts through the noise.
@@ -171,15 +199,15 @@ class SmartTrainingGovernor:
         # 2026 NPP v15.6: Relaxed Regression Gate for high-noise Quality manifolds
         # Prevents "Panic Recoils" during natural SRCC/PLCC jitter
         regress_threshold = -0.03 if self.task_type == "quality" else -0.01
-        is_regressing = delta_q < regress_threshold 
+        is_regressing = delta_q < regress_threshold
         is_collapsed = (current_quality < 0.05) or (plcc < -0.1) # Near-zero or negative correlation
-        
+
         # --- 2026 NPP v15.7: Momentum Guard ---
         # If Loss is stable/decreasing, we assume the regression is just metric noise.
         # We only retreat if BOTH quality drops AND loss explodes (>5% increase).
         loss_is_stable = (current_loss <= self.prev_loss * 1.05) if current_loss and self.prev_loss else True
         is_expanding = phase in ["FOUNDATION", "EXPANSION"]
-        
+
         should_retreat = (is_regressing or is_turbulent or is_collapsed)
         # --- 2026: Thermal Shock Guard (v6.2.1) ---
         # If the linear correlation (PLCC) flips negative, the manifold is diffusing.
@@ -189,7 +217,7 @@ class SmartTrainingGovernor:
             self.current_clamp = 20.0
             t_changed = c_changed = True
             msg_parts.append("❄️ [THERMAL SHOCK] PLCC negative. Sharpening manifold (Temp -> 0.5).")
-        
+
         # --- 2026 NPP v15.9: Spatial Lock ---
         if self.spatial_lock_remaining > 0:
             self.spatial_lock_remaining -= 1
@@ -204,7 +232,7 @@ class SmartTrainingGovernor:
         failures = self.failure_log.get(str(current_state), 0) # Store as string for JSON safety
 
         # --- 2026 NPP v15.8: Resonance Shield ---
-        # Quality tasks (SRCC/PLCC) are naturally turbulent. We disable Turbulence Recoils 
+        # Quality tasks (SRCC/PLCC) are naturally turbulent. We disable Turbulence Recoils
         # for these tasks and only rely on sustained Regression or Collapse.
         if self.task_type == "quality":
             is_turbulent = False # Turbulence is expected in high-entropy NIMA manifolds
@@ -218,7 +246,7 @@ class SmartTrainingGovernor:
         if should_retreat:
             self.failure_log[str(current_state)] = failures + 1
             msg_parts.append(f"⚠️ NPP FAILURE: State {current_state} (Count: {self.failure_log[str(current_state)]})")
-            
+
             # --- EMERGENCY RECOIL (v15.5) ---
             if self.failure_log[str(current_state)] >= 2:
                 self.current_clamp = max(10.0, self.current_clamp - 5.0)
@@ -226,8 +254,8 @@ class SmartTrainingGovernor:
                 self.current_temp = min(1.8, self.current_temp * 1.5)
                 t_changed = True
                 msg_parts.append("⛓️ NPP LOOP: Forcing Numerical Shakeup")
-            
-            
+
+
             # --- 2026 NPP v15.9: Strategic Spatial Retreat ---
             if self.epoch_count - self.last_res_jump_epoch < 8:
                 # If we fail shortly after a jump, retreat to previous resolution at 100% data
@@ -235,22 +263,22 @@ class SmartTrainingGovernor:
                 res_idx = self.res_ladder.index(self.current_res)
                 if res_idx > 0:
                     self.current_res = self.res_ladder[res_idx - 1]
-                    self.current_fraction = 1.0 
+                    self.current_fraction = 1.0
                     r_changed = f_changed = True
                     self.lr_multiplier = 0.5
                     lr_changed = True
                     self.stabilization_epochs = 3
                     self.cooldown_remaining = 5
                     msg_parts.append(f"↩️ [SPATIAL RETREAT] Resetting to {self.current_res}px @ 100% Data Anchor")
-            
+
             if not r_changed:
                 old_frac = self.current_fraction
                 self.current_fraction = max(0.15, self.current_fraction - 0.15)
                 f_changed = True
-                self.lr_multiplier = 0.7 
+                self.lr_multiplier = 0.7
                 lr_changed = True
                 self.stabilization_epochs = 1 if self.task_type == "quality" else 3
-                self.cooldown_remaining = 3 if self.task_type == "quality" else 5 
+                self.cooldown_remaining = 3 if self.task_type == "quality" else 5
                 msg_parts.append(f"RECOIL: Strategic retreat to {self.current_fraction*100:.0f}%")
 
         # --- PROACTIVE COOLING (2026 Resilience) ---
@@ -278,15 +306,15 @@ class SmartTrainingGovernor:
                 self.last_jolt_epoch = self.epoch_count
                 msg_parts.append(f"⚡ JOLT: Breaking Plateau with {jolt:.2f}x LR Propulsion")
 
-            
+
             next_frac = min(1.0, self.current_fraction + 0.15) # NPP: Smaller steps
             next_state = (self.current_res, round(next_frac, 2))
-            
+
             if self.failure_log.get(str(next_state), 0) > 0:
                 self.lr_multiplier = 0.6 # NPP: More cautious approach
                 lr_changed = True
                 msg_parts.append(f"⚓ ANCHOR: Caution ahead (Previous Failures). 0.6x LR.")
-            
+
             if phase == "FOUNDATION" or phase == "EXPANSION":
                 if self.current_fraction < 1.0:
                     self.current_fraction = next_frac
@@ -316,10 +344,10 @@ class SmartTrainingGovernor:
                 phase_min = 0.05 if phase == "REFINEMENT" else 0.1
             else:
                 phase_min = self.min_temp # NIMA remains at 0.5 for stability
-                
+
             # Check thermal floor for current state
             floor = max(phase_min, self.thermal_floor.get(str(current_state), self.min_temp))
-            
+
             if self.cooldown_remaining == 0 and self.current_temp > floor:
                 # 2026: Accelerated Sharpening for high-entropy phases
                 sharpen_rate = 0.95 if self.current_temp > 1.2 else 0.98
@@ -331,18 +359,18 @@ class SmartTrainingGovernor:
 
         self.prev_quality = current_quality
         if current_loss: self.prev_loss = current_loss
-        
+
         # --- 2026: Universal Nuclear Safety Gate (Exit Point) ---
         if self.task_type == "quality":
             self.current_temp = min(1.0, self.current_temp)
             self.current_clamp = min(25.0, self.current_clamp) # Prevent logit explosion
-        
+
         final_msg = f"🚀 [{phase}] " + " | ".join(msg_parts) if msg_parts else ""
-            
+
         return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, final_msg
 
     def get_dynamic_save_interval(self, avg_iter_time, total_iters):
-        if avg_iter_time <= 0: return 0.2 
+        if avg_iter_time <= 0: return 0.2
         epoch_duration_mins = (avg_iter_time * total_iters) / 60
         target_pct = 15 / max(1, epoch_duration_mins)
         return max(0.05, min(0.5, target_pct))

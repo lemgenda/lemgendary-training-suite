@@ -66,21 +66,21 @@ def safe_torch_save(obj, path):
         total, used, free = shutil.disk_usage(dir_name)
         free_gb = free / (1024**3)
         # 2026 Resilience: Relaxed threshold for high-res manifolds (5GB soft-gate)
-        if free_gb < 5.0: 
+        if free_gb < 5.0:
             if free_gb < 1.0:
                 print(f" ⚠️ [DISK SENTINEL] CRITICAL: Low disk space detected ({free_gb:.2f}GB). Engaging Emergency Pruning...", file=sys.stderr)
                 # Prune all .tmp and old progress files
                 for f in os.listdir(dir_name):
                     if f.endswith(".tmp") or "_progress.pth" in f:
-                        try: 
+                        try:
                             f_path = os.path.join(dir_name, f)
-                            if os.path.abspath(f_path) != os.path.abspath(path): 
+                            if os.path.abspath(f_path) != os.path.abspath(path):
                                 os.remove(f_path)
                         except: pass
             else:
                 # Soft Warning (Passive) - No pruning unless < 1GB
                 pass
-            
+
             # Final check
             _, _, free = shutil.disk_usage(dir_name)
             if free / (1024**3) < 0.2: # Less than 200MB
@@ -99,7 +99,7 @@ def safe_torch_save(obj, path):
             def safe_replace(src, dst):
                 if os.path.exists(dst): os.remove(dst)
                 os.rename(src, dst)
-        
+
         safe_replace(tmp_path, path)
         return True
     except Exception as e:
@@ -216,7 +216,7 @@ def git_hub_sync(repo_path, remote_url, message):
         import subprocess
         # 2026 Resilience: Credential Injection
         pat = os.environ.get('GITHUB_PAT')
-        
+
         # --- 2026 NPP: Git Lock Buster ---
         lock_file = os.path.join(repo_path, ".git", "index.lock")
         if os.path.exists(lock_file):
@@ -224,7 +224,7 @@ def git_hub_sync(repo_path, remote_url, message):
                 os.remove(lock_file)
                 print(f" 🛡️ [LOCK BUSTER] Removed stale Git lock in {os.path.basename(repo_path)}")
             except: pass
-        
+
         # If remote_url is 'origin', we must resolve the physical URL from git config
         if remote_url == "origin":
             try:
@@ -232,13 +232,13 @@ def git_hub_sync(repo_path, remote_url, message):
                 if res.returncode == 0:
                     remote_url = res.stdout.strip()
             except: pass
-        
+
         # 2026 Resilience: Always ensure the local 'origin' points to the desired authenticated URL
         if pat and "github.com" in remote_url and "@" not in remote_url:
             authenticated_url = remote_url.replace("https://", f"https://{pat}@")
         else:
             authenticated_url = remote_url
-            
+
         # Hard-reset origin to the authenticated URL
         subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=10)
         # If set-url fails (remote doesn't exist), try adding it
@@ -259,7 +259,7 @@ def git_hub_sync(repo_path, remote_url, message):
         elif pat and remote_url != "origin":
              # Update remote to include PAT for existing hub repos
              subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=30)
-        
+
         # 2. Sync
         print(f" 📡 [CLOUD SYNC] Staging changes in {os.path.basename(repo_path)}...")
         subprocess.run(["git", "add", "."], cwd=repo_path, capture_output=True, timeout=60)
@@ -291,46 +291,46 @@ from training.losses import CombinedLoss
 def audit_hardware_vram(model_key, model_info, config, device, model, res_override=None, mode='train'):
     """
     2026 Memory-Sentinel: Atomic Hardware Probe (v17.0 Nuclear).
-    Performs a real-world VRAM test at the specified resolution to find the 
+    Performs a real-world VRAM test at the specified resolution to find the
     absolute physical limit of the current GPU.
     """
     try:
         if device.type != 'cuda': return config.get("defaults", {}).get("batch_size", 16)
-        
+
         # 2026 Resilience: Total VRAM Discovery
         free_vram, total_vram = torch.cuda.mem_get_info(0)
         vram_gb = total_vram / (1024**3)
-        
+
         # 2026 Resilience: Paging Awareness (Shared Memory Guard)
-        # If free VRAM is critically low (< 15% of total), we must assume 
+        # If free VRAM is critically low (< 15% of total), we must assume
         # we are already paging into slow Shared Memory.
         is_exhausted = (free_vram / total_vram) < 0.15
-        
+
         # 2026 Resilience: Tightened safety buffer (30% overhead for 4GB hardware)
         safety_multiplier = 0.70 if vram_gb < 4.5 else 0.85
-        available_vram = free_vram * safety_multiplier 
-        
+        available_vram = free_vram * safety_multiplier
+
         # Use resolution from override or model_info
         res = res_override
         if res is None:
             res_raw = model_info.get("input_size", 224)
             res = res_raw[1] if isinstance(res_raw, (list, tuple)) else res_raw
-        
+
         h = w = int(res)
-        
+
         # --- The Probe (v17.2) ---
         # We instantiate a single-sample manifold to measure exact activation/gradient volume
         torch.cuda.empty_cache()
         before_probe = torch.cuda.memory_allocated(0)
-        
+
         try:
             # 2026: Deterministic dummy input matching architecture requirements
             if "diffusion" in model_key.lower():
                 dummy_input = {"pixel_values": torch.randn(1, 3, h, w).to(device)}
             else:
                 dummy_input = torch.randn(1, 3, h, w).to(device)
-            
-            model.eval() 
+
+            model.eval()
             if mode == 'train':
                 model.train()
                 output = model(dummy_input)
@@ -341,21 +341,21 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 loss.backward()
                 # 2026 Resilience: Adam/Optimizer state is usually 3x-4x param size
                 # v20.0: Strict 3.0x multiplier to account for full gradient volume
-                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 3.0 
+                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 3.0
             else:
                 with torch.no_grad():
                     _ = model(dummy_input)
-                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 1.15 
-            
+                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 1.15
+
             torch.cuda.empty_cache()
             if sample_vram <= 0: raise ValueError("Probe failed to measure manifold")
-            
+
         except Exception as e:
             res_multiplier = (h * w) / (224 * 224)
-            sample_vram = 60 * 1024 * 1024 * res_multiplier 
-            
+            sample_vram = 60 * 1024 * 1024 * res_multiplier
+
         dynamic_batch = int(available_vram / sample_vram)
-        
+
         # --- Pixel Volume Cap (v20.0 Strict) ---
         # v20.0: Validation allows for 2x pixel volume since no gradients/shit are stored.
         val_mult = 2.0 if mode == 'val' else 1.0
@@ -363,17 +363,17 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         if vram_gb < 4.5: max_pixels = 0.4 * (1024**2) * val_mult # Sub-Nuclear 4GB Lockdown (v22.0 - Targets Batch 6)
         elif vram_gb < 8.5: max_pixels = 5.0 * (1024**2) * val_mult
         elif vram_gb < 16.5: max_pixels = 12.0 * (1024**2) * val_mult
-        else: max_pixels = 36.0 * (1024**2) 
-        
+        else: max_pixels = 36.0 * (1024**2)
+
         pixel_cap = int(max_pixels / (h * w))
         system_cap = 256 if mode == 'val' else 128
-        
+
         # 2026: Diagnostic Telemetry (v18.7)
         if vram_gb < 4.5:
             print(f" 🔍 [SENTINEL-DEBUG] Res: {h}x{w} | VRAM: {vram_gb:.2f}GB | MaxPx: {max_pixels} | Cap: {pixel_cap} | Mode: {mode}")
-        
+
         final_batch = max(1, min(dynamic_batch, pixel_cap, system_cap))
-        
+
         # --- Exhaustion Emergency Clamp (v18.0) ---
         if is_exhausted and vram_gb < 6.0:
             final_batch = min(final_batch, 4) # Force-clamp to tiny batch if card is nearly full
@@ -382,7 +382,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             # v19.0: Secondary safety clamp for 4GB cards with low headroom
             final_batch = min(final_batch, 8)
             print(f" ⚠️ [MEMORY-SENTINEL] Low Headroom Detected ({free_vram/1e6:.1f}MB free). Clamping to {final_batch}.")
-        
+
         gpu_name = torch.cuda.get_device_name(0)
         print(f"📡 [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M)")
         return final_batch
@@ -438,12 +438,12 @@ def main():
     else:
         device = torch.device("cpu")
         print(f"⚠️ [HARDWARE] No Accelerator Found. Defaulting to CPU (Slow).")
-    
+
     # 2026 Resilience: Global Hardware Discovery
     vram_gb = 0
     if device.type == 'cuda':
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-    
+
     model_info = unified_models_registry.get(args.model, {})
     is_heavy_arch = any(x in args.model.lower() for x in ["nafnet", "mirnet", "ffanet", "mprnet"])
     raw_size = model_info.get("input_size", 224)
@@ -567,7 +567,7 @@ def main():
     global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0, "vram_purge": True})
     model_stab = model_info.get("stabilizers", {})
     stab = {**global_stab, **model_stab}
-    governor = SmartTrainingGovernor(model_info, stabilizers=stab)
+    governor = SmartTrainingGovernor(model_info, config=config, stabilizers=stab)
     sample_fraction = governor.current_fraction
     val_anchor_size = model_info.get("val_resolution", governor.current_res)
 
@@ -576,11 +576,11 @@ def main():
     # to ensure the initial batch audit is physically accurate for the current manifold.
     batch_size = args.batch_size or audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
     val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val')
-    
+
     # --- 2026 Resilience: Universal Accumulation Stride (v12.0) ---
     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
     accumulation_steps = max(1, target_eff // batch_size)
-    
+
     print(f" [MISSION PROFILE] Physical Batch: {batch_size} | Accumulation: {accumulation_steps} | Effective: {batch_size * accumulation_steps}")
     print(f" [VAL PROFILE] Physical Batch: {val_batch_size} @ {val_anchor_size}px")
 
@@ -650,7 +650,7 @@ def main():
         p_paths = config.get("paths", {})
         export_root_raw = p_paths.get("export_root", "../LemGendaryModels")
         hub_root = os.path.normpath(os.path.join(project_root, export_root_raw))
-        
+
     hub_model_dir = os.path.join(hub_root, args.model)
     hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
     local_ckpt_dir = os.path.normpath(os.path.join(project_root, config.get("paths", {}).get("checkpoints_root", "checkpoints")))
@@ -670,7 +670,7 @@ def main():
             "lemgendary"
         }
         search_targets = {t for t in search_targets if t}
-        
+
         possible_roots = []
         if os.path.exists('/kaggle/input'):
             # Tier 1: Instant Top-Level Filter
@@ -678,7 +678,7 @@ def main():
                 d_lower = d.lower().replace("-", "_")
                 if any(target in d_lower for target in search_targets):
                     possible_roots.append(os.path.join('/kaggle/input', d))
-        
+
         # Tier 2: Surgical find only if Tier 1 yields too many or no results
         if not possible_roots:
             try:
@@ -687,14 +687,14 @@ def main():
                     res = subprocess.run(f"find /kaggle/input -maxdepth 8 -type d -name '*{target}*'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
                     possible_roots.extend([p for p in res if p])
             except: pass
-        
+
         # Priority: Process ALL possible roots to maximize recovery
         possible_roots = sorted(list(set(possible_roots)), key=lambda x: x.count(os.sep), reverse=True)
-        
+
         found_any = False
         for recovery_root in possible_roots:
             print(f"   -> [PROBING] Manifold: {recovery_root}")
-            
+
             # Recovery 1: metrics.csv
             metrics_search = [
                 os.path.join(recovery_root, "metrics.csv"),
@@ -703,7 +703,7 @@ def main():
                 os.path.join(recovery_root, "models", args.model, "metrics.csv") # Legacy support
             ]
             metrics_search = [p for p in metrics_search if p]
-            
+
             src_metrics = next((p for p in metrics_search if os.path.exists(p)), None)
             if not src_metrics:
                 try:
@@ -719,16 +719,16 @@ def main():
                     print(f"   -> [RECOVERED] metrics.csv from {os.path.basename(os.path.dirname(src_metrics))}")
                     found_any = True
                 except: pass
-            
+
             # Recovery 2: Checkpoints
             src_ckpt_dirs = [
                 os.path.join(recovery_root, "checkpoints"),
                 os.path.join(recovery_root, args.model, "checkpoints"),
                 os.path.join(recovery_root, reg_filename, "checkpoints") if reg_filename else None,
-                recovery_root 
+                recovery_root
             ]
             src_ckpt_dirs = [p for p in src_ckpt_dirs if p and os.path.exists(p)]
-            
+
             for s_dir in src_ckpt_dirs:
                 if not os.path.exists(s_dir): continue
                 for f in os.listdir(s_dir):
@@ -739,13 +739,13 @@ def main():
                         if "latest" in f: target_f = f"{args.model}_latest.pth"
                         elif "best" in f: target_f = f"{args.model}_best.pth"
                         elif "progress" in f: target_f = f"{args.model}_progress.pth"
-                        
+
                         dst_f = os.path.join(hub_ckpt_dir, target_f)
                         if not os.path.exists(dst_f) or os.path.getmtime(src_f) > os.path.getmtime(dst_f):
                             shutil.copy2(src_f, dst_f)
                             print(f"   -> [RECOVERED] {f} -> {target_f}")
                             found_any = True
-            
+
             # Deep recursive backup for orphaned .pth files
             try:
                 # 2026 Resilience: Exhaustive search for all .pth files in the manifold
@@ -759,7 +759,7 @@ def main():
                             if "latest" in f: target_f = f"{args.model}_latest.pth"
                             elif "best" in f: target_f = f"{args.model}_best.pth"
                             elif "progress" in f: target_f = f"{args.model}_progress.pth"
-                            
+
                             dst_f = os.path.join(hub_ckpt_dir, target_f)
                             if not os.path.exists(dst_f) or os.path.getmtime(src_f) > os.path.getmtime(dst_f):
                                 shutil.copy2(src_f, dst_f)
@@ -767,7 +767,7 @@ def main():
                                 found_any = True
             except: pass
 
-        
+
         if not found_any:
             print(f"   -> [NOTICE] No valid manifolds or checkpoints found in /kaggle/input.")
 
@@ -777,28 +777,28 @@ def main():
     resume_iteration = -1
     start_epoch = 0
     ckpt_loaded = False
-    
+
     checkpoint_dir = os.path.normpath(os.path.join(project_root, config.get("checkpoint_dir", "checkpoints")))
     os.makedirs(checkpoint_dir, exist_ok=True)
-    
+
     latest_ckpt = os.path.join(checkpoint_dir, f"{args.model}_latest.pth")
     progress_ckpt_path = os.path.join(checkpoint_dir, f"{args.model}_progress.pth")
     best_ckpt_path = os.path.join(checkpoint_dir, f"{args.model}_best.pth")
-    
+
     candidates = []
     if os.path.exists(latest_ckpt): candidates.append((os.path.getmtime(latest_ckpt), latest_ckpt))
     if os.path.exists(progress_ckpt_path): candidates.append((os.path.getmtime(progress_ckpt_path), progress_ckpt_path))
-    
+
     # 2026 Resilience: Adaptive Worker Strategy
     # If we detect a potential resume, we start with 0 workers to eliminate startup lag during fast-forwarding.
     has_resume_candidate = len(candidates) > 0
     active_workers = 0 if has_resume_candidate else num_workers
-    
+
     # --- 2026: Mission Data Infrastructure (v6.0) ---
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, pin_memory=True if device.type=='cuda' else False)
     val_num_workers = num_workers
     if is_heavy_manifold:
-        val_num_workers = 0 
+        val_num_workers = 0
         print(f" 📡 [DATA-SENTINEL] Heavy Manifold detected. Enforcing sequential validation for stability.")
     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
 
@@ -812,7 +812,7 @@ def main():
             no_decay.append(param)
         else:
             decay.append(param)
-    
+
     optim_groups = [
         {'params': decay, 'weight_decay': 5e-4},
         {'params': no_decay, 'weight_decay': 0.0}
@@ -850,7 +850,7 @@ def main():
                     # If directory exists but no .git, it might be a partial/failed clone
                     try: shutil.rmtree(hub_root, ignore_errors=True)
                     except: pass
-                
+
                 os.makedirs(os.path.dirname(hub_root), exist_ok=True)
                 res = subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", authenticated_url, hub_root], capture_output=True, text=True)
                 if res.returncode == 0:
@@ -1003,7 +1003,7 @@ def main():
                 if 'val_iteration' in ckpt:
                     val_resume_iteration = ckpt['val_iteration']
                     print(f"[INFO] [RESILIENCY] Intra-validation progress detected. Resume Val Iter: {val_resume_iteration}")
-                
+
                 # Proportional Scaling for Validation (v11.1)
                 source_val_loader_len = ckpt.get('val_loader_len')
                 if val_resume_iteration > 0 and source_val_loader_len:
@@ -1015,7 +1015,7 @@ def main():
                 if 'governor_state' in ckpt:
                     governor.load_state(ckpt['governor_state'])
                     g_start_state = governor.get_state()
-                    
+
                     # 2026 Resilience: Restore Save Cadence
                     if 'last_intra_epoch_pct' in ckpt:
                         last_intra_epoch_pct = ckpt['last_intra_epoch_pct']
@@ -1023,12 +1023,12 @@ def main():
                         interval_pct = ckpt['interval_pct']
                     if 'val_interval_pct' in ckpt:
                         val_interval_pct = ckpt['val_interval_pct']
-                    
+
                     # Restore Recovery Shield State
                     if 'in_recovery_mode' in ckpt:
                         in_recovery_mode = ckpt['in_recovery_mode']
                         if in_recovery_mode: print(" [RESILIENCY] Serial Recovery Shield RESTORED (Active).")
-                    
+
                     # 2026 Resilience: Post-Restoration VRAM Re-Audit
                     # Only recalculate batch size if it was set to 'auto' in the registry.
                     res_size = g_start_state['input_size']
@@ -1038,9 +1038,9 @@ def main():
                         # Synchronize val_batch_size if it also followed the auto strategy
                         if model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info:
                             val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='val')
-                    
+
                     accumulation_steps = g_start_state.get('accumulation_steps', 1)
-                    
+
                     # 2026 Resilience: Proportional Iteration Scaling (The "Slide-Rule" Fix)
                     # If the loader length changes (due to Batch Size or Fraction shifts), we must
                     # scale the iteration to prevent skipping the whole epoch or starting from 0.
@@ -1048,7 +1048,7 @@ def main():
                     source_batch = g_start_state.get('batch_size', batch_size)
                     source_fraction = g_start_state.get('sample_fraction', 1.0)
                     source_loader_len = ckpt.get('loader_len')
-                    
+
                     if source_loader_len:
                         ghost_loader_len = source_loader_len
                         print(f" [RESILIENCY] Using verified checkpoint loader length: {ghost_loader_len}")
@@ -1056,23 +1056,23 @@ def main():
                         # Fallback for legacy checkpoints (Ghost Loader Estimation)
                         ghost_loader_len = int((len(train_ds.all_samples) * source_fraction) / max(1, source_batch))
                         print(f" [RESILIENCY] Estimating Ghost Loader length: {ghost_loader_len}")
-                    
+
                     # 2. Update to current strategy
                     train_ds.update_strategy(fraction=g_start_state['sample_fraction'], size=res_size)
-                    
+
                     if batch_size != old_batch_size:
                         print(f" [RESILIENCY] Batch Size Shift detected ({old_batch_size} -> {batch_size}). Synchronizing loader...")
                         try:
-                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, 
+                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                                                      num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
                         except Exception as e:
                             print(f" ⚠️ [RESILIENCY] Loader synchronization failed: {e}. Falling back to default.")
-                    
+
                     new_loader_len = len(train_loader)
-                    
+
                     if resume_iteration > 0 and ghost_loader_len > 0:
                         raw_pct = resume_iteration / ghost_loader_len
-                        
+
                         # 2026 Resilience: Terminal Progress Guard (The "Anti-Rush" Patch)
                         # If a _progress.pth is effectively finished (>= 99.9%), and we are loading it,
                         # it is likely a poisoned artifact from a previous resumption skip.
@@ -1288,7 +1288,7 @@ def main():
                 trainable_params += 1
             else:
                 param.requires_grad = False
-        
+
         # 2026 Safety: If no head was detected, unfreeze everything to prevent grad_fn failure.
         if trainable_params == 0:
             print(" ⚠️ [POLARITY ANCHOR] No specialized head detected. Reverting to full-unfreeze.")
@@ -1302,16 +1302,16 @@ def main():
     model_stab = model_info.get("stabilizers", {})
     # Hierarchy: Unified Model Registry > Global Config > Hardcoded Safety Fallback
     stab = {**global_stab, **model_stab}
-    
+
     # 2026 Resilience: Force synchronization with Governor's thermal state if resuming
     if start_epoch > 0:
         g_state = governor.get_state()
-        if 'softmax_temp' in g_state: 
+        if 'softmax_temp' in g_state:
             # Apply thermal floor for quality tasks during sync
             floor = 0.4 if train_ds.task_type == "quality" else 0.1
             stab['softmax_temp'] = max(floor, g_state['softmax_temp'])
         if 'logit_clamp' in g_state: stab['logit_clamp'] = g_state['logit_clamp']
-        
+
     print(f" [STABILIZER] Active Parameters: Temp={stab['softmax_temp']} | Eps={stab['emd_epsilon']} | Clamp={stab['logit_clamp']}")
 
     # --- 2026 Resilience: Surgical Loss Logic ---
@@ -1322,7 +1322,7 @@ def main():
     if vram_gb < 5.0 and "nafnet" in args.model.lower():
         # High-res restorers on 4GB hardware MUST bypass LPIPS to remain stable.
         use_lpips = False
-        
+
     criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab, use_perc=use_lpips).to(device)
     # 2026 Resilience: Enable AMP for architectures with Tensor Cores OR GTX 16-series (Turing)
     # Turing GTX (1650/1660) supports FP16 for memory savings even without Tensor Cores.
@@ -1379,9 +1379,9 @@ def main():
         print(f" 💾 [CONFIG] Static Save Interval Locked: {interval_pct*100:.1f}% (Horse Race Winner)")
     else:
         interval_pct = 0.0 # To be calibrated by Governor
-    
+
     in_recovery_mode = False # 2026 Resilience: OOM Shield (v17.2)
-    
+
     for epoch in range(start_epoch, epochs):
         last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.12) ---
         # 2026: SOTA Stabilization and Thermal Sharding
@@ -1392,7 +1392,7 @@ def main():
         # Refer to Polarity Anchor (v4.0) for epoch-1 stabilization logic.
 
         model.train()  # pyre-ignore
-        
+
         # 2026 Resilience: Seed train_loss from checkpoint if resuming mid-epoch or after training
         train_loss = 0
         if epoch == start_epoch and restored_avg_train_loss is not None:
@@ -1448,7 +1448,7 @@ def main():
                         if i >= current_iter - 1:
                             break
                 train_ds.sync_mode = False
-                
+
                 # --- WORKER HOT-SWAP ---
                 # Now that we've reached the target batch, we swap to the full worker count
                 # 2026 Resilience: Skip hot-swap if we are already in serial mode or num_workers is 0
@@ -1463,7 +1463,7 @@ def main():
                 else:
                     # In serial mode, we can just continue with the existing iterator
                     print(f" 🛰️ [MISSION CONTROL] Fast-forward complete. Continuing in Serial Mode.")
-                
+
                 # 2026 Resilience: Soft-Start Guard (Manifold Seating)
                 # We dampen momentum slightly to prevent 'shock' NaNs on re-entry
                 print(f" 🛡️ [RESILIENCE] Engaging Soft-Start Guard (Momentum Dampened for 100 iterations)")
@@ -1471,7 +1471,7 @@ def main():
                     for k, v in state.items():
                         if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
                             v.mul_(0.85) # 15% dampening for smooth entry
-            
+
             # --- 2026 Resilience: Adaptive Resume Boundary ---
             # If batch size changed, the resume iteration might exceed the new total.
             current_iter = min(current_iter, len(train_loader))
@@ -1568,7 +1568,7 @@ def main():
                                 current_clamp = stab.get('logit_clamp', s_max)
                                 min_v = max(s_min, -current_clamp)
                                 max_v = min(s_max, current_clamp)
-                                
+
                                 if isinstance(preds, (tuple, list)):
                                     p_p = preds[0]
                                     # 2026 Resilience: Dual-Stage Audit (Stress + Pressure)
@@ -1587,12 +1587,12 @@ def main():
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
                         print(f" [OOM SENTINEL] VRAM overflow detected! Attempting emergency batch-accumulation trade...")
-                        
+
                         # 2026 Resilience: Aggressively purge local computational graphs and tensors
                         # to physically free VRAM before invoking the empty_cache kernel.
                         inputs = targets = batch = None
                         preds = loss = None
-                        
+
                         if torch.cuda.is_available(): torch.cuda.empty_cache()
                         gc.collect()
                         if batch_size > 1:
@@ -1603,13 +1603,13 @@ def main():
                             accumulation_steps = accumulation_steps * 2
                             in_recovery_mode = True # Activate Serial Shield
                             print(f" [RECOVERY] OOM Detected. Scaling Batch: {old_bs} -> {batch_size} | Accumulation: {accumulation_steps} | Shield: ACTIVE")
-                            
+
                             # --- 2026 Resilience: DataLoader Re-Initialization ---
                             # v17.5: Enforce Shield to prevent worker deadlocks on low-VRAM hardware
                             _workers = 0 if in_recovery_mode and vram_gb < 6.0 else num_workers
-                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, 
+                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                                                      num_workers=_workers, pin_memory=True if device.type=='cuda' else False)
-                            
+
                             # Update iterator position to maintain absolute manifold parity (v6.1.7)
                             current_iter = int(i * (old_bs / batch_size))
                             if pbar: pbar.close() # Clean up zombie bar before re-initialization
@@ -1628,11 +1628,11 @@ def main():
                             # --- 2026 Resilience: Emergency Recovery Save (v6.1.10) ---
                             # Immediately lock in the new hardware profile and position
                             recovery_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
-                            
+
                             # 2026: Synchronize Governor before save to ensure metadata parity
                             governor.current_batch = batch_size
                             governor.current_acc = accumulation_steps
-                            
+
                             safe_torch_save({
                                 'epoch': epoch,
                                 'iteration': current_iter,
@@ -1660,7 +1660,7 @@ def main():
                                 train_ds.update_strategy(size=new_res)
                                 val_ds.update_strategy(size=new_res)
                                 # Re-init loader with new resolution
-                                train_loader = DataLoader(train_ds, batch_size=1, shuffle=True, 
+                                train_loader = DataLoader(train_ds, batch_size=1, shuffle=True,
                                                          num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
                                 current_iter = i # Stay at current sample
                                 if pbar: pbar.close()
@@ -1776,7 +1776,7 @@ def main():
                             # Notify Governor to perform a Tactical Retreat (Recoil) and log failure
                             recoil_msg = governor.recoil()
                             if recoil_msg: print(recoil_msg)
-                            
+
                             g_state = governor.get_state()
                             train_ds.update_strategy(fraction=g_state['sample_fraction'], size=g_state['input_size'])
                             if "val_resolution" not in model_info:
@@ -1855,7 +1855,7 @@ def main():
                     # --- 2026: SOTA Gradient Clipping & Sentinel Injection (v1.0) ---
                     scaler.unscale_(optimizer)
                     total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-                    
+
                     # 2026 Resilience: Gradient Sentinel Injection (Noise-Filtered)
                     # Task-Specific Threshold: NIMA (EMD) naturally has spikier gradients.
                     stress_threshold = 25.0 if train_ds.task_type == "quality" else 15.0
@@ -1869,7 +1869,7 @@ def main():
                     else:
 
                         consecutive_stress_events = 0
-                    
+
                     if i > 50 and loss.item() * accumulation_steps > (train_loss / i) * 5.0:
                         if consecutive_stress_events % 10 == 0:
                             print(f" ⚠️ [SENTINEL] Sudden Loss Spike detected. Manifold unstable. NPP Recoil active.")
@@ -1917,7 +1917,7 @@ def main():
 
                 # Threshold-based saving ensures persistence is never skipped due to batch-jumps.
                 current_pct = (i + 1) / len(train_loader)
-                
+
                 # --- 2026: Heartbeat Telemetry (v1.2) ---
                 if (i + 1) % max(1, len(train_loader) // 10) == 0:
                     current_stress = np.mean(sentinel_stresses[-accumulation_steps:]) if sentinel_stresses else 0.0
@@ -1938,11 +1938,11 @@ def main():
                     last_intra_epoch_pct = round(last_intra_epoch_pct, 2)
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
                     temp_prog_ckpt = f"{prog_ckpt}.tmp"
-                    
+
                     # 2026: Ensure Governor is synced with current session variables before save
                     governor.current_batch = batch_size
                     governor.current_acc = accumulation_steps
-                    
+
                     safe_torch_save({
                         'epoch': epoch,
                         'iteration': i,
@@ -2023,7 +2023,7 @@ def main():
             total_samples, total_pixels = 0, 0
             loss_fn_vgg, fid_metric = None, None
             sota_targets = model_info.get("sota_targets", {})
-            
+
             if train_ds.task_type in ["restoration", "enhancement", "face"]:
                 import torch.nn.functional as _F_resize
                 from skimage.metrics import structural_similarity as ssim
@@ -2054,7 +2054,7 @@ def main():
                 avg_train_loss = ckpt.get('avg_train_loss', 0.0)
                 if fid_metric is not None and 'fid_state' in ckpt:
                     fid_metric.load_state_dict(ckpt['fid_state'])
-                
+
                 # --- 2026 Resilience: Parity Guard ---
                 # Ensure the global train_loss variable is seeded to prevent zero-fills in CSV
                 train_loss = avg_train_loss * len(train_loader)
@@ -2076,11 +2076,11 @@ def main():
                     is_critical = (vram_gb < 4.5)
                     action_str = "FORCED" if is_critical else "SKIPPED (Per User Preference)"
                     print(f" 📡 [MEM-SENTINEL] Low Headroom for Validation ({free_mem/1e6:.1f}MB). Reduction: {action_str}.")
-                    
+
                     if is_critical:
                         val_batch_size = max(1, val_batch_size // 2)
-                        val_num_workers = 0 
-                        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, 
+                        val_num_workers = 0
+                        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False,
                                               num_workers=val_num_workers, pin_memory=True)
 
             # --- 2026: Mid-Epoch Validation VRAM Audit ---
@@ -2105,7 +2105,7 @@ def main():
                         if v_idx >= val_resume_iteration - 1:
                             break
                 val_ds.sync_mode = False
-            
+
             # --- 2026 Resilience: Adaptive Val Boundary ---
             val_resume_iteration = min(val_resume_iteration, len(val_loader))
 
@@ -2272,7 +2272,7 @@ def main():
         # Calculate Universal Validation Metrics
         metrics_str = ""
         plcc = srcc = psnr = ssim_val = lpips_val = fid = map50 = map50_95 = rank_margin = accuracy = 0.0
-        
+
         # Calculate Universal Validation Metrics
         metrics_str = ""
         plcc = srcc = psnr = ssim_val = lpips_val = fid = map50 = map50_95 = rank_margin = accuracy = 0.0
@@ -2296,7 +2296,7 @@ def main():
                     plcc, _ = scipy.stats.pearsonr(p_mean, t_mean)
                     srcc, _ = scipy.stats.spearmanr(p_mean, t_mean)
                     rank_margin = float(np.mean(np.abs(p_mean - t_mean)))
-                    
+
                     # 2026 Resilience: Binned Accuracy for Authenticity Distribution
                     if "nima_authenticity" in args.model:
                         # Threshold at 5.5 (Midpoint of 1-10 NIMA scale)
@@ -2319,13 +2319,13 @@ def main():
                         for layer in target_layers:
                             torch.nn.init.xavier_uniform_(layer.weight)
                             torch.nn.init.zeros_(layer.bias)
-                        
+
                         # 2026 Resilience: Force Thermal Lockdown and LR Cooling
                         governor.current_temp = 0.5
                         governor.lr_multiplier = 0.5
                         for param_group in optimizer.param_groups:
                             param_group['lr'] *= 0.5
-                        
+
                         optimizer.state.clear() # Flush momentum to seat the new head
                         sota_baseline_achieved = False
                         best_quality_score = -1.0
@@ -2335,12 +2335,12 @@ def main():
                 if t.dim() == 2: t = t.squeeze(-1)
                 preds_class = torch.argmax(p, dim=1)
                 accuracy = (preds_class == t).float().mean().item()
-                
+
                 # 2026 Diagnostics: Print ground truth distribution to detect label-drift
                 unique, counts = torch.unique(t, return_counts=True)
                 dist_str = ", ".join([f"Class {u.item()}: {c.item()}" for u, c in zip(unique, counts)])
                 val_pbar.write(f" 📡 [DATA AUDIT] Ground Truth Distribution: {dist_str}")
-                
+
                 metrics_str = f" | Accuracy: {accuracy:.4f}"
             elif train_ds.task_type in ["restoration", "enhancement", "face"] and total_samples > 0:
                 mse_val = mse_sum / max(1, total_pixels)
@@ -2367,7 +2367,7 @@ def main():
                 val_speed = val_pbar.format_dict.get('rate', 0.0) or 0.0
                 val_pbar.close()
             except: pass
-            
+
         print(f"📡 [RESONANCE SYNC] Train: {train_speed:.2f} it/s | Val: {val_speed:.2f} it/s | Efficiency: Optimized", file=sys.stderr)
 
         # 2026 Smart Telemetry (Silent Summary)
@@ -2467,9 +2467,9 @@ def main():
         # --- 2026: SOTA Smart Optimization Audit (v6.1.17) ---
         # Moved BEFORE CSV write and Checkpoint creation to ensure total manifold parity.
         f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
-            current_quality=current_quality_score, 
-            best_quality=best_quality_score, 
-            epochs_no_improve=epochs_no_improve, 
+            current_quality=current_quality_score,
+            best_quality=best_quality_score,
+            epochs_no_improve=epochs_no_improve,
             regression_epochs=regression_epochs,
             sentinel_trigger_rate=avg_sentinel_stress,
             current_lr=optimizer.param_groups[0]['lr'],
@@ -2492,16 +2492,16 @@ def main():
             if not args.batch_size:
                 if r_changed or config_batch == "auto" or config_batch is None:
                     batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
-                    
+
                     # Validation resolution might be anchored
                     v_res = model_info.get("val_resolution", governor.current_res)
                     val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
-                    
+
                     # Recalculate accumulation to maintain Effective Batch
                     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
                     accumulation_steps = max(1, target_eff // batch_size)
-                    
-                    b_changed = True 
+
+                    b_changed = True
                     print(f" 🛸 [GOVERNOR] Hardware Re-Audit Complete: {batch_size} (Acc: {accumulation_steps}) @ {governor.current_res}px")
 
             if f_changed or r_changed or b_changed:
@@ -2523,7 +2523,7 @@ def main():
                 _workers = 0 if in_recovery_mode and vram_gb < 6.0 else num_workers
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
-                
+
                 # 2026 Senior Hardening: VRAM De-fragmentation (Task 4.2)
                 if device.type == 'cuda':
                     torch.cuda.empty_cache()
@@ -2538,7 +2538,7 @@ def main():
                     if 'min_lr' in param_group: param_group['min_lr'] *= mult
                 if hasattr(scheduler, 'base_lrs'):
                     scheduler.base_lrs = [l * mult for l in scheduler.base_lrs]
-                
+
                 # 2026 Senior Hardening: Momentum Dampening (Task 4.1)
                 for state in optimizer.state.values():
                     for k, v in state.items():
@@ -2552,7 +2552,7 @@ def main():
                     print(f"🔄 [MISSION DEFIBRILLATION] Re-calculating steps for {governor.current_res}px Manifold.")
                     steps_per_epoch = len(train_loader) // accumulation_steps
                     if steps_per_epoch == 0: steps_per_epoch = 1
-                    
+
                     # Recalculate remaining steps in the mission
                     remaining_epochs = epochs - epoch
                     new_total_steps = (epoch * steps_per_epoch) + (remaining_epochs * steps_per_epoch)
@@ -2592,7 +2592,7 @@ def main():
         # 2026: Ensure Governor is synced with current session variables before save
         governor.current_batch = batch_size
         governor.current_acc = accumulation_steps
-        
+
         ckpt_state = {
             'epoch': epoch,
             'iteration': len(train_loader), # Mark epoch as finished for absolute parity
@@ -2644,11 +2644,11 @@ def main():
                     # We restore the state FIRST, then apply the Recoil safety on top of it.
                     if 'governor_state' in ckpt:
                         governor.load_state(ckpt['governor_state'])
-                        
+
                     # Notify Governor to perform a Tactical Retreat (Recoil) on the restored state
                     recoil_msg = governor.recoil()
                     if recoil_msg: print(recoil_msg)
-                    
+
                     g_state = governor.get_state()
                     train_ds.update_strategy(fraction=g_state['sample_fraction'], size=g_state['input_size'])
                     # 2026: val_ds resolution is seamlessly rolled back to mirror the Governor UNLESS anchored
@@ -2712,7 +2712,7 @@ def main():
                     f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{epoch_res},{epoch_fraction:.2f},"
                     f"{epoch_temp:.4f},{epoch_clamp:.1f},{governor.cooldown_remaining},"
                     f"{epoch_batch},{epoch_acc},{avg_sentinel_stress:.6f}\n")
-        
+
         prev_quality_score = current_quality_score
         # --- 2026 Resilience: Model Hub Sync (v6.2.0) ---
         if is_improving:
@@ -2743,14 +2743,14 @@ def main():
                         return
                 except Exception as e:
                     print(f" ⚠️ [HUB LOCK] Failed to audit Hub parity: {e}. Proceeding with caution...", file=sys.stderr)
-            
+
             # 1. Save state (Latest always, Best on improvement)
             safe_torch_save(ckpt_state, latest_hub_path)
             if is_best:
                 if os.path.abspath(latest_hub_path) != os.path.abspath(best_hub_path):
                     shutil.copy2(latest_hub_path, best_hub_path)
                 print(f"🏆 [HUB SYNC] New SOTA archived to Hub.", file=sys.stderr)
-                
+
                 # --- 2026: Real-Time SOTA Export (v17.2 Hardening) ---
                 # We trigger the full export suite (ONNX + Notebooks) on every new BEST
                 # so the Hub is always ready for production deployment.
@@ -2759,7 +2759,7 @@ def main():
                     trigger_sota_export(args, model, device, config, unified_models_registry, epoch, metrics_to_report, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root)
                 except Exception as e_exp:
                     print(f" ⚠️ [REAL-TIME EXPORT] Failed to generate production artifacts: {e_exp}", file=sys.stderr)
-            
+
             # 2. Sync Metrics Audit Trail
             if os.path.exists(metrics_csv_path):
                 hub_metrics_path = os.path.join(hub_model_dir, "metrics.csv")
@@ -2783,7 +2783,7 @@ def main():
             except Exception as e:
                 print(f"⚠️ [CLOUD SYNC] Critical background sync failure: {e}", file=sys.stderr)
 
-        # 2026 Resilience: Legacy Persistence and Auto-Sync purged. 
+        # 2026 Resilience: Legacy Persistence and Auto-Sync purged.
 
 
 # --- Automated Cloud Hub Deployment ---
@@ -2801,7 +2801,7 @@ def main():
                     auth_hub_url = hub_url
                     if pat:
                         auth_hub_url = hub_url.replace("https://github.com", f"https://{pat}@github.com")
-                    
+
                     # Resolve Hub Root
                     target_hub_root = "/kaggle/working/LemGendaryModels" if args.env == 'kaggle' else os.path.join(os.getcwd(), "hub")
                     target_hub_model_dir = os.path.join(target_hub_root, args.model)
@@ -2826,14 +2826,14 @@ def main():
                     if os.path.exists(best_ckpt_src) and os.path.abspath(best_ckpt_src) != os.path.abspath(best_ckpt_dst):
                         os.makedirs(target_hub_ckpt_dir, exist_ok=True)
                         shutil.copy2(best_ckpt_src, best_ckpt_dst)
-                    
+
                     # 2. Sync Latest Checkpoint (Resumption Anchor)
                     latest_ckpt_src = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
                     latest_ckpt_dst = os.path.join(target_hub_ckpt_dir, f"{args.model}_latest.pth")
                     if os.path.exists(latest_ckpt_src) and os.path.abspath(latest_ckpt_src) != os.path.abspath(latest_ckpt_dst):
                         os.makedirs(target_hub_ckpt_dir, exist_ok=True)
                         shutil.copy2(latest_ckpt_src, latest_ckpt_dst)
-                    
+
                     # 3. Sync Metrics (Audit Trail)
                     hub_metrics_dst = os.path.join(target_hub_model_dir, "metrics.csv")
                     if os.path.exists(metrics_csv_path) and os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_dst):
@@ -2899,15 +2899,16 @@ def main():
 
         if breached and not sota_baseline_achieved:
             if not is_max_res:
-                print(f"\n🚀 [SOTA PROGRESSION] {msg} breached at {governor.current_res}px! Forcing Resolution Jump to next ladder rung...")
+                # 2026: The message is now handled INSIDE governor.audit_epoch
+                # to prevent preemptive/false jump announcements.
                 f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
-                    current_quality=val_loss, 
-                    best_quality=best_val_loss, 
-                    epochs_no_improve=0, 
-                    regression_epochs=0, 
+                    current_quality=val_loss,
+                    best_quality=best_val_loss,
+                    epochs_no_improve=0,
+                    regression_epochs=0,
                     force_jump=True
                 )
-                
+
                 # --- 2026: SOTA-Sync (v18.2) ---
                 # We must immediately apply these changes to the loaders before the next epoch starts
                 if smart_msg: print(smart_msg)
@@ -2919,11 +2920,11 @@ def main():
                         val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
                         target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
                         accumulation_steps = max(1, target_eff // batch_size)
-                    
+
                     train_ds.update_strategy(fraction=new_params['sample_fraction'] if f_changed else None, size=new_params['input_size'] if r_changed else None)
                     if "val_resolution" not in model_info:
                         val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
-                    
+
                     _workers = 0 if in_recovery_mode and vram_gb < 6.0 else num_workers
                     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
@@ -2956,7 +2957,7 @@ def main():
 
 def trigger_sota_export(args, model, device, config, unified_models_registry, epoch, best_metrics, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root):
     """
-    Standardized 2026 SOTA Export Suite. 
+    Standardized 2026 SOTA Export Suite.
     Handles ONNX conversion, PyTorch Unity synthesis, documentation, and Hub mirroring.
     """
     import shutil
@@ -3001,7 +3002,7 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
             os.makedirs(hub_model_dir, exist_ok=True)
             shutil.copytree(export_dir, hub_model_dir, dirs_exist_ok=True)
             print(f"✅ [SUCCESS] {args.model} production binaries and documentation synced to Hub.")
-            
+
     except Exception as e:
         print(f"⚠️ [EXPORT FAILURE] {e}")
 
