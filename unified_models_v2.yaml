@@ -457,10 +457,10 @@ nafnet_debluring:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 52.0
-    ssim: 0.99
+    psnr: 37.0
+    ssim: 0.975
     lpips: 0.04
-    fid: 8.0
+    fid: 6.0
 nafnet_denoising:
   name: LemGendary NAFNet Denoising
   class_name: NAFNet
@@ -490,10 +490,10 @@ nafnet_denoising:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 52.0
-    ssim: 0.99
-    lpips: 0.04
-    fid: 8.0
+    psnr: 42.0
+    ssim: 0.992
+    lpips: 0.02
+    fid: 4.0
 yolov8n:
   name: LemGendary YOLOv8n Multi-Task Model
   class_name: YOLO
