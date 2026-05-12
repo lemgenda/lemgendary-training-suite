@@ -60,7 +60,7 @@ class SmartTrainingGovernor:
             self.res_ladder = [r for r in self.res_ladder if r <= max_safe_res]
             if not self.res_ladder: self.res_ladder = [max_safe_res]
             if self.current_res > max_safe_res:
-                print(f" 🛡️ [GOVERNOR] Hardware Cap Active: Downscaling {self.current_res}px -> {max_safe_res}px for stability.")
+                print(f" [GUARD] [GOVERNOR] Hardware Cap Active: Downscaling {self.current_res}px -> {max_safe_res}px for stability.")
                 self.current_res = max_safe_res
 
         if self.current_res not in self.res_ladder:
@@ -104,9 +104,9 @@ class SmartTrainingGovernor:
                 # We must stay at a resolution for at least manifold_maturity epochs before we can jump.
                 # This ensures weights are stable even if SOTA was hit on the first epoch.
                 epochs_at_res = self.epoch_count - self.last_res_jump_epoch
-                print(f" 🔍 [HARDENING-DEBUG] Current Res: {self.current_res}px | Epochs at Res: {epochs_at_res} | Maturity Required: {self.manifold_maturity}")
+                print(f" [SEARCH] [HARDENING-DEBUG] Current Res: {self.current_res}px | Epochs at Res: {epochs_at_res} | Maturity Required: {self.manifold_maturity}")
                 if epochs_at_res < self.manifold_maturity:
-                    return False, False, False, False, False, False, f"🛡️ [HARDENING] SOTA hit early, but locking at {self.current_res}px for weight stabilization (Manifold Maturity: {epochs_at_res}/{self.manifold_maturity})."
+                    return False, False, False, False, False, False, f"[GUARD] [HARDENING] SOTA hit early, but locking at {self.current_res}px for weight stabilization (Manifold Maturity: {epochs_at_res}/{self.manifold_maturity})."
 
                 current_idx = self.res_ladder.index(self.current_res)
                 if current_idx < len(self.res_ladder) - 1:
@@ -116,9 +116,9 @@ class SmartTrainingGovernor:
                     self.last_res_jump_epoch = self.epoch_count
                     self.spatial_lock_remaining = 3
                     self.stabilization_epochs = 3
-                    return True, True, False, False, False, True, f"🚀 [SOTA-FORCE] Jumping to {next_res}px Manifold..."
+                    return True, True, False, False, False, True, f"[LAUNCH] [SOTA-FORCE] Jumping to {next_res}px Manifold..."
                 else:
-                    return False, False, False, False, False, False, "✅ [SOTA-MAX] Already at maximum resolution."
+                    return False, False, False, False, False, False, "[SUCCESS] [SOTA-MAX] Already at maximum resolution."
             except: pass
 
         # 2026 Resilience: Resumption Shield
@@ -129,14 +129,14 @@ class SmartTrainingGovernor:
             # Bypass audit for resumption epoch
             self.prev_quality = current_quality
             if current_loss: self.prev_loss = current_loss
-            return False, False, False, False, False, False, "🛡️ [SHIELD] Resumption Shield Active. Buffering Momentum Shock."
+            return False, False, False, False, False, False, "[GUARD] [SHIELD] Resumption Shield Active. Buffering Momentum Shock."
 
         # --- NPP: Aggressive Recovery ---
         if sentinel_trigger_rate == 0:
             self.recovery_streak += 1
             if self.recovery_streak >= 2 and self.stabilization_epochs > 0:
                 self.stabilization_epochs = 0
-                print("🚀 [NPP] Stress at zero. Breaking stabilization lock.")
+                print("[LAUNCH] [NPP] Stress at zero. Breaking stabilization lock.")
         else:
             self.recovery_streak = 0
 
@@ -153,18 +153,18 @@ class SmartTrainingGovernor:
         # Senior Update: Emergency Breakout if manifold is clearly collapsing
         if self.stabilization_epochs > 0:
             if current_quality < self.best_quality * 0.90 and self.best_quality > 0:
-                msg_parts.append(f"🚩 [BREAKOUT] Shield shattered! Quality dropped {(1-current_quality/self.best_quality)*100:.1f}%.")
+                msg_parts.append(f"[0x1f6a9] [BREAKOUT] Shield shattered! Quality dropped {(1-current_quality/self.best_quality)*100:.1f}%.")
                 self.stabilization_epochs = 0
             else:
                 self.stabilization_epochs -= 1
                 # 2026: Recovery Velocity (Shorten cooldown if model is recovering fast)
                 if current_quality - self.prev_quality > 0.05 and self.cooldown_remaining > 0:
                     self.cooldown_remaining = max(0, self.cooldown_remaining - 2)
-                    msg_parts.append("⚡ [RECOVERY] Rapid quality gain detected. Meditation shortened.")
+                    msg_parts.append("[0x26a1] [RECOVERY] Rapid quality gain detected. Meditation shortened.")
 
                 self.prev_quality = current_quality
                 if current_loss: self.prev_loss = current_loss
-                status_msg = f"📡 Anchoring Manifold... (Cooldown: {self.cooldown_remaining})" if self.cooldown_remaining > 0 else "📡 Anchoring Manifold..."
+                status_msg = f"[SIGNAL] Anchoring Manifold... (Cooldown: {self.cooldown_remaining})" if self.cooldown_remaining > 0 else "[SIGNAL] Anchoring Manifold..."
                 if msg_parts: status_msg = " | ".join(msg_parts) + " | " + status_msg
                 return False, False, False, False, False, False, status_msg
 
@@ -194,7 +194,7 @@ class SmartTrainingGovernor:
             # Relax min_delta by 4x to ignore low-level metric jitter
             effective_min_delta = self.min_delta * 4
             is_flat = abs(delta_q) < effective_min_delta
-            if is_flat: msg_parts.append("🕸️ [TRAPPED] Fidelity Floor reached. Relaxing stagnation guard.")
+            if is_flat: msg_parts.append("[0x1f578][0xfe0f] [TRAPPED] Fidelity Floor reached. Relaxing stagnation guard.")
 
         # 2026 NPP v15.6: Relaxed Regression Gate for high-noise Quality manifolds
         # Prevents "Panic Recoils" during natural SRCC/PLCC jitter
@@ -216,7 +216,7 @@ class SmartTrainingGovernor:
             self.current_temp = 0.5
             self.current_clamp = 20.0
             t_changed = c_changed = True
-            msg_parts.append("❄️ [THERMAL SHOCK] PLCC negative. Sharpening manifold (Temp -> 0.5).")
+            msg_parts.append("[0x2744][0xfe0f] [THERMAL SHOCK] PLCC negative. Sharpening manifold (Temp -> 0.5).")
 
         # --- 2026 NPP v15.9: Spatial Lock ---
         if self.spatial_lock_remaining > 0:
@@ -225,7 +225,7 @@ class SmartTrainingGovernor:
             loss_is_exploding = (current_loss > self.prev_loss * 1.25) if current_loss and self.prev_loss else False
             if is_regressing and not loss_is_exploding:
                 is_regressing = False
-                msg_parts.append(f"🔒 [SPATIAL LOCK] Buffering transition (Patience: {self.spatial_lock_remaining})")
+                msg_parts.append(f"[0x1f512] [SPATIAL LOCK] Buffering transition (Patience: {self.spatial_lock_remaining})")
 
         # 4. NPP LOOP DETECTION
         current_state = (self.current_res, round(self.current_fraction, 2))
@@ -236,16 +236,16 @@ class SmartTrainingGovernor:
         # for these tasks and only rely on sustained Regression or Collapse.
         if self.task_type == "quality":
             is_turbulent = False # Turbulence is expected in high-entropy NIMA manifolds
-            if is_expanding: msg_parts.append("📡 [RESONANCE] Turbulence detected but shielded. Holding manifold.")
+            if is_expanding: msg_parts.append("[SIGNAL] [RESONANCE] Turbulence detected but shielded. Holding manifold.")
 
         should_retreat = (is_regressing or is_turbulent or is_collapsed)
         if is_expanding and loss_is_stable and not is_collapsed:
             should_retreat = False
-            if is_regressing: msg_parts.append("🛡️ [MOMENTUM] Jitter detected but Loss is stable. Holding manifold.")
+            if is_regressing: msg_parts.append("[GUARD] [MOMENTUM] Jitter detected but Loss is stable. Holding manifold.")
 
         if should_retreat:
             self.failure_log[str(current_state)] = failures + 1
-            msg_parts.append(f"⚠️ NPP FAILURE: State {current_state} (Count: {self.failure_log[str(current_state)]})")
+            msg_parts.append(f"[WARNING] NPP FAILURE: State {current_state} (Count: {self.failure_log[str(current_state)]})")
 
             # --- EMERGENCY RECOIL (v15.5) ---
             if self.failure_log[str(current_state)] >= 2:
@@ -253,7 +253,7 @@ class SmartTrainingGovernor:
                 c_changed = True
                 self.current_temp = min(1.8, self.current_temp * 1.5)
                 t_changed = True
-                msg_parts.append("⛓️ NPP LOOP: Forcing Numerical Shakeup")
+                msg_parts.append("[0x26d3][0xfe0f] NPP LOOP: Forcing Numerical Shakeup")
 
 
             # --- 2026 NPP v15.9: Strategic Spatial Retreat ---
@@ -269,7 +269,7 @@ class SmartTrainingGovernor:
                     lr_changed = True
                     self.stabilization_epochs = 3
                     self.cooldown_remaining = 5
-                    msg_parts.append(f"↩️ [SPATIAL RETREAT] Resetting to {self.current_res}px @ 100% Data Anchor")
+                    msg_parts.append(f"[0x21a9][0xfe0f] [SPATIAL RETREAT] Resetting to {self.current_res}px @ 100% Data Anchor")
 
             if not r_changed:
                 old_frac = self.current_fraction
@@ -288,7 +288,7 @@ class SmartTrainingGovernor:
             lr_changed = True
             t_changed = True
             self.stabilization_epochs = 2
-            msg_parts.append(f"🧊 COOLING: Stress {sentinel_trigger_rate*100:.1f}% -> Temp {self.current_temp:.2f}")
+            msg_parts.append(f"[0x1f9ca] COOLING: Stress {sentinel_trigger_rate*100:.1f}% -> Temp {self.current_temp:.2f}")
 
         # --- PROPULSION: NPP Manifold Stride ---
         # 2026: Dynamic Stride Thresholds (Foundation vs Refinement)
@@ -304,7 +304,7 @@ class SmartTrainingGovernor:
                 self.lr_multiplier = float(jolt)
                 lr_changed = True
                 self.last_jolt_epoch = self.epoch_count
-                msg_parts.append(f"⚡ JOLT: Breaking Plateau with {jolt:.2f}x LR Propulsion")
+                msg_parts.append(f"[0x26a1] JOLT: Breaking Plateau with {jolt:.2f}x LR Propulsion")
 
 
             next_frac = min(1.0, self.current_fraction + 0.15) # NPP: Smaller steps
@@ -313,7 +313,7 @@ class SmartTrainingGovernor:
             if self.failure_log.get(str(next_state), 0) > 0:
                 self.lr_multiplier = 0.6 # NPP: More cautious approach
                 lr_changed = True
-                msg_parts.append(f"⚓ ANCHOR: Caution ahead (Previous Failures). 0.6x LR.")
+                msg_parts.append(f"[0x2693] ANCHOR: Caution ahead (Previous Failures). 0.6x LR.")
 
             if phase == "FOUNDATION" or phase == "EXPANSION":
                 if self.current_fraction < 1.0:
@@ -353,9 +353,9 @@ class SmartTrainingGovernor:
                 sharpen_rate = 0.95 if self.current_temp > 1.2 else 0.98
                 self.current_temp = max(floor, self.current_temp * sharpen_rate)
                 t_changed = True
-                msg_parts.append(f"💎 SHARPENING: Temp -> {self.current_temp:.2f}")
+                msg_parts.append(f"[0x1f48e] SHARPENING: Temp -> {self.current_temp:.2f}")
             elif self.cooldown_remaining > 0:
-                msg_parts.append(f"🧘 MEDITATION: Cooldown active ({self.cooldown_remaining} epochs)")
+                msg_parts.append(f"[0x1f9d8] MEDITATION: Cooldown active ({self.cooldown_remaining} epochs)")
 
         self.prev_quality = current_quality
         if current_loss: self.prev_loss = current_loss
@@ -365,7 +365,7 @@ class SmartTrainingGovernor:
             self.current_temp = min(1.0, self.current_temp)
             self.current_clamp = min(25.0, self.current_clamp) # Prevent logit explosion
 
-        final_msg = f"🚀 [{phase}] " + " | ".join(msg_parts) if msg_parts else ""
+        final_msg = f"[LAUNCH] [{phase}] " + " | ".join(msg_parts) if msg_parts else ""
 
         return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, final_msg
 
@@ -420,4 +420,4 @@ class SmartTrainingGovernor:
         self.current_temp = min(1.5, self.current_temp * 1.3)
         if self.task_type == "quality": self.current_temp = min(1.0, self.current_temp)
         self.stabilization_epochs = 3
-        return f"⚡ [NPP] RECOIL: Retreat to {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
+        return f"[0x26a1] [NPP] RECOIL: Retreat to {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
