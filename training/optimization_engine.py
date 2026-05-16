@@ -421,3 +421,15 @@ class SmartTrainingGovernor:
         if self.task_type == "quality": self.current_temp = min(1.0, self.current_temp)
         self.stabilization_epochs = 3
         return f"[0x26a1] [NPP] RECOIL: Retreat to {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
+
+    def reset_best(self):
+        """2026 Resilience: Memory Purge (v19.2).
+        Resets the Governor's internal best metrics to allow for a fresh SOTA baseline
+        at a new resolution rung.
+        """
+        self.best_quality = 0.0
+        self.prev_quality = 0.0
+        self.prev_loss = 999.0
+        self.history = []
+        self.stabilization_epochs = 2 # Add a small soak period for the new baseline
+        print(" [GOVERNOR] SOTA Memory Purged. Establishing fresh baseline for current manifold.")

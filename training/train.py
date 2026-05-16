@@ -618,9 +618,7 @@ def main():
 
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
-    val_ds.update_strategy(size=val_anchor_size)
-    print(f" [DATA] Validation Manifold SYNCED to {val_anchor_size}px native resolution.")
-
+    
     # 2026 Resilience: Parallel Mission Support
     # On Windows, num_workers > 0 is essential for large deep datasets
     num_workers = config.get("num_workers", 4)
@@ -796,13 +794,14 @@ def main():
     active_workers = 0 if has_resume_candidate else num_workers
 
     # --- 2026: Mission Data Infrastructure (v6.0) ---
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, pin_memory=True if device.type=='cuda' else False)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+    
     val_num_workers = num_workers
     if is_heavy_manifold:
         val_num_workers = 0
         print(f" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Enforcing sequential validation for stability.")
+    
     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
-
     # --- 2026 Senior Hardening: Surgical Weight Decay (Task 4.3) ---
     # Never apply L2 regularization to Bias or Norm parameters to preserve distribution scale.
     decay = []
@@ -1036,9 +1035,6 @@ def main():
                     old_batch_size = batch_size
                     if (config_batch == "auto" or config_batch is None) and not args.batch_size:
                         batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='train')
-                        # Synchronize val_batch_size if it also followed the auto strategy
-                        if model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info:
-                            val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='val')
 
                     accumulation_steps = g_start_state.get('accumulation_steps', 1)
 
@@ -1075,13 +1071,16 @@ def main():
                         raw_pct = resume_iteration / ghost_loader_len
 
                         # 2026 Resilience: Terminal Progress Guard (The "Anti-Rush" Patch)
-                        # If a _progress.pth is effectively finished (>= 99.9%), and we are loading it,
-                        # it is likely a poisoned artifact from a previous resumption skip.
-                        if raw_pct >= 0.999 and "_progress.pth" in attempt_ckpt:
-                            print(f" [WARNING] [RESILIENCY] Terminal progress detected in {os.path.basename(attempt_ckpt)}. Advancing to next epoch (Epoch {start_epoch + 2}) to prevent rush.")
-                            start_epoch += 1
-                            resume_iteration = 0
-                            pct = 0.0
+                        # If a _progress.pth is effectively finished (>= 99.9%), we only advance the epoch
+                        # if the validation phase is ALSO finished or not present.
+                        if raw_pct >= 0.999 and "_progress.pth" in attempt_ckpt and val_resume_iteration <= 0:
+                            print(f" [INFO] [RESILIENCY] Training complete for current epoch. Transitioning to Validation Phase.")
+                            resume_iteration = new_loader_len
+                            pct = 1.0
+                        elif raw_pct >= 0.999 and "_progress.pth" in attempt_ckpt:
+                            # If we have val progress, we must stay in this epoch to finish it.
+                            pct = 1.0
+                            resume_iteration = new_loader_len
                         else:
                             # 2026 Resilience: Clamp to prevent index overflow
                             pct = min(0.999, raw_pct)
@@ -1331,6 +1330,12 @@ def main():
     use_amp = any(k in gpu_name for k in ['RTX', 'Tesla', 'A100', 'H100', 'L4', 'GTX 16'])
     scaler = torch.amp.GradScaler('cuda', enabled=use_amp) # pyre-ignore
 
+    # 2026 Resilience: Disable cuDNN Benchmark for High-Res Dynamic Manifolds
+    # This prevents the CUDNN_STATUS_BAD_PARAM_STREAM_MISMATCH error on Windows Turing GPUs.
+    if device.type == 'cuda':
+        torch.backends.cudnn.benchmark = False
+        print(" [GUARD] [cuDNN] Benchmark disabled for stream stability.")
+
 
     # Initialize metrics for export stability (Avoids NameErrors on skip)
     # Initialize metrics for export stability
@@ -1339,7 +1344,8 @@ def main():
 
 
     # --- 2026: SOTA Sentry Configuration ---
-    patience = config.get("early_stopping_patience", 10)
+    # 2026 Resilience: Map to 'defaults -> patience' in config.yaml (Standard: 250)
+    patience = config.get("defaults", {}).get("patience", 250)
     # Recover non-improving epoch count from checkpoint to prevent reset-on-resume
     epochs_no_improve = start_epochs_no_improve
 
@@ -1393,6 +1399,35 @@ def main():
         # Refer to Polarity Anchor (v4.0) for epoch-1 stabilization logic.
 
         model.train()  # pyre-ignore
+        
+        # --- 2026 Dynamic Validation Parity (v19.0 High-Res Lock) ---
+        # User forced validation to the hardware ceiling for production-grade evaluation.
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
+        hardware_ceiling = 640 if vram_gb < 4.5 else 1024
+        
+        # Priority: Model Config > Hardware Ceiling
+        val_anchor_size = model_info.get("val_resolution", hardware_ceiling)
+        
+        # --- 2026 SOTA GUARD: Resolution-Aware Patience Reset (v19.1) ---
+        # If the validation manifold has shifted resolution, the previous SOTA best metrics
+        # are no longer comparable. We reset the patience timer to allow the model to master the new rung.
+        if 'last_val_anchor' in locals() and last_val_anchor != val_anchor_size:
+            print(f" [SOTA GUARD] Validation Manifold Shift detected ({last_val_anchor} -> {val_anchor_size}). Resetting patience timer.")
+            epochs_no_improve = 0
+            best_quality_score = -1.0 # Force a new baseline for the new resolution
+            best_val_loss = float('inf')
+            
+            # --- 2026 NPP: Governor Memory Purge (v19.2) ---
+            # Sync the Governor's internal memory to the new resolution floor
+            governor.reset_best()
+            
+        last_val_anchor = val_anchor_size
+        
+        val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val')
+        
+        # Sync dataset strategy and re-init loader
+        val_ds.update_strategy(size=val_anchor_size)
+        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=config.get("hardware", {}).get("num_workers", 0), pin_memory=True)
 
         # 2026 Resilience: Seed train_loss from checkpoint if resuming mid-epoch or after training
         train_loss = 0
@@ -1844,6 +1879,22 @@ def main():
 
                 consecutive_nans = 0 # Reset upon successful forward pass
 
+                # --- 2026 Resilience: Surgical Sentinel Insertion (Pre-Backward) ---
+                current_loss_val = loss.item() * accumulation_steps
+                if i > 50 and current_loss_val > (train_loss / i) * 8.0:
+                    print(f" [WARNING] [SENTINEL] Sudden Loss Spike detected ({current_loss_val:.4f} vs {train_loss/i:.4f}). Manifold unstable. NPP Recoil active.")
+                    governor.recoil()
+                    optimizer.zero_grad()
+                    if device.type == 'cuda': torch.cuda.synchronize()
+                    continue # Bypass corrupted backward pass to prevent cuDNN crash
+
+                # --- Numerical Integrity Guard ---
+                if not torch.isfinite(loss):
+                    print(f" [WARNING] [SENTINEL] Infinite loss detected. Bypassing batch to preserve weights.")
+                    governor.recoil()
+                    optimizer.zero_grad()
+                    continue
+
                 scaler.scale(loss).backward()
 
                 # Step only after accumulating enough gradients
@@ -1871,10 +1922,7 @@ def main():
 
                         consecutive_stress_events = 0
 
-                    if i > 50 and loss.item() * accumulation_steps > (train_loss / i) * 5.0:
-                        if consecutive_stress_events % 10 == 0:
-                            print(f" [WARNING] [SENTINEL] Sudden Loss Spike detected. Manifold unstable. NPP Recoil active.")
-                        governor.recoil()
+                    # (Moved to pre-backward sentinel)
 
                     scale_before = scaler.get_scale()
                     scaler.step(optimizer)
@@ -2084,15 +2132,23 @@ def main():
                         val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False,
                                               num_workers=val_num_workers, pin_memory=True)
 
+            # --- 2026: Dynamic Validation Anchor (v19.0 High-Res Lock) ---
+            # User forced validation to the hardware ceiling for production-grade evaluation.
+            vram_gb_current = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
+            hardware_ceiling_current = 640 if vram_gb_current < 4.5 else 1024
+            
+            val_anchor_size = model_info.get("val_resolution", hardware_ceiling_current)
+            val_ds.update_strategy(size=val_anchor_size)
+            
             # --- 2026: Mid-Epoch Validation VRAM Audit ---
             # Recalculate validation batch size right before starting to maximize throughput
             if config_batch == "auto" and (model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info):
                 # 2026 Resilience: Must use val_ds.size to prevent paging if validation is anchored higher than training
                 temp_info = {**model_info, "input_size": val_ds.size}
                 val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val')
-                if pbar: pbar.write(f" [SIGNAL] [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size}")
+                if pbar: pbar.write(f" [SIGNAL] [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size} @ {val_anchor_size}px")
                 # Re-initialize DataLoader if batch size changed
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=config.get("hardware", {}).get("num_workers", 0), pin_memory=True)
 
             # 2026: Standardized Validation Telemetry. sys.stderr routes directly to PowerShell without buffering.
             val_iterator = enumerate(val_loader)
