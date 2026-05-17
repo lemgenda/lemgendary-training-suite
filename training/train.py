@@ -399,6 +399,52 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         return 1
 
 
+def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
+    """
+    2026 Resilience: Fast, depth-restricted BFS filesystem query that strictly prunes
+    out massive dataset/image folders to prevent FUSE/network deadlocks.
+    """
+    if not os.path.exists(root_path):
+        return []
+    
+    prune_dirs = {"datasets", "images", "train", "val", "test", "validation", "dataset", "val_images", "train_images"}
+    results = []
+    queue = [(root_path, 0)]
+    
+    while queue:
+        curr, depth = queue.pop(0)
+        if depth > max_depth:
+            continue
+            
+        try:
+            items = os.listdir(curr)
+        except:
+            continue
+            
+        for item in items:
+            path = os.path.join(curr, item)
+            item_lower = item.lower()
+            
+            # Prune massive dataset subfolders instantly
+            if item_lower in prune_dirs:
+                continue
+                
+            if os.path.isdir(path):
+                queue.append((path, depth + 1))
+                if is_dir and target_sub in item_lower:
+                    results.append(path)
+            elif not is_dir:
+                # File matching (e.g. *.pth or metrics.csv)
+                if target_sub.startswith("*"):
+                    ext = target_sub.replace("*", "").lower()
+                    if item_lower.endswith(ext):
+                        results.append(path)
+                elif target_sub.lower() in item_lower:
+                    results.append(path)
+                    
+    return results
+
+
 def main():
     print(" [TRACE] Entering main()...", flush=True)
     # 2026 Resilience: Force UTF-8 encoding for Windows terminals to support emojis
@@ -696,8 +742,8 @@ def main():
             try:
                 for target in search_targets:
                     if target == "lemgendary": continue
-                    res = subprocess.run(f"find /kaggle/input -maxdepth 8 -type d -name '*{target}*'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
-                    possible_roots.extend([p for p in res if p])
+                    res = find_paths_pruned('/kaggle/input', target, max_depth=8, is_dir=True)
+                    possible_roots.extend(res)
             except: pass
 
         # Priority: Process ALL possible roots to maximize recovery
@@ -719,8 +765,8 @@ def main():
             src_metrics = next((p for p in metrics_search if os.path.exists(p)), None)
             if not src_metrics:
                 try:
-                    res = subprocess.run(f"find {recovery_root} -maxdepth 8 -name 'metrics.csv'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
-                    if res and res[0]: src_metrics = res[0]
+                    res = find_paths_pruned(recovery_root, "metrics.csv", max_depth=8, is_dir=False)
+                    if res: src_metrics = res[0]
                 except: pass
 
             dst_metrics = os.path.join(hub_model_dir, "metrics.csv")
@@ -761,7 +807,7 @@ def main():
             # Deep recursive backup for orphaned .pth files
             try:
                 # 2026 Resilience: Exhaustive search for all .pth files in the manifold
-                res = subprocess.run(f"find {recovery_root} -maxdepth 8 -name '*.pth'", shell=True, capture_output=True, text=True).stdout.strip().split('\n')
+                res = find_paths_pruned(recovery_root, "*.pth", max_depth=8, is_dir=False)
                 for src_f in res:
                     if src_f and os.path.exists(src_f):
                         f = os.path.basename(src_f)
