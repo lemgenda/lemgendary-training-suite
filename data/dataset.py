@@ -229,61 +229,32 @@ class MultiTaskDataset(Dataset):
             
         # 2. Nuclear Brute-Force (Kaggle Only)
         if self.env == 'kaggle':
-            # Priority 1: Check common Kaggle entry points directly for speed
-            # Pattern: /kaggle/input/dataset-slug/DatasetFolder
-            # Pattern: /kaggle/input/user/dataset-slug/DatasetFolder
-            target_slug = ds_name.lower().replace("_", "-")
-            possible_roots = [
-                os.path.join('/kaggle/input', ds_name),
-                os.path.join('/kaggle/input', ds_name.lower()),
-                os.path.join('/kaggle/input', target_slug),
-                os.path.join('/kaggle/input', target_slug, ds_name),
-                os.path.join('/kaggle/input', target_slug, ds_name.lower()),
-                os.path.join('/kaggle/input', 'datasets', 'lemtreursi', target_slug),
-                os.path.join('/kaggle/input', 'datasets', 'lemtreursi', target_slug, ds_name),
-                os.path.join('/kaggle/input', 'datasets', 'lemtreursi', target_slug, ds_name.lower())
-            ]
-            
-            # Swappable variants (e.g. KaggleReady vs Large)
-            extra_roots = []
-            for pr in possible_roots:
-                extra_roots.append(pr.replace("kaggleready", "large"))
-                extra_roots.append(pr.replace("large", "kaggleready"))
-                extra_roots.append(pr.replace("KaggleReady", "Large"))
-                extra_roots.append(pr.replace("Large", "KaggleReady"))
-            possible_roots.extend(extra_roots)
-            
-            # De-duplicate possible roots preserving order
-            seen = set()
-            possible_roots = [r for r in possible_roots if not (r in seen or seen.add(r))]
-            
-            for pr in possible_roots:
-                if os.path.exists(os.path.join(pr, 'images', 'train')):
-                    return pr
-
-            # Priority 2: Surgical Discovery (Avoid slow os.walk)
-            try:
-                import subprocess
-                # 1. Look for case-insensitive folder name (maxdepth 3)
-                cmd = f"find /kaggle/input -maxdepth 3 -type d -iname '{ds_name}'"
-                res = subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip().split('\n')
-                for cand in res:
-                    if cand and os.path.exists(os.path.join(cand, 'images', 'train')):
-                        return cand
+            # Strip suffixes to get the core target slug (e.g., lemgendizednimaauthenticity)
+            target = ds_name.lower().replace("-", "").replace("_", "")
+            for suffix in ["kaggleready", "large", "mini"]:
+                target = target.replace(suffix, "")
                 
-                # 2. Look for any 'images/train' (maxdepth 4) and match name
-                cmd = "find /kaggle/input -maxdepth 4 -type d -path '*/images/train'"
-                res = subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip().split('\n')
-                target = ds_name.lower().replace("-", "").replace("_", "").replace("kaggleready", "").replace("large", "").replace("mini", "")
-                for sp in res:
-                    if sp:
-                        r = os.path.dirname(os.path.dirname(sp))
-                        if target in r.lower().replace("-", "").replace("_", ""):
-                            return r
-            except Exception:
-                pass
-
-        return path
+            # Perform a fast, non-recursive, nest-aware scan of /kaggle/input (Takes < 1ms)
+            if os.path.exists('/kaggle/input'):
+                try:
+                    for dname in os.listdir('/kaggle/input'):
+                        d_path = os.path.join('/kaggle/input', dname)
+                        if os.path.isdir(d_path):
+                            d_lower = dname.lower().replace("-", "").replace("_", "")
+                            if target in d_lower or 'lemgendary' in d_lower:
+                                # Check 1: Direct mount (e.g., /kaggle/input/dataset/images/train)
+                                if os.path.exists(os.path.join(d_path, 'images', 'train')):
+                                    return d_path
+                                # Check 2: Nested ZIP mount (e.g., /kaggle/input/dataset/NestedFolder/images/train)
+                                for sub in os.listdir(d_path):
+                                    sub_path = os.path.join(d_path, sub)
+                                    if os.path.isdir(sub_path):
+                                        if os.path.exists(os.path.join(sub_path, 'images', 'train')):
+                                            return sub_path
+                except Exception:
+                    pass
+            
+        return None
 
     def load_image(self, img_path):
         """Fallback Shield: Returns Neutral-Gray tensor on I/O failure (Task 9.1)."""
