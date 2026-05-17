@@ -157,7 +157,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
 
     install_source = [
         "print('[ENV] Installing Nuclear Dependencies...')\n",
-        "!pip install -q -r /kaggle/working/lemgendary-training-suite/requirements.txt\n",
+        "%pip install -q -r /kaggle/working/lemgendary-training-suite/requirements.txt\n",
         "print('[OK] Environment Ready.')\n"
     ]
 
