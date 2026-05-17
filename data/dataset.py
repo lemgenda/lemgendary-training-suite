@@ -181,7 +181,8 @@ class MultiTaskDataset(Dataset):
         dataset_names = []
         for name in raw_dataset_names:
             dataset_names.append(f"{name}{suffix}")
-            dataset_names.append(f"LemGendized{name}{suffix}")
+            if not name.lower().startswith("lemgendized"):
+                dataset_names.append(f"LemGendized{name}{suffix}")
         
         for ds_name in dataset_names:
             ds_path = self.get_dataset_path(ds_name)
