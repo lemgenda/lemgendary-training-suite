@@ -7,6 +7,8 @@ if "CUDA_VISIBLE_DEVICES" not in os.environ:
 # Disable OpenCV's OpenCL driver binding to prevent GPU driver deadlocks with PyTorch CUDA context initialization
 os.environ["OPENCV_OPENCL_DEVICE"] = "DISABLED"
 import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(line_buffering=True, write_through=True)
 import argparse
 import warnings
 import atexit

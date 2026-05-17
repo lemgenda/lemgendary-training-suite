@@ -288,7 +288,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    pass\n",
         "\n",
         "print(f'[LAUNCH] [NUCLEAR] Initiating Training Matrix for {model_key}...')\n",
-        "cmd = [sys.executable, 'training/train.py', '--model', f'{model_key}', '--env', 'kaggle', '--auto_sync']\n",
+        "cmd = [sys.executable, '-u', 'training/train.py', '--model', f'{model_key}', '--env', 'kaggle', '--auto_sync']\n",
         "p = subprocess.Popen(cmd)\n",
         "try:\n",
         "    p.wait()\n",
