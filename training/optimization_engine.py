@@ -82,7 +82,10 @@ class SmartTrainingGovernor:
         self.last_action_epoch = 0
         self.epoch_count = 0
         self.session_epoch_count = 0 # 2026: Resumption Shield tracking
-        self.min_delta = opt.get("min_delta", 0.0005)
+        # 2026 Resilience: Dynamic Delta for High-Range Quality Scores
+        # Restoration tasks have Quality Scores in the 100s-500s range, making 0.0005 too small to ever trigger 'is_flat'.
+        base_delta = opt.get("min_delta", 0.0005)
+        self.min_delta = base_delta if self.task_type == "quality" else (base_delta * 100.0) # Scale up for restoration
         self.spatial_lock_remaining = 0 # 2026 v15.9: Blocks recoil after jump
         self.last_res_jump_epoch = -100
 

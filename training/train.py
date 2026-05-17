@@ -1881,7 +1881,13 @@ def main():
 
                 # --- 2026 Resilience: Surgical Sentinel Insertion (Pre-Backward) ---
                 current_loss_val = loss.item() * accumulation_steps
-                if i > 50 and current_loss_val > (train_loss / i) * 8.0:
+                
+                # 2026 NPP: Absolute Energy Floor
+                # If average loss is microscopic (e.g. 0.001), a "spike" to 0.03 is technically 30x higher but physically harmless.
+                # We enforce an absolute floor (0.05 unscaled) to prevent false-positive recoils on difficult patches.
+                absolute_floor = 0.05 * accumulation_steps
+                
+                if i > 50 and current_loss_val > (train_loss / i) * 8.0 and current_loss_val > absolute_floor:
                     print(f" [WARNING] [SENTINEL] Sudden Loss Spike detected ({current_loss_val:.4f} vs {train_loss/i:.4f}). Manifold unstable. NPP Recoil active.")
                     governor.recoil()
                     optimizer.zero_grad()
@@ -2024,7 +2030,7 @@ def main():
         safe_torch_save({
             'epoch': epoch,
             'iteration': len(train_loader),
-            'val_iteration': 0,
+            'val_iteration': val_resume_iteration,
             'val_loader_len': len(val_loader),
             'model_state': model.state_dict(),
             'optimizer_state': optimizer.state_dict(),
@@ -2150,6 +2156,11 @@ def main():
                 # Re-initialize DataLoader if batch size changed
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=config.get("hardware", {}).get("num_workers", 0), pin_memory=True)
 
+            # 2026 Validation Sharding & Resolution Sync
+            shard_limit = max(1, int(len(val_loader) * 0.3))
+            if len(val_loader) > 0:
+                val_resume_iteration = int(last_val_pct * len(val_loader))
+
             # 2026: Standardized Validation Telemetry. sys.stderr routes directly to PowerShell without buffering.
             val_iterator = enumerate(val_loader)
             if val_resume_iteration > 0:
@@ -2164,15 +2175,21 @@ def main():
                 val_ds.sync_mode = False
 
             # --- 2026 Resilience: Adaptive Val Boundary ---
-            val_resume_iteration = min(val_resume_iteration, len(val_loader))
+            val_resume_iteration = min(val_resume_iteration, shard_limit)
+            last_val_pct = (max(0, val_resume_iteration) / shard_limit) if shard_limit > 0 else 0.0
 
-            val_pbar = tqdm(total=len(val_loader), initial=val_resume_iteration, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=True, file=sys.stderr, dynamic_ncols=True)
+            val_pbar = tqdm(total=shard_limit, initial=val_resume_iteration, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=True, file=sys.stderr, dynamic_ncols=True)
             val_session_batches = 0
             for v_idx, batch in val_iterator:
                 # --- 2026: Global Index Alignment ---
                 current_val_iter = v_idx + 1
                 if val_pbar.n < val_pbar.total:
                     val_pbar.update(1)
+
+                # --- 2026 Validation Sharding ---
+                if current_val_iter > shard_limit:
+                    val_pbar.write(f" [0x23f1] [SHARDING] Validation Shard complete ({shard_limit} batches). Fast-forwarding to next epoch.")
+                    break
 
                 # --- 2026 Resilience: Universal Batch Unpacking ---
                 inputs, targets, tasks = batch
@@ -2277,13 +2294,13 @@ def main():
                     # 2026: Use Smoothed Rate (it/s) to avoid warm-up skew
                     rate = val_pbar.format_dict.get('rate')
                     avg_time = (1.0 / rate) if rate and rate > 0 else (val_pbar.format_dict['elapsed'] / val_session_batches)
-                    new_val_interval = governor.get_dynamic_save_interval(avg_time, len(val_loader))
+                    new_val_interval = governor.get_dynamic_save_interval(avg_time, shard_limit)
                     if new_val_interval != val_interval_pct:
                         val_interval_pct = new_val_interval
                         if val_interval_pct > 0:
                             val_pbar.write(f" [0x1f4be] [RESILIENCY] Val Save Interval: {val_interval_pct*100:.1f}% (~15 min window)")
 
-                current_pct = (v_idx + 1) / len(val_loader)
+                current_pct = (v_idx + 1) / shard_limit
                 if val_interval_pct > 0 and (current_pct >= last_val_pct + val_interval_pct - 1e-4 or current_pct == 1.0):
                     last_val_pct = current_pct
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
@@ -2323,7 +2340,7 @@ def main():
                     all_preds.append(preds.detach().cpu())
                     all_targets.append(targets.detach().cpu())
 
-        avg_val_loss = val_loss / max(1, len(val_loader))
+        avg_val_loss = val_loss / max(1, val_session_batches)
         avg_sentinel_stress = float(np.mean(sentinel_stresses)) if sentinel_stresses else 0.0
 
         # Calculate Universal Validation Metrics
