@@ -128,16 +128,6 @@ class SmartTrainingGovernor:
                     return False, False, False, False, False, False, "[SUCCESS] [SOTA-MAX] Already at maximum resolution."
             except: pass
 
-        # 2026 Resilience: Resumption Shield
-        # Ignore massive quality drops in the first epoch of a session (Momentum Shock)
-        # unless loss also explodes (NaN).
-        is_resuming = self.session_epoch_count == 1 and self.epoch_count > 1
-        if is_resuming:
-            # Bypass audit for resumption epoch
-            self.prev_quality = current_quality
-            if current_loss: self.prev_loss = current_loss
-            return False, False, False, False, False, False, "[GUARD] [SHIELD] Resumption Shield Active. Buffering Momentum Shock."
-
         # --- NPP: Aggressive Recovery ---
         if sentinel_trigger_rate == 0:
             self.recovery_streak += 1
@@ -157,23 +147,35 @@ class SmartTrainingGovernor:
 
         # 2. Guard: Stabilization
         msg_parts = []
-        # Senior Update: Emergency Breakout if manifold is clearly collapsing
         if self.stabilization_epochs > 0:
             if current_quality < self.best_quality * 0.90 and self.best_quality > 0:
                 msg_parts.append(f"[0x1f6a9] [BREAKOUT] Shield shattered! Quality dropped {(1-current_quality/self.best_quality)*100:.1f}%.")
                 self.stabilization_epochs = 0
             else:
                 self.stabilization_epochs -= 1
-                # 2026: Recovery Velocity (Shorten cooldown if model is recovering fast)
-                if current_quality - self.prev_quality > 0.05 and self.cooldown_remaining > 0:
+                # 2026: Recovery Velocity (Shorten cooldown and lock if model is recovering fast)
+                recovery_delta = self.min_delta if self.task_type != "quality" else 0.05
+                if current_quality - self.prev_quality > recovery_delta:
                     self.cooldown_remaining = max(0, self.cooldown_remaining - 2)
-                    msg_parts.append("[0x26a1] [RECOVERY] Rapid quality gain detected. Meditation shortened.")
+                    self.stabilization_epochs = max(0, self.stabilization_epochs - 1)
+                    msg_parts.append("[0x26a1] [RECOVERY] Rapid quality gain detected. Cooldown and Lock shortened.")
 
                 self.prev_quality = current_quality
                 if current_loss: self.prev_loss = current_loss
                 status_msg = f"[SIGNAL] Anchoring Manifold... (Cooldown: {self.cooldown_remaining})" if self.cooldown_remaining > 0 else "[SIGNAL] Anchoring Manifold..."
                 if msg_parts: status_msg = " | ".join(msg_parts) + " | " + status_msg
                 return False, False, False, False, False, False, status_msg
+
+        # 2026 Resilience: Resumption Shield
+        # Ignore massive quality drops in the first epoch of a session (Momentum Shock)
+        # unless loss also explodes (NaN).
+        is_resuming = self.session_epoch_count == 1 and self.epoch_count > 1
+        is_regressing_shock = current_quality < self.best_quality * 0.95 and self.best_quality > 0
+        if is_resuming and is_regressing_shock:
+            # Bypass audit for resumption epoch to buffer momentum shock
+            self.prev_quality = current_quality
+            if current_loss: self.prev_loss = current_loss
+            return False, False, False, False, False, False, "[GUARD] [SHIELD] Resumption Shield Active. Buffering Momentum Shock."
 
         f_changed = r_changed = lr_changed = t_changed = c_changed = b_changed = False
         self.lr_multiplier = 1.0

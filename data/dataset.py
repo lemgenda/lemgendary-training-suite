@@ -216,6 +216,17 @@ class MultiTaskDataset(Dataset):
         if os.path.exists(os.path.join(path, 'images', 'train')):
             return path
             
+        # 1b. Case-Insensitive Local Check
+        if os.path.exists(self.data_root):
+            try:
+                for item in os.listdir(self.data_root):
+                    if item.lower() == ds_name.lower():
+                        cand = os.path.join(self.data_root, item)
+                        if os.path.exists(os.path.join(cand, 'images', 'train')):
+                            return cand
+            except Exception:
+                pass
+            
         # 2. Nuclear Brute-Force (Kaggle Only)
         if self.env == 'kaggle':
             # Priority 1: Check common Kaggle entry points directly for speed
@@ -224,20 +235,37 @@ class MultiTaskDataset(Dataset):
             target_slug = ds_name.lower().replace("_", "-")
             possible_roots = [
                 os.path.join('/kaggle/input', ds_name),
+                os.path.join('/kaggle/input', ds_name.lower()),
+                os.path.join('/kaggle/input', target_slug),
                 os.path.join('/kaggle/input', target_slug, ds_name),
-                os.path.join('/kaggle/input', 'datasets', 'lemtreursi', target_slug, ds_name)
+                os.path.join('/kaggle/input', target_slug, ds_name.lower()),
+                os.path.join('/kaggle/input', 'datasets', 'lemtreursi', target_slug),
+                os.path.join('/kaggle/input', 'datasets', 'lemtreursi', target_slug, ds_name),
+                os.path.join('/kaggle/input', 'datasets', 'lemtreursi', target_slug, ds_name.lower())
             ]
+            
+            # Swappable variants (e.g. KaggleReady vs Large)
+            extra_roots = []
+            for pr in possible_roots:
+                extra_roots.append(pr.replace("kaggleready", "large"))
+                extra_roots.append(pr.replace("large", "kaggleready"))
+                extra_roots.append(pr.replace("KaggleReady", "Large"))
+                extra_roots.append(pr.replace("Large", "KaggleReady"))
+            possible_roots.extend(extra_roots)
+            
+            # De-duplicate possible roots preserving order
+            seen = set()
+            possible_roots = [r for r in possible_roots if not (r in seen or seen.add(r))]
+            
             for pr in possible_roots:
                 if os.path.exists(os.path.join(pr, 'images', 'train')):
                     return pr
 
-            # Priority 2: Semi-Recursive Discovery (Level-Limited for speed)
-            # This handles cases where symlinking failed or paths are uniquely nested
             # Priority 2: Surgical Discovery (Avoid slow os.walk)
             try:
                 import subprocess
-                # 1. Look for exact folder name (maxdepth 3)
-                cmd = f"find /kaggle/input -maxdepth 3 -type d -name '{ds_name}'"
+                # 1. Look for case-insensitive folder name (maxdepth 3)
+                cmd = f"find /kaggle/input -maxdepth 3 -type d -iname '{ds_name}'"
                 res = subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip().split('\n')
                 for cand in res:
                     if cand and os.path.exists(os.path.join(cand, 'images', 'train')):
@@ -252,7 +280,8 @@ class MultiTaskDataset(Dataset):
                         r = os.path.dirname(os.path.dirname(sp))
                         if target in r.lower().replace("-", "").replace("_", ""):
                             return r
-            except: pass
+            except Exception:
+                pass
 
         return path
 
