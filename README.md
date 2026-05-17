@@ -25,7 +25,7 @@ The v16.2.8 release marks the end of "low-resolution warm-up." The suite now enf
 - **Sub-Nuclear 4GB Lockdown (v22.0)**: On GTX 1650 cards, the suite enforces a strict **Serial-Only Mode** (0 workers) and hard-clamps pixel volume (Targets ~6-8 Batch) to prevent Windows System RAM paging. This results in a **2x performance gain** over legacy Batch 1 profiles by staying 100% inside physical VRAM.
 - **Serial Recovery Shield (v17.2)**: Automatically force-disables parallel workers after a VRAM overflow to prevent Windows worker deadlocks and system freezes.
 - **Terminal Progress Guard (v17.2)**: Intelligent checkpoint auditing that advances the epoch when progress hits 99.9%, preventing "Groundhog Day" training loops.
-- **Validation Sharding (v23.0)**: Automatically subsets the validation dataloader to 30% per epoch with a fixed random seed. This accelerates perceptual metric (LPIPS/FID) computation by 3x without breaking the Governor's stabilization tracking.
+- **Dynamic Validation Sharding & Auto-Expansion (v23.4)**: Automatically subsets the validation dataloader to 30% per epoch with a fixed random seed during early phases to accelerate perceptual metric (LPIPS/FID) computation by 3x. Once the model hits the **Refinement Phase** (maximum resolution ladder step at 100% training data fraction), the Governor dynamically auto-expands validation to **100% (full dataset)** to guarantee an absolute SOTA generalizability audit.
 - **Absolute Energy Floor (Sentinel Guard)**: The Pre-Backward loss Sentinel now enforces an absolute baseline energy floor (`> 0.05` unscaled) to prevent false-positive training recoils on microscopic loss metrics during high-fidelity refinement.
 
 ### 🧠 Intelligent Curriculum & Resume Persistence (v23.1)
@@ -89,7 +89,7 @@ The master orchestration console for system bootstrapping and cloud sync.
 | **Progress Guard** | Advances epochs at 99.9% progress to prevent training loops. | ✅ v17.2 Active |
 | **4GB Iron-Clamp** | Hardware-aware pixel ceilings to prevent System RAM paging. | ✅ v22.0 Active |
 | **High-Fidelity Floor** | Minimum starting resolutions of 224px-512px across all manifolds. | ✅ v16.2.8 Active |
-| **Validation Sharding** | Fixed 30% validation auditing to accelerate perceptual metrics. | ✅ v23.0 Active |
+| **Validation Sharding** | Fixed 30% validation auditing, auto-expanding to 100% in Refinement. | ✅ v23.4 Active |
 | **Energy Floor Guard** | Absolute loss baseline check to prevent false-positive recoils. | ✅ v23.0 Active |
 | **Dynamic Quality Delta** | Auto-scales `min_delta` (100x) for Restoration plateau detection. | ✅ v23.0 Active |
 | **Quality Integration** | Un-nested SOTA evaluation providing cumulative quality scores for restoration. | ✅ v23.1 Active |

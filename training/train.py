@@ -2164,7 +2164,18 @@ def main():
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=config.get("hardware", {}).get("num_workers", 0), pin_memory=True)
 
             # 2026 Validation Sharding & Resolution Sync
-            shard_limit = max(1, int(len(val_loader) * 0.3))
+            # Auto-expand validation set to 100% during Refinement Phase for SOTA generalizability audit
+            is_refinement = False
+            try:
+                is_refinement = governor.get_phase() == "REFINEMENT"
+            except: pass
+
+            if is_refinement:
+                shard_limit = len(val_loader)
+                if pbar: pbar.write(" [0x1f3af] [GOVERNOR] Refinement Phase Active: Auto-expanding Validation Manifold to 100% for SOTA audit.")
+            else:
+                shard_limit = max(1, int(len(val_loader) * 0.3))
+
             if len(val_loader) > 0:
                 val_resume_iteration = int(last_val_pct * len(val_loader))
 
