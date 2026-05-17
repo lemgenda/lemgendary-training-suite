@@ -155,6 +155,16 @@ class MultiTaskDataset(Dataset):
         self.build_transforms()
 
     def _load_manifest(self, config):
+        if self.env == 'kaggle':
+            print("📡 [DEBUG] Mounted datasets in /kaggle/input:")
+            try:
+                if os.path.exists('/kaggle/input'):
+                    print("  ->", os.listdir('/kaggle/input'))
+                else:
+                    print("  -> /kaggle/input does not exist!")
+            except Exception as e:
+                print("  -> Error listing /kaggle/input:", e)
+
         raw_dataset_names = self.model_info.get("datasets", [])
         suffix = "KaggleReady" if self.env == 'kaggle' else config.get("execution", {}).get("suffixes", {}).get(config.get("execution", {}).get("mode", "training"), "")
         # 2026 Resilience: Support 'LemGendized' prefix automatically
@@ -245,15 +255,19 @@ class MultiTaskDataset(Dataset):
                             if target in d_lower or 'lemgendary' in d_lower:
                                 # Check 1: Direct mount (e.g., /kaggle/input/dataset/images/train)
                                 if os.path.exists(os.path.join(d_path, 'images', 'train')):
+                                    print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Direct match: {d_path}")
                                     return d_path
                                 # Check 2: Nested ZIP mount (e.g., /kaggle/input/dataset/NestedFolder/images/train)
                                 for sub in os.listdir(d_path):
                                     sub_path = os.path.join(d_path, sub)
                                     if os.path.isdir(sub_path):
                                         if os.path.exists(os.path.join(sub_path, 'images', 'train')):
+                                            print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Nested match: {sub_path}")
                                             return sub_path
-                except Exception:
+                except Exception as e:
+                    print(f"📡 [DEBUG] get_dataset_path scan error: {e}")
                     pass
+            print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Failed to resolve path!")
             
         return None
 
