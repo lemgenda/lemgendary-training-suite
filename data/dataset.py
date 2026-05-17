@@ -165,6 +165,7 @@ class MultiTaskDataset(Dataset):
         
         for ds_name in dataset_names:
             ds_path = self.get_dataset_path(ds_name)
+            if ds_path is None: continue
             # 2026: Parameter prediction loads from targets/ (clean source images)
             if self.task_type == "parameter_prediction":
                 img_dir = os.path.join(ds_path, "targets", self.split)
