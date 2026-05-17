@@ -159,7 +159,17 @@ class MultiTaskDataset(Dataset):
             print("📡 [DEBUG] Mounted datasets in /kaggle/input:")
             try:
                 if os.path.exists('/kaggle/input'):
-                    print("  ->", os.listdir('/kaggle/input'))
+                    for d in os.listdir('/kaggle/input'):
+                        d_path = os.path.join('/kaggle/input', d)
+                        if os.path.isdir(d_path):
+                            print(f"  -> {d} contains: {os.listdir(d_path)[:10]}")
+                            for sub in os.listdir(d_path):
+                                sub_path = os.path.join(d_path, sub)
+                                if os.path.isdir(sub_path):
+                                    try:
+                                        print(f"      -> {sub} contains: {os.listdir(sub_path)[:5]}")
+                                    except Exception:
+                                        pass
                 else:
                     print("  -> /kaggle/input does not exist!")
             except Exception as e:
@@ -245,36 +255,43 @@ class MultiTaskDataset(Dataset):
             for suffix in ["kaggleready", "large", "mini"]:
                 target = target.replace(suffix, "")
                 
-            # Perform a fast, nest-aware scan of /kaggle/input (Takes < 1ms)
+            # Perform a sub-millisecond Depth-Restricted BFS directory scan (max depth 4, directories only)
             if os.path.exists('/kaggle/input'):
                 try:
-                    # Collect all top-level and first-level directories in /kaggle/input
-                    search_dirs = []
-                    for dname in os.listdir('/kaggle/input'):
-                        d_path = os.path.join('/kaggle/input', dname)
-                        if os.path.isdir(d_path):
-                            search_dirs.append(d_path)
-                            # Support nested mounts under parent folders like /kaggle/input/datasets/
-                            for sub_d in os.listdir(d_path):
-                                sub_path = os.path.join(d_path, sub_d)
-                                if os.path.isdir(sub_path):
-                                    search_dirs.append(sub_path)
-                                    
-                    for sd in search_dirs:
-                        sd_name = os.path.basename(sd)
-                        sd_lower = sd_name.lower().replace("-", "").replace("_", "")
-                        if target in sd_lower or 'lemgendary' in sd_lower:
-                            # Check 1: Direct mount (e.g., sd/images/train)
-                            if os.path.exists(os.path.join(sd, 'images', 'train')):
-                                print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Direct match: {sd}")
-                                return sd
-                            # Check 2: Nested ZIP mount (e.g., sd/NestedFolder/images/train)
-                            for sub in os.listdir(sd):
-                                sub_path = os.path.join(sd, sub)
-                                if os.path.isdir(sub_path):
-                                    if os.path.exists(os.path.join(sub_path, 'images', 'train')):
-                                        print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Nested match: {sub_path}")
-                                        return sub_path
+                    queue = ['/kaggle/input']
+                    depths = {'/kaggle/input': 0}
+                    while queue:
+                        curr = queue.pop(0)
+                        depth = depths[curr]
+                        if depth > 4: continue
+                        
+                        try:
+                            items = os.listdir(curr)
+                        except Exception:
+                            continue
+                            
+                        for item in items:
+                            path = os.path.join(curr, item)
+                            if os.path.isdir(path):
+                                depths[path] = depth + 1
+                                queue.append(path)
+                                
+                                name_lower = item.lower().replace("-", "").replace("_", "")
+                                if target in name_lower or 'lemgendary' in name_lower:
+                                    # Check 1: Direct mount (e.g., path/images/train)
+                                    if os.path.exists(os.path.join(path, 'images', 'train')):
+                                        print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Direct match: {path}")
+                                        return path
+                                    # Check 2: Nested ZIP mount (e.g., path/NestedFolder/images/train)
+                                    try:
+                                        for sub in os.listdir(path):
+                                            sub_path = os.path.join(path, sub)
+                                            if os.path.isdir(sub_path):
+                                                if os.path.exists(os.path.join(sub_path, 'images', 'train')):
+                                                    print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Nested match: {sub_path}")
+                                                    return sub_path
+                                    except Exception:
+                                        pass
                 except Exception as e:
                     print(f"📡 [DEBUG] get_dataset_path scan error: {e}")
                     pass
