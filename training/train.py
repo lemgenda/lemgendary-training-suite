@@ -1,6 +1,9 @@
 # 2026: Environment Linter Sync
 print("[BOOT] LemGendary Training Suite initiating...")
 import os
+# 2026 Resilience: Force GPU 0 to prevent multi-GPU context initialization hangs under virtualized environments (Kaggle T4 x2)
+if "CUDA_VISIBLE_DEVICES" not in os.environ:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import sys
 import argparse
 import warnings
@@ -393,10 +396,12 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
 
 
 def main():
+    print(" [TRACE] Entering main()...", flush=True)
     # 2026 Resilience: Force UTF-8 encoding for Windows terminals to support emojis
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
 
+    print(" [TRACE] Parsing arguments...", flush=True)
     parser = argparse.ArgumentParser(description="LemGendary Training Suite Universal Trainer")
     parser.add_argument("--model", type=str, default="professional_multitask_restoration", help="Model key from unified_models.yaml")
     parser.add_argument("--epochs", type=int, default=None)
@@ -409,19 +414,23 @@ def main():
     parser.add_argument("--auto_sync", action="store_true", help="Enable automated cloud synchronization per epoch (Kaggle only)")
     args = parser.parse_args()
 
+    print(" [TRACE] Loading GITHUB PAT...", flush=True)
     # 2026 Resilience: Securely mount PATs for automated Hub Sync
     load_pat()
 
+    print(" [TRACE] Loading config.yaml...", flush=True)
     # Load config structures explicitly securely
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config_path = os.path.join(project_root, "config.yaml")
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
+    print(" [TRACE] Loading unified models yaml...", flush=True)
     unified_models_path = os.path.join(project_root, config["unified_models"])
     with open(unified_models_path, 'r') as f: unified_models_registry = yaml.safe_load(f)
 
     # --- Device Discovery (2026 Universal Acceleration Suite) ---
+    print(" [TRACE] Initializing CUDA and Accelerator discovery...", flush=True)
     if torch.cuda.is_available():
         device = torch.device("cuda")
         gpu_name = torch.cuda.get_device_name(0)
