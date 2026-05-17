@@ -28,6 +28,11 @@ The v16.2.8 release marks the end of "low-resolution warm-up." The suite now enf
 - **Validation Sharding (v23.0)**: Automatically subsets the validation dataloader to 30% per epoch with a fixed random seed. This accelerates perceptual metric (LPIPS/FID) computation by 3x without breaking the Governor's stabilization tracking.
 - **Absolute Energy Floor (Sentinel Guard)**: The Pre-Backward loss Sentinel now enforces an absolute baseline energy floor (`> 0.05` unscaled) to prevent false-positive training recoils on microscopic loss metrics during high-fidelity refinement.
 
+### 🧠 Intelligent Curriculum & Resume Persistence (v23.1)
+
+- **Universal Quality Scorecarding**: Lifted structural-perceptual score evaluations out of quality-only constraints. The trainer now dynamically compounds PSNR, SSIM, LPIPS, and FID for all restoration models, enabling precise tracking in `metrics.csv` and allowing the governor to drive dataset fraction ladders.
+- **Plateau Memory Persistence**: The governor's internal epoch metrics history buffer (`self.history`) is now fully serialized to checkpoint state dictionaries. This ensures that arbitrary stop/resume cycles under local interruptions or Cloud preemptions do not reset early plateau-stopping counts, maintaining solid training scaling continuity.
+
 ### 🧬 Hardened Resolution Ladders
 
 - **Quality Scorer Floor**: NIMA Aesthetic and Technical scorers now start at **512px**, forcing the detection of high-frequency noise and artistic composition immediately.
@@ -83,6 +88,8 @@ The master orchestration console for system bootstrapping and cloud sync.
 | **Validation Sharding** | Fixed 30% validation auditing to accelerate perceptual metrics. | ✅ v23.0 Active |
 | **Energy Floor Guard** | Absolute loss baseline check to prevent false-positive recoils. | ✅ v23.0 Active |
 | **Dynamic Quality Delta** | Auto-scales `min_delta` (100x) for Restoration plateau detection. | ✅ v23.0 Active |
+| **Quality Integration** | Un-nested SOTA evaluation providing cumulative quality scores for restoration. | ✅ v23.1 Active |
+| **History Persistence** | Serializes governor history buffer to survive restarts and preemptions. | ✅ v23.1 Active |
 | **Numerical Priority** | Proportional iteration scaling based on manifold stress. | ✅ v15.0 Active |
 | **SOTA-Force Jump** | Quality-driven progression that propellant models to higher resolutions. | ✅ v18.0 Active |
 | **Manifold Hardening** | 2-epoch mandatory stabilization period before any resolution jump. | ✅ v19.0 Active |

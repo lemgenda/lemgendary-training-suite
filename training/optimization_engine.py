@@ -389,6 +389,7 @@ class SmartTrainingGovernor:
             "accumulation_steps": self.current_acc,
             "stabilization_epochs": self.stabilization_epochs,
             "failure_log": self.failure_log, # CRITICAL: Persist memory
+            "history": self.history, # CRITICAL: Persist plateau memory
             "thermal_floor": self.thermal_floor, # New
             "cooldown_remaining": self.cooldown_remaining, # New
             "spatial_lock_remaining": self.spatial_lock_remaining, # v15.9
@@ -409,6 +410,7 @@ class SmartTrainingGovernor:
         self.current_acc = state.get("accumulation_steps", self.current_acc)
         self.stabilization_epochs = state.get("stabilization_epochs", 0)
         self.failure_log = state.get("failure_log", {}) # CRITICAL: Load memory
+        self.history = state.get("history", []) # CRITICAL: Load plateau memory
         self.thermal_floor = state.get("thermal_floor", {}) # New
         self.cooldown_remaining = state.get("cooldown_remaining", 0) # New
         self.spatial_lock_remaining = state.get("spatial_lock_remaining", 0) # v15.9
