@@ -245,25 +245,36 @@ class MultiTaskDataset(Dataset):
             for suffix in ["kaggleready", "large", "mini"]:
                 target = target.replace(suffix, "")
                 
-            # Perform a fast, non-recursive, nest-aware scan of /kaggle/input (Takes < 1ms)
+            # Perform a fast, nest-aware scan of /kaggle/input (Takes < 1ms)
             if os.path.exists('/kaggle/input'):
                 try:
+                    # Collect all top-level and first-level directories in /kaggle/input
+                    search_dirs = []
                     for dname in os.listdir('/kaggle/input'):
                         d_path = os.path.join('/kaggle/input', dname)
                         if os.path.isdir(d_path):
-                            d_lower = dname.lower().replace("-", "").replace("_", "")
-                            if target in d_lower or 'lemgendary' in d_lower:
-                                # Check 1: Direct mount (e.g., /kaggle/input/dataset/images/train)
-                                if os.path.exists(os.path.join(d_path, 'images', 'train')):
-                                    print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Direct match: {d_path}")
-                                    return d_path
-                                # Check 2: Nested ZIP mount (e.g., /kaggle/input/dataset/NestedFolder/images/train)
-                                for sub in os.listdir(d_path):
-                                    sub_path = os.path.join(d_path, sub)
-                                    if os.path.isdir(sub_path):
-                                        if os.path.exists(os.path.join(sub_path, 'images', 'train')):
-                                            print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Nested match: {sub_path}")
-                                            return sub_path
+                            search_dirs.append(d_path)
+                            # Support nested mounts under parent folders like /kaggle/input/datasets/
+                            for sub_d in os.listdir(d_path):
+                                sub_path = os.path.join(d_path, sub_d)
+                                if os.path.isdir(sub_path):
+                                    search_dirs.append(sub_path)
+                                    
+                    for sd in search_dirs:
+                        sd_name = os.path.basename(sd)
+                        sd_lower = sd_name.lower().replace("-", "").replace("_", "")
+                        if target in sd_lower or 'lemgendary' in sd_lower:
+                            # Check 1: Direct mount (e.g., sd/images/train)
+                            if os.path.exists(os.path.join(sd, 'images', 'train')):
+                                print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Direct match: {sd}")
+                                return sd
+                            # Check 2: Nested ZIP mount (e.g., sd/NestedFolder/images/train)
+                            for sub in os.listdir(sd):
+                                sub_path = os.path.join(sd, sub)
+                                if os.path.isdir(sub_path):
+                                    if os.path.exists(os.path.join(sub_path, 'images', 'train')):
+                                        print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Nested match: {sub_path}")
+                                        return sub_path
                 except Exception as e:
                     print(f"📡 [DEBUG] get_dataset_path scan error: {e}")
                     pass
