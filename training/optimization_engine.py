@@ -55,8 +55,8 @@ class SmartTrainingGovernor:
 
         # --- 2026 Resilience: Hardware Resolution Cap (v19.1) ---
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if torch.cuda.is_available() else 8.0
-        if vram_gb < 4.5 and self.task_type == "restoration":
-            max_safe_res = 640
+        if vram_gb < 4.5 and self.task_type in ["restoration", "parameter_prediction"]:
+            max_safe_res = 640 if self.task_type == "restoration" else 256  # Param predictors are lightweight
             self.res_ladder = [r for r in self.res_ladder if r <= max_safe_res]
             if not self.res_ladder: self.res_ladder = [max_safe_res]
             if self.current_res > max_safe_res:
@@ -65,7 +65,7 @@ class SmartTrainingGovernor:
 
         if self.current_res not in self.res_ladder:
             self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
-        self.min_temp = 0.5 if self.task_type == "quality" else 0.1
+        self.min_temp = 0.5 if self.task_type == "quality" else (0.01 if self.task_type == "parameter_prediction" else 0.1)
         self.current_temp = self.stab.get("softmax_temp", self.min_temp)
         self.current_clamp = self.stab.get("logit_clamp", 15.0)
 
@@ -85,7 +85,11 @@ class SmartTrainingGovernor:
         # 2026 Resilience: Dynamic Delta for High-Range Quality Scores
         # Restoration tasks have Quality Scores in the 100s-500s range, making 0.0005 too small to ever trigger 'is_flat'.
         base_delta = opt.get("min_delta", 0.0005)
-        self.min_delta = base_delta if self.task_type == "quality" else (base_delta * 100.0) # Scale up for restoration
+        # Parameter prediction uses MAE in [0,1] range - similar scale to quality tasks
+        if self.task_type == "parameter_prediction":
+            self.min_delta = base_delta
+        else:
+            self.min_delta = base_delta if self.task_type == "quality" else (base_delta * 100.0) # Scale up for restoration
         self.spatial_lock_remaining = 0 # 2026 v15.9: Blocks recoil after jump
         self.last_res_jump_epoch = -100
 
@@ -201,7 +205,7 @@ class SmartTrainingGovernor:
 
         # 2026 NPP v15.6: Relaxed Regression Gate for high-noise Quality manifolds
         # Prevents "Panic Recoils" during natural SRCC/PLCC jitter
-        regress_threshold = -0.03 if self.task_type == "quality" else -0.01
+        regress_threshold = -0.03 if self.task_type in ["quality", "parameter_prediction"] else -0.01
         is_regressing = delta_q < regress_threshold
         is_collapsed = (current_quality < 0.05) or (plcc < -0.1) # Near-zero or negative correlation
 

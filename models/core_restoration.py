@@ -297,20 +297,38 @@ class UniversalFilmRestorer(nn.Module):
     def __init__(self):
         super().__init__()
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, 64, 3, stride=2, padding=1),
-            nn.ReLU(inplace=True),
+            nn.Conv2d(3, 64, 3, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 64, 4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.bottleneck = nn.Sequential(
+            ResidualDenseBlock(64),
+            ResidualDenseBlock(64),
+            ResidualDenseBlock(64),
             ResidualDenseBlock(64)
         )
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1),
-            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(64, 64, 4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 32, 3, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(32, 3, 3, padding=1)
         )
     def forward(self, x):
-        return self.decoder(self.encoder(x))
+        feat = self.encoder(x)
+        feat = self.bottleneck(feat)
+        out = self.decoder(feat)
+        return out + x  # Global residual connection
 
 class UPN_v2_Model(nn.Module):
-    """Universal Parameter Predictor with MobileNet-lite backbone."""
+    """Universal Parameter Predictor with MobileNet-lite backbone.
+    
+    Outputs 3 bounded parameters:
+      - deg   ∈ [0, 1]  — degradation degree (blur sigma, noise level, etc.)
+      - theta ∈ [0, π]  — degradation orientation/angle
+      - conf  ∈ [0, 1]  — confidence/severity
+    """
     def __init__(self):
         super().__init__()
         self.backbone = nn.Sequential(
@@ -318,9 +336,18 @@ class UPN_v2_Model(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(16, 32, 3, stride=2, padding=1),
             nn.ReLU(inplace=True),
+            nn.Conv2d(32, 64, 3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
             nn.AdaptiveAvgPool2d(1)
         )
-        self.fc = nn.Linear(32, 3) # deg, theta, conf
+        self.fc = nn.Linear(64, 3)  # deg, theta, conf
+        
     def forward(self, x):
         feat = self.backbone(x).flatten(1)
-        return self.fc(feat)
+        raw = self.fc(feat)
+        # Bounded activation: deg∈[0,1], theta∈[0,π], conf∈[0,1]
+        deg = torch.sigmoid(raw[:, 0])
+        theta = torch.sigmoid(raw[:, 1]) * 3.14159265  # [0, π]
+        conf = torch.sigmoid(raw[:, 2])
+        return torch.stack([deg, theta, conf], dim=1)
+

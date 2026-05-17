@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class TransformerBlock(nn.Module):
     def __init__(self, dim):
@@ -17,7 +18,13 @@ class TransformerBlock(nn.Module):
 
     def forward(self, x):
         B, C, H, W = x.shape
-        x_flat = x.view(B, C, H*W).permute(0, 2, 1)
+        
+        # 2026 Resilience: Downsample sequence length to prevent quadratic spatial complexity OOM
+        # Downsample to 32x32 features for efficient global contextual attention
+        target_size = (32, 32)
+        x_down = F.adaptive_avg_pool2d(x, target_size)
+        
+        x_flat = x_down.view(B, C, target_size[0] * target_size[1]).permute(0, 2, 1)
 
         # Attention
         x_norm = self.norm1(x_flat)
@@ -27,7 +34,12 @@ class TransformerBlock(nn.Module):
         # FFN
         x_flat = x_flat + self.ffn(self.norm2(x_flat))
 
-        return x_flat.permute(0, 2, 1).view(B, C, H, W)
+        # Restore resolution
+        x_out = x_flat.permute(0, 2, 1).view(B, C, target_size[0], target_size[1])
+        x_up = F.interpolate(x_out, size=(H, W), mode='bilinear', align_corners=False)
+
+        # Residual connection at original scale
+        return x + x_up
 
 class TransformerEncoder(nn.Module):
     def __init__(self, in_ch=3, dim=64, num_blocks=6):

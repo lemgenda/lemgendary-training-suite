@@ -94,6 +94,17 @@ class CombinedLoss(nn.Module):
 
             return emd
             
+        elif self.task_type == "parameter_prediction":
+            # 2026: Bounded Regression Loss for UPNv2 Parameter Predictor
+            # SmoothL1 (Huber) is robust to outliers and stable for bounded [0,1] targets.
+            # Normalize theta by π so all parameters contribute equally in [0,1] range.
+            pred_norm = pred.clone()
+            target_norm = target.clone()
+            if pred_norm.shape[-1] >= 3:
+                pred_norm[:, 1] = pred_norm[:, 1] / 3.14159265  # theta / π → [0,1]
+                target_norm[:, 1] = target_norm[:, 1] / 3.14159265
+            return F.smooth_l1_loss(pred_norm, target_norm)
+
         elif self.task_type == "classification":
             return self.ce(pred, target)
             

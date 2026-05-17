@@ -162,14 +162,14 @@ from models.factory import get_model
 METRIC_DIRECTIONS = {
     'plcc': True, 'srcc': True, 'psnr': True, 'ssim': True,
     'lpips': False, 'fid': False, 'map50': True, 'map50_95': True,
-    'rank_margin': False, 'accuracy': True
+    'rank_margin': False, 'accuracy': True, 'mae': False
 }
 
 # Standard Weights for Quality Score calculation (Multiplier applied to normalized 0.0-1.0 range)
 METRIC_WEIGHTS = {
     'plcc': 50, 'srcc': 50, 'psnr': 10, 'ssim': 40,
     'lpips': 40, 'fid': 1, 'map50': 100, 'map50_95': 100,
-    'rank_margin': 20, 'accuracy': 100
+    'rank_margin': 20, 'accuracy': 100, 'mae': 100
 }
 
 def safe_replace(src, dst):
@@ -1553,6 +1553,7 @@ def main():
                     if train_ds.task_type == "restoration":
                         task_names = ["denoise", "deblur", "derain", "dehaze", "lowlight", "superres"]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
+                    # parameter_prediction: No task_idx needed (single regression head)
 
                 use_fp16 = str(device) == 'cuda'
                 if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "mirnet", "codeformer"]):
@@ -2079,7 +2080,13 @@ def main():
             loss_fn_vgg, fid_metric = None, None
             sota_targets = model_info.get("sota_targets", {})
 
-            if train_ds.task_type in ["restoration", "enhancement", "face"]:
+            if train_ds.task_type == "parameter_prediction":
+                # 2026: MAE tracking for parameter regression (no PSNR/SSIM/LPIPS needed)
+                param_mae_sums = [0.0, 0.0, 0.0]  # deg, theta, conf
+                param_mae_counts = 0
+                output_names = model_info.get('output_names', ['deg', 'theta', 'conf'])
+
+            elif train_ds.task_type in ["restoration", "enhancement", "face"]:
                 import torch.nn.functional as _F_resize
                 from skimage.metrics import structural_similarity as ssim
                 import lpips
@@ -2336,6 +2343,15 @@ def main():
 
                 # Progress commitments and state cleanup moved outside loop for manifold stability
 
+                elif train_ds.task_type == "parameter_prediction":
+                    # 2026: Streaming MAE for parameter regression
+                    p_cpu = preds.detach().cpu()
+                    t_cpu = targets.detach().cpu()
+                    abs_err = torch.abs(p_cpu - t_cpu)
+                    for p_idx in range(min(3, abs_err.shape[-1])):
+                        param_mae_sums[p_idx] += abs_err[:, p_idx].sum().item()
+                    param_mae_counts += p_cpu.shape[0]
+
                 elif train_ds.task_type == "classification":
                     all_preds.append(preds.detach().cpu())
                     all_targets.append(targets.detach().cpu())
@@ -2403,6 +2419,18 @@ def main():
                         optimizer.state.clear() # Flush momentum to seat the new head
                         sota_baseline_achieved = False
                         best_quality_score = -1.0
+            elif train_ds.task_type == "parameter_prediction" and param_mae_counts > 0:
+                # 2026: Parameter Prediction MAE Reporting
+                output_names = model_info.get('output_names', ['deg', 'theta', 'conf'])
+                mae_per_param = [s / max(1, param_mae_counts) for s in param_mae_sums]
+                overall_mae = sum(mae_per_param) / len(mae_per_param)
+                
+                mae_details = " | ".join([f"{output_names[i]}_MAE: {mae_per_param[i]:.4f}" for i in range(len(output_names))])
+                metrics_str = f" | Overall_MAE: {overall_mae:.4f} | {mae_details} | Stress: {avg_sentinel_stress*100:.2f}%"
+                
+                # Map MAE to PSNR slot for CSV compatibility (negative MAE as quality signal)
+                psnr = -overall_mae  # Lower MAE = better (negative so higher = better in CSV)
+
             elif train_ds.task_type == "classification" and len(all_preds) > 0:
                 p = torch.cat(all_preds)
                 t = torch.cat(all_targets)
@@ -2476,7 +2504,8 @@ def main():
             curr_metrics = {
                 'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
                 'lpips': lpips_val, 'fid': fid, 'map50': map50, 'map50_95': map50_95,
-                'rank_margin': rank_margin, 'accuracy': accuracy
+                'rank_margin': rank_margin, 'accuracy': accuracy,
+                'mae': -psnr if train_ds.task_type == 'parameter_prediction' else 0.0  # psnr stores -MAE for param prediction
             }
 
             # --- 2026: Metric Singularity Shield (v1.2.1) ---

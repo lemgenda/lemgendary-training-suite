@@ -136,8 +136,8 @@ upn_v2:
   - 256
   - 256
   learning_rate: 0.0001
-  loss_fn: mse
-  dataset_type: restoration
+  loss_fn: smooth_l1
+  dataset_type: parameter_prediction
   needs_synthesis: true
   output_names:
   - deg
@@ -145,11 +145,20 @@ upn_v2:
   - conf
   optimal_key: upn_v2
   description: Universal parameter predictor for image restoration
+  stabilizers:
+    numerical_sentinel: [-0.1, 1.5]
+    logit_clamp: 2.0
+    softmax_temp: 0.1
+  sota_targets:
+    mae: 0.05
   optimization:
     enabled: true
+    initial_fraction: 0.5
     fraction_increment: 0.25
     plateau_patience: 4
     cooling_factor: 0.85
+    target_effective_batch: 64
+    res_ladder: [128, 192, 256]
   datasets:
   - LemGendizedUpnV2
 film_restorer:
@@ -163,13 +172,18 @@ film_restorer:
   - 256
   - 256
   learning_rate: 0.0001
-  loss_fn: l1
+  loss_fn: l1_lpips
   dataset_type: restoration
   needs_synthesis: true
   optimal_key: film_restorer
   description: Universal image restoration autoencoder
+  sota_targets:
+    psnr: 24.0
+    ssim: 0.80
+    lpips: 0.25
   optimization:
     enabled: true
+    target_effective_batch: 32
     fraction_increment: 0.15
     plateau_patience: 8
     cooling_factor: 0.8

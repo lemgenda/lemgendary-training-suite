@@ -32,11 +32,14 @@ The v16.2.8 release marks the end of "low-resolution warm-up." The suite now enf
 
 - **Universal Quality Scorecarding**: Lifted structural-perceptual score evaluations out of quality-only constraints. The trainer now dynamically compounds PSNR, SSIM, LPIPS, and FID for all restoration models, enabling precise tracking in `metrics.csv` and allowing the governor to drive dataset fraction ladders.
 - **Plateau Memory Persistence**: The governor's internal epoch metrics history buffer (`self.history`) is now fully serialized to checkpoint state dictionaries. This ensures that arbitrary stop/resume cycles under local interruptions or Cloud preemptions do not reset early plateau-stopping counts, maintaining solid training scaling continuity.
+- **Continuous Parameter Predictor Calibration (v23.2)**: Standardized validation MAE telemetry for continuous parameter predictors (like `upn_v2`). The optimizer dynamically tracks theta-normalization ($\pi$) and records MAE directly into `metrics.csv` (encoded as negative PSNR for unified tabular representation) under automated Huber/SmoothL1 loss curves.
+- **Universal Film Restorer SOTA (v23.2)**: Fully integrated joint Restoration + Colorization manifolds. Configured SOTA targets (`psnr: 24.0`, `ssim: 0.80`, `lpips: 0.25`) driven by Perceptual Loss (LPIPS) and dynamic degradation loaders.
 
 ### 🧬 Hardened Resolution Ladders
 
 - **Quality Scorer Floor**: NIMA Aesthetic and Technical scorers now start at **512px**, forcing the detection of high-frequency noise and artistic composition immediately.
 - **Restoration Baseline**: All restoration models (NAFNet, MIRNet, etc.) now start at a minimum of **256px**, climbing to **640px** via the autonomous ladder.
+- **Parameter Predictor Ceiling**: Continuous regression models (`upn_v2`) are capped at a stable **256px** resolution ceiling to conserve physical VRAM and maximize gradient throughput on local hardware.
 
 ### 🚀 Ladder-Aware SOTA Guard (v18.0)
 
@@ -94,6 +97,8 @@ The master orchestration console for system bootstrapping and cloud sync.
 | **SOTA-Force Jump** | Quality-driven progression that propellant models to higher resolutions. | ✅ v18.0 Active |
 | **Manifold Hardening** | 2-epoch mandatory stabilization period before any resolution jump. | ✅ v19.0 Active |
 | **Manifold Anchor** | Loop-Proof Optimization with Failure Path Memory. | ✅ v10.0 Active |
+| **Huber Regression Engine** | Continuous parameter prediction with SmoothL1 loss and $\pi$-boundary normalization. | ✅ v23.2 Active |
+| **Dynamic Film Degradation** | Joint restoration + colorization training with on-the-fly vintage damage injection. | ✅ v23.2 Active |
 
 ---
 
