@@ -4,6 +4,8 @@ import os
 # 2026 Resilience: Force GPU 0 to prevent multi-GPU context initialization hangs under virtualized environments (Kaggle T4 x2)
 if "CUDA_VISIBLE_DEVICES" not in os.environ:
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# Disable OpenCV's OpenCL driver binding to prevent GPU driver deadlocks with PyTorch CUDA context initialization
+os.environ["OPENCV_OPENCL_DEVICE"] = "DISABLED"
 import sys
 import argparse
 import warnings
