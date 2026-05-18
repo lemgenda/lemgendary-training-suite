@@ -1326,7 +1326,7 @@ def main():
                 print(f" [RESILIENCY] Mission-level scheduler sync failure: {e}. Defaulting to safety manifold.")
     else:
         if os.path.exists(latest_ckpt):
-            ckpt = torch.load(latest_ckpt, map_location=device)
+            ckpt = torch.load(latest_ckpt, map_location=device, weights_only=False)
             start_epoch = ckpt['epoch'] + 1
             best_val_loss = ckpt.get('best_val_loss', 1e10)
             best_quality_score = ckpt.get('best_quality_score', 0.0)
@@ -2168,7 +2168,7 @@ def main():
 
             # --- 2026 Resilience: Validation State Recovery (v10.1.4) ---
             if val_resume_iteration > 0:
-                ckpt = torch.load(os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth"), map_location='cpu')
+                ckpt = torch.load(os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth"), map_location='cpu', weights_only=False)
                 val_loss = ckpt.get('val_loss', 0.0)
                 all_preds = ckpt.get('val_preds', [])
                 all_targets = ckpt.get('val_targets', [])
