@@ -115,6 +115,7 @@ class MultiTaskDataset(Dataset):
     Implements Fallback Shields, LANCZOS scaling, and stratified distribution analytics.
     """
     def __init__(self, config, model_key=None, is_train=True, env="local", sample_fraction=1.0):
+        self.config = config
         self.is_train = is_train
         self.env = env
         self.sample_fraction = sample_fraction
