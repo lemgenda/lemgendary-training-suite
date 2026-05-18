@@ -152,25 +152,67 @@ def main():
                 # FP32 models use sidecar weighting as requested
                 save_ext = True
                 
+            import logging
+            import warnings
+            
+            # --- 2026 Resilience: Silent Version Down-Conversion Probing ---
+            onnx_logger = logging.getLogger("onnxscript")
+            torch_logger = logging.getLogger("torch.onnx")
+            old_onnx_level = onnx_logger.level
+            old_torch_level = torch_logger.level
+            onnx_logger.setLevel(logging.CRITICAL)
+            torch_logger.setLevel(logging.CRITICAL)
+            
             try:
-                torch.onnx.export(
-                    model, inp, target_path,
-                    export_params=True, opset_version=17,
-                    do_constant_folding=True,
-                    input_names=['input'], output_names=['output']
-                )
-            except Exception as e:
+                # Temporarily redirect sys.stderr to suppress C++ conversion stack traces/warnings
+                with open(os.devnull, 'w') as devnull:
+                    old_stderr = sys.stderr
+                    sys.stderr = devnull
+                    try:
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            torch.onnx.export(
+                                model, inp, target_path,
+                                export_params=True, opset_version=17,
+                                do_constant_folding=True,
+                                input_names=['input'], output_names=['output']
+                            )
+                    finally:
+                        sys.stderr = old_stderr
+            except Exception:
+                # Restore loggers for transparent fallback debugging
+                onnx_logger.setLevel(old_onnx_level)
+                torch_logger.setLevel(old_torch_level)
+                
                 # --- 2026 SOTA Resilience: Dynamic Opset Escalation ---
-                # Newer PyTorch/onnxscript versions (e.g. on Kaggle) enforce Opset 18 internally for certain
-                # operations and fail during down-conversion to 17. We gracefully escalate to Opset 18.
-                print(f"   [WARNING] Opset 17 export/down-conversion failed: {e}")
-                print("   [RECOVER] Escalating export matrix to Opset 18...")
-                torch.onnx.export(
-                    model, inp, target_path,
-                    export_params=True, opset_version=18,
-                    do_constant_folding=True,
-                    input_names=['input'], output_names=['output']
-                )
+                # Newer PyTorch/onnxscript versions enforce Opset 18 internally and fail during down-conversion.
+                # We gracefully escalate to Opset 18.
+                print("   [RECOVER] Opset 17 export/down-conversion failed. Escalating to Opset 18...")
+                
+                # Re-apply suppression context for Opset 18 in case of minor internal conversion logging
+                onnx_logger.setLevel(logging.CRITICAL)
+                torch_logger.setLevel(logging.CRITICAL)
+                try:
+                    with open(os.devnull, 'w') as devnull:
+                        old_stderr = sys.stderr
+                        sys.stderr = devnull
+                        try:
+                            with warnings.catch_warnings():
+                                warnings.simplefilter("ignore")
+                                torch.onnx.export(
+                                    model, inp, target_path,
+                                    export_params=True, opset_version=18,
+                                    do_constant_folding=True,
+                                    input_names=['input'], output_names=['output']
+                                )
+                        finally:
+                            sys.stderr = old_stderr
+                finally:
+                    onnx_logger.setLevel(old_onnx_level)
+                    torch_logger.setLevel(old_torch_level)
+            finally:
+                onnx_logger.setLevel(old_onnx_level)
+                torch_logger.setLevel(old_torch_level)
 
             # Manual Weight Ejection for FP32 (External Data)
             if save_ext:
