@@ -409,6 +409,11 @@ class SmartTrainingGovernor:
         self.current_fraction = state.get("sample_fraction", self.current_fraction)
         raw_res = state.get("input_size", self.current_res)
         self.current_res = raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res
+        
+        # --- 2026 Resilience: Dynamic Resolution Ladder Sync ---
+        if self.current_res not in self.res_ladder:
+            self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
+            
         self.current_temp = max(self.min_temp, state.get("softmax_temp", self.current_temp))
         if self.task_type == "quality": self.current_temp = min(1.0, self.current_temp)
         self.current_clamp = state.get("logit_clamp", self.current_clamp)
