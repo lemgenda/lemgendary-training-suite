@@ -1620,7 +1620,7 @@ def main():
                     # parameter_prediction: No task_idx needed (single regression head)
 
                 use_fp16 = str(device) == 'cuda'
-                if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "mirnet", "codeformer"]):
+                if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "mirnet", "codeformer", "nima"]):
                     use_fp16 = False
 
                 try:
