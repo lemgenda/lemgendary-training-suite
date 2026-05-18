@@ -156,7 +156,7 @@ class MultiTaskDataset(Dataset):
         self.build_transforms()
 
     def _load_manifest(self, config):
-        if self.env == 'kaggle':
+        if self.env == 'kaggle' and config.get("debug", False):
             print("📡 [DEBUG] Mounted datasets in /kaggle/input:")
             try:
                 if os.path.exists('/kaggle/input'):
@@ -283,7 +283,8 @@ class MultiTaskDataset(Dataset):
                                 if target in name_lower or 'lemgendary' in name_lower:
                                     # Check 1: Direct mount (e.g., path/images/train)
                                     if os.path.exists(os.path.join(path, 'images', 'train')):
-                                        print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Direct match: {path}")
+                                        if self.config.get("debug", False):
+                                            print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Direct match: {path}")
                                         return path
                                     # Check 2: Nested ZIP mount (e.g., path/NestedFolder/images/train)
                                     try:
@@ -291,14 +292,17 @@ class MultiTaskDataset(Dataset):
                                             sub_path = os.path.join(path, sub)
                                             if os.path.isdir(sub_path):
                                                 if os.path.exists(os.path.join(sub_path, 'images', 'train')):
-                                                    print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Nested match: {sub_path}")
+                                                    if self.config.get("debug", False):
+                                                        print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Nested match: {sub_path}")
                                                     return sub_path
                                     except Exception:
                                         pass
                 except Exception as e:
-                    print(f"📡 [DEBUG] get_dataset_path scan error: {e}")
+                    if self.config.get("debug", False):
+                        print(f"📡 [DEBUG] get_dataset_path scan error: {e}")
                     pass
-            print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Failed to resolve path!")
+            if self.config.get("debug", False):
+                print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Failed to resolve path!")
             
         return None
 

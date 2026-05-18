@@ -152,12 +152,25 @@ def main():
                 # FP32 models use sidecar weighting as requested
                 save_ext = True
                 
-            torch.onnx.export(
-                model, inp, target_path,
-                export_params=True, opset_version=17,
-                do_constant_folding=True,
-                input_names=['input'], output_names=['output']
-            )
+            try:
+                torch.onnx.export(
+                    model, inp, target_path,
+                    export_params=True, opset_version=17,
+                    do_constant_folding=True,
+                    input_names=['input'], output_names=['output']
+                )
+            except Exception as e:
+                # --- 2026 SOTA Resilience: Dynamic Opset Escalation ---
+                # Newer PyTorch/onnxscript versions (e.g. on Kaggle) enforce Opset 18 internally for certain
+                # operations and fail during down-conversion to 17. We gracefully escalate to Opset 18.
+                print(f"   [WARNING] Opset 17 export/down-conversion failed: {e}")
+                print("   [RECOVER] Escalating export matrix to Opset 18...")
+                torch.onnx.export(
+                    model, inp, target_path,
+                    export_params=True, opset_version=18,
+                    do_constant_folding=True,
+                    input_names=['input'], output_names=['output']
+                )
 
             # Manual Weight Ejection for FP32 (External Data)
             if save_ext:
