@@ -1610,7 +1610,12 @@ def main():
                         continue
                     task_idx = None
                     if train_ds.task_type == "restoration":
-                        task_names = ["denoise", "deblur", "derain", "dehaze", "lowlight", "superres"]
+                        task_names = [
+                            "denoise", "deblur", "derain", 
+                            "dehaze_indoor", "dehaze_outdoor", 
+                            "lowlight", "exposure", "superres", 
+                            "vintage", "face_restorer", "face_parser"
+                        ]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
                     # parameter_prediction: No task_idx needed (single regression head)
 
@@ -2279,7 +2284,12 @@ def main():
                     inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
                     task_idx = None
                     if train_ds.task_type == "restoration":
-                        task_names = ["denoise", "deblur", "derain", "dehaze", "lowlight", "superres"]
+                        task_names = [
+                            "denoise", "deblur", "derain", 
+                            "dehaze_indoor", "dehaze_outdoor", 
+                            "lowlight", "exposure", "superres", 
+                            "vintage", "face_restorer", "face_parser"
+                        ]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
 
                 # Disabled volatile FP16 autocast during validation to prevent PyTorch precision collapses

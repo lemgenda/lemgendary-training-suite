@@ -10,8 +10,21 @@ from models.heads.superres import SuperResHead
 
 import torch.nn.functional as F
 
+class GenericConvHead(nn.Module):
+    """Modular restoration head for specialized tasks (v16.0)"""
+    def __init__(self, in_channels=64, out_channels=3):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, 3, 1, 1),
+            nn.ReLU(),
+            nn.Conv2d(in_channels, out_channels, 3, 1, 1)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
 class TaskClassifier(nn.Module):
-    def __init__(self, in_ch=64, num_tasks=6):
+    def __init__(self, in_ch=64, num_tasks=11):
         super().__init__()
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(in_ch, num_tasks)
@@ -22,22 +35,32 @@ class TaskClassifier(nn.Module):
         return F.softmax(logits, dim=1)
 
 class MultiTaskRestorer(nn.Module):
-    def __init__(self, num_tasks=6):
+    def __init__(self, num_tasks=11):
         super().__init__()
 
         self.encoder = SharedEncoder()
         self.classifier = TaskClassifier(in_ch=64, num_tasks=num_tasks)
 
         self.heads = nn.ModuleList([
-            DenoiseHead(),
-            DeblurHead(),
-            DerainHead(),
-            DehazeHead(),
-            LowLightHead(),
-            SuperResHead()
+            DenoiseHead(),             # denoise
+            DeblurHead(),              # deblur
+            DerainHead(),              # derain
+            DehazeHead(),              # dehaze_indoor
+            DehazeHead(),              # dehaze_outdoor
+            LowLightHead(),            # lowlight
+            LowLightHead(),            # exposure
+            SuperResHead(),            # superres
+            GenericConvHead(64, 3),    # vintage
+            GenericConvHead(64, 3),    # face_restorer
+            GenericConvHead(64, 3)     # face_parser
         ])
         
-        self.task_names = ["denoise", "deblur", "derain", "dehaze", "lowlight", "superres"]
+        self.task_names = [
+            "denoise", "deblur", "derain", 
+            "dehaze_indoor", "dehaze_outdoor", 
+            "lowlight", "exposure", "superres", 
+            "vintage", "face_restorer", "face_parser"
+        ]
 
     def forward(self, x, task=None):
         feat = self.encoder(x)
@@ -57,3 +80,4 @@ class MultiTaskRestorer(nn.Module):
             outputs.append(out * weights[:, i].view(-1, 1, 1, 1))
 
         return sum(outputs), weights
+

@@ -359,20 +359,38 @@ class MultiTaskDataset(Dataset):
             task_str = self.task_type
             if self.model_key == "professional_multitask_restoration":
                 fname_lower = fname.lower()
-                if "denois" in fname_lower:
-                    task_str = "denoise"
-                elif "deblur" in fname_lower:
-                    task_str = "deblur"
-                elif "derain" in fname_lower:
-                    task_str = "derain"
-                elif "dehaze" in fname_lower or "ffa" in fname_lower:
-                    task_str = "dehaze"
-                elif "lowlight" in fname_lower or "exposure" in fname_lower:
-                    task_str = "lowlight"
-                elif "zoom" in fname_lower or "super" in fname_lower:
-                    task_str = "superres"
+                import re
+                match = re.search(r"professionalmultitaskrestoration_([a-z_]+)_compiled_", fname_lower)
+                if match:
+                    task_str = match.group(1)
                 else:
-                    task_str = "denoise" # Fallback default
+                    # Fallback to substring matching if compiled without the new tag prefix
+                    if "denois" in fname_lower:
+                        task_str = "denoise"
+                    elif "deblur" in fname_lower:
+                        task_str = "deblur"
+                    elif "derain" in fname_lower:
+                        task_str = "derain"
+                    elif "dehaze_outdoor" in fname_lower or "outdoor" in fname_lower:
+                        task_str = "dehaze_outdoor"
+                    elif "dehaze_indoor" in fname_lower or "indoor" in fname_lower:
+                        task_str = "dehaze_indoor"
+                    elif "dehaze" in fname_lower or "ffa" in fname_lower:
+                        task_str = "dehaze_indoor"
+                    elif "lowlight" in fname_lower:
+                        task_str = "lowlight"
+                    elif "exposure" in fname_lower:
+                        task_str = "exposure"
+                    elif "zoom" in fname_lower or "super" in fname_lower:
+                        task_str = "superres"
+                    elif "vintage" in fname_lower or "film" in fname_lower:
+                        task_str = "vintage"
+                    elif "codeformer" in fname_lower or "face_restor" in fname_lower:
+                        task_str = "face_restorer"
+                    elif "parsenet" in fname_lower or "face_pars" in fname_lower:
+                        task_str = "face_parser"
+                    else:
+                        task_str = "denoise" # Fallback default
 
             return img_tensor, target_tensor, task_str
         
