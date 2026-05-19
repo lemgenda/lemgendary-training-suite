@@ -2498,7 +2498,6 @@ def main():
 
                         optimizer.state.clear() # Flush momentum to seat the new head
                         sota_baseline_achieved = False
-                        best_quality_score = -1.0
             elif train_ds.task_type == "parameter_prediction" and param_mae_counts > 0:
                 # 2026: Parameter Prediction MAE Reporting
                 output_names = model_info.get('output_names', ['deg', 'theta', 'conf'])
