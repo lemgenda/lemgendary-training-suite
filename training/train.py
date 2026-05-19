@@ -2442,10 +2442,7 @@ def main():
         # Calculate Universal Validation Metrics
         metrics_str = ""
         plcc = srcc = psnr = ssim_val = lpips_val = fid = map50 = map50_95 = rank_margin = accuracy = 0.0
-
-        # Calculate Universal Validation Metrics
-        metrics_str = ""
-        plcc = srcc = psnr = ssim_val = lpips_val = fid = map50 = map50_95 = rank_margin = accuracy = 0.0
+        t_std = None
         # Set baseline for non-negative metrics
         # --- 2026: Incremental Canonical Eval (RAM Protection v5.0) ---
         # We process metrics in manageable chunks to avoid System RAM OOM on large datasets.
@@ -2463,6 +2460,7 @@ def main():
                     t_probs = t / torch.clamp(t.sum(dim=-1, keepdim=True), min=stab['emd_epsilon'])
                     p_mean = (p_probs * weights).sum(dim=-1).numpy()
                     t_mean = (t_probs * weights).sum(dim=-1).numpy()
+                    t_std = float(np.std(t_mean)) if len(t_mean) > 1 else 0.0
                     plcc, _ = scipy.stats.pearsonr(p_mean, t_mean)
                     srcc, _ = scipy.stats.spearmanr(p_mean, t_mean)
                     rank_margin = float(np.mean(np.abs(p_mean - t_mean)))
@@ -2481,7 +2479,9 @@ def main():
                     # If the epoch ends with negative correlation, we trigger a Head Reset immediately
                     # to prevent wasting subsequent epochs on an inverted manifold.
                     # 2026 Hardening: Stricter PLCC trigger (-0.02) to prevent entropy loops.
-                    if srcc < -0.05 or plcc < -0.02:
+                    # 2026 Low-Variance Guard: Skip reset if model is nima_authenticity or target distribution is narrow (std < 0.15).
+                    # Relaxed trigger thresholds (SRCC < -0.25, PLCC < -0.20) for normal tasks to tolerate minor noise.
+                    if "nima_authenticity" not in args.model and t_std >= 0.15 and (srcc < -0.25 or plcc < -0.20):
                         print(f"\n[WARNING] [POLARITY] Manifold inversion detected (SRCC: {srcc:.4f} | PLCC: {plcc:.4f}). Triggering Emergency Head Reset...")
                         target_layers = []
                         if hasattr(model, 'classifier'): target_layers = [l for l in model.classifier if isinstance(l, nn.Linear)]
@@ -2657,6 +2657,7 @@ def main():
             base_lr=lr,
             current_loss=avg_val_loss,
             plcc=plcc,
+            target_std=t_std,
             force_jump=False
         )
 

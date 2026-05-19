@@ -100,7 +100,7 @@ class SmartTrainingGovernor:
         if res_idx < len(self.res_ladder) - 1: return "DEEPENING"
         return "REFINEMENT"
 
-    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, force_jump=False):
+    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, target_std=None, force_jump=False):
         if not self.enabled and not force_jump: return False, False, False, False, False, False, ""
         self.epoch_count += 1
         self.session_epoch_count += 1
@@ -221,7 +221,8 @@ class SmartTrainingGovernor:
         # --- 2026: Thermal Shock Guard (v6.2.1) ---
         # If the linear correlation (PLCC) flips negative, the manifold is diffusing.
         # We must 'Shock' the temperature back to sharpness to restore bin separation.
-        if plcc < -0.01 and self.current_temp > 0.7:
+        # Low-Variance Guard: Skip thermal shock if target standard deviation is extremely narrow (< 0.15)
+        if plcc < -0.01 and self.current_temp > 0.7 and (target_std is None or target_std >= 0.15):
             self.current_temp = 0.5
             self.current_clamp = 20.0
             t_changed = c_changed = True
