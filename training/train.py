@@ -303,7 +303,11 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
     absolute physical limit of the current GPU.
     """
     try:
-        if device.type != 'cuda': return config.get("defaults", {}).get("batch_size", 16)
+        if device.type != 'cuda':
+            fallback_val = config.get("defaults", {}).get("batch_size", 16)
+            if isinstance(fallback_val, str) and fallback_val.lower() == "auto":
+                return 16
+            return int(fallback_val) if fallback_val is not None else 16
 
         # 2026 Resilience: Total VRAM Discovery
         free_vram, total_vram = torch.cuda.mem_get_info(0)
