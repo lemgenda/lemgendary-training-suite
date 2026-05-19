@@ -1305,8 +1305,9 @@ def main():
                 if 'total_steps' in state_dict and state_dict['total_steps'] < total_steps:
                     old_s = state_dict['total_steps']
                     print(f" [RE-INITIALIZATION] Mission Runway Stretched ({old_s} -> {total_steps}). Hard-resetting OneCycleLR curve...")
+                    curr_lr = optimizer.param_groups[0]['lr']
                     scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                        optimizer, max_lr=lr*max_lr_mult, total_steps=total_steps,
+                        optimizer, max_lr=curr_lr * 1.2, total_steps=total_steps,
                         pct_start=dynamic_pct_start, anneal_strategy='cos'
                     )
                     steps_per_epoch = len(train_loader) // accumulation_steps
@@ -2630,9 +2631,13 @@ def main():
                 (pbar.write if pbar else print)(f" -> [SOTA GUARD] Record Quality Milestone: {best_quality_score:.4f} (Previous: {prev_best:.4f}).")
             elif loss_improves:
                 best_val_loss = avg_val_loss
-                is_best = True
                 is_improving = True
-                (pbar.write if pbar else print)(f" -> [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}). Exporting SOTA weights.")
+                if train_ds.task_type != "quality":
+                    is_best = True
+                    best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid, "accuracy": accuracy}
+                    (pbar.write if pbar else print)(f" -> [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}). Exporting SOTA weights.")
+                else:
+                    (pbar.write if pbar else print)(f" -> [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}), but quality score did not improve. Skipping SOTA export.")
             else:
                 # 2026: Horizontal Stagnation Detected.
                 # We do NOT reset is_improving, which allows the Governor to trigger a Jolt.
@@ -2643,6 +2648,7 @@ def main():
                 best_val_loss = avg_val_loss
                 is_best = True
                 is_improving = True
+                best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid, "accuracy": accuracy}
                 print(f" -> [FALLBACK] New Best Loss: {avg_val_loss:.6f}.")
 
         # --- 2026: SOTA Smart Optimization Audit (v6.1.17) ---
@@ -2767,8 +2773,8 @@ def main():
             if f_changed or r_changed or lr_changed:
                 epochs_no_improve = 0
 
-        # Update best metrics for the CSV write (Enforce Audit Parity)
-        best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
+        # 2026 Resilience: best_metrics is preserved from the last SOTA/best update block to prevent metric corruption.
+
 
         # Finalize Checkpoint State (Capturing latest Metric Shift)
         # 2026: Ensure Governor is synced with current session variables before save
@@ -3084,8 +3090,8 @@ def main():
                 # 2026: The message is now handled INSIDE governor.audit_epoch
                 # to prevent preemptive/false jump announcements.
                 f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
-                    current_quality=val_loss,
-                    best_quality=best_val_loss,
+                    current_quality=current_quality_score,
+                    best_quality=best_quality_score,
                     epochs_no_improve=0,
                     regression_epochs=0,
                     force_jump=True
@@ -3112,9 +3118,30 @@ def main():
                     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                     if device.type == 'cuda': torch.cuda.empty_cache()
             else:
-                print(f"\n[MISSION COMPLETE] {msg} mathematically breached at Final Resolution ({governor.current_res}px)! Engaging 1-Epoch Reinforcement SOTA Countdown...")
-                sota_baseline_achieved = True
-                sota_countdown = 1
+                if governor.current_fraction < 0.99:
+                    print(f"\n -> [SOTA GUARD] SOTA targets met at Final Resolution ({governor.current_res}px) but on a data subset ({governor.current_fraction*100:.0f}%).")
+                    print(f" -> [SOTA GUARD] Advancing dataset fraction to 100% to verify SOTA is sustained without memorization.")
+                    
+                    # Force data fraction to 1.0 in governor and dataset
+                    governor.current_fraction = 1.0
+                    
+                    if not args.batch_size:
+                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
+                        v_res = model_info.get("val_resolution", governor.current_res)
+                        val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
+                        target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
+                        accumulation_steps = max(1, target_eff // batch_size)
+                        
+                    train_ds.update_strategy(fraction=1.0)
+                    
+                    _workers = 0 if in_recovery_mode and vram_gb < 6.0 else num_workers
+                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                    if device.type == 'cuda': torch.cuda.empty_cache()
+                else:
+                    print(f"\n[MISSION COMPLETE] {msg} mathematically breached at Final Resolution ({governor.current_res}px) with 100% Data! Engaging 1-Epoch Reinforcement SOTA Countdown...")
+                    sota_baseline_achieved = True
+                    sota_countdown = 1
 
             if args.prefetch_datasets:
                 print(f"\n[Zero-Latency Pre-Fetch] Triggering parallel background data streams natively for next workflow phase!")
