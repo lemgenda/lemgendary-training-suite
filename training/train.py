@@ -125,8 +125,8 @@ def safe_torch_save(obj, path):
     print(f"Current Path (sys.path[0]): {sys.path[0]}")
     print(f"Full sys.path: {sys.path}")
     print(f"\n[ERROR] [CRITICAL] Dependency Error: {e}")
-    print("  [!] Your LemGendary environment is incomplete or corrupted.")
-    print("  [!] Fix: Run the 'lemgendary_hub.ps1' script and select Option 1.")
+    print(" [!] Your LemGendary environment is incomplete or corrupted.")
+    print(" [!] Fix: Run the 'lemgendary_hub.ps1' script and select Option 1.")
     sys.exit(1)
 
 # (Workspace root correctly anchored in boot sequence above)
@@ -513,11 +513,11 @@ def main():
 
     # Load model
     if "yolo" in args.model.lower():
-        from data.yolo_config_gen import generate_yolo_yaml  # pyre-ignore
+        from data.yolo_config_gen import generate_yolo_yaml # pyre-ignore
 
         yaml_path = generate_yolo_yaml(config, args.model, unified_models_registry)
 
-        from ultralytics import YOLO  # pyre-ignore
+        from ultralytics import YOLO # pyre-ignore
         model_info = unified_models_registry.get(args.model, {})
 
         # Dynamic base architecture inference
@@ -568,7 +568,7 @@ def main():
                     print("\n[SUCCESS] [Task Complete] SOTA Reinforcement Epoch successfully burned! Terminating YOLO training instantly ensuring SOTA ONNX Export!")
                     trainer.stop = True
                 else:
-                    print(f"   -> SOTA Cooldown Epochs remaining: {countdown}")
+                    print(f" -> SOTA Cooldown Epochs remaining: {countdown}")
                     trainer.excellent_countdown -= 1
 
         model.add_callback("on_fit_epoch_end", on_fit_epoch_end)
@@ -586,10 +586,10 @@ def main():
             model_filename = unified_models_registry.get(args.model, {}).get("filename", args.model)
             base_name = f"LemGendary{model_filename}"
             print(f"Exporting YOLO FP32 ONNX as {base_name}_FP32.onnx...")
-            fp32_path = model.export(format="onnx", half=False)  # pyre-ignore
+            fp32_path = model.export(format="onnx", half=False) # pyre-ignore
             if fp32_path: shutil.copy(fp32_path, os.path.join(export_dir, f"{base_name}_FP32.onnx"))
             print(f"Exporting YOLO FP16 ONNX as {base_name}.onnx...")
-            fp16_path = model.export(format="onnx", half=True)  # pyre-ignore
+            fp16_path = model.export(format="onnx", half=True) # pyre-ignore
             if fp16_path: shutil.copy(fp16_path, os.path.join(export_dir, f"{base_name}.onnx"))
 
             if hasattr(model, 'trainer') and hasattr(model.trainer, 'save_dir'):
@@ -694,8 +694,8 @@ def main():
     # --- 2026 Resilience: Empty Dataset Guard ---
     if len(train_ds) == 0:
         print(f"\n[ERROR] [CRITICAL ERROR] Training dataset for '{args.model}' has ZERO samples.")
-        print(f"   [ACTION] This manifold '{ds_reqs[0]}' is missing or empty in {data_dir}.")
-        print(f"   [ACTION] Recommended action: Run 'lemgendary_datasets_hub.ps1' Option 1 to acquire raw sources, then Option 2 to compile.")
+        print(f" [ACTION] This manifold '{ds_reqs[0]}' is missing or empty in {data_dir}.")
+        print(f" [ACTION] Recommended action: Run 'lemgendary_datasets_hub.ps1' Option 1 to acquire raw sources, then Option 2 to compile.")
         sys.exit(1)
 
     # --- 2026 Resilience: Hub Checkpoint Pathing (v13.0) ---
@@ -751,7 +751,7 @@ def main():
 
         found_any = False
         for recovery_root in possible_roots:
-            print(f"   -> [PROBING] Manifold: {recovery_root}")
+            print(f" -> [PROBING] Manifold: {recovery_root}")
 
             # Recovery 1: metrics.csv
             metrics_search = [
@@ -774,7 +774,7 @@ def main():
                 try:
                     os.makedirs(os.path.dirname(dst_metrics), exist_ok=True)
                     shutil.copy2(src_metrics, dst_metrics)
-                    print(f"   -> [RECOVERED] metrics.csv from {os.path.basename(os.path.dirname(src_metrics))}")
+                    print(f" -> [RECOVERED] metrics.csv from {os.path.basename(os.path.dirname(src_metrics))}")
                     found_any = True
                 except: pass
 
@@ -801,7 +801,7 @@ def main():
                         dst_f = os.path.join(hub_ckpt_dir, target_f)
                         if not os.path.exists(dst_f) or os.path.getmtime(src_f) > os.path.getmtime(dst_f):
                             shutil.copy2(src_f, dst_f)
-                            print(f"   -> [RECOVERED] {f} -> {target_f}")
+                            print(f" -> [RECOVERED] {f} -> {target_f}")
                             found_any = True
 
             # Deep recursive backup for orphaned .pth files
@@ -821,13 +821,13 @@ def main():
                             dst_f = os.path.join(hub_ckpt_dir, target_f)
                             if not os.path.exists(dst_f) or os.path.getmtime(src_f) > os.path.getmtime(dst_f):
                                 shutil.copy2(src_f, dst_f)
-                                print(f"   -> [RECOVERED-DEEP] {f} -> {target_f}")
+                                print(f" -> [RECOVERED-DEEP] {f} -> {target_f}")
                                 found_any = True
             except: pass
 
 
         if not found_any:
-            print(f"   -> [NOTICE] No valid manifolds or checkpoints found in /kaggle/input.")
+            print(f" -> [NOTICE] No valid manifolds or checkpoints found in /kaggle/input.")
 
 
     # --- 2026 Resilience: Pre-Flight Resumption Engine ---
@@ -922,7 +922,7 @@ def main():
                     err_msg = res.stderr.strip()
                     print(f"[WARNING] [HUB SYNC] Initial clone failed. Error: {err_msg}")
                     if "repository not found" in err_msg.lower() or "authentication" in err_msg.lower():
-                        print("   [ACTION] [AUTH] Ensure GITHUB_PAT is valid and has 'repo' scope.")
+                        print(" [ACTION] [AUTH] Ensure GITHUB_PAT is valid and has 'repo' scope.")
                     print(f"[WARNING] [HUB SYNC] Creating local-only hub structure as fallback.")
                     os.makedirs(hub_ckpt_dir, exist_ok=True)
     except Exception as e:
@@ -986,7 +986,7 @@ def main():
     for ckpt_path in [progress_local, latest_hub, best_hub]:
         proc_file = ckpt_path + ".processing"
         if os.path.exists(proc_file):
-            print(f"[0x1f5d1][0xfe0f] [RESILIENCE] Clearing stale lock: {os.path.basename(proc_file)}")
+            print(f"[RESILIENCE] Clearing stale lock: {os.path.basename(proc_file)}")
             try: os.remove(proc_file)
             except: pass
 
@@ -1145,12 +1145,12 @@ def main():
                             pct = min(0.999, raw_pct)
                             resume_iteration = int(pct * new_loader_len)
 
-                        print(f" [0x1f6f0][0xfe0f] [TELEMETRY] Resume Diagnostic:")
-                        print(f"    - Source Batch: {source_batch} | Source Fraction: {source_fraction*100:.1f}%")
-                        print(f"    - Source/Ghost Length: {ghost_loader_len} | New Length: {new_loader_len}")
-                        print(f"    - Scaled Progress: {pct*100:.1f}% -> Iteration {resume_iteration}/{new_loader_len}")
+                        print(f" [TELEMETRY] Resume Diagnostic:")
+                        print(f" - Source Batch: {source_batch} | Source Fraction: {source_fraction*100:.1f}%")
+                        print(f" - Source/Ghost Length: {ghost_loader_len} | New Length: {new_loader_len}")
+                        print(f" - Scaled Progress: {pct*100:.1f}% -> Iteration {resume_iteration}/{new_loader_len}")
 
-                    # 2026: val_ds is NOT updated here [0x2014] it must remain anchored at 384px!
+                    # 2026: val_ds is NOT updated here it must remain anchored at 384px!
                     print(f" [RESILIENCY] Smart Governor state RESTORED. Manifold Re-Audited: {res_size}px | Batch: {batch_size}")
                 if ckpt.get('sota_achieved', False):
                     sota_baseline_achieved = True
@@ -1162,12 +1162,12 @@ def main():
             break
         except Exception as e:
             print(f"[WARNING] [CONTINUITY] Failed to load {attempt_ckpt}: {e}")
-            print(f"   -> Cascading to next available backup...")
+            print(f" -> Cascading to next available backup...")
 
     if not ckpt_loaded:
         if len(candidates) > 0:
             print(f"[CRITICAL] [CRITICAL] ALL DETECTED CHECKPOINTS CORRUPTED OR ARCHITECTURE MISMATCH.")
-        print(f"   -> Initializing FRESH SOTA 2.0 model for {args.model}...")
+        print(f" -> Initializing FRESH SOTA 2.0 model for {args.model}...")
         start_epoch = 0
         best_val_loss = float('inf')
         best_quality_score = -1.0
@@ -1249,11 +1249,11 @@ def main():
     # Ensure the mission doesn't stall if targets haven't been met.
     if not sota_baseline_achieved and start_epoch >= (epochs - 1):
         print(f"\n[WARNING] [CONTINUITY] Model reached epoch limit ({epochs}) without hitting SOTA benchmarks.")
-        print(f"   -> Dynamically extending training by 20 epochs to ensure convergence...")
+        print(f" -> Dynamically extending training by 20 epochs to ensure convergence...")
         epochs = start_epoch + 20
     elif sota_baseline_achieved:
         print(f"\n[OK] [SOTA RECOVERY] SOTA Targets consistently verified by current manifold.")
-        print(f"   -> Entering Stochastic Re-convergence phase (Final 5 epochs)...")
+        print(f" -> Entering Stochastic Re-convergence phase (Final 5 epochs)...")
         # Instead of skipping, we do a short refinement phase if already at SOTA
         if start_epoch >= epochs:
             start_epoch = max(0, epochs - 5)
@@ -1442,7 +1442,7 @@ def main():
     _raw_interval = config.get("intra_epoch_checkpoint_pct", "auto")
     if isinstance(_raw_interval, (int, float)):
         interval_pct = float(_raw_interval)
-        print(f" [0x1f4be] [CONFIG] Static Save Interval Locked: {interval_pct*100:.1f}% (Horse Race Winner)")
+        print(f" [CONFIG] Static Save Interval Locked: {interval_pct*100:.1f}% (Horse Race Winner)")
     else:
         interval_pct = 0.0 # To be calibrated by Governor
 
@@ -1457,7 +1457,7 @@ def main():
         # NOTE: Legacy Epoch 5 backbone-freeze removed.
         # Refer to Polarity Anchor (v4.0) for epoch-1 stabilization logic.
 
-        model.train()  # pyre-ignore
+        model.train() # pyre-ignore
         
         # --- 2026 Dynamic Validation Parity (v19.0 High-Res Lock) ---
         # User forced validation to the hardware ceiling for production-grade evaluation.
@@ -1529,7 +1529,7 @@ def main():
             # 2026: We check if we need to hot-swap from serial to parallel workers
             # v18.5: Hardened Shield check to prevent transition if in recovery or on 4GB hardware
             if train_loader.num_workers == 0 and current_iter == 0 and num_workers > 0 and not (in_recovery_mode and vram_gb < 6.0):
-                print(f" [0x1f6f0][0xfe0f] [MISSION CONTROL] Transitioning to Parallel Data Pipeline ({num_workers} workers)...")
+                print(f" [MISSION CONTROL] Transitioning to Parallel Data Pipeline ({num_workers} workers)...")
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
 
             iter_obj = enumerate(train_loader)
@@ -1537,7 +1537,7 @@ def main():
                 # 2026 Resilience: Engage Fast-Skip Sync to bypass I/O overhead
                 # Optimization: Since we initialized with 0 workers, this is now instantaneous.
                 train_ds.sync_mode = True
-                with tqdm(total=current_iter, desc=" [0x23e9] [RESILIENCY] Fast-forwarding", unit="batch", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_pbar:
+                with tqdm(total=current_iter, desc=" [RESILIENCY] Fast-forwarding", unit="batch", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_pbar:
                     for i, _ in iter_obj:
                         skip_pbar.update(1)
                         if i >= current_iter - 1:
@@ -1549,7 +1549,7 @@ def main():
                 # 2026 Resilience: Skip hot-swap if we are already in serial mode or num_workers is 0
                 # v17.2: Also skip if we are in OOM Recovery Mode on low-end hardware
                 if num_workers > 0 and train_loader.num_workers == 0 and not (in_recovery_mode and vram_gb < 6.0):
-                    print(f" [0x1f6f0][0xfe0f] [MISSION CONTROL] Fast-forward complete. Engaging Parallel Pipeline ({num_workers} workers)...")
+                    print(f" [MISSION CONTROL] Fast-forward complete. Engaging Parallel Pipeline ({num_workers} workers)...")
                     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
                     iter_obj = enumerate(train_loader)
                     # We must align the new loader's iterator (deterministic due to seeds)
@@ -1557,7 +1557,7 @@ def main():
                         if i >= current_iter - 1: break
                 else:
                     # In serial mode, we can just continue with the existing iterator
-                    print(f" [0x1f6f0][0xfe0f] [MISSION CONTROL] Fast-forward complete. Continuing in Serial Mode.")
+                    print(f" [MISSION CONTROL] Fast-forward complete. Continuing in Serial Mode.")
 
                 # 2026 Resilience: Soft-Start Guard (Manifold Seating)
                 # We dampen momentum slightly to prevent 'shock' NaNs on re-entry
@@ -2017,8 +2017,8 @@ def main():
 
                     # [DISABLED] 2026 Resilience: Intra-Epoch VRAM Sentinel (Hardened v10.1.8)
                     # if i % 5 == 0 and device.type == 'cuda':
-                    #     free_mem, _ = torch.cuda.mem_get_info(0)
-                    #     ...
+                    # free_mem, _ = torch.cuda.mem_get_info(0)
+                    # ...
 
                     # --- 2026: Dynamic Training Checkpoint Frequency ---
                     # Only calibrate if config is set to "auto"
@@ -2031,7 +2031,7 @@ def main():
                         if new_interval != interval_pct:
                             interval_pct = new_interval
                             est_mins = (interval_pct * len(train_loader) * avg_time) / 60
-                            msg = f" [0x1f4be] [RESILIENCY] Save Interval Recalibrated: {interval_pct*100:.1f}% (~{est_mins:.1f} min window)" if interval_pct > 0 else " [0x1f4be] [RESILIENCY] Save Interval Recalibrated: OFF (Epoch < 15 min)"
+                            msg = f" [RESILIENCY] Save Interval Recalibrated: {interval_pct*100:.1f}% (~{est_mins:.1f} min window)" if interval_pct > 0 else " [RESILIENCY] Save Interval Recalibrated: OFF (Epoch < 15 min)"
                             (pbar.write if pbar else print)(msg)
 
                     new_lr = scheduler.get_last_lr()[0]
@@ -2040,13 +2040,7 @@ def main():
                 # Threshold-based saving ensures persistence is never skipped due to batch-jumps.
                 current_pct = (i + 1) / len(train_loader)
 
-                # --- 2026: Heartbeat Telemetry (v1.2) ---
-                if (i + 1) % max(1, len(train_loader) // 10) == 0:
-                    current_stress = np.mean(sentinel_stresses[-accumulation_steps:]) if sentinel_stresses else 0.0
-                    heartbeat_msg = f" [0x2764][0xfe0f] [HEARTBEAT] Epoch {epoch+1} | Progress: {current_pct*100:.1f}% | Loss: {loss.item()*accumulation_steps:.6f} | Pressure: {current_stress*100:.2f}% | LR: {new_lr:.2e}"
-                    if pbar: pbar.write(heartbeat_msg)
-                    else: print(heartbeat_msg, file=sys.stderr, flush=True)
-
+                
                 if last_intra_epoch_pct < 0:
                     last_intra_epoch_pct = 0.0
 
@@ -2084,7 +2078,7 @@ def main():
                     }, prog_ckpt)
                     tier_str = f"{current_pct*100:.0f}%"
 
-                    pbar.write(f" [0x1f4be] [RESILIENCY] PROGRESS COMMITTED: {tier_str} (Batch {i+1})")
+                    pbar.write(f" [RESILIENCY] PROGRESS COMMITTED: {tier_str} (Batch {i+1})")
 
 
 
@@ -2126,7 +2120,7 @@ def main():
                 pass
 
         # Validation Loop
-        model.eval()  # pyre-ignore
+        model.eval() # pyre-ignore
         val_loss = 0
         all_preds = []
         all_targets = []
@@ -2148,7 +2142,7 @@ def main():
 
             if train_ds.task_type == "parameter_prediction":
                 # 2026: MAE tracking for parameter regression (no PSNR/SSIM/LPIPS needed)
-                param_mae_sums = [0.0, 0.0, 0.0]  # deg, theta, conf
+                param_mae_sums = [0.0, 0.0, 0.0] # deg, theta, conf
                 param_mae_counts = 0
                 output_names = model_info.get('output_names', ['deg', 'theta', 'conf'])
 
@@ -2186,7 +2180,7 @@ def main():
                 # --- 2026 Resilience: Parity Guard ---
                 # Ensure the global train_loss variable is seeded to prevent zero-fills in CSV
                 train_loss = avg_train_loss * len(train_loader)
-                print(f" [0x1f6f8] [RESILIENCY] Validation state RESTORED. Resuming from iteration {val_resume_iteration}.")
+                print(f" [RESILIENCY] Validation state RESTORED. Resuming from iteration {val_resume_iteration}.")
 
             if isinstance(_raw_interval, (int, float)):
                 val_interval_pct = float(_raw_interval)
@@ -2238,7 +2232,7 @@ def main():
 
             if is_refinement:
                 shard_limit = len(val_loader)
-                if pbar: pbar.write(" [0x1f3af] [GOVERNOR] Refinement Phase Active: Auto-expanding Validation Manifold to 100% for SOTA audit.")
+                if pbar: pbar.write(" [GOVERNOR] Refinement Phase Active: Auto-expanding Validation Manifold to 100% for SOTA audit.")
             else:
                 shard_limit = max(1, int(len(val_loader) * 0.3))
 
@@ -2250,7 +2244,7 @@ def main():
             if val_resume_iteration > 0:
                 # Engage Val-Skip Sync
                 val_ds.sync_mode = True
-                with tqdm(total=val_resume_iteration, desc=" [0x23e9] [RESILIENCY] Fast-forwarding Val", unit="it", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_val_pbar:
+                with tqdm(total=val_resume_iteration, desc=" [RESILIENCY] Fast-forwarding Val", unit="it", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_val_pbar:
                     for v_idx, _ in val_iterator:
                         if skip_val_pbar.n < skip_val_pbar.total:
                             skip_val_pbar.update(1)
@@ -2272,7 +2266,7 @@ def main():
 
                 # --- 2026 Validation Sharding ---
                 if current_val_iter > shard_limit:
-                    val_pbar.write(f" [0x23f1] [SHARDING] Validation Shard complete ({shard_limit} batches). Fast-forwarding to next epoch.")
+                    val_pbar.write(f" [SHARDING] Validation Shard complete ({shard_limit} batches). Fast-forwarding to next epoch.")
                     break
 
                 # --- 2026 Resilience: Universal Batch Unpacking ---
@@ -2327,7 +2321,7 @@ def main():
                         else:
                             sentinel_stresses.append(((preds < min_v) | (preds > max_v)).float().mean().item())
                             preds = torch.clamp(preds, min=min_v, max=max_v)
-                    loss = criterion(preds, targets, task_idx)  # pyre-ignore
+                    loss = criterion(preds, targets, task_idx) # pyre-ignore
 
                 # Active Mathematics Protection Block (Prevents NaN from feeding into Scipy)
                 if torch.isnan(loss) or torch.isnan(preds).any():
@@ -2387,7 +2381,7 @@ def main():
                     if new_val_interval != val_interval_pct:
                         val_interval_pct = new_val_interval
                         if val_interval_pct > 0:
-                            val_pbar.write(f" [0x1f4be] [RESILIENCY] Val Save Interval: {val_interval_pct*100:.1f}% (~15 min window)")
+                            val_pbar.write(f" [RESILIENCY] Val Save Interval: {val_interval_pct*100:.1f}% (~15 min window)")
 
                 current_pct = (v_idx + 1) / shard_limit
                 if val_interval_pct > 0 and (current_pct >= last_val_pct + val_interval_pct - 1e-4 or current_pct == 1.0):
@@ -2421,7 +2415,7 @@ def main():
                         'val_interval_pct': val_interval_pct
                     }, f"{prog_ckpt}.tmp")
                     safe_replace(f"{prog_ckpt}.tmp", prog_ckpt)
-                    val_pbar.write(f" [0x1f4be] [RESILIENCY] VAL PROGRESS COMMITTED: {current_pct*100:.0f}% (Iter {v_idx+1})")
+                    val_pbar.write(f" [RESILIENCY] VAL PROGRESS COMMITTED: {current_pct*100:.0f}% (Iter {v_idx+1})")
 
                 # Progress commitments and state cleanup moved outside loop for manifold stability
 
@@ -2511,7 +2505,7 @@ def main():
                 metrics_str = f" | Overall_MAE: {overall_mae:.4f} | {mae_details} | Stress: {avg_sentinel_stress*100:.2f}%"
                 
                 # Map MAE to PSNR slot for CSV compatibility (negative MAE as quality signal)
-                psnr = -overall_mae  # Lower MAE = better (negative so higher = better in CSV)
+                psnr = -overall_mae # Lower MAE = better (negative so higher = better in CSV)
 
             elif train_ds.task_type == "classification" and len(all_preds) > 0:
                 p = torch.cat(all_preds)
@@ -2587,13 +2581,13 @@ def main():
                 'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
                 'lpips': lpips_val, 'fid': fid, 'map50': map50, 'map50_95': map50_95,
                 'rank_margin': rank_margin, 'accuracy': accuracy,
-                'mae': -psnr if train_ds.task_type == 'parameter_prediction' else 0.0  # psnr stores -MAE for param prediction
+                'mae': -psnr if train_ds.task_type == 'parameter_prediction' else 0.0 # psnr stores -MAE for param prediction
             }
 
             # --- 2026: Metric Singularity Shield (v1.2.1) ---
             # Detecting Manifold Collapse (NaN correlation) in Quality tasks
             if train_ds.task_type == "quality" and (np.isnan(plcc) or np.isnan(srcc)):
-                print(f" [0x1f6a9] [NUCLEAR] Metric Singularity detected! (PLCC: {plcc} | SRCC: {srcc}). Manifold collapsed.")
+                print(f" [NUCLEAR] Metric Singularity detected! (PLCC: {plcc} | SRCC: {srcc}). Manifold collapsed.")
                 print(f" [GUARD] [RESILIENCE] Triggering Tactical Recoil and Rollback to recover distribution...")
                 current_quality_score = 0.0
                 # Trigger Recoil on the Governor
@@ -2630,12 +2624,12 @@ def main():
                 is_best = True
                 is_improving = True
                 best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid, "accuracy": accuracy}
-                (pbar.write if pbar else print)(f" -> [0x1f3c6] [SOTA GUARD] Record Quality Milestone: {best_quality_score:.4f} (Previous: {prev_best:.4f}).")
+                (pbar.write if pbar else print)(f" -> [SOTA GUARD] Record Quality Milestone: {best_quality_score:.4f} (Previous: {prev_best:.4f}).")
             elif loss_improves:
                 best_val_loss = avg_val_loss
                 is_best = True
                 is_improving = True
-                (pbar.write if pbar else print)(f" -> [0x1f4a1] [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}). Exporting SOTA weights.")
+                (pbar.write if pbar else print)(f" -> [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}). Exporting SOTA weights.")
             else:
                 # 2026: Horizontal Stagnation Detected.
                 # We do NOT reset is_improving, which allows the Governor to trigger a Jolt.
@@ -2646,7 +2640,7 @@ def main():
                 best_val_loss = avg_val_loss
                 is_best = True
                 is_improving = True
-                print(f" -> [0x1f4a1] [FALLBACK] New Best Loss: {avg_val_loss:.6f}.")
+                print(f" -> [FALLBACK] New Best Loss: {avg_val_loss:.6f}.")
 
         # --- 2026: SOTA Smart Optimization Audit (v6.1.17) ---
         # Moved BEFORE CSV write and Checkpoint creation to ensure total manifold parity.
@@ -2686,7 +2680,7 @@ def main():
                     accumulation_steps = max(1, target_eff // batch_size)
 
                     b_changed = True
-                    print(f" [0x1f6f8] [GOVERNOR] Hardware Re-Audit Complete: {batch_size} (Acc: {accumulation_steps}) @ {governor.current_res}px")
+                    print(f" [GOVERNOR] Hardware Re-Audit Complete: {batch_size} (Acc: {accumulation_steps}) @ {governor.current_res}px")
 
             if f_changed or r_changed or b_changed:
                 if b_changed and (config_batch != "auto" and config_batch is not None and not args.batch_size):
@@ -2728,7 +2722,7 @@ def main():
                     for k, v in state.items():
                         if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
                             v.mul_(0.8) # 20% dampening for smooth transition
-                print(f"[0x1f4c9] [VELOCITY SYNC] Learning Rate scaled {mult}x | Momentum Dampened (20%).")
+                print(f"[VELOCITY SYNC] Learning Rate scaled {mult}x | Momentum Dampened (20%).")
                            # --- 2026: Mission Defibrillation (v6.2.0) ---
                 # If a High-Energy Jolt occurs or Resolution Changes, the current scheduler curve
                 # is likely out of sync with the new manifold. We re-calculate steps and re-initialize.
@@ -2781,7 +2775,7 @@ def main():
             'epoch': epoch,
             'iteration': len(train_loader), # Mark epoch as finished for absolute parity
             'loader_len': len(train_loader),
-            'model_state': model.state_dict(),  # pyre-ignore
+            'model_state': model.state_dict(), # pyre-ignore
             'optimizer_state': optimizer.state_dict(),
             'scheduler_state': scheduler.state_dict(),
             'governor_state': governor.get_state(),
@@ -2811,7 +2805,7 @@ def main():
 
         if sota_targets and current_quality_score < (best_quality_score * drift_gate) and not is_best:
             regression_epochs += 1
-            print(f" -> [WARNING]  [REGRESSION] Performance drift detected ({regression_epochs}/{regression_limit}). Distance to SOTA: {(1 - current_quality_score/best_quality_score)*100:.2f}%")
+            print(f" -> [WARNING] [REGRESSION] Performance drift detected ({regression_epochs}/{regression_limit}). Distance to SOTA: {(1 - current_quality_score/best_quality_score)*100:.2f}%")
 
             if regression_epochs >= regression_limit:
                 print(f"[LAUNCH] [REGRESSION GUARD] {regression_limit}-Epoch drift threshold breached! Hard-Resetting to SOTA best weights...")
@@ -2933,7 +2927,7 @@ def main():
             if is_best:
                 if os.path.abspath(latest_hub_path) != os.path.abspath(best_hub_path):
                     shutil.copy2(latest_hub_path, best_hub_path)
-                print(f"[0x1f3c6] [HUB SYNC] New SOTA archived to Hub.", file=sys.stderr)
+                print(f"[HUB SYNC] New SOTA archived to Hub.", file=sys.stderr)
 
                 # --- 2026: Real-Time SOTA Export (v17.2 Hardening) ---
                 # We trigger the full export suite (ONNX + Notebooks) on every new BEST
@@ -3114,7 +3108,7 @@ def main():
                     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                     if device.type == 'cuda': torch.cuda.empty_cache()
             else:
-                print(f"\n[0x1f31f] [MISSION COMPLETE] {msg} mathematically breached at Final Resolution ({governor.current_res}px)! Engaging 1-Epoch Reinforcement SOTA Countdown...")
+                print(f"\n[MISSION COMPLETE] {msg} mathematically breached at Final Resolution ({governor.current_res}px)! Engaging 1-Epoch Reinforcement SOTA Countdown...")
                 sota_baseline_achieved = True
                 sota_countdown = 1
 
@@ -3129,10 +3123,10 @@ def main():
 
         if sota_baseline_achieved:
             if sota_countdown <= 0:
-                print("\n[0x1f3c6] [Task Complete] SOTA Reinforcement Epoch successfully burned! Terminating training loop to compile SOTA ONNX matrices instantly!")
+                print("\n[Task Complete] SOTA Reinforcement Epoch successfully burned! Terminating training loop to compile SOTA ONNX matrices instantly!")
                 break
-            print(f"   -> SOTA Cooldown Epochs remaining: {sota_countdown}")
-            sota_countdown -= 1  # pyre-ignore
+            print(f" -> SOTA Cooldown Epochs remaining: {sota_countdown}")
+            sota_countdown -= 1 # pyre-ignore
 
         # Reset intra-epoch skip/resume counters
         resume_iteration = 0
@@ -3159,14 +3153,14 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
         export_script_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "export")
 
         # 1. Standardized ONNX Matrix
-        print(f"[0x2728] [EXPORT] Triggering Universal ONNX Matrix Synthesis...")
+        print(f"[EXPORT] Triggering Universal ONNX Matrix Synthesis...")
         onnx_script = os.path.join(export_script_dir, "export_onnx_model.py")
         # 2026: Pass explicit checkpoint path to avoid 'Epoch 0' ghosting
         best_ckpt_path = os.path.join(hub_model_dir, "checkpoints", f"{args.model}_best.pth")
         subprocess.call([python_exe, onnx_script, "--model", args.model, "--checkpoint", best_ckpt_path, "--yes"])
 
         # 2. Standardized PyTorch Standalone
-        print(f"[0x2728] [EXPORT] Triggering Standalone PyTorch Unity Synthesis...")
+        print(f"[EXPORT] Triggering Standalone PyTorch Unity Synthesis...")
         torch_script = os.path.join(export_script_dir, "export_torch_model.py")
         subprocess.call([sys.executable, torch_script, "--model", args.model, "--checkpoint", best_ckpt_path, "--yes"])
 
@@ -3192,8 +3186,8 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
 
 if __name__ == "__main__":
     try:
-        main()  # pyre-ignore
+        main() # pyre-ignore
     except KeyboardInterrupt:
-        print("\n\n[0x1f6d1] [INTERRUPT] Manual abort detected. Cleaning up processes...")
+        print("\n\n[INTERRUPT] Manual abort detected. Cleaning up processes...")
         cleanup_active_processes()
         sys.exit(0)

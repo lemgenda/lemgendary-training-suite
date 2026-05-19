@@ -56,7 +56,7 @@ class SmartTrainingGovernor:
         # --- 2026 Resilience: Hardware Resolution Cap (v19.1) ---
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if torch.cuda.is_available() else 8.0
         if vram_gb < 4.5 and self.task_type in ["restoration", "parameter_prediction"]:
-            max_safe_res = 640 if self.task_type == "restoration" else 256  # Param predictors are lightweight
+            max_safe_res = 640 if self.task_type == "restoration" else 256 # Param predictors are lightweight
             self.res_ladder = [r for r in self.res_ladder if r <= max_safe_res]
             if not self.res_ladder: self.res_ladder = [max_safe_res]
             if self.current_res > max_safe_res:
@@ -149,7 +149,7 @@ class SmartTrainingGovernor:
         msg_parts = []
         if self.stabilization_epochs > 0:
             if current_quality < self.best_quality * 0.90 and self.best_quality > 0:
-                msg_parts.append(f"[0x1f6a9] [BREAKOUT] Shield shattered! Quality dropped {(1-current_quality/self.best_quality)*100:.1f}%.")
+                msg_parts.append(f"[BREAKOUT] Shield shattered! Quality dropped {(1-current_quality/self.best_quality)*100:.1f}%.")
                 self.stabilization_epochs = 0
             else:
                 self.stabilization_epochs -= 1
@@ -158,7 +158,7 @@ class SmartTrainingGovernor:
                 if current_quality - self.prev_quality > recovery_delta:
                     self.cooldown_remaining = max(0, self.cooldown_remaining - 2)
                     self.stabilization_epochs = max(0, self.stabilization_epochs - 1)
-                    msg_parts.append("[0x26a1] [RECOVERY] Rapid quality gain detected. Cooldown and Lock shortened.")
+                    msg_parts.append("[RECOVERY] Rapid quality gain detected. Cooldown and Lock shortened.")
 
                 self.prev_quality = current_quality
                 if current_loss: self.prev_loss = current_loss
@@ -203,7 +203,7 @@ class SmartTrainingGovernor:
             # Relax min_delta by 4x to ignore low-level metric jitter
             effective_min_delta = self.min_delta * 4
             is_flat = abs(delta_q) < effective_min_delta
-            if is_flat: msg_parts.append("[0x1f578][0xfe0f] [TRAPPED] Fidelity Floor reached. Relaxing stagnation guard.")
+            if is_flat: msg_parts.append("[TRAPPED] Fidelity Floor reached. Relaxing stagnation guard.")
 
         # 2026 NPP v15.6: Relaxed Regression Gate for high-noise Quality manifolds
         # Prevents "Panic Recoils" during natural SRCC/PLCC jitter
@@ -225,7 +225,7 @@ class SmartTrainingGovernor:
             self.current_temp = 0.5
             self.current_clamp = 20.0
             t_changed = c_changed = True
-            msg_parts.append("[0x2744][0xfe0f] [THERMAL SHOCK] PLCC negative. Sharpening manifold (Temp -> 0.5).")
+            msg_parts.append("[THERMAL SHOCK] PLCC negative. Sharpening manifold (Temp -> 0.5).")
 
         # --- 2026 NPP v15.9: Spatial Lock ---
         if self.spatial_lock_remaining > 0:
@@ -234,7 +234,7 @@ class SmartTrainingGovernor:
             loss_is_exploding = (current_loss > self.prev_loss * 1.25) if current_loss and self.prev_loss else False
             if is_regressing and not loss_is_exploding:
                 is_regressing = False
-                msg_parts.append(f"[0x1f512] [SPATIAL LOCK] Buffering transition (Patience: {self.spatial_lock_remaining})")
+                msg_parts.append(f"[SPATIAL LOCK] Buffering transition (Patience: {self.spatial_lock_remaining})")
 
         # 4. NPP LOOP DETECTION
         current_state = (self.current_res, round(self.current_fraction, 2))
@@ -262,7 +262,7 @@ class SmartTrainingGovernor:
                 c_changed = True
                 self.current_temp = min(1.8, self.current_temp * 1.5)
                 t_changed = True
-                msg_parts.append("[0x26d3][0xfe0f] NPP LOOP: Forcing Numerical Shakeup")
+                msg_parts.append("NPP LOOP: Forcing Numerical Shakeup")
 
 
             # --- 2026 NPP v15.9: Strategic Spatial Retreat ---
@@ -278,7 +278,7 @@ class SmartTrainingGovernor:
                     lr_changed = True
                     self.stabilization_epochs = 3
                     self.cooldown_remaining = 5
-                    msg_parts.append(f"[0x21a9][0xfe0f] [SPATIAL RETREAT] Resetting to {self.current_res}px @ 100% Data Anchor")
+                    msg_parts.append(f"[SPATIAL RETREAT] Resetting to {self.current_res}px @ 100% Data Anchor")
 
             if not r_changed:
                 old_frac = self.current_fraction
@@ -297,7 +297,7 @@ class SmartTrainingGovernor:
             lr_changed = True
             t_changed = True
             self.stabilization_epochs = 2
-            msg_parts.append(f"[0x1f9ca] COOLING: Stress {sentinel_trigger_rate*100:.1f}% -> Temp {self.current_temp:.2f}")
+            msg_parts.append(f"COOLING: Stress {sentinel_trigger_rate*100:.1f}% -> Temp {self.current_temp:.2f}")
 
         # --- PROPULSION: NPP Manifold Stride ---
         # 2026: Dynamic Stride Thresholds (Foundation vs Refinement)
@@ -313,7 +313,7 @@ class SmartTrainingGovernor:
                 self.lr_multiplier = float(jolt)
                 lr_changed = True
                 self.last_jolt_epoch = self.epoch_count
-                msg_parts.append(f"[0x26a1] JOLT: Breaking Plateau with {jolt:.2f}x LR Propulsion")
+                msg_parts.append(f"JOLT: Breaking Plateau with {jolt:.2f}x LR Propulsion")
 
 
             next_frac = min(1.0, self.current_fraction + 0.15) # NPP: Smaller steps
@@ -322,7 +322,7 @@ class SmartTrainingGovernor:
             if self.failure_log.get(str(next_state), 0) > 0:
                 self.lr_multiplier = 0.6 # NPP: More cautious approach
                 lr_changed = True
-                msg_parts.append(f"[0x2693] ANCHOR: Caution ahead (Previous Failures). 0.6x LR.")
+                msg_parts.append(f"ANCHOR: Caution ahead (Previous Failures). 0.6x LR.")
 
             if phase == "FOUNDATION" or phase == "EXPANSION":
                 if self.current_fraction < 1.0:
@@ -362,9 +362,9 @@ class SmartTrainingGovernor:
                 sharpen_rate = 0.95 if self.current_temp > 1.2 else 0.98
                 self.current_temp = max(floor, self.current_temp * sharpen_rate)
                 t_changed = True
-                msg_parts.append(f"[0x1f48e] SHARPENING: Temp -> {self.current_temp:.2f}")
+                msg_parts.append(f"SHARPENING: Temp -> {self.current_temp:.2f}")
             elif self.cooldown_remaining > 0:
-                msg_parts.append(f"[0x1f9d8] MEDITATION: Cooldown active ({self.cooldown_remaining} epochs)")
+                msg_parts.append(f"MEDITATION: Cooldown active ({self.cooldown_remaining} epochs)")
 
         self.prev_quality = current_quality
         if current_loss: self.prev_loss = current_loss
@@ -436,7 +436,7 @@ class SmartTrainingGovernor:
         self.current_temp = min(1.5, self.current_temp * 1.3)
         if self.task_type == "quality": self.current_temp = min(1.0, self.current_temp)
         self.stabilization_epochs = 3
-        return f"[0x26a1] [NPP] RECOIL: Retreat to {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
+        return f"[NPP] RECOIL: Retreat to {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
 
     def reset_best(self):
         """2026 Resilience: Memory Purge (v19.2).
