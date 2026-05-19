@@ -282,14 +282,13 @@ class SmartTrainingGovernor:
                     msg_parts.append(f"[SPATIAL RETREAT] Resetting to {self.current_res}px @ 100% Data Anchor")
 
             if not r_changed:
-                old_frac = self.current_fraction
-                self.current_fraction = max(0.15, self.current_fraction - 0.15)
-                f_changed = True
-                self.lr_multiplier = 0.7
+                # 2026 NPP: Do not lower the data fraction on the same resolution to avoid running in circles.
+                # Instead, keep the current fraction and cool the learning rate to allow stabilization.
+                self.lr_multiplier = 0.5
                 lr_changed = True
-                self.stabilization_epochs = 1 if self.task_type == "quality" else 3
-                self.cooldown_remaining = 3 if self.task_type == "quality" else 5
-                msg_parts.append(f"RECOIL: Strategic retreat to {self.current_fraction*100:.0f}%")
+                self.stabilization_epochs = 3
+                self.cooldown_remaining = 5
+                msg_parts.append(f"RECOIL: Retaining data fraction at {self.current_fraction*100:.0f}% | Cooling LR to stabilize manifold")
 
         # --- PROACTIVE COOLING (2026 Resilience) ---
         elif sentinel_trigger_rate > 0.15:
@@ -432,12 +431,11 @@ class SmartTrainingGovernor:
 
     def recoil(self):
         """Emergency Tactical Retreat triggered by hardware or manifold failure."""
-        old_frac = self.current_fraction
-        self.current_fraction = max(0.15, old_frac - 0.15)
+        # 2026 NPP: Keep the data fraction constant on same resolution to avoid loops.
         self.current_temp = min(1.5, self.current_temp * 1.3)
         if self.task_type == "quality": self.current_temp = min(1.0, self.current_temp)
         self.stabilization_epochs = 3
-        return f"[NPP] RECOIL: Retreat to {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
+        return f"[NPP] RECOIL: Retaining data fraction at {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
 
     def reset_best(self):
         """2026 Resilience: Memory Purge (v19.2).

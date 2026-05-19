@@ -46,7 +46,12 @@ The v16.2.8 release marks the end of "low-resolution warm-up." The suite now enf
 
 - **Quality-Driven Progression**: Reaching SOTA targets at sub-maximal resolutions no longer terminates training. Instead, the Governor triggers a **Forced Spatial Jump** to the next rung (e.g., 256px → 384px).
 - **SOTA Hardening Guard (v19.0)**: Enforces a mandatory **2-epoch "Hardening Period"** for every resolution rung. Even if SOTA is hit instantly, the model must stay for 2 epochs to solidify weights before the next jump.
-- **Mission Completion**: Full SOTA export and hub synchronization only occur after the model has conquered the **Final Resolution** (e.g., 640px).
+- **SOTA Memorization & Data Verification (v23.6)**: Gated early SOTA completion to verify the model has not simply memorized data subsets. If SOTA is met at the final resolution but on a subset (fraction < 1.0), the trainer immediately advances the dataset fraction to 1.0 (100% data) and reconstructs the dataloaders instead of terminating. Loop completion is only allowed once the SOTA baseline is verified on 100% of the training dataset.
+- **SOTA Quality Selection Guard (v23.6)**: Gated SOTA exports for quality tasks. Loss-only improvements update the validation loss to keep training active but do not trigger checkpoint exports or overwrite SOTA weights unless the primary correlation/accuracy quality score hits a record high.
+- **Same-Resolution Recoil Protection (v23.6)**: Hardened the Smart Governor to retain the current data fraction during same-resolution plateaus and recoil/regression phases, ensuring the model stabilizes on the current data variety instead of running in loops lowering and rising fractions.
+- **Low-Variance Safety Gate (v23.6)**: Bypasses emergency head resets and thermal shock temperature resets for `nima_authenticity` or if validation target standard deviation is low (< 0.15) to prevent training destabilization.
+- **Mission Completion**: Full SOTA export and hub synchronization only occur after the model has conquered the **Final Resolution** on 100% data.
+
 
 ---
 
@@ -100,6 +105,11 @@ The master orchestration console for system bootstrapping and cloud sync.
 | **Manifold Anchor** | Loop-Proof Optimization with Failure Path Memory. | ✅ v10.0 Active |
 | **Huber Regression Engine** | Continuous parameter prediction with SmoothL1 loss and $\pi$-boundary normalization. | ✅ v23.2 Active |
 | **Dynamic Film Degradation** | Joint restoration + colorization training with on-the-fly vintage damage injection. | ✅ v23.2 Active |
+| **SOTA Verification** | Verifies SOTA targets on 100% of training data at final resolution. | ✅ v23.6 Active |
+| **Quality Selection Guard** | Gates SOTA exports to require absolute improvement in primary quality metrics. | ✅ v23.6 Active |
+| **Recoil Protection** | Retains dataset fraction during same-resolution plateaus and regressions. | ✅ v23.6 Active |
+| **Low-Variance Safety Gate** | Bypasses emergency head resets and thermal shocks on low-variance distributions. | ✅ v23.6 Active |
+
 
 ---
 
