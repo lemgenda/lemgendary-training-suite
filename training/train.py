@@ -1981,16 +1981,18 @@ def main():
 
                     # 2026 Resilience: Gradient Sentinel Injection (Noise-Filtered)
                     # Task-Specific Threshold: NIMA (EMD) naturally has spikier gradients.
-                    stress_threshold = 25.0 if train_ds.task_type == "quality" else 15.0
+                    # Hardened v20.0: Set to realistic backbone levels and require sustained stress.
+                    stress_threshold = 150.0 if train_ds.task_type == "quality" else 100.0
                     if total_norm > stress_threshold:
                         consecutive_stress_events += 1
-                        recoil_msg = governor.recoil()
-                        # 2026: Log Dampening - Only print every 50 consecutive events to reduce 'Noise'
-                        if consecutive_stress_events % 50 == 1:
-                            print(f" [WARNING] [SENTINEL] Extreme Gradient Stress (Norm: {total_norm:.2f}). NPP Recoil active (x{consecutive_stress_events}).")
-                            if recoil_msg: print(recoil_msg)
+                        # Only recoil if stress is sustained over 25 consecutive batches
+                        if consecutive_stress_events >= 25:
+                            recoil_msg = governor.recoil()
+                            # 2026: Log Dampening - Only print every 50 consecutive events to reduce 'Noise'
+                            if consecutive_stress_events % 50 == 25:
+                                print(f" [WARNING] [SENTINEL] Sustained Gradient Stress (Norm: {total_norm:.2f}). NPP Recoil active (x{consecutive_stress_events}).")
+                                if recoil_msg: print(recoil_msg)
                     else:
-
                         consecutive_stress_events = 0
 
                     # (Moved to pre-backward sentinel)
