@@ -1501,6 +1501,7 @@ def main():
         consecutive_nans = 0
         consecutive_singularities = 0
         consecutive_stress_events = 0
+        consecutive_loss_spikes = 0
         # 2026: DataLoader Determinism Guard (Zero Data Leakage Resume)
         # Seeds the random samplers uniquely per-epoch but deterministically,
         # so fast-forwarding doesn't skip or duplicate unseen images upon restart.
@@ -1948,6 +1949,7 @@ def main():
                             param.requires_grad = True
 
                 consecutive_nans = 0 # Reset upon successful forward pass
+                consecutive_loss_spikes = 0
 
                 # --- 2026 Resilience: Surgical Sentinel Insertion (Pre-Backward) ---
                 current_loss_val = loss.item() * accumulation_steps
@@ -1957,11 +1959,62 @@ def main():
                 # We enforce an absolute floor (0.05 unscaled) to prevent false-positive recoils on difficult patches.
                 absolute_floor = 0.05 * accumulation_steps
                 
-                if i > 50 and current_loss_val > (train_loss / i) * 8.0 and current_loss_val > absolute_floor:
-                    print(f" [WARNING] [SENTINEL] Sudden Loss Spike detected ({current_loss_val:.4f} vs {train_loss/i:.4f}). Manifold unstable. NPP Recoil active.")
+                if i > 50 and current_loss_val > (train_loss / i) * 15.0 and current_loss_val > absolute_floor:
+                    consecutive_loss_spikes += 1
+                    print(f" [WARNING] [SENTINEL] Sudden Loss Spike detected ({current_loss_val:.4f} vs {train_loss/i:.4f}). Manifold unstable. NPP Recoil active. (Consecutive: {consecutive_loss_spikes})")
                     governor.recoil()
                     optimizer.zero_grad()
                     if device.type == 'cuda': torch.cuda.synchronize()
+                    
+                    if consecutive_loss_spikes >= 3:
+                        print(f" [CRITICAL] Sustained loss spikes ({consecutive_loss_spikes} batches). Model manifold collapsed. Forcing rollback to SOTA baseline.")
+                        best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
+                        if os.path.exists(best_ckpt_path):
+                            ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
+                            model.load_state_dict(ckpt['model_state'])
+                            
+                            sanitized_count = 0
+                            for buf in model.buffers():
+                                if not torch.isfinite(buf).all():
+                                    buf.data.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
+                                    sanitized_count += 1
+                            if sanitized_count > 0:
+                                print(f" [PURGE] Sanitized {sanitized_count} non-finite buffers/stats.")
+                            
+                            if 'optimizer_state' in ckpt:
+                                optimizer.load_state_dict(ckpt['optimizer_state'])
+                            
+                            recoil_msg = governor.recoil()
+                            if recoil_msg: print(recoil_msg)
+                            
+                            g_state = governor.get_state()
+                            train_ds.update_strategy(fraction=g_state['sample_fraction'], size=g_state['input_size'])
+                            if "val_resolution" not in model_info:
+                                val_ds.update_strategy(size=g_state['input_size'])
+                            
+                            for param_group in optimizer.param_groups:
+                                param_group['lr'] = param_group['lr'] * 0.5
+                            if hasattr(scheduler, 'base_lrs'):
+                                scheduler.base_lrs = [l * 0.5 for l in scheduler.base_lrs]
+                            if hasattr(scheduler, 'max_lrs'):
+                                scheduler.max_lrs = [l * 0.5 for l in scheduler.max_lrs]
+                            
+                            for state in optimizer.state.values():
+                                for k, v in state.items():
+                                    if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
+                                        v.mul_(0.9)
+                            
+                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
+                            print(f" [RECOVERY] Successfully rolled back to historical SOTA baseline with fresh Scaler.")
+                        else:
+                            print(f" [RECOVERY] No 'best.pth' found natively. Engaging purely mathematical stabilization without LR penalty.")
+                            for buf in model.buffers():
+                                if not torch.isfinite(buf).all():
+                                    buf.data.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
+                            optimizer.state.clear()
+                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
+                        consecutive_loss_spikes = 0
+                    
                     continue # Bypass corrupted backward pass to prevent cuDNN crash
 
                 # --- Numerical Integrity Guard ---
