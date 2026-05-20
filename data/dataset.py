@@ -157,6 +157,8 @@ class MultiTaskDataset(Dataset):
         self.build_transforms()
 
     def _load_manifest(self, config):
+        self.all_samples = []
+        self.samples = []
         if self.env == 'kaggle' and config.get("debug", False):
             print("📡 [DEBUG] Mounted datasets in /kaggle/input:")
             try:
@@ -424,6 +426,17 @@ class MultiTaskDataset(Dataset):
             return degraded_tensor, params, "parameter_prediction"
             
         elif self.task_type == "quality":
+            if self.model_key == "nima_authenticity":
+                # Dynamically construct target distribution for authenticity
+                # 'real' = High authenticity (Class 1, peak at bin 10)
+                # 'shutterstock' = Low authenticity (Class 0, peak at bin 1)
+                fname_lower = fname.lower()
+                if "real" in fname_lower:
+                    score = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9]
+                else:
+                    score = [0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                return img_tensor, torch.tensor(score, dtype=torch.float32), "quality"
+            
             label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
             if os.path.exists(label_path):
                 with open(label_path, 'r') as f:
@@ -446,7 +459,7 @@ class MultiTaskDataset(Dataset):
             self.build_transforms()
         if fraction is not None:
             self.sample_fraction = fraction
-            self._load_manifest(self.model_info)
+            self._load_manifest(self.config)
 
     def get_distribution(self):
         """Task 9.3: Analyze label manifold for stratified balancing."""
