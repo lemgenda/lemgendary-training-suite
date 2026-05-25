@@ -1956,8 +1956,11 @@ def main():
                 
                 # 2026 NPP: Absolute Energy Floor
                 # If average loss is microscopic (e.g. 0.001), a "spike" to 0.03 is technically 30x higher but physically harmless.
-                # We enforce an absolute floor (0.05 unscaled) to prevent false-positive recoils on difficult patches.
-                absolute_floor = 0.05 * accumulation_steps
+                # We enforce an absolute floor to prevent false-positive recoils on difficult patches.
+                if train_ds.task_type == "quality":
+                    absolute_floor = 0.40 * accumulation_steps
+                else:
+                    absolute_floor = 0.05 * accumulation_steps
                 
                 if i > 50 and current_loss_val > (train_loss / i) * 15.0 and current_loss_val > absolute_floor:
                     consecutive_loss_spikes += 1
@@ -2883,8 +2886,9 @@ def main():
 
                     # --- 2026: SOTA Governor Sync (Restoration -> Safety Pullback) ---
                     # We restore the state FIRST, then apply the Recoil safety on top of it.
+                    # We pass preserve_curriculum=True to prevent resetting the resolution and dataset fraction.
                     if 'governor_state' in ckpt:
-                        governor.load_state(ckpt['governor_state'])
+                        governor.load_state(ckpt['governor_state'], preserve_curriculum=True)
 
                     # Notify Governor to perform a Tactical Retreat (Recoil) on the restored state
                     recoil_msg = governor.recoil()
@@ -2895,7 +2899,7 @@ def main():
                     # 2026: val_ds resolution is seamlessly rolled back to mirror the Governor UNLESS anchored
                     if "val_resolution" not in model_info:
                         val_ds.update_strategy(size=g_state['input_size'])
-                    print(f"[SYNC] [GOVERNOR SYNC] Rolled back Dataset Fraction to {g_state['sample_fraction']*100:.0f}% | Val sync to {g_state['input_size']}px | Temp Cooled to {g_state['softmax_temp']}")
+                    print(f"[SYNC] [GOVERNOR SYNC] Retained Dataset Fraction at {g_state['sample_fraction']*100:.0f}% | Val sync to {g_state['input_size']}px | Temp Cooled to {g_state['softmax_temp']}")
 
                     # Force 50% LR cooling to 'seat' the model back into the stable manifold
                     # --- 2026: SOTA Velocity Shield (v3.1) ---

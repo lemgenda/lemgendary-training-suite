@@ -404,15 +404,16 @@ class SmartTrainingGovernor:
             "best_quality": self.best_quality
         }
 
-    def load_state(self, state):
+    def load_state(self, state, preserve_curriculum=False):
         if not state: return
-        self.current_fraction = state.get("sample_fraction", self.current_fraction)
-        raw_res = state.get("input_size", self.current_res)
-        self.current_res = raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res
-        
-        # --- 2026 Resilience: Dynamic Resolution Ladder Sync ---
-        if self.current_res not in self.res_ladder:
-            self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
+        if not preserve_curriculum:
+            self.current_fraction = state.get("sample_fraction", self.current_fraction)
+            raw_res = state.get("input_size", self.current_res)
+            self.current_res = raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res
+            
+            # --- 2026 Resilience: Dynamic Resolution Ladder Sync ---
+            if self.current_res not in self.res_ladder:
+                self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
             
         self.current_temp = max(self.min_temp, state.get("softmax_temp", self.current_temp))
         if self.task_type == "quality": self.current_temp = min(1.0, self.current_temp)
