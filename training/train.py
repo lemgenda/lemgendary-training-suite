@@ -1962,7 +1962,7 @@ def main():
                 else:
                     absolute_floor = 0.05 * accumulation_steps
                 
-                if i > 50 and current_loss_val > (train_loss / i) * 15.0 and current_loss_val > absolute_floor:
+                if train_ds.task_type != "quality" and i > 50 and current_loss_val > (train_loss / i) * 15.0 and current_loss_val > absolute_floor:
                     consecutive_loss_spikes += 1
                     print(f" [WARNING] [SENTINEL] Sudden Loss Spike detected ({current_loss_val:.4f} vs {train_loss/i:.4f}). Manifold unstable. NPP Recoil active. (Consecutive: {consecutive_loss_spikes})")
                     governor.recoil()
