@@ -871,7 +871,7 @@ def main():
     active_workers = 0 if has_resume_candidate else num_workers
 
     # --- 2026: Mission Data Infrastructure (v6.0) ---
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, pin_memory=True if device.type=='cuda' else False)
     
     val_num_workers = num_workers
     if is_heavy_manifold:
@@ -1555,14 +1555,15 @@ def main():
             iter_obj = enumerate(train_loader)
             if current_iter > 0:
                 # 2026 Resilience: Engage Fast-Skip Sync to bypass I/O overhead
-                # Optimization: Since we initialized with 0 workers, this is now instantaneous.
-                train_ds.sync_mode = True
+                if hasattr(train_ds, 'sync_mode') and hasattr(train_ds.sync_mode, 'value'):
+                    train_ds.sync_mode.value = True
+                else:
+                    train_ds.sync_mode = True
                 with tqdm(total=current_iter, desc=" [RESILIENCY] Fast-forwarding", unit="batch", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_pbar:
                     for i, _ in iter_obj:
                         skip_pbar.update(1)
                         if i >= current_iter - 1:
                             break
-                train_ds.sync_mode = False
 
                 # --- WORKER HOT-SWAP ---
                 # Now that we've reached the target batch, we swap to the full worker count
@@ -1578,6 +1579,11 @@ def main():
                 else:
                     # In serial mode, we can just continue with the existing iterator
                     print(f" [MISSION CONTROL] Fast-forward complete. Continuing in Serial Mode.")
+
+                if hasattr(train_ds, 'sync_mode') and hasattr(train_ds.sync_mode, 'value'):
+                    train_ds.sync_mode.value = False
+                else:
+                    train_ds.sync_mode = False
 
                 # 2026 Resilience: Soft-Start Guard (Manifold Seating)
                 # We dampen momentum slightly to prevent 'shock' NaNs on re-entry
@@ -2320,14 +2326,20 @@ def main():
             val_iterator = enumerate(val_loader)
             if val_resume_iteration > 0:
                 # Engage Val-Skip Sync
-                val_ds.sync_mode = True
+                if hasattr(val_ds, 'sync_mode') and hasattr(val_ds.sync_mode, 'value'):
+                    val_ds.sync_mode.value = True
+                else:
+                    val_ds.sync_mode = True
                 with tqdm(total=val_resume_iteration, desc=" [RESILIENCY] Fast-forwarding Val", unit="it", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_val_pbar:
                     for v_idx, _ in val_iterator:
                         if skip_val_pbar.n < skip_val_pbar.total:
                             skip_val_pbar.update(1)
                         if v_idx >= val_resume_iteration - 1:
                             break
-                val_ds.sync_mode = False
+                if hasattr(val_ds, 'sync_mode') and hasattr(val_ds.sync_mode, 'value'):
+                    val_ds.sync_mode.value = False
+                else:
+                    val_ds.sync_mode = False
 
             # --- 2026 Resilience: Adaptive Val Boundary ---
             val_resume_iteration = min(val_resume_iteration, shard_limit)

@@ -1,4 +1,5 @@
 import os
+import multiprocessing
 import math
 import random
 import warnings
@@ -119,7 +120,7 @@ class MultiTaskDataset(Dataset):
         self.is_train = is_train
         self.env = env
         self.sample_fraction = sample_fraction
-        self.sync_mode = False 
+        self.sync_mode = multiprocessing.Value('b', False)
         self.split = "train" if is_train else "val"
         # 2026 Resilience: Map to the modern 'paths' structure in config.yaml
         p_paths = config.get("paths", {})
@@ -322,7 +323,9 @@ class MultiTaskDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        if self.sync_mode:
+        if hasattr(self.sync_mode, 'value') and self.sync_mode.value:
+            return torch.zeros((3, self.size[0], self.size[1])), torch.zeros(1), self.task_type
+        elif not hasattr(self.sync_mode, 'value') and self.sync_mode:
             return torch.zeros((3, self.size[0], self.size[1])), torch.zeros(1), self.task_type
 
         ds_name, fname = self.samples[idx]
