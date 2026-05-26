@@ -333,6 +333,8 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         # --- The Probe (v17.2) ---
         # We instantiate a single-sample manifold to measure exact activation/gradient volume
         torch.cuda.empty_cache()
+        if device.type == 'cuda':
+            torch.cuda.reset_peak_memory_stats(0)
         before_probe = torch.cuda.memory_allocated(0)
 
         try:
@@ -351,13 +353,17 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 else:
                     loss = output.mean()
                 loss.backward()
+                # Use peak memory to capture activation volume during backward pass
+                peak_probe = torch.cuda.max_memory_allocated(0) if device.type == 'cuda' else torch.cuda.memory_allocated(0)
                 # 2026 Resilience: Adam/Optimizer state is usually 3x-4x param size
-                # v20.0: Strict 3.0x multiplier to account for full gradient volume
-                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 3.0
+                # Subtracting before_probe leaves peak activation + gradients. We apply a 2.0x multiplier.
+                sample_vram = (peak_probe - before_probe) * 2.0
             else:
                 with torch.no_grad():
                     _ = model(dummy_input)
-                sample_vram = (torch.cuda.memory_allocated(0) - before_probe) * 1.15
+                # Use peak memory to capture activation volume during forward pass
+                peak_probe = torch.cuda.max_memory_allocated(0) if device.type == 'cuda' else torch.cuda.memory_allocated(0)
+                sample_vram = (peak_probe - before_probe) * 1.15
 
             torch.cuda.empty_cache()
             if sample_vram <= 0: raise ValueError("Probe failed to measure manifold")
@@ -2420,13 +2426,25 @@ def main():
                         ssim_sum += ssim(t_np[idx], p_np[idx], data_range=1.0, channel_axis=-1)
 
                     if loss_fn_vgg:
-                        lpips_sum += loss_fn_vgg(p_chunk.to(device)*2-1, t_chunk.to(device)*2-1).sum().item()
+                        # Chunk LPIPS evaluation to avoid VRAM peaks on high-res validation
+                        lpips_val_local = 0.0
+                        chunk_size = 4
+                        for c_idx in range(0, len(p_chunk), chunk_size):
+                            p_sub = p_chunk[c_idx:c_idx+chunk_size].to(device) * 2 - 1
+                            t_sub = t_chunk[c_idx:c_idx+chunk_size].to(device) * 2 - 1
+                            lpips_val_local += loss_fn_vgg(p_sub, t_sub).sum().item()
+                        lpips_sum += lpips_val_local
 
                     if fid_metric is not None:
-                        p_fid = (p_chunk.to(device) * 255).to(torch.uint8)
-                        t_fid = (t_chunk.to(device) * 255).to(torch.uint8)
-                        fid_metric.update(t_fid, real=True)
-                        fid_metric.update(p_fid, real=False)
+                        # Chunk FID update to avoid VRAM peaks on high-res validation
+                        chunk_size = 4
+                        for c_idx in range(0, len(p_chunk), chunk_size):
+                            p_sub = p_chunk[c_idx:c_idx+chunk_size].to(device)
+                            t_sub = t_chunk[c_idx:c_idx+chunk_size].to(device)
+                            p_fid = (p_sub * 255).to(torch.uint8)
+                            t_fid = (t_sub * 255).to(torch.uint8)
+                            fid_metric.update(t_fid, real=True)
+                            fid_metric.update(p_fid, real=False)
 
                     total_samples += len(p_chunk)
                     total_pixels += len(p_chunk) * 3 * _current_h * _current_w
