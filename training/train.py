@@ -309,9 +309,13 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 return 16
             return int(fallback_val) if fallback_val is not None else 16
 
-        # 2026 Resilience: Total VRAM Discovery
+        # 2026 Resilience: Total VRAM Discovery (incorporating PyTorch's reserved pool)
         free_vram, total_vram = torch.cuda.mem_get_info(0)
         vram_gb = total_vram / (1024**3)
+
+        if device.type == 'cuda':
+            unused_reserved = torch.cuda.memory_reserved(0) - torch.cuda.memory_allocated(0)
+            free_vram = free_vram + unused_reserved
 
         # 2026 Resilience: Paging Awareness (Shared Memory Guard)
         # If free VRAM is critically low (< 15% of total), we must assume
@@ -2263,6 +2267,8 @@ def main():
             # Increased threshold to 750MB to ensure zero paging during high-res evaluation.
             if device.type == 'cuda':
                 free_mem, _ = torch.cuda.mem_get_info(0)
+                unused_reserved = torch.cuda.memory_reserved(0) - torch.cuda.memory_allocated(0)
+                free_mem = free_mem + unused_reserved
                 # 2026 Resilience: Critical Manifold Override (v11.2)
                 # If we are on 4GB hardware, we ignore "user preference" to prevent a hard system crash.
                 if free_mem < (400 * 1024 * 1024) and val_batch_size > 1:
