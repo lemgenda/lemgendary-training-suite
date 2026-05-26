@@ -363,7 +363,11 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                     _ = model(dummy_input)
                 # Use peak memory to capture activation volume during forward pass
                 peak_probe = torch.cuda.max_memory_allocated(0) if device.type == 'cuda' else torch.cuda.memory_allocated(0)
-                sample_vram = (peak_probe - before_probe) * 1.15
+                # 2026 Resilience: Restoration tasks with heavy validation metrics (LPIPS/FID)
+                # require additional VRAM safety headroom to prevent OOM.
+                is_restoration = any(x in model_key.lower() for x in ["nafnet", "mprnet", "mirnet", "ffanet", "codeformer", "film_restorer"])
+                val_mult = 2.25 if is_restoration else 1.25
+                sample_vram = (peak_probe - before_probe) * val_mult
 
             torch.cuda.empty_cache()
             if sample_vram <= 0: raise ValueError("Probe failed to measure manifold")
@@ -2510,6 +2514,12 @@ def main():
                 elif train_ds.task_type == "classification":
                     all_preds.append(preds.detach().cpu())
                     all_targets.append(targets.detach().cpu())
+
+                # --- 2026 Resilience: Iteration VRAM Purge ---
+                del preds, loss, inputs, targets, task_idx
+                if device.type == 'cuda':
+                    torch.cuda.empty_cache()
+                gc.collect()
 
         avg_val_loss = val_loss / max(1, val_session_batches)
         avg_sentinel_stress = float(np.mean(sentinel_stresses)) if sentinel_stresses else 0.0
