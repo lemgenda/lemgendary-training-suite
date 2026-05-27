@@ -1057,7 +1057,10 @@ def main():
                         print(f"[WARNING] [SANITIZER] Poisoned buffer detected in checkpoint: {name}. Purging and centering...")
                         buf.data.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
                 if 'optimizer_state' in ckpt:
-                    optimizer.load_state_dict(ckpt['optimizer_state'])
+                    try:
+                        optimizer.load_state_dict(ckpt['optimizer_state'])
+                    except Exception as opt_err:
+                        print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights and epoch history.")
                 if 'epoch' in ckpt:
                     start_epoch = ckpt['epoch']
                     # 2026 Resilience: If we resume from 'latest', we start the NEXT epoch.
@@ -1897,7 +1900,10 @@ def main():
                                 print(f" [PURGE] Sanitized {sanitized_count} non-finite buffers/stats.")
 
                             if 'optimizer_state' in ckpt:
-                                optimizer.load_state_dict(ckpt['optimizer_state'])
+                                try:
+                                    optimizer.load_state_dict(ckpt['optimizer_state'])
+                                except Exception as opt_err:
+                                    print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights.")
 
                             # 2026: SOTA Governor Sync (Recoil Integration)
                             # Notify Governor to perform a Tactical Retreat (Recoil) and log failure
@@ -2005,7 +2011,10 @@ def main():
                                 print(f" [PURGE] Sanitized {sanitized_count} non-finite buffers/stats.")
                             
                             if 'optimizer_state' in ckpt:
-                                optimizer.load_state_dict(ckpt['optimizer_state'])
+                                try:
+                                    optimizer.load_state_dict(ckpt['optimizer_state'])
+                                except Exception as opt_err:
+                                    print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights.")
                             
                             recoil_msg = governor.recoil()
                             if recoil_msg: print(recoil_msg)
@@ -2928,7 +2937,10 @@ def main():
                     model.load_state_dict(ckpt['model_state'])
 
                     if 'optimizer_state' in ckpt:
-                        optimizer.load_state_dict(ckpt['optimizer_state'])
+                        try:
+                            optimizer.load_state_dict(ckpt['optimizer_state'])
+                        except Exception as opt_err:
+                            print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights.")
 
                     # --- 2026: SOTA Governor Sync (Restoration -> Safety Pullback) ---
                     # We restore the state FIRST, then apply the Recoil safety on top of it.
