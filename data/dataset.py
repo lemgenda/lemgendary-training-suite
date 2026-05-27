@@ -322,11 +322,34 @@ class MultiTaskDataset(Dataset):
     def __len__(self):
         return len(self.samples)
 
+    def _get_sync_dummy(self):
+        # 1. Determine input shape
+        if self.model_key == "ultrazoom":
+            in_shape = (3, self.size[0] // 2, self.size[1] // 2)
+        else:
+            in_shape = (3, self.size[0], self.size[1])
+            
+        # 2. Determine target shape and task string
+        if self.task_type in ["restoration", "enhancement", "face"]:
+            target_shape = (3, self.size[0], self.size[1])
+            task_str = "denoise"
+        elif self.task_type == "parameter_prediction":
+            target_shape = (3,)
+            task_str = "parameter_prediction"
+        elif self.task_type == "quality":
+            target_shape = (10,)
+            task_str = "quality"
+        else:
+            target_shape = (1,)
+            task_str = self.task_type
+            
+        return torch.zeros(in_shape), torch.zeros(target_shape), task_str
+
     def __getitem__(self, idx):
         if hasattr(self.sync_mode, 'value') and self.sync_mode.value:
-            return torch.zeros((3, self.size[0], self.size[1])), torch.zeros(1), self.task_type
+            return self._get_sync_dummy()
         elif not hasattr(self.sync_mode, 'value') and self.sync_mode:
-            return torch.zeros((3, self.size[0], self.size[1])), torch.zeros(1), self.task_type
+            return self._get_sync_dummy()
 
         ds_name, fname = self.samples[idx]
         ds_path = self.path_cache.get(ds_name)
