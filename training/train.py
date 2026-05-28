@@ -7,6 +7,19 @@ if "CUDA_VISIBLE_DEVICES" not in os.environ:
 # Disable OpenCV's OpenCL driver binding to prevent GPU driver deadlocks with PyTorch CUDA context initialization
 os.environ["OPENCV_OPENCL_DEVICE"] = "DISABLED"
 import sys
+
+# --- 2026: kagglesdk Dependency Hardening (ImportError Patch) ---
+try:
+    import kagglesdk.kaggle_env as ke
+    if not hasattr(ke, 'get_web_endpoint'):
+        def get_web_endpoint(env):
+            endpoint = ke.get_endpoint(env) if hasattr(ke, 'get_endpoint') else "https://api.kaggle.com"
+            if "api.kaggle.com" in endpoint:
+                return "https://www.kaggle.com"
+            return endpoint
+        ke.get_web_endpoint = get_web_endpoint
+except ImportError:
+    pass
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True, write_through=True)
 import argparse
