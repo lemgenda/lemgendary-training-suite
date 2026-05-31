@@ -118,8 +118,6 @@ nima_authenticity:
     - 15.0
   sota_targets:
     accuracy: 0.95
-    plcc: 0.95
-    srcc: 0.95
   optimization:
     enabled: true
     fraction_increment: 0.2
