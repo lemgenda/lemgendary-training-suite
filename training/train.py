@@ -1234,8 +1234,14 @@ def main():
             p_res = torch.cat(probe_preds).numpy()
             t_res = torch.cat(probe_tgtes).numpy()
             try:
-                probe_srcc, _ = scipy.stats.spearmanr(p_res, t_res)
-                if np.isnan(probe_srcc): probe_srcc = 0.0
+                # 2026 Guard: spearmanr is undefined if either array is constant (std=0).
+                # This happens on resume when the model hasn't warmed up yet (all outputs identical).
+                # Return 0.0 instead of letting scipy raise a ConstantInputWarning.
+                if p_res.std() < 1e-8 or t_res.std() < 1e-8:
+                    probe_srcc = 0.0
+                else:
+                    probe_srcc, _ = scipy.stats.spearmanr(p_res, t_res)
+                    if np.isnan(probe_srcc): probe_srcc = 0.0
             except:
                 probe_srcc = 0.0
             print(f"[INFO] [PROBE] Initial Manifold SRCC: {probe_srcc:.4f}")
