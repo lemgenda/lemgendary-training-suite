@@ -3182,7 +3182,8 @@ def main():
             curr_metrics = {
                 'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
                 'lpips': lpips_val, 'fid': fid, 'map50': map50, 'map50_95': map50_95,
-                'rank_margin': rank_margin
+                'rank_margin': rank_margin, 'accuracy': accuracy,
+                'mae': -psnr if train_ds.task_type == 'parameter_prediction' else 0.0
             }
 
             for k, v in sota_targets.items():

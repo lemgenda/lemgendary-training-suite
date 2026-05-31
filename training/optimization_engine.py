@@ -63,6 +63,11 @@ class SmartTrainingGovernor:
                 print(f" [GUARD] [GOVERNOR] Hardware Cap Active: Downscaling {self.current_res}px -> {max_safe_res}px for stability.")
                 self.current_res = max_safe_res
 
+        # 2026: Ensure training starts at the lowest resolution in the ladder for a fresh run
+        if self.res_ladder and self.current_res != self.res_ladder[0]:
+            print(f" [GUARD] [GOVERNOR] Aligning start resolution {self.current_res}px -> lowest rung {self.res_ladder[0]}px.")
+            self.current_res = self.res_ladder[0]
+
         if self.current_res not in self.res_ladder:
             self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
         self.min_temp = 0.5 if self.task_type == "quality" else (0.01 if self.task_type == "parameter_prediction" else 0.1)
