@@ -2744,21 +2744,34 @@ def main():
                         elif k == 'rank_margin': current_quality_score += (10.0 - val) * weight # Corrected: Margin is 0-9 scale
                         else: current_quality_score += (1.0 / (val + 1e-6)) * weight
 
-            # --- 2026 Resilience: Meaningful Improvement Delta (Hardened v4.1) ---
+            # --- 2026 Resilience: Meaningful Improvement Delta (Hardened v4.2) ---
             # For high-resolution restoration, we need 0.5% improvement to reset the plateau clock.
-            stagnation_threshold = governor.min_delta if train_ds.task_type == "quality" else 0.005
+            # v4.2: Scale threshold by resolution — at 768px+ quality scores are tightly converged
+            # and a flat 0.5% bar (~2.5pts on a 509-point score) is unreachable for real gains.
+            if train_ds.task_type == "quality":
+                stagnation_threshold = governor.min_delta
+            else:
+                res = governor.current_res if hasattr(governor, 'current_res') else 512
+                # Proportionally reduce threshold at higher resolutions (0.5% at 512, ~0.1% at 768+)
+                stagnation_threshold = max(0.001, 0.005 * (512.0 / max(res, 512)))
             loss_improves = avg_val_loss < (best_val_loss * (1.0 - stagnation_threshold))
+            # v4.2: Any genuine absolute quality improvement saves the best checkpoint.
+            # The stagnation_threshold only gates whether the plateau clock resets (is_improving).
+            quality_any_gain = current_quality_score > best_quality_score
             quality_improves = current_quality_score > (best_quality_score * (1.0 + stagnation_threshold))
             is_improving = loss_improves or quality_improves
 
             # --- 2026 SOTA GUARD: Quality Regression Mutex ---
-            if quality_improves:
+            if quality_any_gain:
                 prev_best = best_quality_score
                 best_quality_score = current_quality_score
                 is_best = True
-                is_improving = True
+                is_improving = quality_improves  # Only reset plateau clock if above stagnation threshold
                 best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid, "accuracy": accuracy}
-                (pbar.write if pbar else print)(f" -> [SOTA GUARD] Record Quality Milestone: {best_quality_score:.4f} (Previous: {prev_best:.4f}).")
+                if quality_improves:
+                    (pbar.write if pbar else print)(f" -> [SOTA GUARD] Record Quality Milestone: {best_quality_score:.4f} (Previous: {prev_best:.4f}).")
+                else:
+                    (pbar.write if pbar else print)(f" -> [SOTA GUARD] Marginal Quality Gain: {best_quality_score:.4f} (+{best_quality_score-prev_best:.4f}). Saving best weights.")
             elif loss_improves:
                 best_val_loss = avg_val_loss
                 is_improving = True
