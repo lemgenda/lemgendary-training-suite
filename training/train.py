@@ -1072,6 +1072,14 @@ def main():
                 if 'optimizer_state' in ckpt:
                     try:
                         optimizer.load_state_dict(ckpt['optimizer_state'])
+                        # 2026 Resilience: Checkpoints are loaded with map_location='cpu'.
+                        # Optimizer state tensors (exp_avg, exp_avg_sq) must be moved to
+                        # the training device to match model parameters, or AdamW will crash.
+                        if device.type != 'cpu':
+                            for opt_state in optimizer.state.values():
+                                for k, v in opt_state.items():
+                                    if isinstance(v, torch.Tensor) and k != 'step':
+                                        opt_state[k] = v.to(device)
                     except Exception as opt_err:
                         print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights and epoch history.")
                 if 'epoch' in ckpt:
