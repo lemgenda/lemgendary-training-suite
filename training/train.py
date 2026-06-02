@@ -399,7 +399,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         # v20.0: Validation allows for 2x pixel volume since no gradients/shit are stored.
         val_mult = 2.0 if mode == 'val' else 1.0
         max_pixels = 12.0 * (1024**2) * val_mult
-        if vram_gb < 4.5: max_pixels = 0.4 * (1024**2) * val_mult # Sub-Nuclear 4GB Lockdown (v22.0 - Targets Batch 6)
+        if vram_gb < 4.5: max_pixels = 1.5 * (1024**2) * val_mult # Relaxed Sub-Nuclear 4GB Lockdown (Targets Batch 6 at 512px)
         elif vram_gb < 8.5: max_pixels = 5.0 * (1024**2) * val_mult
         elif vram_gb < 16.5: max_pixels = 12.0 * (1024**2) * val_mult
         else: max_pixels = 36.0 * (1024**2)
@@ -714,12 +714,8 @@ def main():
     num_workers = config.get("num_workers", 4)
     # --- 2026 Windows Stability Overrides ---
     if os.name == 'nt' or sys.platform == 'win32':
-        if vram_gb < 4.5:
-            num_workers = 0 # Force-disable workers on 4GB hardware (Lockdown v18.5)
-            print(f" [GUARD] [DATA] Windows 4GB Lockdown: Forcing Serial Mode (0 workers) for stability.")
-        else:
-            num_workers = min(num_workers, 2)
-            print(f" [DATA] Windows Optimization: Capping workers at {num_workers}")
+        num_workers = min(num_workers, 6)
+        print(f" [DATA] Windows Optimization: Capping workers at {num_workers}")
 
     print(f" [DATA] Initializing Parallel Manifold (Workers: {num_workers} | Persistent: {num_workers > 0})...")
     # --- 2026 Resilience: Empty Dataset Guard ---
