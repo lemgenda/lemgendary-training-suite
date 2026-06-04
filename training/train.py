@@ -1,5 +1,4 @@
 # 2026: Environment Linter Sync
-print("[BOOT] LemGendary Training Suite initiating...")
 import os
 # 2026 Resilience: Force GPU 0 to prevent multi-GPU context initialization hangs under virtualized environments (Kaggle T4 x2)
 if "CUDA_VISIBLE_DEVICES" not in os.environ:
@@ -309,7 +308,7 @@ def git_hub_sync(repo_path, remote_url, message):
 from training.losses import CombinedLoss
 
 
-def audit_hardware_vram(model_key, model_info, config, device, model, res_override=None, mode='train'):
+def audit_hardware_vram(model_key, model_info, config, device, model, res_override=None, mode='train', sample_fraction=1.0):
     """
     2026 Memory-Sentinel: Atomic Hardware Probe (v17.0 Nuclear).
     Performs a real-world VRAM test at the specified resolution to find the
@@ -350,6 +349,20 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         # --- The Probe (v17.2) ---
         # We instantiate a single-sample manifold to measure exact activation/gradient volume
         torch.cuda.empty_cache()
+        
+        try:
+            # 2026 SOTA Resilience: The "Warmup" Pass
+            # The absolute FIRST forward/backward pass in PyTorch initializes massive lazy buffers (CuDNN, etc.).
+            # We must run a warmup pass FIRST so these lazy allocations don't inflate our peak memory reading!
+            _dummy = {"pixel_values": torch.randn(1, 3, h, w).to(device)} if "diffusion" in model_key.lower() else torch.randn(1, 3, h, w).to(device)
+            model.eval() if mode == 'val' else model.train()
+            _out = model(_dummy)
+            if mode == 'train':
+                _loss = sum(v.mean() for v in _out.values()) if isinstance(_out, dict) else _out.mean()
+                _loss.backward()
+                model.zero_grad(set_to_none=True)
+        except: pass
+        
         if device.type == 'cuda':
             torch.cuda.reset_peak_memory_stats(0)
         before_probe = torch.cuda.memory_allocated(0)
@@ -408,7 +421,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
 
         # 2026: Diagnostic Telemetry (v18.7)
         if vram_gb < 4.5:
-            print(f" [SEARCH] [SENTINEL-DEBUG] Res: {h}x{w} | VRAM: {vram_gb:.2f}GB | MaxPx: {max_pixels} | Cap: {pixel_cap} | Mode: {mode}")
+            pass # Silenced [SENTINEL-DEBUG]
 
         final_batch = max(1, min(dynamic_batch, pixel_cap, system_cap))
 
@@ -440,7 +453,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 print(" RECOMMENDATION: Switch to CLOUD TRAINING (Kaggle/Colab) for higher resolutions.")
                 print("================================================================================\n")
 
-        print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M)")
+        print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M) | Fraction: {sample_fraction*100:.1f}%")
         return final_batch
     except Exception as e:
         print(f"[WARNING] [MEMORY-SENTINEL] Probe critical failure: {e}. Defaulting to safe baseline.")
@@ -494,6 +507,7 @@ def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
 
 
 def main():
+    print("[BOOT] LemGendary Training Suite initiating...", flush=True)
     print(" [TRACE] Entering main()...", flush=True)
     # 2026 Resilience: Force UTF-8 encoding for Windows terminals to support emojis
     if hasattr(sys.stdout, 'reconfigure'):
@@ -685,7 +699,7 @@ def main():
     if config_batch and str(config_batch).lower() != "auto":
         batch_size = args.batch_size or int(config_batch)
     else:
-        batch_size = args.batch_size or audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
+        batch_size = args.batch_size or audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=sample_fraction)
     val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val')
 
     # --- 2026 Resilience: Universal Accumulation Stride (v12.0) ---
@@ -1151,7 +1165,7 @@ def main():
                     res_size = g_start_state['input_size']
                     old_batch_size = batch_size
                     if (config_batch == "auto" or config_batch is None) and not args.batch_size:
-                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='train')
+                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='train', sample_fraction=g_start_state.get('sample_fraction', 1.0))
 
                     accumulation_steps = g_start_state.get('accumulation_steps', 1)
 
@@ -1209,7 +1223,7 @@ def main():
                         print(f" - Scaled Progress: {pct*100:.1f}% -> Iteration {resume_iteration}/{new_loader_len}")
 
                     # 2026: val_ds is NOT updated here it must remain anchored at 384px!
-                    print(f" [RESILIENCY] Smart Governor state RESTORED. Manifold Re-Audited: {res_size}px | Batch: {batch_size}")
+                    print(f" [RESILIENCY] Smart Governor state RESTORED. Manifold Re-Audited: {res_size}px | Batch: {batch_size} | Fraction: {g_start_state['sample_fraction']*100:.1f}%")
                 if ckpt.get('sota_achieved', False):
                     sota_baseline_achieved = True
             else:
@@ -1580,7 +1594,7 @@ def main():
 
         # --- 2026 Telemetry: Epoch State Anchor ---
         # Capture variables BEFORE governor audit modifies them for the *next* epoch
-        epoch_lr = optimizer.param_groups[0]['lr']
+        epoch_lr = scheduler.get_last_lr()[0] if hasattr(scheduler, 'get_last_lr') else optimizer.param_groups[0]['lr']
         epoch_res = train_ds.size[0]
         epoch_fraction = train_ds.sample_fraction
         epoch_temp = stab['softmax_temp']
