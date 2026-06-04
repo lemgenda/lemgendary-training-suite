@@ -433,7 +433,6 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 print(" The required memory for a single image exceeds your available VRAM.")
                 print(" RECOMMENDATION: Switch to CLOUD TRAINING (Kaggle/Colab) for this resolution.")
                 print("================================================================================\n")
-                import sys
                 sys.exit(1)
             else:
                 print(" The Governor has dynamically forced Batch Size to 1 to prevent an Out-Of-Memory crash.")
@@ -1363,18 +1362,20 @@ def main():
                 # 2026 Resilience: Scheduler Mission Hard-Reset
                 state_dict = ckpt['scheduler_state']
 
-                if 'total_steps' in state_dict and state_dict['total_steps'] < total_steps:
-                    old_s = state_dict['total_steps']
-                    print(f" [RE-INITIALIZATION] Mission Runway Stretched ({old_s} -> {total_steps}). Hard-resetting OneCycleLR curve...")
-                    curr_lr = optimizer.param_groups[0]['lr']
-                    scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                        optimizer, max_lr=curr_lr * 1.2, total_steps=total_steps,
-                        pct_start=dynamic_pct_start, anneal_strategy='cos'
-                    )
-                    steps_per_epoch = len(train_loader) // accumulation_steps
-                    expected_steps_total = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
-                    scheduler.last_epoch = expected_steps_total
-                    print(f" [MISSION SHIELD] Scheduler protected. Current step: {expected_steps_total} of {total_steps}.")
+                if 'total_steps' in state_dict and state_dict['total_steps'] != total_steps:
+                    old_total = state_dict['total_steps']
+                    old_last = state_dict['last_epoch']
+                    print(f" [RE-INITIALIZATION] Mission Runway Stretched ({old_total} -> {total_steps}). Seamlessly stretching OneCycleLR curve...")
+                    
+                    # 2026 SOTA Resilience: We DO NOT re-instantiate the scheduler here! 
+                    # Re-instantiating it would crush the max_lr because p['lr'] has already been reduced to initial_lr.
+                    # The scheduler created at line 1348 is already perfectly initialized with the config's max_lr.
+                    # We just seamlessly scale its internal step counter to match the new curve percentage!
+                    ratio = total_steps / max(1, old_total)
+                    scheduler.last_epoch = int(old_last * ratio)
+                    scheduler._step_count = scheduler.last_epoch + 1
+                    
+                    print(f" [MISSION SHIELD] Scheduler manifold SEAMLESSLY STRETCHED. Step counter: {scheduler.last_epoch} of {total_steps}.")
                 else:
                     try:
                         scheduler.load_state_dict(state_dict)
@@ -1838,18 +1839,15 @@ def main():
                                 print(f" Your GPU cannot process {old_res}px images with this architecture.")
                                 print(f" RECOMMENDATION: Switch to CLOUD TRAINING (Kaggle/Colab) to continue.")
                                 print(f"================================================================================\n")
-                                import sys
                                 sys.exit(1)
                             else:
                                 print(f" [CRITICAL] OOM even at 256px and Batch Size 1! Hardware is insufficient for this architecture.")
-                                import sys
                                 sys.exit(1)
                     else:
                         print("\n================================================================================")
                         print(" [CRITICAL] FATAL OUT-OF-MEMORY ERROR")
                         print(" RECOMMENDATION: Switch to CLOUD TRAINING (Kaggle/Colab).")
                         print("================================================================================\n")
-                        import sys
                         sys.exit(1)
 
 
