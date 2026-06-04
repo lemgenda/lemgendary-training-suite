@@ -55,8 +55,8 @@ class SmartTrainingGovernor:
 
         # --- 2026 Resilience: Hardware Resolution Cap (v19.1) ---
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if torch.cuda.is_available() else 8.0
-        if vram_gb < 4.5 and self.task_type in ["restoration", "parameter_prediction", "quality"]:
-            max_safe_res = 640 if self.task_type == "restoration" else (512 if self.task_type == "quality" else 256) # Quality capped at 512 for 4GB VRAM
+        if vram_gb < 4.5 and self.task_type in ["restoration", "parameter_prediction"]:
+            max_safe_res = 640 if self.task_type == "restoration" else 256
             self.res_ladder = [r for r in self.res_ladder if r <= max_safe_res]
             if not self.res_ladder: self.res_ladder = [max_safe_res]
             if self.current_res > max_safe_res:

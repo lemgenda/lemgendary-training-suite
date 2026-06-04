@@ -422,6 +422,25 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             print(f" [WARNING] [MEMORY-SENTINEL] Low Headroom Detected ({free_vram/1e6:.1f}MB free). Clamping to {final_batch}.")
 
         gpu_name = torch.cuda.get_device_name(0)
+        
+        # --- 2026: Hardware Bottleneck Cloud Recommendation ---
+        if final_batch <= 1 and vram_gb < 4.5:
+            print("\n================================================================================")
+            print(" [CRITICAL WARNING] HARDWARE BOTTLENECK REACHED")
+            print(f" Your {gpu_name} ({vram_gb:.1f}GB) is physically struggling to train at {h}x{w}px.")
+            
+            if dynamic_batch < 1:
+                print(" The required memory for a single image exceeds your available VRAM.")
+                print(" RECOMMENDATION: Switch to CLOUD TRAINING (Kaggle/Colab) for this resolution.")
+                print("================================================================================\n")
+                import sys
+                sys.exit(1)
+            else:
+                print(" The Governor has dynamically forced Batch Size to 1 to prevent an Out-Of-Memory crash.")
+                print(" If training becomes unstable at this resolution, the hardware limit is reached.")
+                print(" RECOMMENDATION: Switch to CLOUD TRAINING (Kaggle/Colab) for higher resolutions.")
+                print("================================================================================\n")
+
         print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M)")
         return final_batch
     except Exception as e:
@@ -1814,22 +1833,24 @@ def main():
                             # --- 2026 Resilience: Resolution Scaling (Last Stand) ---
                             if train_ds.size[0] > 256:
                                 old_res = train_ds.size[0]
-                                new_res = 256
-                                print(f" [CRITICAL] OOM even at BS 1! Scaling Resolution: {old_res}px -> {new_res}px")
-                                train_ds.update_strategy(size=new_res)
-                                val_ds.update_strategy(size=new_res)
-                                # Re-init loader with new resolution
-                                train_loader = DataLoader(train_ds, batch_size=1, shuffle=True,
-                                                         num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
-                                current_iter = i # Stay at current sample
-                                if pbar: pbar.close()
-                                iter_resync_triggered = True
-                                break
+                                print(f"\n================================================================================")
+                                print(f" [CRITICAL] HARDWARE BOTTLENECK: Out-Of-Memory even at Batch Size 1!")
+                                print(f" Your GPU cannot process {old_res}px images with this architecture.")
+                                print(f" RECOMMENDATION: Switch to CLOUD TRAINING (Kaggle/Colab) to continue.")
+                                print(f"================================================================================\n")
+                                import sys
+                                sys.exit(1)
                             else:
                                 print(f" [CRITICAL] OOM even at 256px and Batch Size 1! Hardware is insufficient for this architecture.")
-                                raise e
+                                import sys
+                                sys.exit(1)
                     else:
-                        raise e
+                        print("\n================================================================================")
+                        print(" [CRITICAL] FATAL OUT-OF-MEMORY ERROR")
+                        print(" RECOMMENDATION: Switch to CLOUD TRAINING (Kaggle/Colab).")
+                        print("================================================================================\n")
+                        import sys
+                        sys.exit(1)
 
 
                 # --- 2026: Success Point ---
