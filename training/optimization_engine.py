@@ -55,8 +55,8 @@ class SmartTrainingGovernor:
 
         # --- 2026 Resilience: Hardware Resolution Cap (v19.1) ---
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if torch.cuda.is_available() else 8.0
-        if vram_gb < 4.5 and self.task_type in ["restoration", "parameter_prediction"]:
-            max_safe_res = 640 if self.task_type == "restoration" else 256 # Param predictors are lightweight
+        if vram_gb < 4.5 and self.task_type in ["restoration", "parameter_prediction", "quality"]:
+            max_safe_res = 640 if self.task_type == "restoration" else (512 if self.task_type == "quality" else 256) # Quality capped at 512 for 4GB VRAM
             self.res_ladder = [r for r in self.res_ladder if r <= max_safe_res]
             if not self.res_ladder: self.res_ladder = [max_safe_res]
             if self.current_res > max_safe_res:
@@ -202,7 +202,9 @@ class SmartTrainingGovernor:
         # 2026 NPP: Fidelity Floor (Task 12.7)
         # If the model is stuck in a low-quality manifold (e.g. Accuracy high but SRCC low),
         # we relax the 'flatness' constraint to allow Jolts through the noise.
-        fidelity_floor = self.best_quality * 0.8
+        # Hardened Logic: Includes absolute threshold for quality tasks.
+        abs_floor = 40.0 if self.task_type == "quality" else 0.0
+        fidelity_floor = max(abs_floor, self.best_quality * 0.8)
         is_trapped = current_quality < fidelity_floor and len(self.history) >= 4
         if is_trapped:
             # Relax min_delta by 4x to ignore low-level metric jitter
@@ -376,7 +378,9 @@ class SmartTrainingGovernor:
 
         # --- 2026: Universal Nuclear Safety Gate (Exit Point) ---
         if self.task_type == "quality":
-            self.current_temp = min(1.0, self.current_temp)
+            # 2026 Resilience: Respect active recoils (allow >1.0 temp during shakeup)
+            if self.cooldown_remaining == 0:
+                self.current_temp = min(1.0, self.current_temp)
             self.current_clamp = min(25.0, self.current_clamp) # Prevent logit explosion
 
         final_msg = f"[LAUNCH] [{phase}] " + " | ".join(msg_parts) if msg_parts else ""

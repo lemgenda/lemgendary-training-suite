@@ -2872,13 +2872,21 @@ def main():
 
             if lr_changed:
                 mult = new_params['lr_multiplier']
+                
+                # --- 2026 Resilience: Absolute LR Floor (v16.1) ---
+                # Prevents the Governor's successive Recoil operations from infinitely crushing
+                # the OneCycleLR curve and starving the model of momentum.
+                absolute_lr_floor = 1e-5
+                
                 for param_group in optimizer.param_groups:
-                    param_group['lr'] = param_group['lr'] * mult
-                    if 'max_lr' in param_group: param_group['max_lr'] *= mult
-                    if 'initial_lr' in param_group: param_group['initial_lr'] *= mult
-                    if 'min_lr' in param_group: param_group['min_lr'] *= mult
+                    param_group['lr'] = max(absolute_lr_floor, param_group['lr'] * mult)
+                    if 'max_lr' in param_group: param_group['max_lr'] = max(absolute_lr_floor, param_group['max_lr'] * mult)
+                    if 'initial_lr' in param_group: param_group['initial_lr'] = max(absolute_lr_floor, param_group['initial_lr'] * mult)
+                    if 'min_lr' in param_group: param_group['min_lr'] = max(absolute_lr_floor, param_group['min_lr'] * mult)
                 if hasattr(scheduler, 'base_lrs'):
-                    scheduler.base_lrs = [l * mult for l in scheduler.base_lrs]
+                    scheduler.base_lrs = [max(absolute_lr_floor, l * mult) for l in scheduler.base_lrs]
+                if hasattr(scheduler, 'max_lrs'):
+                    scheduler.max_lrs = [max(absolute_lr_floor, l * mult) for l in scheduler.max_lrs]
 
                 # 2026 Senior Hardening: Momentum Dampening (Task 4.1)
                 for state in optimizer.state.values():
@@ -2895,17 +2903,23 @@ def main():
                     if steps_per_epoch == 0: steps_per_epoch = 1
 
                     # Recalculate remaining steps in the mission
+                    # --- 2026 Resilience: Seamless Curve Stretching ---
+                    old_total = scheduler.total_steps
+                    old_last = scheduler.last_epoch
+                    old_max_lrs = scheduler.max_lrs if hasattr(scheduler, 'max_lrs') else [p['lr'] * 1.2 for p in optimizer.param_groups]
+                    
                     remaining_epochs = epochs - epoch
                     new_total_steps = (epoch * steps_per_epoch) + (remaining_epochs * steps_per_epoch)
-
-                    # Resetting the curve to allow for a new warm-up and annealing phase.
+                    
                     scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                        optimizer, max_lr=optimizer.param_groups[0]['lr'] * 1.2, total_steps=new_total_steps,
+                        optimizer, max_lr=old_max_lrs, total_steps=new_total_steps,
                         pct_start=dynamic_pct_start, anneal_strategy='cos'
                     )
-                    # Sync the scheduler's 'last_epoch' to the current absolute step
-                    scheduler.last_epoch = epoch * steps_per_epoch
-                    print(f" [MISSION SHIELD] Scheduler manifold RE-ANCHORED. Step counter: {scheduler.last_epoch} of {new_total_steps}.")
+                    
+                    # Scale the step counter to the exact same percentage of the new curve
+                    ratio = new_total_steps / max(1, old_total)
+                    scheduler.last_epoch = int(old_last * ratio)
+                    print(f" [MISSION SHIELD] Scheduler manifold SEAMLESSLY STRETCHED. Step counter: {scheduler.last_epoch} of {new_total_steps}.")
 
             if t_changed or c_changed:
                 stab['softmax_temp'] = new_params['softmax_temp']
@@ -3003,9 +3017,9 @@ def main():
 
                     # Force 50% LR cooling to 'seat' the model back into the stable manifold
                     # --- 2026: SOTA Velocity Shield (v3.1) ---
-                    # We prevent the LR from dropping below a fixed Survivor Floor (5e-7)
+                    # We prevent the LR from dropping below a fixed Survivor Floor
                     # to prevent the model from 'freezing' in a sub-optimal manifold.
-                    survivor_floor = 5e-7
+                    survivor_floor = 1e-5 # Raised from 5e-7 to prevent Decay Spiral
                     new_lr = max(survivor_floor, optimizer.param_groups[0]['lr'] * 0.5)
 
                     for param_group in optimizer.param_groups:
