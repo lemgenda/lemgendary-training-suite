@@ -1125,7 +1125,16 @@ def main():
 
                 if 'best_val_loss' in ckpt: best_val_loss = ckpt['best_val_loss']
                 if 'best_quality_score' in ckpt: best_quality_score = ckpt['best_quality_score']
-                if 'best_metrics' in ckpt: best_metrics = ckpt['best_metrics']
+                if 'best_metrics' in ckpt:
+                    # 2026 Resilience: Only overwrite best_metrics from checkpoint if they contain
+                    # real data. Zeroed metrics from a non-best epoch must not overwrite the
+                    # Global Guardrail values loaded from best.pth.
+                    ckpt_bm = ckpt['best_metrics']
+                    has_real_data = any(v != 0.0 for k, v in ckpt_bm.items() if k not in ('lpips', 'fid'))
+                    if has_real_data:
+                        best_metrics = ckpt_bm
+                    else:
+                        print(f" [RESILIENCY] Checkpoint best_metrics are zeroed. Preserving Global Guardrail values.")
                 if 'epochs_no_improve' in ckpt:
                     start_epochs_no_improve = ckpt['epochs_no_improve']
                 if 'iteration' in ckpt and not ("_latest.pth" in attempt_ckpt or "_best.pth" in attempt_ckpt):
@@ -1167,7 +1176,16 @@ def main():
                     if (config_batch == "auto" or config_batch is None) and not args.batch_size:
                         batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='train', sample_fraction=g_start_state.get('sample_fraction', 1.0))
 
-                    accumulation_steps = g_start_state.get('accumulation_steps', 1)
+                    # 2026 Resilience: Recalculate accumulation to maintain target effective batch.
+                    # The governor state stores the accumulation from the PREVIOUS session's batch size.
+                    # If the VRAM re-probe changed batch_size, we must recalculate to avoid
+                    # inflating or deflating the effective batch (e.g. 6×12=72 instead of target 24).
+                    target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
+                    accumulation_steps = max(1, target_eff // batch_size)
+                    governor_acc = g_start_state.get('accumulation_steps', 1)
+                    if accumulation_steps != governor_acc:
+                        print(f" [RESILIENCY] Accumulation recalculated for batch shift: {governor_acc} -> {accumulation_steps} (Effective: {batch_size * accumulation_steps})")
+                    governor.current_acc = accumulation_steps
 
                     # 2026 Resilience: Proportional Iteration Scaling (The "Slide-Rule" Fix)
                     # If the loader length changes (due to Batch Size or Fraction shifts), we must
@@ -1383,13 +1401,19 @@ def main():
                     
                     # 2026 SOTA Resilience: We DO NOT re-instantiate the scheduler here! 
                     # Re-instantiating it would crush the max_lr because p['lr'] has already been reduced to initial_lr.
-                    # The scheduler created at line 1348 is already perfectly initialized with the config's max_lr.
-                    # We just seamlessly scale its internal step counter to match the new curve percentage!
+                    # The scheduler created above is already perfectly initialized with the config's max_lr.
+                    # We calculate the expected step from epoch progress to avoid rewind artifacts.
+                    steps_per_epoch = len(train_loader) // accumulation_steps
+                    if steps_per_epoch == 0: steps_per_epoch = 1
+                    expected_step = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
+                    # Cross-validate with the proportional approach and take the maximum
+                    # to prevent rewinding the LR to near-zero warmup levels.
                     ratio = total_steps / max(1, old_total)
-                    scheduler.last_epoch = int(old_last * ratio)
+                    proportional_step = int(old_last * ratio)
+                    scheduler.last_epoch = max(expected_step, proportional_step)
                     scheduler._step_count = scheduler.last_epoch + 1
                     
-                    print(f" [MISSION SHIELD] Scheduler manifold SEAMLESSLY STRETCHED. Step counter: {scheduler.last_epoch} of {total_steps}.")
+                    print(f" [MISSION SHIELD] Scheduler manifold SEAMLESSLY STRETCHED. Step counter: {scheduler.last_epoch} of {total_steps} (epoch-based: {expected_step}, proportional: {proportional_step}).")
                 else:
                     try:
                         scheduler.load_state_dict(state_dict)
@@ -2182,6 +2206,9 @@ def main():
                         new_interval = governor.get_dynamic_save_interval(avg_time, len(train_loader))
                         if new_interval != interval_pct:
                             interval_pct = new_interval
+                            if interval_pct > 0:
+                                current_pct = (i + 1) / len(train_loader) if len(train_loader) > 0 else 0.0
+                                last_intra_epoch_pct = round(math.floor(current_pct / interval_pct) * interval_pct, 2)
                             est_mins = (interval_pct * len(train_loader) * avg_time) / 60
                             msg = f" [RESILIENCY] Save Interval Recalibrated: {interval_pct*100:.1f}% (~{est_mins:.1f} min window)" if interval_pct > 0 else " [RESILIENCY] Save Interval Recalibrated: OFF (Epoch < 15 min)"
                             (pbar.write if pbar else print)(msg)
@@ -2415,6 +2442,8 @@ def main():
             # --- 2026 Resilience: Adaptive Val Boundary ---
             val_resume_iteration = min(val_resume_iteration, shard_limit)
             last_val_pct = (max(0, val_resume_iteration) / shard_limit) if shard_limit > 0 else 0.0
+            if val_interval_pct > 0:
+                last_val_pct = round(math.floor(last_val_pct / val_interval_pct) * val_interval_pct, 2)
 
             val_pbar = tqdm(total=shard_limit, initial=val_resume_iteration, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=True, file=sys.stderr, dynamic_ncols=True)
             val_session_batches = 0
@@ -2553,6 +2582,8 @@ def main():
                     if new_val_interval != val_interval_pct:
                         val_interval_pct = new_val_interval
                         if val_interval_pct > 0:
+                            current_pct = (v_idx + 1) / shard_limit if shard_limit > 0 else 0.0
+                            last_val_pct = round(math.floor(current_pct / val_interval_pct) * val_interval_pct, 2)
                             val_pbar.write(f" [RESILIENCY] Val Save Interval: {val_interval_pct*100:.1f}% (~15 min window)")
 
                 current_pct = (v_idx + 1) / shard_limit
