@@ -335,8 +335,8 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         # we are already paging into slow Shared Memory.
         is_exhausted = (free_vram / total_vram) < 0.15
 
-        # 2026 Resilience: Tightened safety buffer (30% overhead for 4GB hardware)
-        safety_multiplier = 0.70 if vram_gb < 4.5 else 0.85
+        # Relaxed safety buffer: 4GB cards need all the VRAM they can get
+        safety_multiplier = 0.90 if vram_gb < 4.5 else 0.95
         available_vram = free_vram * safety_multiplier
 
         # Use resolution from override or model_info
@@ -372,9 +372,8 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 loss.backward()
                 # Use peak memory to capture activation volume during backward pass
                 peak_probe = torch.cuda.max_memory_allocated(0) if device.type == 'cuda' else torch.cuda.memory_allocated(0)
-                # 2026 Resilience: Adam/Optimizer state is usually 3x-4x param size
-                # Subtracting before_probe leaves peak activation + gradients. We apply a 2.0x multiplier.
-                sample_vram = (peak_probe - before_probe) * 2.0
+                # Subtracting before_probe leaves peak activation + gradients. We apply a 1.2x multiplier for optimizer step spikes.
+                sample_vram = (peak_probe - before_probe) * 1.2
             else:
                 with torch.no_grad():
                     _ = model(dummy_input)
@@ -383,7 +382,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 # 2026 Resilience: Restoration tasks with heavy validation metrics (LPIPS/FID)
                 # require additional VRAM safety headroom to prevent OOM.
                 is_restoration = any(x in model_key.lower() for x in ["nafnet", "mprnet", "mirnet", "ffanet", "codeformer", "film_restorer"])
-                val_mult = 2.25 if is_restoration else 1.25
+                val_mult = 1.5 if is_restoration else 1.1
                 sample_vram = (peak_probe - before_probe) * val_mult
 
             torch.cuda.empty_cache()
@@ -665,7 +664,10 @@ def main():
     # --- 2026 Resilience: Pre-Emptive Memory-Sentinel ---
     # We use the Governor's current resolution (which may have been restored from checkpoint)
     # to ensure the initial batch audit is physically accurate for the current manifold.
-    batch_size = args.batch_size or audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
+    if config_batch and str(config_batch).lower() != "auto":
+        batch_size = args.batch_size or int(config_batch)
+    else:
+        batch_size = args.batch_size or audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
     val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val')
 
     # --- 2026 Resilience: Universal Accumulation Stride (v12.0) ---
@@ -1365,8 +1367,12 @@ def main():
                                 optimizer, max_lr=lr*max_lr_mult, total_steps=total_steps,
                                 pct_start=dynamic_pct_start, anneal_strategy='cos'
                             )
-                        except Exception as e:
-                            print(f" [RESILIENCY] Incompatible scheduler state detected ({e}). Structural handoff reset.")
+                            steps_per_epoch = len(train_loader) // accumulation_steps
+                            expected_steps_total = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
+                            scheduler.last_epoch = expected_steps_total
+                            print(f" [MISSION SHIELD] Scheduler protected after sync failure. Resumed at step: {expected_steps_total} of {total_steps}.")
+                        except Exception as inner_e:
+                            print(f" [WARNING] Failed to instantiate OneCycleLR: {inner_e}")
             except Exception as e:
                 print(f" [RESILIENCY] Mission-level scheduler sync failure: {e}. Defaulting to safety manifold.")
     else:
