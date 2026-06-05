@@ -1591,7 +1591,7 @@ def main():
             
         last_val_anchor = val_anchor_size
         
-        val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val')
+        val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val', sample_fraction=val_ds.sample_fraction)
         
         # Sync dataset strategy and re-init loader
         val_ds.update_strategy(size=val_anchor_size)
@@ -2399,7 +2399,7 @@ def main():
             if config_batch == "auto" and (model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info):
                 # 2026 Resilience: Must use val_ds.size to prevent paging if validation is anchored higher than training
                 temp_info = {**model_info, "input_size": val_ds.size}
-                val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val')
+                val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val', sample_fraction=val_ds.sample_fraction)
                 if pbar: pbar.write(f" [SIGNAL] [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size} @ {val_anchor_size}px")
                 # Re-initialize DataLoader if batch size changed
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=config.get("hardware", {}).get("num_workers", 0), pin_memory=True)
@@ -2897,11 +2897,11 @@ def main():
             # Recalculate batch sizes at the epoch boundary to maximize efficiency.
             if not args.batch_size:
                 if r_changed or config_batch == "auto" or config_batch is None:
-                    batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
+                    batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=train_ds.sample_fraction)
 
                     # Validation resolution might be anchored
                     v_res = model_info.get("val_resolution", governor.current_res)
-                    val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
+                    val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val', sample_fraction=val_ds.sample_fraction)
 
                     # Recalculate accumulation to maintain Effective Batch
                     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
