@@ -2584,7 +2584,8 @@ def main():
                         if val_interval_pct > 0:
                             current_pct = (v_idx + 1) / shard_limit if shard_limit > 0 else 0.0
                             last_val_pct = round(math.floor(current_pct / val_interval_pct) * val_interval_pct, 2)
-                            val_pbar.write(f" [RESILIENCY] Val Save Interval: {val_interval_pct*100:.1f}% (~15 min window)")
+                            est_mins = (val_interval_pct * shard_limit * avg_time) / 60
+                            val_pbar.write(f" [RESILIENCY] Val Save Interval: {val_interval_pct*100:.1f}% (~{est_mins:.0f} min window)")
 
                 current_pct = (v_idx + 1) / shard_limit
                 if val_interval_pct > 0 and (current_pct >= last_val_pct + val_interval_pct - 1e-4 or current_pct == 1.0):
