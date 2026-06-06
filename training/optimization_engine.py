@@ -308,8 +308,16 @@ class SmartTrainingGovernor:
 
         # --- PROPULSION: NPP Manifold Stride ---
         # 2026: Dynamic Stride Thresholds (Foundation vs Refinement)
+        # 2026 v15.10: Propulsion is BLOCKED during cooldown/recoil to prevent
+        # data fraction ramps while the model is supposed to be stabilizing.
         stride_threshold = 0.75 if self.current_res < 512 else 0.90
-        if is_flat or (current_quality > stride_threshold and delta_q < self.min_delta):
+        # 2026 Fix: Quality scores are composite (0-100), not correlation (0-1).
+        # Scale threshold to match the task's score range.
+        if self.task_type == "quality":
+            stride_threshold = stride_threshold * 100.0  # 0.90 -> 90.0
+        propulsion_allowed = not should_retreat and self.cooldown_remaining == 0
+        not_regressing = delta_q >= -self.min_delta
+        if propulsion_allowed and not_regressing and (is_flat or (current_quality > stride_threshold and delta_q < self.min_delta)):
             # 2026: The Jolt - Breaking Plateaus with LR Propulsion
             # Senior Update: Added Jolt cooldown (5 epochs)
             jolt_ready = (self.epoch_count - getattr(self, 'last_jolt_epoch', -10)) > 5 and self.cooldown_remaining == 0

@@ -2001,14 +2001,30 @@ def main():
                             if "val_resolution" not in model_info:
                                 val_ds.update_strategy(size=g_state['input_size'])
 
-                            # Halve the learning rate to 'seat' the model back into the stable manifold
+                            # 2026: SOTA Scheduler Sync
+                            if 'scheduler_state' in ckpt:
+                                try:
+                                    scheduler.load_state_dict(ckpt['scheduler_state'])
+                                    print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
+                                except Exception as sched_err:
+                                    print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
+
+                            # Halve the learning rate to 'seat' the model back into the stable manifold with safety floor
+                            survivor_floor = 1e-5
+                            new_lr = max(survivor_floor, optimizer.param_groups[0]['lr'] * 0.5)
+
                             for param_group in optimizer.param_groups:
-                                param_group['lr'] = param_group['lr'] * 0.5
+                                param_group['lr'] = new_lr
+                                if 'max_lr' in param_group: param_group['max_lr'] = max(survivor_floor, param_group['max_lr'] * 0.5)
+                                if 'initial_lr' in param_group: param_group['initial_lr'] = max(survivor_floor, param_group['initial_lr'] * 0.5)
+                                if 'min_lr' in param_group: param_group['min_lr'] = max(survivor_floor, param_group['min_lr'] * 0.5)
 
                             if hasattr(scheduler, 'base_lrs'):
-                                scheduler.base_lrs = [l * 0.5 for l in scheduler.base_lrs]
+                                scheduler.base_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs]
                             if hasattr(scheduler, 'max_lrs'):
-                                scheduler.max_lrs = [l * 0.5 for l in scheduler.max_lrs]
+                                scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.max_lrs]
+                            if hasattr(scheduler, '_last_lr'):
+                                scheduler._last_lr = [new_lr] * len(optimizer.param_groups)
 
                             # 2026 Resilience: Momentum Decay instead of Clear
                         # We only clear the state if it actually contains NaNs.
@@ -2110,12 +2126,30 @@ def main():
                             if "val_resolution" not in model_info:
                                 val_ds.update_strategy(size=g_state['input_size'])
                             
+                            # 2026: SOTA Scheduler Sync
+                            if 'scheduler_state' in ckpt:
+                                try:
+                                    scheduler.load_state_dict(ckpt['scheduler_state'])
+                                    print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
+                                except Exception as sched_err:
+                                    print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
+
+                            # Halve the learning rate to 'seat' the model back into the stable manifold with safety floor
+                            survivor_floor = 1e-5
+                            new_lr = max(survivor_floor, optimizer.param_groups[0]['lr'] * 0.5)
+
                             for param_group in optimizer.param_groups:
-                                param_group['lr'] = param_group['lr'] * 0.5
+                                param_group['lr'] = new_lr
+                                if 'max_lr' in param_group: param_group['max_lr'] = max(survivor_floor, param_group['max_lr'] * 0.5)
+                                if 'initial_lr' in param_group: param_group['initial_lr'] = max(survivor_floor, param_group['initial_lr'] * 0.5)
+                                if 'min_lr' in param_group: param_group['min_lr'] = max(survivor_floor, param_group['min_lr'] * 0.5)
+
                             if hasattr(scheduler, 'base_lrs'):
-                                scheduler.base_lrs = [l * 0.5 for l in scheduler.base_lrs]
+                                scheduler.base_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs]
                             if hasattr(scheduler, 'max_lrs'):
-                                scheduler.max_lrs = [l * 0.5 for l in scheduler.max_lrs]
+                                scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.max_lrs]
+                            if hasattr(scheduler, '_last_lr'):
+                                scheduler._last_lr = [new_lr] * len(optimizer.param_groups)
                             
                             for state in optimizer.state.values():
                                 for k, v in state.items():
@@ -3069,6 +3103,14 @@ def main():
                     if 'governor_state' in ckpt:
                         governor.load_state(ckpt['governor_state'], preserve_curriculum=True)
 
+                    # 2026: SOTA Scheduler Sync
+                    if 'scheduler_state' in ckpt:
+                        try:
+                            scheduler.load_state_dict(ckpt['scheduler_state'])
+                            print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
+                        except Exception as sched_err:
+                            print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
+
                     # Notify Governor to perform a Tactical Retreat (Recoil) on the restored state
                     recoil_msg = governor.recoil()
                     if recoil_msg: print(recoil_msg)
@@ -3141,9 +3183,9 @@ def main():
         # --- 2026 Resilience: Model Hub Sync (v6.2.0) ---
         if is_improving:
             epochs_no_improve = 0
+            regression_epochs = 0
         else:
             epochs_no_improve += 1
-            regression_epochs += 1
             print(f" -> No improvement for {epochs_no_improve} epoch(s).")
 
         # --- 2026 Resilience: Hub Mirroring & Sync (v13.0 Stateless) ---
