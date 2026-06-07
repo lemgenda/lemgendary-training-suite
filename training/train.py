@@ -511,30 +511,45 @@ def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
 
 def load_scheduler_state_stretched(scheduler, state_dict, current_total_steps, expected_step=None):
     """Loads scheduler state dict while stretching the runway if total_steps mismatch."""
-    if 'total_steps' in state_dict and state_dict['total_steps'] != current_total_steps:
-        old_total = state_dict['total_steps']
-        old_last = state_dict['last_epoch']
-        ratio = current_total_steps / max(1, old_total)
-        
-        # Scale steps
-        state_dict['total_steps'] = current_total_steps
-        new_last = int(round(old_last * ratio))
-        if expected_step is not None:
-            new_last = max(new_last, expected_step)
-        state_dict['last_epoch'] = new_last
-        state_dict['_step_count'] = new_last + 1
-        
-        if '_schedule_phases' in state_dict:
-            for phase in state_dict['_schedule_phases']:
-                if 'end_step' in phase:
-                    old_end = phase['end_step']
-                    if isinstance(old_end, int):
-                        phase['end_step'] = int(round((old_end + 1) * ratio - 1))
-                    else:
-                        phase['end_step'] = (old_end + 1) * ratio - 1
-        
-        print(f" [RESILIENCY] Stretched scheduler state dict from {old_total} to {current_total_steps} steps (last_epoch: {old_last} -> {new_last}).")
-    
+    if 'total_steps' in state_dict:
+        if state_dict['total_steps'] != current_total_steps:
+            old_total = state_dict['total_steps']
+            old_last = state_dict['last_epoch']
+            ratio = current_total_steps / max(1, old_total)
+            
+            # Scale steps
+            state_dict['total_steps'] = current_total_steps
+            if expected_step is not None and ratio > 1.5:
+                new_last = expected_step
+            else:
+                new_last = int(round(old_last * ratio))
+                if expected_step is not None:
+                    new_last = max(new_last, expected_step)
+            
+            # Clamp to prevent out-of-bounds scheduler crashes
+            new_last = max(0, min(current_total_steps - 1, new_last))
+            
+            state_dict['last_epoch'] = new_last
+            state_dict['_step_count'] = new_last + 1
+            
+            if '_schedule_phases' in state_dict:
+                for phase in state_dict['_schedule_phases']:
+                    if 'end_step' in phase:
+                        old_end = phase['end_step']
+                        if isinstance(old_end, int):
+                            phase['end_step'] = int(round((old_end + 1) * ratio - 1))
+                        else:
+                            phase['end_step'] = (old_end + 1) * ratio - 1
+            
+            print(f" [RESILIENCY] Stretched scheduler state dict from {old_total} to {current_total_steps} steps (last_epoch: {old_last} -> {new_last}).")
+        elif expected_step is not None:
+            # If total_steps matches, but last_epoch is de-synced/poisoned (too far ahead of expected)
+            old_last = state_dict.get('last_epoch', 0)
+            if old_last > expected_step:
+                print(f" [RESILIENCY] [SHIELD] Poisoned/advanced step count detected in scheduler_state ({old_last}). Re-anchoring to actual progress step ({expected_step}).")
+                state_dict['last_epoch'] = expected_step
+                state_dict['_step_count'] = expected_step + 1
+
     scheduler.load_state_dict(state_dict)
 
 
@@ -1300,6 +1315,27 @@ def main():
         best_quality_score = -1.0
         sota_baseline_achieved = False
         start_epochs_no_improve = 0
+
+    if ckpt_loaded and start_epoch > 0:
+        # Align start_epoch with metrics.csv if it exists
+        metrics_csv_path = os.path.join(export_dir, "metrics.csv")
+        last_csv_epoch = None
+        if os.path.exists(metrics_csv_path):
+            try:
+                with open(metrics_csv_path, "r", encoding='utf-8') as f:
+                    lines = [line.strip() for line in f.readlines() if line.strip()]
+                    if len(lines) > 1:
+                        last_line = lines[-1]
+                        parts = last_line.split(",")
+                        last_csv_epoch = int(parts[0])
+            except Exception as csv_err:
+                print(f" [WARNING] Failed to parse last epoch from metrics.csv: {csv_err}")
+
+        if last_csv_epoch is not None:
+            expected_start_epoch = last_csv_epoch
+            if start_epoch != expected_start_epoch:
+                print(f" [TELEMETRY] CSV Alignment: metrics.csv ends at Epoch {last_csv_epoch}. Aligned start_epoch: {start_epoch + 1} -> {expected_start_epoch + 1}.")
+                start_epoch = expected_start_epoch
 
     print(f"[OK] [CONTINUITY] Successfully resumed from epoch {start_epoch+1}.")
     # --- 2026: Polarity Governor (Resilience v3.3) ---
@@ -2847,6 +2883,7 @@ def main():
         # --- 2026: Universal SOTA-Priority Quality Assessment ---
         is_best = False
         is_improving = False
+        force_rollback = False
 
         sota_targets = model_info.get("sota_targets", {})
 
@@ -2874,6 +2911,7 @@ def main():
                 # Force a rollback check
                 is_improving = False
                 is_best = False
+                force_rollback = True
             else:
                 for k, target_v in sota_targets.items():
                     val = curr_metrics.get(k, 0.0)
@@ -3121,12 +3159,15 @@ def main():
         drift_gate = 0.95 if train_ds.task_type == "quality" else 0.985
         regression_limit = 5 if train_ds.task_type == "quality" else 3
 
-        if sota_targets and current_quality_score < (best_quality_score * drift_gate) and not is_best:
-            regression_epochs += 1
-            print(f" -> [WARNING] [REGRESSION] Performance drift detected ({regression_epochs}/{regression_limit}). Distance to SOTA: {(1 - current_quality_score/best_quality_score)*100:.2f}%")
+        if (sota_targets and current_quality_score < (best_quality_score * drift_gate) and not is_best) or force_rollback:
+            if not force_rollback:
+                regression_epochs += 1
+                print(f" -> [WARNING] [REGRESSION] Performance drift detected ({regression_epochs}/{regression_limit}). Distance to SOTA: {(1 - current_quality_score/best_quality_score)*100:.2f}%")
+            else:
+                print(f" -> [WARNING] [SINGULARITY] Force SOTA Rollback triggered due to Metric Singularity.")
 
-            if regression_epochs >= regression_limit:
-                print(f"[LAUNCH] [REGRESSION GUARD] {regression_limit}-Epoch drift threshold breached! Hard-Resetting to SOTA best weights...")
+            if regression_epochs >= regression_limit or force_rollback:
+                print(f"[LAUNCH] [REGRESSION GUARD] SOTA Rollback triggered! Hard-Resetting to SOTA best weights...")
                 best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                 if os.path.exists(best_ckpt_path):
                     # Notify Governor to perform a Tactical Retreat (Recoil)
