@@ -286,12 +286,20 @@ while ($true) {
                 $selectedModel = Get-ModelSelection
                 if ($null -ne $selectedModel) {
                     $rocket = [char]0xD83D + [char]0xDE80
+                    
+                    $extraArgs = @()
+                    $resetChoice = Read-Host "  [?] Would you like to force-reset the OneCycleLR scheduler (re-calculate step curve)? (y/n)"
+                    if ($resetChoice -eq 'y' -or $resetChoice -eq 'Y') {
+                        $extraArgs += "--reset-scheduler"
+                        Write-Host "  [+] Force-resetting scheduler curve enabled." -ForegroundColor Cyan
+                    }
+
                     Write-Host "  [$rocket] Launching Training Matrix for >> $selectedModel <<..." -ForegroundColor Green
                     Write-Host "      -> Target Manifold: $selectedModel" -ForegroundColor Gray
                     Invoke-JanitorPurge # Ensure clean start
                     $env:PYTHONPATH="$script:HUB_DIR"; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
                     $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
-                    Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" -m training.train --model $selectedModel; Pop-Location
+                    Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" -m training.train --model $selectedModel $extraArgs; Pop-Location
                 }
             }
             Read-Host "Press Enter to return..."
