@@ -2887,7 +2887,7 @@ def main():
                     (pbar.write if pbar else print)(f" -> [SOTA GUARD] Marginal Quality Gain: {best_quality_score:.4f} (+{best_quality_score-prev_best:.4f}). Saving best weights.")
             elif loss_improves:
                 best_val_loss = avg_val_loss
-                is_improving = True
+                is_improving = (train_ds.task_type != "quality")
                 if train_ds.task_type != "quality":
                     is_best = True
                     best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid, "accuracy": accuracy}
@@ -2990,6 +2990,8 @@ def main():
                     scheduler.base_lrs = [max(absolute_lr_floor, l * mult) for l in scheduler.base_lrs]
                 if hasattr(scheduler, 'max_lrs'):
                     scheduler.max_lrs = [max(absolute_lr_floor, l * mult) for l in scheduler.max_lrs]
+                if hasattr(scheduler, '_last_lr'):
+                    scheduler._last_lr = [max(absolute_lr_floor, l * mult) for l in scheduler._last_lr]
 
                 # 2026 Senior Hardening: Momentum Dampening (Task 4.1)
                 for state in optimizer.state.values():
