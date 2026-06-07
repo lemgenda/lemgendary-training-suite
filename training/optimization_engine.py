@@ -3,6 +3,21 @@ import torch
 import math
 import numpy as np
 
+# higher_better: True (Higher is Better), False (Lower is Better)
+METRIC_DIRECTIONS = {
+    'plcc': True, 'srcc': True, 'psnr': True, 'ssim': True,
+    'lpips': False, 'fid': False, 'map50': True, 'map50_95': True,
+    'rank_margin': False, 'accuracy': True, 'mae': False
+}
+
+# Standard Weights for Quality Score calculation (Multiplier applied to normalized 0.0-1.0 range)
+METRIC_WEIGHTS = {
+    'plcc': 50, 'srcc': 50, 'psnr': 10, 'ssim': 40,
+    'lpips': 40, 'fid': 1, 'map50': 100, 'map50_95': 100,
+    'rank_margin': 20, 'accuracy': 100, 'mae': 100
+}
+
+
 class SmartTrainingGovernor:
     """
     2026 Universal Autonomous Optimization Engine (v15.5 Nuclear).
@@ -97,6 +112,24 @@ class SmartTrainingGovernor:
             self.min_delta = base_delta if self.task_type == "quality" else (base_delta * 100.0) # Scale up for restoration
         self.spatial_lock_remaining = 0 # 2026 v15.9: Blocks recoil after jump
         self.last_res_jump_epoch = -100
+
+        # Calculate target Quality Score for non-quality tasks with sota_targets to scale stride_threshold
+        self.sota_targets = opt.get("sota_targets", model_info.get("sota_targets", {}))
+        self.target_quality_score = 1.0
+        if self.sota_targets:
+            target_score = 0.0
+            for k, target_v in self.sota_targets.items():
+                direction = METRIC_DIRECTIONS.get(k, True)
+                weight = METRIC_WEIGHTS.get(k, 1)
+                if direction:
+                    target_score += target_v * weight
+                else:
+                    if k == 'fid': target_score += (100.0 - target_v) * weight
+                    elif k == 'lpips': target_score += (1.0 - target_v) * weight
+                    elif k == 'rank_margin': target_score += (10.0 - target_v) * weight
+                    else: target_score += (1.0 / (target_v + 1e-6)) * weight
+            if target_score > 0:
+                self.target_quality_score = target_score
 
     def get_phase(self):
         res_idx = self.res_ladder.index(self.current_res)
@@ -311,10 +344,11 @@ class SmartTrainingGovernor:
         # 2026 v15.10: Propulsion is BLOCKED during cooldown/recoil to prevent
         # data fraction ramps while the model is supposed to be stabilizing.
         stride_threshold = 0.75 if self.current_res < 512 else 0.90
-        # 2026 Fix: Quality scores are composite (0-100), not correlation (0-1).
         # Scale threshold to match the task's score range.
         if self.task_type == "quality":
             stride_threshold = stride_threshold * 100.0  # 0.90 -> 90.0
+        elif self.target_quality_score > 1.0:
+            stride_threshold = stride_threshold * self.target_quality_score
         propulsion_allowed = not should_retreat and self.cooldown_remaining == 0
         not_regressing = delta_q >= -self.min_delta
         if propulsion_allowed and not_regressing and (is_flat or (current_quality > stride_threshold and delta_q < self.min_delta)):
