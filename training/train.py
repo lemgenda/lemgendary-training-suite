@@ -3023,33 +3023,36 @@ def main():
                         if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
                             v.mul_(0.8) # 20% dampening for smooth transition
                 print(f"[VELOCITY SYNC] Learning Rate scaled {mult}x | Momentum Dampened (20%).")
-                           # --- 2026: Mission Defibrillation (v6.2.0) ---
-                # If a High-Energy Jolt occurs or Resolution Changes, the current scheduler curve
-                # is likely out of sync with the new manifold. We re-calculate steps and re-initialize.
-                if (mult > 2.0 or r_changed) and isinstance(scheduler, torch.optim.lr_scheduler.OneCycleLR):
-                    print(f"[SYNC] [MISSION DEFIBRILLATION] Re-calculating steps for {governor.current_res}px Manifold.")
-                    steps_per_epoch = len(train_loader) // accumulation_steps
-                    if steps_per_epoch == 0: steps_per_epoch = 1
 
-                    # Recalculate remaining steps in the mission
-                    # --- 2026 Resilience: Seamless Curve Stretching ---
-                    old_total = scheduler.total_steps
-                    old_last = scheduler.last_epoch
-                    old_max_lrs = scheduler.max_lrs if hasattr(scheduler, 'max_lrs') else [p['lr'] * 1.2 for p in optimizer.param_groups]
-                    
-                    remaining_epochs = epochs - epoch
-                    new_total_steps = (epoch * steps_per_epoch) + (remaining_epochs * steps_per_epoch)
-                    
-                    scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                        optimizer, max_lr=old_max_lrs, total_steps=new_total_steps,
-                        pct_start=dynamic_pct_start, anneal_strategy='cos'
-                    )
-                    
-                    # Scale the step counter to the exact same percentage of the new curve
-                    ratio = new_total_steps / max(1, old_total)
-                    scheduler.last_epoch = int(old_last * ratio)
-                    scheduler._step_count = scheduler.last_epoch + 1
-                    print(f" [MISSION SHIELD] Scheduler manifold SEAMLESSLY STRETCHED. Step counter: {scheduler.last_epoch} of {new_total_steps}.")
+            # --- 2026: Mission Defibrillation (v6.2.0) ---
+            # If a High-Energy Jolt occurs or Resolution Changes, the current scheduler curve
+            # is likely out of sync with the new manifold. We re-calculate steps and re-initialize.
+            # Moved out of lr_changed block so it triggers on resolution jumps even if LR is stable.
+            mult = new_params['lr_multiplier'] if lr_changed else 1.0
+            if (mult > 2.0 or r_changed) and isinstance(scheduler, torch.optim.lr_scheduler.OneCycleLR):
+                print(f"[SYNC] [MISSION DEFIBRILLATION] Re-calculating steps for {governor.current_res}px Manifold.")
+                steps_per_epoch = len(train_loader) // accumulation_steps
+                if steps_per_epoch == 0: steps_per_epoch = 1
+
+                # Recalculate remaining steps in the mission
+                # --- 2026 Resilience: Seamless Curve Stretching ---
+                old_total = scheduler.total_steps
+                old_last = scheduler.last_epoch
+                old_max_lrs = scheduler.max_lrs if hasattr(scheduler, 'max_lrs') else [p['lr'] * 1.2 for p in optimizer.param_groups]
+                
+                remaining_epochs = epochs - epoch
+                new_total_steps = (epoch * steps_per_epoch) + (remaining_epochs * steps_per_epoch)
+                
+                scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                    optimizer, max_lr=old_max_lrs, total_steps=new_total_steps,
+                    pct_start=dynamic_pct_start, anneal_strategy='cos'
+                )
+                
+                # Scale the step counter to the exact same percentage of the new curve
+                ratio = new_total_steps / max(1, old_total)
+                scheduler.last_epoch = int(old_last * ratio)
+                scheduler._step_count = scheduler.last_epoch + 1
+                print(f" [MISSION SHIELD] Scheduler manifold SEAMLESSLY STRETCHED. Step counter: {scheduler.last_epoch} of {new_total_steps}.")
 
             if t_changed or c_changed:
                 stab['softmax_temp'] = new_params['softmax_temp']
