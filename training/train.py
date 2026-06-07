@@ -556,6 +556,7 @@ def main():
     parser.add_argument("--hub_user", type=str, default=None, help="GitHub username for model hub")
     parser.add_argument("--hub_repo", type=str, default=None, help="GitHub repository name for model hub")
     parser.add_argument("--auto_sync", action="store_true", help="Enable automated cloud synchronization per epoch (Kaggle only)")
+    parser.add_argument("--reset-scheduler", action="store_true", help="Bypass loaded scheduler state and re-initialize fresh curve at current step")
     args = parser.parse_args()
 
     print(" [TRACE] Loading GITHUB PAT...", flush=True)
@@ -1425,7 +1426,14 @@ def main():
     # 2026: Continuity Guard - Only sync if start_epoch is > 0 (resuming)
     if os.path.exists(latest_ckpt) and start_epoch > 0:
         ckpt = torch.load(latest_ckpt, map_location=device, weights_only=False) # pyre-ignore
-        if 'scheduler_state' in ckpt:
+        if getattr(args, 'reset_scheduler', False):
+            steps_per_epoch = len(train_loader) // accumulation_steps
+            if steps_per_epoch == 0: steps_per_epoch = 1
+            expected_step = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
+            scheduler.last_epoch = expected_step
+            scheduler._step_count = expected_step + 1
+            print(f" [MISSION SHIELD] Scheduler reset requested. Resumed fresh curve at step: {expected_step} of {total_steps}.")
+        elif 'scheduler_state' in ckpt:
             try:
                 # 2026 Resilience: Scheduler Mission Hard-Reset
                 state_dict = ckpt['scheduler_state']
