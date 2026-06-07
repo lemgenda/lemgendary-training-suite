@@ -453,7 +453,10 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 print(" RECOMMENDATION: Switch to CLOUD TRAINING (Kaggle/Colab) for higher resolutions.")
                 print("================================================================================\n")
 
-        print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M) | Fraction: {sample_fraction*100:.1f}%")
+        if mode == 'train':
+            print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M) | Dataset Fraction: {sample_fraction*100:.1f}%")
+        else:
+            print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M) | Dataset Fraction: 100.0% (Eval Shard: 30% unless Refinement)")
         return final_batch
     except Exception as e:
         print(f"[WARNING] [MEMORY-SENTINEL] Probe critical failure: {e}. Defaulting to safe baseline.")
@@ -2450,6 +2453,7 @@ def main():
                 if pbar: pbar.write(" [GOVERNOR] Refinement Phase Active: Auto-expanding Validation Manifold to 100% for SOTA audit.")
             else:
                 shard_limit = max(1, int(len(val_loader) * 0.3))
+                if pbar: pbar.write(f" [GOVERNOR] Validation Sharding Active: Evaluating {shard_limit} batches (~30% of validation manifold) to optimize speed.")
 
             if len(val_loader) > 0:
                 val_resume_iteration = int(last_val_pct * len(val_loader))
