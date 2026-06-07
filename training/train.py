@@ -509,6 +509,35 @@ def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
     return results
 
 
+def load_scheduler_state_stretched(scheduler, state_dict, current_total_steps, expected_step=None):
+    """Loads scheduler state dict while stretching the runway if total_steps mismatch."""
+    if 'total_steps' in state_dict and state_dict['total_steps'] != current_total_steps:
+        old_total = state_dict['total_steps']
+        old_last = state_dict['last_epoch']
+        ratio = current_total_steps / max(1, old_total)
+        
+        # Scale steps
+        state_dict['total_steps'] = current_total_steps
+        new_last = int(round(old_last * ratio))
+        if expected_step is not None:
+            new_last = max(new_last, expected_step)
+        state_dict['last_epoch'] = new_last
+        state_dict['_step_count'] = new_last + 1
+        
+        if '_schedule_phases' in state_dict:
+            for phase in state_dict['_schedule_phases']:
+                if 'end_step' in phase:
+                    old_end = phase['end_step']
+                    if isinstance(old_end, int):
+                        phase['end_step'] = int(round((old_end + 1) * ratio - 1))
+                    else:
+                        phase['end_step'] = (old_end + 1) * ratio - 1
+        
+        print(f" [RESILIENCY] Stretched scheduler state dict from {old_total} to {current_total_steps} steps (last_epoch: {old_last} -> {new_last}).")
+    
+    scheduler.load_state_dict(state_dict)
+
+
 def main():
     print("[BOOT] LemGendary Training Suite initiating...", flush=True)
     print(" [TRACE] Entering main()...", flush=True)
@@ -1115,6 +1144,10 @@ def main():
                                         opt_state[k] = v.to(device)
                     except Exception as opt_err:
                         print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights and epoch history.")
+                        for state in optimizer.state.values():
+                            for k, v in state.items():
+                                if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
+                                    v.zero_()
                 if 'epoch' in ckpt:
                     start_epoch = ckpt['epoch']
                     # 2026 Resilience: If we resume from 'latest', we start the NEXT epoch.
@@ -1396,44 +1429,27 @@ def main():
             try:
                 # 2026 Resilience: Scheduler Mission Hard-Reset
                 state_dict = ckpt['scheduler_state']
-
-                if 'total_steps' in state_dict and state_dict['total_steps'] != total_steps:
-                    old_total = state_dict['total_steps']
-                    old_last = state_dict['last_epoch']
-                    print(f" [RE-INITIALIZATION] Mission Runway Stretched ({old_total} -> {total_steps}). Seamlessly stretching OneCycleLR curve...")
-                    
-                    # 2026 SOTA Resilience: We DO NOT re-instantiate the scheduler here! 
-                    # Re-instantiating it would crush the max_lr because p['lr'] has already been reduced to initial_lr.
-                    # The scheduler created above is already perfectly initialized with the config's max_lr.
-                    # We calculate the expected step from epoch progress to avoid rewind artifacts.
+                
+                steps_per_epoch = len(train_loader) // accumulation_steps
+                if steps_per_epoch == 0: steps_per_epoch = 1
+                expected_step = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
+                
+                load_scheduler_state_stretched(scheduler, state_dict, total_steps, expected_step=expected_step)
+                print(" [RESILIENCY] Scheduler manifold successfully synchronized.")
+            except Exception as e:
+                print(f" [RESILIENCY] Partial scheduler sync failure: {e}. Re-instantiating fresh curve.")
+                try:
+                    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                        optimizer, max_lr=lr*max_lr_mult, total_steps=total_steps,
+                        pct_start=dynamic_pct_start, anneal_strategy='cos'
+                    )
                     steps_per_epoch = len(train_loader) // accumulation_steps
-                    if steps_per_epoch == 0: steps_per_epoch = 1
-                    expected_step = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
-                    # Cross-validate with the proportional approach and take the maximum
-                    # to prevent rewinding the LR to near-zero warmup levels.
-                    ratio = total_steps / max(1, old_total)
-                    proportional_step = int(old_last * ratio)
-                    scheduler.last_epoch = max(expected_step, proportional_step)
-                    scheduler._step_count = scheduler.last_epoch + 1
-                    
-                    print(f" [MISSION SHIELD] Scheduler manifold SEAMLESSLY STRETCHED. Step counter: {scheduler.last_epoch} of {total_steps} (epoch-based: {expected_step}, proportional: {proportional_step}).")
-                else:
-                    try:
-                        scheduler.load_state_dict(state_dict)
-                        print(" [RESILIENCY] Scheduler manifold successfully synchronized.")
-                    except Exception as e:
-                        print(f" [RESILIENCY] Partial scheduler sync failure: {e}. Re-instantiating fresh curve.")
-                        try:
-                            scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                                optimizer, max_lr=lr*max_lr_mult, total_steps=total_steps,
-                                pct_start=dynamic_pct_start, anneal_strategy='cos'
-                            )
-                            steps_per_epoch = len(train_loader) // accumulation_steps
-                            expected_steps_total = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
-                            scheduler.last_epoch = expected_steps_total
-                            print(f" [MISSION SHIELD] Scheduler protected after sync failure. Resumed at step: {expected_steps_total} of {total_steps}.")
-                        except Exception as inner_e:
-                            print(f" [WARNING] Failed to instantiate OneCycleLR: {inner_e}")
+                    expected_steps_total = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
+                    scheduler.last_epoch = expected_steps_total
+                    scheduler._step_count = expected_steps_total + 1
+                    print(f" [MISSION SHIELD] Scheduler protected after sync failure. Resumed at step: {expected_steps_total} of {total_steps}.")
+                except Exception as inner_e:
+                    print(f" [WARNING] Failed to instantiate OneCycleLR: {inner_e}")
             except Exception as e:
                 print(f" [RESILIENCY] Mission-level scheduler sync failure: {e}. Defaulting to safety manifold.")
     else:
@@ -1993,6 +2009,10 @@ def main():
                                     optimizer.load_state_dict(ckpt['optimizer_state'])
                                 except Exception as opt_err:
                                     print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights.")
+                                    for state in optimizer.state.values():
+                                        for k, v in state.items():
+                                            if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
+                                                v.zero_()
 
                             # 2026: SOTA Governor Sync (Recoil Integration)
                             # Notify Governor to perform a Tactical Retreat (Recoil) and log failure
@@ -2007,7 +2027,7 @@ def main():
                             # 2026: SOTA Scheduler Sync
                             if 'scheduler_state' in ckpt:
                                 try:
-                                    scheduler.load_state_dict(ckpt['scheduler_state'])
+                                    load_scheduler_state_stretched(scheduler, ckpt['scheduler_state'], total_steps)
                                     print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
                                 except Exception as sched_err:
                                     print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
@@ -2120,6 +2140,10 @@ def main():
                                     optimizer.load_state_dict(ckpt['optimizer_state'])
                                 except Exception as opt_err:
                                     print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights.")
+                                    for state in optimizer.state.values():
+                                        for k, v in state.items():
+                                            if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
+                                                v.zero_()
                             
                             recoil_msg = governor.recoil()
                             if recoil_msg: print(recoil_msg)
@@ -2132,7 +2156,7 @@ def main():
                             # 2026: SOTA Scheduler Sync
                             if 'scheduler_state' in ckpt:
                                 try:
-                                    scheduler.load_state_dict(ckpt['scheduler_state'])
+                                    load_scheduler_state_stretched(scheduler, ckpt['scheduler_state'], total_steps)
                                     print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
                                 except Exception as sched_err:
                                     print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
@@ -3024,6 +3048,7 @@ def main():
                     # Scale the step counter to the exact same percentage of the new curve
                     ratio = new_total_steps / max(1, old_total)
                     scheduler.last_epoch = int(old_last * ratio)
+                    scheduler._step_count = scheduler.last_epoch + 1
                     print(f" [MISSION SHIELD] Scheduler manifold SEAMLESSLY STRETCHED. Step counter: {scheduler.last_epoch} of {new_total_steps}.")
 
             if t_changed or c_changed:
@@ -3102,6 +3127,10 @@ def main():
                             optimizer.load_state_dict(ckpt['optimizer_state'])
                         except Exception as opt_err:
                             print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights.")
+                            for state in optimizer.state.values():
+                                for k, v in state.items():
+                                    if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
+                                        v.zero_()
 
                     # --- 2026: SOTA Governor Sync (Restoration -> Safety Pullback) ---
                     # We restore the state FIRST, then apply the Recoil safety on top of it.
@@ -3112,7 +3141,7 @@ def main():
                     # 2026: SOTA Scheduler Sync
                     if 'scheduler_state' in ckpt:
                         try:
-                            scheduler.load_state_dict(ckpt['scheduler_state'])
+                            load_scheduler_state_stretched(scheduler, ckpt['scheduler_state'], total_steps)
                             print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
                         except Exception as sched_err:
                             print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
