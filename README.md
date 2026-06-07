@@ -59,7 +59,6 @@ The v16.2.8 release marks the end of "low-resolution warm-up." The suite now enf
 - **`metrics.csv` Epoch Sync**: Automatically parses the last logged epoch inside `metrics.csv` upon resume and aligns `start_epoch` to respect manual CSV deletions or truncations.
 - **Immediate Rollback on Metric Singularity**: The Metric Singularity Shield triggers a tactical recoil and rollback to SOTA weights immediately if PLCC/SRCC hit NaN (manifold collapse), protecting model weights from being corrupted.
 
-
 ---
 
 ## 🛠️ Getting Started
@@ -120,7 +119,6 @@ The master orchestration console for system bootstrapping and cloud sync.
 | **Scheduler Shield** | Auto-detects and corrects poisoned step counts from checkpoint states. | ✅ v24.0 Active |
 | **metrics.csv Sync** | Aligns starting resume epoch with manual metrics.csv truncations. | ✅ v24.0 Active |
 | **Immediate Rollback** | Rollback immediately to SOTA best weights on Metric Singularity. | ✅ v24.0 Active |
-
 
 ---
 
