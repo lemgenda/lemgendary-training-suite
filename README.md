@@ -1,12 +1,12 @@
-# LemGendary AI Training Suite (v16.2.8-NUCLEAR-HARDENED)
+# LemGendary AI Training Suite (v16.2.9-NUCLEAR-HARDENED)
 
 > **The 2026 Global Standard for High-Fidelity Vision Model Training.**
 >
-> A unified, industrial-grade orchestration layer for training, optimizing, and deploying SOTA vision and multimodal models. Optimized for high-frequency artifact detection and structural restoration with **Nuclear-Hardened v16.2.8 Architecture**.
+> A unified, industrial-grade orchestration layer for training, optimizing, and deploying SOTA vision and multimodal models. Optimized for high-frequency artifact detection and structural restoration with **Nuclear-Hardened v16.2.9 Architecture**.
 
 ---
 
-## 📡 Mission Status: v16.2.8 (High-Fidelity Era)
+## 📡 Mission Status: v16.2.9 (High-Fidelity Era)
 
 🚀 **Status**: High-Fidelity Calibration Active / Global Registry Hardened  
 🧪 **Current Goal**: Finalize the **Resolution Ladder (256px-640px)** with **Ladder-Aware SOTA Guards** and **Manifold Hardening**.
@@ -52,6 +52,13 @@ The v16.2.8 release marks the end of "low-resolution warm-up." The suite now enf
 - **Low-Variance Safety Gate (v23.6)**: Bypasses emergency head resets and thermal shock temperature resets for `nima_authenticity` or if validation target standard deviation is low (< 0.15) to prevent training destabilization.
 - **Mission Completion**: Full SOTA export and hub synchronization only occur after the model has conquered the **Final Resolution** on 100% data.
 
+### 🛡️ Checkpoint Resumption & Singularity Hardening (v24.0)
+
+- **OneCycleLR Step Clamping**: Automatically clamps stretched steps during dynamic resolution or epoch increases to prevent PyTorch scheduler out-of-bounds index crashes.
+- **The Scheduler Shield**: Dynamically inspects candidate checkpoints for poisoned/advanced step counts (often left over from aborted runs with corrupted scheduler histories). If detected, it overrides and re-anchors the loaded scheduler steps back to actual epoch progress, ensuring the learning rate is recalculated at its healthy magnitude.
+- **`metrics.csv` Epoch Sync**: Automatically parses the last logged epoch inside `metrics.csv` upon resume and aligns `start_epoch` to respect manual CSV deletions or truncations.
+- **Immediate Rollback on Metric Singularity**: The Metric Singularity Shield triggers a tactical recoil and rollback to SOTA weights immediately if PLCC/SRCC hit NaN (manifold collapse), protecting model weights from being corrupted.
+
 
 ---
 
@@ -85,11 +92,11 @@ The master orchestration console for system bootstrapping and cloud sync.
 
 ---
 
-## 🛡️ Feature Matrix (v16.2.8 Master Engine)
+## 🛡️ Feature Matrix (v16.2.9 Master Engine)
 
 | Feature | Description | Status |
 | :--- | :--- | :--- |
-| **Memory-Sentinel** | 100% autonomous physical batch and accumulation calculation. | ✅ v16.2.8 Active |
+| **Memory-Sentinel** | 100% autonomous physical batch and accumulation calculation. | ✅ v16.2.9 Active |
 | **Serial Shield** | Force-disables workers on low-VRAM hardware after an OOM. | ✅ v17.2 Active |
 | **Progress Guard** | Advances epochs at 99.9% progress to prevent training loops. | ✅ v17.2 Active |
 | **4GB Iron-Clamp** | Hardware-aware pixel ceilings to prevent System RAM paging. | ✅ v22.0 Active |
@@ -109,6 +116,10 @@ The master orchestration console for system bootstrapping and cloud sync.
 | **Quality Selection Guard** | Gates SOTA exports to require absolute improvement in primary quality metrics. | ✅ v23.6 Active |
 | **Recoil Protection** | Retains dataset fraction during same-resolution plateaus and regressions. | ✅ v23.6 Active |
 | **Low-Variance Safety Gate** | Bypasses emergency head resets and thermal shocks on low-variance distributions. | ✅ v23.6 Active |
+| **Scheduler Clamping** | Clamps stretched steps to prevent out-of-bounds scheduler crashes. | ✅ v24.0 Active |
+| **Scheduler Shield** | Auto-detects and corrects poisoned step counts from checkpoint states. | ✅ v24.0 Active |
+| **metrics.csv Sync** | Aligns starting resume epoch with manual metrics.csv truncations. | ✅ v24.0 Active |
+| **Immediate Rollback** | Rollback immediately to SOTA best weights on Metric Singularity. | ✅ v24.0 Active |
 
 
 ---
