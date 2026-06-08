@@ -543,10 +543,10 @@ def load_scheduler_state_stretched(scheduler, state_dict, current_total_steps, e
             
             print(f" [RESILIENCY] Stretched scheduler state dict from {old_total} to {current_total_steps} steps (last_epoch: {old_last} -> {new_last}).")
         elif expected_step is not None:
-            # If total_steps matches, but last_epoch is de-synced/poisoned (too far ahead of expected)
+            # If total_steps matches, but last_epoch is de-synced/poisoned (too far ahead or behind expected)
             old_last = state_dict.get('last_epoch', 0)
-            if old_last > expected_step:
-                print(f" [RESILIENCY] [SHIELD] Poisoned/advanced step count detected in scheduler_state ({old_last}). Re-anchoring to actual progress step ({expected_step}).")
+            if old_last != expected_step:
+                print(f" [RESILIENCY] [SHIELD] De-synced step count detected in scheduler_state ({old_last} vs expected {expected_step}). Re-anchoring to actual progress step ({expected_step}).")
                 state_dict['last_epoch'] = expected_step
                 state_dict['_step_count'] = expected_step + 1
 
@@ -3588,6 +3588,51 @@ if __name__ == "__main__":
     try:
         main() # pyre-ignore
     except KeyboardInterrupt:
-        print("\n\n[INTERRUPT] Manual abort detected. Cleaning up processes...")
+        print("\n\n[INTERRUPT] Manual abort detected. Saving current state to progress.pth...")
+        try:
+            # We locate the active variables inside main() using sys._getframe()
+            import sys
+            frame = sys._getframe(1)
+            # Find main frame
+            while frame and frame.f_code.co_name != "main":
+                frame = frame.f_back
+            if frame:
+                epoch = frame.f_locals.get("epoch", 0)
+                current_iter = frame.f_locals.get("current_iter", 0)
+                train_loader = frame.f_locals.get("train_loader")
+                model = frame.f_locals.get("model")
+                optimizer = frame.f_locals.get("optimizer")
+                scheduler = frame.f_locals.get("scheduler")
+                governor = frame.f_locals.get("governor")
+                best_val_loss = frame.f_locals.get("best_val_loss", float("inf"))
+                best_quality_score = frame.f_locals.get("best_quality_score", -1.0)
+                best_metrics = frame.f_locals.get("best_metrics", {})
+                epochs_no_improve = frame.f_locals.get("epochs_no_improve", 0)
+                regression_epochs = frame.f_locals.get("regression_epochs", 0)
+                sota_baseline_achieved = frame.f_locals.get("sota_baseline_achieved", False)
+                progress_local = frame.f_locals.get("progress_local")
+                avg_train_loss = frame.f_locals.get("avg_train_loss", 0.0)
+                
+                if model and progress_local:
+                    ckpt_state = {
+                        'epoch': epoch,
+                        'iteration': current_iter,
+                        'loader_len': len(train_loader) if train_loader else 0,
+                        'model_state': model.state_dict(),
+                        'optimizer_state': optimizer.state_dict() if optimizer else None,
+                        'scheduler_state': scheduler.state_dict() if scheduler else None,
+                        'governor_state': governor.get_state() if governor else None,
+                        'best_val_loss': best_val_loss,
+                        'best_quality_score': best_quality_score,
+                        'best_metrics': best_metrics,
+                        'epochs_no_improve': epochs_no_improve,
+                        'regression_epochs': regression_epochs,
+                        'sota_achieved': sota_baseline_achieved,
+                        'avg_train_loss': avg_train_loss
+                    }
+                    torch.save(ckpt_state, progress_local)
+                    print(f"✅ Gracefully saved mid-epoch progress checkpoint: {progress_local}")
+        except Exception as save_err:
+            print(f" [WARNING] Failed to save progress on manual abort: {save_err}")
         cleanup_active_processes()
         sys.exit(0)
