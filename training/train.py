@@ -1057,7 +1057,7 @@ def main():
     # --- 2026: Global Historical Best Guardrail ---
     # We probe the 'best.pth' artifact to establish a high-water mark for the entire project.
     # This prevents regression epochs in a new session from overwriting a previous SOTA peak.
-    best_ckpt_path = os.path.join(config["checkpoint_dir"], f"{args.model}_best.pth")
+    best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
     if os.path.exists(best_ckpt_path):
         try:
             best_ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False) # pyre-ignore
@@ -1132,6 +1132,7 @@ def main():
                     candidates[i] = (-1, 0, ckpt)
 
     ckpt_loaded = False
+    loaded_ckpt_path = None
     # Sort by Epoch (Descending), then MTime (Descending)
     candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
@@ -1300,6 +1301,7 @@ def main():
                 model.load_state_dict(ckpt, strict=False)
                 print("Loaded raw legacy weights successfully.")
             ckpt_loaded = True
+            loaded_ckpt_path = attempt_ckpt
             print(f"[OK] [CONTINUITY] Successfully loaded: {attempt_ckpt}")
             break
         except Exception as e:
@@ -1460,8 +1462,8 @@ def main():
 
     # Reload scheduler state only if compatible (Resiliency Phase)
     # 2026: Continuity Guard - Only sync if start_epoch is > 0 (resuming)
-    if os.path.exists(latest_ckpt) and start_epoch > 0:
-        ckpt = torch.load(latest_ckpt, map_location=device, weights_only=False) # pyre-ignore
+    if ckpt_loaded and loaded_ckpt_path and os.path.exists(loaded_ckpt_path) and start_epoch > 0:
+        ckpt = torch.load(loaded_ckpt_path, map_location=device, weights_only=False) # pyre-ignore
         if getattr(args, 'reset_scheduler', False):
             steps_per_epoch = len(train_loader) // accumulation_steps
             if steps_per_epoch == 0: steps_per_epoch = 1
@@ -1497,8 +1499,9 @@ def main():
             except Exception as e:
                 print(f" [RESILIENCY] Mission-level scheduler sync failure: {e}. Defaulting to safety manifold.")
     else:
-        if os.path.exists(latest_ckpt):
-            ckpt = torch.load(latest_ckpt, map_location=device, weights_only=False)
+        latest_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
+        if os.path.exists(latest_hub_path):
+            ckpt = torch.load(latest_hub_path, map_location=device, weights_only=False)
             start_epoch = ckpt['epoch'] + 1
             best_val_loss = ckpt.get('best_val_loss', 1e10)
             best_quality_score = ckpt.get('best_quality_score', 0.0)
@@ -1963,7 +1966,7 @@ def main():
                     pbar.write(f" [WARNING] Numerical Singularity detected (Batch {i+1}). Loss is perfectly 0.0. Head might be collapsed.")
                     if consecutive_singularities >= 10:
                         print(f" [NUCLEAR] Infinite Singularity Loop (10 batches). Poisoned state detected. Nuking Latest & Hard-Resetting...")
-                        latest_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_latest.pth")
+                        latest_ckpt = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
                         if os.path.exists(latest_ckpt):
                             try: os.remove(latest_ckpt)
                             except: pass
