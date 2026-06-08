@@ -40,6 +40,7 @@ class SmartTrainingGovernor:
         self.res_ladder = opt.get("res_ladder")
         self.target_effective_batch = opt.get("target_effective_batch", manifold_defaults.get("target_effective_batch", 24))
         self.manifold_maturity = opt.get("manifold_maturity", manifold_defaults.get("maturity_soak", 5)) # 2026: Mandatory soak period (epochs)
+        self.plateau_patience = opt.get("plateau_patience", self.config.get("governor", {}).get("plateau_patience", 6))
 
         # 2026: Numerical Stress Audit (Sentinel Response)
         self.recovery_streak = 0
@@ -230,7 +231,10 @@ class SmartTrainingGovernor:
                 if all(abs(d) > self.min_delta * 2 for d in deltas):
                     is_turbulent = True
 
-        is_flat = abs(delta_q) < self.min_delta and len(self.history) >= 2
+        # Stagnation check: check if we have hit plateau patience
+        is_plateaued = (epochs_no_improve >= self.plateau_patience)
+        is_flat_leg = abs(delta_q) < self.min_delta and len(self.history) >= 2
+        is_flat = is_plateaued or is_flat_leg
 
         # 2026 NPP: Fidelity Floor (Task 12.7)
         # If the model is stuck in a low-quality manifold (e.g. Accuracy high but SRCC low),
@@ -242,7 +246,8 @@ class SmartTrainingGovernor:
         if is_trapped:
             # Relax min_delta by 4x to ignore low-level metric jitter
             effective_min_delta = self.min_delta * 4
-            is_flat = abs(delta_q) < effective_min_delta
+            is_flat_leg = abs(delta_q) < effective_min_delta
+            is_flat = is_plateaued or is_flat_leg
             if is_flat: msg_parts.append("[TRAPPED] Fidelity Floor reached. Relaxing stagnation guard.")
 
         # 2026 NPP v15.6: Relaxed Regression Gate for high-noise Quality manifolds
@@ -351,7 +356,9 @@ class SmartTrainingGovernor:
             stride_threshold = stride_threshold * self.target_quality_score
         propulsion_allowed = not should_retreat and self.cooldown_remaining == 0
         not_regressing = delta_q >= -self.min_delta
-        if propulsion_allowed and not_regressing and (is_flat or (current_quality > stride_threshold and delta_q < self.min_delta)):
+        # If we have reached plateau patience, we allow propulsion even if the last epoch had a minor negative fluctuation,
+        # as long as we are not in an active retreat state.
+        if propulsion_allowed and (is_plateaued or (not_regressing and (is_flat_leg or (current_quality > stride_threshold and delta_q < self.min_delta)))):
             # 2026: The Jolt - Breaking Plateaus with LR Propulsion
             # Senior Update: Added Jolt cooldown (5 epochs)
             jolt_ready = (self.epoch_count - getattr(self, 'last_jolt_epoch', -10)) > 5 and self.cooldown_remaining == 0
