@@ -73,7 +73,17 @@ try:
     from torch.optim.swa_utils import AveragedModel, SWALR, update_bn # 2026 SOTA: Smooth Generalization
     from training.optimization_engine import SmartTrainingGovernor
 except ImportError as e:
-    ...
+    print(f"\n--- LemGendary Crash Diagnostics ---")
+    print(f"Executable: {sys.executable}")
+    print(f"Script Location: {__file__}")
+    print(f"Project Root: {workspace_root}")
+    print(f"Looking for venv site-packages at: {venv_site_pkgs} (Exists: {os.path.exists(venv_site_pkgs)})")
+    print(f"Current Path (sys.path[0]): {sys.path[0]}")
+    print(f"Full sys.path: {sys.path}")
+    print(f"\n[ERROR] [CRITICAL] Dependency Error: {e}")
+    print(" [!] Your LemGendary environment is incomplete or corrupted.")
+    print(" [!] Fix: Run the 'lemgendary_hub.ps1' script and select Option 1.")
+    sys.exit(1)
 
 # --- 2026 Resilience: Disk Space Sentinel (v1.0) ---
 def safe_torch_save(obj, path):
@@ -129,17 +139,6 @@ def safe_torch_save(obj, path):
             except: pass
         return False
 
-    print(f"\n--- LemGendary Crash Diagnostics ---")
-    print(f"Executable: {sys.executable}")
-    print(f"Script Location: {__file__}")
-    print(f"Project Root: {workspace_root}")
-    print(f"Looking for venv site-packages at: {venv_site_pkgs} (Exists: {os.path.exists(venv_site_pkgs)})")
-    print(f"Current Path (sys.path[0]): {sys.path[0]}")
-    print(f"Full sys.path: {sys.path}")
-    print(f"\n[ERROR] [CRITICAL] Dependency Error: {e}")
-    print(" [!] Your LemGendary environment is incomplete or corrupted.")
-    print(" [!] Fix: Run the 'lemgendary_hub.ps1' script and select Option 1.")
-    sys.exit(1)
 
 # (Workspace root correctly anchored in boot sequence above)
 
@@ -2993,7 +2992,8 @@ def main():
             current_loss=avg_val_loss,
             plcc=plcc,
             target_std=t_std,
-            force_jump=False
+            force_jump=False,
+            train_loss=avg_train_loss
         )
 
         if smart_msg:

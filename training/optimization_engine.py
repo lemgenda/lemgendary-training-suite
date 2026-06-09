@@ -139,7 +139,7 @@ class SmartTrainingGovernor:
         if res_idx < len(self.res_ladder) - 1: return "DEEPENING"
         return "REFINEMENT"
 
-    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, target_std=None, force_jump=False):
+    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, target_std=None, force_jump=False, train_loss=None):
         if not self.enabled and not force_jump: return False, False, False, False, False, False, ""
         self.epoch_count += 1
         self.session_epoch_count += 1
@@ -180,7 +180,7 @@ class SmartTrainingGovernor:
             self.cooldown_remaining -= 1
 
         # 1. Update Memory
-        self.history.append((current_quality, current_loss))
+        self.history.append((current_quality, current_loss, train_loss))
         if len(self.history) > 5: self.history.pop(0)
         self.best_quality = max(self.best_quality, current_quality)
 
@@ -215,6 +215,18 @@ class SmartTrainingGovernor:
             self.prev_quality = current_quality
             if current_loss: self.prev_loss = current_loss
             return False, False, False, False, False, False, "[GUARD] [SHIELD] Resumption Shield Active. Buffering Momentum Shock."
+
+        # Overfitting Detection (NPP): check training vs validation loss trends over the last 3 epochs
+        is_overfitting = False
+        if len(self.history) >= 3:
+            train_losses = [h[2] for h in self.history if len(h) > 2 and h[2] is not None]
+            val_losses = [h[1] for h in self.history if h[1] is not None]
+            if len(train_losses) >= 3 and len(val_losses) >= 3:
+                # Train loss decreasing and Val loss increasing
+                train_trend = train_losses[-1] - train_losses[-3]
+                val_trend = val_losses[-1] - val_losses[-3]
+                if train_trend < -1e-4 and val_trend > 1e-4:
+                    is_overfitting = True
 
         f_changed = r_changed = lr_changed = t_changed = c_changed = b_changed = False
         self.lr_multiplier = 1.0
@@ -298,6 +310,12 @@ class SmartTrainingGovernor:
             should_retreat = False
             if is_regressing: msg_parts.append("[GUARD] [MOMENTUM] Jitter detected but Loss is stable. Holding manifold.")
 
+        # --- Overfitting Rescue Protocol ---
+        if is_overfitting and is_expanding:
+            should_retreat = False
+            self.cooldown_remaining = 0
+            msg_parts.append("[RESCUE] [OVERFITTING] Overfitting detected. Forcing dataset expansion to introduce variety.")
+
         if should_retreat:
             self.failure_log[str(current_state)] = failures + 1
             msg_parts.append(f"[WARNING] NPP FAILURE: State {current_state} (Count: {self.failure_log[str(current_state)]})")
@@ -356,9 +374,14 @@ class SmartTrainingGovernor:
             stride_threshold = stride_threshold * self.target_quality_score
         propulsion_allowed = not should_retreat and self.cooldown_remaining == 0
         not_regressing = delta_q >= -self.min_delta
-        # If we have reached plateau patience, we allow propulsion even if the last epoch had a minor negative fluctuation,
-        # as long as we are not in an active retreat state.
-        if propulsion_allowed and (is_plateaued or (not_regressing and (is_flat_leg or (current_quality > stride_threshold and delta_q < self.min_delta)))):
+        
+        # Overfitting overrides stagnation/cooldown to force data expansion
+        trigger_propulsion = propulsion_allowed and (
+            is_overfitting or 
+            is_plateaued or 
+            (not_regressing and (is_flat_leg or (current_quality > stride_threshold and delta_q < self.min_delta)))
+        )
+        if trigger_propulsion:
             # 2026: The Jolt - Breaking Plateaus with LR Propulsion
             # Senior Update: Added Jolt cooldown (5 epochs)
             jolt_ready = (self.epoch_count - getattr(self, 'last_jolt_epoch', -10)) > 5 and self.cooldown_remaining == 0
