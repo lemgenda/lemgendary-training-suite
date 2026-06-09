@@ -50,6 +50,7 @@ The v16.2.8 release marks the end of "low-resolution warm-up." The suite now enf
 - **SOTA Quality Selection Guard (v23.6)**: Gated SOTA exports for quality tasks. Loss-only improvements update the validation loss to keep training active but do not trigger checkpoint exports or overwrite SOTA weights unless the primary correlation/accuracy quality score hits a record high.
 - **Same-Resolution Recoil Protection (v23.6)**: Hardened the Smart Governor to retain the current data fraction during same-resolution plateaus and recoil/regression phases, ensuring the model stabilizes on the current data variety instead of running in loops lowering and rising fractions.
 - **Low-Variance Safety Gate (v23.6)**: Bypasses emergency head resets and thermal shock temperature resets for `nima_authenticity` or if validation target standard deviation is low (< 0.15) to prevent training destabilization.
+- **Overfitting Rescue Protocol (v24.0)**: Overrides tactical recoils and cooldown locks when trend-based overfitting is diagnosed (train loss trend decreases while validation loss trend increases over a 3-epoch window), force-expanding the dataset fraction (+15% data) to break the overfitting attractor.
 - **Mission Completion**: Full SOTA export and hub synchronization only occur after the model has conquered the **Final Resolution** on 100% data.
 
 ### 🛡️ Checkpoint Resumption & Singularity Hardening (v24.0)
@@ -115,6 +116,7 @@ The master orchestration console for system bootstrapping and cloud sync.
 | **Quality Selection Guard** | Gates SOTA exports to require absolute improvement in primary quality metrics. | ✅ v23.6 Active |
 | **Recoil Protection** | Retains dataset fraction during same-resolution plateaus and regressions. | ✅ v23.6 Active |
 | **Low-Variance Safety Gate** | Bypasses emergency head resets and thermal shocks on low-variance distributions. | ✅ v23.6 Active |
+| **Overfitting Rescue** | Overrides recoil cooldowns and force-expands dataset fraction on overfitting trends. | ✅ v24.0 Active |
 | **Scheduler Clamping** | Clamps stretched steps to prevent out-of-bounds scheduler crashes. | ✅ v24.0 Active |
 | **Scheduler Shield** | Auto-detects and corrects poisoned step counts from checkpoint states. | ✅ v24.0 Active |
 | **metrics.csv Sync** | Aligns starting resume epoch with manual metrics.csv truncations. | ✅ v24.0 Active |
