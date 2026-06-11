@@ -409,6 +409,7 @@ class SmartTrainingGovernor:
                     f_changed = True
                     msg_parts.append(f"PROPULSION: Data -> {self.current_fraction*100:.0f}%")
                     self.stabilization_epochs = 1
+                    self.best_quality = current_quality
             elif phase == "DEEPENING":
                 current_idx = self.res_ladder.index(self.current_res)
                 next_res = self.res_ladder[current_idx + 1]
