@@ -455,7 +455,8 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         if mode == 'train':
             print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M) | Dataset Fraction: {sample_fraction*100:.1f}%")
         else:
-            print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M) | Dataset Fraction: 100.0% (Eval Shard: 30% unless Refinement)")
+            shard_str = "100% for Quality/Refinement" if mode == "val" else "30% unless Refinement"
+            print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M) | Dataset Fraction: 100.0% (Eval Shard: {shard_str})")
         return final_batch
     except Exception as e:
         print(f"[WARNING] [MEMORY-SENTINEL] Probe critical failure: {e}. Defaulting to safe baseline.")
@@ -2518,9 +2519,9 @@ def main():
                 is_refinement = governor.get_phase() == "REFINEMENT"
             except: pass
 
-            if is_refinement:
+            if is_refinement or train_ds.task_type == "quality":
                 shard_limit = len(val_loader)
-                if pbar: pbar.write(" [GOVERNOR] Refinement Phase Active: Auto-expanding Validation Manifold to 100% for SOTA audit.")
+                if pbar: pbar.write(" [GOVERNOR] Quality/Refinement Phase Active: Auto-expanding Validation Manifold to 100% for SOTA audit.")
             else:
                 shard_limit = max(1, int(len(val_loader) * 0.3))
                 if pbar: pbar.write(f" [GOVERNOR] Validation Sharding Active: Evaluating {shard_limit} batches (~30% of validation manifold) to optimize speed.")

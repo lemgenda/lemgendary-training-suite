@@ -265,7 +265,7 @@ class SmartTrainingGovernor:
         # 2026 NPP v15.6: Relaxed Regression Gate for high-noise Quality manifolds
         # Prevents "Panic Recoils" during natural SRCC/PLCC jitter
         regress_threshold = -0.03 if self.task_type in ["quality", "parameter_prediction"] else -0.01
-        is_regressing = delta_q < regress_threshold
+        is_regressing = delta_q < (self.prev_quality * regress_threshold) if self.prev_quality else False
         is_collapsed = (current_quality < 0.05) or (plcc < -0.1) # Near-zero or negative correlation
 
         # --- 2026 NPP v15.7: Momentum Guard ---
