@@ -1686,6 +1686,13 @@ def main():
         # --- 2026 Telemetry: Epoch State Anchor ---
         # Capture variables BEFORE governor audit modifies them for the *next* epoch
         epoch_lr = scheduler.get_last_lr()[0] if hasattr(scheduler, 'get_last_lr') else optimizer.param_groups[0]['lr']
+        
+        # --- 2026 Resilience: Prevent Accumulation Starvation ---
+        # Cap the accumulation steps at the total dataset size so optimizer.step() is guaranteed to fire
+        target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
+        accumulation_steps = max(1, target_eff // batch_size)
+        accumulation_steps = min(max(1, len(train_loader)), accumulation_steps)
+
         epoch_res = train_ds.size[0]
         epoch_fraction = train_ds.sample_fraction
         epoch_temp = stab['softmax_temp']
