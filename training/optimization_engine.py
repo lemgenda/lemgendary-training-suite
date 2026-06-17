@@ -2,20 +2,9 @@ import os
 import torch
 import math
 import numpy as np
+from training.telemetry import METRIC_DIRECTIONS, METRIC_WEIGHTS
 
-# higher_better: True (Higher is Better), False (Lower is Better)
-METRIC_DIRECTIONS = {
-    'plcc': True, 'srcc': True, 'psnr': True, 'ssim': True,
-    'lpips': False, 'fid': False, 'map50': True, 'map50_95': True,
-    'rank_margin': False, 'accuracy': True, 'mae': False
-}
 
-# Standard Weights for Quality Score calculation (Multiplier applied to normalized 0.0-1.0 range)
-METRIC_WEIGHTS = {
-    'plcc': 50, 'srcc': 50, 'psnr': 10, 'ssim': 40,
-    'lpips': 40, 'fid': 1, 'map50': 100, 'map50_95': 100,
-    'rank_margin': 20, 'accuracy': 100, 'mae': 100
-}
 
 
 class SmartTrainingGovernor:

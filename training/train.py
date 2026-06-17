@@ -1,5 +1,6 @@
 # 2026: Environment Linter Sync
 import os
+from training.telemetry import TelemetryEngine, METRIC_DIRECTIONS
 # 2026 Resilience: Force GPU 0 to prevent multi-GPU context initialization hangs under virtualized environments (Kaggle T4 x2)
 if "CUDA_VISIBLE_DEVICES" not in os.environ:
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -177,18 +178,8 @@ from models.factory import get_model
 
 # --- 2026: SOTA Metric Registry & Polarity Definitions ---
 # higher_better: True (Higher is Better), False (Lower is Better)
-METRIC_DIRECTIONS = {
-    'plcc': True, 'srcc': True, 'psnr': True, 'ssim': True,
-    'lpips': False, 'fid': False, 'map50': True, 'map50_95': True,
-    'rank_margin': False, 'accuracy': True, 'mae': False
-}
 
 # Standard Weights for Quality Score calculation (Multiplier applied to normalized 0.0-1.0 range)
-METRIC_WEIGHTS = {
-    'plcc': 50, 'srcc': 50, 'psnr': 10, 'ssim': 40,
-    'lpips': 40, 'fid': 1, 'map50': 100, 'map50_95': 100,
-    'rank_margin': 20, 'accuracy': 100, 'mae': 100
-}
 
 def safe_replace(src, dst):
     """Battle-Hardened atomic replace for Windows. Uses 3-stage recovery (Replace -> Remove/Rename -> Copy/Delete)."""
@@ -1580,6 +1571,7 @@ def main():
     # Initialize metrics for export stability (Avoids NameErrors on skip)
     # Initialize metrics for export stability
     plcc, srcc, psnr, ssim_val, lpips_val, fid, map50, map50_95 = 0.0, 0.0, 0.0, 0.0, 0.05, 50.0, 0.0, 0.0
+    mae, miou, map_medium, map_hard, accuracy_vqa = 0.0, 0.0, 0.0, 0.0, 0.0
     epoch = start_epoch
 
 
@@ -1591,30 +1583,9 @@ def main():
 
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
 
-    # 2026 Schema Guard: Force-rebuild or transition the CSV to 23-column hardware-aware parity
-    schema_ok = False
-    if os.path.exists(metrics_csv_path):
-        try:
-            with open(metrics_csv_path, "r", encoding='utf-8') as f:
-                header = f.readline().strip()
-                # 2026 Schema: 23 columns (v9.2 includes Rank_Margin + Quality_Score)
-                if len(header.split(",")) == 23:
-                    schema_ok = True
-        except: pass
-
-    if not schema_ok:
-        legacy_path = metrics_csv_path.replace(".csv", "_legacy.csv")
-        if os.path.exists(metrics_csv_path):
-            try:
-                # Use atomic-friendly naming if legacy already exists
-                if os.path.exists(legacy_path):
-                    legacy_path = legacy_path.replace(".csv", f"_{int(time.time())}.csv")
-                os.rename(metrics_csv_path, legacy_path)
-                print(f" [TELEMETRY] Legacy or corrupted metrics detected. Archiving to {os.path.basename(legacy_path)} and initializing 23-column SOTA log.")
-            except: pass
-
-        with open(metrics_csv_path, "w", encoding='utf-8') as f:
-            f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Rank_Margin,Quality_Score,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n")
+    # 2026 Telemetry Engine Integration
+    telemetry_engine = TelemetryEngine(export_dir)
+    telemetry_engine.validate_and_initialize_csv()
 
     effective_batch_size = batch_size
     # accumulation_steps is established pre-emptively during initialization.
@@ -2906,42 +2877,22 @@ def main():
         if sota_targets:
             # Dynamic Quality Score: Weighted average of all SOTA targets
             # Metric mapping ensures higher is always better for the final scalar.
-            current_quality_score = 0.0
-
-            # Map available variables to a local dict for easy lookup
             curr_metrics = {
                 'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
                 'lpips': lpips_val, 'fid': fid, 'map50': map50, 'map50_95': map50_95,
                 'rank_margin': rank_margin, 'accuracy': accuracy,
-                'mae': -psnr if train_ds.task_type == 'parameter_prediction' else 0.0 # psnr stores -MAE for param prediction
+                'mae': -psnr if train_ds.task_type == 'parameter_prediction' else 0.0,
+                'miou': miou, 'map_medium': map_medium, 'map_hard': map_hard, 'accuracy_vqa': accuracy_vqa
             }
-
-            # --- 2026: Metric Singularity Shield (v1.2.1) ---
-            # Detecting Manifold Collapse (NaN correlation) in Quality tasks
-            if train_ds.task_type == "quality" and (np.isnan(plcc) or np.isnan(srcc)):
-                print(f" [NUCLEAR] Metric Singularity detected! (PLCC: {plcc} | SRCC: {srcc}). Manifold collapsed.")
+            current_quality_score, singularity_collapse = telemetry_engine.compute_quality_score(curr_metrics, sota_targets, train_ds.task_type)
+            
+            if singularity_collapse:
+                print(f" [NUCLEAR] Metric Singularity detected! Manifold collapsed.")
                 print(f" [GUARD] [RESILIENCE] Triggering Tactical Recoil and Rollback to recover distribution...")
-                current_quality_score = 0.0
-                # Trigger Recoil on the Governor
                 governor.recoil()
-                # Force a rollback check
                 is_improving = False
                 is_best = False
                 force_rollback = True
-            else:
-                for k, target_v in sota_targets.items():
-                    val = curr_metrics.get(k, 0.0)
-                    direction = METRIC_DIRECTIONS.get(k, True)
-                    weight = METRIC_WEIGHTS.get(k, 1)
-
-                    if direction:
-                        current_quality_score += val * weight
-                    else:
-                        # Inverted: We use standard 2026 normalization for restoration metrics
-                        if k == 'fid': current_quality_score += (100.0 - val) * weight
-                        elif k == 'lpips': current_quality_score += (1.0 - val) * weight
-                        elif k == 'rank_margin': current_quality_score += (10.0 - val) * weight # Corrected: Margin is 0-9 scale
-                        else: current_quality_score += (1.0 / (val + 1e-6)) * weight
 
             # --- 2026 Resilience: Meaningful Improvement Delta (Hardened v4.2) ---
             # For high-resolution restoration, we need 0.5% improvement to reset the plateau clock.
@@ -3275,13 +3226,16 @@ def main():
         # --- 2026: SOTA Telemetry Sync (Resilience v3.1) ---
         # We record the metrics AFTER all Governor transitions and Regression Guard rollbacks
         # to ensure the CSV reflects the EXACT state that will be used for the next epoch's training.
-        with open(metrics_csv_path, "a", encoding='utf-8') as f:
-            f.write(f"{epoch+1},{avg_train_loss:.8f},{avg_val_loss:.8f},{epoch_lr:.8f},"
-                    f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim_val:.4f},{lpips_val:.4f},{fid:.4f},"
-                    f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{rank_margin:.4f},{current_quality_score:.4f},"
-                    f"{epoch_res},{epoch_fraction:.2f},{epoch_temp:.4f},{epoch_clamp:.1f},"
-                    f"{governor.cooldown_remaining},{epoch_batch},{epoch_acc},{avg_sentinel_stress:.6f}\n")
-            f.flush()
+        telemetry_engine.write_epoch_row(
+            epoch=epoch,
+            train_loss=avg_train_loss,
+            val_loss=avg_val_loss,
+            lr=epoch_lr,
+            curr_metrics=curr_metrics,
+            quality_score=current_quality_score,
+            governor_state=governor.get_state(),
+            stress=avg_sentinel_stress
+        )
 
         prev_quality_score = current_quality_score
         # --- 2026 Resilience: Model Hub Sync (v6.2.0) ---

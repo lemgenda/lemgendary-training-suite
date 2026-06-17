@@ -30,6 +30,7 @@ huggingface-hub>=0.26.0
 # --- Detection & Safety (Phase 1 & 2) ---
 ultralytics>=8.3.0
 lpips>=0.1.4
+pycocotools>=2.0.7
 torch-fidelity>=0.3.0
 
 # --- Deployment & Export ---
