@@ -11,10 +11,14 @@ class NIMA_Model(nn.Module):
     """
     def __init__(self, backbone="mobilenet_v2"):
         super(NIMA_Model, self).__init__()
+        self.backbone_name = backbone
         
         if backbone == "efficientnet_v2_s":
             self.features = models.efficientnet_v2_s(weights=models.EfficientNet_V2_S_Weights.IMAGENET1K_V1).features
             in_features = 1280
+        elif backbone == "swin_v2_t":
+            self.features = models.swin_v2_t(weights=models.Swin_V2_T_Weights.IMAGENET1K_V1).features
+            in_features = 768
         else:
             self.features = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1).features
             in_features = 1280
@@ -33,6 +37,9 @@ class NIMA_Model(nn.Module):
 
     def forward(self, x):
         x = self.features(x)
+        if getattr(self, "backbone_name", "") == "swin_v2_t":
+            # Swin outputs [B, H, W, C], pool2d needs [B, C, H, W]
+            x = x.permute(0, 3, 1, 2)
         x = nn.functional.adaptive_avg_pool2d(x, (1, 1))
         x = torch.flatten(x, 1)
         logits = self.classifier(x)

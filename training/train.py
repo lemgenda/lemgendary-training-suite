@@ -745,10 +745,15 @@ def main():
     # --- 2026 Resilience: Pre-Emptive Memory-Sentinel ---
     # We use the Governor's current resolution (which may have been restored from checkpoint)
     # to ensure the initial batch audit is physically accurate for the current manifold.
-    if config_batch and str(config_batch).lower() != "auto":
-        batch_size = args.batch_size or int(config_batch)
+    hardware_limit = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=sample_fraction)
+    if args.batch_size:
+        batch_size = args.batch_size
+    elif config_batch and str(config_batch).lower() != "auto":
+        batch_size = min(int(config_batch), hardware_limit)
+        if batch_size < int(config_batch):
+            print(f" [GUARD] Hardware limit ({hardware_limit}) overrides config request ({config_batch}).")
     else:
-        batch_size = args.batch_size or audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=sample_fraction)
+        batch_size = hardware_limit
     val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val')
 
     # --- 2026 Resilience: Universal Accumulation Stride (v12.0) ---
