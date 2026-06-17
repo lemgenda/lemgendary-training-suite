@@ -162,6 +162,7 @@ class SmartTrainingGovernor:
                     self.last_res_jump_epoch = self.epoch_count
                     self.spatial_lock_remaining = 3
                     self.stabilization_epochs = 3
+                    self.history = [] # 2026: Clear history to prevent cross-resolution trend contamination
                     return True, True, False, False, False, True, f"[LAUNCH] [SOTA-FORCE] Jumping to {next_res}px Manifold..."
                 else:
                     return False, False, False, False, False, False, "[SUCCESS] [SOTA-MAX] Already at maximum resolution."
@@ -170,7 +171,7 @@ class SmartTrainingGovernor:
         # --- NPP: Aggressive Recovery ---
         if sentinel_trigger_rate == 0:
             self.recovery_streak += 1
-            if self.recovery_streak >= 2 and self.stabilization_epochs > 0:
+            if self.recovery_streak >= 2 and self.stabilization_epochs > 0 and self.spatial_lock_remaining == 0:
                 self.stabilization_epochs = 0
                 print("[LAUNCH] [NPP] Stress at zero. Breaking stabilization lock.")
         else:
