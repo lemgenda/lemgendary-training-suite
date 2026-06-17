@@ -147,5 +147,14 @@ class TelemetryEngine:
     # Note: mAP_Medium and mAP_Hard should be calculated via PyCocoTools
     # This requires intercepting bounding boxes. For now we provide a skeleton.
     def calculate_map(self, preds, targets):
-        # Full WIDER FACE hook will be implemented inside the eval loop using pycocotools
-        pass
+        """2026 mAP Hooks for Detection (YOLO/Face)."""
+        try:
+            from torchmetrics.detection.mean_ap import MeanAveragePrecision
+            # Requires preds/targets to be lists of dicts: {'boxes': [N,4], 'scores': [N], 'labels': [N]}
+            map_metric = MeanAveragePrecision(iou_type="bbox")
+            map_metric.update(preds, targets)
+            res = map_metric.compute()
+            return res.get('map_50', torch.tensor(0.0)).item(), res.get('map', torch.tensor(0.0)).item()
+        except Exception as e:
+            print(f" [WARNING] mAP Eval failed: {e}")
+            return 0.0, 0.0

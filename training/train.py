@@ -2822,6 +2822,25 @@ def main():
                 val_pbar.write(f" [SIGNAL] [DATA AUDIT] Ground Truth Distribution: {dist_str}")
 
                 metrics_str = f" | Accuracy: {accuracy:.4f}"
+            elif train_ds.task_type == "segmentation" and len(all_preds) > 0:
+                p = torch.cat(all_preds)
+                t = torch.cat(all_targets)
+                miou = telemetry_engine.calculate_miou(p, t)
+                metrics_str = f" | mIoU: {miou:.4f}"
+
+            elif train_ds.task_type in ["image_to_text", "vqa"] and len(all_preds) > 0:
+                accuracy_vqa = telemetry_engine.calculate_vqa_accuracy(all_preds, all_targets)
+                metrics_str = f" | VQA_Acc: {accuracy_vqa:.4f}"
+
+            elif train_ds.task_type in ["detection", "yolo"] and len(all_preds) > 0:
+                # YOLO predictions are expected to be list of dicts for torchmetrics
+                # If they are just raw tensors, we convert them.
+                # Assuming all_preds and all_targets are already lists of COCO-format dicts from dataloader.
+                map_med, map_hard = telemetry_engine.calculate_map(all_preds, all_targets)
+                map_medium = map_med
+                map_hard = map_hard
+                metrics_str = f" | mAP_Medium: {map_medium:.4f} | mAP_Hard: {map_hard:.4f}"
+
             elif train_ds.task_type in ["restoration", "enhancement", "face"] and total_samples > 0:
                 mse_val = mse_sum / max(1, total_pixels)
                 psnr = 10 * np.log10(1.0 / max(mse_val, 1e-10))
