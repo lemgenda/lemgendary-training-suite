@@ -22,7 +22,7 @@ governor:
     resolution_stride: 128       # Universal rung increment (px)
     max_resolution: 1024         # Hard ceiling for resolution scaling
     initial_fraction: 0.15       # Default starting data variety
-    fraction_increment: 0.15     # Expansion step size
+    fraction_increment: 0.20     # Expansion step size
     maturity_soak: 5             # Mandatory epochs per rung (Universal)
     plateau_patience: 6          # Epochs to wait before next rung jump
 
@@ -56,8 +56,8 @@ defaults:
   img_size: auto
   batch_size: auto # Dynamic Hardware Audit enabled (Iron-Clamp v22.0)
   lr: 0.00025
-  epochs: 1000
-  patience: 250
+  epochs: 300
+  patience: 100
 
 # --- Security & Stealth ---
 security:
@@ -69,4 +69,4 @@ execution:
   mode: "training" # choices: ["training", "single_epoch_test", "vetting"]
   suffixes:
     training: "Large"
-    single_epoch_test: "KaggleReady"
+    single_epoch_test: "Large"
