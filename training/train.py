@@ -1,6 +1,5 @@
 # 2026: Environment Linter Sync
 import os
-from training.telemetry import TelemetryEngine, METRIC_DIRECTIONS
 # 2026 Resilience: Force GPU 0 to prevent multi-GPU context initialization hangs under virtualized environments (Kaggle T4 x2)
 if "CUDA_VISIBLE_DEVICES" not in os.environ:
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -44,7 +43,7 @@ if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
     sys.path.insert(0, venv_site_pkgs)
 
 from datetime import datetime
-
+from training.telemetry import TelemetryEngine, METRIC_DIRECTIONS
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
 sys.setrecursionlimit(2000)
