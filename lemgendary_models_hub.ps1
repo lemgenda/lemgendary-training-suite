@@ -288,11 +288,6 @@ while ($true) {
                     $rocket = [char]0xD83D + [char]0xDE80
                     
                     $extraArgs = @()
-                    $resetChoice = Read-Host "  [?] Would you like to force-reset the OneCycleLR scheduler (re-calculate step curve)? (y/n)"
-                    if ($resetChoice -eq 'y' -or $resetChoice -eq 'Y') {
-                        $extraArgs += "--reset-scheduler"
-                        Write-Host "  [+] Force-resetting scheduler curve enabled." -ForegroundColor Cyan
-                    }
 
                     Write-Host "  [$rocket] Launching Training Matrix for >> $selectedModel <<..." -ForegroundColor Green
                     Write-Host "      -> Target Manifold: $selectedModel" -ForegroundColor Gray
