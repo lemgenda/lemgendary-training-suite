@@ -20,7 +20,7 @@ nima_aesthetic_mobile:
   description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
     optimized for artistic composition and color harmony.
   datasets:
-  - LemGendizedNimaAesthetic
+  - LemGendizedNimaAestheticMobileLarge
   sota_targets:
     plcc: 0.75
     srcc: 0.75
