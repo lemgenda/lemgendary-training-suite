@@ -22,8 +22,8 @@ nima_aesthetic_mobile:
   datasets:
   - LemGendizedNimaAesthetic
   sota_targets:
-    plcc: 0.72
-    srcc: 0.70
+    plcc: 0.75
+    srcc: 0.75
   stabilizers:
     softmax_temp: 1.0
     emd_epsilon: 0.0001
@@ -72,8 +72,8 @@ nima_aesthetic_pro:
   datasets:
   - LemGendizedNimaAesthetic
   sota_targets:
-    plcc: 0.75
-    srcc: 0.72
+    plcc: 0.78
+    srcc: 0.78
   stabilizers:
     softmax_temp: 1.0
     emd_epsilon: 0.0001
@@ -124,8 +124,8 @@ nima_technical:
   datasets:
   - LemGendizedNimaTechnical
   sota_targets:
-    plcc: 0.88
-    srcc: 0.88
+    plcc: 0.92
+    srcc: 0.92
     rank_margin: 0.05
   optimization:
     enabled: true
