@@ -2963,6 +2963,9 @@ def main():
                 print(f" -> [FALLBACK] New Best Loss: {avg_val_loss:.6f}.")
 
         # --- 2026: SOTA Smart Optimization Audit (v6.1.17) ---
+        # Capture the state used DURING the current epoch before the Governor mutates it
+        current_epoch_governor_state = governor.get_state()
+
         # Moved BEFORE CSV write and Checkpoint creation to ensure total manifold parity.
         f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
             current_quality=current_quality_score,
@@ -2991,7 +2994,7 @@ def main():
             # Recalculate batch sizes at the epoch boundary to maximize efficiency.
             if not args.batch_size:
                 if r_changed or config_batch == "auto" or config_batch is None:
-                    batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=train_ds.sample_fraction)
+                    batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=new_params['sample_fraction'])
 
                     # Validation resolution might be anchored
                     v_res = model_info.get("val_resolution", governor.current_res)
@@ -3242,8 +3245,8 @@ def main():
             regression_epochs = 0
 
         # --- 2026: SOTA Telemetry Sync (Resilience v3.1) ---
-        # We record the metrics AFTER all Governor transitions and Regression Guard rollbacks
-        # to ensure the CSV reflects the EXACT state that will be used for the next epoch's training.
+        # We record the CSV using the exact governor state that was used DURING this epoch's training.
+        # This guarantees that the CSV metrics and hyperparameters perfectly align on the same row.
         telemetry_engine.write_epoch_row(
             epoch=epoch,
             train_loss=avg_train_loss,
@@ -3251,7 +3254,7 @@ def main():
             lr=epoch_lr,
             curr_metrics=curr_metrics,
             quality_score=current_quality_score,
-            governor_state=governor.get_state(),
+            governor_state=current_epoch_governor_state,
             stress=avg_sentinel_stress
         )
 

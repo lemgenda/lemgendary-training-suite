@@ -367,7 +367,7 @@ class SmartTrainingGovernor:
         
         # Overfitting overrides stagnation/cooldown to force data expansion
         trigger_propulsion = propulsion_allowed and (
-            is_overfitting or 
+            (is_overfitting and is_expanding) or 
             is_plateaued or 
             (not_regressing and (is_flat_leg or (current_quality > stride_threshold and delta_q < self.min_delta)))
         )
