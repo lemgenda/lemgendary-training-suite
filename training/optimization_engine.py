@@ -124,7 +124,7 @@ class SmartTrainingGovernor:
     def get_phase(self):
         res_idx = self.res_ladder.index(self.current_res)
         if res_idx == 0 and self.current_fraction < 0.5: return "FOUNDATION"
-        if self.current_fraction < 0.95: return "EXPANSION"
+        if self.current_fraction < 1.0: return "EXPANSION"
         if res_idx < len(self.res_ladder) - 1: return "DEEPENING"
         return "REFINEMENT"
 
