@@ -3107,6 +3107,10 @@ def main():
             # or broke a plateau with a Jolt, we must reset the patience timer so it doesn't infinite loop.
             if f_changed or r_changed or lr_changed:
                 epochs_no_improve = 0
+            if r_changed:
+                print(f" [GUARD] Resolution changed. Resetting SOTA baseline to accommodate new spatial manifold.")
+                best_quality_score = -1.0
+                best_val_loss = float('inf')
 
         # 2026 Resilience: best_metrics is preserved from the last SOTA/best update block to prevent metric corruption.
 
