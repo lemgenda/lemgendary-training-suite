@@ -942,7 +942,7 @@ vlm_blip2:
     accuracy_vqa: 0.8
 universal_nsfw_classification:
   name: LemGendary Universal NSFW Classifier
-  class_name: NIMA_Model
+  class_name: UniversalClassifier
   category: enhance
   filename: UniversalNSFWClassifier
   checkpoint: UniversalNSFWClassifierWeights_FP32.pth

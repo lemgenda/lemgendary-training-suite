@@ -66,3 +66,10 @@ class AuthenticityScorer(nn.Module):
         # 2026 Resilience: Internal Logit Clamping for binary stability.
         logits = self.backbone(x)
         return torch.clamp(logits, -10.0, 10.0)
+
+class UniversalClassifier(AuthenticityScorer):
+    """
+    Universal Categorical Classifier for Multi-Class tasks (e.g. NSFW, Concepts).
+    Inherits from AuthenticityScorer which already implements num_classes dynamic scaling.
+    """
+    pass

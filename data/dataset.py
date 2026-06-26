@@ -472,6 +472,15 @@ class MultiTaskDataset(Dataset):
                         return img_tensor, torch.tensor(score[:10], dtype=torch.float32), "quality"
                     except: pass
             return img_tensor, torch.zeros(10), "quality"
+        elif self.task_type == "classification":
+            label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
+            if os.path.exists(label_path):
+                with open(label_path, 'r') as f:
+                    try:
+                        class_idx = int(float(f.read().strip()))
+                        return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
+                    except: pass
+            return img_tensor, torch.tensor(0, dtype=torch.long), "classification"
             
         return img_tensor, torch.zeros(1), self.task_type
 
