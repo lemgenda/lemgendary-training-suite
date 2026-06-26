@@ -20,22 +20,22 @@ nima_aesthetic_mobile:
   description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
     optimized for artistic composition and color harmony.
   datasets:
-  - LemGendizedNimaAestheticMobile
+  - LemGendizedNimaAesthetic
   sota_targets:
-    plcc: 0.75
-    srcc: 0.75
+    plcc: 0.65
+    srcc: 0.65
   stabilizers:
     softmax_temp: 1.0
     emd_epsilon: 0.0001
     logit_clamp: 15.0
     rank_weight: 0.8
-    rank_margin: 0.10
+    rank_margin: 0.1
     numerical_sentinel:
     - -15.0
     - 15.0
   optimization:
     enabled: true
-    fraction_increment: 0.10
+    fraction_increment: 0.1
     plateau_patience: 8
     cooling_factor: 0.85
     plateau_priority: resolution
@@ -52,6 +52,57 @@ nima_aesthetic_mobile:
     min_delta: 0.001
     swa_start_pct: 0.65
   val_resolution: 640
+nima_aesthetic_efficientnet:
+  name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
+  class_name: NIMA_Model
+  category: enhance
+  filename: NIMAAestheticEfficientNet
+  checkpoint: NIMAAestheticEfficientNetWeights_FP32.pth
+  input_size:
+  - 3
+  - 384
+  - 384
+  batch_size: auto
+  learning_rate: 5.0e-05
+  kwargs:
+    backbone: efficientnet_v2_s
+  loss_fn: emd
+  dataset_type: quality
+  optimal_key: nima_aesthetic_efficientnet
+  architecture_type: EfficientNetV2-S (Global Composition)
+  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
+    optimized for artistic composition and color harmony using EfficientNetV2-S backbone.
+  datasets:
+  - LemGendizedNimaAesthetic
+  sota_targets:
+    plcc: 0.70
+    srcc: 0.70
+  stabilizers:
+    softmax_temp: 1.0
+    emd_epsilon: 0.0001
+    logit_clamp: 15.0
+    rank_weight: 0.8
+    rank_margin: 0.1
+    numerical_sentinel:
+    - -15.0
+    - 15.0
+  optimization:
+    enabled: true
+    fraction_increment: 0.1
+    plateau_patience: 8
+    cooling_factor: 0.85
+    plateau_priority: resolution
+    res_ladder:
+    - 224
+    - 384
+    clamp_range:
+    - 15.0
+    - 45.0
+    jolt_multiplier: 1.5
+    target_effective_batch: 32
+    min_delta: 0.001
+    swa_start_pct: 0.65
+  val_resolution: 384
 nima_aesthetic_pro:
   name: LemGendary NIMA Aesthetic Scorer (Pro ViT)
   class_name: NIMA_Model
@@ -75,8 +126,8 @@ nima_aesthetic_pro:
   datasets:
   - LemGendizedNimaAesthetic
   sota_targets:
-    plcc: 0.78
-    srcc: 0.78
+    plcc: 0.75
+    srcc: 0.75
   stabilizers:
     softmax_temp: 1.0
     emd_epsilon: 0.0001
@@ -127,8 +178,8 @@ nima_technical:
   datasets:
   - LemGendizedNimaTechnical
   sota_targets:
-    plcc: 0.92
-    srcc: 0.92
+    plcc: 0.88
+    srcc: 0.88
     rank_margin: 0.05
   optimization:
     enabled: true
@@ -188,6 +239,7 @@ nima_authenticity:
     - 512
     - 640
     target_effective_batch: 24
+    plateau_priority: resolution
   val_resolution: 640
 upn_v2:
   name: LemGendary UPN v2 Parameter Predictor
@@ -228,6 +280,7 @@ upn_v2:
     - 128
     - 192
     - 256
+    plateau_priority: resolution
   datasets:
   - LemGendizedUpnV2
   val_resolution: 256
@@ -263,6 +316,7 @@ film_restorer:
     - 512
     - 640
     - 768
+    plateau_priority: resolution
   datasets:
   - LemGendizedFilmRestorer
   val_resolution: 768
@@ -430,6 +484,7 @@ ffanet_indoor:
     - 384
     - 512
     - 640
+    plateau_priority: resolution
   val_resolution: 640
 ffanet_outdoor:
   name: LemGendary FFANet Dehazing (Outdoor)
@@ -468,6 +523,7 @@ ffanet_outdoor:
     - 384
     - 512
     - 640
+    plateau_priority: resolution
   val_resolution: 640
 mirnet_lowlight:
   name: LemGendary MIRNet v2 Low-Light Enhancement
@@ -505,6 +561,7 @@ mirnet_lowlight:
     - 384
     - 512
     - 640
+    plateau_priority: resolution
   val_resolution: 640
 mirnet_exposure:
   name: LemGendary MIRNet v2 Exposure Correction
@@ -542,6 +599,7 @@ mirnet_exposure:
     - 384
     - 512
     - 640
+    plateau_priority: resolution
   val_resolution: 640
 mprnet_deraining:
   name: LemGendary MPRNet Deraining
@@ -580,6 +638,7 @@ mprnet_deraining:
     - 512
     - 640
     - 768
+    plateau_priority: resolution
   val_resolution: 768
 nafnet_debluring:
   name: LemGendary NAFNet Debluring
@@ -686,6 +745,7 @@ yolov8n:
     - 320
     - 480
     - 640
+    plateau_priority: resolution
   datasets:
   - LemGendizedYoloV8n
   sota_targets:

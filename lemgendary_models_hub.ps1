@@ -28,7 +28,7 @@ function Get-ModelSelection {
     $catChoice = Read-Host "Select a category (1-8)"
     $modelList = @()
     switch ($catChoice) {
-        '1' { $modelList = @("nima_aesthetic_mobile", "nima_aesthetic_pro", "nima_technical", "nima_authenticity", "anime_nsfw_classification") }
+        '1' { $modelList = @("nima_aesthetic_mobile", "nima_aesthetic_efficientnet", "nima_aesthetic_pro", "nima_technical", "nima_authenticity", "anime_nsfw_classification") }
         '2' { $modelList = @("codeformer", "parsenet", "retinaface_mobilenet", "retinaface_resnet", "yolov8n") }
         '3' { $modelList = @("ultrazoom") }
         '4' { $modelList = @("ffanet_indoor", "ffanet_outdoor", "mprnet_deraining", "mirnet_lowlight", "mirnet_exposure", "nafnet_debluring", "nafnet_denoising") }
