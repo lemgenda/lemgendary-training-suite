@@ -7,21 +7,12 @@ from models.heads.derain import DerainHead
 from models.heads.dehaze import DehazeHead
 from models.heads.lowlight import LowLightHead
 from models.heads.superres import SuperResHead
+from models.heads.vintage import VintageHead
+from models.heads.facerestore import FaceRestoreHead
+from models.heads.faceparse import FaceParseHead
 
 import torch.nn.functional as F
 
-class GenericConvHead(nn.Module):
-    """Modular restoration head for specialized tasks (v16.0)"""
-    def __init__(self, in_channels=64, out_channels=3):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, 3, 1, 1),
-            nn.ReLU(),
-            nn.Conv2d(in_channels, out_channels, 3, 1, 1)
-        )
-
-    def forward(self, x):
-        return self.net(x)
 
 class TaskClassifier(nn.Module):
     def __init__(self, in_ch=64, num_tasks=11):
@@ -50,9 +41,9 @@ class MultiTaskRestorer(nn.Module):
             LowLightHead(),            # lowlight
             LowLightHead(),            # exposure
             SuperResHead(),            # superres
-            GenericConvHead(64, 3),    # vintage
-            GenericConvHead(64, 3),    # face_restorer
-            GenericConvHead(64, 3)     # face_parser
+            VintageHead(),             # vintage
+            FaceRestoreHead(),         # face_restorer
+            FaceParseHead()            # face_parser
         ])
         
         self.task_names = [
