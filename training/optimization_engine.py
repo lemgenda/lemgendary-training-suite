@@ -30,6 +30,17 @@ class SmartTrainingGovernor:
         self.target_effective_batch = opt.get("target_effective_batch", manifold_defaults.get("target_effective_batch", 24))
         self.manifold_maturity = opt.get("manifold_maturity", manifold_defaults.get("maturity_soak", 5)) # 2026: Mandatory soak period (epochs)
         self.plateau_patience = opt.get("plateau_patience", self.config.get("governor", {}).get("plateau_patience", 6))
+        
+        # --- 2026 Resiliency: Dynamic Parameter Implementations ---
+        self.plateau_priority = opt.get("plateau_priority", "data")
+        self.fraction_increment = opt.get("fraction_increment", manifold_defaults.get("fraction_increment", 0.15))
+        self.cooling_factor = opt.get("cooling_factor", 0.5) # Default 0.5 if not provided
+        self.clamp_range = opt.get("clamp_range", [15.0, 45.0])
+        gov_cfg = self.config.get("governor", {})
+        self.jolt_cooldown = gov_cfg.get("jolt_cooldown_epochs", 5)
+        self.stabilization_lock = gov_cfg.get("stabilization_lock_epochs", 3)
+        self.breakout_threshold = gov_cfg.get("emergency_breakout_threshold", 0.10)
+        self.sharpening_rate = gov_cfg.get("sharpening_cooling_rate", 0.98)
 
         # 2026: Numerical Stress Audit (Sentinel Response)
         self.recovery_streak = 0
@@ -124,8 +135,14 @@ class SmartTrainingGovernor:
     def get_phase(self):
         res_idx = self.res_ladder.index(self.current_res)
         if res_idx == 0 and self.current_fraction < 0.5: return "FOUNDATION"
-        if self.current_fraction < 1.0: return "EXPANSION"
-        if res_idx < len(self.res_ladder) - 1: return "DEEPENING"
+        
+        if self.plateau_priority == "resolution":
+            if res_idx < len(self.res_ladder) - 1: return "DEEPENING"
+            if self.current_fraction < 1.0: return "EXPANSION"
+        else: # Default: data priority
+            if self.current_fraction < 1.0: return "EXPANSION"
+            if res_idx < len(self.res_ladder) - 1: return "DEEPENING"
+            
         return "REFINEMENT"
 
     def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, target_std=None, force_jump=False, train_loss=None):
@@ -149,8 +166,8 @@ class SmartTrainingGovernor:
                     self.current_res = next_res
                     self.current_fraction = 0.5
                     self.last_res_jump_epoch = self.epoch_count
-                    self.spatial_lock_remaining = 3
-                    self.stabilization_epochs = 3
+                    self.spatial_lock_remaining = self.stabilization_lock
+                    self.stabilization_epochs = self.stabilization_lock
                     self.history = [] # 2026: Clear history to prevent cross-resolution trend contamination
                     return True, True, False, False, False, True, f"[LAUNCH] [SOTA-FORCE] Jumping to {next_res}px Manifold..."
                 else:
@@ -177,7 +194,7 @@ class SmartTrainingGovernor:
         # 2. Guard: Stabilization
         msg_parts = []
         if self.stabilization_epochs > 0:
-            if current_quality < self.best_quality * 0.90 and self.best_quality > 0:
+            if current_quality < self.best_quality * (1.0 - self.breakout_threshold) and self.best_quality > 0:
                 msg_parts.append(f"[BREAKOUT] Shield shattered! Quality dropped {(1-current_quality/self.best_quality)*100:.1f}%.")
                 self.stabilization_epochs = 0
             else:
@@ -328,18 +345,18 @@ class SmartTrainingGovernor:
                     self.current_res = self.res_ladder[res_idx - 1]
                     self.current_fraction = 1.0
                     r_changed = f_changed = True
-                    self.lr_multiplier = 0.5
+                    self.lr_multiplier = self.cooling_factor
                     lr_changed = True
-                    self.stabilization_epochs = 3
+                    self.stabilization_epochs = self.stabilization_lock
                     self.cooldown_remaining = 5
                     msg_parts.append(f"[SPATIAL RETREAT] Resetting to {self.current_res}px @ 100% Data Anchor")
 
             if not r_changed:
                 # 2026 NPP: Do not lower the data fraction on the same resolution to avoid running in circles.
                 # Instead, keep the current fraction and cool the learning rate to allow stabilization.
-                self.lr_multiplier = 0.5
+                self.lr_multiplier = self.cooling_factor
                 lr_changed = True
-                self.stabilization_epochs = 3
+                self.stabilization_epochs = self.stabilization_lock
                 self.cooldown_remaining = 5
                 msg_parts.append(f"RECOIL: Retaining data fraction at {self.current_fraction*100:.0f}% | Cooling LR to stabilize manifold")
 
@@ -374,7 +391,7 @@ class SmartTrainingGovernor:
         if trigger_propulsion:
             # 2026: The Jolt - Breaking Plateaus with LR Propulsion
             # Senior Update: Added Jolt cooldown (5 epochs)
-            jolt_ready = (self.epoch_count - getattr(self, 'last_jolt_epoch', -10)) > 5 and self.cooldown_remaining == 0
+            jolt_ready = (self.epoch_count - getattr(self, 'last_jolt_epoch', -10)) > self.jolt_cooldown and self.cooldown_remaining == 0
             if is_flat and jolt_ready:
                 jolt = self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5)
                 # NPP: If trapped, increase Jolt intensity to break the classification trap
@@ -385,7 +402,7 @@ class SmartTrainingGovernor:
                 msg_parts.append(f"JOLT: Breaking Plateau with {jolt:.2f}x LR Propulsion")
 
 
-            next_frac = min(1.0, self.current_fraction + 0.15) # NPP: Smaller steps
+            next_frac = min(1.0, self.current_fraction + self.fraction_increment) # NPP: Smaller steps
             next_state = (self.current_res, round(next_frac, 2))
 
             if self.failure_log.get(str(next_state), 0) > 0:
@@ -403,16 +420,24 @@ class SmartTrainingGovernor:
             elif phase == "DEEPENING":
                 current_idx = self.res_ladder.index(self.current_res)
                 next_res = self.res_ladder[current_idx + 1]
-                self.current_res = next_res
-                r_changed = b_changed = True
-                self.current_fraction = 0.5
-                f_changed = True
-                self.last_res_jump_epoch = self.epoch_count
-                self.spatial_lock_remaining = 3 # v15.9: 3 epochs of patience for the new resolution
-                msg_parts.append(f"SPATIAL JUMP: {next_res}px | Data Reset 50% | Lock: ON")
-                self.stabilization_epochs = 3
+                
+                # SOTA Validation Check before spatial jump
+                if self.best_quality < self.target_quality_score * 0.90 and self.target_quality_score > 1.0:
+                    self.lr_multiplier = self.cooling_factor
+                    lr_changed = True
+                    msg_parts.append(f"RECOIL: Insufficient Quality for spatial jump. Cooling LR.")
+                    self.stabilization_epochs = self.stabilization_lock
+                else:
+                    self.current_res = next_res
+                    r_changed = b_changed = True
+                    self.current_fraction = 0.15
+                    f_changed = True
+                    self.last_res_jump_epoch = self.epoch_count
+                    self.spatial_lock_remaining = self.stabilization_lock # patience for the new resolution
+                    msg_parts.append(f"SPATIAL JUMP: {next_res}px | Data Reset 15% | Lock: ON")
+                    self.stabilization_epochs = self.stabilization_lock
             else:
-                self.lr_multiplier = 0.5
+                self.lr_multiplier = self.cooling_factor
                 lr_changed = True
                 msg_parts.append("REFINEMENT: SOTA Precision Cooling")
 
@@ -429,7 +454,7 @@ class SmartTrainingGovernor:
 
             if self.cooldown_remaining == 0 and self.current_temp > floor:
                 # 2026: Accelerated Sharpening for high-entropy phases
-                sharpen_rate = 0.95 if self.current_temp > 1.2 else 0.98
+                sharpen_rate = 0.95 if self.current_temp > 1.2 else self.sharpening_rate
                 self.current_temp = max(floor, self.current_temp * sharpen_rate)
                 t_changed = True
                 msg_parts.append(f"SHARPENING: Temp -> {self.current_temp:.2f}")
@@ -444,7 +469,7 @@ class SmartTrainingGovernor:
             # 2026 Resilience: Respect active recoils (allow >1.0 temp during shakeup)
             if self.cooldown_remaining == 0:
                 self.current_temp = min(1.0, self.current_temp)
-            self.current_clamp = min(25.0, self.current_clamp) # Prevent logit explosion
+            self.current_clamp = min(self.clamp_range[1], self.current_clamp) # Prevent logit explosion
 
         final_msg = f"[LAUNCH] [{phase}] " + " | ".join(msg_parts) if msg_parts else ""
 

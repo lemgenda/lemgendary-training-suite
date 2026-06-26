@@ -38,7 +38,7 @@ nima_aesthetic_mobile:
     fraction_increment: 0.10
     plateau_patience: 8
     cooling_factor: 0.85
-    plateau_priority: data
+    plateau_priority: resolution
     res_ladder:
     - 224
     - 384
