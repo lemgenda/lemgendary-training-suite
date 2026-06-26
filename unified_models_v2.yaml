@@ -38,12 +38,9 @@ nima_aesthetic_mobile:
     fraction_increment: 0.1
     plateau_patience: 8
     cooling_factor: 0.85
-    plateau_priority: resolution
+    plateau_priority: data
     res_ladder:
     - 224
-    - 384
-    - 512
-    - 640
     clamp_range:
     - 15.0
     - 45.0
@@ -51,7 +48,7 @@ nima_aesthetic_mobile:
     target_effective_batch: 32
     min_delta: 0.001
     swa_start_pct: 0.65
-  val_resolution: 640
+  val_resolution: 224
 nima_aesthetic_efficientnet:
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
   class_name: NIMA_Model
@@ -75,8 +72,8 @@ nima_aesthetic_efficientnet:
   datasets:
   - LemGendizedNimaAesthetic
   sota_targets:
-    plcc: 0.70
-    srcc: 0.70
+    plcc: 0.7
+    srcc: 0.7
   stabilizers:
     softmax_temp: 1.0
     emd_epsilon: 0.0001
@@ -774,7 +771,7 @@ professional_multitask_restoration:
     fraction_increment: 0.15
     plateau_patience: 15
     cooling_factor: 0.8
-    plateau_priority: data
+    plateau_priority: resolution
     res_ladder:
     - 256
     - 384
