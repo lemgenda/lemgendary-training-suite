@@ -5,6 +5,13 @@ import yaml
 import torch
 import time
 
+# --- 2026 Unicode Windows Patch ---
+# Force stdout/stderr to pure ASCII to physically strip out PyTorch's rich logging emojis (e.g. \u2705)
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="ascii", errors="ignore")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="ascii", errors="ignore")
+
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Anchor the search path to the parent directory to allow root module imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -48,7 +55,9 @@ def main():
 
     # 2. Architecture Instantiation
     from models.factory import get_model
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # --- 2026 Resilience Patch ---
+    # Force CPU for export subprocesses to prevent CUDA OOM when train.py holds VRAM
+    device = torch.device("cpu")
     print(f" [ARCH] Instantiating architecture for {args.model} on {device}...")
     try:
         model = get_model(args.model, config).to(device)
@@ -125,7 +134,7 @@ def main():
     ]
 
     for export in exports:
-        target_path = os.path.join(production_dir, export["name"])
+        target_path = os.path.join(production_dir, str(export["name"]))
         
         # Overwrite Guardrail
         if os.path.exists(target_path):
@@ -172,7 +181,7 @@ def main():
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             torch.onnx.export(
-                                model, inp, target_path,
+                                model, (inp,), target_path,
                                 export_params=True, opset_version=17,
                                 do_constant_folding=True,
                                 input_names=['input'], output_names=['output']
@@ -200,7 +209,7 @@ def main():
                             with warnings.catch_warnings():
                                 warnings.simplefilter("ignore")
                                 torch.onnx.export(
-                                    model, inp, target_path,
+                                    model, (inp,), target_path,
                                     export_params=True, opset_version=18,
                                     do_constant_folding=True,
                                     input_names=['input'], output_names=['output']
