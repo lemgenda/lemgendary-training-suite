@@ -788,12 +788,9 @@ def main():
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
     
     # 2026 Resilience: Parallel Mission Support
-    # On Windows, num_workers > 0 is essential for large deep datasets
-    num_workers = config.get("num_workers", 4)
-    # --- 2026 Windows Stability Overrides ---
-    if os.name == 'nt' or sys.platform == 'win32':
-        num_workers = min(num_workers, 6)
-        print(f" [DATA] Windows Optimization: Capping workers at {num_workers}")
+    # Read num_workers from hardware config, fallback to top-level, and ensure minimum of 4
+    num_workers = config.get("hardware", {}).get("num_workers", config.get("num_workers", 4))
+    num_workers = max(num_workers, 4)
 
     print(f" [DATA] Initializing Parallel Manifold (Workers: {num_workers} | Persistent: {num_workers > 0})...")
     # --- 2026 Resilience: Empty Dataset Guard ---
@@ -953,17 +950,15 @@ def main():
     if os.path.exists(progress_ckpt_path): candidates.append((os.path.getmtime(progress_ckpt_path), progress_ckpt_path))
 
     # 2026 Resilience: Adaptive Worker Strategy
-    # If we detect a potential resume, we start with 0 workers to eliminate startup lag during fast-forwarding.
     has_resume_candidate = len(candidates) > 0
-    active_workers = 0 if has_resume_candidate else num_workers
+    active_workers = num_workers
 
     # --- 2026: Mission Data Infrastructure (v6.0) ---
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, pin_memory=True if device.type=='cuda' else False)
     
     val_num_workers = num_workers
     if is_heavy_manifold:
-        val_num_workers = 0
-        print(f" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Enforcing sequential validation for stability.")
+        print(f" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
     
     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
     # --- 2026 Senior Hardening: Surgical Weight Decay (Task 4.3) ---
@@ -1346,7 +1341,7 @@ def main():
         probe_preds, probe_tgtes = [], []
         # 2026: Synchronized manfold audit. weights 10..1 match the user's 'inverted' dataset files.
         weights = torch.arange(1, 11).float().to(device)
-        val_loader_probe = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
+        val_loader_probe = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
         with torch.no_grad():
             for j, (p_img, p_tgt, _) in enumerate(val_loader_probe):
                 if j >= 2: break # Shortened for 4GB stability
@@ -1637,7 +1632,7 @@ def main():
         
         # Sync dataset strategy and re-init loader
         val_ds.update_strategy(size=val_anchor_size)
-        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=config.get("hardware", {}).get("num_workers", 0), pin_memory=True)
+        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
 
         # 2026 Resilience: Seed train_loss from checkpoint if resuming mid-epoch or after training
         train_loss = 0
@@ -1872,7 +1867,7 @@ def main():
 
                             # --- 2026 Resilience: DataLoader Re-Initialization ---
                             # v17.5: Enforce Shield to prevent worker deadlocks on low-VRAM hardware
-                            _workers = 0 if in_recovery_mode and vram_gb < 6.0 else num_workers
+                            _workers = num_workers
                             train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                                                      num_workers=_workers, pin_memory=True if device.type=='cuda' else False)
 
@@ -2473,7 +2468,7 @@ def main():
 
                     if is_critical:
                         val_batch_size = max(1, val_batch_size // 2)
-                        val_num_workers = 0
+                        val_num_workers = num_workers
                         val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False,
                                               num_workers=val_num_workers, pin_memory=True)
 
@@ -2493,7 +2488,10 @@ def main():
                 val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val', sample_fraction=val_ds.sample_fraction)
                 if pbar: pbar.write(f" [SIGNAL] [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size} @ {val_anchor_size}px")
                 # Re-initialize DataLoader if batch size changed
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=config.get("hardware", {}).get("num_workers", 0), pin_memory=True)
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
+
+                if rank == 0:
+                    print(f" [VRAM-SENTINEL] Validation batch size throttled to {val_batch_size} to protect evaluation phase.")
 
             # 2026 Validation Sharding & Resolution Sync
             # Auto-expand validation set to 100% during Refinement Phase for SOTA generalizability audit
@@ -3027,7 +3025,7 @@ def main():
                     val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
 
                 # v17.5: Enforce Shield during inter-epoch resolution jumps
-                _workers = 0 if in_recovery_mode and vram_gb < 6.0 else num_workers
+                _workers = num_workers
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
 
@@ -3484,7 +3482,7 @@ def main():
                     if "val_resolution" not in model_info:
                         val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
 
-                    _workers = 0 if in_recovery_mode and vram_gb < 6.0 else num_workers
+                    _workers = num_workers
                     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                     if device.type == 'cuda': torch.cuda.empty_cache()
@@ -3505,7 +3503,7 @@ def main():
                         
                     train_ds.update_strategy(fraction=1.0)
                     
-                    _workers = 0 if in_recovery_mode and vram_gb < 6.0 else num_workers
+                    _workers = num_workers
                     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                     if device.type == 'cuda': torch.cuda.empty_cache()
