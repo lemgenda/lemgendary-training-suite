@@ -20,6 +20,23 @@ class CombinedLoss(nn.Module):
         # 2026: SOTA Rank-Boost Weights (Standard 10..1 mapping)
         self.register_buffer('rank_weights', torch.arange(1, 11).float())
 
+        # 2026: MoE 11-Manifold Perceptual Scaling Coefficients
+        # Balances LPIPS gradients to prevent high-frequency tasks (Face, SuperRes) from
+        # overwhelming intensity-based tasks (Denoise, Lowlight).
+        self.register_buffer('task_lpips_weights', torch.tensor([
+            0.010, # 0: denoise
+            0.025, # 1: deblur
+            0.020, # 2: derain
+            0.015, # 3: dehaze_indoor
+            0.015, # 4: dehaze_outdoor
+            0.010, # 5: lowlight
+            0.010, # 6: exposure
+            0.030, # 7: superres
+            0.050, # 8: vintage
+            0.050, # 9: face_restorer
+            0.005  # 10: face_parser
+        ], dtype=torch.float32))
+
         if self.task_type in ["restoration", "enhancement"] and use_perc:
             try:
                 # 2026 Resilience: Surgical Memory Reclamation before heavy Perceptual Engine load
@@ -46,19 +63,36 @@ class CombinedLoss(nn.Module):
             if isinstance(pred, (tuple, list)):
                 base_loss = self.l1(pred[0], target) + 0.1 * self.ce(pred[1], task_idx)
                 if self.perc is not None:
-                    # LPIPS natively outputs spatial arrays. Mean() required. Clamp to [-1, 1].
+                    # LPIPS natively outputs spatial arrays. Clamp to [-1, 1].
                     p_scaled = torch.clamp(pred[0], 0, 1) * 2.0 - 1.0
                     t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0
-                    # 2026 Shift: Balanced at 0.025 to create geometric harmony between PSNR & Perception
-                    base_loss += 0.025 * self.perc(p_scaled, t_scaled).mean()
+                    
+                    raw_lpips = self.perc(p_scaled, t_scaled).view(-1) # [B]
+                    
+                    if task_idx is not None and len(task_idx.shape) > 0:
+                        # Extract the dynamic weight for each sample in the batch
+                        dynamic_weights = self.task_lpips_weights[task_idx]
+                        perc_loss = (raw_lpips * dynamic_weights).mean()
+                    else:
+                        perc_loss = 0.025 * raw_lpips.mean()
+                        
+                    base_loss += perc_loss
                 return base_loss
             else:
                 base_loss = self.l1(pred, target)
                 if self.perc is not None:
                     p_scaled = torch.clamp(pred, 0, 1) * 2.0 - 1.0
                     t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0
-                    # 2026 Shift: Balanced at 0.025 to natively harmonize metric extraction
-                    base_loss += 0.025 * self.perc(p_scaled, t_scaled).mean()
+                    
+                    raw_lpips = self.perc(p_scaled, t_scaled).view(-1) # [B]
+                    
+                    if task_idx is not None and len(task_idx.shape) > 0:
+                        dynamic_weights = self.task_lpips_weights[task_idx]
+                        perc_loss = (raw_lpips * dynamic_weights).mean()
+                    else:
+                        perc_loss = 0.025 * raw_lpips.mean()
+                        
+                    base_loss += perc_loss
                 return base_loss
         
         elif self.task_type == "quality":

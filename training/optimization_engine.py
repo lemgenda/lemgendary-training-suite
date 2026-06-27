@@ -546,3 +546,45 @@ class SmartTrainingGovernor:
         self.history = []
         self.stabilization_epochs = 2 # Add a small soak period for the new baseline
         print(" [GOVERNOR] SOTA Memory Purged. Establishing fresh baseline for current manifold.")
+
+def export_webgpu_onnx(model, save_path, dummy_input_shape=(1, 3, 512, 512)):
+    """
+    Memory-Sentinel WebGPU Zero-Copy Exporter (LemGendary Cloud Link v17).
+    Forces Opset 17 and fixed shapes (dynamic_axes=None) to ensure browser stability.
+    Bypasses standard ONNX Slice errors for Transformers/GANs.
+    """
+    import torch
+    import io
+    from contextlib import redirect_stdout, redirect_stderr
+    print(f" [MEMORY-SENTINEL] Exporting zero-copy WebGPU sharing payload to {save_path}...")
+    
+    # 2026 Resilience: DataParallel unwrapping guard
+    model_to_export = model.module if hasattr(model, 'module') else model
+    model_to_export.eval()
+    
+    try:
+        device = next(model_to_export.parameters()).device
+    except StopIteration:
+        device = 'cpu'
+    dummy_input = torch.randn(dummy_input_shape, device=device)
+    
+    try:
+        # Suppress PyTorch's internal prints that contain emojis (✅) causing UnicodeEncodeError on Windows
+        f = io.StringIO()
+        with redirect_stdout(f), redirect_stderr(f):
+            torch.onnx.export(
+                model_to_export,
+                (dummy_input,),
+                save_path,
+                export_params=True,
+                opset_version=17, # WebGPU Stability Target (updated from 15 based on torch requirements)
+                do_constant_folding=True,
+                input_names=['input'],
+                output_names=['output'],
+                dynamic_axes=None # CRITICAL: Fixed shape 512x512 tile to prevent WebGPU Slice crashes
+            )
+        print(f" [MEMORY-SENTINEL] WebGPU ONNX export successful! Opset: 17, Shape: {dummy_input_shape}")
+        return True
+    except Exception as e:
+        print(f" [MEMORY-SENTINEL] WebGPU export failed: {e}")
+        return False

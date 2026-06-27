@@ -23,7 +23,7 @@ class TaskClassifier(nn.Module):
     def forward(self, x):
         x = self.pool(x).flatten(1)
         logits = self.fc(x)
-        return F.softmax(logits, dim=1)
+        return logits
 
 class MultiTaskRestorer(nn.Module):
     def __init__(self, num_tasks=11):
@@ -57,18 +57,19 @@ class MultiTaskRestorer(nn.Module):
         feat = self.encoder(x)
         
         # Soft Routing (Mixture of Experts)
-        weights = self.classifier(feat) # [B, num_tasks]
+        logits = self.classifier(feat) # [B, num_tasks]
+        weights = F.softmax(logits, dim=1)
         
         # If a specific task is requested (inference override), we can still support it
         # But by default, we use the learned weights
         if task is not None and task in self.task_names:
             idx = self.task_names.index(task)
-            return self.heads[idx](feat), weights
+            return self.heads[idx](feat), logits
             
         outputs = []
         for i, head in enumerate(self.heads):
             out = head(feat)
             outputs.append(out * weights[:, i].view(-1, 1, 1, 1))
 
-        return sum(outputs), weights
+        return sum(outputs), logits
 
