@@ -98,6 +98,7 @@ class SmartTrainingGovernor:
         self.best_quality = 0.0
         self.stabilization_epochs = 0
         self.cooldown_remaining = 0 # New: Blocks Jolt/Sharpening after failure
+        self.current_stress = 0.0 # 2026: Dynamic Stress Protocol Multiplier
         self.thermal_floor = {} # New: {(res, frac): min_safe_temp}
         self.lr_multiplier = 1.0
         self.last_action_epoch = 0
@@ -322,6 +323,11 @@ class SmartTrainingGovernor:
             should_retreat = False
             self.cooldown_remaining = 0
             msg_parts.append("[RESCUE] [OVERFITTING] Overfitting detected. Forcing dataset expansion to introduce variety.")
+        elif is_overfitting and self.current_fraction >= 1.0:
+            should_retreat = False
+            self.cooldown_remaining = 0
+            self.current_stress = min(5.0, self.current_stress + 1.0)
+            msg_parts.append(f"[RESCUE] [OVERFITTING] Dataset exhausted. Deploying Stress Protocol (Level {self.current_stress}).")
 
         if should_retreat:
             self.failure_log[str(current_state)] = failures + 1
@@ -364,10 +370,11 @@ class SmartTrainingGovernor:
         elif sentinel_trigger_rate > 0.15:
             self.current_temp = min(1.2, self.current_temp * 1.2)
             self.lr_multiplier = 0.75
+            self.current_stress = max(0.0, self.current_stress - 0.25) # Cool stress down
             lr_changed = True
             t_changed = True
             self.stabilization_epochs = 2
-            msg_parts.append(f"COOLING: Stress {sentinel_trigger_rate*100:.1f}% -> Temp {self.current_temp:.2f}")
+            msg_parts.append(f"COOLING: Stress {sentinel_trigger_rate*100:.1f}% -> Temp {self.current_temp:.2f} | DataStress {self.current_stress:.1f}")
 
         # --- PROPULSION: NPP Manifold Stride ---
         # 2026: Dynamic Stride Thresholds (Foundation vs Refinement)
@@ -498,7 +505,8 @@ class SmartTrainingGovernor:
             "spatial_lock_remaining": self.spatial_lock_remaining, # v15.9
             "last_res_jump_epoch": self.last_res_jump_epoch, # v15.9
             "epoch_count": self.epoch_count,
-            "best_quality": self.best_quality
+            "best_quality": self.best_quality,
+            "stress": getattr(self, 'current_stress', 0.0)
         }
 
     def load_state(self, state, preserve_curriculum=False):
@@ -526,6 +534,7 @@ class SmartTrainingGovernor:
         self.last_res_jump_epoch = state.get("last_res_jump_epoch", -100) # v15.9
         self.epoch_count = state.get("epoch_count", self.epoch_count)
         self.best_quality = state.get("best_quality", self.best_quality)
+        self.current_stress = state.get("stress", 0.0)
 
     def recoil(self):
         """Emergency Tactical Retreat triggered by hardware or manifold failure."""

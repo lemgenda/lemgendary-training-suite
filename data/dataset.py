@@ -120,6 +120,7 @@ class MultiTaskDataset(Dataset):
         self.is_train = is_train
         self.env = env
         self.sample_fraction = sample_fraction
+        self.stress = 0.0 # 2026 Resilience: Dynamic Stress Protocol
         self.sync_mode = multiprocessing.Value('b', False)
         self.split = "train" if is_train else "val"
         # 2026 Resilience: Map to the modern 'paths' structure in config.yaml
@@ -221,7 +222,19 @@ class MultiTaskDataset(Dataset):
         transform_list = [transforms.Resize(self.size, interpolation=interp)]
         if self.is_train and self.task_type == "quality":
             transform_list.append(transforms.RandomHorizontalFlip())
-            if "aesthetic" in self.model_key:
+            # --- 2026 Resilience: Dynamic Stress Injection ---
+            if getattr(self, 'stress', 0.0) > 0.0:
+                stress_val = min(self.stress, 5.0)
+                transform_list.append(transforms.ColorJitter(
+                    brightness=0.1 * stress_val, 
+                    contrast=0.1 * stress_val, 
+                    saturation=0.1 * stress_val, 
+                    hue=0.02 * stress_val
+                ))
+                transform_list.append(transforms.RandomRotation(degrees=int(3 * stress_val)))
+                if stress_val >= 2.0:
+                    transform_list.append(transforms.RandomPerspective(distortion_scale=0.1 * stress_val, p=0.3))
+            elif "aesthetic" in self.model_key:
                 transform_list.append(transforms.ColorJitter(brightness=0.05, contrast=0.05))
         
         transform_list.append(transforms.ToTensor())
@@ -484,14 +497,21 @@ class MultiTaskDataset(Dataset):
             
         return img_tensor, torch.zeros(1), self.task_type
 
-    def update_strategy(self, size=None, fraction=None):
+    def update_strategy(self, size=None, fraction=None, stress=None):
         """Dynamic manifold scaling for curriculum learning (v16.2)."""
+        rebuild = False
         if size:
             if isinstance(size, (int, float)):
                 self.size = (int(size), int(size))
             elif isinstance(size, (list, tuple)):
                 self.size = (int(size[0]), int(size[1]))
+            rebuild = True
+        if stress is not None and getattr(self, 'stress', 0.0) != stress:
+            self.stress = stress
+            rebuild = True
+        if rebuild:
             self.build_transforms()
+            
         if fraction is not None:
             self.sample_fraction = fraction
             self._load_manifest(self.config)

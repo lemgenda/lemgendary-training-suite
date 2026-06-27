@@ -2986,6 +2986,9 @@ def main():
             print(smart_msg)
             new_params = governor.get_state()
 
+            # --- 2026 Resilience: Dynamic Stress Protocol ---
+            stress_changed = new_params.get('stress', 0.0) != getattr(train_ds, 'stress', 0.0)
+
             # --- 2026: Shield Telemetry (v6.1.35) ---
             if new_params.get('stabilization_epochs', 0) > 0:
                 print(f"[GUARD] [STABILIZATION SHIELD] Manifold Locked for {new_params['stabilization_epochs']} more epochs.")
@@ -3007,7 +3010,7 @@ def main():
                     b_changed = True
                     print(f" [GOVERNOR] Hardware Re-Audit Complete: {batch_size} (Acc: {accumulation_steps}) @ {governor.current_res}px")
 
-            if f_changed or r_changed or b_changed:
+            if f_changed or r_changed or b_changed or stress_changed:
                 if b_changed and (config_batch != "auto" and config_batch is not None and not args.batch_size):
                      # If we didn't re-audit (e.g. manual batch set in config but resolution jumped)
                      # we use the Governor's suggestion, but this path is now secondary.
@@ -3016,7 +3019,8 @@ def main():
 
                 train_ds.update_strategy(
                     fraction=new_params['sample_fraction'] if f_changed else None,
-                    size=new_params['input_size'] if r_changed else None
+                    size=new_params['input_size'] if r_changed else None,
+                    stress=new_params.get('stress', 0.0)
                 )
                 # 2026: Validation perfectly mirrors the Training Resolution UNLESS anchored
                 if "val_resolution" not in model_info:
@@ -3463,7 +3467,8 @@ def main():
                 # We must immediately apply these changes to the loaders before the next epoch starts
                 if smart_msg: print(smart_msg)
                 new_params = governor.get_state()
-                if f_changed or r_changed or b_changed:
+                stress_changed = new_params.get('stress', 0.0) != getattr(train_ds, 'stress', 0.0)
+                if f_changed or r_changed or b_changed or stress_changed:
                     if not args.batch_size:
                         batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
                         v_res = model_info.get("val_resolution", governor.current_res)
@@ -3471,7 +3476,11 @@ def main():
                         target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
                         accumulation_steps = max(1, target_eff // batch_size)
 
-                    train_ds.update_strategy(fraction=new_params['sample_fraction'] if f_changed else None, size=new_params['input_size'] if r_changed else None)
+                    train_ds.update_strategy(
+                        fraction=new_params['sample_fraction'] if f_changed else None, 
+                        size=new_params['input_size'] if r_changed else None,
+                        stress=new_params.get('stress', 0.0)
+                    )
                     if "val_resolution" not in model_info:
                         val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
 
