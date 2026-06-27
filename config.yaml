@@ -11,7 +11,7 @@ unified_models: "unified_models_v2.yaml"
 hardware:
   target_device: "cuda"
   vram_limit_gb: 4.0
-  num_workers: 4 # Standard baseline; dynamically capped up to 6 in train.py
+  num_workers: 0 # 2026 Resilience: Disabled multiprocessing on Windows to prevent PageFile exhaustion (Error 1455)
   pin_memory: true
   use_fp16: true
 
