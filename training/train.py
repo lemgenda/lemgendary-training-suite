@@ -348,7 +348,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             _out = model(_dummy)
             if mode == 'train':
                 _loss = sum(v.mean() for v in _out.values()) if isinstance(_out, dict) else _out.mean()
-                if isinstance(_loss, torch.Tensor): _if isinstance(loss, torch.Tensor): loss.backward()
+                if isinstance(_loss, torch.Tensor): _loss.backward()
                 model.zero_grad(set_to_none=True)
         except: pass
         
