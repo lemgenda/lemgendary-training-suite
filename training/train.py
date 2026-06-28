@@ -124,7 +124,7 @@ def safe_torch_save(obj, path):
         torch.save(obj, tmp_path)
         # Use safe_replace if available, else os.replace
         try:
-            from training.train import safe_replace
+            from training.train import safe_replace  # type: ignore
         except:
             def safe_replace(src, dst):
                 if os.path.exists(dst): os.remove(dst)
@@ -289,7 +289,7 @@ def git_hub_sync(repo_path, remote_url, message):
                 print(f" [SUCCESS] [CLOUD SYNC] '{os.path.basename(repo_path)}' synchronized after rebase.")
         else:
             print(f" [SIGNAL] [CLOUD SYNC] No changes detected in {os.path.basename(repo_path)}.")
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired:  # type: ignore
         print(f" [WARNING] [CLOUD SYNC] Sync TIMEOUT for {repo_path}. GitHub might be unreachable or credentials requested.")
     except Exception as e:
         print(f" [WARNING] [CLOUD SYNC] Hub Sync failed for {repo_path}: {e}")
@@ -348,7 +348,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             _out = model(_dummy)
             if mode == 'train':
                 _loss = sum(v.mean() for v in _out.values()) if isinstance(_out, dict) else _out.mean()
-                _loss.backward()
+                if isinstance(_loss, torch.Tensor): _if isinstance(loss, torch.Tensor): loss.backward()
                 model.zero_grad(set_to_none=True)
         except: pass
         
@@ -371,7 +371,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                     loss = sum(v.mean() for v in output.values() if isinstance(v, torch.Tensor))
                 else:
                     loss = output.mean()
-                loss.backward()
+                if isinstance(loss, torch.Tensor): loss.backward()
                 # Use peak memory to capture activation volume during backward pass
                 peak_probe = torch.cuda.max_memory_allocated(0) if device.type == 'cuda' else torch.cuda.memory_allocated(0)
                 # Subtracting before_probe leaves peak activation + gradients. We apply a 1.2x multiplier for optimizer step spikes.
@@ -586,7 +586,7 @@ def main():
         device = torch.device("cuda")
         gpu_name = torch.cuda.get_device_name(0)
         torch.backends.cudnn.benchmark = True
-        print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} | CUDA {torch.version.cuda} Active")
+        print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} | CUDA {getattr(torch.version, 'cuda', 'Unknown')} Active")
     elif hasattr(torch, "mps") and torch.backends.mps.is_available():
         device = torch.device("mps")
         print(f"[LAUNCH] [HARDWARE] Apple Silicon (Metal) Acceleration Active")
@@ -1402,7 +1402,7 @@ def main():
     if 'probe_srcc' in locals() and sota_baseline_achieved:
         targets = model_info.get("sota_targets", {})
         target_srcc = targets.get("srcc", 0.90)
-        if probe_srcc < (target_srcc - 0.05): # Tightened tolerance to 0.05 for SOTA integrity
+        if locals().get('probe_srcc', 0.0) < (target_srcc - 0.05): # Tightened tolerance to 0.05 for SOTA integrity
             print(f"[WARNING] [SOTA SENTRY] Manifold Health Audit: FAILED.")
             print(f"[WARNING] [SOTA SENTRY] Probe SRCC ({probe_srcc:.4f}) is below mission target ({target_srcc:.4f}).")
             print(f"[INFO] [RECONSTRUCTION] Revoking SOTA status. Launching deep-manifold recovery...")
@@ -1616,7 +1616,7 @@ def main():
         # --- 2026 SOTA GUARD: Resolution-Aware Patience Reset (v19.1) ---
         # If the validation manifold has shifted resolution, the previous SOTA best metrics
         # are no longer comparable. We reset the patience timer to allow the model to master the new rung.
-        if 'last_val_anchor' in locals() and last_val_anchor != val_anchor_size:
+        if 'last_val_anchor' in locals() and locals().get('last_val_anchor') != val_anchor_size:
             print(f" [SOTA GUARD] Validation Manifold Shift detected ({last_val_anchor} -> {val_anchor_size}). Resetting patience timer.")
             epochs_no_improve = 0
             best_quality_score = -1.0 # Force a new baseline for the new resolution
@@ -1692,7 +1692,7 @@ def main():
                 if hasattr(train_ds, 'sync_mode') and hasattr(train_ds.sync_mode, 'value'):
                     train_ds.sync_mode.value = True
                 else:
-                    train_ds.sync_mode = True
+                    train_ds.sync_mode = True  # type: ignore
                 with tqdm(total=current_iter, desc=" [RESILIENCY] Fast-forwarding", unit="batch", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_pbar:
                     for i, _ in iter_obj:
                         skip_pbar.update(1)
@@ -1717,7 +1717,7 @@ def main():
                 if hasattr(train_ds, 'sync_mode') and hasattr(train_ds.sync_mode, 'value'):
                     train_ds.sync_mode.value = False
                 else:
-                    train_ds.sync_mode = False
+                    train_ds.sync_mode = False  # type: ignore
 
                 # 2026 Resilience: Soft-Start Guard (Manifold Seating)
                 # We dampen momentum slightly to prevent 'shock' NaNs on re-entry
@@ -2070,7 +2070,7 @@ def main():
                             if hasattr(scheduler, 'base_lrs'):
                                 scheduler.base_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs]
                             if hasattr(scheduler, 'max_lrs'):
-                                scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.max_lrs]
+                                scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
                             if hasattr(scheduler, '_last_lr'):
                                 scheduler._last_lr = [new_lr] * len(optimizer.param_groups)
 
@@ -2199,7 +2199,7 @@ def main():
                             if hasattr(scheduler, 'base_lrs'):
                                 scheduler.base_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs]
                             if hasattr(scheduler, 'max_lrs'):
-                                scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.max_lrs]
+                                scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
                             if hasattr(scheduler, '_last_lr'):
                                 scheduler._last_lr = [new_lr] * len(optimizer.param_groups)
                             
@@ -2228,7 +2228,7 @@ def main():
                     optimizer.zero_grad()
                     continue
 
-                scaler.scale(loss).backward()
+                if isinstance(loss, torch.Tensor): scaler.scale(loss).backward()
 
                 # Step only after accumulating enough gradients
                 # Cleaned legacy execution path.
@@ -2396,7 +2396,7 @@ def main():
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
             gc.collect()
-            if stab.get('vram_purge'): val_pbar.write(" [MEM] VRAM Defibrillation Pulse triggered.")
+            if stab.get('vram_purge'): print(" [MEM] VRAM Defibrillation Pulse triggered.")
 
             # --- 2026: Incremental Canonical Eval (RAM Protection v5.0) ---
             CANONICAL_EVAL_SIZE = 384
@@ -2490,7 +2490,7 @@ def main():
                 # Re-initialize DataLoader if batch size changed
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
 
-                if rank == 0:
+                if int(os.environ.get('RANK', 0)) == 0:
                     print(f" [VRAM-SENTINEL] Validation batch size throttled to {val_batch_size} to protect evaluation phase.")
 
             # 2026 Validation Sharding & Resolution Sync
@@ -2517,7 +2517,7 @@ def main():
                 if hasattr(val_ds, 'sync_mode') and hasattr(val_ds.sync_mode, 'value'):
                     val_ds.sync_mode.value = True
                 else:
-                    val_ds.sync_mode = True
+                    val_ds.sync_mode = True  # type: ignore
                 with tqdm(total=val_resume_iteration, desc=" [RESILIENCY] Fast-forwarding Val", unit="it", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_val_pbar:
                     for v_idx, _ in val_iterator:
                         if skip_val_pbar.n < skip_val_pbar.total:
@@ -2527,7 +2527,7 @@ def main():
                 if hasattr(val_ds, 'sync_mode') and hasattr(val_ds.sync_mode, 'value'):
                     val_ds.sync_mode.value = False
                 else:
-                    val_ds.sync_mode = False
+                    val_ds.sync_mode = False  # type: ignore
 
             # --- 2026 Resilience: Adaptive Val Boundary ---
             val_resume_iteration = min(val_resume_iteration, shard_limit)
@@ -2622,8 +2622,8 @@ def main():
                     _current_h, _current_w = p_chunk.shape[-2], p_chunk.shape[-1]
                     if _current_h < CANONICAL_EVAL_SIZE or _current_w < CANONICAL_EVAL_SIZE:
                         _scale_args = dict(size=(CANONICAL_EVAL_SIZE, CANONICAL_EVAL_SIZE), mode='bicubic', align_corners=False)
-                        p_chunk = _F_resize.interpolate(p_chunk.clamp(0, 1), **_scale_args)
-                        t_chunk = _F_resize.interpolate(t_chunk.clamp(0, 1), **_scale_args)
+                        p_chunk = _F_resize.interpolate(p_chunk.clamp(0, 1), **_scale_args)  # type: ignore
+                        t_chunk = _F_resize.interpolate(t_chunk.clamp(0, 1), **_scale_args)  # type: ignore
                         _current_h, _current_w = CANONICAL_EVAL_SIZE, CANONICAL_EVAL_SIZE
 
                     p_chunk = torch.clamp(p_chunk, 0, 1)
@@ -2635,7 +2635,7 @@ def main():
                     p_np = p_chunk.numpy().transpose(0, 2, 3, 1)
                     t_np = t_chunk.numpy().transpose(0, 2, 3, 1)
                     for idx in range(len(p_np)):
-                        ssim_sum += ssim(t_np[idx], p_np[idx], data_range=1.0, channel_axis=-1)
+                        ssim_sum += ssim(t_np[idx], p_np[idx], data_range=1.0, channel_axis=-1)  # type: ignore
 
                     if loss_fn_vgg:
                         # Chunk LPIPS evaluation to avoid VRAM peaks on high-res validation
@@ -2719,7 +2719,7 @@ def main():
                     t_cpu = targets.detach().cpu()
                     abs_err = torch.abs(p_cpu - t_cpu)
                     for p_idx in range(min(3, abs_err.shape[-1])):
-                        param_mae_sums[p_idx] += abs_err[:, p_idx].sum().item()
+                        param_mae_sums[p_idx] += abs_err[:, p_idx].sum().item()  # type: ignore
                     param_mae_counts += p_cpu.shape[0]
 
                 elif train_ds.task_type == "classification":
@@ -2966,7 +2966,7 @@ def main():
 
         # Moved BEFORE CSV write and Checkpoint creation to ensure total manifold parity.
         f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
-            current_quality=current_quality_score,
+            current_quality=locals().get('current_quality_score', 0.0),
             best_quality=best_quality_score,
             epochs_no_improve=epochs_no_improve,
             regression_epochs=regression_epochs,
@@ -3050,7 +3050,7 @@ def main():
                 if hasattr(scheduler, 'base_lrs'):
                     scheduler.base_lrs = [max(absolute_lr_floor, l * mult) for l in scheduler.base_lrs]
                 if hasattr(scheduler, 'max_lrs'):
-                    scheduler.max_lrs = [max(absolute_lr_floor, l * mult) for l in scheduler.max_lrs]
+                    scheduler.max_lrs = [max(absolute_lr_floor, l * mult) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
                 if hasattr(scheduler, '_last_lr'):
                     scheduler._last_lr = [max(absolute_lr_floor, l * mult) for l in scheduler._last_lr]
 
@@ -3220,7 +3220,7 @@ def main():
                     if hasattr(scheduler, 'base_lrs'):
                         scheduler.base_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs]
                     if hasattr(scheduler, 'max_lrs'):
-                        scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.max_lrs]
+                        scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
 
                     # 2026 Resilience: Force scheduler state synchronization
                     # This ensures get_last_lr() and internal counters are aligned after the rollback
@@ -3454,7 +3454,7 @@ def main():
                 # 2026: The message is now handled INSIDE governor.audit_epoch
                 # to prevent preemptive/false jump announcements.
                 f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
-                    current_quality=current_quality_score,
+                    current_quality=locals().get('current_quality_score', 0.0),
                     best_quality=best_quality_score,
                     epochs_no_improve=0,
                     regression_epochs=0,

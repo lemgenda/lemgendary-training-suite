@@ -444,9 +444,16 @@ class SmartTrainingGovernor:
                     msg_parts.append(f"SPATIAL JUMP: {next_res}px | Data Reset 15% | Lock: ON")
                     self.stabilization_epochs = self.stabilization_lock
             else:
-                self.lr_multiplier = self.cooling_factor
-                lr_changed = True
-                msg_parts.append("REFINEMENT: SOTA Precision Cooling")
+                # New Rule: If plateaued far from SOTA goal, deploy Stress to break local minima
+                if getattr(self, 'current_stress', 0.0) < 5.0 and self.target_quality_score > 0 and self.best_quality < self.target_quality_score * 0.90:
+                    self.current_stress = min(5.0, getattr(self, 'current_stress', 0.0) + 1.0)
+                    self.lr_multiplier = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
+                    lr_changed = True
+                    msg_parts.append(f"REFINEMENT: Trapped in Plateau. Deploying Stress Protocol (Level {self.current_stress}) & Jolting LR")
+                else:
+                    self.lr_multiplier = self.cooling_factor
+                    lr_changed = True
+                    msg_parts.append("REFINEMENT: SOTA Precision Cooling")
 
         # --- Senior Feature: Gradual Temperature Sharpening (Success Branch) ---
         if not (is_regressing or is_turbulent or sentinel_trigger_rate > 0.15) and self.current_temp > self.min_temp:
