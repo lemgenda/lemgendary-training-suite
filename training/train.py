@@ -7,6 +7,13 @@ if "CUDA_VISIBLE_DEVICES" not in os.environ:
 os.environ["OPENCV_OPENCL_DEVICE"] = "DISABLED"
 import sys
 
+# --- 2026 Resilience: Child Process Interrupt Handler ---
+# Prevent spawned DataLoader workers from spewing tracebacks and crashing the parent abruptly
+import multiprocessing
+import signal
+if multiprocessing.current_process().name != 'MainProcess':
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
 # --- 2026: kagglesdk Dependency Hardening (ImportError Patch) ---
 try:
     import kagglesdk.kaggle_env as ke
@@ -30,6 +37,7 @@ import time
 import shutil
 import gc
 import math
+import torch.version
 # --- Hyper-Verbose Path Defense (2026 Specialization) ---
 # Anchor the search path to the script's own folder to bypass "Ghost Python" hijacking.
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1400,11 +1408,12 @@ def main():
     # --- 2026 Continuity Protocol (SOTA Sentry) ---
     # Manifold Health Audit: Revoke SOTA status if the physical manifold has regressed
     if 'probe_srcc' in locals() and sota_baseline_achieved:
+        _probe = locals().get('probe_srcc', 0.0)
         targets = model_info.get("sota_targets", {})
         target_srcc = targets.get("srcc", 0.90)
-        if locals().get('probe_srcc', 0.0) < (target_srcc - 0.05): # Tightened tolerance to 0.05 for SOTA integrity
+        if _probe < (target_srcc - 0.05): # Tightened tolerance to 0.05 for SOTA integrity
             print(f"[WARNING] [SOTA SENTRY] Manifold Health Audit: FAILED.")
-            print(f"[WARNING] [SOTA SENTRY] Probe SRCC ({probe_srcc:.4f}) is below mission target ({target_srcc:.4f}).")
+            print(f"[WARNING] [SOTA SENTRY] Probe SRCC ({_probe:.4f}) is below mission target ({target_srcc:.4f}).")
             print(f"[INFO] [RECONSTRUCTION] Revoking SOTA status. Launching deep-manifold recovery...")
             sota_baseline_achieved = False
 
@@ -1617,7 +1626,7 @@ def main():
         # If the validation manifold has shifted resolution, the previous SOTA best metrics
         # are no longer comparable. We reset the patience timer to allow the model to master the new rung.
         if 'last_val_anchor' in locals() and locals().get('last_val_anchor') != val_anchor_size:
-            print(f" [SOTA GUARD] Validation Manifold Shift detected ({last_val_anchor} -> {val_anchor_size}). Resetting patience timer.")
+            print(f" [SOTA GUARD] Validation Manifold Shift detected ({locals().get('last_val_anchor')} -> {val_anchor_size}). Resetting patience timer.")
             epochs_no_improve = 0
             best_quality_score = -1.0 # Force a new baseline for the new resolution
             best_val_loss = float('inf')
@@ -2401,14 +2410,14 @@ def main():
             # --- 2026: Incremental Canonical Eval (RAM Protection v5.0) ---
             CANONICAL_EVAL_SIZE = 384
             mse_sum, ssim_sum, lpips_sum = 0.0, 0.0, 0.0
+            param_mae_sums = [0.0, 0.0, 0.0]
+            param_mae_counts = 0
             total_samples, total_pixels = 0, 0
             loss_fn_vgg, fid_metric = None, None
             sota_targets = model_info.get("sota_targets", {})
 
             if train_ds.task_type == "parameter_prediction":
                 # 2026: MAE tracking for parameter regression (no PSNR/SSIM/LPIPS needed)
-                param_mae_sums = [0.0, 0.0, 0.0] # deg, theta, conf
-                param_mae_counts = 0
                 output_names = model_info.get('output_names', ['deg', 'theta', 'conf'])
 
             elif train_ds.task_type in ["restoration", "enhancement", "face"]:
@@ -2743,6 +2752,8 @@ def main():
         # --- 2026: Incremental Canonical Eval (RAM Protection v5.0) ---
         # We process metrics in manageable chunks to avoid System RAM OOM on large datasets.
         CANONICAL_EVAL_SIZE = 384
+        current_quality_score = 0.0
+        curr_metrics = {}
 
         try:
             if train_ds.task_type == "quality" and len(all_preds) > 0:
