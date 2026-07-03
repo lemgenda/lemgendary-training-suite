@@ -86,7 +86,7 @@ class SmartTrainingGovernor:
 
         if self.current_res not in self.res_ladder:
             self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
-        self.min_temp = 0.5 if self.task_type == "quality" else (0.01 if self.task_type == "parameter_prediction" else 0.1)
+        self.min_temp = float(self.stab.get("min_temp", 0.5 if self.task_type == "quality" else (0.01 if self.task_type == "parameter_prediction" else 0.1)))
         self.current_temp = self.stab.get("softmax_temp", self.min_temp)
         self.current_clamp = self.stab.get("logit_clamp", 15.0)
 
@@ -429,7 +429,7 @@ class SmartTrainingGovernor:
                 next_res = self.res_ladder[current_idx + 1]
                 
                 # SOTA Validation Check before spatial jump
-                if self.best_quality < self.target_quality_score * 0.90 and self.target_quality_score > 1.0:
+                if self.best_quality < self.target_quality_score * 0.80 and self.target_quality_score > 1.0:
                     self.lr_multiplier = self.cooling_factor
                     lr_changed = True
                     msg_parts.append(f"RECOIL: Insufficient Quality for spatial jump. Cooling LR.")

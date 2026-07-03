@@ -35,6 +35,7 @@ nima_aesthetic_mobile:
     - 15.0
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.1
     plateau_patience: 8
     cooling_factor: 0.85
@@ -85,6 +86,7 @@ nima_aesthetic_efficientnet:
     - 15.0
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.1
     plateau_patience: 8
     cooling_factor: 0.85
@@ -136,6 +138,7 @@ nima_aesthetic_pro:
     - 15.0
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.15
     plateau_patience: 6
     cooling_factor: 0.85
@@ -175,6 +178,7 @@ nima_technical:
   datasets:
   - LemGendizedNimaTechnical
   stabilizers:
+    min_temp: 0.96
     softmax_temp: 1.0
     emd_epsilon: 0.0001
     logit_clamp: 15.0
@@ -189,10 +193,13 @@ nima_technical:
     rank_margin: 0.05
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.15
     plateau_patience: 4
     cooling_factor: 0.85
     plateau_priority: data
+    drift_gate: 0.98
+    regression_limit: 3
     res_ladder:
     - 384
     - 512
@@ -237,6 +244,7 @@ nima_authenticity:
     accuracy: 0.95
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.2
     plateau_patience: 6
     cooling_factor: 0.85
@@ -277,6 +285,7 @@ upn_v2:
     mae: 0.05
   optimization:
     enabled: true
+    absolute_patience: 15
     initial_fraction: 0.5
     fraction_increment: 0.25
     plateau_patience: 4
@@ -312,6 +321,7 @@ film_restorer:
     lpips: 0.25
   optimization:
     enabled: true
+    absolute_patience: 15
     target_effective_batch: 32
     fraction_increment: 0.15
     plateau_patience: 8
@@ -344,6 +354,7 @@ codeformer:
   description: Face restoration model
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.1
     plateau_patience: 12
     cooling_factor: 0.7
@@ -381,6 +392,7 @@ parsenet:
   - LemGendizedParseNet
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.25
     plateau_patience: 8
     plateau_priority: data
@@ -412,6 +424,7 @@ retinaface_mobilenet:
   - LemGendizedRetinaFaceMobileNet
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.25
     plateau_patience: 10
     plateau_priority: data
@@ -450,6 +463,7 @@ ffanet_indoor:
     fid: 12.0
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.15
     plateau_patience: 8
     cooling_factor: 0.85
@@ -489,6 +503,7 @@ ffanet_outdoor:
     fid: 12.0
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.15
     plateau_patience: 8
     cooling_factor: 0.85
@@ -527,6 +542,7 @@ mirnet_lowlight:
     fid: 12.0
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.15
     plateau_patience: 8
     cooling_factor: 0.85
@@ -565,6 +581,7 @@ mirnet_exposure:
     fid: 12.0
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.15
     plateau_patience: 8
     cooling_factor: 0.85
@@ -603,6 +620,7 @@ mprnet_deraining:
     fid: 12.0
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.15
     plateau_patience: 8
     cooling_factor: 0.85
@@ -632,6 +650,7 @@ nafnet_debluring:
   description: NAFNet image debluring
   optimization:
     enabled: true
+    absolute_patience: 15
     manifold_maturity: 8
     cooling_factor: 0.8
     plateau_priority: resolution
@@ -671,6 +690,7 @@ nafnet_denoising:
   description: NAFNet image denoising
   optimization:
     enabled: true
+    absolute_patience: 15
     manifold_maturity: 8
     cooling_factor: 0.8
     plateau_priority: resolution
@@ -712,6 +732,7 @@ yolov8n:
   description: Unified YOLOv8n for classification, detection, and pose
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.2
     plateau_patience: 10
     cooling_factor: 0.75
@@ -745,6 +766,7 @@ professional_multitask_restoration:
     and Low-Light
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.15
     plateau_patience: 15
     cooling_factor: 0.8
@@ -782,6 +804,7 @@ ultrazoom:
   - LemGendizedUltraZoom
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.15
     plateau_patience: 10
     plateau_priority: resolution
@@ -797,126 +820,6 @@ ultrazoom:
     lpips: 0.04
     fid: 10.0
   val_resolution: 768
-diffusion_sdxl:
-  name: LemGendary SDXL Master Diffusion
-  class_name: StableDiffusionXL
-  category: generative
-  filename: SDXL-Master
-  checkpoint: SDXL-Master-Weights_FP16.safetensors
-  input_size:
-  - 3
-  - 512
-  - 512
-  learning_rate: 1.0e-05
-  loss_fn: diffusion_loss
-  dataset_type: text_to_image
-  optimal_key: diffusion_sdxl
-  description: Unified SDXL model tuned on high-res Master Manifold
-  optimization:
-    enabled: true
-    fraction_increment: 0.15
-    plateau_patience: 10
-    plateau_priority: resolution
-    res_ladder:
-    - 512
-    - 640
-    - 768
-    - 896
-    - 1024
-  sota_targets:
-    fid: 14.5
-  datasets:
-  - diffusion_master_manifold
-  val_resolution: 1024
-diffusion_flux:
-  name: LemGendary FLUX.1 Master Diffusion
-  class_name: Flux1_Master
-  category: generative
-  filename: FLUX1-Master
-  checkpoint: FLUX1-Master-Weights_BF16.safetensors
-  input_size:
-  - 3
-  - 512
-  - 512
-  learning_rate: 5.0e-06
-  loss_fn: flow_matching
-  dataset_type: text_to_image
-  optimal_key: diffusion_flux
-  description: Unified FLUX.1 model tuned on complex Midjourney + Master Manifold
-  optimization:
-    enabled: true
-    fraction_increment: 0.15
-    plateau_patience: 12
-    plateau_priority: resolution
-    res_ladder:
-    - 512
-    - 640
-    - 768
-    - 896
-    - 1024
-  sota_targets:
-    fid: 14.5
-  datasets:
-  - diffusion_master_manifold
-  val_resolution: 1024
-vlm_llava:
-  name: LemGendary LLaVA v1.5 Master VLM
-  class_name: LLaVA_v1_5
-  category: multimodal
-  filename: LLaVA-v1.5-Master
-  checkpoint: LLaVA-v1.5-Weights_BF16.safetensors
-  input_size:
-  - 3
-  - 336
-  - 336
-  learning_rate: 2.0e-05
-  loss_fn: cross_entropy
-  dataset_type: image_to_text
-  optimal_key: vlm_llava
-  description: Unified LLaVA model tuned on Vision-Language Master Manifold
-  optimization:
-    enabled: true
-    fraction_increment: 0.2
-    plateau_patience: 10
-    plateau_priority: data
-    res_ladder:
-    - 336
-  stabilizers:
-    softmax_temp: 0.1
-  datasets:
-  - vision_language_master_manifold
-  val_resolution: 336
-  sota_targets:
-    accuracy_vqa: 0.7
-vlm_blip2:
-  name: LemGendary BLIP-2 Master VLM
-  class_name: BLIP_2
-  category: multimodal
-  filename: BLIP-2-Master
-  checkpoint: BLIP-2-Weights_FP32.pth
-  input_size:
-  - 3
-  - 364
-  - 364
-  learning_rate: 2.0e-05
-  loss_fn: contrastive_captioning
-  dataset_type: image_to_text
-  optimal_key: vlm_blip2
-  description: Unified BLIP-2 model tuned on Master Manifold
-  optimization:
-    enabled: true
-    fraction_increment: 0.2
-    plateau_patience: 10
-    plateau_priority: data
-    res_ladder:
-    - 364
-  stabilizers:
-    softmax_temp: 0.1
-  datasets:
-  - vision_language_master_manifold
-  val_resolution: 364
-  sota_targets:
-    accuracy_vqa: 0.8
 universal_nsfw_classification:
   name: LemGendary Universal NSFW Classifier
   class_name: UniversalClassifier
@@ -940,6 +843,7 @@ universal_nsfw_classification:
     accuracy: 0.98
   optimization:
     enabled: true
+    absolute_patience: 15
     fraction_increment: 0.2
     plateau_patience: 6
     cooling_factor: 0.85
@@ -947,3 +851,123 @@ universal_nsfw_classification:
     res_ladder:
     - 224
   val_resolution: 224
+# diffusion_sdxl:
+#   name: LemGendary SDXL Master Diffusion
+#   class_name: StableDiffusionXL
+#   category: generative
+#   filename: SDXL-Master
+#   checkpoint: SDXL-Master-Weights_FP16.safetensors
+#   input_size:
+#   - 3
+#   - 512
+#   - 512
+#   learning_rate: 1.0e-05
+#   loss_fn: diffusion_loss
+#   dataset_type: text_to_image
+#   optimal_key: diffusion_sdxl
+#   description: Unified SDXL model tuned on high-res Master Manifold
+#   optimization:
+#     enabled: true
+#     fraction_increment: 0.15
+#     plateau_patience: 10
+#     plateau_priority: resolution
+#     res_ladder:
+#     - 512
+#     - 640
+#     - 768
+#     - 896
+#     - 1024
+#   sota_targets:
+#     fid: 14.5
+#   datasets:
+#   - diffusion_master_manifold
+#   val_resolution: 1024
+# diffusion_flux:
+#   name: LemGendary FLUX.1 Master Diffusion
+#   class_name: Flux1_Master
+#   category: generative
+#   filename: FLUX1-Master
+#   checkpoint: FLUX1-Master-Weights_BF16.safetensors
+#   input_size:
+#   - 3
+#   - 512
+#   - 512
+#   learning_rate: 5.0e-06
+#   loss_fn: flow_matching
+#   dataset_type: text_to_image
+#   optimal_key: diffusion_flux
+#   description: Unified FLUX.1 model tuned on complex Midjourney + Master Manifold
+#   optimization:
+#     enabled: true
+#     fraction_increment: 0.15
+#     plateau_patience: 12
+#     plateau_priority: resolution
+#     res_ladder:
+#     - 512
+#     - 640
+#     - 768
+#     - 896
+#     - 1024
+#   sota_targets:
+#     fid: 14.5
+#   datasets:
+#   - diffusion_master_manifold
+#   val_resolution: 1024
+# vlm_llava:
+#   name: LemGendary LLaVA v1.5 Master VLM
+#   class_name: LLaVA_v1_5
+#   category: multimodal
+#   filename: LLaVA-v1.5-Master
+#   checkpoint: LLaVA-v1.5-Weights_BF16.safetensors
+#   input_size:
+#   - 3
+#   - 336
+#   - 336
+#   learning_rate: 2.0e-05
+#   loss_fn: cross_entropy
+#   dataset_type: image_to_text
+#   optimal_key: vlm_llava
+#   description: Unified LLaVA model tuned on Vision-Language Master Manifold
+#   optimization:
+#     enabled: true
+#     fraction_increment: 0.2
+#     plateau_patience: 10
+#     plateau_priority: data
+#     res_ladder:
+#     - 336
+#   stabilizers:
+#     softmax_temp: 0.1
+#   datasets:
+#   - vision_language_master_manifold
+#   val_resolution: 336
+#   sota_targets:
+#     accuracy_vqa: 0.7
+# vlm_blip2:
+#   name: LemGendary BLIP-2 Master VLM
+#   class_name: BLIP_2
+#   category: multimodal
+#   filename: BLIP-2-Master
+#   checkpoint: BLIP-2-Weights_FP32.pth
+#   input_size:
+#   - 3
+#   - 364
+#   - 364
+#   learning_rate: 2.0e-05
+#   loss_fn: contrastive_captioning
+#   dataset_type: image_to_text
+#   optimal_key: vlm_blip2
+#   description: Unified BLIP-2 model tuned on Master Manifold
+#   optimization:
+#     enabled: true
+#     fraction_increment: 0.2
+#     plateau_patience: 10
+#     plateau_priority: data
+#     res_ladder:
+#     - 364
+#   stabilizers:
+#     softmax_temp: 0.1
+#   datasets:
+#   - vision_language_master_manifold
+#   val_resolution: 364
+#   sota_targets:
+#     accuracy_vqa: 0.8

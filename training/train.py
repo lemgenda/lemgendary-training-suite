@@ -1,5 +1,6 @@
 # 2026: Environment Linter Sync
 import os
+import time
 # 2026 Resilience: Force GPU 0 to prevent multi-GPU context initialization hangs under virtualized environments (Kaggle T4 x2)
 if "CUDA_VISIBLE_DEVICES" not in os.environ:
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -1125,7 +1126,9 @@ def main():
             if "checkpoints" in ckpt and "LemGendaryModels" not in ckpt: # Local checkpoint
                 if epoch < hub_max_epoch:
                     print(f" [FIRE] [RESILIENCE] Purging poisoned local progress (Epoch {epoch}) in favor of Hub SOTA (Epoch {hub_max_epoch}).")
-                    try: os.remove(ckpt)
+                    try:
+                        backup_path = ckpt.replace('.pth', f'_obsolete_backup_{int(time.time())}.pth')
+                        os.rename(ckpt, backup_path)
                     except: pass
                     # Remove from candidates
                     candidates[i] = (-1, 0, ckpt)
@@ -1352,7 +1355,7 @@ def main():
         val_loader_probe = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
         with torch.no_grad():
             for j, (p_img, p_tgt, _) in enumerate(val_loader_probe):
-                if j >= 2: break # Shortened for 4GB stability
+                if j >= 10: break # Must evaluate at least 10 batches for statistical significance
                 p_img, p_tgt = p_img.to(device), p_tgt.to(device)
                 p_out = model(p_img)
                 p_soft = torch.nn.functional.softmax(p_out / config.get('stabilizers', {}).get('softmax_temp', 0.1), dim=-1)
@@ -1376,7 +1379,7 @@ def main():
                 probe_srcc = 0.0
             print(f"[INFO] [PROBE] Initial Manifold SRCC: {probe_srcc:.4f}")
             print(f"[INFO] [JUDICIAL] Judicial Audit: 1=Worst -> 10=Best (Verified v3.5)")
-            if probe_srcc < -0.01:
+            if probe_srcc < -0.50:
                 print(f"[WARNING] [POLARITY] Negative manifold detected. Resetting head to clear 'Inverse Memory'...")
                 target_layers = []
                 if hasattr(model, 'classifier'):
@@ -1399,8 +1402,9 @@ def main():
 
                 if 'best_hub' in locals() and os.path.exists(best_hub):
                     try:
-                        os.remove(best_hub)
-                        print(f"[INFO] [REGRESSION PURGE] Destroyed physically corrupted _best.pth from Hub.")
+                        backup_path = best_hub.replace('.pth', f'_corrupted_backup_{int(time.time())}.pth')
+                        os.rename(best_hub, backup_path)
+                        print(f"[INFO] [REGRESSION PURGE] Backed up to {os.path.basename(backup_path)} and reset SOTA status.")
                     except:
                         pass
         model.train()
@@ -1955,7 +1959,9 @@ def main():
                         print(f" [NUCLEAR] Infinite Singularity Loop (10 batches). Poisoned state detected. Nuking Latest & Hard-Resetting...")
                         latest_ckpt = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
                         if os.path.exists(latest_ckpt):
-                            try: os.remove(latest_ckpt)
+                            try:
+                                backup_path = latest_ckpt.replace('.pth', f'_singularity_backup_{int(time.time())}.pth')
+                                os.rename(latest_ckpt, backup_path)
                             except: pass
 
                         # Force a deep rollback to best.pth
@@ -3161,9 +3167,19 @@ def main():
                     time.sleep(1)
 
         # --- 2026: SOTA Regression Guardrail (Resilience v3.1 Hardened) ---
-        # 2026 NPP: Relaxed thresholds for Quality tasks to allow for natural SRCC/PLCC jitter.
-        drift_gate = 0.95 if train_ds.task_type == "quality" else 0.985
-        regression_limit = 5 if train_ds.task_type == "quality" else 3
+        # 2026 NPP: Configurable thresholds for regression logic.
+        opt_cfg = model_info.get("optimization", {})
+        default_drift = 0.95 if train_ds.task_type == "quality" else 0.985
+        default_limit = 5 if train_ds.task_type == "quality" else 3
+        
+        drift_gate = opt_cfg.get("drift_gate", default_drift)
+        regression_limit = opt_cfg.get("regression_limit", default_limit)
+        absolute_patience = opt_cfg.get("absolute_patience", 15)
+
+        # 2026 Absolute Anti-Loop Guard (Dead Man's Switch)
+        if epochs_no_improve >= absolute_patience:
+            print(f" [NUCLEAR] Absolute Plateau Reached ({epochs_no_improve} epochs). Force-Triggering SOTA Rollback.")
+            force_rollback = True
 
         if (sota_targets and current_quality_score < (best_quality_score * drift_gate) and not is_best) or force_rollback:
             if not force_rollback:

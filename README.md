@@ -1,8 +1,8 @@
-# LemGendary AI Training Suite (v16.2.9-NUCLEAR-HARDENED)
+# LemGendary AI Training Suite (v16.3.0-NUCLEAR-HARDENED)
 
 > **The 2026 Global Standard for High-Fidelity Vision Model Training.**
 >
-> A unified, industrial-grade orchestration layer for training, optimizing, and deploying SOTA vision and multimodal models. Optimized for high-frequency artifact detection and structural restoration with **Nuclear-Hardened v16.2.9 Architecture**.
+> A unified, industrial-grade orchestration layer for training, optimizing, and deploying SOTA vision and multimodal models. Optimized for high-frequency artifact detection and structural restoration with **Nuclear-Hardened v16.3.0 Architecture** (now featuring Live Polarity Shields and Absolute Anti-Loop Guards).
 
 ---
 

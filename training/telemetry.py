@@ -95,9 +95,12 @@ class TelemetryEngine:
         """Dynamic Quality Score: Weighted average of all SOTA targets."""
         quality_score = 0.0
         
-        # --- 2026: Metric Singularity Shield (v1.2.1) ---
-        if task_type == "quality" and (np.isnan(curr_metrics.get('plcc', 0.0)) or np.isnan(curr_metrics.get('srcc', 0.0))):
-            return 0.0, True # Return score, and a flag indicating singularity collapse
+        # --- 2026: Metric Singularity Shield & Live Polarity Shield (v1.2.2) ---
+        if task_type == "quality":
+            plcc_val = curr_metrics.get('plcc', 0.0)
+            srcc_val = curr_metrics.get('srcc', 0.0)
+            if np.isnan(plcc_val) or np.isnan(srcc_val) or plcc_val < 0.0 or srcc_val < 0.0:
+                return 0.0, True # Return score, and a flag indicating singularity or polarity collapse
             
         for k, target_v in sota_targets.items():
             val = curr_metrics.get(k, 0.0)
