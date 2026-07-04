@@ -49,6 +49,8 @@ def apply_synthetic_degradation(img_tensor, deg, theta, conf):
     img_uint8 = np.clip(img_np * 255, 0, 255).astype(np.uint8)
     _, enc = cv2.imencode('.jpg', img_uint8, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
     img_uint8 = cv2.imdecode(enc, cv2.IMREAD_COLOR)
+    if img_uint8 is None:
+        return img_tensor
     # cv2 uses BGR, but our input was RGB — imencode/imdecode preserves channel order for numpy
     img_np = img_uint8.astype(np.float32) / 255.0
     
@@ -134,7 +136,7 @@ class MultiTaskDataset(Dataset):
             else:
                 self.data_root = os.path.normpath(os.path.join(workspace_root, self.data_root))
         
-        ImageFile.LOAD_TRUNCATED_IMAGES = True # Shield against corrupt JPG headers
+        ImageFile.LOAD_TRUNCATED_IMAGES = True # type: ignore # Shield against corrupt JPG headers
         
         unified_models_path = os.path.join(os.path.dirname(__file__), "..", config["unified_models"])
         with open(unified_models_path, 'r') as f:
@@ -219,7 +221,7 @@ class MultiTaskDataset(Dataset):
         # 2026 Resilience: LANCZOS is superior for Aesthetic/Quality manifolds
         interp = transforms.InterpolationMode.LANCZOS if self.task_type == "quality" else transforms.InterpolationMode.BILINEAR
         
-        transform_list = [transforms.Resize(self.size, interpolation=interp)]
+        transform_list: list = [transforms.Resize(self.size, interpolation=interp)]
         if self.is_train and self.task_type == "quality":
             transform_list.append(transforms.RandomHorizontalFlip())
             # --- 2026 Resilience: Dynamic Stress Injection ---
@@ -330,7 +332,7 @@ class MultiTaskDataset(Dataset):
                 return img.convert('RGB')
         except Exception as e:
             # print(f"⚠️ [SHIELD] I/O Failure on {os.path.basename(img_path)}. Ejecting Neutral Gray.")
-            return Image.new('RGB', self.size[::-1], (128, 128, 128))
+            return Image.new('RGB', (self.size[1], self.size[0]), (128, 128, 128))
 
     def __len__(self):
         return len(self.samples)
@@ -358,17 +360,20 @@ class MultiTaskDataset(Dataset):
             
         return torch.zeros(in_shape), torch.zeros(target_shape), task_str
 
-    def __getitem__(self, idx):
+    def __getitem__(self, index):
         if hasattr(self.sync_mode, 'value') and self.sync_mode.value:
             return self._get_sync_dummy()
         elif not hasattr(self.sync_mode, 'value') and self.sync_mode:
             return self._get_sync_dummy()
 
-        ds_name, fname = self.samples[idx]
+        ds_name, fname = self.samples[index]
         ds_path = self.path_cache.get(ds_name)
         if ds_path is None:
             ds_path = self.get_dataset_path(ds_name)
             self.path_cache[ds_name] = ds_path
+        if ds_path is None:
+            ds_path = ""
+            
         img_path = os.path.join(ds_path, "images", self.split, fname)
         
         img = self.load_image(img_path)
@@ -405,38 +410,33 @@ class MultiTaskDataset(Dataset):
             task_str = self.task_type
             if self.model_key == "professional_multitask_restoration":
                 fname_lower = fname.lower()
-                import re
-                match = re.search(r"professionalmultitaskrestoration_([a-z_]+)_compiled_", fname_lower)
-                if match:
-                    task_str = match.group(1)
+                # Use robust substring matching to map manifold names to task heads
+                if "denois" in fname_lower:
+                    task_str = "denoise"
+                elif "deblur" in fname_lower:
+                    task_str = "deblur"
+                elif "derain" in fname_lower:
+                    task_str = "derain"
+                elif "dehaze_outdoor" in fname_lower or "outdoor" in fname_lower:
+                    task_str = "dehaze_outdoor"
+                elif "dehaze_indoor" in fname_lower or "indoor" in fname_lower:
+                    task_str = "dehaze_indoor"
+                elif "dehaze" in fname_lower or "ffa" in fname_lower:
+                    task_str = "dehaze_indoor"
+                elif "lowlight" in fname_lower:
+                    task_str = "lowlight"
+                elif "exposure" in fname_lower:
+                    task_str = "exposure"
+                elif "zoom" in fname_lower or "super" in fname_lower:
+                    task_str = "superres"
+                elif "vintage" in fname_lower or "film" in fname_lower:
+                    task_str = "vintage"
+                elif "codeformer" in fname_lower or "face_restor" in fname_lower:
+                    task_str = "face_restorer"
+                elif "parsenet" in fname_lower or "face_pars" in fname_lower:
+                    task_str = "face_parser"
                 else:
-                    # Fallback to substring matching if compiled without the new tag prefix
-                    if "denois" in fname_lower:
-                        task_str = "denoise"
-                    elif "deblur" in fname_lower:
-                        task_str = "deblur"
-                    elif "derain" in fname_lower:
-                        task_str = "derain"
-                    elif "dehaze_outdoor" in fname_lower or "outdoor" in fname_lower:
-                        task_str = "dehaze_outdoor"
-                    elif "dehaze_indoor" in fname_lower or "indoor" in fname_lower:
-                        task_str = "dehaze_indoor"
-                    elif "dehaze" in fname_lower or "ffa" in fname_lower:
-                        task_str = "dehaze_indoor"
-                    elif "lowlight" in fname_lower:
-                        task_str = "lowlight"
-                    elif "exposure" in fname_lower:
-                        task_str = "exposure"
-                    elif "zoom" in fname_lower or "super" in fname_lower:
-                        task_str = "superres"
-                    elif "vintage" in fname_lower or "film" in fname_lower:
-                        task_str = "vintage"
-                    elif "codeformer" in fname_lower or "face_restor" in fname_lower:
-                        task_str = "face_restorer"
-                    elif "parsenet" in fname_lower or "face_pars" in fname_lower:
-                        task_str = "face_parser"
-                    else:
-                        task_str = "denoise" # Fallback default
+                    task_str = "denoise" # Fallback default
 
             return img_tensor, target_tensor, task_str
         
