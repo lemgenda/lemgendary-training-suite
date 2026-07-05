@@ -1607,6 +1607,10 @@ def main():
 
     in_recovery_mode = False # 2026 Resilience: OOM Shield (v17.2)
 
+    # Cache validation VRAM audit to prevent redundant hardcoded mid-epoch checks
+    last_val_audit_size = None
+    last_val_audit_fraction = None
+
     for epoch in range(start_epoch, epochs):
         last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.12) ---
         # 2026: SOTA Stabilization and Thermal Sharding
@@ -2496,17 +2500,20 @@ def main():
             val_ds.update_strategy(size=val_anchor_size)
             
             # --- 2026: Mid-Epoch Validation VRAM Audit ---
-            # Recalculate validation batch size right before starting to maximize throughput
+            # Recalculate validation batch size only if resolution or dataset fraction changed dynamically
             if config_batch == "auto" and (model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info):
-                # 2026 Resilience: Must use val_ds.size to prevent paging if validation is anchored higher than training
-                temp_info = {**model_info, "input_size": val_ds.size}
-                val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val', sample_fraction=val_ds.sample_fraction)
-                if pbar: pbar.write(f" [SIGNAL] [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size} @ {val_anchor_size}px")
-                # Re-initialize DataLoader if batch size changed
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
+                if val_ds.size != last_val_audit_size or val_ds.sample_fraction != last_val_audit_fraction:
+                    # 2026 Resilience: Must use val_ds.size to prevent paging if validation is anchored higher than training
+                    temp_info = {**model_info, "input_size": val_ds.size}
+                    val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val', sample_fraction=val_ds.sample_fraction)
+                    last_val_audit_size = val_ds.size
+                    last_val_audit_fraction = val_ds.sample_fraction
+                    if pbar: pbar.write(f" [SIGNAL] [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size} @ {val_anchor_size}px")
+                    # Re-initialize DataLoader if batch size changed
+                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
 
-                if int(os.environ.get('RANK', 0)) == 0:
-                    print(f" [VRAM-SENTINEL] Validation batch size throttled to {val_batch_size} to protect evaluation phase.")
+                    if int(os.environ.get('RANK', 0)) == 0:
+                        print(f" [VRAM-SENTINEL] Validation batch size throttled to {val_batch_size} to protect evaluation phase.")
 
             # 2026 Validation Sharding & Resolution Sync
             # Auto-expand validation set to 100% during Refinement Phase for SOTA generalizability audit
