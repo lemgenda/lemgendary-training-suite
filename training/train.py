@@ -3242,7 +3242,7 @@ def main():
                     # --- 2026: SOTA Velocity Shield (v3.1) ---
                     # We prevent the LR from dropping below a fixed Survivor Floor
                     # to prevent the model from 'freezing' in a sub-optimal manifold.
-                    survivor_floor = 1e-5 # Raised from 5e-7 to prevent Decay Spiral
+                    survivor_floor = 1e-7 # Lowered from 1e-5 to prevent Velocity Bomb during high-decay rollbacks
                     new_lr = max(survivor_floor, optimizer.param_groups[0]['lr'] * 0.5)
 
                     for param_group in optimizer.param_groups:
