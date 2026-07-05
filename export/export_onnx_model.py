@@ -103,6 +103,12 @@ def main():
     else:
         h, w = int(size_raw), int(size_raw)
         
+    # --- 2026 Resilience: Cap ONNX Export Resolution ---
+    # Tracing massive resolutions (e.g. 768x768 NAFNet) causes CPU OOMs and massive graph bloat.
+    # We cap at 512x512 for structural export stability as recommended by WebGPU KI.
+    h = min(h, 512)
+    w = min(w, 512)
+    
     # 3.5 Production Wrapping (Probabilities for Quality Manifolds)
     if model_info.get("dataset_type") == "quality":
         import torch.nn as nn
