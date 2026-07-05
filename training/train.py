@@ -1636,8 +1636,6 @@ def main():
         if 'last_val_anchor' in locals() and locals().get('last_val_anchor') != val_anchor_size:
             print(f" [SOTA GUARD] Validation Manifold Shift detected ({locals().get('last_val_anchor')} -> {val_anchor_size}). Resetting patience timer.")
             epochs_no_improve = 0
-            best_quality_score = -1.0 # Force a new baseline for the new resolution
-            best_val_loss = float('inf')
             
             # --- 2026 NPP: Governor Memory Purge (v19.2) ---
             # Sync the Governor's internal memory to the new resolution floor
@@ -3135,8 +3133,6 @@ def main():
                 epochs_no_improve = 0
             if r_changed:
                 print(f" [GUARD] Resolution changed. Resetting SOTA baseline to accommodate new spatial manifold.")
-                best_quality_score = -1.0
-                best_val_loss = float('inf')
 
         # 2026 Resilience: best_metrics is preserved from the last SOTA/best update block to prevent metric corruption.
 
