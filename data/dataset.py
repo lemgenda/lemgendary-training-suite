@@ -221,7 +221,17 @@ class MultiTaskDataset(Dataset):
         # 2026 Resilience: LANCZOS is superior for Aesthetic/Quality manifolds
         interp = transforms.InterpolationMode.LANCZOS if self.task_type == "quality" else transforms.InterpolationMode.BILINEAR
         
-        transform_list: list = [transforms.Resize(self.size, interpolation=interp)]
+        # FIX: Preserve aspect ratio and crop to prevent network from learning squish artifacts
+        if self.is_train:
+            transform_list: list = [
+                transforms.Resize(max(self.size), interpolation=interp),
+                transforms.RandomCrop(self.size)
+            ]
+        else:
+            transform_list: list = [
+                transforms.Resize(max(self.size), interpolation=interp),
+                transforms.CenterCrop(self.size)
+            ]
         if self.is_train and self.task_type == "quality":
             transform_list.append(transforms.RandomHorizontalFlip())
             # --- 2026 Resilience: Dynamic Stress Injection ---
@@ -249,7 +259,8 @@ class MultiTaskDataset(Dataset):
         # Degradation is applied after transform in __getitem__
         if self.task_type == "parameter_prediction":
             self.clean_transform = transforms.Compose([
-                transforms.Resize(self.size, interpolation=transforms.InterpolationMode.LANCZOS),
+                transforms.Resize(max(self.size), interpolation=interp),
+                transforms.RandomCrop(self.size) if self.is_train else transforms.CenterCrop(self.size),
                 transforms.ToTensor()
             ])
 

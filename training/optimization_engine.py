@@ -113,7 +113,7 @@ class SmartTrainingGovernor:
         else:
             self.min_delta = base_delta if self.task_type == "quality" else (base_delta * 100.0) # Scale up for restoration
         self.spatial_lock_remaining = 0 # 2026 v15.9: Blocks recoil after jump
-        self.last_res_jump_epoch = -100
+        self.last_res_jump_epoch = 0
 
         # Calculate target Quality Score for non-quality tasks with sota_targets to scale stride_threshold
         self.sota_targets = opt.get("sota_targets", model_info.get("sota_targets", {}))
@@ -538,7 +538,7 @@ class SmartTrainingGovernor:
         self.thermal_floor = state.get("thermal_floor", {}) # New
         self.cooldown_remaining = state.get("cooldown_remaining", 0) # New
         self.spatial_lock_remaining = state.get("spatial_lock_remaining", 0) # v15.9
-        self.last_res_jump_epoch = state.get("last_res_jump_epoch", -100) # v15.9
+        self.last_res_jump_epoch = state.get("last_res_jump_epoch", 0) # v15.9
         self.epoch_count = state.get("epoch_count", self.epoch_count)
         self.best_quality = state.get("best_quality", self.best_quality)
         self.current_stress = state.get("stress", 0.0)

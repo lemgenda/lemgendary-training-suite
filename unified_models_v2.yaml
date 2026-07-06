@@ -250,11 +250,9 @@ nima_authenticity:
     cooling_factor: 0.85
     res_ladder:
     - 384
-    - 512
-    - 640
     target_effective_batch: 24
     plateau_priority: data
-  val_resolution: 640
+  val_resolution: 384
 upn_v2:
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2

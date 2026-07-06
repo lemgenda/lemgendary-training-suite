@@ -3480,7 +3480,30 @@ def main():
         except: is_max_res = True
 
         if breached and not sota_baseline_achieved:
-            if not is_max_res:
+            if governor.current_fraction < 0.99:
+                next_frac = min(1.0, governor.current_fraction + getattr(governor, 'fraction_increment', 0.2))
+                if next_frac >= 0.99: next_frac = 1.0 # Snap to 100%
+                
+                print(f"\n -> [SOTA GUARD] SOTA targets met at {governor.current_res}px but on a data subset ({governor.current_fraction*100:.0f}%).")
+                print(f" -> [SOTA GUARD] Expanding dataset fraction to {next_frac*100:.0f}% to progressively verify SOTA without memorization.")
+                
+                # Expand data fraction in governor and dataset
+                governor.current_fraction = next_frac
+                
+                if not args.batch_size:
+                    batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=next_frac)
+                    v_res = model_info.get("val_resolution", governor.current_res)
+                    val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
+                    target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
+                    accumulation_steps = max(1, target_eff // batch_size)
+                    
+                train_ds.update_strategy(fraction=next_frac)
+                
+                _workers = num_workers
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                if device.type == 'cuda': torch.cuda.empty_cache()
+            elif not is_max_res:
                 # 2026: The message is now handled INSIDE governor.audit_epoch
                 # to prevent preemptive/false jump announcements.
                 f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
@@ -3498,7 +3521,7 @@ def main():
                 stress_changed = new_params.get('stress', 0.0) != getattr(train_ds, 'stress', 0.0)
                 if f_changed or r_changed or b_changed or stress_changed:
                     if not args.batch_size:
-                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
+                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=new_params.get('sample_fraction', 1.0))
                         v_res = model_info.get("val_resolution", governor.current_res)
                         val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
                         target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
@@ -3517,30 +3540,9 @@ def main():
                     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                     if device.type == 'cuda': torch.cuda.empty_cache()
             else:
-                if governor.current_fraction < 0.99:
-                    print(f"\n -> [SOTA GUARD] SOTA targets met at Final Resolution ({governor.current_res}px) but on a data subset ({governor.current_fraction*100:.0f}%).")
-                    print(f" -> [SOTA GUARD] Advancing dataset fraction to 100% to verify SOTA is sustained without memorization.")
-                    
-                    # Force data fraction to 1.0 in governor and dataset
-                    governor.current_fraction = 1.0
-                    
-                    if not args.batch_size:
-                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train')
-                        v_res = model_info.get("val_resolution", governor.current_res)
-                        val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
-                        target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
-                        accumulation_steps = max(1, target_eff // batch_size)
-                        
-                    train_ds.update_strategy(fraction=1.0)
-                    
-                    _workers = num_workers
-                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
-                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
-                    if device.type == 'cuda': torch.cuda.empty_cache()
-                else:
-                    print(f"\n[MISSION COMPLETE] {msg} mathematically breached at Final Resolution ({governor.current_res}px) with 100% Data! Engaging 1-Epoch Reinforcement SOTA Countdown...")
-                    sota_baseline_achieved = True
-                    sota_countdown = 1
+                print(f"\n[MISSION COMPLETE] {msg} mathematically breached at Final Resolution ({governor.current_res}px) with 100% Data! Engaging 1-Epoch Reinforcement SOTA Countdown...")
+                sota_baseline_achieved = True
+                sota_countdown = 1
 
             if args.prefetch_datasets:
                 print(f"\n[Zero-Latency Pre-Fetch] Triggering parallel background data streams natively for next workflow phase!")
@@ -3587,6 +3589,17 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
         onnx_script = os.path.join(export_script_dir, "export_onnx_model.py")
         # 2026: Pass explicit checkpoint path to avoid 'Epoch 0' ghosting
         best_ckpt_path = os.path.join(hub_model_dir, "checkpoints", f"{args.model}_best.pth")
+        
+        # --- 2026 Resilience: Memory Purge Pre-Export ---
+        # Free up VRAM so the heavy ONNX exporter doesn't OOM on 4GB GPUs
+        try:
+            model.cpu()
+            del model
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache()
+        except: pass
+        
         subprocess.call([python_exe, onnx_script, "--model", args.model, "--checkpoint", best_ckpt_path, "--yes"])
 
         # 2. Standardized PyTorch Standalone
