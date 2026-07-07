@@ -189,7 +189,7 @@ def main():
                             torch.onnx.export(
                                 model, (inp,), target_path,
                                 export_params=True, opset_version=17,
-                                do_constant_folding=True,
+                                do_constant_folding=False,
                                 input_names=['input'], output_names=['output']
                             )
                     finally:
@@ -217,7 +217,7 @@ def main():
                                 torch.onnx.export(
                                     model, (inp,), target_path,
                                     export_params=True, opset_version=18,
-                                    do_constant_folding=True,
+                                    do_constant_folding=False,
                                     input_names=['input'], output_names=['output']
                                 )
                         finally:
@@ -274,8 +274,15 @@ def main():
                 ghost_data_loc = f"{export['name']}.data"
                 ghost_abs_path = os.path.join(production_dir, ghost_data_loc)
                 if os.path.exists(ghost_abs_path):
-                    os.remove(ghost_abs_path)
-                    print(f"   -> [PURGE] PyTorch C++ Fallback ghost sidecar {ghost_data_loc} physically severed.")
+                    print(f"   -> [RECOVER] PyTorch C++ Fallback generated a sidecar. Re-embedding FP16 weights...")
+                    try:
+                        import onnx
+                        onnx_model = onnx.load(target_path, load_external_data=True)
+                        onnx.save_model(onnx_model, target_path, save_as_external_data=False)
+                        os.remove(ghost_abs_path)
+                        print(f"   -> [SUCCESS] FP16 sidecar successfully embedded and purged.")
+                    except Exception as embed_err:
+                        print(f"   -> [ERROR] Failed to embed sidecar: {embed_err}")
 
             print(f" [SUCCESS] {export['name']} generated.")
         except Exception as e:

@@ -1941,9 +1941,10 @@ def main():
                                 print(f" [CRITICAL] OOM even at 256px and Batch Size 1! Hardware is insufficient for this architecture.")
                                 sys.exit(1)
                     else:
+                        import traceback
                         print("\n================================================================================")
-                        print(" [CRITICAL] FATAL OUT-OF-MEMORY ERROR")
-                        print(" RECOMMENDATION: Switch to CLOUD TRAINING (Kaggle/Colab).")
+                        print(" [CRITICAL] UNEXPECTED RUNTIME ERROR")
+                        traceback.print_exc()
                         print("================================================================================\n")
                         sys.exit(1)
 
@@ -3594,7 +3595,6 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
         # Free up VRAM so the heavy ONNX exporter doesn't OOM on 4GB GPUs
         try:
             model.cpu()
-            del model
             import gc
             gc.collect()
             torch.cuda.empty_cache()
@@ -3623,6 +3623,11 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
             os.makedirs(hub_model_dir, exist_ok=True)
             shutil.copytree(export_dir, hub_model_dir, dirs_exist_ok=True)
             print(f"[SUCCESS] [SUCCESS] {args.model} production binaries and documentation synced to Hub.")
+
+        # Restore model to GPU for next epoch
+        try:
+            model.to(device)
+        except: pass
 
     except Exception as e:
         print(f"[WARNING] [EXPORT FAILURE] {e}")
