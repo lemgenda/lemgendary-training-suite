@@ -724,6 +724,9 @@ def main():
         return
 
     model = get_model(args.model, config).to(device)
+    if device.type == 'cuda' and torch.cuda.device_count() > 1:
+        print(f"🚀 [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
+        model = torch.nn.DataParallel(model)
 
     # --- 2026 Hyperparameter Priority Engine (Memory-Sentinel) ---
     epochs = args.epochs or model_info.get("epochs") or config.get("defaults", {}).get("epochs", 50)
