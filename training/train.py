@@ -1853,15 +1853,13 @@ def main():
                                 max_v = min(s_max, current_clamp)
 
                                 if isinstance(preds, (tuple, list)):
-                                    p_p = preds[0]
-                                    # 2026 Resilience: Dual-Stage Audit (Stress + Pressure)
-                                    # Stress: Absolute saturation/instability (exceeds clamp)
-                                    # Pressure: Proximity to saturation (within 10% of clamp)
+                                    p_p = preds[0].contiguous()
                                     stress_mask = (p_p < min_v) | (p_p > max_v)
                                     pressure_mask = (p_p < min_v * 0.9) | (p_p > max_v * 0.9)
                                     sentinel_stresses.append(pressure_mask.float().mean().item())
                                     preds = (torch.clamp(p_p, min=min_v, max=max_v), *preds[1:])
                                 else:
+                                    preds = preds.contiguous()
                                     stress_mask = (preds < min_v) | (preds > max_v)
                                     pressure_mask = (preds < min_v * 0.9) | (preds > max_v * 0.9)
                                     sentinel_stresses.append(pressure_mask.float().mean().item())
@@ -2622,10 +2620,11 @@ def main():
                     if sentinel and len(sentinel) == 2:
                         min_v, max_v = float(sentinel[0]), float(sentinel[1])
                         if isinstance(preds, (tuple, list)):
-                            p_p = preds[0]
+                            p_p = preds[0].contiguous()
                             sentinel_stresses.append(((p_p < min_v) | (p_p > max_v)).float().mean().item())
                             preds = (torch.clamp(p_p, min=min_v, max=max_v), *preds[1:])
                         else:
+                            preds = preds.contiguous()
                             sentinel_stresses.append(((preds < min_v) | (preds > max_v)).float().mean().item())
                             preds = torch.clamp(preds, min=min_v, max=max_v)
                     loss = criterion(preds, targets, task_idx) # pyre-ignore
