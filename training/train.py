@@ -1181,12 +1181,19 @@ def main():
                                 for k, v in opt_state.items():
                                     if isinstance(v, torch.Tensor) and k != 'step':
                                         opt_state[k] = v.to(device)
+                        
+                        # 2026 Resilience: Validate Optimizer State Shapes
+                        # PyTorch load_state_dict blindly loads mismatched exp_avg shapes if parameter counts match exactly.
+                        for group in optimizer.param_groups:
+                            for p in group['params']:
+                                if p in optimizer.state:
+                                    state = optimizer.state[p]
+                                    for k in ['exp_avg', 'exp_avg_sq']:
+                                        if k in state and getattr(state[k], 'shape', None) != p.shape:
+                                            raise ValueError(f"Shape mismatch: {k} {getattr(state[k], 'shape', None)} != {p.shape}")
                     except Exception as opt_err:
-                        print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights and epoch history.")
-                        for state in optimizer.state.values():
-                            for k, v in state.items():
-                                if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
-                                    v.zero_()
+                        print(f" [WARNING] [RESILIENCY] Optimizer state rejected ({opt_err}). Purging corrupted momentum buffers to allow safe re-initialization.")
+                        optimizer.state.clear()
                 if 'epoch' in ckpt:
                     start_epoch = ckpt['epoch']
                     # 2026 Resilience: If we resume from 'latest', we start the NEXT epoch.
@@ -2077,12 +2084,16 @@ def main():
                             if 'optimizer_state' in ckpt:
                                 try:
                                     optimizer.load_state_dict(ckpt['optimizer_state'])
+                                    for group in optimizer.param_groups:
+                                        for p in group['params']:
+                                            if p in optimizer.state:
+                                                state = optimizer.state[p]
+                                                for k in ['exp_avg', 'exp_avg_sq']:
+                                                    if k in state and getattr(state[k], 'shape', None) != p.shape:
+                                                        raise ValueError(f"Shape mismatch: {k} {getattr(state[k], 'shape', None)} != {p.shape}")
                                 except Exception as opt_err:
-                                    print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights.")
-                                    for state in optimizer.state.values():
-                                        for k, v in state.items():
-                                            if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
-                                                v.zero_()
+                                    print(f" [WARNING] [RESILIENCY] Optimizer state rejected ({opt_err}). Purging corrupted momentum buffers.")
+                                    optimizer.state.clear()
 
                             # 2026: SOTA Governor Sync (Recoil Integration)
                             # Notify Governor to perform a Tactical Retreat (Recoil) and log failure
@@ -2217,12 +2228,16 @@ def main():
                             if 'optimizer_state' in ckpt:
                                 try:
                                     optimizer.load_state_dict(ckpt['optimizer_state'])
+                                    for group in optimizer.param_groups:
+                                        for p in group['params']:
+                                            if p in optimizer.state:
+                                                state = optimizer.state[p]
+                                                for k in ['exp_avg', 'exp_avg_sq']:
+                                                    if k in state and getattr(state[k], 'shape', None) != p.shape:
+                                                        raise ValueError(f"Shape mismatch: {k} {getattr(state[k], 'shape', None)} != {p.shape}")
                                 except Exception as opt_err:
-                                    print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights.")
-                                    for state in optimizer.state.values():
-                                        for k, v in state.items():
-                                            if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
-                                                v.zero_()
+                                    print(f" [WARNING] [RESILIENCY] Optimizer state rejected ({opt_err}). Purging corrupted momentum buffers.")
+                                    optimizer.state.clear()
                             
                             recoil_msg = governor.recoil()
                             if recoil_msg: print(recoil_msg)
@@ -3245,12 +3260,16 @@ def main():
                     if 'optimizer_state' in ckpt:
                         try:
                             optimizer.load_state_dict(ckpt['optimizer_state'])
+                            for group in optimizer.param_groups:
+                                for p in group['params']:
+                                    if p in optimizer.state:
+                                        state = optimizer.state[p]
+                                        for k in ['exp_avg', 'exp_avg_sq']:
+                                            if k in state and getattr(state[k], 'shape', None) != p.shape:
+                                                raise ValueError(f"Shape mismatch: {k} {getattr(state[k], 'shape', None)} != {p.shape}")
                         except Exception as opt_err:
-                            print(f" [WARNING] [RESILIENCY] Failed to load optimizer state dict ({opt_err}). Re-initializing optimizer momentum, but keeping model weights.")
-                            for state in optimizer.state.values():
-                                for k, v in state.items():
-                                    if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
-                                        v.zero_()
+                            print(f" [WARNING] [RESILIENCY] Optimizer state rejected ({opt_err}). Purging corrupted momentum buffers.")
+                            optimizer.state.clear()
 
                     # --- 2026: SOTA Governor Sync (Restoration -> Safety Pullback) ---
                     # We restore the state FIRST, then apply the Recoil safety on top of it.
