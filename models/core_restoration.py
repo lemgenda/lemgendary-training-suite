@@ -48,13 +48,13 @@ class NAFBlock(nn.Module):
         x = self.sg(x)
         x = x * self.sca(x)
         x = self.conv3(x)
-        y = (inp + x.contiguous() * self.beta.contiguous()).contiguous()
+        y = (inp + x.contiguous() * self.beta.clone()).contiguous()
 
         x = self.norm2(y)
         x = self.conv4(x)
         x = self.sg(x)
         x = self.conv5(x)
-        return (y + x.contiguous() * self.gamma.contiguous()).contiguous()
+        return (y + x.contiguous() * self.gamma.clone()).contiguous()
 
 class NAFNet(nn.Module):
     """Real NAFNet Architecture for Denoising/Deblurring"""
@@ -102,6 +102,7 @@ class NAFNet(nn.Module):
         x = self.middle_blks(x)
 
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
+            x = x.contiguous()
             x = up(x)
             x = x + enc_skip
             x = decoder(x)
