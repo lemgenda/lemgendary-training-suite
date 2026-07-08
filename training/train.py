@@ -313,6 +313,8 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
     Performs a real-world VRAM test at the specified resolution to find the
     absolute physical limit of the current GPU.
     """
+    # 2026 Resilience: Check for restoration models early to adjust VRAM margins and capabilities globally.
+    is_restoration = any(x in model_key.lower() for x in ["nafnet", "mprnet", "mirnet", "ffanet", "codeformer", "film_restorer"])
     try:
         if device.type != 'cuda':
             fallback_val = config.get("defaults", {}).get("batch_size", 16)
@@ -391,9 +393,6 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                     _ = model(dummy_input)
                 # Use peak memory to capture activation volume during forward pass
                 peak_probe = torch.cuda.max_memory_allocated(0) if device.type == 'cuda' else torch.cuda.memory_allocated(0)
-                # 2026 Resilience: Restoration tasks with heavy validation metrics (LPIPS/FID)
-                # require additional VRAM safety headroom to prevent OOM.
-                is_restoration = any(x in model_key.lower() for x in ["nafnet", "mprnet", "mirnet", "ffanet", "codeformer", "film_restorer"])
                 val_mult = 1.5 if is_restoration else 1.1
                 sample_vram = (peak_probe - before_probe) * val_mult
 
@@ -417,6 +416,12 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
 
         pixel_cap = int(max_pixels / (h * w))
         system_cap = 256 if mode == 'val' else 128
+        
+        # 2026 Resilience: Restoration models (like NAFNet) use ConvTranspose2d which has massive CuDNN 
+        # workspace overheads that don't scale linearly. High validation batch sizes cause CuDNN to silently 
+        # run out of workspace memory and crash with "misaligned address" instead of OOM.
+        if is_restoration:
+            system_cap = 8
 
         # 2026: Diagnostic Telemetry (v18.7)
         if vram_gb < 4.5:
@@ -1157,6 +1162,10 @@ def main():
             ckpt = torch.load(attempt_ckpt, map_location=device, weights_only=False) # pyre-ignore
             if 'model_state' in ckpt:
                 model.load_state_dict(ckpt['model_state'], strict=False)
+                for param in model.parameters():
+                    param.data = param.data.contiguous()
+                for buf in model.buffers():
+                    buf.data = buf.data.contiguous()
                 for name, buf in model.named_buffers():
                     if not torch.isfinite(buf).all():
                         print(f"[WARNING] [SANITIZER] Poisoned buffer detected in checkpoint: {name}. Purging and centering...")
@@ -1312,6 +1321,10 @@ def main():
                     sota_baseline_achieved = True
             else:
                 model.load_state_dict(ckpt, strict=False)
+                for param in model.parameters():
+                    param.data = param.data.contiguous()
+                for buf in model.buffers():
+                    buf.data = buf.data.contiguous()
                 print("Loaded raw legacy weights successfully.")
             ckpt_loaded = True
             loaded_ckpt_path = attempt_ckpt
@@ -2046,6 +2059,11 @@ def main():
                         if os.path.exists(best_ckpt_path):
                             ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
                             model.load_state_dict(ckpt['model_state'])
+                            
+                            for param in model.parameters():
+                                param.data = param.data.contiguous()
+                            for buf in model.buffers():
+                                buf.data = buf.data.contiguous()
 
                             # 2026: Surgical Buffer Audit (The Ghost-Buster)
                             sanitized_count = 0
@@ -2178,6 +2196,15 @@ def main():
                         if os.path.exists(best_ckpt_path):
                             ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
                             model.load_state_dict(ckpt['model_state'])
+                            
+                            # 2026 Resilience: Force absolute contiguous memory alignment for every parameter
+                            # and buffer after loading. DataParallel will replicate these exact memory 
+                            # strides to other GPUs. If weights are loaded non-contiguous, CuDNN 
+                            # ConvTranspose2d throws 'CUDA error: misaligned address' on replicas.
+                            for param in model.parameters():
+                                param.data = param.data.contiguous()
+                            for buf in model.buffers():
+                                buf.data = buf.data.contiguous()
                             
                             sanitized_count = 0
                             for buf in model.buffers():
@@ -3209,6 +3236,11 @@ def main():
                     # Notify Governor to perform a Tactical Retreat (Recoil)
                     ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
                     model.load_state_dict(ckpt['model_state'])
+                    
+                    for param in model.parameters():
+                        param.data = param.data.contiguous()
+                    for buf in model.buffers():
+                        buf.data = buf.data.contiguous()
 
                     if 'optimizer_state' in ckpt:
                         try:
