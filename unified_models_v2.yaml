@@ -58,8 +58,8 @@ nima_aesthetic_efficientnet:
   checkpoint: NIMAAestheticEfficientNetWeights_FP32.pth
   input_size:
   - 3
-  - 384
-  - 384
+  - 224
+  - 224
   batch_size: auto
   learning_rate: 5.0e-05
   kwargs:
@@ -220,8 +220,8 @@ nima_authenticity:
   checkpoint: AuthenticityScorerWeights_FP32.pth
   input_size:
   - 3
-  - 384
-  - 384
+  - 512
+  - 512
   batch_size: auto
   learning_rate: 5.0e-05
   kwargs:
