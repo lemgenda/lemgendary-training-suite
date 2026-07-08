@@ -18,7 +18,7 @@ class SimplifiedChannelAttention(nn.Module):
         self.conv = nn.Conv2d(c, c, 1, 1, 0)
     def forward(self, x):
         x = x.contiguous()
-        return x * self.conv(self.pool(x)).contiguous()
+        return (x * self.conv(self.pool(x)).contiguous()).contiguous()
 
 class NAFBlock(nn.Module):
     def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
@@ -48,13 +48,13 @@ class NAFBlock(nn.Module):
         x = self.sg(x)
         x = x * self.sca(x)
         x = self.conv3(x)
-        y = inp + x.contiguous() * self.beta.contiguous()
+        y = (inp + x.contiguous() * self.beta.contiguous()).contiguous()
 
         x = self.norm2(y)
         x = self.conv4(x)
         x = self.sg(x)
         x = self.conv5(x)
-        return y + x.contiguous() * self.gamma.contiguous()
+        return (y + x.contiguous() * self.gamma.contiguous()).contiguous()
 
 class NAFNet(nn.Module):
     """Real NAFNet Architecture for Denoising/Deblurring"""
@@ -125,7 +125,7 @@ class PALayer(nn.Module):
                 nn.Sigmoid()
         )
     def forward(self, x):
-        return x.contiguous() * self.pa(x).contiguous()
+        return (x.contiguous() * self.pa(x).contiguous()).contiguous()
 
 class CALayer(nn.Module):
     def __init__(self, channel):
@@ -138,7 +138,7 @@ class CALayer(nn.Module):
                 nn.Sigmoid()
         )
     def forward(self, x):
-        return x.contiguous() * self.ca(self.avg_pool(x)).contiguous()
+        return (x.contiguous() * self.ca(self.avg_pool(x)).contiguous()).contiguous()
 
 class Block(nn.Module):
     def __init__(self, conv, dim, kernel_size):
