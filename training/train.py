@@ -433,6 +433,10 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             final_batch = min(final_batch, 8)
             print(f" [WARNING] [MEMORY-SENTINEL] Low Headroom Detected ({free_vram/1e6:.1f}MB free). Clamping to {final_batch}.")
 
+        # 2026 Resilience: CuDNN bug mitigation (Odd batch sizes crash ConvTranspose2d in DataParallel)
+        if final_batch > 1 and final_batch % 2 != 0:
+            final_batch -= 1
+
         gpu_name = torch.cuda.get_device_name(0)
         gpu_count = torch.cuda.device_count() if device.type == 'cuda' else 1
         if gpu_count > 1:
