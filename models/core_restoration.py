@@ -3,6 +3,32 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # ==========================================
+# 0. ALIGNMENT HOTFIX FOR DATAPARALLEL
+# ==========================================
+# DataParallel's parameter broadcasting flattens modules without padding.
+# Since `self.ending.bias` has size 3, all subsequent parameters are shifted off 
+# 16-byte alignment, causing cuDNN's Conv2d/ConvTranspose2d to crash on Turing+ GPUs.
+# This monkey-patch reallocates unaligned weights on the fly to restore alignment.
+
+_orig_conv2d_forward = nn.Conv2d.forward
+def _aligned_conv2d_forward(self, input):
+    if self.weight.data_ptr() % 16 != 0:
+        w = self.weight.clone()
+        b = self.bias.clone() if self.bias is not None else None
+        
+        if self.padding_mode != 'zeros':
+            from torch.nn.modules.utils import _pair
+            pad = self.padding
+            if isinstance(pad, int):
+                pad = _pair(pad)
+            reversed_pad = (pad[1], pad[1], pad[0], pad[0])
+            return F.conv2d(F.pad(input, reversed_pad, mode=self.padding_mode),
+                            w, b, self.stride, _pair(0), self.dilation, self.groups)
+        return F.conv2d(input, w, b, self.stride, self.padding, self.dilation, self.groups)
+    return _orig_conv2d_forward(self, input)
+nn.Conv2d.forward = _aligned_conv2d_forward
+
+# ==========================================
 # 1. NAFNet (Nonlinear Activation Free Network)
 # ==========================================
 
