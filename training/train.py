@@ -13,8 +13,16 @@ import sys
 # Prevent spawned DataLoader workers from spewing tracebacks and crashing the parent abruptly
 import multiprocessing
 import signal
+import sys
+
+def silent_worker_excepthook(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, (KeyboardInterrupt, EOFError, BrokenPipeError, ConnectionResetError)):
+        return # Silently ignore pipe breakages on manual abort
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
 if multiprocessing.current_process().name != 'MainProcess':
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    sys.excepthook = silent_worker_excepthook
 
 # --- 2026: kagglesdk Dependency Hardening (ImportError Patch) ---
 try:
