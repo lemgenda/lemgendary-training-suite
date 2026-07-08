@@ -65,7 +65,6 @@ class NAFNet(nn.Module):
 
         self.encoders = nn.ModuleList()
         self.decoders = nn.ModuleList()
-        self.middle_blks = nn.ModuleList()
         self.ups = nn.ModuleList()
         self.downs = nn.ModuleList()
 
@@ -103,7 +102,14 @@ class NAFNet(nn.Module):
 
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
             x = x.contiguous()
-            x = up(x)
+            # [HOTFIX] T4 DataParallel misaligned address fix.
+            # self.ending.bias (size 3) causes DataParallel's broadcast coalesce buffer to shift
+            # all subsequent parameters off 16-byte alignment. cuDNN conv_transpose2d strictly requires 
+            # 16-byte aligned weight pointers on Turing GPUs, causing a hard crash.
+            # We explicitly re-allocate the weights here via clone() to guarantee PyTorch's 256-byte alignment.
+            w = up.weight.clone() if up.weight.data_ptr() % 16 != 0 else up.weight
+            b = up.bias.clone() if up.bias is not None and up.bias.data_ptr() % 16 != 0 else up.bias
+            x = F.conv_transpose2d(x, w, b, stride=up.stride, padding=up.padding, output_padding=up.output_padding, groups=up.groups, dilation=up.dilation)
             x = x + enc_skip
             x = decoder(x)
 
