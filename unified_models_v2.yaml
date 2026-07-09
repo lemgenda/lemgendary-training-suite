@@ -34,6 +34,7 @@ nima_aesthetic_mobile:
     - -15.0
     - 15.0
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.1
@@ -85,6 +86,7 @@ nima_aesthetic_efficientnet:
     - -15.0
     - 15.0
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.1
@@ -137,6 +139,7 @@ nima_aesthetic_pro:
     - -15.0
     - 15.0
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.15
@@ -192,6 +195,7 @@ nima_technical:
     srcc: 0.88
     rank_margin: 0.05
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.15
@@ -243,6 +247,7 @@ nima_authenticity:
   sota_targets:
     accuracy: 0.95
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.2
@@ -284,6 +289,7 @@ upn_v2:
   sota_targets:
     mae: 0.05
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     initial_fraction: 0.5
@@ -320,6 +326,7 @@ film_restorer:
     ssim: 0.8
     lpips: 0.25
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     target_effective_batch: 32
@@ -353,6 +360,7 @@ codeformer:
   optimal_key: codeformer
   description: Face restoration model
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.1
@@ -391,6 +399,7 @@ parsenet:
   datasets:
   - LemGendizedParseNet
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.25
@@ -423,6 +432,7 @@ retinaface_mobilenet:
   datasets:
   - LemGendizedRetinaFaceMobileNet
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.25
@@ -462,6 +472,7 @@ ffanet_indoor:
     lpips: 0.08
     fid: 12.0
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.15
@@ -502,6 +513,7 @@ ffanet_outdoor:
     lpips: 0.08
     fid: 12.0
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.15
@@ -541,6 +553,7 @@ mirnet_lowlight:
     lpips: 0.08
     fid: 12.0
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.15
@@ -580,6 +593,7 @@ mirnet_exposure:
     lpips: 0.08
     fid: 12.0
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.15
@@ -619,6 +633,7 @@ mprnet_deraining:
     lpips: 0.07
     fid: 12.0
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.15
@@ -649,6 +664,7 @@ nafnet_debluring:
   optimal_key: nafnet_debluring
   description: NAFNet image debluring
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     manifold_maturity: 8
@@ -689,6 +705,7 @@ nafnet_denoising:
   optimal_key: nafnet_denoising
   description: NAFNet image denoising
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     manifold_maturity: 8
@@ -731,6 +748,7 @@ yolov8n:
   optimal_key: yolov8n
   description: Unified YOLOv8n for classification, detection, and pose
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.2
@@ -765,6 +783,7 @@ professional_multitask_restoration:
   description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze,
     and Low-Light
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.15
@@ -803,6 +822,7 @@ ultrazoom:
   datasets:
   - LemGendizedUltraZoom
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.15
@@ -842,6 +862,7 @@ universal_nsfw_classification:
   sota_targets:
     accuracy: 0.98
   optimization:
+    high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
     fraction_increment: 0.2

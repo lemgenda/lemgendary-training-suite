@@ -96,6 +96,7 @@ The training suite natively intercepts execution environments with multiple GPUs
 
 - **Dynamic Batch Distribution**: Seamlessly splits large high-fidelity pixel matrices (e.g., `768px`) across available GPUs, doubling effective throughput.
 - **Seamless CPU Checkpointing**: Intelligently intercepts the `.pth` save hooks, stripping the `module.` prefix injected by `DataParallel` before saving to disk. This guarantees that Kaggle Multi-GPU checkpoints can be effortlessly downloaded and evaluated natively on standalone Windows environments or CPU deployments without manual layer re-mapping.
+- **ONNX Trace Resilience (FakeTensor Guards)**: Dynamically wraps unmapped `FakeTensor` memory pointer access (`data_ptr()`) during FX/ONNX graph tracing within the DataParallel multi-GPU engine to prevent false-positive segmentation faults during structural graph export.
 
 ### Universal Hardware Inference
 

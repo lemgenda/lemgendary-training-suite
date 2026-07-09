@@ -2574,15 +2574,27 @@ def main():
                         print(f" [VRAM-SENTINEL] Validation batch size throttled to {val_batch_size} to protect evaluation phase.")
 
             # 2026 Validation Sharding & Resolution Sync
-            # Auto-expand validation set to 100% during Refinement Phase for SOTA generalizability audit
+            # Auto-expand validation set to 100% during Refinement Phase or when training fraction >= threshold (at max res)
             is_refinement = False
+            is_high_fidelity = False
             try:
                 is_refinement = governor.get_phase() == "REFINEMENT"
+                
+                opt_config = model_info.get("optimization", {}) if isinstance(model_info, dict) else {}
+                fidelity_thresh = opt_config.get("high_fidelity_fraction", 0.7)
+                
+                is_max_res = False
+                if hasattr(governor, 'res_ladder') and governor.res_ladder:
+                    is_max_res = governor.current_res >= max(governor.res_ladder)
+                else:
+                    is_max_res = True
+                    
+                is_high_fidelity = is_max_res and governor.current_fraction >= fidelity_thresh
             except: pass
 
-            if is_refinement or train_ds.task_type == "quality":
+            if is_refinement or is_high_fidelity or train_ds.task_type == "quality":
                 shard_limit = len(val_loader)
-                if pbar: pbar.write(" [GOVERNOR] Quality/Refinement Phase Active: Auto-expanding Validation Manifold to 100% for SOTA audit.")
+                if pbar: pbar.write(" [GOVERNOR] High Fidelity Audit Active: Auto-expanding Validation Manifold to 100% for strict SOTA evaluation.")
             else:
                 shard_limit = max(1, int(len(val_loader) * 0.3))
                 if pbar: pbar.write(f" [GOVERNOR] Validation Sharding Active: Evaluating {shard_limit} batches (~30% of validation manifold) to optimize speed.")
