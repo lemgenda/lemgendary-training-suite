@@ -12,7 +12,12 @@ import torch.nn.functional as F
 
 _orig_conv2d_forward = nn.Conv2d.forward
 def _aligned_conv2d_forward(self, input):
-    if self.weight.data_ptr() % 16 != 0:
+    is_unaligned = False
+    try:
+        is_unaligned = (self.weight.data_ptr() % 16 != 0)
+    except RuntimeError:
+        pass # FakeTensor during ONNX/FX tracing
+    if is_unaligned:
         w = self.weight.clone()
         b = self.bias.clone() if self.bias is not None else None
         
@@ -133,8 +138,17 @@ class NAFNet(nn.Module):
             # all subsequent parameters off 16-byte alignment. cuDNN conv_transpose2d strictly requires 
             # 16-byte aligned weight pointers on Turing GPUs, causing a hard crash.
             # We explicitly re-allocate the weights here via clone() to guarantee PyTorch's 256-byte alignment.
-            w = up.weight.clone() if up.weight.data_ptr() % 16 != 0 else up.weight
-            b = up.bias.clone() if up.bias is not None and up.bias.data_ptr() % 16 != 0 else up.bias
+            is_w_unaligned = False
+            is_b_unaligned = False
+            try:
+                is_w_unaligned = (up.weight.data_ptr() % 16 != 0)
+                if up.bias is not None:
+                    is_b_unaligned = (up.bias.data_ptr() % 16 != 0)
+            except RuntimeError:
+                pass # FakeTensor during ONNX/FX tracing
+            
+            w = up.weight.clone() if is_w_unaligned else up.weight
+            b = up.bias.clone() if is_b_unaligned else up.bias
             x = F.conv_transpose2d(x, w, b, stride=up.stride, padding=up.padding, output_padding=up.output_padding, groups=up.groups, dilation=up.dilation)
             x = x + enc_skip
             x = decoder(x)
