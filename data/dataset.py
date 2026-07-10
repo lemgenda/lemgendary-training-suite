@@ -13,6 +13,24 @@ import shutil
 from torch.utils.data import Dataset  # pyre-ignore
 from torchvision import transforms  # pyre-ignore
 
+import io
+
+class JpegCompressionGuard:
+    def __init__(self, probability=1.0):
+        self.probability = probability
+
+    def __call__(self, img):
+        if random.random() < self.probability:
+            quality = random.randint(65, 95)
+            buffer = io.BytesIO()
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            img.save(buffer, format='JPEG', quality=quality)
+            buffer.seek(0)
+            return Image.open(buffer)
+        return img
+
+
 
 def apply_synthetic_degradation(img_tensor, deg, theta, conf):
     """
@@ -158,6 +176,21 @@ class MultiTaskDataset(Dataset):
         self.all_samples = []
         self.path_cache = {}
         self._load_manifest(config)
+        
+        self.nima_scores = {}
+        if self.model_key == "nima_authenticity":
+            import json
+            for ds_name, ds_path in self.path_cache.items():
+                idx_path = os.path.join(ds_path, "index.json")
+                if os.path.exists(idx_path):
+                    try:
+                        with open(idx_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        for item in data:
+                            self.nima_scores[item['name']] = item.get('nima_score', 0.0)
+                    except:
+                        pass
+        
         self.build_transforms()
 
     def _load_manifest(self, config):
@@ -480,8 +513,9 @@ class MultiTaskDataset(Dataset):
                 # Dynamically construct target distribution for authenticity
                 # 'real' = High authenticity (Class 1, peak at bin 10)
                 # 'shutterstock' = Low authenticity (Class 0, peak at bin 1)
-                fname_lower = fname.lower()
-                if "real" in fname_lower:
+                basename = os.path.splitext(fname)[0]
+                n_score = self.nima_scores.get(basename, 0.0)
+                if n_score > 5.0:
                     score = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9]
                 else:
                     score = [0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

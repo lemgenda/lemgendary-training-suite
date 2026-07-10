@@ -74,6 +74,13 @@ def main():
 
     active_phases = []
     auto_accept = args.yes
+
+    # --- Task 11.4: Dynamic Model Extension ---
+    # Automatically schedule any models in the registry that were missed by the hardcoded PHASES array
+    scheduled_models = set(m for p in PHASES for m in p["models"])
+    unscheduled = [m for m, info in registry.items() if isinstance(info, dict) and m not in scheduled_models and not m.startswith('_')]
+    if unscheduled:
+        PHASES.append({"name": "Phase 6: Dynamic Fleet Extensions", "datasets": [], "models": unscheduled})
     
     for phase in PHASES:
         approved_models = []

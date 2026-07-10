@@ -149,9 +149,6 @@ nima_aesthetic_pro:
     res_ladder:
     - 512
     - 640
-    - 768
-    - 896
-    - 1024
     clamp_range:
     - 15.0
     - 45.0
@@ -159,7 +156,7 @@ nima_aesthetic_pro:
     target_effective_batch: 16
     min_delta: 0.001
     swa_start_pct: 0.65
-  val_resolution: 1024
+  val_resolution: 640
 nima_technical:
   name: LemGendary NIMA Technical Scorer
   class_name: NIMA_Model
@@ -209,10 +206,6 @@ nima_technical:
     res_ladder:
     - 384
     - 512
-    - 640
-    - 768
-    - 896
-    - 1024
     clamp_range:
     - 15.0
     - 50.0
@@ -220,7 +213,7 @@ nima_technical:
     target_effective_batch: 24
     min_delta: 0.0005
     swa_start_pct: 0.75
-  val_resolution: 1024
+  val_resolution: 512
 nima_authenticity:
   name: LemGendary Authenticity Scorer (AI vs Human)
   class_name: NIMA_Model
@@ -358,8 +351,8 @@ codeformer:
   checkpoint: CodeFormer-FaceRestorationWeights_FP32.pth
   input_size:
   - 3
-  - 512
-  - 512
+  - 224
+  - 224
   learning_rate: 0.0001
   loss_fn: mse
   dataset_type: face
@@ -376,7 +369,6 @@ codeformer:
     plateau_priority: data
     jolt_multiplier: 5.0
     res_ladder:
-    - 512
   stabilizers:
     logit_clamp: 15.0
   datasets:
@@ -386,7 +378,7 @@ codeformer:
     lpips: 0.06
     psnr: 33.0
     ssim: 0.92
-  val_resolution: 512
+  val_resolution: 224
 parsenet:
   name: LemGendary ParseNet Face Parsing
   class_name: ParseNet
@@ -489,12 +481,8 @@ ffanet_indoor:
     - 256
     - 384
     - 512
-    - 640
-    - 768
-    - 896
-    - 1024
     plateau_priority: resolution
-  val_resolution: 1024
+  val_resolution: 530
 ffanet_outdoor:
   name: LemGendary FFANet Dehazing (Outdoor)
   class_name: FFANet
@@ -662,12 +650,8 @@ mprnet_deraining:
     - 256
     - 384
     - 512
-    - 640
-    - 768
-    - 896
-    - 1024
     plateau_priority: resolution
-  val_resolution: 1024
+  val_resolution: 512
 nafnet_debluring:
   name: LemGendary NAFNet Debluring
   class_name: NAFNet
@@ -821,9 +805,6 @@ professional_multitask_restoration:
     - 384
     - 512
     - 640
-    - 768
-    - 896
-    - 1024
   sota_targets:
     psnr: 32.0
     ssim: 0.93
@@ -831,7 +812,7 @@ professional_multitask_restoration:
     fid: 12.0
   datasets:
   - LemGendizedProfessionalMultitaskRestoration
-  val_resolution: 1024
+  val_resolution: 640
 ultrazoom:
   name: LemGendary UltraZoom Master Model
   class_name: UltraZoomMaster
