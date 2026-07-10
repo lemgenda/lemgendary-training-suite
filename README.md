@@ -101,3 +101,5 @@ The training suite natively intercepts execution environments with multiple GPUs
 ### Universal Hardware Inference
 
 All inference notebooks and training engines natively fall back to **DirectML** on local machines, providing zero-config GPU acceleration for **AMD** and **Intel** graphics cards on Windows.
+
+- **Hardware-Aware Resolution Capping**: Dynamically limits maximum training and validation resolution (e.g. `max_allowed_local_resolution: 640`) on local environments to prevent 4GB VRAM exhaustion, while permitting 1024px+ scaling on robust cloud infrastructures.

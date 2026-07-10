@@ -762,8 +762,22 @@ def main():
     model_stab = model_info.get("stabilizers", {})
     stab = {**global_stab, **model_stab}
     governor = SmartTrainingGovernor(model_info, config=config, stabilizers=stab)
+    
+    vram_gb_init = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
+    max_local_res = config.get("hardware", {}).get("max_allowed_local_resolution")
+    if max_local_res and vram_gb_init < 4.5:
+        governor.res_ladder = [r for r in governor.res_ladder if r <= max_local_res]
+        if not governor.res_ladder:
+            governor.res_ladder = [max_local_res]
+        if governor.current_res > max_local_res:
+            print(f" [GUARD] Local VRAM < 4.5GB. Clamping current resolution from {governor.current_res}px to {max_local_res}px.")
+            governor.current_res = max_local_res
+
     sample_fraction = governor.current_fraction
     val_anchor_size = model_info.get("val_resolution", governor.current_res)
+    if max_local_res and vram_gb_init < 4.5 and val_anchor_size > max_local_res:
+        val_anchor_size = max_local_res
+
 
     # --- 2026 Resilience: Pre-Emptive Memory-Sentinel ---
     # We use the Governor's current resolution (which may have been restored from checkpoint)
@@ -1662,12 +1676,14 @@ def main():
         model.train() # pyre-ignore
         
         # --- 2026 Dynamic Validation Parity (v19.0 High-Res Lock) ---
-        # User forced validation to the hardware ceiling for production-grade evaluation.
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
-        hardware_ceiling = 640 if vram_gb < 4.5 else 1024
+        max_local_res = config.get("hardware", {}).get("max_allowed_local_resolution", 640)
+        hardware_ceiling = max_local_res if vram_gb < 4.5 else 1024
         
         # Priority: Model Config > Hardware Ceiling
         val_anchor_size = model_info.get("val_resolution", hardware_ceiling)
+        if vram_gb < 4.5 and val_anchor_size > hardware_ceiling:
+            val_anchor_size = hardware_ceiling
         
         # --- 2026 SOTA GUARD: Resolution-Aware Patience Reset (v19.1) ---
         # If the validation manifold has shifted resolution, the previous SOTA best metrics
@@ -2550,11 +2566,13 @@ def main():
                                               num_workers=val_num_workers, pin_memory=True)
 
             # --- 2026: Dynamic Validation Anchor (v19.0 High-Res Lock) ---
-            # User forced validation to the hardware ceiling for production-grade evaluation.
             vram_gb_current = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
-            hardware_ceiling_current = 640 if vram_gb_current < 4.5 else 1024
+            max_local_res_current = config.get("hardware", {}).get("max_allowed_local_resolution", 640)
+            hardware_ceiling_current = max_local_res_current if vram_gb_current < 4.5 else 1024
             
             val_anchor_size = model_info.get("val_resolution", hardware_ceiling_current)
+            if vram_gb_current < 4.5 and val_anchor_size > hardware_ceiling_current:
+                val_anchor_size = hardware_ceiling_current
             val_ds.update_strategy(size=val_anchor_size)
             
             # --- 2026: Mid-Epoch Validation VRAM Audit ---
