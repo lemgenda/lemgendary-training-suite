@@ -89,6 +89,17 @@ def main():
                 print(f"✨ [SKIP] Model '{model_key}' has existing SOTA artifacts. Use --force to re-train.")
                 continue
 
+            # Diagnostic Skip Logic (Option 4)
+            if args.epochs == 1:
+                export_dir = os.path.abspath(os.path.join(base_dir, "..", "LemGendaryModels", model_key))
+                if os.path.exists(export_dir):
+                    files = os.listdir(export_dir)
+                    has_onnx = any(f.endswith('.onnx') for f in files)
+                    has_pt = any(f.endswith('.pt') or f.endswith('.pth') for f in files)
+                    if has_onnx and has_pt:
+                        print(f"✨ [SKIP] Model '{model_key}' already has exported ONNX and PT binaries (Single-Epoch Test Bypass).")
+                        continue
+
             if auto_accept or input(f"▶ Train >> {model_key} << ? (y/n/all): ").strip().lower() in ['y', 'all']:
                 approved_models.append(model_key)
                 if not auto_accept and 'all' in sys.stdin.readline(): auto_accept = True

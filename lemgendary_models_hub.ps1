@@ -59,8 +59,7 @@ function Show-Menu {
     Write-Host " [ENVIRONMENT: $(if ($env:VIRTUAL_ENV) { 'VIRTUAL' } else { 'GLOBAL' })]" -ForegroundColor Gray
     Write-Host "  1. Initialize/Fix All Systems (Python + Node.js + Specialized GPUs)"
     Write-Host "  2. Train Individual Model      (Launches LemGendary Training Suite)"
-    Write-Host "  3. Global Orchestration        (Automated sequential multi-model run)"
-    Write-Host "  4. Single-Epoch Unit Test      (Diagnostic 1-Epoch pass for ALL models)"
+    Write-Host "  3. Single-Epoch Unit Test      (Diagnostic 1-Epoch pass for ALL models)"
     Write-Host "  Q. Exit"
     Write-Host ""
 }
@@ -70,7 +69,7 @@ Invoke-BootstrapCheck
 
 while ($true) {
     Show-Menu
-    $choice = (Read-Host "Select an option (1-4, Q)").Trim()
+    $choice = (Read-Host "Select an option (1-3, Q)").Trim()
     switch ($choice) {
         '1' { Initialize-Environment; Read-Host "Press Enter to return..." }
         '2' {
@@ -90,15 +89,6 @@ while ($true) {
             Read-Host "Press Enter to return..."
         }
         '3' {
-            if (Test-Environment) {
-                Invoke-JanitorPurge
-                $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
-                $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
-                Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" "train_all.py"; Pop-Location
-            }
-            Read-Host "Press Enter to return..."
-        }
-        '4' {
             if (Test-Environment) {
                 Invoke-JanitorPurge
                 $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
