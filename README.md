@@ -17,6 +17,9 @@
 
 The deep architectural backlog, including the **Memory-Sentinel**, **Sawtooth Governance**, **Resolution Ladders**, **SOTA Validation Guards**, and **Judicial Audit** logic, has been fully consolidated into our official whitepapers.
 
+- **Dynamic Segmentation Loading (v16.3.1)**: MultiTaskDataset now natively ingests standard 1-channel `.png` segmentation maps directly from `masks/` allowing training of architectures like ParseNet.
+- **Dynamic Restoration Degradations (v16.3.1)**: MultiTaskDataset dynamically synthesizes blur, haze, noise, rain, and combinations using Albumentations for models like UpnV2 where target maps are solely pristine ground truth.
+
 For an exhaustive breakdown of the Training Suite architecture, please consult the [Master Training Suite Guide](file:///c:/Development/python/model-training/lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md) in the `lemgendary-docs` repository.
 
 ---

@@ -142,4 +142,31 @@ class CombinedLoss(nn.Module):
         elif self.task_type == "classification":
             return self.ce(pred, target)
             
+        elif self.task_type == "segmentation":
+            if target.dim() == 4:
+                target = target.squeeze(1)
+            elif target.dim() == 2 and target.size(1) == 1:
+                target = torch.zeros((pred.size(0), pred.size(2), pred.size(3)), dtype=torch.long, device=pred.device)
+            return self.ce(pred, target.long())
+
+        elif self.task_type == "face_detection":
+            if isinstance(pred, (tuple, list)) and len(pred) == 3:
+                p_bbox, p_conf, p_landm = pred
+                t_conf = target[:, 0:1]
+                t_bbox = target[:, 1:5]
+                t_landm = target[:, 5:15]
+                
+                loss_conf = F.binary_cross_entropy(p_conf, t_conf)
+                
+                pos_mask = t_conf > 0.5
+                if pos_mask.sum() > 0:
+                    loss_bbox = F.smooth_l1_loss(p_bbox[pos_mask.squeeze(-1)], t_bbox[pos_mask.squeeze(-1)])
+                    loss_landm = F.smooth_l1_loss(p_landm[pos_mask.squeeze(-1)], t_landm[pos_mask.squeeze(-1)])
+                else:
+                    loss_bbox = torch.tensor(0.0, device=p_bbox.device)
+                    loss_landm = torch.tensor(0.0, device=p_landm.device)
+                    
+                return loss_conf + loss_bbox * 2.0 + loss_landm * 1.0
+            return self.mse(pred, target)
+            
         return self.mse(pred, target)

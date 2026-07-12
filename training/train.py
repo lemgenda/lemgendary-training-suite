@@ -664,6 +664,8 @@ def main():
 
         epochs = args.epochs or config.get("defaults", {}).get("epochs", 50)
         batch_size = args.batch_size or config.get("defaults", {}).get("batch_size", 16)
+        if batch_size == "auto":
+            batch_size = -1
 
         print(f"Starting Ultralytics YOLO Training for {args.model}...")
 

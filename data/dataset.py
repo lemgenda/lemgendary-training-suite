@@ -230,15 +230,23 @@ class MultiTaskDataset(Dataset):
             if ds_path is None: continue
             self.path_cache[ds_name] = ds_path
             # 2026: Parameter prediction loads from targets/ (clean source images)
+            tgt_dir = None
             if self.task_type == "parameter_prediction":
                 img_dir = os.path.join(ds_path, "targets", self.split)
                 if not os.path.exists(img_dir):
                     img_dir = os.path.join(ds_path, "images", self.split)
             else:
                 img_dir = os.path.join(ds_path, "images", self.split)
-            if not os.path.exists(img_dir): continue
+                tgt_dir = os.path.join(ds_path, "targets", self.split)
+                
+            if self.task_type == "parameter_prediction":
+                scan_dir = img_dir
+            else:
+                scan_dir = img_dir if os.path.exists(img_dir) else tgt_dir
+
+            if not scan_dir or not os.path.exists(scan_dir): continue
             
-            items = os.listdir(img_dir)
+            items = os.listdir(scan_dir)
             files = [f for f in items if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
             for f in files:
                 self.all_samples.append((ds_name, f))
@@ -300,7 +308,7 @@ class MultiTaskDataset(Dataset):
     def get_dataset_path(self, ds_name):
         # 1. Standard Resolution
         path = os.path.join(self.data_root, ds_name)
-        if os.path.exists(os.path.join(path, 'images', 'train')):
+        if os.path.exists(os.path.join(path, 'images', 'train')) or os.path.exists(os.path.join(path, 'targets', 'train')):
             return path
             
         # 1b. Case-Insensitive Local Check
@@ -309,7 +317,7 @@ class MultiTaskDataset(Dataset):
                 for item in os.listdir(self.data_root):
                     if item.lower() == ds_name.lower():
                         cand = os.path.join(self.data_root, item)
-                        if os.path.exists(os.path.join(cand, 'images', 'train')):
+                        if os.path.exists(os.path.join(cand, 'images', 'train')) or os.path.exists(os.path.join(cand, 'targets', 'train')):
                             return cand
             except Exception:
                 pass
@@ -398,6 +406,9 @@ class MultiTaskDataset(Dataset):
         elif self.task_type == "quality":
             target_shape = (10,)
             task_str = "quality"
+        elif self.task_type == "segmentation":
+            target_shape = (self.size[0], self.size[1])
+            task_str = "segmentation"
         else:
             target_shape = (1,)
             task_str = self.task_type
@@ -419,28 +430,68 @@ class MultiTaskDataset(Dataset):
             ds_path = ""
             
         img_path = os.path.join(ds_path, "images", self.split, fname)
+        tgt_path = os.path.join(ds_path, "targets", self.split, fname)
         
-        img = self.load_image(img_path)
+        has_img = os.path.exists(img_path)
+        has_tgt = os.path.exists(tgt_path)
         
-        if self.model_key == "ultrazoom":
-            # 2026 Resilience: Dynamic super-resolution 2x downscaling on-the-fly
-            lr_size = (self.size[0] // 2, self.size[1] // 2)
-            lr_transform = transforms.Compose([
-                transforms.Resize(lr_size, interpolation=transforms.InterpolationMode.BILINEAR),
-                transforms.ToTensor()
-            ])
-            img_tensor = lr_transform(img)
-        else:
-            img_tensor = self.transform(img)
-        
-        if self.task_type in ["restoration", "enhancement", "face"]:
-            tgt_path = os.path.join(ds_path, "targets", self.split, fname)
-            if os.path.exists(tgt_path):
-                target = self.load_image(tgt_path)
-                target_tensor = self.transform(target)
-            else:
-                target_tensor = self.transform(img) # Ensure HR fallback shape
+        # 2026: Dynamic Degradation Fallback for UpnV2, CodeFormer, ProfessionalMultitaskRestoration
+        if not has_img and has_tgt and self.task_type in ["restoration", "enhancement", "face"]:
+            target = self.load_image(tgt_path)
+            target_tensor = self.transform(target)
             
+            try:
+                import albumentations as A  # type: ignore
+                import numpy as np
+                aug = A.Compose([
+                    A.OneOf([
+                        A.MotionBlur(p=1.0),
+                        A.MedianBlur(blur_limit=5, p=1.0),
+                        A.GaussianBlur(p=1.0),
+                    ], p=0.6),
+                    A.OneOf([
+                        A.GaussNoise(var_limit=(10.0, 50.0), p=1.0),
+                        A.ISONoise(p=1.0),
+                        A.MultiplicativeNoise(multiplier=(0.9, 1.1), p=1.0),
+                    ], p=0.6),
+                    A.ImageCompression(quality_lower=15, quality_upper=60, p=0.4),
+                    A.OneOf([
+                        A.RandomFog(p=1.0),
+                        A.RandomBrightnessContrast(p=1.0),
+                    ], p=0.3)
+                ])
+                target_np = np.array(target)
+                degraded_np = aug(image=target_np)['image']
+                img = Image.fromarray(degraded_np)
+            except Exception as e:
+                # Fallback if Albumentations is missing or fails
+                img = target.filter(ImageFilter.GaussianBlur(radius=random.uniform(1.0, 3.0)))
+                
+            img_tensor = self.transform(img)
+            
+        else:
+            img = self.load_image(img_path)
+            
+            if self.model_key == "ultrazoom":
+                # 2026 Resilience: Dynamic super-resolution 2x downscaling on-the-fly
+                lr_size = (self.size[0] // 2, self.size[1] // 2)
+                lr_transform = transforms.Compose([
+                    transforms.Resize(lr_size, interpolation=transforms.InterpolationMode.BILINEAR),
+                    transforms.ToTensor()
+                ])
+                img_tensor = lr_transform(img)
+            else:
+                img_tensor = self.transform(img)
+            
+            if self.task_type in ["restoration", "enhancement", "face"]:
+                if has_tgt:
+                    target = self.load_image(tgt_path)
+                    target_tensor = self.transform(target)
+                else:
+                    target_tensor = self.transform(img) # Ensure HR fallback shape
+            else:
+                target_tensor = img_tensor # Fallback initialization
+        if self.task_type in ["restoration", "enhancement", "face"]:
             # 2026: Dynamic Film Degradation for Universal Film Restorer
             if self.model_key == "film_restorer":
                 # Check if it's an identical file (meaning it's from a clean dataset like DIV2K)
@@ -539,6 +590,29 @@ class MultiTaskDataset(Dataset):
                         return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
                     except: pass
             return img_tensor, torch.tensor(0, dtype=torch.long), "classification"
+        elif self.task_type == "segmentation":
+            mask_path = os.path.join(ds_path, "masks", self.split, fname)
+            if os.path.exists(mask_path):
+                import numpy as np
+                mask = Image.open(mask_path).convert('L') # Usually masks are grayscale labels
+                mask = mask.resize((self.size[1], self.size[0]), 0) # 0 is Image.Resampling.NEAREST
+                mask_tensor = torch.from_numpy(np.array(mask)).long() # Class indices as long tensor
+            else:
+                mask_tensor = torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
+            return img_tensor, mask_tensor, "segmentation"
+        elif self.task_type == "face_detection":
+            label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
+            target = torch.zeros(15, dtype=torch.float32)
+            if os.path.exists(label_path):
+                with open(label_path, 'r') as f:
+                    try:
+                        parts = f.read().split()
+                        if len(parts) >= 15:
+                            target[0] = 1.0 # confidence
+                            for i in range(14):
+                                target[i+1] = float(parts[i+1])
+                    except: pass
+            return img_tensor, target, "face_detection"
             
         return img_tensor, torch.zeros(1), self.task_type
 

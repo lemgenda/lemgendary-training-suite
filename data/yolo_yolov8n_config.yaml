@@ -1,0 +1,9 @@
+names:
+  0: face
+  1: person
+  2: hand
+  3: eye
+nc: 4
+path: C:\Development\python\model-training\lemgendary-training-suite\data\datasets
+train: LemGendizedYoloV8n\images\train
+val: LemGendizedYoloV8n\images\val

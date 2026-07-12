@@ -383,6 +383,7 @@ parsenet:
   name: LemGendary ParseNet Face Parsing
   class_name: ParseNet
   category: face
+  task: segmentation
   filename: ParseNet-Parsing
   checkpoint: ParseNet-ParsingWeights_FP32.pth
   input_size:
