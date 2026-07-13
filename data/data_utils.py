@@ -41,6 +41,17 @@ def _handle_kaggle(ds_name, data_dir, config, ref):
         # 2026 Resilience: Use configured username or default to lemtreursi
         username = config.get("fleet", {}).get("kaggle_username", "lemtreursi")
         
+        # Inject Kaggle authentication from local token to prevent 403 errors
+        token_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".kaggle_token")
+        if os.path.exists(token_path):
+            with open(token_path, "r") as f:
+                token = f.read().strip()
+            if token.startswith("KGAT_"):
+                token = token[5:]
+            os.environ["KAGGLE_USERNAME"] = username
+            os.environ["KAGGLE_KEY"] = token
+
+        
         slug = f"{username}/{ds_name.lower().replace('_', '-')}"
         if ref and "datasets/" in ref: 
             slug = ref.split("datasets/")[-1]

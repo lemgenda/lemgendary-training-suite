@@ -23,9 +23,10 @@ def _populate_registry():
         print(f" ⚠️ [FACTORY] Failed to import MultiTaskRestorer: {e}")
 
     try:
-        from models.nima import NIMA_Model, AuthenticityScorer
+        from models.nima import NIMA_Model, AuthenticityScorer, UniversalClassifier
         _MODEL_REGISTRY["NIMA_Model"] = NIMA_Model
         _MODEL_REGISTRY["AuthenticityScorer"] = AuthenticityScorer
+        _MODEL_REGISTRY["UniversalClassifier"] = UniversalClassifier
     except Exception as e:
         print(f" ⚠️ [FACTORY] Failed to import NIMA models: {e}")
 

@@ -1425,7 +1425,7 @@ def main():
                 # 2026 Guard: spearmanr is undefined if either array is constant (std=0).
                 # This happens on resume when the model hasn't warmed up yet (all outputs identical).
                 # Return 0.0 instead of letting scipy raise a ConstantInputWarning.
-                if p_res.std() < 1e-8 or t_res.std() < 1e-8:
+                if np.ptp(p_res) == 0.0 or np.ptp(t_res) == 0.0:
                     probe_srcc = 0.0
                 else:
                     probe_srcc, _ = scipy.stats.spearmanr(p_res, t_res)

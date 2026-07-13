@@ -5,13 +5,13 @@ import random
 import warnings
 import yaml  # pyre-ignore
 import torch  # pyre-ignore
+from torchvision import transforms  # pyre-ignore
 import cv2  # pyre-ignore
 import numpy as np  # pyre-ignore
 from PIL import Image, ImageFile, ImageFilter  # pyre-ignore
 import json
 import shutil
 from torch.utils.data import Dataset  # pyre-ignore
-from torchvision import transforms  # pyre-ignore
 
 import io
 
