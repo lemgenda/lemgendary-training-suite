@@ -1,5 +1,5 @@
 {
-    "timestamp": "2026-07-12T20:43:43.729843",
+    "timestamp": "2026-07-13T16:33:57.454749",
     "failures": [
         {
             "model": "parsenet",
@@ -9,21 +9,6 @@
         {
             "model": "retinaface_mobilenet",
             "phase": "Phase 2B: Massive Universal Detection",
-            "code": 1
-        },
-        {
-            "model": "yolov8n",
-            "phase": "Phase 2B: Massive Universal Detection",
-            "code": 1
-        },
-        {
-            "model": "professional_multitask_restoration",
-            "phase": "Phase 3E: Universal Cross-Domain Restoration",
-            "code": 1
-        },
-        {
-            "model": "universal_nsfw_classification",
-            "phase": "Phase 6: Dynamic Fleet Extensions",
             "code": 1
         }
     ]

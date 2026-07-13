@@ -4,6 +4,6 @@ names:
   2: hand
   3: eye
 nc: 4
-path: C:\Development\python\model-training\lemgendary-training-suite\data\datasets
-train: LemGendizedYoloV8n\images\train
-val: LemGendizedYoloV8n\images\val
+path: C:\Development\python\model-training\LemGendaryDatasets
+train: LemGendizedYoloV8nLarge\images\train
+val: LemGendizedYoloV8nLarge\images\val

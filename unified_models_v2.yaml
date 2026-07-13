@@ -812,7 +812,10 @@ professional_multitask_restoration:
     lpips: 0.07
     fid: 12.0
   datasets:
-  - LemGendizedProfessionalMultitaskRestoration
+  - LemGendizedNafNetDebluring
+  - LemGendizedFfaNetIndoor
+  - LemGendizedMirNetLowLight
+  - LemGendizedNafNetDenoising
   val_resolution: 640
 ultrazoom:
   name: LemGendary UltraZoom Master Model
@@ -870,7 +873,7 @@ universal_nsfw_classification:
   description: Universal safety filter and NSFW classifier for realistic and anime
     content.
   datasets:
-  - classification_master_manifold
+  - ClassificationMasterManifold
   sota_targets:
     accuracy: 0.98
   optimization:

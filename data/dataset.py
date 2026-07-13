@@ -597,6 +597,7 @@ class MultiTaskDataset(Dataset):
                 mask = Image.open(mask_path).convert('L') # Usually masks are grayscale labels
                 mask = mask.resize((self.size[1], self.size[0]), 0) # 0 is Image.Resampling.NEAREST
                 mask_tensor = torch.from_numpy(np.array(mask)).long() # Class indices as long tensor
+                mask_tensor = torch.clamp(mask_tensor, 0, 18) # Prevent NLLLoss2d crash from garbage dataset masks
             else:
                 mask_tensor = torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
             return img_tensor, mask_tensor, "segmentation"

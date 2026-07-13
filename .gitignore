@@ -20,3 +20,8 @@ kaggle.json
 # Ignore throwaway scripts
 scratch/
 
+# Ultralytics YOLO output
+runs/
+
+# Training suite diagnostic logs
+fleet_failure_report.json

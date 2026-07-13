@@ -837,9 +837,8 @@ def main():
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
     
     # 2026 Resilience: Parallel Mission Support
-    # Read num_workers from hardware config, fallback to top-level, and ensure minimum of 4
+    # Read num_workers from hardware config, fallback to top-level
     num_workers = config.get("hardware", {}).get("num_workers", config.get("num_workers", 4))
-    num_workers = max(num_workers, 4)
 
     print(f" [DATA] Initializing Parallel Manifold (Workers: {num_workers} | Persistent: {num_workers > 0})...")
     # --- 2026 Resilience: Empty Dataset Guard ---

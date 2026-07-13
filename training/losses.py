@@ -14,7 +14,7 @@ class CombinedLoss(nn.Module):
         self.stab = stabilizers or {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0}
         self.l1 = nn.L1Loss(reduction='mean')
         self.mse = nn.MSELoss(reduction='mean') # Legacy fallback for face and segmentation topology
-        self.ce = nn.CrossEntropyLoss()
+        self.ce = nn.CrossEntropyLoss(ignore_index=255)
         self.perc = None
 
         # 2026: SOTA Rank-Boost Weights (Standard 10..1 mapping)
@@ -156,7 +156,8 @@ class CombinedLoss(nn.Module):
                 t_bbox = target[:, 1:5]
                 t_landm = target[:, 5:15]
                 
-                loss_conf = F.binary_cross_entropy(p_conf, t_conf)
+                with torch.amp.autocast('cuda', enabled=False):
+                    loss_conf = F.binary_cross_entropy(p_conf.float(), t_conf.float())
                 
                 pos_mask = t_conf > 0.5
                 if pos_mask.sum() > 0:

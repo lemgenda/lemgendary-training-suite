@@ -12,7 +12,7 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
     if not dataset_names:
         return None
         
-    data_root = config.get("datasets_dir", "data/datasets")
+    data_root = config.get("paths", {}).get("datasets_root", "data/datasets")
     # Resolve relative to project root
     abs_data_root = os.path.abspath(data_root)
     
@@ -25,9 +25,13 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
     }
     
     names = class_map.get(model_key, ["object"])
+    if model_key == "yolov8n":
+        while len(names) < 80:
+            names.append(f"class_{len(names)}")
     
     # Use the FIRST dataset listed as the primary path anchor
-    primary_ds = dataset_names[0]
+    suffix = "KaggleReady" if config.get("env") == 'kaggle' else config.get("execution", {}).get("suffixes", {}).get(config.get("execution", {}).get("mode", "training"), "")
+    primary_ds = f"{dataset_names[0]}{suffix}"
     train_path = os.path.join(abs_data_root, primary_ds, "images", "train")
     val_path = os.path.join(abs_data_root, primary_ds, "images", "val")
     
