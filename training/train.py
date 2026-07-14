@@ -322,7 +322,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
     absolute physical limit of the current GPU.
     """
     # 2026 Resilience: Check for restoration models early to adjust VRAM margins and capabilities globally.
-    is_restoration = any(x in model_key.lower() for x in ["nafnet", "mprnet", "mirnet", "ffanet", "codeformer", "film_restorer"])
+    is_restoration = any(x in model_key.lower() for x in ["nafnet", "mprnet", "mirnet", "ffanet", "codeformer", "film_restorer", "parsenet"])
     try:
         if device.type != 'cuda':
             fallback_val = config.get("defaults", {}).get("batch_size", 16)

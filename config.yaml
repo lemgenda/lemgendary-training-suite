@@ -14,7 +14,7 @@ hardware:
   cudnn_workspace_cap_train: 16 # Train pass is less memory intensive
   cudnn_workspace_cap_val: 4    # Val pass is higher res and triggers CuDNN OOM easily
   max_allowed_local_resolution: 640
-  num_workers: 0 # 2026 Resilience: Disabled multiprocessing on Windows to prevent PageFile exhaustion (Error 1455)
+  num_workers: 4 # 2026 Resilience: Multiprocessing enabled for performance. Watch out for Windows PageFile exhaustion (Error 1455)
   pin_memory: true
   use_fp16: true
 

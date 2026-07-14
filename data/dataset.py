@@ -263,7 +263,13 @@ class MultiTaskDataset(Dataset):
         interp = transforms.InterpolationMode.LANCZOS if self.task_type == "quality" else transforms.InterpolationMode.BILINEAR
         
         # FIX: Preserve aspect ratio and crop to prevent network from learning squish artifacts
-        if self.is_train:
+        if self.task_type == "face_detection":
+            # Coordinate-based targets (bboxes, landmarks) become invalid if the image is cropped.
+            # We must squish-resize so normalized [0,1] coordinates remain physically accurate.
+            transform_list: list = [
+                transforms.Resize(self.size, interpolation=interp)
+            ]
+        elif self.is_train:
             transform_list: list = [
                 transforms.Resize(max(self.size), interpolation=interp),
                 transforms.RandomCrop(self.size)
@@ -462,7 +468,6 @@ class MultiTaskDataset(Dataset):
 
         if not has_img and has_tgt and self.task_type in ["restoration", "enhancement", "face"]:
             target = self.load_image(tgt_path)
-            target_tensor = self.transform(target)
             
             try:
                 import albumentations as A  # type: ignore
@@ -491,10 +496,21 @@ class MultiTaskDataset(Dataset):
                 # Fallback if Albumentations is missing or fails
                 img = target.filter(ImageFilter.GaussianBlur(radius=random.uniform(1.0, 3.0)))
                 
+            # 2026 Resilience: Force identical random seeds so RandomCrop and Flips perfectly align 
+            # the degraded input with the clean target.
+            seed = random.randint(0, 2**32 - 1)
+            random.seed(seed)
+            torch.manual_seed(seed)
+            target_tensor = self.transform(target)
+            
+            random.seed(seed)
+            torch.manual_seed(seed)
             img_tensor = self.transform(img)
             
         else:
             img = self.load_image(img_path)
+            
+            seed = random.randint(0, 2**32 - 1)
             
             if self.model_key == "ultrazoom":
                 # 2026 Resilience: Dynamic super-resolution 2x downscaling on-the-fly
@@ -503,8 +519,12 @@ class MultiTaskDataset(Dataset):
                     transforms.Resize(lr_size, interpolation=transforms.InterpolationMode.BILINEAR),
                     transforms.ToTensor()
                 ])
+                random.seed(seed)
+                torch.manual_seed(seed)
                 img_tensor = lr_transform(img)
             else:
+                random.seed(seed)
+                torch.manual_seed(seed)
                 img_tensor = self.transform(img)
             
             if self.task_type in ["restoration", "enhancement", "face"]:
@@ -514,6 +534,8 @@ class MultiTaskDataset(Dataset):
                     if os.path.exists(mask_path):
                         import numpy as np
                         mask = Image.open(mask_path).convert('L')
+                        random.seed(seed)
+                        torch.manual_seed(seed)
                         mask = self.mask_transform(mask)
                         mask_tensor = torch.from_numpy(np.array(mask)).long()
                         mask_tensor = torch.clamp(mask_tensor, 0, 18)
@@ -523,8 +545,12 @@ class MultiTaskDataset(Dataset):
                 else:
                     if has_tgt:
                         target = self.load_image(tgt_path)
+                        random.seed(seed)
+                        torch.manual_seed(seed)
                         target_tensor = self.transform(target)
                     else:
+                        random.seed(seed)
+                        torch.manual_seed(seed)
                         target_tensor = self.transform(img) # Ensure HR fallback shape
             else:
                 target_tensor = img_tensor # Fallback initialization
@@ -600,7 +626,9 @@ class MultiTaskDataset(Dataset):
             if os.path.exists(mask_path):
                 import numpy as np
                 mask = Image.open(mask_path).convert('L') # Usually masks are grayscale labels
-                mask = mask.resize((self.size[1], self.size[0]), 0) # 0 is Image.Resampling.NEAREST
+                random.seed(seed)
+                torch.manual_seed(seed)
+                mask = self.mask_transform(mask)
                 mask_tensor = torch.from_numpy(np.array(mask)).long() # Class indices as long tensor
                 mask_tensor = torch.clamp(mask_tensor, 0, 18) # Prevent NLLLoss2d crash from garbage dataset masks
             else:
