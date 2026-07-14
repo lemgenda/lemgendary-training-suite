@@ -429,7 +429,10 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         # workspace overheads that don't scale linearly. High validation batch sizes cause CuDNN to silently 
         # run out of workspace memory and crash with "misaligned address" instead of OOM.
         if is_restoration:
-            system_cap = config.get("hardware", {}).get("cudnn_workspace_cap", 4)
+            if mode == 'train':
+                system_cap = config.get("hardware", {}).get("cudnn_workspace_cap_train", 16)
+            else:
+                system_cap = config.get("hardware", {}).get("cudnn_workspace_cap_val", 4)
 
         # 2026: Diagnostic Telemetry (v18.7)
         if vram_gb < 4.5:
