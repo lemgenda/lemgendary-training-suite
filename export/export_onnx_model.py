@@ -237,10 +237,16 @@ def main():
             if post_convert_fp16:
                 try:
                     import onnx
+                    import warnings
                     from onnxconverter_common import float16
                     print(f"   -> [CONVERSION] Converting synthesized FP32 graph to pure FP16 matrix...")
+                    print(f"   -> [NOTICE] Exporting ONNX model to FP16 will safely truncate incredibly small FP32 values.")
                     onnx_model = onnx.load(target_path)
-                    onnx_model_fp16 = float16.convert_float_to_float16(onnx_model)
+                    
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        onnx_model_fp16 = float16.convert_float_to_float16(onnx_model)
+                        
                     onnx.save(onnx_model_fp16, target_path)
                 except Exception as e:
                     print(f"   [ERROR] Failed to convert ONNX to FP16: {e}")
