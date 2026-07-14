@@ -20,6 +20,6 @@
 | `nafnet_debluring` | LemGendary NAFNet Debluring | Nonlinear Activation Free | [256, 384, 512] | Not Found | PSNR: 33.90, SSIM: 0.970, LPIPS: 0.04, FID: 6.0 | PSNR: 33.71, SSIM: 0.967 |
 | `nafnet_denoising` | LemGendary NAFNet Denoising | Nonlinear Activation Free | [256, 384, 512] | Not Found | PSNR: 40.20, SSIM: 0.965, LPIPS: 0.02, FID: 4.0 | PSNR: 39.96, SSIM: 0.960 |
 | `yolov8n` | LemGendary YOLOv8n Multi-Task Model | CSPDarknet53 | [320, 480, 640] | 586x479 | MAP50: 0.540, MAP50_95: 0.390 | mAP50-95: 37.3 |
-| `professional_multitask_restoration` | LemGendary Professional Multi-Task Restoration Model | SharedEncoder (MoE) | [256, 384, 512] | Not Found | PSNR: 32.0, SSIM: 0.93, LPIPS: 0.07, FID: 12.0 | *N/A (Custom Architecture)* |
+| `professional_multitask_restoration` | LemGendary Professional Multi-Task Restoration Model | SharedEncoder (MoE) | [256, 384, 512] | 703x584 | PSNR: 32.0, SSIM: 0.93, LPIPS: 0.07, FID: 12.0 | *N/A (Custom Architecture)* |
 | `ultrazoom` | LemGendary UltraZoom Master Model | NAFNet-Derived Base | [256, 384, 512] | 2040x1368 | PSNR: 34.0, SSIM: 0.95, LPIPS: 0.04, FID: 10.0 | *N/A (Custom Architecture)* |
 | `universal_nsfw_classification` | LemGendary Universal NSFW Classifier | MobileNetV2 (Categorical Anchor) | [224] | 693x672 | ACCURACY: 0.98 | Accuracy: ~0.95+ |
