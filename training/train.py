@@ -3097,6 +3097,13 @@ def main():
             quality_improves = current_quality_score > (best_quality_score * (1.0 + stagnation_threshold))
             is_improving = loss_improves or quality_improves
 
+            # --- 2026 Resilience: Independent Baseline Tracking ---
+            # We MUST update best_val_loss independently of quality gains. Otherwise, if Epoch 1 hits a 
+            # quality milestone, best_val_loss remains float('inf'). Then a terrible Epoch 2 with dropping quality
+            # will erroneously trigger 'loss_improves' because its loss is < inf, overwriting the SOTA weights!
+            if loss_improves:
+                best_val_loss = avg_val_loss
+
             # --- 2026 SOTA GUARD: Quality Regression Mutex ---
             if quality_any_gain:
                 prev_best = best_quality_score
@@ -3109,7 +3116,6 @@ def main():
                 else:
                     (pbar.write if pbar else print)(f" -> [SOTA GUARD] Marginal Quality Gain: {best_quality_score:.4f} (+{best_quality_score-prev_best:.4f}). Saving best weights.")
             elif loss_improves:
-                best_val_loss = avg_val_loss
                 is_improving = (train_ds.task_type != "quality")
                 if train_ds.task_type != "quality":
                     is_best = True
