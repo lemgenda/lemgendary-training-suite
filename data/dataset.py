@@ -296,6 +296,12 @@ class MultiTaskDataset(Dataset):
             
         self.transform = transforms.Compose(transform_list)
         
+        # 2026 ParseNet Fix: Dynamic mask interpolation for multitask pipelines
+        self.mask_transform = transforms.Compose([
+            transforms.Resize(max(self.size), interpolation=transforms.InterpolationMode.NEAREST),
+            transforms.RandomCrop(self.size) if self.is_train else transforms.CenterCrop(self.size)
+        ])
+
         # 2026: Parameter prediction needs clean ToTensor only (no normalization)
         # Degradation is applied after transform in __getitem__
         if self.task_type == "parameter_prediction":
@@ -435,7 +441,25 @@ class MultiTaskDataset(Dataset):
         has_img = os.path.exists(img_path)
         has_tgt = os.path.exists(tgt_path)
         
-        # 2026: Dynamic Degradation Fallback for UpnV2, CodeFormer, ProfessionalMultitaskRestoration
+        # --- 2026: Multi-Task Task ID Extractor ---
+        task_str = self.task_type
+        if self.model_key == "professional_multitask_restoration":
+            fname_lower = fname.lower()
+            # Use robust substring matching to map manifold names to task heads
+            if "denois" in fname_lower: task_str = "denoise"
+            elif "deblur" in fname_lower: task_str = "deblur"
+            elif "derain" in fname_lower: task_str = "derain"
+            elif "dehaze_outdoor" in fname_lower or "outdoor" in fname_lower: task_str = "dehaze_outdoor"
+            elif "dehaze_indoor" in fname_lower or "indoor" in fname_lower: task_str = "dehaze_indoor"
+            elif "dehaze" in fname_lower or "ffa" in fname_lower: task_str = "dehaze_indoor"
+            elif "lowlight" in fname_lower: task_str = "lowlight"
+            elif "exposure" in fname_lower: task_str = "exposure"
+            elif "zoom" in fname_lower or "super" in fname_lower: task_str = "superres"
+            elif "vintage" in fname_lower or "film" in fname_lower: task_str = "vintage"
+            elif "codeformer" in fname_lower or "face_restor" in fname_lower: task_str = "face_restorer"
+            elif "parsenet" in fname_lower or "face_pars" in fname_lower: task_str = "face_parser"
+            else: task_str = "denoise" # Fallback default
+
         if not has_img and has_tgt and self.task_type in ["restoration", "enhancement", "face"]:
             target = self.load_image(tgt_path)
             target_tensor = self.transform(target)
@@ -484,11 +508,24 @@ class MultiTaskDataset(Dataset):
                 img_tensor = self.transform(img)
             
             if self.task_type in ["restoration", "enhancement", "face"]:
-                if has_tgt:
-                    target = self.load_image(tgt_path)
-                    target_tensor = self.transform(target)
+                if task_str == "face_parser":
+                    # ParseNet: load from masks/
+                    mask_path = os.path.join(ds_path, "masks", self.split, fname)
+                    if os.path.exists(mask_path):
+                        import numpy as np
+                        mask = Image.open(mask_path).convert('L')
+                        mask = self.mask_transform(mask)
+                        mask_tensor = torch.from_numpy(np.array(mask)).long()
+                        mask_tensor = torch.clamp(mask_tensor, 0, 18)
+                        target_tensor = mask_tensor
+                    else:
+                        target_tensor = torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
                 else:
-                    target_tensor = self.transform(img) # Ensure HR fallback shape
+                    if has_tgt:
+                        target = self.load_image(tgt_path)
+                        target_tensor = self.transform(target)
+                    else:
+                        target_tensor = self.transform(img) # Ensure HR fallback shape
             else:
                 target_tensor = img_tensor # Fallback initialization
         if self.task_type in ["restoration", "enhancement", "face"]:
@@ -500,38 +537,6 @@ class MultiTaskDataset(Dataset):
                         img_tensor = apply_film_degradation(target_tensor)
                 except OSError:
                     pass
-
-            # --- 2026: Multi-Task Task ID Extractor ---
-            task_str = self.task_type
-            if self.model_key == "professional_multitask_restoration":
-                fname_lower = fname.lower()
-                # Use robust substring matching to map manifold names to task heads
-                if "denois" in fname_lower:
-                    task_str = "denoise"
-                elif "deblur" in fname_lower:
-                    task_str = "deblur"
-                elif "derain" in fname_lower:
-                    task_str = "derain"
-                elif "dehaze_outdoor" in fname_lower or "outdoor" in fname_lower:
-                    task_str = "dehaze_outdoor"
-                elif "dehaze_indoor" in fname_lower or "indoor" in fname_lower:
-                    task_str = "dehaze_indoor"
-                elif "dehaze" in fname_lower or "ffa" in fname_lower:
-                    task_str = "dehaze_indoor"
-                elif "lowlight" in fname_lower:
-                    task_str = "lowlight"
-                elif "exposure" in fname_lower:
-                    task_str = "exposure"
-                elif "zoom" in fname_lower or "super" in fname_lower:
-                    task_str = "superres"
-                elif "vintage" in fname_lower or "film" in fname_lower:
-                    task_str = "vintage"
-                elif "codeformer" in fname_lower or "face_restor" in fname_lower:
-                    task_str = "face_restorer"
-                elif "parsenet" in fname_lower or "face_pars" in fname_lower:
-                    task_str = "face_parser"
-                else:
-                    task_str = "denoise" # Fallback default
 
             return img_tensor, target_tensor, task_str
         
