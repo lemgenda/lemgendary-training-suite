@@ -882,12 +882,28 @@ def main():
         search_targets = {t for t in search_targets if t}
 
         possible_roots = []
+        
+        # Tier 0: Local Session Recovery (Interactive Kaggle sessions)
+        if os.path.exists(project_root):
+            possible_roots.append(project_root)
+
         if os.path.exists('/kaggle/input'):
             # Tier 1: Instant Top-Level Filter
             for d in os.listdir('/kaggle/input'):
                 d_lower = d.lower().replace("-", "_")
                 if any(target in d_lower for target in search_targets):
                     possible_roots.append(os.path.join('/kaggle/input', d))
+
+            # Tier 1.5: Kaggle Models API Mounts (/kaggle/input/models/<owner>/<model>)
+            k_models = '/kaggle/input/models'
+            if os.path.exists(k_models):
+                for owner in os.listdir(k_models):
+                    owner_path = os.path.join(k_models, owner)
+                    if not os.path.isdir(owner_path): continue
+                    for m_dir in os.listdir(owner_path):
+                        m_lower = m_dir.lower().replace("-", "_")
+                        if any(target in m_lower for target in search_targets):
+                            possible_roots.append(os.path.join(owner_path, m_dir))
 
         # Tier 2: Surgical find only if Tier 1 yields too many or no results
         if not possible_roots:
@@ -912,6 +928,13 @@ def main():
                 os.path.join(recovery_root, reg_filename, "metrics.csv") if reg_filename else None,
                 os.path.join(recovery_root, "models", args.model, "metrics.csv") # Legacy support
             ]
+            
+            # Deep path support for Kaggle Models API
+            pt_default = os.path.join(recovery_root, "pytorch", "default")
+            if os.path.exists(pt_default):
+                for version in os.listdir(pt_default):
+                    metrics_search.append(os.path.join(pt_default, version, "metrics.csv"))
+
             metrics_search = [p for p in metrics_search if p]
 
             src_metrics = next((p for p in metrics_search if os.path.exists(p)), None)
@@ -937,6 +960,14 @@ def main():
                 os.path.join(recovery_root, reg_filename, "checkpoints") if reg_filename else None,
                 recovery_root
             ]
+            
+            # Deep path support for Kaggle Models API
+            if os.path.exists(pt_default):
+                for version in os.listdir(pt_default):
+                    v_path = os.path.join(pt_default, version)
+                    src_ckpt_dirs.append(os.path.join(v_path, "checkpoints"))
+                    src_ckpt_dirs.append(v_path)
+                    
             src_ckpt_dirs = [p for p in src_ckpt_dirs if p and os.path.exists(p)]
 
             for s_dir in src_ckpt_dirs:
