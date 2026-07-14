@@ -1161,21 +1161,22 @@ def main():
     val_resume_iteration = 0
     restored_avg_train_loss = None # 2026: Carry-over for resume reporting
 
-    # Priority: 1. Local Progress (fastest) 2. Hub Latest 3. Hub Best
+    # Priority: 1. Local Progress (fastest) 2. Hub Progress 3. Hub Latest 4. Hub Best
     latest_hub = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
     best_hub = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
     progress_local = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
+    progress_hub = os.path.join(hub_ckpt_dir, f"{args.model}_progress.pth")
 
     # --- 2026 Resilience: Stale Lock Clearance (Task 13.1) ---
     # If a previous run crashed, clear the .processing locks to allow resume.
-    for ckpt_path in [progress_local, latest_hub, best_hub]:
+    for ckpt_path in [progress_local, progress_hub, latest_hub, best_hub]:
         proc_file = ckpt_path + ".processing"
         if os.path.exists(proc_file):
             print(f"[RESILIENCE] Clearing stale lock: {os.path.basename(proc_file)}")
             try: os.remove(proc_file)
             except: pass
 
-    fallback_chain = [progress_local, latest_hub, best_hub]
+    fallback_chain = [progress_local, progress_hub, latest_hub, best_hub]
     # Priority Candidate Selection (v15.0):
     # We probe metadata to find the ABSOLUTE highest epoch/iteration across all locations.
     candidates = []
