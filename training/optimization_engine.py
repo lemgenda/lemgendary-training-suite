@@ -132,6 +132,8 @@ class SmartTrainingGovernor:
                     else: target_score += (1.0 / (target_v + 1e-6)) * weight
             if target_score > 0:
                 self.target_quality_score = target_score
+                if self.task_type == "quality":
+                    self.target_quality_score *= 100.0
 
     def get_phase(self):
         res_idx = self.res_ladder.index(self.current_res)
