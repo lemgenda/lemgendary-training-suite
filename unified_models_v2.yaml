@@ -191,8 +191,8 @@ nima_technical:
     - -15.0
     - 15.0
   sota_targets:
-    plcc: 0.88
-    srcc: 0.88
+    plcc: 0.91
+    srcc: 0.91
     rank_margin: 0.05
   optimization:
     high_fidelity_fraction: 0.7
@@ -244,7 +244,7 @@ nima_authenticity:
     - -15.0
     - 15.0
   sota_targets:
-    accuracy: 0.95
+    accuracy: 0.96
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -372,10 +372,9 @@ codeformer:
   datasets:
   - LemGendizedCodeFormer
   sota_targets:
-    fid: 6.0
-    lpips: 0.06
-    psnr: 33.0
-    ssim: 0.92
+    fid: 5.2
+    psnr: 30.5
+    ssim: 0.93
   val_resolution: 512
 parsenet:
   name: LemGendary ParseNet Face Parsing
@@ -407,7 +406,7 @@ parsenet:
     - 512
   val_resolution: 512
   sota_targets:
-    miou: 0.85
+    miou: 0.86
 retinaface_mobilenet:
   name: LemGendary RetinaFace MobileNet Detection
   class_name: RetinaFace
@@ -440,8 +439,9 @@ retinaface_mobilenet:
     - 640
   val_resolution: 640
   sota_targets:
-    map_medium: 0.88
-    map_hard: 0.8
+    map_easy: 0.915
+    map_medium: 0.89
+    map_hard: 0.75
 ffanet_indoor:
   name: LemGendary FFANet Dehazing (Indoor)
   class_name: FFANet
@@ -465,8 +465,8 @@ ffanet_indoor:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 36.39
-    ssim: 0.988
+    psnr: 36.50
+    ssim: 0.990
     lpips: 0.08
     fid: 12.0
   optimization:
@@ -505,8 +505,8 @@ ffanet_outdoor:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 33.57
-    ssim: 0.984
+    psnr: 33.70
+    ssim: 0.986
     lpips: 0.08
     fid: 12.0
   optimization:
@@ -544,8 +544,8 @@ mirnet_lowlight:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 24.14
-    ssim: 0.83
+    psnr: 24.30
+    ssim: 0.840
     lpips: 0.08
     fid: 12.0
   optimization:
@@ -583,8 +583,8 @@ mirnet_exposure:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 24.14
-    ssim: 0.83
+    psnr: 24.30
+    ssim: 0.840
     lpips: 0.08
     fid: 12.0
   optimization:
@@ -622,8 +622,8 @@ mprnet_deraining:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 36.4
-    ssim: 0.98
+    psnr: 30.60
+    ssim: 0.900
     lpips: 0.07
     fid: 12.0
   optimization:
@@ -673,8 +673,8 @@ nafnet_debluring:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 37.0
-    ssim: 0.975
+    psnr: 33.90
+    ssim: 0.970
     lpips: 0.04
     fid: 6.0
   val_resolution: 512
@@ -713,8 +713,8 @@ nafnet_denoising:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 42.0
-    ssim: 0.992
+    psnr: 40.20
+    ssim: 0.965
     lpips: 0.02
     fid: 4.0
   val_resolution: 512
@@ -751,8 +751,8 @@ yolov8n:
   datasets:
   - LemGendizedYoloV8n
   sota_targets:
-    map50: 0.85
-    map50_95: 0.65
+    map50: 0.540
+    map50_95: 0.390
   val_resolution: 640
 professional_multitask_restoration:
   name: LemGendary Professional Multi-Task Restoration Model
