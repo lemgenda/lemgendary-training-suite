@@ -476,7 +476,9 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M) | Dataset Fraction: {sample_fraction*100:.1f}%")
         else:
             is_quality = model_info.get("dataset_type") == "quality"
-            shard_str = "100% (Quality Task)" if is_quality else "30% unless Refinement"
+            # 2026 Resilience: Dynamically read the true sample_fraction instead of static strings
+            true_shard_pct = sample_fraction * 100
+            shard_str = f"100% (Quality)" if is_quality else f"{true_shard_pct:.1f}%"
             print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M) | Dataset Fraction: 100.0% (Eval Shard: {shard_str})")
         return final_batch
     except Exception as e:
