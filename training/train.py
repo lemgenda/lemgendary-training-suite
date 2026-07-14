@@ -843,6 +843,9 @@ def main():
     # 2026 Resilience: Parallel Mission Support
     # Read num_workers from hardware config, fallback to top-level
     num_workers = config.get("hardware", {}).get("num_workers", config.get("num_workers", 4))
+    if args.env == 'kaggle':
+        # Overwrite the Windows-specific num_workers=0 to un-peg the Kaggle CPU
+        num_workers = 4
 
     print(f" [DATA] Initializing Parallel Manifold (Workers: {num_workers} | Persistent: {num_workers > 0})...")
     # --- 2026 Resilience: Empty Dataset Guard ---
