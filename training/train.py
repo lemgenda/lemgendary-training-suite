@@ -930,10 +930,12 @@ def main():
             ]
             
             # Deep path support for Kaggle Models API
-            pt_default = os.path.join(recovery_root, "pytorch", "default")
-            if os.path.exists(pt_default):
-                for version in os.listdir(pt_default):
-                    metrics_search.append(os.path.join(pt_default, version, "metrics.csv"))
+            pt_dir = next((d for d in (os.listdir(recovery_root) if os.path.exists(recovery_root) else []) if d.lower() == "pytorch"), None)
+            if pt_dir:
+                pt_default = os.path.join(recovery_root, pt_dir, "default")
+                if os.path.exists(pt_default):
+                    for version in os.listdir(pt_default):
+                        metrics_search.append(os.path.join(pt_default, version, "metrics.csv"))
 
             metrics_search = [p for p in metrics_search if p]
 
@@ -962,12 +964,14 @@ def main():
             ]
             
             # Deep path support for Kaggle Models API
-            if os.path.exists(pt_default):
-                for version in os.listdir(pt_default):
-                    v_path = os.path.join(pt_default, version)
-                    src_ckpt_dirs.append(os.path.join(v_path, "checkpoints"))
-                    src_ckpt_dirs.append(v_path)
-                    
+            if pt_dir:
+                pt_default = os.path.join(recovery_root, pt_dir, "default")
+                if os.path.exists(pt_default):
+                    for version in os.listdir(pt_default):
+                        v_path = os.path.join(pt_default, version)
+                        src_ckpt_dirs.append(os.path.join(v_path, "checkpoints"))
+                        src_ckpt_dirs.append(v_path)
+                        
             src_ckpt_dirs = [p for p in src_ckpt_dirs if p and os.path.exists(p)]
 
             for s_dir in src_ckpt_dirs:
