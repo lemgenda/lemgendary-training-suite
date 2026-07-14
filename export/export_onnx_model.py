@@ -155,12 +155,16 @@ def main():
 
         print(f" [EXPORT] Synthesizing {'FP16' if export['half'] else 'FP32'} ONNX model to {export['name']}...")
         try:
+            post_convert_fp16 = False
             if export["half"]:
                 # --- 2026 Resilience: Self-Contained FP16 Calibration ---
-                model.half()
-                inp = dummy_input.half()
+                # Export to FP32 first to avoid PyTorch CPU Float16 trace limitations (e.g. ReflectionPad2d)
+                # then convert directly using onnx tools.
+                model.float()
+                inp = dummy_input.float()
                 # FP16 models are standalone and embedded for WebGPU performance
                 save_ext = False
+                post_convert_fp16 = True
             else:
                 model.float()
                 inp = dummy_input.float()
@@ -228,6 +232,18 @@ def main():
             finally:
                 onnx_logger.setLevel(old_onnx_level)
                 torch_logger.setLevel(old_torch_level)
+
+            # --- 2026 Resilience: Native FP16 Conversion ---
+            if post_convert_fp16:
+                try:
+                    import onnx
+                    from onnxconverter_common import float16
+                    print(f"   -> [CONVERSION] Converting synthesized FP32 graph to pure FP16 matrix...")
+                    onnx_model = onnx.load(target_path)
+                    onnx_model_fp16 = float16.convert_float_to_float16(onnx_model)
+                    onnx.save(onnx_model_fp16, target_path)
+                except Exception as e:
+                    print(f"   [ERROR] Failed to convert ONNX to FP16: {e}")
 
             # Manual Weight Ejection for FP32 (External Data)
             if save_ext:
