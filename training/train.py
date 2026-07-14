@@ -1277,6 +1277,16 @@ def main():
                     # 2026 Resilience: Post-Restoration VRAM Re-Audit
                     # Only recalculate batch size if it was set to 'auto' in the registry.
                     res_size = g_start_state['input_size']
+                    
+                    # 2026 Guardrail: Clamp restored resolution against new YAML config constraints
+                    res_ladder = model_info.get("optimization", {}).get("res_ladder", [res_size])
+                    max_allowed_res = res_ladder[-1] if res_ladder else res_size
+                    if res_size > max_allowed_res:
+                        print(f" [GUARD] Restored resolution ({res_size}px) exceeds current YAML ladder limit ({max_allowed_res}px). Clamping to {max_allowed_res}px.")
+                        res_size = max_allowed_res
+                        g_start_state['input_size'] = res_size
+                        governor.current_res = res_size
+                        
                     old_batch_size = batch_size
                     if (config_batch == "auto" or config_batch is None) and not args.batch_size:
                         batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='train', sample_fraction=g_start_state.get('sample_fraction', 1.0))
