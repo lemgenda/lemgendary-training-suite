@@ -219,6 +219,23 @@ def safe_replace(src, dst):
             time.sleep(base_delay * (1.5 ** i))
     return False
 
+def load_state_dict_robust(model, state_dict, strict=True):
+    """Loads a state dict dynamically handling DataParallel 'module.' prefix mismatches."""
+    is_model_dp = hasattr(model, 'module')
+    is_state_dict_dp = any(k.startswith('module.') for k in state_dict.keys())
+    
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        if is_model_dp and not is_state_dict_dp:
+            new_key = 'module.' + k
+        elif not is_model_dp and is_state_dict_dp:
+            new_key = k[7:] if k.startswith('module.') else k
+        else:
+            new_key = k
+        new_state_dict[new_key] = v
+        
+    model.load_state_dict(new_state_dict, strict=strict)
+
 def load_pat():
     """2026 Resilience: Securely mount PATs from local files if missing from environment."""
     for pat_name, file_name in [('GITHUB_PAT', '.GITHUB_PAT'), ('SUITE_PAT', '.SUITE_PAT')]:
@@ -1227,7 +1244,7 @@ def main():
             print(f"Resuming training from {loc_label} checkpoint: {attempt_ckpt}")
             ckpt = torch.load(attempt_ckpt, map_location=device, weights_only=False) # pyre-ignore
             if 'model_state' in ckpt:
-                model.load_state_dict(ckpt['model_state'], strict=False)
+                load_state_dict_robust(model, ckpt['model_state'], strict=False)
                 for param in model.parameters():
                     param.data = param.data.contiguous()
                 for buf in model.buffers():
@@ -1403,7 +1420,7 @@ def main():
                 if ckpt.get('sota_achieved', False):
                     sota_baseline_achieved = True
             else:
-                model.load_state_dict(ckpt, strict=False)
+                load_state_dict_robust(model, ckpt, strict=False)
                 for param in model.parameters():
                     param.data = param.data.contiguous()
                 for buf in model.buffers():
@@ -2148,7 +2165,7 @@ def main():
                         best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                         if os.path.exists(best_ckpt_path):
                             ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
-                            model.load_state_dict(ckpt['model_state'])
+                            load_state_dict_robust(model, ckpt['model_state'])
                             
                             for param in model.parameters():
                                 param.data = param.data.contiguous()
@@ -2289,7 +2306,7 @@ def main():
                         best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                         if os.path.exists(best_ckpt_path):
                             ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
-                            model.load_state_dict(ckpt['model_state'])
+                            load_state_dict_robust(model, ckpt['model_state'])
                             
                             # 2026 Resilience: Force absolute contiguous memory alignment for every parameter
                             # and buffer after loading. DataParallel will replicate these exact memory 
@@ -3353,7 +3370,7 @@ def main():
                 if os.path.exists(best_ckpt_path):
                     # Notify Governor to perform a Tactical Retreat (Recoil)
                     ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
-                    model.load_state_dict(ckpt['model_state'])
+                    load_state_dict_robust(model, ckpt['model_state'])
                     
                     for param in model.parameters():
                         param.data = param.data.contiguous()
