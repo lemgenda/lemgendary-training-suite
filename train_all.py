@@ -143,4 +143,9 @@ def main():
         print(f"⚠️ Warning: {len(failure_report['failures'])} models failed. See {failure_log_path}")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n⏸️ [ORCHESTRATOR] Training Suite Aborted by User. All internal model progress was safely committed by the Resiliency Shield.")
+        import sys
+        sys.exit(0)
