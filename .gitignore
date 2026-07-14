@@ -25,3 +25,4 @@ runs/
 
 # Training suite diagnostic logs
 fleet_failure_report.json
+face_landmarker.task

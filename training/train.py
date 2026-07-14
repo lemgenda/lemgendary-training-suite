@@ -2066,9 +2066,8 @@ def main():
                 is_corrupt = False
 
 
-                # --- 2026: Singularity Audit (The Truth Seeker) ---
                 # Detecting "Dead Gradients" that have been masked to 0.0 by the Singularity Shield
-                if loss.item() == 0.0:
+                if loss.item() == 0.0 and train_ds.task_type not in ["quality", "face_detection", "detection"]:
                     consecutive_singularities += 1
                     pbar.write(f" [WARNING] Numerical Singularity detected (Batch {i+1}). Loss is perfectly 0.0. Head might be collapsed.")
                     if consecutive_singularities >= 10:
@@ -2781,7 +2780,7 @@ def main():
                 val_pbar.set_postfix({"v_loss": f"{loss.item():.4f}"})
 
                 # Collect for deep mathematical metrics assessment (detaching to RAM)
-                if train_ds.task_type == "quality":
+                if train_ds.task_type in ["quality", "classification", "segmentation", "parameter_prediction"]:
                     all_preds.append(preds.detach().cpu())
                     all_targets.append(targets.detach().cpu())
                 elif train_ds.task_type in ["restoration", "enhancement", "face"]:
