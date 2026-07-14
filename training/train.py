@@ -2941,7 +2941,7 @@ def main():
                 t = torch.cat(all_targets)
                 if p.shape[-1] == 10:
                     weights = torch.arange(1, 11).float()
-                    p_probs = F.softmax(p.clamp(min=-stab['logit_clamp'], max=stab['logit_clamp']) / stab['softmax_temp'], dim=-1)
+                    p_probs = F.softmax(p / stab['softmax_temp'], dim=-1)
                     t_probs = t / torch.clamp(t.sum(dim=-1, keepdim=True), min=stab['emd_epsilon'])
                     p_mean = (p_probs * weights).sum(dim=-1).numpy()
                     t_mean = (t_probs * weights).sum(dim=-1).numpy()

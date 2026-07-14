@@ -98,8 +98,7 @@ restored_img.save("restored.png")
     badge_str = " ".join(badges)
 
     # --- 2026: Mermaid Topology (Task 7.2) ---
-    topology_mermaid = f"""
-```mermaid
+    topology_mermaid = f"""```mermaid
 graph TD
     Input[RGB Input {res_str}] --> Backbone[{arch}]
     Backbone --> Manifold[Latent Manifold]
@@ -108,10 +107,14 @@ graph TD
     
     style Input fill:#f9f,stroke:#333,stroke-width:2px
     style Output fill:#00ff00,stroke:#333,stroke-width:4px
-```
-"""
+```"""
 
     # --- 2026: Metrics Summarization ---
+    loss_fn = model_info.get("loss_fn", "l1").upper()
+    if loss_fn == "EMD":
+        stability_str = f"Trained using **Earth Mover's Distance (EMD)** with strict {model_info.get('stabilizers', {}).get('softmax_temp', 0.1)} Temperature Anchoring."
+    else:
+        stability_str = f"Trained using **{loss_fn} Loss** to enforce strict manifold alignment."
     if task == "quality":
         metrics_summary = f"**PLCC**: {metrics.get('plcc', '0.90+')} | **SRCC**: {metrics.get('srcc', '0.83+')}"
         vector_section = f"""> [!IMPORTANT]
@@ -119,8 +122,10 @@ graph TD
 > - **Primary Targets**: {"Composition, Color, Lighting, Artistic Intent" if "aesthetic" in model_key else "Noise, Blur, Compression, Sharpness"}.
 """
     else:
-        metrics_summary = f"**PSNR**: {metrics.get('psnr', '32.5+')} | **SSIM**: {metrics.get('ssim', '0.94+')} | **LPIPS**: {metrics.get('lpips', '0.06-')}"
+        metrics_summary = f"**PSNR**: {metrics.get('psnr', '32.5+')} | **SSIM**: {metrics.get('ssim', '0.94+')} | **LPIPS**: {metrics.get('lpips', '0.06-')} | **FID**: {metrics.get('fid', '2.5-')}"
         vector_section = ""
+        
+    vector_spacer = "\n" if vector_section else ""
 
     # --- Dataset Manifest ---
     ds_sizes = []
@@ -139,7 +144,7 @@ graph TD
 
 ## Overview
 
-The **{name}** is a professional-grade AI model optimized for the `{task}` lifecycle within the LemGendary Training Suite. 
+The **{name}** is a professional-grade AI model optimized for the `{task}` lifecycle within the LemGendary Training Suite.
 
 - **Architecture**: {arch} ({arch_type})
 - **Input Resolution**: {res_str}
@@ -149,9 +154,7 @@ The **{name}** is a professional-grade AI model optimized for the `{task}` lifec
 ## Manifold Topology
 
 {topology_mermaid}
-
-{vector_section}
-
+{vector_spacer}{vector_section}
 ## Usage
 
 {usage_snippet}
@@ -172,7 +175,7 @@ The **{name}** is a professional-grade AI model optimized for the `{task}` lifec
 
 - **Precision**: ONNX FP16 (Edge) / PyTorch FP32 (Training).
 - **Latency**: Sub-50ms inference bound on target local GPU hardware.
-- **Stability**: Trained using **Earth Mover's Distance (EMD)** with strict 0.1 Temperature Anchoring.
+- **Stability**: {stability_str}
 
 ## Data Manifest
 
@@ -190,3 +193,73 @@ The **{name}** is a professional-grade AI model optimized for the `{task}` lifec
 def save_readme(path, content):
     with open(path, 'w', encoding='utf-8') as f:
         f.write(content)
+
+def _get_file_count(path):
+    if not os.path.isdir(path):
+        return "N/A"
+    return sum(1 for e in os.scandir(path) if e.is_file())
+
+def build_dataset_readme(dataset_name, dataset_path):
+    import os
+    readme_path = os.path.join(dataset_path, "README.md")
+    existing_content = ""
+    if os.path.exists(readme_path):
+        with open(readme_path, "r", encoding="utf-8") as f:
+            existing_content = f.read()
+
+    folders = ["images", "targets", "labels", "masks"]
+    
+    manifest_lines = [
+        "## Physical Data Manifest",
+        "",
+        "| Folder | Train | Val |",
+        "| :--- | :--- | :--- |"
+    ]
+    
+    has_data = False
+    for folder in folders:
+        train_path = os.path.join(dataset_path, folder, "train")
+        val_path = os.path.join(dataset_path, folder, "val")
+        
+        train_count = _get_file_count(train_path)
+        val_count = _get_file_count(val_path)
+        
+        # Some datasets don't have train/val subfolders, just files in the root folder (e.g. CodeFormer targets)
+        if train_count == "N/A" and val_count == "N/A":
+            root_path = os.path.join(dataset_path, folder)
+            root_count = _get_file_count(root_path)
+            if root_count != "N/A" and root_count > 0:
+                manifest_lines.append(f"| **{folder}** | {root_count} (total) | N/A |")
+                has_data = True
+        
+        if train_count != "N/A" or val_count != "N/A":
+            manifest_lines.append(f"| **{folder}** | {train_count} | {val_count} |")
+            has_data = True
+            
+    if not has_data:
+        return False
+        
+    manifest_str = "\n".join(manifest_lines)
+    
+    if not existing_content:
+        new_content = f"# {dataset_name}\n\n{manifest_str}\n"
+    else:
+        if "## Physical Data Manifest" in existing_content:
+            parts = existing_content.split("## Physical Data Manifest")
+            pre = parts[0].rstrip()
+            post = parts[1]
+            next_header_idx = post.find("\n## ")
+            if next_header_idx != -1:
+                post = post[next_header_idx:]
+            else:
+                post = ""
+            new_content = f"{pre}\n\n{manifest_str}\n{post}"
+        else:
+            if "\n---" in existing_content:
+                parts = existing_content.rsplit("\n---", 1)
+                new_content = f"{parts[0].rstrip()}\n\n{manifest_str}\n\n---{parts[1]}"
+            else:
+                new_content = f"{existing_content.rstrip()}\n\n{manifest_str}\n"
+                
+    save_readme(readme_path, new_content)
+    return True
