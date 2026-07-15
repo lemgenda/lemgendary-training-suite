@@ -3135,13 +3135,14 @@ def main():
                 else:
                     (pbar.write if pbar else print)(f" -> [SOTA GUARD] Marginal Quality Gain: {best_quality_score:.4f} (+{best_quality_score-prev_best:.4f}). Saving best weights.")
             elif loss_improves:
-                is_improving = (train_ds.task_type != "quality")
-                if train_ds.task_type != "quality":
+                if sota_targets:
+                    is_improving = False
+                    (pbar.write if pbar else print)(f" -> [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}), but quality score did not improve. Skipping SOTA export.")
+                else:
+                    is_improving = True
                     is_best = True
                     best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid, "accuracy": accuracy}
                     (pbar.write if pbar else print)(f" -> [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}). Exporting SOTA weights.")
-                else:
-                    (pbar.write if pbar else print)(f" -> [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}), but quality score did not improve. Skipping SOTA export.")
             else:
                 # 2026: Horizontal Stagnation Detected.
                 # We do NOT reset is_improving, which allows the Governor to trigger a Jolt.
