@@ -2,7 +2,7 @@
 
 | Model Key | Model Name | Backbone | Res Ladder | Manifold Avg (Std) Res | Our Target Metrics | Official SOTA Metrics |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `nima_aesthetic_mobile` | LemGendary NIMA Aesthetic Scorer (Mobile) | MobileNetV2 (Global Composition) | [224] | 640x505 | PLCC: 0.65, SRCC: 0.65 | SRCC: ~0.610, PLCC: ~0.638 |
+| `nima_aesthetic_mobile` | LemGendary NIMA Aesthetic Scorer (Mobile) | MobileNetV2 (Global Composition) | [224] | 640x505 | PLCC: 0.60, SRCC: 0.60 | SRCC: ~0.610, PLCC: ~0.638 |
 | `nima_aesthetic_efficientnet` | LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S) | EfficientNetV2-S (Global Composition) | [224, 384] | 640x505 | PLCC: 0.7, SRCC: 0.7 | SRCC: ~0.650, PLCC: ~0.650 (Est.) |
 | `nima_aesthetic_pro` | LemGendary NIMA Aesthetic Scorer (Pro ViT) | Swin-v2-T (Global Multi-Scale Attention) | [256, 384, 512] | 640x505 | PLCC: 0.75, SRCC: 0.75 | SRCC: ~0.650, PLCC: ~0.650 (Est.) |
 | `nima_technical` | LemGendary NIMA Technical Scorer | EfficientNetV2-S (Spatial Integrity) | [384, 512] | 512x512 | PLCC: 0.91, SRCC: 0.91, RANK_MARGIN: 0.05 | Accuracy/PLCC: ~0.80 - 0.90 |

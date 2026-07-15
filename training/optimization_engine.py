@@ -132,8 +132,6 @@ class SmartTrainingGovernor:
                     else: target_score += (1.0 / (target_v + 1e-6)) * weight
             if target_score > 0:
                 self.target_quality_score = target_score
-                if self.task_type == "quality":
-                    self.target_quality_score *= 100.0
 
     def get_phase(self):
         res_idx = self.res_ladder.index(self.current_res)
@@ -384,9 +382,7 @@ class SmartTrainingGovernor:
         # data fraction ramps while the model is supposed to be stabilizing.
         stride_threshold = 0.75 if self.current_res < 512 else 0.90
         # Scale threshold to match the task's score range.
-        if self.task_type == "quality":
-            stride_threshold = stride_threshold * 100.0  # 0.90 -> 90.0
-        elif self.target_quality_score > 1.0:
+        if self.target_quality_score > 1.0:
             stride_threshold = stride_threshold * self.target_quality_score
         propulsion_allowed = not should_retreat and self.cooldown_remaining == 0
         not_regressing = delta_q >= -self.min_delta
