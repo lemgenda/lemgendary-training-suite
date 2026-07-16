@@ -3303,7 +3303,7 @@ def main():
             # --- 2026: SOTA Plateau Timer Reset ---
             # If the Governor structurally changed the manifold via Data or Resolution,
             # or broke a plateau with a Jolt, we must reset the patience timer so it doesn't infinite loop.
-            if f_changed or r_changed or lr_changed:
+            if f_changed or r_changed or (lr_changed and new_params.get('lr_multiplier', 1.0) > 1.0):
                 epochs_no_improve = 0
             if r_changed:
                 print(f" [GUARD] Resolution changed. Resetting SOTA baseline to accommodate new spatial manifold.")
@@ -3474,7 +3474,7 @@ def main():
             curr_metrics=curr_metrics,
             quality_score=current_quality_score,
             governor_state=current_epoch_governor_state,
-            stress=avg_sentinel_stress
+            stress=current_epoch_governor_state.get('stress', 0.0) if current_epoch_governor_state else 0.0
         )
 
         prev_quality_score = current_quality_score
