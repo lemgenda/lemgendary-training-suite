@@ -190,6 +190,14 @@ class SmartTrainingGovernor:
         # 1. Update Memory
         self.history.append((current_quality, current_loss, train_loss))
         if len(self.history) > 5: self.history.pop(0)
+        
+        # --- 2026 NPP: Stress Deactivation ---
+        # If the model successfully breaks the previous SOTA ceiling, shut off all dataset noise
+        # so it can peacefully anchor the new manifold.
+        if current_quality > self.best_quality and self.best_quality > 0.0:
+            if getattr(self, 'current_stress', 0.0) > 0.0:
+                self.current_stress = 0.0
+                
         self.best_quality = max(self.best_quality, current_quality)
 
         # 2. Guard: Stabilization
