@@ -519,7 +519,8 @@ class SmartTrainingGovernor:
             "last_res_jump_epoch": self.last_res_jump_epoch, # v15.9
             "epoch_count": self.epoch_count,
             "best_quality": self.best_quality,
-            "stress": getattr(self, 'current_stress', 0.0)
+            "stress": getattr(self, 'current_stress', 0.0),
+            "last_jolt_epoch": getattr(self, 'last_jolt_epoch', -10)
         }
 
     def load_state(self, state, preserve_curriculum=False):
@@ -543,6 +544,7 @@ class SmartTrainingGovernor:
         self.history = state.get("history", []) # CRITICAL: Load plateau memory
         self.thermal_floor = state.get("thermal_floor", {}) # New
         self.cooldown_remaining = state.get("cooldown_remaining", 0) # New
+        self.last_jolt_epoch = state.get("last_jolt_epoch", -10)
         self.spatial_lock_remaining = state.get("spatial_lock_remaining", 0) # v15.9
         self.last_res_jump_epoch = state.get("last_res_jump_epoch", 0) # v15.9
         self.epoch_count = state.get("epoch_count", self.epoch_count)
