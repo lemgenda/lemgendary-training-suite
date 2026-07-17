@@ -9,7 +9,7 @@ class NIMA_Model(nn.Module):
     Nuclear-Hardened NIMA (Neural IMage Assessment).
     Implements Autonomous Temperature Sharpening and Logit Clamping.
     """
-    def __init__(self, backbone="mobilenet_v2"):
+    def __init__(self, backbone="mobilenet_v2", hidden_dim=None):
         super(NIMA_Model, self).__init__()
         self.backbone_name = backbone
         
@@ -23,10 +23,22 @@ class NIMA_Model(nn.Module):
             self.features = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1).features
             in_features = 1280
 
-        self.classifier = nn.Sequential(
-            nn.Dropout(p=0.5),
-            nn.Linear(in_features, 10)
-        )
+        # 2026 v16: Optional hidden projection layer for richer aesthetic representation.
+        # When hidden_dim is set (e.g. 256), the head learns a rich intermediate manifold
+        # before collapsing to 10 score bins, raising the PLCC ceiling for lightweight backbones.
+        if hidden_dim is not None:
+            self.classifier = nn.Sequential(
+                nn.Dropout(p=0.5),
+                nn.Linear(in_features, hidden_dim),
+                nn.GELU(),
+                nn.Dropout(p=0.25),
+                nn.Linear(hidden_dim, 10)
+            )
+        else:
+            self.classifier = nn.Sequential(
+                nn.Dropout(p=0.5),
+                nn.Linear(in_features, 10)
+            )
         
         # 2026 Resilience: Dynamic Temperature Handle
         self.softmax_temp = nn.Parameter(torch.tensor(1.0), requires_grad=False)
