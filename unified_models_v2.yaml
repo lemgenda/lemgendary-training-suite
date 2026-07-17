@@ -53,7 +53,7 @@ nima_aesthetic_mobile:
     target_effective_batch: 32
     min_delta: 0.001
     swa_start_pct: 0.65
-  val_resolution: 224
+  val_resolution: 256
 nima_aesthetic_efficientnet:
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
   class_name: NIMA_Model
@@ -99,6 +99,7 @@ nima_aesthetic_efficientnet:
     plateau_priority: data
     res_ladder:
     - 224
+    - 256
     - 384
     clamp_range:
     - 15.0
@@ -170,8 +171,8 @@ nima_technical:
   checkpoint: NIMATechnicalWeights_FP32.pth
   input_size:
   - 3
-  - 384
-  - 384
+  - 256
+  - 256
   batch_size: auto
   learning_rate: 5.0e-05
   kwargs:
@@ -210,6 +211,7 @@ nima_technical:
     drift_gate: 0.98
     regression_limit: 3
     res_ladder:
+    - 256
     - 384
     - 512
     clamp_range:
