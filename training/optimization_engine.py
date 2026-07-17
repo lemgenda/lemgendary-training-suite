@@ -104,6 +104,7 @@ class SmartTrainingGovernor:
         self.last_action_epoch = 0
         self.epoch_count = 0
         self.session_epoch_count = 0 # 2026: Resumption Shield tracking
+        self.max_stress_stuck_epochs = 0 # 2026 v16: Counts epochs at max stress with no progress
         # 2026 Resilience: Dynamic Delta for High-Range Quality Scores
         # Restoration tasks have Quality Scores in the 100s-500s range, making 0.0005 too small to ever trigger 'is_flat'.
         base_delta = opt.get("min_delta", 0.0005)
@@ -455,7 +456,20 @@ class SmartTrainingGovernor:
                     self.current_stress = min(5.0, getattr(self, 'current_stress', 0.0) + 1.0)
                     self.lr_multiplier = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
                     lr_changed = True
+                    self.max_stress_stuck_epochs = 0 # Reset stuck counter: stress is still escalating
                     msg_parts.append(f"REFINEMENT: Trapped in Plateau. Deploying Stress Protocol (Level {self.current_stress}) & Jolting LR")
+                elif getattr(self, 'current_stress', 0.0) >= 5.0 and self.target_quality_score > 0 and self.best_quality < self.target_quality_score * 0.90:
+                    # 2026 v16: Stress is maxed but SOTA is still far away.
+                    # Do NOT cool the LR — that crushes momentum and freezes the model permanently.
+                    # Instead, force a periodic jolt to keep probing the manifold.
+                    jolt = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
+                    self.lr_multiplier = jolt
+                    lr_changed = True
+                    self.max_stress_stuck_epochs = getattr(self, 'max_stress_stuck_epochs', 0) + 1
+                    stuck_patience = self.plateau_patience * 2  # 2× plateau patience before declaring stuck
+                    msg_parts.append(f"REFINEMENT: [MAX STRESS] Forcing Jolt (x{jolt:.2f}) to maintain momentum (Stuck: {self.max_stress_stuck_epochs}/{stuck_patience})")
+                    if self.max_stress_stuck_epochs >= stuck_patience:
+                        msg_parts.append(f"[STUCK] Max stress reached and no improvement for {self.max_stress_stuck_epochs} epochs. Architecture may be at capacity. Consider stopping or switching backbone.")
                 else:
                     self.lr_multiplier = self.cooling_factor
                     lr_changed = True
@@ -520,7 +534,8 @@ class SmartTrainingGovernor:
             "epoch_count": self.epoch_count,
             "best_quality": self.best_quality,
             "stress": getattr(self, 'current_stress', 0.0),
-            "last_jolt_epoch": getattr(self, 'last_jolt_epoch', -10)
+            "last_jolt_epoch": getattr(self, 'last_jolt_epoch', -10),
+            "max_stress_stuck_epochs": getattr(self, 'max_stress_stuck_epochs', 0)
         }
 
     def load_state(self, state, preserve_curriculum=False):
@@ -550,6 +565,7 @@ class SmartTrainingGovernor:
         self.epoch_count = state.get("epoch_count", self.epoch_count)
         self.best_quality = state.get("best_quality", self.best_quality)
         self.current_stress = state.get("stress", 0.0)
+        self.max_stress_stuck_epochs = state.get("max_stress_stuck_epochs", 0) # v16
 
     def recoil(self):
         """Emergency Tactical Retreat triggered by hardware or manifold failure."""
