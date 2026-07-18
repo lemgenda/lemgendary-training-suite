@@ -3398,13 +3398,17 @@ def main():
                     if 'governor_state' in ckpt:
                         governor.load_state(ckpt['governor_state'], preserve_curriculum=True)
 
-                    # 2026: SOTA Scheduler Sync
-                    if 'scheduler_state' in ckpt:
-                        try:
-                            load_scheduler_state_stretched(scheduler, ckpt['scheduler_state'], total_steps)
-                            print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
-                        except Exception as sched_err:
-                            print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
+                    # 2026: SOTA Scheduler Sync [DISABLED: Velocity Bomb Fix]
+                    # We INTENTIONALLY skip rolling back the scheduler state chronologically.
+                    # Reverting the scheduler to an older phase of the curve causes the Learning Rate
+                    # to spike back up (Velocity Bomb), shattering the converged manifold.
+                    # The LR cooling curve must reflect the *total epochs trained*, not the state of the weights.
+                    # if 'scheduler_state' in ckpt:
+                    #     try:
+                    #         load_scheduler_state_stretched(scheduler, ckpt['scheduler_state'], total_steps)
+                    #         print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
+                    #     except Exception as sched_err:
+                    #         print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
 
                     # Notify Governor to perform a Tactical Retreat (Recoil) on the restored state
                     recoil_msg = governor.recoil()
