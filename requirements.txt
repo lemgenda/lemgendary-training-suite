@@ -52,3 +52,5 @@ onnxscript>=0.1.0
 kaggle
 kagglehub
 gdown>=5.1.0
+albumentations
+websockets
