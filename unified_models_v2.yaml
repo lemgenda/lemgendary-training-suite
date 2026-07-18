@@ -451,7 +451,7 @@ retinaface_mobilenet:
     map_hard: 0.75
 ffanet_indoor:
   name: LemGendary FFANet Dehazing (Indoor)
-  class_name: FFANet
+  class_name: BranchedFFANet
   category: restoration
   filename: FFANet-Dehazing(Indoor)
   checkpoint: FFANet-Dehazing(Indoor)Weights_FP32.pth
@@ -491,7 +491,7 @@ ffanet_indoor:
   val_resolution: 512
 ffanet_outdoor:
   name: LemGendary FFANet Dehazing (Outdoor)
-  class_name: FFANet
+  class_name: BranchedFFANet
   category: restoration
   filename: FFANet-Dehazing(Outdoor)
   checkpoint: FFANet-Dehazing(Outdoor)Weights_FP32.pth

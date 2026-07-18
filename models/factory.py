@@ -45,13 +45,14 @@ def _populate_registry():
 
     try:
         from models.core_restoration import (
-            NAFNet, FFANet, MIRNet_Proxy, MPRNet_Proxy,
+            NAFNet, FFANet, BranchedFFANet, MIRNet_Proxy, MPRNet_Proxy,
             GenericRestorationModel, UltraZoomModel, UniversalFilmRestorer, UPN_v2_Model
         )
         _MODEL_REGISTRY.update({
             "GenericRestoration": GenericRestorationModel,
             "NAFNet": NAFNet,
             "FFANet": FFANet,
+            "BranchedFFANet": BranchedFFANet,
             "MIRNet": MIRNet_Proxy,
             "MPRNet": MPRNet_Proxy,
             "UltraZoom": UltraZoomModel,

@@ -1911,7 +1911,11 @@ def main():
                     inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
                     targets, task_idx = None, None
                 else:
-                    inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
+                    inputs = inputs.to(device, non_blocking=True)
+                    if isinstance(targets, dict):
+                        targets = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in targets.items()}
+                    else:
+                        targets = targets.to(device, non_blocking=True)
                     if not torch.isfinite(inputs).all():
                         if pbar: pbar.write(f" [RESILIENCE] Non-finite values detected in input batch! Skipping...")
                         continue
@@ -2742,7 +2746,11 @@ def main():
                     inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
                     targets, task_idx = None, None
                 else:
-                    inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
+                    inputs = inputs.to(device, non_blocking=True)
+                    if isinstance(targets, dict):
+                        targets = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in targets.items()}
+                    else:
+                        targets = targets.to(device, non_blocking=True)
                     task_idx = None
                     if train_ds.task_type == "restoration":
                         task_names = [

@@ -564,7 +564,7 @@ class MultiTaskDataset(Dataset):
                 except OSError:
                     pass
 
-            if self.model_key == "branched_ffanet":
+            if self.model_key.startswith("ffanet"):
                 label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
                 bboxes = []
                 if os.path.exists(label_path):
