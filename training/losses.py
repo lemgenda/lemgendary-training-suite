@@ -59,6 +59,31 @@ class CombinedLoss(nn.Module):
 
     def forward(self, pred, target, task_idx=None):
         if self.task_type in ["restoration", "enhancement"]:
+            # 2026: Branched Multi-Task Support (e.g., BranchedFFANet)
+            if isinstance(target, dict) and isinstance(pred, dict):
+                img_target = target["image"]
+                img_pred = pred["restored_image"]
+                base_loss = self.l1(img_pred, img_target)
+                
+                if self.perc is not None:
+                    p_scaled = torch.clamp(img_pred, 0, 1) * 2.0 - 1.0
+                    t_scaled = torch.clamp(img_target, 0, 1) * 2.0 - 1.0
+                    raw_lpips = self.perc(p_scaled, t_scaled).view(-1)
+                    if task_idx is not None and len(task_idx.shape) > 0:
+                        dynamic_weights = self.task_lpips_weights[task_idx]
+                        perc_loss = (raw_lpips * dynamic_weights).mean()
+                    else:
+                        perc_loss = 0.025 * raw_lpips.mean()
+                    base_loss += perc_loss
+                
+                # Detection Loss (Best Practice: lambda = 0.1 to prevent detection gradients from destroying image quality)
+                bbox_pred = pred["detections"]
+                # In a full production implementation, this interfaces with Ultralytics anchor-matching.
+                # Here we use a smooth_l1 placeholder against a dummy target of the same shape to ensure end-to-end graph flow.
+                detect_loss = F.smooth_l1_loss(bbox_pred, torch.zeros_like(bbox_pred))
+                
+                return base_loss + 0.1 * detect_loss
+
             # Support both Hybrid (img, weights) outputs and Pure Image generation
             if isinstance(pred, (tuple, list)):
                 base_loss = self.l1(pred[0], target) + 0.1 * self.ce(pred[1], task_idx)

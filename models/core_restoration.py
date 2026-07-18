@@ -235,6 +235,81 @@ class FFANet(nn.Module):
         output = self.conv2(res) + x
         return output
 
+class YOLOv8AnchorBasedHead(nn.Module):
+    def __init__(self, in_channels, num_classes=80, num_anchors=3):
+        super().__init__()
+        self.num_classes = num_classes
+        self.num_anchors = num_anchors
+        
+        # Stride 32 downsampling (from 256x256 to 8x8)
+        self.downsample = nn.Sequential(
+            nn.Conv2d(in_channels, 64, 3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(64, 128, 3, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(128, 256, 3, stride=2, padding=1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(256, 256, 3, stride=2, padding=1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(256, 256, 3, stride=2, padding=1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.1)
+        )
+        
+        # Output: [B, num_anchors * (5 + num_classes), H, W]
+        # For each anchor: 4 bbox coords + 1 objectness + num_classes
+        out_channels = num_anchors * (5 + num_classes)
+        self.pred = nn.Conv2d(256, out_channels, 1)
+
+    def forward(self, x):
+        features = self.downsample(x)
+        preds = self.pred(features)
+        return preds
+
+class BranchedFFANet(nn.Module):
+    """Multi-Task FFANet Architecture for Dehazing + Detection"""
+    def __init__(self, gps=3, blocks=3, num_classes=80):
+        super(BranchedFFANet, self).__init__()
+        dim = 32
+        self.conv1 = nn.Conv2d(3, dim, 3, padding=1, bias=True)
+        self.gps = gps
+        self.g = nn.ModuleList([self.make_group(blocks, dim) for _ in range(gps)])
+        self.c = nn.Sequential(nn.Conv2d(dim * gps, dim, 1, padding=0, bias=True), nn.ReLU())
+        self.w = nn.Conv2d(dim, dim, 3, padding=1, bias=True)
+        self.conv2 = nn.Conv2d(dim, 3, 3, padding=1, bias=True)
+        
+        # Branched Detection Head
+        self.detection_head = YOLOv8AnchorBasedHead(dim, num_classes=num_classes)
+
+    def make_group(self, blocks, dim):
+        def default_conv(in_channels, out_channels, kernel_size, bias=True):
+            return nn.Conv2d(in_channels, out_channels, kernel_size, padding=(kernel_size//2), bias=bias)
+        g = nn.Sequential(*[Block(default_conv, dim, 3) for _ in range(blocks)])
+        return g
+
+    def forward(self, x):
+        x = x.contiguous()
+        res = self.conv1(x)
+        cat = []
+        for i in range(self.gps):
+            res = self.g[i](res)
+            cat.append(res)
+        cat = torch.cat(cat, dim=1)
+        c_out = self.c(cat)
+        
+        # Restoration Branch
+        res_out = self.w(c_out) + res
+        restored_img = self.conv2(res_out) + x
+        
+        # Detection Branch
+        detections = self.detection_head(c_out)
+        
+        return {"restored_image": restored_img, "detections": detections}
+
 # ==========================================
 # 3. MIRNet / MPRNet (Multi-Scale & Progressive) Proxys
 # ==========================================

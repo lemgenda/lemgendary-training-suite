@@ -564,6 +564,25 @@ class MultiTaskDataset(Dataset):
                 except OSError:
                     pass
 
+            if self.model_key == "branched_ffanet":
+                label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
+                bboxes = []
+                if os.path.exists(label_path):
+                    with open(label_path, 'r') as f:
+                        for line in f:
+                            parts = line.strip().split()
+                            if len(parts) >= 5:
+                                bboxes.append([float(x) for x in parts[:5]])
+                
+                # Pad to max 50 boxes
+                max_boxes = 50
+                bboxes_tensor = torch.zeros((max_boxes, 5), dtype=torch.float32)
+                if bboxes:
+                    num_boxes = min(len(bboxes), max_boxes)
+                    bboxes_tensor[:num_boxes] = torch.tensor(bboxes[:num_boxes], dtype=torch.float32)
+                
+                return img_tensor, {"image": target_tensor, "bboxes": bboxes_tensor}, task_str
+
             return img_tensor, target_tensor, task_str
         
         elif self.task_type == "parameter_prediction":
