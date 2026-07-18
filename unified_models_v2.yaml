@@ -45,7 +45,6 @@ nima_aesthetic_mobile:
     plateau_priority: data
     res_ladder:
     - 224
-    - 256
     clamp_range:
     - 15.0
     - 45.0
@@ -53,7 +52,7 @@ nima_aesthetic_mobile:
     target_effective_batch: 32
     min_delta: 0.001
     swa_start_pct: 0.65
-  val_resolution: 256
+  val_resolution: 224
 nima_aesthetic_efficientnet:
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
   class_name: NIMA_Model
