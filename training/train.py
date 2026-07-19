@@ -223,7 +223,7 @@ def load_state_dict_robust(model, state_dict, strict=True):
     """Loads a state dict dynamically handling DataParallel 'module.' prefix mismatches."""
     is_model_dp = hasattr(model, 'module')
     is_state_dict_dp = any(k.startswith('module.') for k in state_dict.keys())
-    
+
     new_state_dict = {}
     for k, v in state_dict.items():
         if is_model_dp and not is_state_dict_dp:
@@ -233,7 +233,7 @@ def load_state_dict_robust(model, state_dict, strict=True):
         else:
             new_key = k
         new_state_dict[new_key] = v
-        
+
     model.load_state_dict(new_state_dict, strict=strict)
 
 def load_pat():
@@ -375,7 +375,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         # --- The Probe (v17.2) ---
         # We instantiate a single-sample manifold to measure exact activation/gradient volume
         torch.cuda.empty_cache()
-        
+
         try:
             # 2026 SOTA Resilience: The "Warmup" Pass
             # The absolute FIRST forward/backward pass in PyTorch initializes massive lazy buffers (CuDNN, etc.).
@@ -388,7 +388,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 if isinstance(_loss, torch.Tensor): _loss.backward()
                 model.zero_grad(set_to_none=True)
         except: pass
-        
+
         if device.type == 'cuda':
             torch.cuda.reset_peak_memory_stats(0)
         before_probe = torch.cuda.memory_allocated(0)
@@ -441,9 +441,9 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
 
         pixel_cap = int(max_pixels / (h * w))
         system_cap = 256 if mode == 'val' else 128
-        
-        # 2026 Resilience: Restoration models (like NAFNet) use ConvTranspose2d which has massive CuDNN 
-        # workspace overheads that don't scale linearly. High validation batch sizes cause CuDNN to silently 
+
+        # 2026 Resilience: Restoration models (like NAFNet) use ConvTranspose2d which has massive CuDNN
+        # workspace overheads that don't scale linearly. High validation batch sizes cause CuDNN to silently
         # run out of workspace memory and crash with "misaligned address" instead of OOM.
         if is_restoration:
             if mode == 'train':
@@ -474,13 +474,13 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         gpu_count = torch.cuda.device_count() if device.type == 'cuda' else 1
         if gpu_count > 1:
             final_batch = final_batch * gpu_count
-        
+
         # --- 2026: Hardware Bottleneck Cloud Recommendation ---
         if final_batch <= 1 and vram_gb < 4.5:
             print("\n================================================================================")
             print(" [CRITICAL WARNING] HARDWARE BOTTLENECK REACHED")
             print(f" Your {gpu_name} ({vram_gb:.1f}GB) is physically struggling to train at {h}x{w}px.")
-            
+
             if dynamic_batch < 1:
                 print(" The required memory for a single image exceeds your available VRAM.")
                 print(" RECOMMENDATION: Switch to CLOUD TRAINING (Kaggle/Colab) for this resolution.")
@@ -512,29 +512,29 @@ def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
     """
     if not os.path.exists(root_path):
         return []
-    
+
     prune_dirs = {"datasets", "images", "train", "val", "test", "validation", "dataset", "val_images", "train_images"}
     results = []
     queue = [(root_path, 0)]
-    
+
     while queue:
         curr, depth = queue.pop(0)
         if depth > max_depth:
             continue
-            
+
         try:
             items = os.listdir(curr)
         except:
             continue
-            
+
         for item in items:
             path = os.path.join(curr, item)
             item_lower = item.lower()
-            
+
             # Prune massive dataset subfolders instantly
             if item_lower in prune_dirs:
                 continue
-                
+
             if os.path.isdir(path):
                 queue.append((path, depth + 1))
                 if is_dir and target_sub in item_lower:
@@ -547,7 +547,7 @@ def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
                         results.append(path)
                 elif target_sub.lower() in item_lower:
                     results.append(path)
-                    
+
     return results
 
 
@@ -558,7 +558,7 @@ def load_scheduler_state_stretched(scheduler, state_dict, current_total_steps, e
             old_total = state_dict['total_steps']
             old_last = state_dict['last_epoch']
             ratio = current_total_steps / max(1, old_total)
-            
+
             # Scale steps
             state_dict['total_steps'] = current_total_steps
             if expected_step is not None and ratio > 1.5:
@@ -567,13 +567,13 @@ def load_scheduler_state_stretched(scheduler, state_dict, current_total_steps, e
                 new_last = int(round(old_last * ratio))
                 if expected_step is not None:
                     new_last = max(new_last, expected_step)
-            
+
             # Clamp to prevent out-of-bounds scheduler crashes
             new_last = max(0, min(current_total_steps - 1, new_last))
-            
+
             state_dict['last_epoch'] = new_last
             state_dict['_step_count'] = new_last + 1
-            
+
             if '_schedule_phases' in state_dict:
                 for phase in state_dict['_schedule_phases']:
                     if 'end_step' in phase:
@@ -582,7 +582,7 @@ def load_scheduler_state_stretched(scheduler, state_dict, current_total_steps, e
                             phase['end_step'] = int(round((old_end + 1) * ratio - 1))
                         else:
                             phase['end_step'] = (old_end + 1) * ratio - 1
-            
+
             print(f" [RESILIENCY] Stretched scheduler state dict from {old_total} to {current_total_steps} steps (last_epoch: {old_last} -> {new_last}).")
         elif expected_step is not None:
             # If total_steps matches, but last_epoch is de-synced/poisoned (too far ahead or behind expected)
@@ -785,7 +785,7 @@ def main():
     model_stab = model_info.get("stabilizers", {})
     stab = {**global_stab, **model_stab}
     governor = SmartTrainingGovernor(model_info, config=config, stabilizers=stab)
-    
+
     vram_gb_init = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
     max_local_res = config.get("hardware", {}).get("max_allowed_local_resolution")
     if max_local_res and vram_gb_init < 4.5:
@@ -856,7 +856,7 @@ def main():
 
     train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
     val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
-    
+
     # 2026 Resilience: Parallel Mission Support
     # Read num_workers from hardware config, fallback to top-level
     num_workers = config.get("hardware", {}).get("num_workers", config.get("num_workers", 4))
@@ -904,7 +904,7 @@ def main():
         search_targets = {t for t in search_targets if t}
 
         possible_roots = []
-        
+
         # Tier 0: Local Session Recovery (Interactive Kaggle sessions)
         if os.path.exists(project_root):
             possible_roots.append(project_root)
@@ -950,7 +950,7 @@ def main():
                 os.path.join(recovery_root, reg_filename, "metrics.csv") if reg_filename else None,
                 os.path.join(recovery_root, "models", args.model, "metrics.csv") # Legacy support
             ]
-            
+
             # Deep path support for Kaggle Models API
             pt_dir = next((d for d in (os.listdir(recovery_root) if os.path.exists(recovery_root) else []) if d.lower() == "pytorch"), None)
             if pt_dir:
@@ -984,7 +984,7 @@ def main():
                 os.path.join(recovery_root, reg_filename, "checkpoints") if reg_filename else None,
                 recovery_root
             ]
-            
+
             # Deep path support for Kaggle Models API
             if pt_dir:
                 pt_default = os.path.join(recovery_root, pt_dir, "default")
@@ -993,7 +993,7 @@ def main():
                         v_path = os.path.join(pt_default, version)
                         src_ckpt_dirs.append(os.path.join(v_path, "checkpoints"))
                         src_ckpt_dirs.append(v_path)
-                        
+
             src_ckpt_dirs = [p for p in src_ckpt_dirs if p and os.path.exists(p)]
 
             for s_dir in src_ckpt_dirs:
@@ -1062,11 +1062,11 @@ def main():
 
     # --- 2026: Mission Data Infrastructure (v6.0) ---
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, pin_memory=True if device.type=='cuda' else False)
-    
+
     val_num_workers = num_workers
     if is_heavy_manifold:
         print(f" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
-    
+
     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
     # --- 2026 Senior Hardening: Surgical Weight Decay (Task 4.3) ---
     # Never apply L2 regularization to Bias or Norm parameters to preserve distribution scale.
@@ -1264,7 +1264,7 @@ def main():
                                 for k, v in opt_state.items():
                                     if isinstance(v, torch.Tensor) and k != 'step':
                                         opt_state[k] = v.to(device)
-                        
+
                         # 2026 Resilience: Validate Optimizer State Shapes
                         # PyTorch load_state_dict blindly loads mismatched exp_avg shapes if parameter counts match exactly.
                         for group in optimizer.param_groups:
@@ -1337,7 +1337,7 @@ def main():
                     # 2026 Resilience: Post-Restoration VRAM Re-Audit
                     # Only recalculate batch size if it was set to 'auto' in the registry.
                     res_size = g_start_state['input_size']
-                    
+
                     # 2026 Guardrail: Clamp restored resolution against new YAML config constraints
                     res_ladder = model_info.get("optimization", {}).get("res_ladder", [res_size])
                     max_allowed_res = res_ladder[-1] if res_ladder else res_size
@@ -1346,7 +1346,7 @@ def main():
                         res_size = max_allowed_res
                         g_start_state['input_size'] = res_size
                         governor.current_res = res_size
-                        
+
                     old_batch_size = batch_size
                     if (config_batch == "auto" or config_batch is None) and not args.batch_size:
                         batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='train', sample_fraction=g_start_state.get('sample_fraction', 1.0))
@@ -1609,11 +1609,11 @@ def main():
             try:
                 # 2026 Resilience: Scheduler Mission Hard-Reset
                 state_dict = ckpt['scheduler_state']
-                
+
                 steps_per_epoch = len(train_loader) // accumulation_steps
                 if steps_per_epoch == 0: steps_per_epoch = 1
                 expected_step = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
-                
+
                 load_scheduler_state_stretched(scheduler, state_dict, total_steps, expected_step=expected_step)
                 print(" [RESILIENCY] Scheduler manifold successfully synchronized.")
             except Exception as e:
@@ -1751,32 +1751,32 @@ def main():
         # Refer to Polarity Anchor (v4.0) for epoch-1 stabilization logic.
 
         model.train() # pyre-ignore
-        
+
         # --- 2026 Dynamic Validation Parity (v19.0 High-Res Lock) ---
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
         max_local_res = config.get("hardware", {}).get("max_allowed_local_resolution", 640)
         hardware_ceiling = max_local_res if vram_gb < 4.5 else 1024
-        
+
         # Priority: Model Config > Hardware Ceiling
         val_anchor_size = model_info.get("val_resolution", hardware_ceiling)
         if vram_gb < 4.5 and val_anchor_size > hardware_ceiling:
             val_anchor_size = hardware_ceiling
-        
+
         # --- 2026 SOTA GUARD: Resolution-Aware Patience Reset (v19.1) ---
         # If the validation manifold has shifted resolution, the previous SOTA best metrics
         # are no longer comparable. We reset the patience timer to allow the model to master the new rung.
         if 'last_val_anchor' in locals() and locals().get('last_val_anchor') != val_anchor_size:
             print(f" [SOTA GUARD] Validation Manifold Shift detected ({locals().get('last_val_anchor')} -> {val_anchor_size}). Resetting patience timer.")
             epochs_no_improve = 0
-            
+
             # --- 2026 NPP: Governor Memory Purge (v19.2) ---
             # Sync the Governor's internal memory to the new resolution floor
             governor.reset_best()
-            
+
         last_val_anchor = val_anchor_size
-        
+
         val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val', sample_fraction=val_ds.sample_fraction)
-        
+
         # Sync dataset strategy and re-init loader
         val_ds.update_strategy(size=val_anchor_size)
         val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
@@ -1803,7 +1803,7 @@ def main():
         # --- 2026 Telemetry: Epoch State Anchor ---
         # Capture variables BEFORE governor audit modifies them for the *next* epoch
         epoch_lr = scheduler.get_last_lr()[0] if hasattr(scheduler, 'get_last_lr') else optimizer.param_groups[0]['lr']
-        
+
         # --- 2026 Resilience: Prevent Accumulation Starvation ---
         # Cap the accumulation steps at the total dataset size so optimizer.step() is guaranteed to fire
         target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
@@ -1922,9 +1922,9 @@ def main():
                     task_idx = None
                     if train_ds.task_type == "restoration":
                         task_names = [
-                            "denoise", "deblur", "derain", 
-                            "dehaze_indoor", "dehaze_outdoor", 
-                            "lowlight", "exposure", "superres", 
+                            "denoise", "deblur", "derain",
+                            "dehaze_indoor", "dehaze_outdoor",
+                            "lowlight", "exposure", "superres",
                             "vintage", "face_restorer", "face_parser"
                         ]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
@@ -2170,7 +2170,7 @@ def main():
                         if os.path.exists(best_ckpt_path):
                             ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
                             load_state_dict_robust(model, ckpt['model_state'])
-                            
+
                             for param in model.parameters():
                                 param.data = param.data.contiguous()
                             for buf in model.buffers():
@@ -2289,7 +2289,7 @@ def main():
 
                 # --- 2026 Resilience: Surgical Sentinel Insertion (Pre-Backward) ---
                 current_loss_val = loss.item() * accumulation_steps
-                
+
                 # 2026 NPP: Absolute Energy Floor
                 # If average loss is microscopic (e.g. 0.001), a "spike" to 0.03 is technically 30x higher but physically harmless.
                 # We enforce an absolute floor to prevent false-positive recoils on difficult patches.
@@ -2297,30 +2297,30 @@ def main():
                     absolute_floor = 0.40 * accumulation_steps
                 else:
                     absolute_floor = 0.05 * accumulation_steps
-                
+
                 if train_ds.task_type != "quality" and i > 50 and current_loss_val > (train_loss / i) * 15.0 and current_loss_val > absolute_floor:
                     consecutive_loss_spikes += 1
                     print(f" [WARNING] [SENTINEL] Sudden Loss Spike detected ({current_loss_val:.4f} vs {train_loss/i:.4f}). Manifold unstable. NPP Recoil active. (Consecutive: {consecutive_loss_spikes})")
                     governor.recoil()
                     optimizer.zero_grad()
                     if device.type == 'cuda': torch.cuda.synchronize()
-                    
+
                     if consecutive_loss_spikes >= 3:
                         print(f" [CRITICAL] Sustained loss spikes ({consecutive_loss_spikes} batches). Model manifold collapsed. Forcing rollback to SOTA baseline.")
                         best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                         if os.path.exists(best_ckpt_path):
                             ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
                             load_state_dict_robust(model, ckpt['model_state'])
-                            
+
                             # 2026 Resilience: Force absolute contiguous memory alignment for every parameter
-                            # and buffer after loading. DataParallel will replicate these exact memory 
-                            # strides to other GPUs. If weights are loaded non-contiguous, CuDNN 
+                            # and buffer after loading. DataParallel will replicate these exact memory
+                            # strides to other GPUs. If weights are loaded non-contiguous, CuDNN
                             # ConvTranspose2d throws 'CUDA error: misaligned address' on replicas.
                             for param in model.parameters():
                                 param.data = param.data.contiguous()
                             for buf in model.buffers():
                                 buf.data = buf.data.contiguous()
-                            
+
                             sanitized_count = 0
                             for buf in model.buffers():
                                 if not torch.isfinite(buf).all():
@@ -2328,7 +2328,7 @@ def main():
                                     sanitized_count += 1
                             if sanitized_count > 0:
                                 print(f" [PURGE] Sanitized {sanitized_count} non-finite buffers/stats.")
-                            
+
                             if 'optimizer_state' in ckpt:
                                 try:
                                     optimizer.load_state_dict(ckpt['optimizer_state'])
@@ -2342,15 +2342,15 @@ def main():
                                 except Exception as opt_err:
                                     print(f" [WARNING] [RESILIENCY] Optimizer state rejected ({opt_err}). Purging corrupted momentum buffers.")
                                     optimizer.state.clear()
-                            
+
                             recoil_msg = governor.recoil()
                             if recoil_msg: print(recoil_msg)
-                            
+
                             g_state = governor.get_state()
                             train_ds.update_strategy(fraction=g_state['sample_fraction'], size=g_state['input_size'])
                             if "val_resolution" not in model_info:
                                 val_ds.update_strategy(size=g_state['input_size'])
-                            
+
                             # 2026: SOTA Scheduler Sync
                             if 'scheduler_state' in ckpt:
                                 try:
@@ -2375,12 +2375,12 @@ def main():
                                 scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
                             if hasattr(scheduler, '_last_lr'):
                                 scheduler._last_lr = [new_lr] * len(optimizer.param_groups)
-                            
+
                             for state in optimizer.state.values():
                                 for k, v in state.items():
                                     if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
                                         v.mul_(0.9)
-                            
+
                             scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
                             print(f" [RECOVERY] Successfully rolled back to historical SOTA baseline with fresh Scaler.")
                         else:
@@ -2391,7 +2391,7 @@ def main():
                             optimizer.state.clear()
                             scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
                         consecutive_loss_spikes = 0
-                    
+
                     continue # Bypass corrupted backward pass to prevent cuDNN crash
 
                 # --- Numerical Integrity Guard ---
@@ -2478,7 +2478,7 @@ def main():
                 # Threshold-based saving ensures persistence is never skipped due to batch-jumps.
                 current_pct = (i + 1) / len(train_loader)
 
-                
+
                 if last_intra_epoch_pct < 0:
                     last_intra_epoch_pct = 0.0
 
@@ -2649,12 +2649,12 @@ def main():
             vram_gb_current = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
             max_local_res_current = config.get("hardware", {}).get("max_allowed_local_resolution", 640)
             hardware_ceiling_current = max_local_res_current if vram_gb_current < 4.5 else 1024
-            
+
             val_anchor_size = model_info.get("val_resolution", hardware_ceiling_current)
             if vram_gb_current < 4.5 and val_anchor_size > hardware_ceiling_current:
                 val_anchor_size = hardware_ceiling_current
             val_ds.update_strategy(size=val_anchor_size)
-            
+
             # --- 2026: Mid-Epoch Validation VRAM Audit ---
             # Recalculate validation batch size only if resolution or dataset fraction changed dynamically
             if config_batch == "auto" and (model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info):
@@ -2677,16 +2677,16 @@ def main():
             is_high_fidelity = False
             try:
                 is_refinement = governor.get_phase() == "REFINEMENT"
-                
+
                 opt_config = model_info.get("optimization", {}) if isinstance(model_info, dict) else {}
                 fidelity_thresh = opt_config.get("high_fidelity_fraction", 0.7)
-                
+
                 is_max_res = False
                 if hasattr(governor, 'res_ladder') and governor.res_ladder:
                     is_max_res = governor.current_res >= max(governor.res_ladder)
                 else:
                     is_max_res = True
-                    
+
                 is_high_fidelity = is_max_res and governor.current_fraction >= fidelity_thresh
             except: pass
 
@@ -2754,9 +2754,9 @@ def main():
                     task_idx = None
                     if train_ds.task_type == "restoration":
                         task_names = [
-                            "denoise", "deblur", "derain", 
-                            "dehaze_indoor", "dehaze_outdoor", 
-                            "lowlight", "exposure", "superres", 
+                            "denoise", "deblur", "derain",
+                            "dehaze_indoor", "dehaze_outdoor",
+                            "lowlight", "exposure", "superres",
                             "vintage", "face_restorer", "face_parser"
                         ]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
@@ -2996,10 +2996,10 @@ def main():
                 output_names = model_info.get('output_names', ['deg', 'theta', 'conf'])
                 mae_per_param = [s / max(1, param_mae_counts) for s in param_mae_sums]
                 overall_mae = sum(mae_per_param) / len(mae_per_param)
-                
+
                 mae_details = " | ".join([f"{output_names[i]}_MAE: {mae_per_param[i]:.4f}" for i in range(len(output_names))])
                 metrics_str = f" | Overall_MAE: {overall_mae:.4f} | {mae_details} | Stress: {avg_sentinel_stress*100:.2f}%"
-                
+
                 # Map MAE to PSNR slot for CSV compatibility (negative MAE as quality signal)
                 psnr = -overall_mae # Lower MAE = better (negative so higher = better in CSV)
 
@@ -3098,7 +3098,7 @@ def main():
                 'miou': miou, 'map_medium': map_medium, 'map_hard': map_hard, 'accuracy_vqa': accuracy_vqa
             }
             current_quality_score, singularity_collapse = telemetry_engine.compute_quality_score(curr_metrics, sota_targets, train_ds.task_type)
-            
+
             if singularity_collapse:
                 print(f" [NUCLEAR] Metric Singularity detected! Manifold collapsed.")
                 print(f" [GUARD] [RESILIENCE] Triggering Tactical Recoil and Rollback to recover distribution...")
@@ -3125,7 +3125,7 @@ def main():
             is_improving = loss_improves or quality_improves
 
             # --- 2026 Resilience: Independent Baseline Tracking ---
-            # We MUST update best_val_loss independently of quality gains. Otherwise, if Epoch 1 hits a 
+            # We MUST update best_val_loss independently of quality gains. Otherwise, if Epoch 1 hits a
             # quality milestone, best_val_loss remains float('inf'). Then a terrible Epoch 2 with dropping quality
             # will erroneously trigger 'loss_improves' because its loss is < inf, overwriting the SOTA weights!
             if loss_improves:
@@ -3240,12 +3240,12 @@ def main():
 
             if lr_changed:
                 mult = new_params['lr_multiplier']
-                
+
                 # --- 2026 Resilience: Absolute LR Floor (v16.1) ---
                 # Prevents the Governor's successive Recoil operations from infinitely crushing
                 # the OneCycleLR curve and starving the model of momentum.
                 absolute_lr_floor = 1e-5
-                
+
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = max(absolute_lr_floor, param_group['lr'] * mult)
                     if 'max_lr' in param_group: param_group['max_lr'] = max(absolute_lr_floor, param_group['max_lr'] * mult)
@@ -3270,7 +3270,7 @@ def main():
             # is likely out of sync with the new manifold. We re-calculate steps and re-initialize.
             # Moved out of lr_changed block so it triggers on resolution jumps even if LR is stable.
             mult = new_params['lr_multiplier'] if lr_changed else 1.0
-            if (mult > 2.0 or r_changed) and isinstance(scheduler, torch.optim.lr_scheduler.OneCycleLR):
+            if (mult > 2.0 or r_changed or f_changed) and isinstance(scheduler, torch.optim.lr_scheduler.OneCycleLR):
                 print(f"[SYNC] [MISSION DEFIBRILLATION] Re-calculating steps for {governor.current_res}px Manifold.")
                 steps_per_epoch = len(train_loader) // accumulation_steps
                 if steps_per_epoch == 0: steps_per_epoch = 1
@@ -3280,15 +3280,15 @@ def main():
                 old_total = scheduler.total_steps
                 old_last = scheduler.last_epoch
                 old_max_lrs = scheduler.max_lrs if hasattr(scheduler, 'max_lrs') else [p['lr'] * 1.2 for p in optimizer.param_groups]
-                
+
                 remaining_epochs = epochs - epoch
                 new_total_steps = (epoch * steps_per_epoch) + (remaining_epochs * steps_per_epoch)
-                
+
                 scheduler = torch.optim.lr_scheduler.OneCycleLR(
                     optimizer, max_lr=old_max_lrs, total_steps=new_total_steps,
                     pct_start=dynamic_pct_start, anneal_strategy='cos'
                 )
-                
+
                 # Scale the step counter to the exact same percentage of the new curve
                 ratio = new_total_steps / max(1, old_total)
                 scheduler.last_epoch = int(old_last * ratio)
@@ -3356,7 +3356,7 @@ def main():
         opt_cfg = model_info.get("optimization", {})
         default_drift = 0.95 if train_ds.task_type == "quality" else 0.985
         default_limit = 5 if train_ds.task_type == "quality" else 3
-        
+
         drift_gate = opt_cfg.get("drift_gate", default_drift)
         regression_limit = opt_cfg.get("regression_limit", default_limit)
         absolute_patience = opt_cfg.get("absolute_patience", 15)
@@ -3380,7 +3380,7 @@ def main():
                     # Notify Governor to perform a Tactical Retreat (Recoil)
                     ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
                     load_state_dict_robust(model, ckpt['model_state'])
-                    
+
                     for param in model.parameters():
                         param.data = param.data.contiguous()
                     for buf in model.buffers():
@@ -3678,22 +3678,22 @@ def main():
             if governor.current_fraction < 0.99:
                 next_frac = min(1.0, governor.current_fraction + getattr(governor, 'fraction_increment', 0.2))
                 if next_frac >= 0.99: next_frac = 1.0 # Snap to 100%
-                
+
                 print(f"\n -> [SOTA GUARD] SOTA targets met at {governor.current_res}px but on a data subset ({governor.current_fraction*100:.0f}%).")
                 print(f" -> [SOTA GUARD] Expanding dataset fraction to {next_frac*100:.0f}% to progressively verify SOTA without memorization.")
-                
+
                 # Expand data fraction in governor and dataset
                 governor.current_fraction = next_frac
-                
+
                 if not args.batch_size:
                     batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=next_frac)
                     v_res = model_info.get("val_resolution", governor.current_res)
                     val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
                     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
                     accumulation_steps = max(1, target_eff // batch_size)
-                    
+
                 train_ds.update_strategy(fraction=next_frac)
-                
+
                 _workers = num_workers
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
@@ -3723,7 +3723,7 @@ def main():
                         accumulation_steps = max(1, target_eff // batch_size)
 
                     train_ds.update_strategy(
-                        fraction=new_params['sample_fraction'] if f_changed else None, 
+                        fraction=new_params['sample_fraction'] if f_changed else None,
                         size=new_params['input_size'] if r_changed else None,
                         stress=new_params.get('stress', 0.0)
                     )
@@ -3784,7 +3784,7 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
         onnx_script = os.path.join(export_script_dir, "export_onnx_model.py")
         # 2026: Pass explicit checkpoint path to avoid 'Epoch 0' ghosting
         best_ckpt_path = os.path.join(hub_model_dir, "checkpoints", f"{args.model}_best.pth")
-        
+
         # --- 2026 Resilience: Memory Purge Pre-Export ---
         # Free up VRAM so the heavy ONNX exporter doesn't OOM on 4GB GPUs
         try:
@@ -3793,7 +3793,7 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
             gc.collect()
             torch.cuda.empty_cache()
         except: pass
-        
+
         subprocess.call([python_exe, onnx_script, "--model", args.model, "--checkpoint", best_ckpt_path, "--yes"])
 
         # 2. Standardized PyTorch Standalone
@@ -3854,7 +3854,7 @@ if __name__ == "__main__":
                 sota_baseline_achieved = frame.f_locals.get("sota_baseline_achieved", False)
                 progress_local = frame.f_locals.get("progress_local")
                 avg_train_loss = frame.f_locals.get("avg_train_loss", 0.0)
-                
+
                 if model and progress_local:
                     ckpt_state = {
                         'epoch': epoch,
