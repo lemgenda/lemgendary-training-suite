@@ -37,6 +37,8 @@ nima_aesthetic_mobile:
     - -15.0
     - 15.0
   optimization:
+    drift_gate: 0.90
+    regression_limit: 8
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
