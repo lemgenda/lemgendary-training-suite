@@ -9,6 +9,7 @@ from torchvision import transforms  # pyre-ignore
 import cv2  # pyre-ignore
 import numpy as np  # pyre-ignore
 from PIL import Image, ImageFile, ImageFilter  # pyre-ignore
+Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
 import json
 import shutil
 from torch.utils.data import Dataset  # pyre-ignore
