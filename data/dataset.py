@@ -193,6 +193,18 @@ class MultiTaskDataset(Dataset):
         
         self.build_transforms()
 
+    def _get_split_path(self, ds_path, folder_name, fname, ext=""):
+        base_name = os.path.splitext(fname)[0] if ext else fname
+        suffix = ext if ext else ""
+        primary_path = os.path.join(ds_path, folder_name, self.split, base_name + suffix)
+        if os.path.exists(primary_path):
+            return primary_path
+        alt_split = "val" if self.split == "train" else "train"
+        fallback_path = os.path.join(ds_path, folder_name, alt_split, base_name + suffix)
+        if os.path.exists(fallback_path):
+            return fallback_path
+        return primary_path
+
     def _load_manifest(self, config):
         self.all_samples = []
         self.samples = []
@@ -441,8 +453,8 @@ class MultiTaskDataset(Dataset):
         if ds_path is None:
             ds_path = ""
             
-        img_path = os.path.join(ds_path, "images", self.split, fname)
-        tgt_path = os.path.join(ds_path, "targets", self.split, fname)
+        img_path = self._get_split_path(ds_path, "images", fname)
+        tgt_path = self._get_split_path(ds_path, "targets", fname)
         
         has_img = os.path.exists(img_path)
         has_tgt = os.path.exists(tgt_path)
@@ -530,7 +542,7 @@ class MultiTaskDataset(Dataset):
             if self.task_type in ["restoration", "enhancement", "face"]:
                 if task_str == "face_parser":
                     # ParseNet: load from masks/
-                    mask_path = os.path.join(ds_path, "masks", self.split, fname)
+                    mask_path = self._get_split_path(ds_path, "masks", fname)
                     if os.path.exists(mask_path):
                         import numpy as np
                         mask = Image.open(mask_path).convert('L')
@@ -565,7 +577,7 @@ class MultiTaskDataset(Dataset):
                     pass
 
             if self.model_key.startswith("ffanet"):
-                label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
+                label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
                 bboxes = []
                 if os.path.exists(label_path):
                     with open(label_path, 'r') as f:
@@ -588,7 +600,7 @@ class MultiTaskDataset(Dataset):
         elif self.task_type == "parameter_prediction":
             # 2026: On-the-fly Synthetic Degradation for Parameter Prediction
             # Load clean image, sample random params, apply degradation, return both
-            tgt_path = os.path.join(ds_path, "targets", self.split, fname)
+            tgt_path = self._get_split_path(ds_path, "targets", fname)
             if os.path.exists(tgt_path):
                 clean_img = self.load_image(tgt_path)
             else:
@@ -622,7 +634,7 @@ class MultiTaskDataset(Dataset):
                     score = [0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
                 return img_tensor, torch.tensor(score, dtype=torch.float32), "quality"
             
-            label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
+            label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
             if os.path.exists(label_path):
                 with open(label_path, 'r') as f:
                     try:
@@ -632,7 +644,7 @@ class MultiTaskDataset(Dataset):
                     except: pass
             return img_tensor, torch.zeros(10), "quality"
         elif self.task_type == "classification":
-            label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
+            label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
             if os.path.exists(label_path):
                 with open(label_path, 'r') as f:
                     try:
@@ -641,7 +653,7 @@ class MultiTaskDataset(Dataset):
                     except: pass
             return img_tensor, torch.tensor(0, dtype=torch.long), "classification"
         elif self.task_type == "segmentation":
-            mask_path = os.path.join(ds_path, "masks", self.split, fname)
+            mask_path = self._get_split_path(ds_path, "masks", fname)
             if os.path.exists(mask_path):
                 import numpy as np
                 mask = Image.open(mask_path).convert('L') # Usually masks are grayscale labels
@@ -654,7 +666,7 @@ class MultiTaskDataset(Dataset):
                 mask_tensor = torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
             return img_tensor, mask_tensor, "segmentation"
         elif self.task_type == "face_detection":
-            label_path = os.path.join(ds_path, "labels", self.split, os.path.splitext(fname)[0] + ".txt")
+            label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
             target = torch.zeros(15, dtype=torch.float32)
             if os.path.exists(label_path):
                 with open(label_path, 'r') as f:
