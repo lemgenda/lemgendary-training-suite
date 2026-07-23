@@ -1586,7 +1586,7 @@ def main():
     max_lr_mult = opt_config.get("max_lr_multiplier", 1.2)
 
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
-        optimizer, max_lr=lr * max_lr_mult, total_steps=total_steps,
+        optimizer, max_lr=lr * max_lr_mult * governor.lr_multiplier, total_steps=total_steps,
         pct_start=dynamic_pct_start, anneal_strategy='cos'
     )
 
@@ -1625,7 +1625,7 @@ def main():
                 print(f" [RESILIENCY] Partial scheduler sync failure: {e}. Re-instantiating fresh curve.")
                 try:
                     scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                        optimizer, max_lr=lr*max_lr_mult, total_steps=total_steps,
+                        optimizer, max_lr=lr * max_lr_mult * governor.lr_multiplier, total_steps=total_steps,
                         pct_start=dynamic_pct_start, anneal_strategy='cos'
                     )
                     steps_per_epoch = len(train_loader) // accumulation_steps
@@ -2998,6 +2998,12 @@ def main():
                         governor.lr_multiplier = 0.5
                         for param_group in optimizer.param_groups:
                             param_group['lr'] *= 0.5
+                        if hasattr(scheduler, 'base_lrs'):
+                            scheduler.base_lrs = [max(1e-7, l * 0.5) for l in scheduler.base_lrs]
+                        if hasattr(scheduler, 'max_lrs'):
+                            scheduler.max_lrs = [max(1e-7, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])]
+                        if hasattr(scheduler, '_last_lr'):
+                            scheduler._last_lr = [max(1e-7, l * 0.5) for l in scheduler._last_lr]
 
                         optimizer.state.clear() # Flush momentum to seat the new head
                         sota_baseline_achieved = False
@@ -3466,6 +3472,9 @@ def main():
                     # This ensures get_last_lr() and internal counters are aligned after the rollback
                     if hasattr(scheduler, '_last_lr'):
                         scheduler._last_lr = [new_lr] * len(optimizer.param_groups)
+
+                    # Sync governor learning rate multiplier to persist the cooling across restarts
+                    governor.lr_multiplier = max(survivor_floor / (lr if lr > 0 else 1e-5), governor.lr_multiplier * 0.5)
 
                     # Momentum Cooling
                     for state in optimizer.state.values():
