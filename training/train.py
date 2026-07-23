@@ -3001,7 +3001,7 @@ def main():
                         if hasattr(scheduler, 'base_lrs'):
                             scheduler.base_lrs = [max(1e-7, l * 0.5) for l in scheduler.base_lrs]
                         if hasattr(scheduler, 'max_lrs'):
-                            scheduler.max_lrs = [max(1e-7, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])]
+                            scheduler.max_lrs = [max(1e-7, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
                         if hasattr(scheduler, '_last_lr'):
                             scheduler._last_lr = [max(1e-7, l * 0.5) for l in scheduler._last_lr]
 
