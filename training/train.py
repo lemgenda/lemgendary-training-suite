@@ -1604,6 +1604,11 @@ def main():
             expected_step = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
             scheduler.last_epoch = expected_step
             scheduler._step_count = expected_step + 1
+            # Sync optimizer learning rates with the stretched step to prevent Velocity Bomb/stagnation
+            for param_group, lr_val in zip(optimizer.param_groups, scheduler.get_lr()):
+                param_group['lr'] = lr_val
+            if hasattr(scheduler, '_last_lr'):
+                scheduler._last_lr = [p['lr'] for p in optimizer.param_groups]
             print(f" [MISSION SHIELD] Scheduler reset requested. Resumed fresh curve at step: {expected_step} of {total_steps}.")
         elif 'scheduler_state' in ckpt:
             try:
@@ -1627,6 +1632,11 @@ def main():
                     expected_steps_total = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
                     scheduler.last_epoch = expected_steps_total
                     scheduler._step_count = expected_steps_total + 1
+                    # Sync optimizer learning rates with the stretched step to prevent Velocity Bomb/stagnation
+                    for param_group, lr_val in zip(optimizer.param_groups, scheduler.get_lr()):
+                        param_group['lr'] = lr_val
+                    if hasattr(scheduler, '_last_lr'):
+                        scheduler._last_lr = [p['lr'] for p in optimizer.param_groups]
                     print(f" [MISSION SHIELD] Scheduler protected after sync failure. Resumed at step: {expected_steps_total} of {total_steps}.")
                 except Exception as inner_e:
                     print(f" [WARNING] Failed to instantiate OneCycleLR: {inner_e}")
@@ -3293,6 +3303,11 @@ def main():
                 ratio = new_total_steps / max(1, old_total)
                 scheduler.last_epoch = int(old_last * ratio)
                 scheduler._step_count = scheduler.last_epoch + 1
+                # Sync optimizer learning rates with the stretched step to prevent Velocity Bomb/stagnation
+                for param_group, lr_val in zip(optimizer.param_groups, scheduler.get_lr()):
+                    param_group['lr'] = lr_val
+                if hasattr(scheduler, '_last_lr'):
+                    scheduler._last_lr = [p['lr'] for p in optimizer.param_groups]
                 print(f" [MISSION SHIELD] Scheduler manifold SEAMLESSLY STRETCHED. Step counter: {scheduler.last_epoch} of {new_total_steps}.")
 
             if t_changed or c_changed:
