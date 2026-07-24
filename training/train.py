@@ -3379,6 +3379,7 @@ def main():
         default_limit = 5 if train_ds.task_type == "quality" else 3
 
         drift_gate = opt_cfg.get("drift_gate", default_drift)
+        drift_gate = governor.get_active_drift_gate(drift_gate)
         regression_limit = opt_cfg.get("regression_limit", default_limit)
         absolute_patience = opt_cfg.get("absolute_patience", 15)
 
@@ -3396,6 +3397,7 @@ def main():
 
             if regression_epochs >= regression_limit or force_rollback:
                 print(f"[LAUNCH] [REGRESSION GUARD] SOTA Rollback triggered! Hard-Resetting to SOTA best weights...")
+                governor.register_rollback()
                 best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                 if os.path.exists(best_ckpt_path):
                     # Notify Governor to perform a Tactical Retreat (Recoil)

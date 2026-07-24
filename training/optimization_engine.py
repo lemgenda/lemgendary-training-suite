@@ -90,6 +90,16 @@ class SmartTrainingGovernor:
         self.current_temp = self.stab.get("softmax_temp", self.min_temp)
         self.current_clamp = self.stab.get("logit_clamp", 15.0)
 
+        # --- 2026 Resilience: Adaptive Anti-Loop Governance ---
+        self.loop_breaker_enabled = opt.get("loop_breaker_enabled", True)
+        self.loop_breaker_threshold = opt.get("loop_breaker_threshold", 2)
+        self.loop_breaker_strategy = opt.get("loop_breaker_strategy", "auto") # "auto", "escalate", "relax", "none"
+        self.consecutive_rollbacks = 0
+        self.rollback_history = {}  # {resolution: rollback_count}
+        self.gate_relaxation_epochs = 0
+        self.sota_resolution = None
+        self.breakout_lock = 0
+
         # --- Surgical Memory (v15.5) ---
         self.history = [] # Last 5 epochs [quality, loss]
         self.failure_log = {} # {(res, round(frac,2)): failure_count}
@@ -151,6 +161,9 @@ class SmartTrainingGovernor:
         if not self.enabled and not force_jump: return False, False, False, False, False, False, ""
         self.epoch_count += 1
         self.session_epoch_count += 1
+
+        if getattr(self, 'breakout_lock', 0) > 0:
+            self.breakout_lock -= 1
 
         if force_jump:
             try:
@@ -352,7 +365,7 @@ class SmartTrainingGovernor:
 
 
             # --- 2026 NPP v15.9: Strategic Spatial Retreat ---
-            if self.epoch_count - self.last_res_jump_epoch < 8:
+            if self.epoch_count - self.last_res_jump_epoch < 8 and getattr(self, 'breakout_lock', 0) == 0:
                 # If we fail shortly after a jump, retreat to previous resolution at 100% data
                 # instead of resetting the current resolution to 15% data.
                 res_idx = self.res_ladder.index(self.current_res)
@@ -535,7 +548,12 @@ class SmartTrainingGovernor:
             "best_quality": self.best_quality,
             "stress": getattr(self, 'current_stress', 0.0),
             "last_jolt_epoch": getattr(self, 'last_jolt_epoch', -10),
-            "max_stress_stuck_epochs": getattr(self, 'max_stress_stuck_epochs', 0)
+            "max_stress_stuck_epochs": getattr(self, 'max_stress_stuck_epochs', 0),
+            "consecutive_rollbacks": getattr(self, 'consecutive_rollbacks', 0),
+            "rollback_history": getattr(self, 'rollback_history', {}),
+            "gate_relaxation_epochs": getattr(self, 'gate_relaxation_epochs', 0),
+            "sota_resolution": getattr(self, 'sota_resolution', None),
+            "breakout_lock": getattr(self, 'breakout_lock', 0)
         }
 
     def load_state(self, state, preserve_curriculum=False):
@@ -548,7 +566,11 @@ class SmartTrainingGovernor:
             # --- 2026 Resilience: Dynamic Resolution Ladder Sync ---
             if self.current_res not in self.res_ladder:
                 self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
-            
+        else:
+            # We are rolling back; extract the SOTA resolution at which the best checkpoint was saved
+            raw_res = state.get("input_size", self.current_res)
+            self.sota_resolution = raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res
+
         self.current_temp = max(self.min_temp, state.get("softmax_temp", self.current_temp))
         if self.task_type == "quality": self.current_temp = min(1.0, self.current_temp)
         self.current_clamp = state.get("logit_clamp", self.current_clamp)
@@ -566,6 +588,14 @@ class SmartTrainingGovernor:
         self.best_quality = state.get("best_quality", self.best_quality)
         self.current_stress = state.get("stress", 0.0)
         self.max_stress_stuck_epochs = state.get("max_stress_stuck_epochs", 0) # v16
+        
+        # Restore loop-breaker states
+        self.consecutive_rollbacks = state.get("consecutive_rollbacks", 0)
+        raw_history = state.get("rollback_history", {})
+        self.rollback_history = {int(k): v for k, v in raw_history.items()}
+        self.gate_relaxation_epochs = state.get("gate_relaxation_epochs", 0)
+        self.sota_resolution = state.get("sota_resolution", self.sota_resolution)
+        self.breakout_lock = state.get("breakout_lock", 0)
 
     def recoil(self):
         """Emergency Tactical Retreat triggered by hardware or manifold failure."""
@@ -586,6 +616,62 @@ class SmartTrainingGovernor:
         self.history = []
         self.stabilization_epochs = 2 # Add a small soak period for the new baseline
         print(" [GOVERNOR] SOTA Memory Purged. Establishing fresh baseline for current manifold.")
+
+    def register_rollback(self):
+        """Registers a SOTA rollback event and checks for loop conditions."""
+        if not getattr(self, 'loop_breaker_enabled', True):
+            return
+
+        self.consecutive_rollbacks += 1
+        res_key = self.current_res
+        self.rollback_history[res_key] = self.rollback_history.get(res_key, 0) + 1
+        
+        # Check if loop threshold is met
+        threshold = getattr(self, 'loop_breaker_threshold', 2)
+        if self.rollback_history.get(res_key, 0) >= threshold:
+            strategy = getattr(self, 'loop_breaker_strategy', 'auto')
+            if strategy == "auto":
+                # For quality models (PLCC/SRCC evaluation), resolution alignment is critical
+                strategy = "escalate" if self.task_type == "quality" else "relax"
+                
+            if strategy == "escalate" and self.sota_resolution is not None and self.sota_resolution > self.current_res:
+                old_res = self.current_res
+                self.current_res = self.sota_resolution
+                if self.current_res not in self.res_ladder:
+                    self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
+                    
+                self.rollback_history[self.current_res] = 0
+                self.consecutive_rollbacks = 0
+                self.gate_relaxation_epochs = 0
+                
+                # Active lock to prevent the Governor from retreating back to old_res immediately
+                self.breakout_lock = 8 
+                
+                print(f"\n================================================================================")
+                print(f" [BREAKOUT] [GOVERNOR] Resolution-Regression Lock detected at {old_res}px!")
+                print(f"   -> SOTA baseline was achieved at a higher resolution ({self.sota_resolution}px).")
+                print(f"   -> Automatically promoting training resolution: {old_res}px -> {self.current_res}px.")
+                print(f"   -> Breakout retreat protection active for next 8 epochs.")
+                print(f"================================================================================\n")
+                
+                self.reset_best()
+                
+            elif strategy in ["escalate", "relax"]:
+                # Strategy B: Dynamic Gate Relaxation
+                self.gate_relaxation_epochs = 6
+                self.consecutive_rollbacks = 0
+                print(f"\n================================================================================")
+                print(f" [BREAKOUT] [GOVERNOR] Stagnation Rollback Lock detected at {res_key}px!")
+                print(f"   -> Activating Dynamic Gate Relaxation for next 6 epochs to allow weights to settle.")
+                print(f"================================================================================\n")
+
+    def get_active_drift_gate(self, config_gate):
+        """Returns the active drift gate, relaxing it if we are recovering from a loop."""
+        if self.gate_relaxation_epochs > 0:
+            self.gate_relaxation_epochs -= 1
+            # Relax the gate significantly to prevent immediate rollbacks
+            return min(0.80, config_gate * 0.85)
+        return config_gate
 
 def export_webgpu_onnx(model, save_path, dummy_input_shape=(1, 3, 512, 512)):
     """
