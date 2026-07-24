@@ -142,6 +142,8 @@ class SmartTrainingGovernor:
                     elif k == 'rank_margin': target_score += (10.0 - target_v) * weight
                     else: target_score += (1.0 / (target_v + 1e-6)) * weight
             if target_score > 0:
+                if target_score <= 1.0 and self.task_type == "quality":
+                    target_score *= 100.0
                 self.target_quality_score = target_score
 
     def get_phase(self):
@@ -364,10 +366,20 @@ class SmartTrainingGovernor:
                 msg_parts.append("NPP LOOP: Forcing Numerical Shakeup")
 
 
-            # --- 2026 NPP v15.9: Strategic Spatial Retreat ---
-            if self.epoch_count - self.last_res_jump_epoch < 8 and getattr(self, 'breakout_lock', 0) == 0:
-                # If we fail shortly after a jump, retreat to previous resolution at 100% data
-                # instead of resetting the current resolution to 15% data.
+            # --- 2026 NPP v16.0: Proven-Manifold Protection & Strategic Recoil ---
+            # Check if current resolution has already proven high fidelity (e.g. Quality Score > 85.0 or 75% of SOTA target)
+            proven_threshold = max(85.0 if self.task_type == "quality" else 0.85, self.target_quality_score * 0.75)
+            is_proven_manifold = self.best_quality >= proven_threshold
+
+            can_spatial_retreat = (
+                self.epoch_count - self.last_res_jump_epoch < 8 and 
+                getattr(self, 'breakout_lock', 0) == 0 and 
+                not is_proven_manifold
+            )
+
+            if can_spatial_retreat:
+                # If we fail shortly after a jump AND the resolution never proved high quality,
+                # retreat to previous resolution at 100% data anchor.
                 res_idx = self.res_ladder.index(self.current_res)
                 if res_idx > 0:
                     self.current_res = self.res_ladder[res_idx - 1]
@@ -380,13 +392,24 @@ class SmartTrainingGovernor:
                     msg_parts.append(f"[SPATIAL RETREAT] Resetting to {self.current_res}px @ 100% Data Anchor")
 
             if not r_changed:
-                # 2026 NPP: Do not lower the data fraction on the same resolution to avoid running in circles.
-                # Instead, keep the current fraction and cool the learning rate to allow stabilization.
+                # --- Intra-Resolution Data Recoil ---
+                # If spatial retreat is blocked (proven manifold) or at base resolution,
+                # step dataset fraction back to the last safe fraction if we expanded past initial_fraction.
+                opt_cfg = self.model_info.get("optimization", {})
+                initial_frac = opt_cfg.get("initial_fraction", 0.15)
+                if self.current_fraction > initial_frac:
+                    prev_frac = max(initial_frac, round(self.current_fraction - self.fraction_increment, 2))
+                    if prev_frac < self.current_fraction:
+                        self.current_fraction = prev_frac
+                        f_changed = True
+                        msg_parts.append(f"[DATA RECOIL] Stepping back dataset fraction: {self.current_fraction*100:.0f}% @ {self.current_res}px")
+
                 self.lr_multiplier = self.cooling_factor
                 lr_changed = True
                 self.stabilization_epochs = self.stabilization_lock
                 self.cooldown_remaining = 5
-                msg_parts.append(f"RECOIL: Retaining data fraction at {self.current_fraction*100:.0f}% | Cooling LR to stabilize manifold")
+                if not f_changed:
+                    msg_parts.append(f"RECOIL: Retaining data fraction at {self.current_fraction*100:.0f}% | Cooling LR to stabilize manifold")
 
         # --- PROACTIVE COOLING (2026 Resilience) ---
         elif sentinel_trigger_rate > 0.15:
