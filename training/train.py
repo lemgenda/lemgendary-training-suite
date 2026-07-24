@@ -3379,8 +3379,9 @@ def main():
         default_limit = 5 if train_ds.task_type == "quality" else 3
 
         drift_gate = opt_cfg.get("drift_gate", default_drift)
-        drift_gate = governor.get_active_drift_gate(drift_gate)
         regression_limit = opt_cfg.get("regression_limit", default_limit)
+        if hasattr(governor, 'get_active_regression_limit'):
+            regression_limit = governor.get_active_regression_limit(regression_limit)
         absolute_patience = opt_cfg.get("absolute_patience", 15)
 
         # 2026 Absolute Anti-Loop Guard (Dead Man's Switch)
@@ -3447,10 +3448,10 @@ def main():
 
                     g_state = governor.get_state()
                     train_ds.update_strategy(fraction=g_state['sample_fraction'], size=g_state['input_size'])
-                    # 2026: val_ds resolution is seamlessly rolled back to mirror the Governor UNLESS anchored
+                    val_res_sync = model_info.get("val_resolution", g_state['input_size'])
                     if "val_resolution" not in model_info:
                         val_ds.update_strategy(size=g_state['input_size'])
-                    print(f"[SYNC] [GOVERNOR SYNC] Retained Dataset Fraction at {g_state['sample_fraction']*100:.0f}% | Val sync to {g_state['input_size']}px | Temp Cooled to {g_state['softmax_temp']}")
+                    print(f"[SYNC] [GOVERNOR SYNC] Retained Dataset Fraction at {g_state['sample_fraction']*100:.0f}% | Val sync to {val_res_sync}px | Temp Cooled to {g_state['softmax_temp']}")
 
                     # Force 50% LR cooling to 'seat' the model back into the stable manifold
                     # --- 2026: SOTA Velocity Shield (v3.1) ---

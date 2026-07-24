@@ -634,22 +634,26 @@ class SmartTrainingGovernor:
                 # For quality models (PLCC/SRCC evaluation), resolution alignment is critical
                 strategy = "escalate" if self.task_type == "quality" else "relax"
                 
-            if strategy == "escalate" and self.sota_resolution is not None and self.sota_resolution > self.current_res:
+            current_idx = self.res_ladder.index(self.current_res) if (hasattr(self, 'res_ladder') and self.current_res in self.res_ladder) else -1
+            has_higher_res = (current_idx >= 0 and current_idx < len(self.res_ladder) - 1)
+            target_res = self.sota_resolution if (self.sota_resolution is not None and self.sota_resolution > self.current_res) else (self.res_ladder[current_idx + 1] if has_higher_res else None)
+
+            if strategy == "escalate" and target_res is not None:
                 old_res = self.current_res
-                self.current_res = self.sota_resolution
+                self.current_res = target_res
                 if self.current_res not in self.res_ladder:
                     self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
                     
                 self.rollback_history[self.current_res] = 0
                 self.consecutive_rollbacks = 0
                 self.gate_relaxation_epochs = 0
+                self.current_fraction = 0.15 # Reset sample fraction for warmup on higher rung
                 
                 # Active lock to prevent the Governor from retreating back to old_res immediately
                 self.breakout_lock = 8 
                 
                 print(f"\n================================================================================")
                 print(f" [BREAKOUT] [GOVERNOR] Resolution-Regression Lock detected at {old_res}px!")
-                print(f"   -> SOTA baseline was achieved at a higher resolution ({self.sota_resolution}px).")
                 print(f"   -> Automatically promoting training resolution: {old_res}px -> {self.current_res}px.")
                 print(f"   -> Breakout retreat protection active for next 8 epochs.")
                 print(f"================================================================================\n")
@@ -672,6 +676,12 @@ class SmartTrainingGovernor:
             # Relax the gate significantly to prevent immediate rollbacks
             return min(0.80, config_gate * 0.85)
         return config_gate
+
+    def get_active_regression_limit(self, config_limit):
+        """Returns active regression limit, relaxing it during loop recovery so resolution jump can fire."""
+        if self.gate_relaxation_epochs > 0 or self.rollback_history.get(self.current_res, 0) > 0:
+            return max(config_limit, self.plateau_patience + 2)
+        return config_limit
 
 def export_webgpu_onnx(model, save_path, dummy_input_shape=(1, 3, 512, 512)):
     """
