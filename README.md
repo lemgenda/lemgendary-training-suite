@@ -109,3 +109,82 @@ The training suite natively intercepts execution environments with multiple GPUs
 All inference notebooks and training engines natively fall back to **DirectML** on local machines, providing zero-config GPU acceleration for **AMD** and **Intel** graphics cards on Windows.
 
 - **Hardware-Aware Resolution Capping**: Dynamically limits maximum training and validation resolution (e.g. `max_allowed_local_resolution: 640`) on local environments to prevent 4GB VRAM exhaustion, while permitting 1024px+ scaling on robust cloud infrastructures.
+
+---
+
+## 📈 Forex Trading Model (`forex_predictor`)
+
+The LemGendary Training Suite includes a **production-grade Forex prediction model** trained on MetaTrader 5 OHLCV data across all major currency pairs and all timeframes.
+
+### Architecture: Multi-Scale CNN-Transformer Hybrid
+
+```
+[M1 branch] [M5 branch] [M15 branch] [H1 branch] [H4 branch] [D1 branch]
+     │            │            │            │           │            │
+Causal TCN   Causal TCN   Causal TCN   Causal TCN  Causal TCN  Causal TCN
+(4 layers)   (4 layers)   (4 layers)   (4 layers)  (4 layers)  (4 layers)
+     └────────────┴────────────┴────────────┴───────────┴────────────┘
+                       Cross-Timeframe Attention (4 heads)
+                       + Currency Pair Embedding (8 pairs)
+                                     │
+                        Fused Feature Manifold [d=256]
+                       ┌─────────────┴─────────────┐
+                 Direction Head               Magnitude Head
+               3-class Softmax            Regression (Softplus)
+            [Down / Sideways / Up]        [TP pips, SL pips]
+              + Confidence Score
+```
+
+**Design Principles:**
+- **Stateless** — no hidden state between calls → safe for ONNX + MT5 EA
+- **Causal Conv1D only** — zero future lookahead, zero data leakage
+- **Confidence-gated magnitude** — low-confidence bars don't corrupt regression
+- **ONNX-compatible** — exports cleanly for MT5 EA deployment
+
+### Lookback Windows
+
+| Timeframe | Window | Span |
+| :--- | :--- | :--- |
+| M1 | 512 bars | ~8.5 hours |
+| M5 | 288 bars | ~1 day |
+| M15 | 192 bars | ~2 days |
+| H1 | 168 bars | ~1 week |
+| H4 | 90 bars | ~2.5 weeks |
+| D1 | 252 bars | ~1 year |
+
+### Governor Curriculum
+
+The Governor's `res_ladder` is repurposed as a **timeframe expansion ladder**. Training starts on M1 only (FOUNDATION phase) and expands to all 6 timeframes as metrics stabilize.
+
+### Key Files
+
+| File | Purpose |
+| :--- | :--- |
+| `models/forex_predictor.py` | Model architecture (ForexPredictor) |
+| `data/mt5_pipeline.py` | MT5 data download, indicator computation, label generation |
+| `data/forex_dataset.py` | ForexDataset (Governor-aligned fractional sampling) |
+| `training/losses.py` | ForexDualLoss (CE direction + Huber magnitude) |
+| `export/mt5_signal.py` | ONNX export + live signal generator + MQL5 EA stub |
+
+### MT5 Deployment
+
+Once a demo account is available:
+
+```powershell
+# 1. Download data (using credentials or MT5_LOGIN/MT5_PASSWORD/MT5_SERVER environment variables)
+python data/mt5_pipeline.py --mode download --pairs EURUSD GBPUSD --timeframes 60 240 --login <ACCOUNT_NUMBER> --password <PASSWORD> --server <SERVER_NAME>
+
+# 2. Train
+python training/train.py --model forex_predictor
+
+# 3. Export to ONNX
+python export/mt5_signal.py --mode export --checkpoint LemGendaryModels/forex_predictor/forex_predictor_best.pth
+
+# 4. Generate live signal
+python export/mt5_signal.py --mode signal --onnx LemGendaryModels/forex_predictor/forex_predictor.onnx --pair EURUSD --login <ACCOUNT_NUMBER> --password <PASSWORD> --server <SERVER_NAME>
+
+# 5. Generate MQL5 EA stub
+python export/mt5_signal.py --mode mql5_stub --out export/LemGendaryForexEA.mq5
+```
+
+> ⚠️ **Live Trading Safety**: The model emits signals only. SL/TP enforcement and max drawdown kill-switch must be implemented in the MQL5 EA layer independently of the model.

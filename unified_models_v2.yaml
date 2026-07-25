@@ -1,6 +1,66 @@
 _registry_metadata:
   version: 2.2.0
   specialization: 2026_Resiliency
+forex_predictor:
+  name: LemGendary Forex Predictor (Multi-Scale CNN-Transformer)
+  class_name: ForexPredictor
+  category: forex
+  filename: ForexPredictor
+  checkpoint: ForexPredictorWeights_FP32.pth
+  # input_size is not applicable for sequence models — governed by seq_len rung
+  input_size: null
+  batch_size: auto
+  learning_rate: 1.0e-04
+  loss_fn: forex_dual
+  dataset_type: forex
+  optimal_key: forex_predictor
+  architecture_type: Multi-Scale CNN-Transformer (Causal TCN + Cross-Timeframe Attention)
+  description: >
+    Multi-pair, multi-timeframe Forex trading model trained on MetaTrader 5 OHLCV data.
+    Predicts trade direction (Up/Down/Sideways) and magnitude (TP/SL pips) for all major currency pairs.
+    Architecture uses causal Conv1D stacks per timeframe fused via cross-timeframe attention.
+    Fully stateless and ONNX-compatible for live MT5 EA deployment.
+  datasets:
+    - LemGendizedForexPredictorLarge
+  kwargs:
+    active_timeframes:
+      - 1
+    d_model: 128
+    n_heads: 4
+    n_layers: 4
+    head_hidden: 256
+    dropout: 0.1
+  sota_targets:
+    direction_accuracy: 0.60
+    win_rate: 0.55
+  stabilizers:
+    numerical_sentinel:
+      - -50.0
+      - 50.0
+  optimization:
+    enabled: true
+    absolute_patience: 20
+    plateau_patience: 6
+    fraction_increment: 0.15
+    cooling_factor: 0.85
+    plateau_priority: data
+    drift_gate: 0.90
+    regression_limit: 8
+    high_fidelity_fraction: 0.6
+    # res_ladder for forex = timeframe rungs in minutes (Governor expands TFs, not image resolution)
+    res_ladder:
+      - 1
+      - 5
+      - 15
+      - 60
+      - 240
+      - 1440
+    jolt_multiplier: 1.5
+    target_effective_batch: 64
+    min_delta: 0.002
+    swa_start_pct: 0.70
+  val_resolution: null
+
 nima_aesthetic_mobile:
   name: LemGendary NIMA Aesthetic Scorer (Mobile)
   class_name: NIMA_Model

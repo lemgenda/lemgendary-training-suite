@@ -660,7 +660,7 @@ def main():
     is_heavy_arch = any(x in args.model.lower() for x in ["nafnet", "mirnet", "ffanet", "mprnet"])
     raw_size = model_info.get("input_size", 224)
     current_res = raw_size[1] if isinstance(raw_size, list) else raw_size
-    is_heavy_manifold = is_heavy_arch or int(current_res) > 448
+    is_heavy_manifold = is_heavy_arch or int(current_res or 0) > 448
 
 
     # Load model
@@ -792,13 +792,13 @@ def main():
         governor.res_ladder = [r for r in governor.res_ladder if r <= max_local_res]
         if not governor.res_ladder:
             governor.res_ladder = [max_local_res]
-        if governor.current_res > max_local_res:
+        if governor.current_res is not None and governor.current_res > max_local_res:
             print(f" [GUARD] Local VRAM < 4.5GB. Clamping current resolution from {governor.current_res}px to {max_local_res}px.")
             governor.current_res = max_local_res
 
     sample_fraction = governor.current_fraction
     val_anchor_size = model_info.get("val_resolution", governor.current_res)
-    if max_local_res and vram_gb_init < 4.5 and val_anchor_size > max_local_res:
+    if max_local_res and vram_gb_init < 4.5 and val_anchor_size is not None and val_anchor_size > max_local_res:
         val_anchor_size = max_local_res
 
 
@@ -854,8 +854,17 @@ def main():
                 if not success:
                     print(f" [WARNING] [DATA] Auto-acquisition failed for {ds}. Manual intervention may be required.")
 
-    train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
-    val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
+    if model_info.get("dataset_type") == "forex" or "forex" in args.model.lower():
+        from data.forex_dataset import ForexDataset
+        manifold_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets", "LemGendizedForexPredictorLarge", "forex"))
+        if not os.path.exists(manifold_root):
+            manifold_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets", "LemGendizedForexPredictorLarge"))
+        shard_root = manifold_root if (os.path.exists(manifold_root) and any(os.path.isdir(os.path.join(manifold_root, d)) for d in os.listdir(manifold_root) if not d.startswith('.'))) else os.path.normpath(os.path.join(project_root, "data", "forex"))
+        train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction)
+        val_ds = ForexDataset(shard_root=shard_root, is_train=False)
+    else:
+        train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
+        val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
 
     # 2026 Resilience: Parallel Mission Support
     # Read num_workers from hardware config, fallback to top-level
@@ -863,6 +872,8 @@ def main():
     if args.env == 'kaggle':
         # Overwrite the Windows-specific num_workers=0 to un-peg the Kaggle CPU
         num_workers = 4
+    elif getattr(train_ds, "task_type", "") == "forex" or sys.platform == "win32":
+        num_workers = 0
 
     print(f" [DATA] Initializing Parallel Manifold (Workers: {num_workers} | Persistent: {num_workers > 0})...")
     # --- 2026 Resilience: Empty Dataset Guard ---
@@ -1701,7 +1712,11 @@ def main():
         # High-res restorers on 4GB hardware MUST bypass LPIPS to remain stable.
         use_lpips = False
 
-    criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab, use_perc=use_lpips).to(device)
+    if getattr(train_ds, "task_type", "") == "forex":
+        from training.losses import ForexDualLoss
+        criterion = ForexDualLoss().to(device)
+    else:
+        criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab, use_perc=use_lpips).to(device)
     # 2026 Resilience: Enable AMP for architectures with Tensor Cores OR GTX 16-series (Turing)
     # Turing GTX (1650/1660) supports FP16 for memory savings even without Tensor Cores.
     gpu_name = torch.cuda.get_device_name(0) if device.type == 'cuda' else ""
@@ -1769,7 +1784,7 @@ def main():
 
         # Priority: Model Config > Hardware Ceiling
         val_anchor_size = model_info.get("val_resolution", hardware_ceiling)
-        if vram_gb < 4.5 and val_anchor_size > hardware_ceiling:
+        if vram_gb < 4.5 and val_anchor_size is not None and val_anchor_size > hardware_ceiling:
             val_anchor_size = hardware_ceiling
 
         # --- 2026 SOTA GUARD: Resolution-Aware Patience Reset (v19.1) ---
@@ -1820,7 +1835,7 @@ def main():
         accumulation_steps = max(1, target_eff // batch_size)
         accumulation_steps = min(max(1, len(train_loader)), accumulation_steps)
 
-        epoch_res = train_ds.size[0]
+        epoch_res = train_ds.size[0] if getattr(train_ds, 'size', None) else 0
         epoch_fraction = train_ds.sample_fraction
         epoch_temp = stab['softmax_temp']
         epoch_clamp = stab.get('logit_clamp', 20.0)
@@ -1920,6 +1935,17 @@ def main():
                 if train_ds.task_type in ["text_to_image", "image_to_text"]:
                     inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
                     targets, task_idx = None, None
+                elif getattr(train_ds, "task_type", "") == "forex":
+                    if isinstance(inputs, dict):
+                        inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+                    elif isinstance(inputs, torch.Tensor):
+                        inputs = inputs.to(device, non_blocking=True)
+
+                    if isinstance(targets, dict):
+                        targets = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in targets.items()}
+                    elif isinstance(targets, torch.Tensor):
+                        targets = targets.to(device, non_blocking=True)
+                    task_idx = None
                 else:
                     inputs = inputs.to(device, non_blocking=True)
                     if isinstance(targets, dict):
@@ -1980,6 +2006,10 @@ def main():
                             loss = outputs.loss / accumulation_steps
                             preds, targets = outputs.logits, inputs.get("labels")
 
+                        elif getattr(train_ds, "task_type", "") == "forex":
+                            pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
+                            preds = model(inputs, pair_idx=pair_idx)
+                            loss = criterion(preds, targets) / accumulation_steps
                         else:
                             preds = model(inputs)
                             sentinel = stab.get('numerical_sentinel')
@@ -2073,8 +2103,9 @@ def main():
                             break
                         else:
                             # --- 2026 Resilience: Resolution Scaling (Last Stand) ---
-                            if train_ds.size[0] > 256:
-                                old_res = train_ds.size[0]
+                            ds_size = train_ds.size[0] if getattr(train_ds, 'size', None) else 0
+                            if ds_size > 256:
+                                old_res = ds_size
                                 print(f"\n================================================================================")
                                 print(f" [CRITICAL] HARDWARE BOTTLENECK: Out-Of-Memory even at Batch Size 1!")
                                 print(f" Your GPU cannot process {old_res}px images with this architecture.")
@@ -2661,14 +2692,15 @@ def main():
             hardware_ceiling_current = max_local_res_current if vram_gb_current < 4.5 else 1024
 
             val_anchor_size = model_info.get("val_resolution", hardware_ceiling_current)
-            if vram_gb_current < 4.5 and val_anchor_size > hardware_ceiling_current:
+            if vram_gb_current < 4.5 and val_anchor_size is not None and val_anchor_size > hardware_ceiling_current:
                 val_anchor_size = hardware_ceiling_current
-            val_ds.update_strategy(size=val_anchor_size)
+            if hasattr(val_ds, "update_strategy") and val_anchor_size is not None:
+                val_ds.update_strategy(size=val_anchor_size)
 
             # --- 2026: Mid-Epoch Validation VRAM Audit ---
             # Recalculate validation batch size only if resolution or dataset fraction changed dynamically
-            if config_batch == "auto" and (model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info):
-                if val_ds.size != last_val_audit_size or val_ds.sample_fraction != last_val_audit_fraction:
+            if getattr(train_ds, "task_type", "") != "forex" and config_batch == "auto" and (model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info):
+                if getattr(val_ds, "size", None) != last_val_audit_size or getattr(val_ds, "sample_fraction", 1.0) != last_val_audit_fraction:
                     # 2026 Resilience: Must use val_ds.size to prevent paging if validation is anchored higher than training
                     temp_info = {**model_info, "input_size": val_ds.size}
                     val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val', sample_fraction=val_ds.sample_fraction)
@@ -2678,8 +2710,9 @@ def main():
                     # Re-initialize DataLoader if batch size changed
                     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
 
-                    if int(os.environ.get('RANK', 0)) == 0:
-                        print(f" [VRAM-SENTINEL] Validation batch size throttled to {val_batch_size} to protect evaluation phase.")
+            if getattr(train_ds, "task_type", "") == "forex":
+                val_batch_size = batch_size
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=num_workers)
 
             # 2026 Validation Sharding & Resolution Sync
             # Auto-expand validation set to 100% during Refinement Phase or when training fraction >= threshold (at max res)
@@ -2755,6 +2788,17 @@ def main():
                 if train_ds.task_type in ["text_to_image", "image_to_text"]:
                     inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
                     targets, task_idx = None, None
+                elif getattr(train_ds, "task_type", "") == "forex":
+                    if isinstance(inputs, dict):
+                        inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+                    elif isinstance(inputs, torch.Tensor):
+                        inputs = inputs.to(device, non_blocking=True)
+
+                    if isinstance(targets, dict):
+                        targets = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in targets.items()}
+                    elif isinstance(targets, torch.Tensor):
+                        targets = targets.to(device, non_blocking=True)
+                    task_idx = None
                 else:
                     inputs = inputs.to(device, non_blocking=True)
                     if isinstance(targets, dict):
@@ -2791,6 +2835,10 @@ def main():
                     loss = outputs.loss
                     preds, targets = outputs.logits, inputs.get("labels")
 
+                elif getattr(train_ds, "task_type", "") == "forex":
+                    pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
+                    preds = model(inputs, pair_idx=pair_idx)
+                    loss = criterion(preds, targets)
                 else:
                     preds = model(inputs)
                     # --- 2026: Numerical Sentinel (Validation Parity Guard) ---
@@ -2807,17 +2855,23 @@ def main():
                             preds = torch.clamp(preds, min=min_v, max=max_v)
                     loss = criterion(preds, targets, task_idx) # pyre-ignore
 
-                # Active Mathematics Protection Block (Prevents NaN from feeding into Scipy)
-                if torch.isnan(loss) or torch.isnan(preds).any():
+                preds_chk = preds["direction_logits"] if isinstance(preds, dict) else preds
+                if torch.isnan(loss) or (isinstance(preds_chk, torch.Tensor) and torch.isnan(preds_chk).any()):
                     continue
 
                 val_loss += loss.item()
                 val_pbar.set_postfix({"v_loss": f"{loss.item():.4f}"})
 
-                # Collect for deep mathematical metrics assessment (detaching to RAM)
                 if train_ds.task_type in ["quality", "classification", "segmentation", "parameter_prediction"]:
                     all_preds.append(preds.detach().cpu())
                     all_targets.append(targets.detach().cpu())
+                elif getattr(train_ds, "task_type", "") == "forex":
+                    p_dir = preds["direction_logits"].detach().cpu() if isinstance(preds, dict) else preds.detach().cpu()
+                    p_mag = preds["magnitude"].detach().cpu() if isinstance(preds, dict) and "magnitude" in preds else torch.zeros(p_dir.shape[0], 2)
+                    t_dir = targets["direction"].detach().cpu() if isinstance(targets, dict) else targets.detach().cpu()
+                    t_mag = targets["magnitude"].detach().cpu() if isinstance(targets, dict) and "magnitude" in targets else torch.zeros_like(p_mag)
+                    all_preds.append({"dir": p_dir, "mag": p_mag})
+                    all_targets.append({"dir": t_dir, "mag": t_mag})
                 elif train_ds.task_type in ["restoration", "enhancement", "face"]:
                     # --- 2026: STREAMING METRICS (Zero-RAM Leak) ---
                     img_pred = preds[0] if isinstance(preds, (tuple, list)) else preds
@@ -3019,6 +3073,24 @@ def main():
                 # Map MAE to PSNR slot for CSV compatibility (negative MAE as quality signal)
                 psnr = -overall_mae # Lower MAE = better (negative so higher = better in CSV)
 
+            elif getattr(train_ds, "task_type", "") == "forex" and len(all_preds) > 0:
+                p_dirs = torch.cat([x["dir"] for x in all_preds], dim=0)
+                t_dirs = torch.cat([x["dir"] for x in all_targets], dim=0)
+                p_mags = torch.cat([x["mag"] for x in all_preds], dim=0)
+                t_mags = torch.cat([x["mag"] for x in all_targets], dim=0)
+
+                pred_classes = torch.argmax(p_dirs, dim=-1) if p_dirs.dim() > 1 else p_dirs
+                dir_acc = float((pred_classes == t_dirs).float().mean().item()) * 100.0
+                accuracy = dir_acc / 100.0
+
+                non_hold_mask = (pred_classes != 1)
+                win_rate = float((pred_classes[non_hold_mask] == t_dirs[non_hold_mask]).float().mean().item()) * 100.0 if non_hold_mask.sum() > 0 else dir_acc
+
+                tp_mae = float(torch.abs(p_mags[:, 0] - t_mags[:, 0]).mean().item())
+                sl_mae = float(torch.abs(p_mags[:, 1] - t_mags[:, 1]).mean().item())
+                mae = tp_mae
+
+                metrics_str = f" | Dir Acc: {dir_acc:.2f}% | Win Rate: {win_rate:.2f}% | TP MAE: {tp_mae:.4f} | SL MAE: {sl_mae:.4f}"
             elif train_ds.task_type == "classification" and len(all_preds) > 0:
                 p = torch.cat(all_preds)
                 t = torch.cat(all_targets)
@@ -3079,8 +3151,8 @@ def main():
 
         print(f"[SIGNAL] [RESONANCE SYNC] Train: {train_speed:.2f} it/s | Val: {val_speed:.2f} it/s | Efficiency: Optimized", file=sys.stderr)
 
-        # 2026 Smart Telemetry (Silent Summary)
-        smart_meta = f" | Data: {train_ds.sample_fraction*100:.0f}% | Res: {train_ds.size[0]} | T: {stab['softmax_temp']:.2f}"
+        res_str = train_ds.size[0] if getattr(train_ds, 'size', None) else 'N/A'
+        smart_meta = f" | Data: {train_ds.sample_fraction*100:.0f}% | Res: {res_str} | T: {stab['softmax_temp']:.2f}"
         summary_line = f"Epoch {epoch+1} Summary | Train: {avg_train_loss:.6f} | Val: {avg_val_loss:.6f}{metrics_str}{smart_meta}"
         print(f"\n{'='*80}", file=sys.stderr)
         print(f" {summary_line}", file=sys.stderr)

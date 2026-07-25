@@ -96,16 +96,31 @@ def main():
     production_dir_rel = os.path.join(config.get("export_dir", "../LemGendaryModels"), args.model)
     production_dir = os.path.normpath(os.path.join(project_root, production_dir_rel))
     os.makedirs(production_dir, exist_ok=True)
-    
+
+    if model_info.get("dataset_type") == "forex" or "forex" in args.model.lower():
+        from export.mt5_signal import export_onnx
+        ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_best.pth")
+        if not os.path.exists(ckpt_path):
+            ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_latest.pth")
+        if not os.path.exists(ckpt_path):
+            ckpt_path = os.path.normpath(os.path.join(project_root, "checkpoints", f"{args.model}_best.pth"))
+        out_onnx = os.path.join(production_dir, f"{base_name}.onnx")
+        if os.path.exists(ckpt_path):
+            print(f" [EXPORT] Forex model detected. Exporting via MT5 signal engine: {ckpt_path} -> {out_onnx}")
+            export_onnx(ckpt_path, out_onnx, active_timeframes=[60, 240])
+        else:
+            print(f" [WARNING] [EXPORT] No checkpoint found for {args.model} at {ckpt_path}.")
+        return
+
     size_raw = model_info.get("input_size", config.get("default_img_size", 256))
+    if size_raw is None:
+        size_raw = 256
     if isinstance(size_raw, list):
         h, w = (int(size_raw[1]), int(size_raw[2])) if len(size_raw)==3 else (int(size_raw[0]), int(size_raw[1]))
     else:
         h, w = int(size_raw), int(size_raw)
-        
+
     # --- 2026 Resilience: Cap ONNX Export Resolution ---
-    # Tracing massive resolutions (e.g. 768x768 NAFNet) causes CPU OOMs and massive graph bloat.
-    # We cap at 512x512 for structural export stability as recommended by WebGPU KI.
     h = min(h, 512)
     w = min(w, 512)
     

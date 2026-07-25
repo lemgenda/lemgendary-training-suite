@@ -15,7 +15,8 @@ METRIC_WEIGHTS = {
     'lpips': 40, 'fid': 1, 'map50': 100, 'map50_95': 100,
     'rank_margin': 20, 'accuracy': 100, 'mae': 100,
     # [2026: SOTA Expansion Targets]
-    'miou': 100, 'map_medium': 100, 'map_hard': 100, 'accuracy_vqa': 100
+    'miou': 100, 'map_medium': 100, 'map_hard': 100, 'accuracy_vqa': 100,
+    'dir_acc': 1.0, 'win_rate': 1.0, 'tp_mae': 1.0, 'sl_mae': 1.0
 }
 
 METRIC_DIRECTIONS = {
@@ -23,7 +24,8 @@ METRIC_DIRECTIONS = {
     'lpips': False, 'fid': False, 'map50': True, 'map50_95': True,
     'rank_margin': False, 'accuracy': True, 'mae': False,
     # [2026: SOTA Expansion Targets]
-    'miou': True, 'map_medium': True, 'map_hard': True, 'accuracy_vqa': True
+    'miou': True, 'map_medium': True, 'map_hard': True, 'accuracy_vqa': True,
+    'dir_acc': True, 'win_rate': True, 'tp_mae': False, 'sl_mae': False
 }
 
 class TelemetryEngine:

@@ -31,6 +31,13 @@ def _populate_registry():
         print(f" ⚠️ [FACTORY] Failed to import NIMA models: {e}")
 
     try:
+        from models.forex_predictor import ForexPredictor
+        _MODEL_REGISTRY["ForexPredictor"] = ForexPredictor
+    except Exception as e:
+        print(f" ⚠️ [FACTORY] Failed to import ForexPredictor: {e}")
+
+
+    try:
         from models.face_restoration import CodeFormer, ParseNet
         _MODEL_REGISTRY["CodeFormer"] = CodeFormer
         _MODEL_REGISTRY["ParseNet"] = ParseNet

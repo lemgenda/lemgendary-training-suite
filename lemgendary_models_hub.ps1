@@ -22,10 +22,11 @@ function Get-ModelSelection {
     Write-Host "  5. Universal Hybrid    (UPN v2, Multi-Restorer, Film Restoration)" -ForegroundColor Cyan
     Write-Host "  6. Generative Diffusion (Master Manifold)" -ForegroundColor Cyan
     Write-Host "  7. Vision-Language      (Master Manifold)" -ForegroundColor Cyan
-    Write-Host "  8. Cancel" -ForegroundColor Gray
+    Write-Host "  8. Forex Trading        (ForexPredictor Multi-Scale CNN-Transformer)" -ForegroundColor Cyan
+    Write-Host "  9. Cancel" -ForegroundColor Gray
     Write-Host ""
     
-    $catChoice = Read-Host "Select a category (1-8)"
+    $catChoice = Read-Host "Select a category (1-9)"
     $modelList = @()
     switch ($catChoice) {
         '1' { $modelList = @("nima_aesthetic_mobile", "nima_aesthetic_efficientnet", "nima_aesthetic_pro", "nima_technical", "nima_authenticity", "anime_nsfw_classification") }
@@ -35,6 +36,7 @@ function Get-ModelSelection {
         '5' { $modelList = @("upn_v2", "professional_multitask_restoration", "film_restorer") }
         '6' { $modelList = @("diffusion_sdxl", "diffusion_flux") }
         '7' { $modelList = @("vlm_llava", "vlm_blip2") }
+        '8' { $modelList = @("forex_predictor") }
         default { return $null }
     }
 

@@ -58,3 +58,9 @@ kagglehub
 gdown>=5.1.0
 albumentations
 websockets
+
+# --- Forex Trading (MT5 Pipeline) ---
+# MetaTrader5 Python API (Windows only — requires MT5 terminal installed)
+MetaTrader5>=5.0.45; sys_platform == 'win32'
+# Technical indicators (used by mt5_pipeline.py; falls back to manual NumPy if absent)
+pandas-ta>=0.3.14b

@@ -2,6 +2,71 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Forex Dual Loss
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ForexDualLoss(nn.Module):
+    """
+    LemGendary Forex Dual Loss Engine.
+
+    Combines:
+        - CrossEntropy for direction (Down / Sideways / Up)
+        - Huber (SmoothL1) for magnitude (TP pips, SL pips)
+
+    Direction confidence gates magnitude loss:
+        Low-confidence bars (high entropy in direction logits) contribute
+        proportionally less to the magnitude regression signal, preventing
+        the magnitude head from fitting noise on ambiguous bars.
+
+    Args:
+        direction_weight: Weight for CE loss component (default 1.0).
+        magnitude_weight: Weight for Huber loss component (default 0.5).
+        huber_delta:      Huber delta — transitions L2→L1 at this pip threshold.
+    """
+    def __init__(
+        self,
+        direction_weight: float = 1.0,
+        magnitude_weight: float = 0.5,
+        huber_delta: float = 20.0,
+    ):
+        super().__init__()
+        self.direction_weight = direction_weight
+        self.magnitude_weight = magnitude_weight
+        self.huber_delta      = huber_delta
+        self.ce               = nn.CrossEntropyLoss()
+
+    def forward(self, pred: dict, labels: dict) -> torch.Tensor:
+        """
+        Args:
+            pred:   Dict with 'direction_logits' [B, 3] and 'magnitude' [B, 2]
+            labels: Dict with 'direction' [B] (long) and 'magnitude' [B, 2] (float)
+
+        Returns:
+            Combined scalar loss.
+        """
+        dir_logits  = pred["direction_logits"] if "direction_logits" in pred else pred["direction"]  # [B, 3]
+        mag_pred    = pred["magnitude"]              # [B, 2]
+        dir_target  = labels["direction"]            # [B] long
+        mag_target  = labels["magnitude"]            # [B, 2] float
+
+        # Direction loss
+        dir_loss = self.ce(dir_logits, dir_target)
+
+        # Confidence gate: high-entropy bars get lower magnitude weight
+        with torch.no_grad():
+            probs     = torch.softmax(dir_logits, dim=-1)           # [B, 3]
+            entropy   = -(probs * (probs + 1e-8).log()).sum(dim=-1)  # [B]
+            max_ent   = torch.log(torch.tensor(3.0, device=probs.device))
+            conf_gate = 1.0 - (entropy / max_ent).clamp(0.0, 1.0)  # [B] ∈ [0,1]
+
+        # Huber loss for magnitude, gated by direction confidence
+        huber = F.smooth_l1_loss(mag_pred, mag_target, reduction='none', beta=self.huber_delta)  # [B, 2]
+        mag_loss = (huber.mean(dim=1) * conf_gate).mean()
+
+        return self.direction_weight * dir_loss + self.magnitude_weight * mag_loss
+
+
 class CombinedLoss(nn.Module):
     """
     LemGendary 2026 Unified Loss Engine
@@ -196,3 +261,4 @@ class CombinedLoss(nn.Module):
             return self.mse(pred, target)
             
         return self.mse(pred, target)
+
