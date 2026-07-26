@@ -4,6 +4,16 @@ from torchvision import models
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1312]
 
+class SoftmaxWrapper(nn.Module):
+    def __init__(self, inner_model, temperature=1.0):
+        super().__init__()
+        self.inner_model = inner_model
+        self.temperature = temperature
+    def forward(self, x):
+        logits = self.inner_model(x)
+        return torch.nn.functional.softmax(logits / self.temperature, dim=1)
+
+
 class NIMA_Model(nn.Module):
     """
     Nuclear-Hardened NIMA (Neural IMage Assessment).

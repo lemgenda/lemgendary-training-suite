@@ -21,14 +21,7 @@ sys.path.insert(0, project_root)
 # Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
 sys.setrecursionlimit(2000)
 
-class SoftmaxWrapper(nn.Module):
-    def __init__(self, inner_model, temperature=1.0):
-        super().__init__()
-        self.inner_model = inner_model
-        self.temperature = temperature
-    def forward(self, x):
-        logits = self.inner_model(x)
-        return torch.nn.functional.softmax(logits / self.temperature, dim=1)
+from models.nima import SoftmaxWrapper
 
 def main():
     parser = argparse.ArgumentParser(description="LemGendary SOTA Exporter: Checkpoint to Standalone PyTorch")
@@ -134,8 +127,13 @@ def main():
 
     print(f" [EXPORT] Saving standalone PyTorch model object to {target_path}...")
     try:
-        # Saving the full model (Architecture + Weights)
-        torch.save(model, target_path)
+        # Unwrap SoftmaxWrapper if present to ensure clean module serialization
+        raw_model = model.model if hasattr(model, 'model') and isinstance(model.model, torch.nn.Module) else model
+        save_obj = {
+            "model_state": raw_model.state_dict(),
+            "model": raw_model
+        }
+        torch.save(save_obj, target_path)
         print(" [SUCCESS] Standalone SOTA model is now production-ready.")
         print(f"   -> Usage: model = torch.load('{target_path}')")
     except Exception as e:
