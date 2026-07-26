@@ -22,6 +22,7 @@ The deep architectural backlog, including the **Memory-Sentinel**, **Sawtooth Go
 - **Adaptive Loop-Breaker & Loop Guards (v16.3.2)**: SmartTrainingGovernor dynamically tracks checkpoint rollback history to detect resolution-regression locks. It automatically triggers spatial resolution promotion (Strategy A) or dynamic drift-gate relaxation (Strategy B), protected by an anti-self-fighting `breakout_lock` retreat shield, to resolve infinite training loops autonomously.
 - **Autonomous Resolution Escalation & Dynamic Limits (v16.3.3)**: `SmartTrainingGovernor` dynamically detects resolution-regression locks when rollback thresholds are met and automatically promotes the training resolution to the next rung in `res_ladder` (`256px -> 384px`), resetting sample fraction to 15% for a fresh warmup. `get_active_regression_limit()` dynamically relaxes `regression_limit` during loop recovery so static YAML limits never block resolution escalation.
 - **Proven-Manifold Protection & Intra-Resolution Data Recoil (v16.0.0)**: If a model regresses during dataset fraction expansion on a resolution where it already achieved a high peak score (`best_quality >= 0.75 * target_quality_score` or `> 85.0`), the `SmartTrainingGovernor` blocks premature Spatial Retreats (resolution drops) and instead executes Intra-Resolution Data Recoil. It steps dataset fraction back to the last safe fraction on the high-resolution manifold (e.g. `75% -> 55%` at `512px`) while cooling the learning rate by 50% and locking stabilization for 5 epochs.
+- **Autonomous SOTA Hyperparameter Adaptation (v17.5)**: `SmartTrainingGovernor` dynamically adjusts loss function hyperparameters on the fly without manual mid-training YAML edits. When PLCC/SRCC or EMD plateau below target benchmarks (`SRCC > 0.9100`, `EMD < 0.0700`), the Governor automatically scales pairwise `rank_weight` (up to `1.5`), tightens `rank_margin` (down to `0.05`), and sharpens `softmax_temp` during the `REFINEMENT` phase.
 
 For an exhaustive breakdown of the Training Suite architecture, please consult the [Master Training Suite Guide](file:///c:/Development/python/model-training/lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md) in the `lemgendary-docs` repository.
 
@@ -118,7 +119,7 @@ The LemGendary Training Suite includes a **production-grade Forex prediction mod
 
 ### Architecture: Multi-Scale CNN-Transformer Hybrid
 
-```
+```text
 [M1 branch] [M5 branch] [M15 branch] [H1 branch] [H4 branch] [D1 branch]
      │            │            │            │           │            │
 Causal TCN   Causal TCN   Causal TCN   Causal TCN  Causal TCN  Causal TCN
@@ -136,6 +137,7 @@ Causal TCN   Causal TCN   Causal TCN   Causal TCN  Causal TCN  Causal TCN
 ```
 
 **Design Principles:**
+
 - **Stateless** — no hidden state between calls → safe for ONNX + MT5 EA
 - **Causal Conv1D only** — zero future lookahead, zero data leakage
 - **Confidence-gated magnitude** — low-confidence bars don't corrupt regression

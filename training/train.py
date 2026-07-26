@@ -3276,6 +3276,12 @@ def main():
             print(smart_msg)
             new_params = governor.get_state()
 
+            # --- 2026: Synchronize Dynamic Governor Stabilizers with Criterion ---
+            if hasattr(criterion, 'stab') and isinstance(criterion.stab, dict):
+                if 'rank_weight' in new_params: criterion.stab['rank_weight'] = new_params['rank_weight']
+                if 'rank_margin' in new_params: criterion.stab['rank_margin'] = new_params['rank_margin']
+                if 'softmax_temp' in new_params or t_changed: criterion.stab['softmax_temp'] = new_params['softmax_temp']
+
             # --- 2026 Resilience: Dynamic Stress Protocol ---
             stress_changed = new_params.get('stress', 0.0) != getattr(train_ds, 'stress', 0.0)
 

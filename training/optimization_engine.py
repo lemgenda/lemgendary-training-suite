@@ -90,6 +90,10 @@ class SmartTrainingGovernor:
         self.current_temp = self.stab.get("softmax_temp", self.min_temp)
         self.current_clamp = self.stab.get("logit_clamp", 15.0)
 
+        # --- 2026 SOTA Dynamic Governance Targets ---
+        self.current_rank_weight = float(self.stab.get("rank_weight", 0.8))
+        self.current_rank_margin = float(self.stab.get("rank_margin", 0.10))
+
         # --- 2026 Resilience: Adaptive Anti-Loop Governance ---
         self.loop_breaker_enabled = opt.get("loop_breaker_enabled", True)
         self.loop_breaker_threshold = opt.get("loop_breaker_threshold", 2)
@@ -511,6 +515,23 @@ class SmartTrainingGovernor:
                     lr_changed = True
                     msg_parts.append("REFINEMENT: SOTA Precision Cooling")
 
+                    # --- 2026 Autonomous SOTA Adaptations ---
+                    # Dynamically tune loss parameters on the fly without mid-training YAML changes
+                    if self.task_type == "quality":
+                        target_srcc = float(self.sota_targets.get("srcc", 0.9100)) if isinstance(self.sota_targets, dict) else 0.9100
+                        target_emd  = float(self.sota_targets.get("rank_margin", 0.0700)) if isinstance(self.sota_targets, dict) else 0.0700
+                        
+                        # 1. Dynamically boost rank_weight (0.8 -> 1.5) if SRCC is below SOTA target
+                        if plcc < target_srcc or (self.best_quality < self.target_quality_score):
+                            if self.current_rank_weight < 1.5:
+                                self.current_rank_weight = min(1.5, round(self.current_rank_weight + 0.1, 2))
+                                msg_parts.append(f"[AUTONOMOUS GOVERNOR] Dynamic SRCC Boost: Rank Weight -> {self.current_rank_weight}")
+                        
+                        # 2. Dynamically tighten rank_margin (0.10 -> 0.05) when converging
+                        if self.current_rank_margin > 0.05 and current_quality > (self.target_quality_score * 0.70):
+                            self.current_rank_margin = max(0.05, round(self.current_rank_margin - 0.01, 2))
+                            msg_parts.append(f"[AUTONOMOUS GOVERNOR] Dynamic Rank Margin Tightening -> {self.current_rank_margin}")
+
         # --- Senior Feature: Gradual Temperature Sharpening (Success Branch) ---
         if not (is_regressing or is_turbulent or sentinel_trigger_rate > 0.15) and self.current_temp > self.min_temp:
             # 2026: VLM Temperature Relaxation (Foundation vs Refinement)
@@ -576,7 +597,9 @@ class SmartTrainingGovernor:
             "rollback_history": getattr(self, 'rollback_history', {}),
             "gate_relaxation_epochs": getattr(self, 'gate_relaxation_epochs', 0),
             "sota_resolution": getattr(self, 'sota_resolution', None),
-            "breakout_lock": getattr(self, 'breakout_lock', 0)
+            "breakout_lock": getattr(self, 'breakout_lock', 0),
+            "rank_weight": getattr(self, 'current_rank_weight', 0.8),
+            "rank_margin": getattr(self, 'current_rank_margin', 0.10)
         }
 
     def load_state(self, state, preserve_curriculum=False):
@@ -597,6 +620,8 @@ class SmartTrainingGovernor:
         self.current_temp = max(self.min_temp, state.get("softmax_temp", self.current_temp))
         if self.task_type == "quality": self.current_temp = min(1.0, self.current_temp)
         self.current_clamp = state.get("logit_clamp", self.current_clamp)
+        if "rank_weight" in state: self.current_rank_weight = float(state["rank_weight"])
+        if "rank_margin" in state: self.current_rank_margin = float(state["rank_margin"])
         self.current_batch = state.get("batch_size", self.current_batch)
         self.current_acc = state.get("accumulation_steps", self.current_acc)
         self.stabilization_epochs = state.get("stabilization_epochs", 0)
