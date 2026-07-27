@@ -20,7 +20,7 @@ def _populate_registry():
         from models.multitask_restorer import MultiTaskRestorer
         _MODEL_REGISTRY["MultiTaskRestorer"] = MultiTaskRestorer
     except Exception as e:
-        print(f" ⚠️ [FACTORY] Failed to import MultiTaskRestorer: {e}")
+        print(f" [WARNING] [FACTORY] Failed to import MultiTaskRestorer: {e}")
 
     try:
         from models.nima import NIMA_Model, AuthenticityScorer, UniversalClassifier
@@ -28,13 +28,13 @@ def _populate_registry():
         _MODEL_REGISTRY["AuthenticityScorer"] = AuthenticityScorer
         _MODEL_REGISTRY["UniversalClassifier"] = UniversalClassifier
     except Exception as e:
-        print(f" ⚠️ [FACTORY] Failed to import NIMA models: {e}")
+        print(f" [WARNING] [FACTORY] Failed to import NIMA models: {e}")
 
     try:
         from models.forex_predictor import ForexPredictor
         _MODEL_REGISTRY["ForexPredictor"] = ForexPredictor
     except Exception as e:
-        print(f" ⚠️ [FACTORY] Failed to import ForexPredictor: {e}")
+        print(f" [WARNING] [FACTORY] Failed to import ForexPredictor: {e}")
 
 
     try:
@@ -42,13 +42,13 @@ def _populate_registry():
         _MODEL_REGISTRY["CodeFormer"] = CodeFormer
         _MODEL_REGISTRY["ParseNet"] = ParseNet
     except Exception as e:
-        print(f" ⚠️ [FACTORY] Failed to import Face Restoration models: {e}")
+        print(f" [WARNING] [FACTORY] Failed to import Face Restoration models: {e}")
 
     try:
         from models.detection import RetinaFace_MobileNet
         _MODEL_REGISTRY["RetinaFace"] = RetinaFace_MobileNet
     except Exception as e:
-        print(f" ⚠️ [FACTORY] Failed to import Detection models: {e}")
+        print(f" [WARNING] [FACTORY] Failed to import Detection models: {e}")
 
     try:
         from models.core_restoration import (
@@ -68,7 +68,7 @@ def _populate_registry():
             "UPN_v2": UPN_v2_Model
         })
     except Exception as e:
-        print(f" ⚠️ [FACTORY] Failed to import Core Restoration models: {e}")
+        print(f" [WARNING] [FACTORY] Failed to import Core Restoration models: {e}")
 
     # 2. Heavy Generative Models (May lack 'diffusers')
     try:

@@ -52,7 +52,7 @@ def main():
     args = parser.parse_args()
 
     print("\n" + "="*80)
-    print(" 🚀 NUCLEAR FLEET ORCHESTRATOR v16.0")
+    print(" [LAUNCH] NUCLEAR FLEET ORCHESTRATOR v16.0")
     print(" 🧠 Sequential Manifold Execution + Driver Cooldown Enabled")
     print("="*80 + "\n")
 
@@ -115,20 +115,20 @@ def main():
             active_phases.append({"name": phase["name"], "datasets": phase["datasets"], "models": approved_models})
 
     for p_idx, phase in enumerate(active_phases):
-        print(f"\n⚡ Initiating {phase['name']}...")
+        print(f"\n[FAST] Initiating {phase['name']}...")
         
         for m_idx, model_key in enumerate(phase["models"]):
             print(f"\n" + "-"*60)
-            print(f"🔥 MATRIX: {model_key}")
+            print(f"[CRITICAL] MATRIX: {model_key}")
             print("-"*60 + "\n")
             
             cmd = [sys.executable, train_script, "--model", model_key, "--epochs", str(args.epochs), "--env", args.env]
             
             try:
                 subprocess.check_call(cmd)
-                print(f"\n✅ {model_key} converged.")
+                print(f"\n[OK] {model_key} converged.")
             except subprocess.CalledProcessError as e:
-                print(f"\n❌ {model_key} structural failure. Logging to report.")
+                print(f"\n[ERROR] {model_key} structural failure. Logging to report.")
                 failure_report["failures"].append({"model": model_key, "phase": phase["name"], "code": e.returncode})
                 with open(failure_log_path, 'w') as f: json.dump(failure_report, f, indent=4)
                 if not args.yes and input("Proceed to next? (y/n): ").lower() != 'y': sys.exit(1)
@@ -140,7 +140,7 @@ def main():
     # --- Task 11.4: Global Dashboard Hook ---
     print("\n🏁 Nuclear Orchestration Complete!")
     if failure_report["failures"]:
-        print(f"⚠️ Warning: {len(failure_report['failures'])} models failed. See {failure_log_path}")
+        print(f"[WARNING] Warning: {len(failure_report['failures'])} models failed. See {failure_log_path}")
 
 if __name__ == "__main__":
     try:

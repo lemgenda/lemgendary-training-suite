@@ -30,7 +30,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "print(f'[OK] [ACTIVE] {props.name}')\n",
         "print(f'[OK] [VRAM] {props.total_memory / 1024**3:.1f} GB')\n",
         "if props.total_memory / 1024**3 < 10.0:\n",
-        "    print('⚠️ [WARNING] Low VRAM detected. Suite will enable Survival Profiles automatically.')\n"
+        "    print('[WARNING] [WARNING] Low VRAM detected. Suite will enable Survival Profiles automatically.')\n"
     ]
 
     secrets_source = [
@@ -71,26 +71,26 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "if pat:\n",
         "    # Use x-access-token for more reliable auth with fine-grained tokens\n",
         "    auth_url = repo_url.replace('https://', f'https://x-access-token:{pat}@')\n",
-        "    print(f'🔑 [AUTH] Using {\"SUITE_PAT\" if os.environ.get(\"SUITE_PAT\") else \"GITHUB_PAT\"} for cloning...')\n",
+        "    print(f'[AUTH] [AUTH] Using {\"SUITE_PAT\" if os.environ.get(\"SUITE_PAT\") else \"GITHUB_PAT\"} for cloning...')\n",
         "else:\n",
-        "    print('⚠️ [AUTH] No PAT found in environment. Attempting public clone (will fail for private repos)...')\n",
+        "    print('[WARNING] [AUTH] No PAT found in environment. Attempting public clone (will fail for private repos)...')\n",
         "    auth_url = repo_url\n",
         "\n",
         "env = os.environ.copy()\n",
         "env['GIT_TERMINAL_PROMPT'] = '0'\n",
         "\n",
         "if not os.path.exists(suite_path):\n",
-        "    print('🚀 [SUITE] Initializing LemGendary Training Suite...')\n",
+        "    print('[LAUNCH] [SUITE] Initializing LemGendary Training Suite...')\n",
         "    res = subprocess.run(['git', 'clone', auth_url, suite_path], capture_output=True, text=True, env=env)\n",
         "    if res.returncode == 0: \n",
-        "        print('✅ [OK] Suite cloned.')\n",
+        "        print('[OK] [OK] Suite cloned.')\n",
         "    else: \n",
-        "        print(f'❌ [ERROR] Clone failed: {res.stderr}')\n",
+        "        print(f'[ERROR] [ERROR] Clone failed: {res.stderr}')\n",
         "        if '403' in res.stderr or '401' in res.stderr:\n",
-        "            print('💡 Troubleshooting: Your PAT might lack \"Contents: Read\" permission for this repository.')\n",
-        "            print('💡 Also ensure the token is valid and not expired.')\n",
+        "            print('[TIP] Troubleshooting: Your PAT might lack \"Contents: Read\" permission for this repository.')\n",
+        "            print('[TIP] Also ensure the token is valid and not expired.')\n",
         "else:\n",
-        "    print('✅ [OK] Suite resident. Syncing origin and pulling latest...')\n",
+        "    print('[OK] [OK] Suite resident. Syncing origin and pulling latest...')\n",
         "    subprocess.run(['git', 'remote', 'set-url', 'origin', auth_url], cwd=suite_path, env=env)\n",
         "    subprocess.run(['git', 'pull'], cwd=suite_path, env=env)\n"
     ]
@@ -101,7 +101,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "target_dir = '/kaggle/working/LemGendaryDatasets'\n",
         "os.makedirs(target_dir, exist_ok=True)\n",
         "\n",
-        "print(f'🔍 [DATA] Resolving manifolds for {model_key}...')\n",
+        "print(f'[SEARCH] [DATA] Resolving manifolds for {model_key}...')\n",
         "found = []\n",
         "keys = [model_key.lower(), model_key.replace(\"_\", \"-\"), model_key.replace(\"_\", \"\")]\n",
         "\n",
@@ -267,10 +267,10 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "\n",
         "    model_path = found[0] if found else None\n",
         "    if model_path:\n",
-        "        print(f'💎 [SOTA] Loading pre-trained weights: {model_path}')\n",
+        "        print(f'[SOTA] [SOTA] Loading pre-trained weights: {model_path}')\n",
         "        ckpt = torch.load(model_path, map_location=device, weights_only=False)\n",
-        "        print(f'✅ [OK] Weights anchored on {device}.')\n",
-        "    else: print('⚠️ [SOTA] No existing weights found. Starting from scratch.')\n"
+        "        print(f'[OK] [OK] Weights anchored on {device}.')\n",
+        "    else: print('[WARNING] [SOTA] No existing weights found. Starting from scratch.')\n"
     ]
 
     training_source = [
@@ -280,7 +280,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "os.chdir(active_suite_dir)\n",
         "print(f'[OK] [SUITE] Active working directory set to: {os.getcwd()}')\n",
         "\n",
-        "# 🧹 [JANITOR] Clean up any pre-existing zombie training processes to free the GPU\n",
+        "# [JANITOR] [JANITOR] Clean up any pre-existing zombie training processes to free the GPU\n",
         "try:\n",
         "    current_pid = os.getpid()\n",
         "    ps_out = subprocess.check_output(['ps', '-ef'], text=True)\n",
@@ -289,7 +289,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            parts = line.split()\n",
         "            if len(parts) > 1:\n",
         "                pid = int(parts[1])\n",
-        "                print(f'🧹 [JANITOR] Killing stale zombie training process (PID {pid})...')\n",
+        "                print(f'[JANITOR] [JANITOR] Killing stale zombie training process (PID {pid})...')\n",
         "                subprocess.run(['kill', '-9', str(pid)], capture_output=True)\n",
         "except Exception:\n",
         "    pass\n",
@@ -306,7 +306,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        p.wait(timeout=5)\n",
         "    except subprocess.TimeoutExpired:\n",
         "        p.kill()\n",
-        "    print('✅ [OK] Subprocess successfully killed. VRAM and CPU are clean.')\n"
+        "    print('[OK] [OK] Subprocess successfully killed. VRAM and CPU are clean.')\n"
     ]
 
     push_source = [
@@ -318,20 +318,20 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "model_handle = f'lemgenda/{model_slug}/pyTorch/default'\n",
         "\n",
         "if os.path.exists(local_path):\n",
-        "    print(f'📡 [KAGGLE] Pushing finalized SOTA to {model_handle}...')\n",
+        "    print(f'[SYNC] [KAGGLE] Pushing finalized SOTA to {model_handle}...')\n",
         "    try:\n",
         "        # 2026: Atomic Push via KaggleHub (Nuclear-Hardened v16.2)\n",
         "        kagglehub.model_upload(model_handle, local_path, version_notes='v16.2 Nuclear-Hardened Sync')\n",
-        "        print('✅ [DONE] Deployment Complete.')\n",
+        "        print('[OK] [DONE] Deployment Complete.')\n",
         "    except Exception as e:\n",
-        "        print(f'❌ [ERROR] Deployment failed: {e}')\n",
-        "else: print(f'⚠️ [ERROR] Local manifold not found at {local_path}')\n"
+        "        print(f'[ERROR] [ERROR] Deployment failed: {e}')\n",
+        "else: print(f'[WARNING] [ERROR] Local manifold not found at {local_path}')\n"
     ]
 
     checkpoint_recovery_source = [
         "import os, shutil\n",
         f"model_key = '{model_key}'\n",
-        "print(f'📡 [RECOVERY] Deep-searching for {model_key} checkpoints...')\n",
+        "print(f'[SYNC] [RECOVERY] Deep-searching for {model_key} checkpoints...')\n",
         "hub_root = '/kaggle/working/LemGendaryModels'\n",
         "model_hub_dir = os.path.join(hub_root, model_key)\n",
         "ckpt_hub_dir = os.path.join(model_hub_dir, 'checkpoints')\n",
@@ -403,7 +403,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            if os.path.exists(m_path):\n",
         "                try:\n",
         "                    shutil.copy2(m_path, os.path.join(model_hub_dir, 'metrics.csv'))\n",
-        "                    print(f'📊 [OK] Recovered metrics.csv from {os.path.basename(d)}')\n",
+        "                    print(f'[METRICS] [OK] Recovered metrics.csv from {os.path.basename(d)}')\n",
         "                    metrics_found = True; break\n",
         "                except: pass\n",
         "        if metrics_found: break\n",

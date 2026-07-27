@@ -61,7 +61,7 @@ class Flux1_Master(nn.Module):
             self.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(model_id, subfolder="scheduler")
             
         except ImportError:
-            print("⚠️ [RESILIENCE] PEFT not found. Flux remains in Inference-Only mode.")
+            print("[WARNING] [RESILIENCE] PEFT not found. Flux remains in Inference-Only mode.")
             self.transformer = nn.Identity()
             self.vae = nn.Identity()
             

@@ -769,7 +769,7 @@ def main():
 
     model = get_model(args.model, config).to(device)
     if device.type == 'cuda' and torch.cuda.device_count() > 1:
-        print(f"🚀 [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
+        print(f"[LAUNCH] [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
         model = torch.nn.DataParallel(model)
 
     # --- 2026 Hyperparameter Priority Engine (Memory-Sentinel) ---
@@ -3978,7 +3978,7 @@ if __name__ == "__main__":
                         'avg_train_loss': avg_train_loss
                     }
                     torch.save(ckpt_state, progress_local)
-                    print(f"✅ Gracefully saved mid-epoch progress checkpoint: {progress_local}")
+                    print(f"[OK] Gracefully saved mid-epoch progress checkpoint: {progress_local}")
         except Exception as save_err:
             print(f" [WARNING] Failed to save progress on manual abort: {save_err}")
         cleanup_active_processes()

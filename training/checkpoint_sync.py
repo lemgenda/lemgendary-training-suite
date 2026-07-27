@@ -18,7 +18,7 @@ def main():
     src_metrics = os.path.join(project_root, "metrics.csv")
     if os.path.exists(src_metrics):
         shutil.copy2(src_metrics, os.path.join(persistence_root, "metrics.csv"))
-        print(f"✅ Synced metrics.csv -> {persistence_root}")
+        print(f"[OK] Synced metrics.csv -> {persistence_root}")
 
     # 2. Sync Checkpoints
     src_ckpt_dir = os.path.join(project_root, "checkpoints")
@@ -29,7 +29,7 @@ def main():
         for f in os.listdir(src_ckpt_dir):
             if f.endswith('.pth') and args.model in f:
                 shutil.copy2(os.path.join(src_ckpt_dir, f), os.path.join(dst_ckpt_dir, f))
-                print(f"✅ Synced {f} -> {dst_ckpt_dir}")
+                print(f"[OK] Synced {f} -> {dst_ckpt_dir}")
 
 if __name__ == "__main__":
     main()

@@ -6,14 +6,14 @@
 
 ---
 
-## 📡 Mission Status: v16.2.9 (High-Fidelity Era)
+## [SYNC] Mission Status: v16.2.9 (High-Fidelity Era)
 
-🚀 **Status**: High-Fidelity Calibration Active / Global Registry Hardened  
+[LAUNCH] **Status**: High-Fidelity Calibration Active / Global Registry Hardened  
 🧪 **Current Goal**: Finalize the **Resolution Ladder (256px-640px)** with **Ladder-Aware SOTA Guards** and **Manifold Hardening**.
 
 ---
 
-## ⚡ High-Fidelity "Nuclear" Hardening & Technical Backlog
+## [FAST] High-Fidelity "Nuclear" Hardening & Technical Backlog
 
 The deep architectural backlog, including the **Memory-Sentinel**, **Sawtooth Governance**, **Resolution Ladders**, **SOTA Validation Guards**, and **Judicial Audit** logic, has been fully consolidated into our official whitepapers.
 
@@ -58,13 +58,13 @@ The master orchestration console for system bootstrapping and cloud sync.
 
 ---
 
-## 🛡️ Feature Matrix (v16.2.9 Master Engine)
+## [GUARD] Feature Matrix (v16.2.9 Master Engine)
 
 All features have been exhaustively documented in the [Master Training Suite Guide](file:///c:/Development/python/model-training/lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md).
 
 ---
 
-## 📊 Universal SOTA Telemetry (20-Column Audit)
+## [METRICS] Universal SOTA Telemetry (20-Column Audit)
 
 Standardized historical audit (`metrics.csv`) captures the complete state:
 
@@ -113,7 +113,7 @@ All inference notebooks and training engines natively fall back to **DirectML** 
 
 ---
 
-## 📈 Forex Trading Model (`forex_predictor`)
+## [PROGRESS] Forex Trading Model (`forex_predictor`)
 
 The LemGendary Training Suite includes a **production-grade Forex prediction model** trained on MetaTrader 5 OHLCV data across all major currency pairs and all timeframes.
 
@@ -189,4 +189,4 @@ python export/mt5_signal.py --mode signal --onnx LemGendaryModels/forex_predicto
 python export/mt5_signal.py --mode mql5_stub --out export/LemGendaryForexEA.mq5
 ```
 
-> ⚠️ **Live Trading Safety**: The model emits signals only. SL/TP enforcement and max drawdown kill-switch must be implemented in the MQL5 EA layer independently of the model.
+> [WARNING] **Live Trading Safety**: The model emits signals only. SL/TP enforcement and max drawdown kill-switch must be implemented in the MQL5 EA layer independently of the model.

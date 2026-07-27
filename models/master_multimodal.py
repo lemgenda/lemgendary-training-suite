@@ -42,7 +42,7 @@ class LLaVA_v1_5(nn.Module):
             self.model = get_peft_model(self.model, lora_config)
             print("✨ [MULTIMODAL] LLaVA-v1.6 Hardened with QLoRA.")
         except ImportError:
-            print("⚠️ [RESILIENCE] PEFT not found. LLaVA remains in Standard mode.")
+            print("[WARNING] [RESILIENCE] PEFT not found. LLaVA remains in Standard mode.")
         
     def forward(self, input_ids, attention_mask=None, pixel_values=None, labels=None):
         return self.model(

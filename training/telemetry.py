@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 # ==============================================================================
-# 🚀 LemGendary 2026 Telemetry Engine (v18.0)
+# [LAUNCH] LemGendary 2026 Telemetry Engine (v18.0)
 # ==============================================================================
 # Master handler for SOTA metric tracking, Quality Score math, and CSV validation
 # ==============================================================================

@@ -210,7 +210,7 @@ class MultiTaskDataset(Dataset):
         self.all_samples = []
         self.samples = []
         if self.env == 'kaggle' and config.get("debug", False):
-            print("📡 [DEBUG] Mounted datasets in /kaggle/input:")
+            print("[SYNC] [DEBUG] Mounted datasets in /kaggle/input:")
             try:
                 if os.path.exists('/kaggle/input'):
                     for d in os.listdir('/kaggle/input'):
@@ -380,7 +380,7 @@ class MultiTaskDataset(Dataset):
                                     # Check 1: Direct mount (e.g., path/images/train)
                                     if os.path.exists(os.path.join(path, 'images', 'train')):
                                         if self.config.get("debug", False):
-                                            print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Direct match: {path}")
+                                            print(f"[SYNC] [DEBUG] get_dataset_path({ds_name}) target={target} -> Direct match: {path}")
                                         return path
                                     # Check 2: Nested ZIP mount (e.g., path/NestedFolder/images/train)
                                     try:
@@ -389,16 +389,16 @@ class MultiTaskDataset(Dataset):
                                             if os.path.isdir(sub_path):
                                                 if os.path.exists(os.path.join(sub_path, 'images', 'train')):
                                                     if self.config.get("debug", False):
-                                                        print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Nested match: {sub_path}")
+                                                        print(f"[SYNC] [DEBUG] get_dataset_path({ds_name}) target={target} -> Nested match: {sub_path}")
                                                     return sub_path
                                     except Exception:
                                         pass
                 except Exception as e:
                     if self.config.get("debug", False):
-                        print(f"📡 [DEBUG] get_dataset_path scan error: {e}")
+                        print(f"[SYNC] [DEBUG] get_dataset_path scan error: {e}")
                     pass
             if self.config.get("debug", False):
-                print(f"📡 [DEBUG] get_dataset_path({ds_name}) target={target} -> Failed to resolve path!")
+                print(f"[SYNC] [DEBUG] get_dataset_path({ds_name}) target={target} -> Failed to resolve path!")
             
         return None
 
@@ -408,7 +408,7 @@ class MultiTaskDataset(Dataset):
             with Image.open(img_path) as img:
                 return img.convert('RGB')
         except Exception as e:
-            # print(f"⚠️ [SHIELD] I/O Failure on {os.path.basename(img_path)}. Ejecting Neutral Gray.")
+            # print(f"[WARNING] [SHIELD] I/O Failure on {os.path.basename(img_path)}. Ejecting Neutral Gray.")
             return Image.new('RGB', (self.size[1], self.size[0]), (128, 128, 128))
 
     def __len__(self):
@@ -703,7 +703,7 @@ class MultiTaskDataset(Dataset):
 
     def get_distribution(self):
         """Task 9.3: Analyze label manifold for stratified balancing."""
-        print(f"📊 [DATA] Analyzing distribution for {self.model_key}...")
+        print(f"[METRICS] [DATA] Analyzing distribution for {self.model_key}...")
         stats = {"total": len(self.samples), "tasks": {}}
         # Implementation for background distribution analysis...
         return stats

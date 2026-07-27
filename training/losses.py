@@ -119,7 +119,7 @@ class CombinedLoss(nn.Module):
                 for param in self.perc.parameters():
                     param.requires_grad = False
             except Exception as e:
-                print(f"⚠️ [RESILIENCE] LPIPS failed to bind ({e}). Defaulting to pure L1.")
+                print(f"[WARNING] [RESILIENCE] LPIPS failed to bind ({e}). Defaulting to pure L1.")
 
 
     def forward(self, pred, target, task_idx=None):

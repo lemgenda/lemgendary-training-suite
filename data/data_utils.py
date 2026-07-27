@@ -13,7 +13,7 @@ def check_disk_space(required_bytes, target_path):
     needed_with_buffer = int(required_bytes * 1.5) # Optimized 2026 buffer
     
     if free_bytes < needed_with_buffer:
-        print(f"⚠️ [LOW DISK] Available: {free_bytes/(1024**3):.1f}GB | Needed: {needed_with_buffer/(1024**3):.1f}GB")
+        print(f"[WARNING] [LOW DISK] Available: {free_bytes/(1024**3):.1f}GB | Needed: {needed_with_buffer/(1024**3):.1f}GB")
         return False
     return True
 
@@ -80,8 +80,8 @@ def _handle_kaggle(ds_name, data_dir, config, ref):
                 else:
                     shutil.copy2(s, d)
             
-        print(f"✅ [DATA] {ds_name} successfully synchronized to manifold.")
+        print(f"[OK] [DATA] {ds_name} successfully synchronized to manifold.")
         return True
     except Exception as e:
-        print(f"❌ [DATA ERROR] Acquisition failed for {ds_name}: {e}")
+        print(f"[ERROR] [DATA ERROR] Acquisition failed for {ds_name}: {e}")
         return False

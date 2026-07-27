@@ -753,7 +753,7 @@ def export_webgpu_onnx(model, save_path, dummy_input_shape=(1, 3, 512, 512)):
     dummy_input = torch.randn(dummy_input_shape, device=device)
     
     try:
-        # Suppress PyTorch's internal prints that contain emojis (✅) causing UnicodeEncodeError on Windows
+        # Suppress PyTorch's internal prints that contain emojis ([OK]) causing UnicodeEncodeError on Windows
         f = io.StringIO()
         with redirect_stdout(f), redirect_stderr(f):
             torch.onnx.export(
