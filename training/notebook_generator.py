@@ -156,8 +156,12 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     ]
 
     install_source = [
+        "import os, sys, subprocess\n",
         "print('[ENV] Installing Nuclear Dependencies...')\n",
-        "%pip install -q -r /kaggle/working/lemgendary-training-suite/requirements.txt\n",
+        "suite_candidates = ['/kaggle/working/lemgendary-training-suite', '/kaggle/working/model-training/lemgendary-training-suite', '/kaggle/working']\n",
+        "req_path = next((os.path.join(p, 'requirements.txt') for p in suite_candidates if os.path.exists(os.path.join(p, 'requirements.txt'))), None)\n",
+        "if req_path:\n",
+        "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '-r', req_path])\n",
         "print('[OK] Environment Ready.')\n"
     ]
 
@@ -271,7 +275,10 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
 
     training_source = [
         "import os, subprocess, sys\n",
-        "os.chdir('/kaggle/working/lemgendary-training-suite')\n",
+        "suite_candidates = ['/kaggle/working/lemgendary-training-suite', '/kaggle/working/model-training/lemgendary-training-suite', '/kaggle/working']\n",
+        "active_suite_dir = next((p for p in suite_candidates if os.path.exists(os.path.join(p, 'training', 'train.py'))), '/kaggle/working/lemgendary-training-suite')\n",
+        "os.chdir(active_suite_dir)\n",
+        "print(f'[OK] [SUITE] Active working directory set to: {os.getcwd()}')\n",
         "\n",
         "# 🧹 [JANITOR] Clean up any pre-existing zombie training processes to free the GPU\n",
         "try:\n",
