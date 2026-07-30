@@ -271,10 +271,10 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "\n",
         "    model_path = found[0] if found else None\n",
         "    if model_path:\n",
-        "        print(f'[SOTA] [SOTA] Loading pre-trained weights: {model_path}')\n",
+        "        print(f'[SOTA] Loading pre-trained weights: {model_path}')\n",
         "        ckpt = torch.load(model_path, map_location=device, weights_only=False)\n",
-        "        print(f'[OK] [OK] Weights anchored on {device}.')\n",
-        "    else: print('[WARNING] [SOTA] No existing weights found. Starting from scratch.')\n"
+        "        print(f'[OK] Weights anchored on {device}.')\n",
+        "    else: print('[WARNING] No existing weights found. Starting from scratch.')\n"
     ]
 
     training_source = [
@@ -284,7 +284,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "os.chdir(active_suite_dir)\n",
         "print(f'[OK] [SUITE] Active working directory set to: {os.getcwd()}')\n",
         "\n",
-        "# [JANITOR] [JANITOR] Clean up any pre-existing zombie training processes to free the GPU\n",
+        "# [JANITOR] Clean up any pre-existing zombie training processes to free the GPU\n",
         "try:\n",
         "    current_pid = os.getpid()\n",
         "    ps_out = subprocess.check_output(['ps', '-ef'], text=True)\n",
@@ -293,7 +293,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            parts = line.split()\n",
         "            if len(parts) > 1:\n",
         "                pid = int(parts[1])\n",
-        "                print(f'[JANITOR] [JANITOR] Killing stale zombie training process (PID {pid})...')\n",
+        "                print(f'[JANITOR] Killing stale zombie training process (PID {pid})...')\n",
         "                subprocess.run(['kill', '-9', str(pid)], capture_output=True)\n",
         "except Exception:\n",
         "    pass\n",
@@ -310,7 +310,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        p.wait(timeout=5)\n",
         "    except subprocess.TimeoutExpired:\n",
         "        p.kill()\n",
-        "    print('[OK] [OK] Subprocess successfully killed. VRAM and CPU are clean.')\n"
+        "    print('[OK] Subprocess successfully killed. VRAM and CPU are clean.')\n"
     ]
 
     push_source = [
@@ -322,20 +322,20 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "model_handle = f'lemgenda/{model_slug}/pyTorch/default'\n",
         "\n",
         "if os.path.exists(local_path):\n",
-        "    print(f'[SYNC] [KAGGLE] Pushing finalized SOTA to {model_handle}...')\n",
+        "    print(f'[KAGGLE] Pushing finalized SOTA to {model_handle}...')\n",
         "    try:\n",
         "        # 2026: Atomic Push via KaggleHub (Nuclear-Hardened v16.2)\n",
         "        kagglehub.model_upload(model_handle, local_path, version_notes='v16.2 Nuclear-Hardened Sync')\n",
-        "        print('[OK] [DONE] Deployment Complete.')\n",
+        "        print('[DONE] Deployment Complete.')\n",
         "    except Exception as e:\n",
-        "        print(f'[ERROR] [ERROR] Deployment failed: {e}')\n",
-        "else: print(f'[WARNING] [ERROR] Local manifold not found at {local_path}')\n"
+        "        print(f'[ERROR] Deployment failed: {e}')\n",
+        "else: print(f'[WARNING] Local manifold not found at {local_path}')\n"
     ]
 
     checkpoint_recovery_source = [
         "import os, shutil\n",
         f"model_key = '{model_key}'\n",
-        "print(f'[SYNC] [RECOVERY] Deep-searching for {model_key} checkpoints...')\n",
+        "print(f'[RECOVERY] Deep-searching for {model_key} checkpoints...')\n",
         "hub_root = '/kaggle/working/LemGendaryModels'\n",
         "model_hub_dir = os.path.join(hub_root, model_key)\n",
         "ckpt_hub_dir = os.path.join(model_hub_dir, 'checkpoints')\n",
@@ -407,7 +407,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            if os.path.exists(m_path):\n",
         "                try:\n",
         "                    shutil.copy2(m_path, os.path.join(model_hub_dir, 'metrics.csv'))\n",
-        "                    print(f'[METRICS] [OK] Recovered metrics.csv from {os.path.basename(d)}')\n",
+        "                    print(f'[METRICS] Recovered metrics.csv from {os.path.basename(d)}')\n",
         "                    metrics_found = True; break\n",
         "                except: pass\n",
         "        if metrics_found: break\n",
