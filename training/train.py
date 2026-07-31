@@ -3923,6 +3923,19 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
             shutil.copytree(export_dir, hub_model_dir, dirs_exist_ok=True)
             print(f"[SUCCESS] [SUCCESS] {args.model} production binaries and documentation synced to Hub.")
 
+        # 6. Kaggle UI Root Mirroring (Instant 1-click download in Output panel)
+        is_kaggle = args.env == 'kaggle' or os.environ.get('KAGGLE_WORKING_DIR') or os.environ.get('KAGGLE_KERNEL_RUN_TYPE')
+        if is_kaggle and os.path.exists('/kaggle/working'):
+            for exp_f in os.listdir(export_dir):
+                if exp_f.endswith(('.onnx', '.pt', '.onnx.data')):
+                    src_f = os.path.join(export_dir, exp_f)
+                    dst_f = os.path.join('/kaggle/working', exp_f)
+                    if os.path.isfile(src_f) and os.path.abspath(src_f) != os.path.abspath(dst_f):
+                        try:
+                            shutil.copy2(src_f, dst_f)
+                            print(f" [KAGGLER] Artifact mirrored to root: /kaggle/working/{exp_f}")
+                        except Exception: pass
+
         # Restore model to GPU for next epoch
         try:
             model.to(device)
