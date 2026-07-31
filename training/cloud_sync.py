@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 import subprocess
 import shutil
@@ -138,25 +139,38 @@ class CloudSyncManager:
             return
 
         try:
-            print(f" [KAGGLER] Syncing SOTA Manifold to Kaggle: {self.kaggle_handle}...")
-            # 2026 Resilience: Run upload in a subprocess to isolate verbose/crashing I/O
-            import subprocess
-            import sys
+            # Prepare handles to try in order (primary -> fallback without variant -> alternate user)
+            handles_to_try = [self.kaggle_handle]
+            
+            # Fallback 1: Base slug without variant suffix (e.g. lemtreursi/lemgendary-nima-aesthetics-checkpoints/pytorch/default)
+            alt_handle = self.kaggle_handle.replace("-pro-checkpoints", "-checkpoints").replace("-efficientnet-checkpoints", "-checkpoints").replace("-mobile-checkpoints", "-checkpoints")
+            if alt_handle not in handles_to_try:
+                handles_to_try.append(alt_handle)
+
+            # Fallback 2: User lemgenda if lemtreursi fails
+            if "lemtreursi" in self.kaggle_handle:
+                alt_user_handle = self.kaggle_handle.replace("lemtreursi", "lemgenda")
+                if alt_user_handle not in handles_to_try:
+                    handles_to_try.append(alt_user_handle)
+
+            safe_model_dir = str(self.model_dir).replace('\\', '/')
+
             # 2026 Resilience: Kernel Format Sentinel
             # Enforce rich-text .ipynb standard by purging raw scripts from the documentation manifold.
             for py_file in self.model_dir.glob("*.py"):
                 if "training" in py_file.name or "usage" in py_file.name:
                     print(f" [JANITOR] Purging raw script artifact: {py_file.name}")
-                    py_file.unlink()
+                    try: py_file.unlink()
+                    except: pass
 
-            # Escape backslashes for the script string
-            safe_model_dir = str(self.model_dir).replace('\\', '/')
-
-            upload_script = f"""
+            success = False
+            for handle in handles_to_try:
+                print(f" [KAGGLER] Syncing SOTA Manifold to Kaggle: {handle}...")
+                upload_script = f"""
 import kagglehub, os, sys
 try:
     kagglehub.model_upload(
-        handle='{self.kaggle_handle}',
+        handle='{handle}',
         local_model_dir='{safe_model_dir}',
         version_notes='SOTA Update: {self.model_name} | Epoch {self.epoch}'
     )
@@ -165,18 +179,23 @@ except Exception as e:
     print(f"Upload Error: {{e}}", file=sys.stderr)
     sys.exit(1)
 """
-            res = subprocess.run(
-                [sys.executable, "-c", upload_script],
-                capture_output=True,
-                text=True,
-                env=os.environ.copy()
-            )
-            
-            if res.returncode == 0:
-                print(f" [KAGGLER] Manifold successfully synchronized to Kaggle Hub!")
-            else:
-                err_msg = res.stderr.strip() or res.stdout.strip()
-                print(f" [KAGGLER] Hub Sync subprocess returned error code {res.returncode}: {err_msg}")
+                res = subprocess.run(
+                    [sys.executable, "-c", upload_script],
+                    capture_output=True,
+                    text=True,
+                    env=os.environ.copy()
+                )
+                
+                if res.returncode == 0:
+                    print(f" [KAGGLER] Manifold successfully synchronized to Kaggle Hub ({handle})!")
+                    success = True
+                    break
+                else:
+                    err_msg = res.stderr.strip() or res.stdout.strip()
+                    print(f" [KAGGLER] Hub Sync attempt for {handle} failed: {err_msg}")
+
+            if not success:
+                print(f" [KAGGLER] [WARNING] Could not sync to Kaggle Hub. Ensure model repository is created at https://www.kaggle.com/models.")
         except Exception as e:
             print(f" [KAGGLER] Hub Sync failed: {e}")
 
@@ -232,8 +251,21 @@ except Exception as e:
         else:
             print(" [SYNC] Everything up-to-date. No manifold drift detected.")
 
-def trigger_cloud_sync(model_name, epoch, config):
-    """Entry point for training loop to trigger background sync."""
+_sync_lock = threading.Lock()
+_active_sync_thread = None
+
+def trigger_cloud_sync(model_name, epoch, config, wait=False):
+    """Entry point for training loop to trigger background or synchronous sync."""
+    global _active_sync_thread
     manager = CloudSyncManager(model_name, epoch, config)
-    t = threading.Thread(target=manager.sync, daemon=True)
-    t.start()
+    
+    if wait:
+        with _sync_lock:
+            manager.sync()
+    else:
+        def _worker():
+            with _sync_lock:
+                manager.sync()
+        t = threading.Thread(target=_worker, daemon=False)
+        _active_sync_thread = t
+        t.start()
