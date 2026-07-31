@@ -162,22 +162,21 @@ try:
     )
     sys.exit(0)
 except Exception as e:
-    # We print to stdout so it's captured in the devnull or log if we ever enable it
-    print(e)
+    print(f"Upload Error: {{e}}", file=sys.stderr)
     sys.exit(1)
 """
-            with open(os.devnull, 'w') as devnull:
-                res = subprocess.run(
-                    [sys.executable, "-c", upload_script],
-                    stdout=devnull,
-                    stderr=devnull,
-                    env=os.environ.copy()
-                )
+            res = subprocess.run(
+                [sys.executable, "-c", upload_script],
+                capture_output=True,
+                text=True,
+                env=os.environ.copy()
+            )
             
             if res.returncode == 0:
                 print(f" [KAGGLER] Manifold successfully synchronized to Kaggle Hub!")
             else:
-                print(f" [KAGGLER] Hub Sync subprocess returned error code {res.returncode}")
+                err_msg = res.stderr.strip() or res.stdout.strip()
+                print(f" [KAGGLER] Hub Sync subprocess returned error code {res.returncode}: {err_msg}")
         except Exception as e:
             print(f" [KAGGLER] Hub Sync failed: {e}")
 
