@@ -78,8 +78,8 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    if active:\n",
         "        print(f'[OK] [AUTH] Kaggle Secrets mounted: {\", \".join(active)}')\n",
         "    else:\n",
-        "        print('[WARNING] No PATs or Kaggle Keys found in Kaggle Secrets.')\n",
-        "        print('[TIP] Tip: Go to Add-ons -> Secrets and add SUITE_PAT, GITHUB_PAT, and KAGGLE_KEY.')\n",
+        "        print('[ERROR] [CRITICAL] No PATs found in Kaggle Secrets! Private repositories will fail to clone.')\n",
+        "        print('👉 Action Required: In Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT.')\n",
         "except Exception as e:\n",
         "    print(f'[ERROR] Secret mounting failed: {e}')\n"
     ]
@@ -95,6 +95,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    print(f'[AUTH] Using {\"SUITE_PAT\" if os.environ.get(\"SUITE_PAT\") else \"GITHUB_PAT\"} for cloning...')\n",
         "else:\n",
         "    print('[WARNING] No PAT found in environment. Attempting public clone (will fail for private repos)...')\n",
+        "    print('👉 If clone fails, add SUITE_PAT or GITHUB_PAT to Kaggle Add-ons -> Secrets.')\n",
         "    auth_url = repo_url\n",
         "\n",
         "env = os.environ.copy()\n",
@@ -106,10 +107,9 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    if res.returncode == 0: \n",
         "        print('[OK] Suite cloned.')\n",
         "    else: \n",
-        "        print(f'[ERROR] Clone failed: {res.stderr}')\n",
-        "        if '403' in res.stderr or '401' in res.stderr:\n",
-        "            print('[TIP] Troubleshooting: Your PAT might lack \"Contents: Read\" permission for this repository.')\n",
-        "            print('[TIP] Also ensure the token is valid and not expired.')\n",
+        "        print(f'[ERROR] Clone failed: {res.stderr.strip()}')\n",
+        "        if '403' in res.stderr or '401' in res.stderr or 'terminal prompts disabled' in res.stderr:\n",
+        "            print('👉 Action Required: Add SUITE_PAT or GITHUB_PAT to Kaggle Add-ons -> Secrets with GitHub read permissions.')\n",
         "else:\n",
         "    print('[OK] Suite resident. Syncing origin and pulling latest...')\n",
         "    subprocess.run(['git', 'remote', 'set-url', 'origin', auth_url], cwd=suite_path, env=env)\n",
@@ -182,8 +182,15 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "suite_candidates = ['/kaggle/working/lemgendary-training-suite', '/kaggle/working/model-training/lemgendary-training-suite', '/kaggle/working']\n",
         "req_path = next((os.path.join(p, 'requirements.txt') for p in suite_candidates if os.path.exists(os.path.join(p, 'requirements.txt'))), None)\n",
         "if req_path:\n",
-        "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '-r', req_path])\n",
-        "print('[OK] Environment Ready.')\n"
+        "    res = subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '-r', req_path])\n",
+        "    if res.returncode == 0:\n",
+        "        print('[OK] Environment Ready.')\n",
+        "    else:\n",
+        "        print('[WARNING] Dependency installation finished with non-zero exit code.')\n",
+        "else:\n",
+        "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
+        "    print('👉 ACTION REQUIRED: Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
+        "    print('👉 Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
     ]
 
     hub_prep_source = [
