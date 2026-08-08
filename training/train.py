@@ -1079,23 +1079,39 @@ def main():
         print(f" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
 
     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
-    # --- 2026 Senior Hardening: Surgical Weight Decay (Task 4.3) ---
-    # Never apply L2 regularization to Bias or Norm parameters to preserve distribution scale.
-    decay = []
-    no_decay = []
+    # --- 2026 Senior Hardening: Head-Differential & Surgical Weight Decay (Task 4.3) ---
+    # Separate parameters into Backbone vs Output Head and Decayed vs Non-Decayed groups.
+    head_keywords = ["head", "fc", "classifier", "outro", "predict", "linear"]
+    backbone_decay, backbone_no_decay = [], []
+    head_decay, head_no_decay = [], []
+
     for name, param in model.named_parameters():
         if not param.requires_grad: continue
-        if len(param.shape) == 1 or name.endswith(".bias") or ".norm" in name:
-            no_decay.append(param)
-        else:
-            decay.append(param)
+        is_no_decay = (len(param.shape) == 1 or name.endswith(".bias") or ".norm" in name)
+        is_head = any(kw in name.lower() for kw in head_keywords)
 
-    optim_groups = [
-        {'params': decay, 'weight_decay': 5e-4},
-        {'params': no_decay, 'weight_decay': 0.0}
-    ]
+        if is_head:
+            if is_no_decay: head_no_decay.append(param)
+            else: head_decay.append(param)
+        else:
+            if is_no_decay: backbone_no_decay.append(param)
+            else: backbone_decay.append(param)
+
+    # If no separate head was identified, fall back to unified backbone groups cleanly
+    if len(head_decay) == 0 and len(head_no_decay) == 0:
+        optim_groups = [
+            {'params': backbone_decay, 'weight_decay': 5e-4, 'group_name': 'backbone_decay'},
+            {'params': backbone_no_decay, 'weight_decay': 0.0, 'group_name': 'backbone_no_decay'}
+        ]
+    else:
+        optim_groups = [
+            {'params': backbone_decay, 'weight_decay': 5e-4, 'group_name': 'backbone_decay'},
+            {'params': backbone_no_decay, 'weight_decay': 0.0, 'group_name': 'backbone_no_decay'},
+            {'params': head_decay, 'weight_decay': 5e-4, 'group_name': 'head_decay'},
+            {'params': head_no_decay, 'weight_decay': 0.0, 'group_name': 'head_no_decay'}
+        ]
     optimizer = torch.optim.AdamW(optim_groups, lr=lr)
-    print(f" [GUARD] [SENIOR] Surgical Weight Decay active: {len(decay)} decayed | {len(no_decay)} regularized (Biases/Norms excluded).")
+    print(f" [GUARD] [SENIOR] Head-Differential Optimizer Active: {len(backbone_decay)+len(backbone_no_decay)} Backbone params | {len(head_decay)+len(head_no_decay)} Head params.")
 
     try:
         hub_user = args.hub_user or config.get("hub_user", "lemgenda")
@@ -3333,31 +3349,34 @@ def main():
                     print(f" [GUARD] [SENIOR] VRAM De-fragmentation pulse (empty_cache) triggered for {governor.current_res}px jump.")
 
             if lr_changed:
-                mult = new_params['lr_multiplier']
+                mult_backbone = new_params['lr_multiplier']
+                mult_head = new_params.get('head_lr_multiplier', mult_backbone)
 
                 # --- 2026 Resilience: Absolute LR Floor (v16.1) ---
-                # Prevents the Governor's successive Recoil operations from infinitely crushing
-                # the OneCycleLR curve and starving the model of momentum.
                 absolute_lr_floor = 1e-5
 
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = max(absolute_lr_floor, param_group['lr'] * mult)
-                    if 'max_lr' in param_group: param_group['max_lr'] = max(absolute_lr_floor, param_group['max_lr'] * mult)
-                    if 'initial_lr' in param_group: param_group['initial_lr'] = max(absolute_lr_floor, param_group['initial_lr'] * mult)
-                    if 'min_lr' in param_group: param_group['min_lr'] = max(absolute_lr_floor, param_group['min_lr'] * mult)
+                for group_idx, param_group in enumerate(optimizer.param_groups):
+                    grp_name = param_group.get('group_name', '')
+                    m = mult_head if 'head' in grp_name else mult_backbone
+
+                    param_group['lr'] = max(absolute_lr_floor, param_group['lr'] * m)
+                    if 'max_lr' in param_group: param_group['max_lr'] = max(absolute_lr_floor, param_group['max_lr'] * m)
+                    if 'initial_lr' in param_group: param_group['initial_lr'] = max(absolute_lr_floor, param_group['initial_lr'] * m)
+                    if 'min_lr' in param_group: param_group['min_lr'] = max(absolute_lr_floor, param_group['min_lr'] * m)
+
                 if hasattr(scheduler, 'base_lrs'):
-                    scheduler.base_lrs = [max(absolute_lr_floor, l * mult) for l in scheduler.base_lrs]
+                    scheduler.base_lrs = [max(absolute_lr_floor, l * mult_backbone) for l in scheduler.base_lrs]
                 if hasattr(scheduler, 'max_lrs'):
-                    scheduler.max_lrs = [max(absolute_lr_floor, l * mult) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
+                    scheduler.max_lrs = [max(absolute_lr_floor, l * mult_backbone) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
                 if hasattr(scheduler, '_last_lr'):
-                    scheduler._last_lr = [max(absolute_lr_floor, l * mult) for l in scheduler._last_lr]
+                    scheduler._last_lr = [p['lr'] for p in optimizer.param_groups]
 
                 # 2026 Senior Hardening: Momentum Dampening (Task 4.1)
                 for state in optimizer.state.values():
                     for k, v in state.items():
                         if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
                             v.mul_(0.8) # 20% dampening for smooth transition
-                print(f"[VELOCITY SYNC] Learning Rate scaled {mult}x | Momentum Dampened (20%).")
+                print(f"[VELOCITY SYNC] Learning Rate scaled (Head: {mult_head}x | Backbone: {mult_backbone}x) | Momentum Dampened (20%).")
 
             # --- 2026: Mission Defibrillation (v6.2.0) ---
             # If a High-Energy Jolt occurs or Resolution Changes, the current scheduler curve
@@ -3414,6 +3433,38 @@ def main():
                 epochs_no_improve = 0
             if r_changed:
                 print(f" [GUARD] Resolution changed. Resetting SOTA baseline to accommodate new spatial manifold.")
+
+            # --- 2026 Mini-SWA Plateau Recovery Pulse (Safety Measure 3) ---
+            if getattr(governor, 'trigger_mini_swa', False):
+                governor.trigger_mini_swa = False
+                print(f" [MINI-SWA PULSE] Engaging Plateau Weight Averaging...")
+                try:
+                    # 1. Store Safety CPU Backup
+                    pre_swa_backup = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+                    
+                    # 2. Update model with averaged parameters if available
+                    if 'swa_model' in locals() and hasattr(swa_model, 'update_parameters'):
+                        swa_model.update_parameters(model)
+                        load_state_dict_robust(model, swa_model.module.state_dict() if hasattr(swa_model, 'module') else swa_model.state_dict())
+
+                        # 3. Mandatory 20-batch update_bn pass over training data to re-sync BatchNorm/LayerNorm
+                        model.train()
+                        print(f" [MINI-SWA PULSE] Executing 20-batch BatchNorm re-estimation pass (update_bn)...")
+                        with torch.no_grad():
+                            for b_idx, (b_inputs, _, _) in enumerate(train_loader):
+                                if b_idx >= 20: break
+                                if isinstance(b_inputs, torch.Tensor):
+                                    model(b_inputs.to(device, non_blocking=True))
+                        model.eval()
+
+                        # 4. Check if SWA degraded quality -> Trigger Automatic Rollback
+                        if current_quality_score < governor.prev_quality:
+                            load_state_dict_robust(model, pre_swa_backup)
+                            print(f" [SAFETY GUARD] [MINI-SWA] Post-SWA quality score degraded ({current_quality_score:.4f} < {governor.prev_quality:.4f}). Rolled back to pre-SWA checkpoint!")
+                        else:
+                            print(f" [SUCCESS] [MINI-SWA] Weight averaging pulse completed successfully! Quality: {current_quality_score:.4f}")
+                except Exception as swa_err:
+                    print(f" [WARNING] [MINI-SWA] Weight averaging pulse failed cleanly: {swa_err}.")
 
         # 2026 Resilience: best_metrics is preserved from the last SOTA/best update block to prevent metric corruption.
 

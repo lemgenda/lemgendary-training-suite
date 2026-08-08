@@ -115,6 +115,9 @@ class SmartTrainingGovernor:
         self.current_stress = 0.0 # 2026: Dynamic Stress Protocol Multiplier
         self.thermal_floor = {} # New: {(res, frac): min_safe_temp}
         self.lr_multiplier = 1.0
+        self.head_lr_multiplier = 1.0 # 2026: Head-Differential LR propulsion multiplier
+        self.jolt_window_remaining = 0 # 2026: Sustained multi-epoch Jolt window counter
+        self.trigger_mini_swa = False # 2026: Signal flag for Mini-SWA plateau recovery pulse
         self.last_action_epoch = 0
         self.epoch_count = 0
         self.session_epoch_count = 0 # 2026: Resumption Shield tracking
@@ -442,18 +445,42 @@ class SmartTrainingGovernor:
             is_plateaued or 
             (not_regressing and (is_flat_leg or (current_quality > stride_threshold and delta_q < self.min_delta)))
         )
+        # --- SUSTAINED JOLT WINDOW & EARLY COLLAPSE VALVE (Safety Measure 1) ---
+        if getattr(self, 'jolt_window_remaining', 0) > 0:
+            self.jolt_window_remaining -= 1
+            # Safety Measure 1: Early Collapse Valve on metric regression or volatility
+            if delta_q < -0.015 or should_retreat or is_regressing:
+                self.jolt_window_remaining = 0
+                self.lr_multiplier = self.cooling_factor
+                self.head_lr_multiplier = self.cooling_factor
+                lr_changed = True
+                msg_parts.append(f"[JOLT SHIELD] Early collapse triggered (Regression: {delta_q:.4f}). Cooling LR.")
+            else:
+                lr_changed = True
+                msg_parts.append(f"SUSTAINED JOLT: Window Active ({self.jolt_window_remaining} epochs remaining | Head LR: {self.head_lr_multiplier:.2f}x | Backbone LR: {self.lr_multiplier:.2f}x)")
+
         if trigger_propulsion:
             # 2026: The Jolt - Breaking Plateaus with LR Propulsion
-            # Senior Update: Added Jolt cooldown (5 epochs)
+            # Senior Update: Added Jolt cooldown (5 epochs) and Sustained Window
             jolt_ready = (self.epoch_count - getattr(self, 'last_jolt_epoch', -10)) > self.jolt_cooldown and self.cooldown_remaining == 0
-            if is_flat and jolt_ready:
+            if is_flat and jolt_ready and getattr(self, 'jolt_window_remaining', 0) == 0:
                 jolt = self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5)
                 # NPP: If trapped, increase Jolt intensity to break the classification trap
                 if is_trapped: jolt *= 1.5
-                self.lr_multiplier = float(jolt)
+                jolt_base = float(jolt)
+
+                # 2026 Head-Differential Jolt (Safety Measure 2: Ratio Clamp <= 3.0x)
+                if phase == "REFINEMENT":
+                    self.lr_multiplier = round(jolt_base * 0.5, 3) # Backbone dampened
+                    self.head_lr_multiplier = min(round(self.lr_multiplier * 3.0, 3), round(jolt_base * 1.5, 3)) # Head boosted
+                else:
+                    self.lr_multiplier = jolt_base
+                    self.head_lr_multiplier = jolt_base
+
+                self.jolt_window_remaining = 3 # Engage 3-epoch sustained window
                 lr_changed = True
                 self.last_jolt_epoch = self.epoch_count
-                msg_parts.append(f"JOLT: Breaking Plateau with {jolt:.2f}x LR Propulsion")
+                msg_parts.append(f"JOLT: Breaking Plateau with Head-Differential Propulsion (Head: {self.head_lr_multiplier:.2f}x, Backbone: {self.lr_multiplier:.2f}x | 3-Epoch Window)")
 
 
             next_frac = min(1.0, self.current_fraction + self.fraction_increment) # NPP: Smaller steps
@@ -461,6 +488,7 @@ class SmartTrainingGovernor:
 
             if self.failure_log.get(str(next_state), 0) > 0:
                 self.lr_multiplier = 0.6 # NPP: More cautious approach
+                self.head_lr_multiplier = 0.6
                 lr_changed = True
                 msg_parts.append(f"ANCHOR: Caution ahead (Previous Failures). 0.6x LR.")
 
@@ -478,6 +506,7 @@ class SmartTrainingGovernor:
                 # SOTA Validation Check before spatial jump
                 if self.best_quality < self.target_quality_score * 0.80 and self.target_quality_score > 1.0:
                     self.lr_multiplier = self.cooling_factor
+                    self.head_lr_multiplier = self.cooling_factor
                     lr_changed = True
                     msg_parts.append(f"RECOIL: Insufficient Quality for spatial jump. Cooling LR.")
                     self.stabilization_epochs = self.stabilization_lock
@@ -494,26 +523,32 @@ class SmartTrainingGovernor:
                 # New Rule: If plateaued far from SOTA goal, deploy Stress to break local minima
                 if getattr(self, 'current_stress', 0.0) < 5.0 and self.target_quality_score > 0 and self.best_quality < self.target_quality_score * 0.90:
                     self.current_stress = min(5.0, getattr(self, 'current_stress', 0.0) + 1.0)
-                    self.lr_multiplier = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
+                    jolt_base = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
+                    self.lr_multiplier = round(jolt_base * 0.5, 3)
+                    self.head_lr_multiplier = min(round(self.lr_multiplier * 3.0, 3), round(jolt_base * 1.5, 3))
+                    self.jolt_window_remaining = 3
                     lr_changed = True
                     self.max_stress_stuck_epochs = 0 # Reset stuck counter: stress is still escalating
-                    msg_parts.append(f"REFINEMENT: Trapped in Plateau. Deploying Stress Protocol (Level {self.current_stress}) & Jolting LR")
+                    msg_parts.append(f"REFINEMENT: Trapped in Plateau. Deploying Stress Protocol (Level {self.current_stress}) & Differential Jolt")
                 elif getattr(self, 'current_stress', 0.0) >= 5.0 and self.target_quality_score > 0 and self.best_quality < self.target_quality_score * 0.90:
                     # 2026 v16: Stress is maxed but SOTA is still far away.
-                    # Do NOT cool the LR — that crushes momentum and freezes the model permanently.
-                    # Instead, force a periodic jolt to keep probing the manifold.
-                    jolt = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
-                    self.lr_multiplier = jolt
+                    # Do NOT cool the LR — force a periodic jolt & signal Mini-SWA pulse
+                    jolt_base = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
+                    self.lr_multiplier = jolt_base
+                    self.head_lr_multiplier = jolt_base
                     lr_changed = True
                     self.max_stress_stuck_epochs = getattr(self, 'max_stress_stuck_epochs', 0) + 1
                     stuck_patience = self.plateau_patience * 2  # 2× plateau patience before declaring stuck
-                    msg_parts.append(f"REFINEMENT: [MAX STRESS] Forcing Jolt (x{jolt:.2f}) to maintain momentum (Stuck: {self.max_stress_stuck_epochs}/{stuck_patience})")
+                    msg_parts.append(f"REFINEMENT: [MAX STRESS] Forcing Jolt (x{jolt_base:.2f}) to maintain momentum (Stuck: {self.max_stress_stuck_epochs}/{stuck_patience})")
                     if self.max_stress_stuck_epochs >= stuck_patience:
-                        msg_parts.append(f"[STUCK] Max stress reached and no improvement for {self.max_stress_stuck_epochs} epochs. Architecture may be at capacity. Consider stopping or switching backbone.")
+                        self.trigger_mini_swa = True # Signal Mini-SWA pulse to train.py
+                        msg_parts.append(f"[MINI-SWA PULSE] Triggering weight averaging pulse across top checkpoints (Stuck: {self.max_stress_stuck_epochs} epochs)")
                 else:
-                    self.lr_multiplier = self.cooling_factor
-                    lr_changed = True
-                    msg_parts.append("REFINEMENT: SOTA Precision Cooling")
+                    if getattr(self, 'jolt_window_remaining', 0) == 0:
+                        self.lr_multiplier = self.cooling_factor
+                        self.head_lr_multiplier = self.cooling_factor
+                        lr_changed = True
+                        msg_parts.append("REFINEMENT: SOTA Precision Cooling")
 
                     # --- 2026 Autonomous SOTA Adaptations ---
                     # Dynamically tune loss parameters on the fly without mid-training YAML changes
@@ -579,6 +614,8 @@ class SmartTrainingGovernor:
             "softmax_temp": self.current_temp,
             "logit_clamp": self.current_clamp,
             "lr_multiplier": self.lr_multiplier,
+            "head_lr_multiplier": getattr(self, 'head_lr_multiplier', self.lr_multiplier),
+            "jolt_window_remaining": getattr(self, 'jolt_window_remaining', 0),
             "batch_size": self.current_batch,
             "accumulation_steps": self.current_acc,
             "stabilization_epochs": self.stabilization_epochs,
@@ -622,6 +659,9 @@ class SmartTrainingGovernor:
         self.current_clamp = state.get("logit_clamp", self.current_clamp)
         if "rank_weight" in state: self.current_rank_weight = float(state["rank_weight"])
         if "rank_margin" in state: self.current_rank_margin = float(state["rank_margin"])
+        self.lr_multiplier = state.get("lr_multiplier", self.lr_multiplier)
+        self.head_lr_multiplier = state.get("head_lr_multiplier", self.lr_multiplier)
+        self.jolt_window_remaining = state.get("jolt_window_remaining", 0)
         self.current_batch = state.get("batch_size", self.current_batch)
         self.current_acc = state.get("accumulation_steps", self.current_acc)
         self.stabilization_epochs = state.get("stabilization_epochs", 0)
