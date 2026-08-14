@@ -3283,6 +3283,7 @@ def main():
             base_lr=lr,
             current_loss=avg_val_loss,
             plcc=plcc,
+            srcc=srcc,
             target_std=t_std,
             force_jump=False,
             train_loss=avg_train_loss

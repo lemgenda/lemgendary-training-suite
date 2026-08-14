@@ -93,6 +93,9 @@ class SmartTrainingGovernor:
         # --- 2026 SOTA Dynamic Governance Targets ---
         self.current_rank_weight = float(self.stab.get("rank_weight", 0.8))
         self.current_rank_margin = float(self.stab.get("rank_margin", 0.10))
+        # 2026 Audit Fix: Configurable rank_weight ceiling and rank_margin floor per model
+        self.max_rank_weight = float(self.stab.get("max_rank_weight", 1.5))
+        self.min_rank_margin = float(self.stab.get("min_rank_margin", 0.05))
 
         # --- 2026 Resilience: Adaptive Anti-Loop Governance ---
         self.loop_breaker_enabled = opt.get("loop_breaker_enabled", True)
@@ -166,7 +169,7 @@ class SmartTrainingGovernor:
             
         return "REFINEMENT"
 
-    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, target_std=None, force_jump=False, train_loss=None):
+    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, srcc=0.0, target_std=None, force_jump=False, train_loss=None):
         if not self.enabled and not force_jump: return False, False, False, False, False, False, ""
         self.epoch_count += 1
         self.session_epoch_count += 1
@@ -555,17 +558,20 @@ class SmartTrainingGovernor:
                     if self.task_type == "quality":
                         target_srcc = float(self.sota_targets.get("srcc", 0.9100)) if isinstance(self.sota_targets, dict) else 0.9100
                         target_emd  = float(self.sota_targets.get("rank_margin", 0.0700)) if isinstance(self.sota_targets, dict) else 0.0700
-                        
-                        # 1. Dynamically boost rank_weight (0.8 -> 1.5) if SRCC is below SOTA target
-                        if plcc < target_srcc or (self.best_quality < self.target_quality_score):
-                            if self.current_rank_weight < 1.5:
-                                self.current_rank_weight = min(1.5, round(self.current_rank_weight + 0.1, 2))
-                                msg_parts.append(f"[AUTONOMOUS GOVERNOR] Dynamic SRCC Boost: Rank Weight -> {self.current_rank_weight}")
-                        
-                        # 2. Dynamically tighten rank_margin (0.10 -> 0.05) when converging
-                        if self.current_rank_margin > 0.05 and current_quality > (self.target_quality_score * 0.70):
-                            self.current_rank_margin = max(0.05, round(self.current_rank_margin - 0.01, 2))
-                            msg_parts.append(f"[AUTONOMOUS GOVERNOR] Dynamic Rank Margin Tightening -> {self.current_rank_margin}")
+                        max_rw = getattr(self, 'max_rank_weight', 1.5)
+                        min_rm = getattr(self, 'min_rank_margin', 0.05)
+
+                        # 1. Dynamically boost rank_weight up to max_rank_weight if SRCC is below SOTA target.
+                        # Audit Fix: use srcc (rank-order) not plcc (linear) for this comparison.
+                        if srcc < target_srcc or (self.best_quality < self.target_quality_score):
+                            if self.current_rank_weight < max_rw:
+                                self.current_rank_weight = min(max_rw, round(self.current_rank_weight + 0.1, 2))
+                                msg_parts.append(f"[AUTONOMOUS GOVERNOR] Dynamic SRCC Boost: Rank Weight -> {self.current_rank_weight:.2f} (cap: {max_rw:.2f})")
+
+                        # 2. Dynamically tighten rank_margin down to min_rank_margin when converging
+                        if self.current_rank_margin > min_rm and current_quality > (self.target_quality_score * 0.70):
+                            self.current_rank_margin = max(min_rm, round(self.current_rank_margin - 0.01, 2))
+                            msg_parts.append(f"[AUTONOMOUS GOVERNOR] Dynamic Rank Margin Tightening -> {self.current_rank_margin:.3f} (floor: {min_rm:.3f})")
 
         # --- Senior Feature: Gradual Temperature Sharpening (Success Branch) ---
         if not (is_regressing or is_turbulent or sentinel_trigger_rate > 0.15) and self.current_temp > self.min_temp:

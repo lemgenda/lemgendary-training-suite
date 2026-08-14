@@ -92,7 +92,9 @@ nima_aesthetic_mobile:
     emd_epsilon: 0.0001
     logit_clamp: 15.0
     rank_weight: 0.8
-    rank_margin: 0.1
+    rank_margin: 0.08
+    max_rank_weight: 1.5
+    min_rank_margin: 0.05
     numerical_sentinel:
     - -15.0
     - 15.0
@@ -143,11 +145,14 @@ nima_aesthetic_efficientnet:
     plcc: 0.7
     srcc: 0.7
   stabilizers:
+    min_temp: 0.96
     softmax_temp: 1.0
     emd_epsilon: 0.0001
     logit_clamp: 15.0
     rank_weight: 0.8
-    rank_margin: 0.1
+    rank_margin: 0.08
+    max_rank_weight: 2.0
+    min_rank_margin: 0.05
     numerical_sentinel:
     - -15.0
     - 15.0
@@ -202,6 +207,8 @@ nima_aesthetic_pro:
     logit_clamp: 15.0
     rank_weight: 0.2
     rank_margin: 0.05
+    max_rank_weight: 1.0
+    min_rank_margin: 0.05
     numerical_sentinel:
     - -15.0
     - 15.0
@@ -254,7 +261,9 @@ nima_technical:
     emd_epsilon: 0.0001
     logit_clamp: 15.0
     rank_weight: 0.8
-    rank_margin: 0.1
+    rank_margin: 0.08
+    max_rank_weight: 2.0
+    min_rank_margin: 0.05
     numerical_sentinel:
     - -15.0
     - 15.0
