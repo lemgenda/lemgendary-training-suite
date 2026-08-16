@@ -452,12 +452,14 @@ class SmartTrainingGovernor:
         if getattr(self, 'jolt_window_remaining', 0) > 0:
             self.jolt_window_remaining -= 1
             # Safety Measure 1: Early Collapse Valve on metric regression or volatility
-            if delta_q < -0.015 or should_retreat or is_regressing:
+            # Dynamic Manifold Scale Guard: scale threshold for high-scalar quality scores (> 1.0)
+            collapse_threshold = (self.prev_quality * -0.03) if (self.prev_quality and self.prev_quality > 1.0) else -0.015
+            if delta_q < collapse_threshold or should_retreat or is_regressing:
                 self.jolt_window_remaining = 0
                 self.lr_multiplier = self.cooling_factor
                 self.head_lr_multiplier = self.cooling_factor
                 lr_changed = True
-                msg_parts.append(f"[JOLT SHIELD] Early collapse triggered (Regression: {delta_q:.4f}). Cooling LR.")
+                msg_parts.append(f"[JOLT SHIELD] Early collapse triggered (Regression: {delta_q:.4f} < {collapse_threshold:.4f}). Cooling LR.")
             else:
                 lr_changed = True
                 msg_parts.append(f"SUSTAINED JOLT: Window Active ({self.jolt_window_remaining} epochs remaining | Head LR: {self.head_lr_multiplier:.2f}x | Backbone LR: {self.lr_multiplier:.2f}x)")
