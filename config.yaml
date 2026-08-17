@@ -11,10 +11,17 @@ unified_models: "unified_models_v2.yaml"
 hardware:
   target_device: "cuda"
   vram_limit_gb: 4.0
-  cudnn_workspace_cap_train: 16 # Train pass is less memory intensive
-  cudnn_workspace_cap_val: 4    # Val pass is higher res and triggers CuDNN OOM easily
+  # cudnn_workspace_cap_train and cudnn_workspace_cap_val are intentionally unset.
+  # audit_hardware_vram() computes VRAM-tier-aware dynamic caps at runtime:
+  #   <4.5GB VRAM (GTX 1650):  val_cap=4,  train_cap=16
+  #   <8.5GB VRAM (RTX 3060):  val_cap=12, train_cap=16
+  #   <16.5GB VRAM (RTX 3090): val_cap=24, train_cap=32
+  #   >=16.5GB VRAM (A100/T4x2): val_cap=48, train_cap=64
+  # Override here ONLY if you need to force a specific cap on this machine.
+  # cudnn_workspace_cap_val: 4
+  # cudnn_workspace_cap_train: 16
   max_allowed_local_resolution: 640
-  num_workers: 4 # 2026 Resilience: Multiprocessing enabled for performance. Watch out for Windows PageFile exhaustion (Error 1455)
+  num_workers: auto # Dynamically managed by train.py: 0 on Windows (small RAM), 2 on Kaggle, cpu_count on Linux
   pin_memory: true
   use_fp16: true
 
