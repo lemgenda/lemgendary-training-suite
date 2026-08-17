@@ -2877,45 +2877,47 @@ def main():
                         ]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
 
-                # Disabled volatile FP16 autocast during validation to prevent PyTorch precision collapses
-                if train_ds.task_type == "text_to_image":
-                    if hasattr(model, "val_step"):
-                        loss_dict = model.val_step(inputs)
-                        loss = loss_dict["loss"]
-                        preds, targets = loss_dict.get("preds"), loss_dict.get("targets")
-                    else:
-                        latents = model.vae.encode(inputs["pixel_values"]).latent_dist.sample() * model.vae.config.scaling_factor
-                        noise = torch.randn_like(latents)
-                        timesteps = torch.randint(0, model.noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=device)
-                        noisy_latents = model.noise_scheduler.add_noise(latents, noise, timesteps)
-                        model_pred = model.unet(noisy_latents, timesteps, inputs["prompt_embeds"]).sample
-                        loss = torch.nn.functional.mse_loss(model_pred.float(), noise.float(), reduction="mean")
-                        preds, targets = model_pred, noise
-
-                elif train_ds.task_type == "image_to_text":
-                    outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs.get("attention_mask"), pixel_values=inputs.get("pixel_values"), labels=inputs.get("labels"))
-                    loss = outputs.loss
-                    preds, targets = outputs.logits, inputs.get("labels")
-
-                elif getattr(train_ds, "task_type", "") == "forex":
-                    pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
-                    preds = model(inputs, pair_idx=pair_idx)
-                    loss = criterion(preds, targets)
-                else:
-                    preds = model(inputs)
-                    # --- 2026: Numerical Sentinel (Validation Parity Guard) ---
-                    sentinel = stab.get('numerical_sentinel')
-                    if sentinel and len(sentinel) == 2:
-                        min_v, max_v = float(sentinel[0]), float(sentinel[1])
-                        if isinstance(preds, (tuple, list)):
-                            p_p = preds[0].contiguous()
-                            sentinel_stresses.append(((p_p < min_v) | (p_p > max_v)).float().mean().item())
-                            preds = (torch.clamp(p_p, min=min_v, max=max_v), *preds[1:])
+                # 2026 Acceleration: Accelerated validation inference under AMP (Tensor Cores enabled)
+                val_use_amp = (device.type == 'cuda' and not stab.get('force_fp32_val', False))
+                with torch.amp.autocast('cuda', enabled=val_use_amp):
+                    if train_ds.task_type == "text_to_image":
+                        if hasattr(model, "val_step"):
+                            loss_dict = model.val_step(inputs)
+                            loss = loss_dict["loss"]
+                            preds, targets = loss_dict.get("preds"), loss_dict.get("targets")
                         else:
-                            preds = preds.contiguous()
-                            sentinel_stresses.append(((preds < min_v) | (preds > max_v)).float().mean().item())
-                            preds = torch.clamp(preds, min=min_v, max=max_v)
-                    loss = criterion(preds, targets, task_idx) # pyre-ignore
+                            latents = model.vae.encode(inputs["pixel_values"]).latent_dist.sample() * model.vae.config.scaling_factor
+                            noise = torch.randn_like(latents)
+                            timesteps = torch.randint(0, model.noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=device)
+                            noisy_latents = model.noise_scheduler.add_noise(latents, noise, timesteps)
+                            model_pred = model.unet(noisy_latents, timesteps, inputs["prompt_embeds"]).sample
+                            loss = torch.nn.functional.mse_loss(model_pred.float(), noise.float(), reduction="mean")
+                            preds, targets = model_pred, noise
+
+                    elif train_ds.task_type == "image_to_text":
+                        outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs.get("attention_mask"), pixel_values=inputs.get("pixel_values"), labels=inputs.get("labels"))
+                        loss = outputs.loss
+                        preds, targets = outputs.logits, inputs.get("labels")
+
+                    elif getattr(train_ds, "task_type", "") == "forex":
+                        pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
+                        preds = model(inputs, pair_idx=pair_idx)
+                        loss = criterion(preds, targets)
+                    else:
+                        preds = model(inputs)
+                        # --- 2026: Numerical Sentinel (Validation Parity Guard) ---
+                        sentinel = stab.get('numerical_sentinel')
+                        if sentinel and len(sentinel) == 2:
+                            min_v, max_v = float(sentinel[0]), float(sentinel[1])
+                            if isinstance(preds, (tuple, list)):
+                                p_p = preds[0].contiguous()
+                                sentinel_stresses.append(((p_p < min_v) | (p_p > max_v)).float().mean().item())
+                                preds = (torch.clamp(p_p, min=min_v, max=max_v), *preds[1:])
+                            else:
+                                preds = preds.contiguous()
+                                sentinel_stresses.append(((preds < min_v) | (preds > max_v)).float().mean().item())
+                                preds = torch.clamp(preds, min=min_v, max=max_v)
+                        loss = criterion(preds, targets, task_idx) # pyre-ignore
 
                 preds_chk = preds["direction_logits"] if isinstance(preds, dict) else preds
                 if torch.isnan(loss) or (isinstance(preds_chk, torch.Tensor) and torch.isnan(preds_chk).any()):
@@ -2954,22 +2956,21 @@ def main():
                     # GPU-accelerated vectorized SSIM (100x faster than single-threaded CPU skimage)
                     ssim_sum += compute_ssim_gpu(p_chunk, t_chunk, data_range=1.0)
 
+                    # Dynamic batch chunking: use larger chunks on >=8GB cards (e.g. T4/3090)
+                    eval_chunk_size = 16 if vram_gb >= 8.0 else 4
+
                     if loss_fn_vgg:
-                        # Chunk LPIPS evaluation to avoid VRAM peaks on high-res validation
                         lpips_val_local = 0.0
-                        chunk_size = 4
-                        for c_idx in range(0, len(p_chunk), chunk_size):
-                            p_sub = p_chunk[c_idx:c_idx+chunk_size] * 2 - 1
-                            t_sub = t_chunk[c_idx:c_idx+chunk_size] * 2 - 1
+                        for c_idx in range(0, len(p_chunk), eval_chunk_size):
+                            p_sub = p_chunk[c_idx:c_idx+eval_chunk_size] * 2 - 1
+                            t_sub = t_chunk[c_idx:c_idx+eval_chunk_size] * 2 - 1
                             lpips_val_local += loss_fn_vgg(p_sub, t_sub).sum().item()
                         lpips_sum += lpips_val_local
 
                     if fid_metric is not None:
-                        # Chunk FID update to avoid VRAM peaks on high-res validation
-                        chunk_size = 4
-                        for c_idx in range(0, len(p_chunk), chunk_size):
-                            p_sub = p_chunk[c_idx:c_idx+chunk_size]
-                            t_sub = t_chunk[c_idx:c_idx+chunk_size]
+                        for c_idx in range(0, len(p_chunk), eval_chunk_size):
+                            p_sub = p_chunk[c_idx:c_idx+eval_chunk_size]
+                            t_sub = t_chunk[c_idx:c_idx+eval_chunk_size]
                             p_fid = (p_sub * 255).to(torch.uint8)
                             t_fid = (t_sub * 255).to(torch.uint8)
                             fid_metric.update(t_fid, real=True)

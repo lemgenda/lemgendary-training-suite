@@ -182,7 +182,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "suite_candidates = ['/kaggle/working/lemgendary-training-suite', '/kaggle/working/model-training/lemgendary-training-suite', '/kaggle/working']\n",
         "req_path = next((os.path.join(p, 'requirements.txt') for p in suite_candidates if os.path.exists(os.path.join(p, 'requirements.txt'))), None)\n",
         "if req_path:\n",
-        "    res = subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '-r', req_path])\n",
+        "    res = subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--no-warn-conflicts', '--upgrade-strategy', 'only-if-needed', '-r', req_path])\n",
         "    if res.returncode == 0:\n",
         "        print('[OK] Environment Ready.')\n",
         "    else:\n",
