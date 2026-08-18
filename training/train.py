@@ -1851,6 +1851,14 @@ def main():
 
         model.train() # pyre-ignore
 
+        # --- 2026 Resilience: Parity & Device Alignment Guard ---
+        try:
+            first_param = next(model.parameters(), None)
+            if first_param is not None and first_param.device != device:
+                model.to(device)
+        except Exception:
+            pass
+
         # --- 2026 Dynamic Validation Parity (v19.0 High-Res Lock) ---
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
         max_local_res = config.get("hardware", {}).get("max_allowed_local_resolution", 640)
@@ -4097,15 +4105,21 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
         subprocess.call([sys.executable, torch_script, "--model", args.model, "--checkpoint", best_ckpt_path, "--yes"])
 
         # 3. README Documentation
-        from training.doc_generator import build_model_readme
-        readme_text = build_model_readme(args.model, unified_models_registry, epoch+1, best_metrics)
-        with open(os.path.join(export_dir, "README.md"), "w") as f:
-            f.write(readme_text)
+        try:
+            from training.doc_generator import build_model_readme
+            readme_text = build_model_readme(args.model, unified_models_registry, epoch+1, best_metrics)
+            with open(os.path.join(export_dir, "README.md"), "w", encoding='utf-8') as f:
+                f.write(readme_text)
+        except Exception as doc_err:
+            print(f" [WARNING] [DOC GENERATION] Failed to build model README: {doc_err}")
 
         # 4. Notebook Generation
-        from training.notebook_generator import generate_inference_notebook, generate_usage_notebook
-        generate_inference_notebook(args.model, export_dir, unified_models_registry, config)
-        generate_usage_notebook(args.model, export_dir, unified_models_registry, config)
+        try:
+            from training.notebook_generator import generate_inference_notebook, generate_usage_notebook
+            generate_inference_notebook(args.model, export_dir, unified_models_registry, config)
+            generate_usage_notebook(args.model, export_dir, unified_models_registry, config)
+        except Exception as nb_err:
+            print(f" [WARNING] [NOTEBOOK GENERATION] Failed to generate notebooks: {nb_err}")
 
         # 5. Hub Synchronization
         if os.path.abspath(export_dir) != os.path.abspath(hub_model_dir):
@@ -4126,13 +4140,15 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
                             print(f" [KAGGLER] Artifact mirrored to root: /kaggle/working/{exp_f}")
                         except Exception: pass
 
-        # Restore model to GPU for next epoch
-        try:
-            model.to(device)
-        except: pass
-
     except Exception as e:
         print(f"[WARNING] [EXPORT FAILURE] {e}")
+    finally:
+        # 2026 Resilience: Unconditionally restore model and DataParallel parameters to target device
+        if model is not None and device is not None:
+            try:
+                model.to(device)
+            except Exception as dev_err:
+                print(f"[WARNING] Failed to restore model to {device}: {dev_err}")
 
 if __name__ == "__main__":
     try:

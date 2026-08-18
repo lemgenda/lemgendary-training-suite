@@ -582,9 +582,12 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                 ds_dir = os.path.join(datasets_hub_root, m_folder)
                 if os.path.exists(ds_dir):
                     ds_output_path = os.path.join(ds_dir, f"{model_key}_training.ipynb")
-                    with open(ds_output_path, "w", encoding='utf-8') as f:
-                        f.write(json_str)
-                    print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
+                    try:
+                        with open(ds_output_path, "w", encoding='utf-8') as f:
+                            f.write(json_str)
+                        print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
+                    except Exception as ds_err:
+                        print(f"[NOTICE] Skipped dataset manifold notebook sync for {ds_output_path} (read-only or unavailable: {ds_err})")
 
 
 
