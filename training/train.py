@@ -3733,6 +3733,7 @@ def main():
 
         # --- 2026 Resilience: Hub Mirroring & Sync (v13.0 Stateless) ---
         # Latest and Best are now stored DIRECTLY in the Hub repository to keep Suite repo clean.
+        skip_hub_push = False
         try:
             latest_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
             best_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
@@ -3746,35 +3747,36 @@ def main():
                     hub_epoch = hub_ckpt.get('epoch', -1)
                     if hub_epoch > epoch:
                         print(f" [GUARD] [HUB LOCK] Hub has a HIGHER epoch ({hub_epoch+1}) than local session ({epoch+1}).", file=sys.stderr)
-                        print(f" [GUARD] [HUB LOCK] Aborting Hub push to prevent clobbering. Please pull the latest state.", file=sys.stderr)
+                        print(f" [GUARD] [HUB LOCK] Skipping Hub push for this epoch to prevent clobbering. Continuing training...", file=sys.stderr)
                         # We still update local progress, but skip the Hub push
                         safe_torch_save(ckpt_state, progress_local)
-                        return
+                        skip_hub_push = True
                 except Exception as e:
                     print(f" [WARNING] [HUB LOCK] Failed to audit Hub parity: {e}. Proceeding with caution...", file=sys.stderr)
 
-            # 1. Save state (Latest always, Best on improvement)
-            safe_torch_save(ckpt_state, latest_hub_path)
-            if is_best:
-                if os.path.abspath(latest_hub_path) != os.path.abspath(best_hub_path):
-                    shutil.copy2(latest_hub_path, best_hub_path)
-                print(f"[HUB SYNC] New SOTA archived to Hub.", file=sys.stderr)
+            if not skip_hub_push:
+                # 1. Save state (Latest always, Best on improvement)
+                safe_torch_save(ckpt_state, latest_hub_path)
+                if is_best:
+                    if os.path.abspath(latest_hub_path) != os.path.abspath(best_hub_path):
+                        shutil.copy2(latest_hub_path, best_hub_path)
+                    print(f"[HUB SYNC] New SOTA archived to Hub.", file=sys.stderr)
 
-                # --- 2026: Real-Time SOTA Export (v17.2 Hardening) ---
-                # We trigger the full export suite (ONNX + Notebooks) on every new BEST
-                # so the Hub is always ready for production deployment.
-                try:
-                    metrics_to_report = best_metrics if best_quality_score > -1.0 else {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
-                    trigger_sota_export(args, model, device, config, unified_models_registry, epoch, metrics_to_report, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root)
-                except Exception as e_exp:
-                    print(f" [WARNING] [REAL-TIME EXPORT] Failed to generate production artifacts: {e_exp}", file=sys.stderr)
+                    # --- 2026: Real-Time SOTA Export (v17.2 Hardening) ---
+                    # We trigger the full export suite (ONNX + Notebooks) on every new BEST
+                    # so the Hub is always ready for production deployment.
+                    try:
+                        metrics_to_report = best_metrics if best_quality_score > -1.0 else {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
+                        trigger_sota_export(args, model, device, config, unified_models_registry, epoch, metrics_to_report, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root)
+                    except Exception as e_exp:
+                        print(f" [WARNING] [REAL-TIME EXPORT] Failed to generate production artifacts: {e_exp}", file=sys.stderr)
 
-            # 2. Sync Metrics Audit Trail
-            if os.path.exists(metrics_csv_path):
-                hub_metrics_path = os.path.join(hub_model_dir, "metrics.csv")
-                # 2026 Resilience: Avoid shutil.SameFileError if export_dir is already in the Hub
-                if os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_path):
-                    shutil.copy2(metrics_csv_path, hub_metrics_path)
+                # 2. Sync Metrics Audit Trail
+                if os.path.exists(metrics_csv_path):
+                    hub_metrics_path = os.path.join(hub_model_dir, "metrics.csv")
+                    # 2026 Resilience: Avoid shutil.SameFileError if export_dir is already in the Hub
+                    if os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_path):
+                        shutil.copy2(metrics_csv_path, hub_metrics_path)
 
             # 2026: Legacy Git Sync purged.
             # 2026 Resilience: Synchronization is now handled by CloudSyncManager (v16.2)
@@ -3785,7 +3787,7 @@ def main():
         # --- 2026: SOTA Cloud Synchronization Phase ---
         # We trigger the background sync at the VERY end of the loop,
         # ensuring all local files (metrics.csv, checkpoints) are closed and flushed.
-        if args.env == 'kaggle':
+        if args.env == 'kaggle' and not skip_hub_push:
             try:
                 from training.cloud_sync import trigger_cloud_sync
                 trigger_cloud_sync(args.model, epoch + 1, config)
