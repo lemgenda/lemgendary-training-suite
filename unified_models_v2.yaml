@@ -91,6 +91,9 @@ nima_aesthetic_mobile:
     softmax_temp: 1.0
     emd_epsilon: 0.0001
     logit_clamp: 15.0
+    use_soft_spearman: true
+    soft_spearman_weight: 0.5
+    rank_memory_bank_size: 32
     rank_weight: 0.8
     rank_margin: 0.08
     max_rank_weight: 1.5
@@ -149,6 +152,9 @@ nima_aesthetic_efficientnet:
     softmax_temp: 1.0
     emd_epsilon: 0.0001
     logit_clamp: 15.0
+    use_soft_spearman: true
+    soft_spearman_weight: 0.5
+    rank_memory_bank_size: 32
     rank_weight: 0.8
     rank_margin: 0.08
     max_rank_weight: 2.0
@@ -205,6 +211,9 @@ nima_aesthetic_pro:
     softmax_temp: 1.0
     emd_epsilon: 0.0001
     logit_clamp: 15.0
+    use_soft_spearman: true
+    soft_spearman_weight: 0.5
+    rank_memory_bank_size: 32
     rank_weight: 0.2
     rank_margin: 0.05
     max_rank_weight: 1.0
@@ -260,6 +269,9 @@ nima_technical:
     softmax_temp: 1.0
     emd_epsilon: 0.0001
     logit_clamp: 15.0
+    use_soft_spearman: true
+    soft_spearman_weight: 0.5
+    rank_memory_bank_size: 32
     rank_weight: 0.8
     rank_margin: 0.08
     max_rank_weight: 2.0

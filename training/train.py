@@ -3960,6 +3960,76 @@ def main():
         val_resume_iteration = 0
         current_iter = 0
 
+    # --- 2026: Universal Post-Training Target Audit & Interactive Guidance ---
+    if not sota_baseline_achieved:
+        print("\n" + "=" * 80)
+        print(" [TARGET AUDIT] Epoch Budget Reached without Mathematically Breaching SOTA Targets")
+        print("=" * 80)
+        print(f" Model: {args.model} | Total Epochs Processed: {args.epochs}")
+        if 'best_quality_score' in locals() and best_quality_score > -1.0:
+            print(f" Best Quality Score Achieved: {best_quality_score:.4f}")
+        if 'best_val_loss' in locals() and best_val_loss < float('inf'):
+            print(f" Best Validation Loss: {best_val_loss:.6f}")
+
+        # SOTA Target Benchmark Audit
+        sota_targets = model_info.get("sota_targets", {})
+        if sota_targets and 'best_metrics' in locals() and best_metrics:
+            print("\n SOTA Target Benchmark Audit:")
+            for metric_k, target_v in sota_targets.items():
+                achieved_v = best_metrics.get(metric_k, "N/A")
+                if isinstance(achieved_v, (int, float)):
+                    lower_is_better = any(x in metric_k.lower() for x in ["margin", "loss", "lpips", "fid", "mae"])
+                    is_met = (achieved_v <= float(target_v)) if lower_is_better else (achieved_v >= float(target_v))
+                    status = "[MET]" if is_met else "[GAP]"
+                    print(f"   - {metric_k.upper():<14}: Achieved = {achieved_v:.4f} | Target = {target_v}  {status}")
+                else:
+                    print(f"   - {metric_k.upper():<14}: Achieved = {achieved_v} | Target = {target_v}")
+
+        print("\n [DIAGNOSTIC GUIDANCE]")
+        vram_limit = config.get("hardware", {}).get("vram_limit_gb", 4.0)
+        if vram_limit < 8.0:
+            print(f" -> Local Hardware Notice: Restricted GPU VRAM ({vram_limit:.1f}GB) enforced low batch sizes.")
+            print(" -> Recommendation: Move training to Kaggle Cloud Hub (Tesla T4 x2 / 16GB VRAM) for 16-32 batch acceleration.")
+        else:
+            print(" -> Model converged near local optimization ceiling. Fine-tuning or loss refinement recommended.")
+
+        is_interactive = sys.stdin.isatty() and not getattr(args, 'yes', False)
+        if is_interactive:
+            print("\n [ACTION REQUIRED] Select next step:")
+            print("   1. Transition Checkpoint to Kaggle Cloud Hub (Headless GPU)")
+            print("   2. Export Current Best Model to ONNX & Standalone PyTorch")
+            print("   3. Exit / Return to Hub Menu")
+            print("=" * 80)
+            try:
+                choice = input(" Select an option (1-3, default 3): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                choice = "3"
+
+            if choice == "1":
+                print(f"\n [CLOUD] Launching Kaggle Cloud Hub Manager for >> {args.model} <<...")
+                try:
+                    from training.kaggle_cloud_manager import launch_kaggle_training
+                    launch_kaggle_training(args.model, config)
+                except Exception as c_err:
+                    print(f" [WARNING] Could not launch cloud sync directly: {c_err}")
+                    print(f" [TIP] Run Option 4 from lemgendary_models_hub.ps1 to manage Kaggle cloud training.")
+            elif choice == "2":
+                print(f"\n [EXPORT] Exporting current best checkpoint...")
+                best_metrics_exp = locals().get('best_metrics', {})
+                best_qs_exp = locals().get('best_quality_score', 0.0)
+                plcc_exp = best_metrics_exp.get('plcc', 0.0)
+                srcc_exp = best_metrics_exp.get('srcc', 0.0)
+                psnr_exp = best_metrics_exp.get('psnr', 0.0)
+                ssim_exp = best_metrics_exp.get('ssim', 0.0)
+                lpips_exp = best_metrics_exp.get('lpips', 0.0)
+                fid_exp = best_metrics_exp.get('fid', 0.0)
+                trigger_sota_export(args, model, device, config, unified_models_registry, epoch, best_metrics_exp, best_qs_exp, plcc_exp, srcc_exp, psnr_exp, ssim_exp, lpips_exp, fid_exp, export_dir, hub_model_dir, project_root)
+            else:
+                print(f"\n [EXIT] Exiting training. Best checkpoint preserved at {args.model}_best.pth.")
+        else:
+            print("=" * 80)
+
+
 def trigger_sota_export(args, model, device, config, unified_models_registry, epoch, best_metrics, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root):
     """
     Standardized 2026 SOTA Export Suite.

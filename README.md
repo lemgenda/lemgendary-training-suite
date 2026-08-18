@@ -23,7 +23,10 @@ The deep architectural backlog, including the **Memory-Sentinel**, **Sawtooth Go
 - **Autonomous Resolution Escalation & Dynamic Limits (v16.3.3)**: `SmartTrainingGovernor` dynamically detects resolution-regression locks when rollback thresholds are met and automatically promotes the training resolution to the next rung in `res_ladder` (`256px -> 384px`), resetting sample fraction to 15% for a fresh warmup. `get_active_regression_limit()` dynamically relaxes `regression_limit` during loop recovery so static YAML limits never block resolution escalation.
 - **Proven-Manifold Protection & Intra-Resolution Data Recoil (v16.0.0)**: If a model regresses during dataset fraction expansion on a resolution where it already achieved a high peak score (`best_quality >= 0.75 * target_quality_score` or `> 85.0`), the `SmartTrainingGovernor` blocks premature Spatial Retreats (resolution drops) and instead executes Intra-Resolution Data Recoil. It steps dataset fraction back to the last safe fraction on the high-resolution manifold (e.g. `75% -> 55%` at `512px`) while cooling the learning rate by 50% and locking stabilization for 5 epochs.
 - **Autonomous SOTA Hyperparameter Adaptation (v17.5)**: `SmartTrainingGovernor` dynamically adjusts loss function hyperparameters on the fly without manual mid-training YAML edits. When PLCC/SRCC or EMD plateau below target benchmarks (`SRCC > 0.9100`, `EMD < 0.0700`), the Governor automatically scales pairwise `rank_weight` (up to `1.5`), tightens `rank_margin` (down to `0.05`), and sharpens `softmax_temp` during the `REFINEMENT` phase.
-- **Smart Governor Plateau-Breaking Engine (v16.4.0)**: Featuring 3-Epoch Sustained Jolt Windows (eliminating sawtooth LR thrashing), Head-Differential LR Propulsion (boosting output head LR by 1.8x while dampening backbone LR to 0.75x with a $\le 3.0\times$ ratio clamp), and Mini-SWA Plateau Recovery Pulses with CPU state backups, mandatory 20-batch `update_bn` re-estimation passes, and automatic quality degradation rollbacks.
+- **Differentiable Soft-Spearman Loss & Rank Memory Bank (v19.0)**: Eliminates micro-batch ranking starvation under low VRAM ($b=2$) by evaluating sigmoid-ranked correlation over a historical FIFO queue ($N=32$), scaling pairwise comparisons to $\binom{32}{2} = 496$ pairs per backward pass.
+- **Spatial Statistical Pooling ($\text{Mean} \oplus \text{Std}$)**: Doubles feature sensitivity to localized micro-defects and safety triggers by retaining spatial variance alongside global averages.
+- **Headless Kaggle Cloud Engine**: Full CLI and PowerShell API orchestration for launching, monitoring, and pulling high-VRAM GPU training runs (Tesla T4 x2 / P100) headlessly.
+- **Universal Post-Training Target Audit & Interactive Guidance**: Diagnostic gap analysis against `sota_targets` upon epoch ceiling completion with interactive cloud escalation and export options.
 
 For an exhaustive breakdown of the Training Suite architecture, please consult the [Master Training Suite Guide](file:///c:/Development/python/model-training/lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md) in the `lemgendary-docs` repository.
 
@@ -44,9 +47,9 @@ The master orchestration console for system bootstrapping and cloud sync.
 | Option | Action | Sub-Prompts & Details |
 | :--- | :--- | :--- |
 | **1. Initialize Systems** | **Environment Sync** | Installs Python 3.12, creates `.venv`, and Auto-Detects GPU. Installs PyTorch 2.7.0+ and **Master SOTA Stack**. |
-| **2. Train Model** | **High-Fidelity Selection** | Launches the **Hardened Category Submenu** with 24+ SOTA architectures. |
-| **3. Global Orchestration** | **Continuous Train** | Executes intelligent phased training with **Stateless Resumption** and **Sawtooth Governance**. |
-| **5. Environment Janitor** | **Orphan Purge** | Force-terminates orphaned processes and releases Windows file-system mutexes. |
+| **2. Train Model Locally** | **Two-Level Domain Selection** | Select from parent domains (**Image Manipulation & Restoration**, **Image Generation & Multimodal**, **Financial & Time-Series**) with 24+ SOTA architectures. |
+| **3. Single-Epoch Unit Test** | **Fleet Smoke Test** | Diagnostic 1-epoch execution across all registered models. |
+| **4. Kaggle Cloud Engine** | **Headless GPU Orchestration** | Launch, stream telemetry, and pull trained checkpoints from Kaggle Cloud GPU headlessly. |
 
 ---
 

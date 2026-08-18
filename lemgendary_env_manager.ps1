@@ -193,40 +193,111 @@ function Initialize-Environment {
 }
 
 function Get-ModelSelection {
-    Write-Header "SELECT MODEL CATEGORY"
-    Write-Host "  1. Quality Assessment  (NIMA, Aesthetics, Authenticity)" -ForegroundColor Cyan
-    Write-Host "  2. Face & Detection    (RetinaFace, YOLOv8, CodeFormer, ParseNet)" -ForegroundColor Cyan
-    Write-Host "  3. Super-Resolution    (UltraZoom x2/x3/x4/x8)" -ForegroundColor Cyan
-    Write-Host "  4. Image Restoration   (NAFNet, MIRNet, FFANet, MPRNet)" -ForegroundColor Cyan
-    Write-Host "  5. Universal Hybrid    (UPN v2, Multi-Restorer, Film Restoration)" -ForegroundColor Cyan
-    Write-Host "  6. Generative Diffusion (Master Manifold)" -ForegroundColor Cyan
-    Write-Host "  7. Vision-Language      (Master Manifold)" -ForegroundColor Cyan
-    Write-Host "  8. Cancel" -ForegroundColor Gray
-    Write-Host ""
-    
-    $catChoice = Read-Host "Select a category (1-8)"
-    $modelList = @()
-    switch ($catChoice) {
-        '1' { $modelList = @("nima_aesthetic_mobile", "nima_aesthetic_pro", "nima_technical", "nima_authenticity", "anime_nsfw_classification") }
-        '2' { $modelList = @("codeformer", "parsenet", "retinaface_mobilenet", "retinaface_resnet", "yolov8n") }
-        '3' { $modelList = @("ultrazoom") }
-        '4' { $modelList = @("ffanet_indoor", "ffanet_outdoor", "mprnet_deraining", "mirnet_lowlight", "mirnet_exposure", "nafnet_debluring", "nafnet_denoising") }
-        '5' { $modelList = @("upn_v2", "professional_multitask_restoration", "film_restorer") }
-        '6' { $modelList = @("diffusion_sdxl", "diffusion_flux") }
-        '7' { $modelList = @("vlm_llava", "vlm_blip2") }
-        default { return $null }
-    }
+    while ($true) {
+        Write-Header "SELECT MODEL DOMAIN (PARENT CATEGORY)"
+        Write-Host "  1. Image Manipulation & Restoration" -ForegroundColor Cyan
+        Write-Host "  2. Image Generation & Multimodal" -ForegroundColor Cyan
+        Write-Host "  3. Financial & Time-Series" -ForegroundColor Cyan
+        Write-Host "  Q. Cancel / Return" -ForegroundColor Gray
+        Write-Host ""
 
-    Write-Header "SELECT SPECIFIC MODEL"
-    for ($i=0; $i -lt $modelList.Count; $i++) {
-        Write-Host "  $($i+1). $($modelList[$i])" -ForegroundColor Green
+        $domainChoice = (Read-Host "Select a domain (1-3, Q)").Trim()
+        if ($domainChoice -eq 'Q' -or $domainChoice -eq 'q') { return $null }
+
+        switch ($domainChoice) {
+            '1' {
+                while ($true) {
+                    Write-Header "IMAGE MANIPULATION & RESTORATION - SUB-CATEGORIES"
+                    Write-Host "  1. Quality Assessment  (NIMA Aesthetics, Technical, Authenticity, Universal NSFW)" -ForegroundColor Cyan
+                    Write-Host "  2. Face & Detection    (RetinaFace, YOLOv8, CodeFormer, ParseNet)" -ForegroundColor Cyan
+                    Write-Host "  3. Super-Resolution    (UltraZoom x2/x3/x4/x8)" -ForegroundColor Cyan
+                    Write-Host "  4. Image Restoration   (NAFNet, MIRNet, FFANet, MPRNet)" -ForegroundColor Cyan
+                    Write-Host "  5. Universal Hybrid    (UPN v2, Multi-Restorer, Film Restoration)" -ForegroundColor Cyan
+                    Write-Host "  B. Back to Domain Menu" -ForegroundColor Gray
+                    Write-Host ""
+
+                    $subChoice = (Read-Host "Select sub-category (1-5, B)").Trim()
+                    if ($subChoice -eq 'B' -or $subChoice -eq 'b') { break }
+
+                    $modelList = @()
+                    switch ($subChoice) {
+                        '1' { $modelList = @("nima_aesthetic_mobile", "nima_aesthetic_efficientnet", "nima_aesthetic_pro", "nima_technical", "nima_authenticity", "universal_nsfw_classification") }
+                        '2' { $modelList = @("codeformer", "parsenet", "retinaface_mobilenet", "yolov8n") }
+                        '3' { $modelList = @("ultrazoom") }
+                        '4' { $modelList = @("ffanet_indoor", "ffanet_outdoor", "mprnet_deraining", "mirnet_lowlight", "mirnet_exposure", "nafnet_debluring", "nafnet_denoising") }
+                        '5' { $modelList = @("upn_v2", "professional_multitask_restoration", "film_restorer") }
+                        default { continue }
+                    }
+
+                    $selected = Show-ModelList -Models $modelList
+                    if ($null -ne $selected) { return $selected }
+                }
+            }
+
+            '2' {
+                while ($true) {
+                    Write-Header "IMAGE GENERATION & MULTIMODAL - SUB-CATEGORIES"
+                    Write-Host "  1. Generative Diffusion (SDXL, Flux)" -ForegroundColor Cyan
+                    Write-Host "  2. Vision-Language      (LLaVA, BLIP-2)" -ForegroundColor Cyan
+                    Write-Host "  B. Back to Domain Menu" -ForegroundColor Gray
+                    Write-Host ""
+
+                    $subChoice = (Read-Host "Select sub-category (1-2, B)").Trim()
+                    if ($subChoice -eq 'B' -or $subChoice -eq 'b') { break }
+
+                    $modelList = @()
+                    switch ($subChoice) {
+                        '1' { $modelList = @("diffusion_sdxl", "diffusion_flux") }
+                        '2' { $modelList = @("vlm_llava", "vlm_blip2") }
+                        default { continue }
+                    }
+
+                    $selected = Show-ModelList -Models $modelList
+                    if ($null -ne $selected) { return $selected }
+                }
+            }
+
+            '3' {
+                while ($true) {
+                    Write-Header "FINANCIAL & TIME-SERIES - SUB-CATEGORIES"
+                    Write-Host "  1. Forex Trading (ForexPredictor Multi-Scale CNN-Transformer)" -ForegroundColor Cyan
+                    Write-Host "  B. Back to Domain Menu" -ForegroundColor Gray
+                    Write-Host ""
+
+                    $subChoice = (Read-Host "Select sub-category (1, B)").Trim()
+                    if ($subChoice -eq 'B' -or $subChoice -eq 'b') { break }
+
+                    $modelList = @()
+                    switch ($subChoice) {
+                        '1' { $modelList = @("forex_predictor") }
+                        default { continue }
+                    }
+
+                    $selected = Show-ModelList -Models $modelList
+                    if ($null -ne $selected) { return $selected }
+                }
+            }
+
+            default {
+                Write-Host "Invalid selection." -ForegroundColor Red
+                Start-Sleep -Seconds 1
+            }
+        }
     }
-    Write-Host "  $($modelList.Count + 1). Back" -ForegroundColor Gray
+}
+
+function Show-ModelList {
+    param([string[]]$Models)
+    Write-Header "SELECT SPECIFIC MODEL MANIFOLD"
+    for ($i=0; $i -lt $Models.Count; $i++) {
+        Write-Host "  $($i+1). $($Models[$i])" -ForegroundColor Green
+    }
+    Write-Host "  $($Models.Count + 1). Back" -ForegroundColor Gray
     Write-Host ""
-    
-    $modelChoice = (Read-Host "Select a model (1-$($modelList.Count + 1))").Trim()
-    if ($modelChoice -as [int] -and [int]$modelChoice -ge 1 -and [int]$modelChoice -le $modelList.Count) {
-        return $modelList[[int]$modelChoice - 1]
+
+    $choice = (Read-Host "Select a model (1-$($Models.Count + 1))").Trim()
+    if ($choice -as [int] -and [int]$choice -ge 1 -and [int]$choice -le $Models.Count) {
+        return $Models[[int]$choice - 1]
     }
     return $null
 }

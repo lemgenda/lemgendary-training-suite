@@ -31,7 +31,7 @@ class PhaseDef(TypedDict):
     models: List[str]
 
 PHASES: List[PhaseDef] = [
-    {"name": "Phase 1: Deep Quality & Safety Assessment", "datasets": ["LemGendizedQualityDataset", "ClassificationMasterManifold"], "models": ["nima_aesthetic", "nima_technical", "nima_authenticity", "anime_nsfw_classification"]},
+    {"name": "Phase 1: Deep Quality & Safety Assessment", "datasets": ["LemGendizedQualityDataset", "ClassificationMasterManifold"], "models": ["nima_aesthetic_mobile", "nima_aesthetic_efficientnet", "nima_aesthetic_pro", "nima_technical", "nima_authenticity", "universal_nsfw_classification"]},
     {"name": "Phase 2A: High-Fidelity Facial Analytics", "datasets": ["LemGendizedFaceDataset"], "models": ["codeformer", "parsenet"]},
     {"name": "Phase 2B: Massive Universal Detection", "datasets": ["LemGendizedFaceDataset", "LemGendizedDetectionDataset"], "models": ["retinaface_mobilenet", "retinaface_resnet", "yolov8n"]},
     {"name": "Phase 3A: Master Super-Resolution Synthesis", "datasets": ["LemGendizedSuperResDataset"], "models": ["ultrazoom"]},

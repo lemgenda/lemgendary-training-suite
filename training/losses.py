@@ -67,10 +67,117 @@ class ForexDualLoss(nn.Module):
         return self.direction_weight * dir_loss + self.magnitude_weight * mag_loss
 
 
+class SoftSpearmanLoss(nn.Module):
+    """
+    Differentiable Soft-Spearman Rank Correlation Loss.
+    Approximates the rank operator using temperature-scaled sigmoid pairwise comparisons:
+        r_i = 1 + \\sum_{j \\ne i} \\sigma((p_i - p_j) / \\tau)
+    Optimizes Spearman rank correlation directly with smooth gradients.
+    """
+    def __init__(self, temperature: float = 0.1, eps: float = 1e-6):
+        super().__init__()
+        self.temperature = temperature
+        self.eps = eps
+
+    def forward(self, p_scores: torch.Tensor, t_scores: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            p_scores: Predicted 1D continuous scores [N]
+            t_scores: Target 1D continuous scores [N]
+        Returns:
+            Scalar loss: 1 - soft_spearman_correlation
+        """
+        n = p_scores.size(0)
+        if n < 2:
+            return torch.tensor(0.0, device=p_scores.device, requires_grad=True)
+
+        # Pairwise difference matrices: [N, N]
+        p_diff = (p_scores.unsqueeze(0) - p_scores.unsqueeze(1)) / self.temperature
+        t_diff = (t_scores.unsqueeze(0) - t_scores.unsqueeze(1)) / self.temperature
+
+        # Soft ranks via sigmoid
+        p_ranks = 1.0 + torch.sigmoid(p_diff).sum(dim=1)
+        t_ranks = 1.0 + torch.sigmoid(t_diff).sum(dim=1)
+
+        # Center ranks
+        p_ranks_c = p_ranks - p_ranks.mean()
+        t_ranks_c = t_ranks - t_ranks.mean()
+
+        # Pearson correlation of soft ranks
+        cov = (p_ranks_c * t_ranks_c).sum()
+        var_p = (p_ranks_c ** 2).sum()
+        var_t = (t_ranks_c ** 2).sum()
+
+        denom = torch.sqrt(torch.clamp(var_p * var_t, min=self.eps))
+        soft_spearman = cov / denom
+
+        return 1.0 - soft_spearman
+
+
+class RankMemoryBank:
+    """
+    Cross-Microbatch FIFO Memory Bank for Rank & Contrastive Supervision.
+    Caches detached predictions and targets across gradient accumulation steps,
+    allowing effective pairwise ranking over (N_batch + N_memory) samples
+    even when local VRAM forces micro-batch size b=2.
+    """
+    def __init__(self, capacity: int = 32):
+        self.capacity = capacity
+        self.p_memory = []
+        self.t_memory = []
+
+    def get_context(self, p_active: torch.Tensor, t_active: torch.Tensor):
+        """
+        Concatenates active batch with detached historical representations.
+        Gradients backpropagate exclusively through p_active.
+        """
+        if len(self.p_memory) == 0:
+            return p_active, t_active
+
+        p_hist = torch.stack(self.p_memory).to(p_active.device)
+        t_hist = torch.stack(self.t_memory).to(t_active.device)
+
+        p_full = torch.cat([p_active, p_hist], dim=0)
+        t_full = torch.cat([t_active, t_hist], dim=0)
+        return p_full, t_full
+
+    def update(self, p_active: torch.Tensor, t_active: torch.Tensor):
+        """Push active samples into detached FIFO queue."""
+        with torch.no_grad():
+            for p, t in zip(p_active.detach().view(-1), t_active.detach().view(-1)):
+                self.p_memory.append(p)
+                self.t_memory.append(t)
+                if len(self.p_memory) > self.capacity:
+                    self.p_memory.pop(0)
+                    self.t_memory.pop(0)
+
+    def reset(self):
+        """Clear memory at epoch boundary or resolution jump."""
+        self.p_memory.clear()
+        self.t_memory.clear()
+
+
+class FocalLoss(nn.Module):
+    """
+    Multi-Class Focal Loss for Safety / NSFW Categorical Classification.
+    Down-weights easy well-classified negatives to focus on hard boundary triggers.
+    """
+    def __init__(self, gamma: float = 2.0, label_smoothing: float = 0.05):
+        super().__init__()
+        self.gamma = gamma
+        self.label_smoothing = label_smoothing
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        ce_loss = F.cross_entropy(pred, target, reduction='none', label_smoothing=self.label_smoothing)
+        pt = torch.exp(-ce_loss)
+        focal_loss = ((1.0 - pt) ** self.gamma) * ce_loss
+        return focal_loss.mean()
+
+
 class CombinedLoss(nn.Module):
     """
     LemGendary 2026 Unified Loss Engine
-    Supports Restoration (L1+LPIPS), Quality (EMD+RankBoost), and Classification (CE).
+    Supports Restoration (L1+LPIPS), Quality (EMD+SoftSpearman+RankBoost), and Classification (CE/Focal).
     """
     def __init__(self, task_type="restoration", stabilizers=None, use_perc=False):
         super().__init__()
@@ -80,6 +187,12 @@ class CombinedLoss(nn.Module):
         self.l1 = nn.L1Loss(reduction='mean')
         self.mse = nn.MSELoss(reduction='mean') # Legacy fallback for face and segmentation topology
         self.ce = nn.CrossEntropyLoss(ignore_index=255)
+        self.focal = FocalLoss(gamma=2.0, label_smoothing=0.05)
+        self.soft_spearman = SoftSpearmanLoss(temperature=0.1)
+        self.memory_bank = None
+        if self.stab.get("rank_memory_bank_size", 0) > 0 or self.stab.get("use_memory_bank", False):
+            mb_size = int(self.stab.get("rank_memory_bank_size", 32))
+            self.memory_bank = RankMemoryBank(capacity=mb_size)
         self.perc = None
 
         # 2026: SOTA Rank-Boost Weights (Standard 10..1 mapping)
@@ -199,24 +312,41 @@ class CombinedLoss(nn.Module):
             # 2026: Geometric Stabilizer - Summing squared CDF error per-bin
             emd = torch.sum((cdf_p - cdf_t) ** 2, dim=-1).mean()
 
-            # --- 2026: Neural Rank-Boost (SRCC Enhancement) ---
-            rank_weight = self.stab.get('rank_weight', 0.0)
-            if rank_weight > 0 and p_probs.size(0) > 1:
-                p_mean = (p_probs * self.rank_weights).sum(dim=-1)
-                t_mean = (t_probs * self.rank_weights).sum(dim=-1)
+            # Expected score scalar calculation [B]
+            p_mean = (p_probs * self.rank_weights).sum(dim=-1)
+            t_mean = (t_probs * self.rank_weights).sum(dim=-1)
 
-                p_diff = p_mean.unsqueeze(0) - p_mean.unsqueeze(1)
-                t_diff = t_mean.unsqueeze(0) - t_mean.unsqueeze(1)
+            # Cross-Microbatch Memory Buffer Injection
+            if self.memory_bank is not None:
+                p_eval, t_eval = self.memory_bank.get_context(p_mean, t_mean)
+                self.memory_bank.update(p_mean, t_mean)
+            else:
+                p_eval, t_eval = p_mean, t_mean
+
+            total_loss = emd
+
+            # --- 2026: Differentiable Soft-Spearman Loss ---
+            use_soft_spearman = self.stab.get("use_soft_spearman", True)
+            if use_soft_spearman and p_eval.size(0) > 1:
+                spearman_loss = self.soft_spearman(p_eval, t_eval)
+                spearman_weight = float(self.stab.get("soft_spearman_weight", 0.5))
+                total_loss = total_loss + (spearman_weight * spearman_loss)
+
+            # --- 2026: Neural Rank-Boost (Pairwise Margin Loss) ---
+            rank_weight = float(self.stab.get('rank_weight', 0.0))
+            if rank_weight > 0 and p_eval.size(0) > 1:
+                p_diff = p_eval.unsqueeze(0) - p_eval.unsqueeze(1)
+                t_diff = t_eval.unsqueeze(0) - t_eval.unsqueeze(1)
                 t_sign = torch.sign(t_diff)
 
-                margin = self.stab.get('rank_margin', 0.05)
+                margin = float(self.stab.get('rank_margin', 0.05))
                 rank_loss = F.relu(margin - t_sign * p_diff)
                 mask = (t_sign != 0).float()
                 avg_rank_loss = (rank_loss * mask).sum() / torch.clamp(mask.sum(), min=1.0)
 
-                return emd + (rank_weight * avg_rank_loss)
+                total_loss = total_loss + (rank_weight * avg_rank_loss)
 
-            return emd
+            return total_loss
             
         elif self.task_type == "parameter_prediction":
             # 2026: Bounded Regression Loss for UPNv2 Parameter Predictor
