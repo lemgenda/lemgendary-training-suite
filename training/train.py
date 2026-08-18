@@ -586,19 +586,17 @@ def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
 def load_scheduler_state_stretched(scheduler, state_dict, current_total_steps, expected_step=None):
     """Loads scheduler state dict while stretching the runway if total_steps mismatch."""
     if 'total_steps' in state_dict:
-        if state_dict['total_steps'] != current_total_steps:
-            old_total = state_dict['total_steps']
-            old_last = state_dict['last_epoch']
-            ratio = current_total_steps / max(1, old_total)
+        old_total = state_dict['total_steps']
+        old_last = state_dict.get('last_epoch', 0)
 
-            # Scale steps
+        if old_total != current_total_steps:
+            ratio = current_total_steps / max(1, old_total)
             state_dict['total_steps'] = current_total_steps
-            if expected_step is not None and ratio > 1.5:
+
+            if expected_step is not None:
                 new_last = expected_step
             else:
                 new_last = int(round(old_last * ratio))
-                if expected_step is not None:
-                    new_last = max(new_last, expected_step)
 
             # Clamp to prevent out-of-bounds scheduler crashes
             new_last = max(0, min(current_total_steps - 1, new_last))
@@ -607,13 +605,14 @@ def load_scheduler_state_stretched(scheduler, state_dict, current_total_steps, e
             state_dict['_step_count'] = new_last + 1
 
             if '_schedule_phases' in state_dict:
-                for phase in state_dict['_schedule_phases']:
+                for i, phase in enumerate(state_dict['_schedule_phases']):
                     if 'end_step' in phase:
-                        old_end = phase['end_step']
-                        if isinstance(old_end, int):
-                            phase['end_step'] = int(round((old_end + 1) * ratio - 1))
+                        if i == len(state_dict['_schedule_phases']) - 1:
+                            phase['end_step'] = current_total_steps - 1
                         else:
-                            phase['end_step'] = (old_end + 1) * ratio - 1
+                            old_end = phase['end_step']
+                            phase['end_step'] = int(round((old_end + 1) * ratio - 1))
+                            phase['end_step'] = max(0, min(current_total_steps - 1, phase['end_step']))
 
             print(f" [RESILIENCY] Stretched scheduler state dict from {old_total} to {current_total_steps} steps (last_epoch: {old_last} -> {new_last}).")
         elif expected_step is not None:
@@ -621,10 +620,20 @@ def load_scheduler_state_stretched(scheduler, state_dict, current_total_steps, e
             old_last = state_dict.get('last_epoch', 0)
             if old_last != expected_step:
                 print(f" [RESILIENCY] [SHIELD] De-synced step count detected in scheduler_state ({old_last} vs expected {expected_step}). Re-anchoring to actual progress step ({expected_step}).")
-                state_dict['last_epoch'] = expected_step
-                state_dict['_step_count'] = expected_step + 1
+                expected_clamped = max(0, min(current_total_steps - 1, expected_step))
+                state_dict['last_epoch'] = expected_clamped
+                state_dict['_step_count'] = expected_clamped + 1
 
     scheduler.load_state_dict(state_dict)
+
+    if hasattr(scheduler, 'optimizer') and scheduler.optimizer is not None:
+        try:
+            for param_group, lr_val in zip(scheduler.optimizer.param_groups, scheduler.get_lr()):
+                param_group['lr'] = lr_val
+            if hasattr(scheduler, '_last_lr'):
+                scheduler._last_lr = [p['lr'] for p in scheduler.optimizer.param_groups]
+        except Exception:
+            pass
 
 
 def main():
@@ -1676,6 +1685,7 @@ def main():
             steps_per_epoch = len(train_loader) // accumulation_steps
             if steps_per_epoch == 0: steps_per_epoch = 1
             expected_step = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
+            expected_step = max(0, min(total_steps - 1, expected_step))
             scheduler.last_epoch = expected_step
             scheduler._step_count = expected_step + 1
             # Sync optimizer learning rates with the stretched step to prevent Velocity Bomb/stagnation
@@ -1704,6 +1714,7 @@ def main():
                     )
                     steps_per_epoch = len(train_loader) // accumulation_steps
                     expected_steps_total = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
+                    expected_steps_total = max(0, min(total_steps - 1, expected_steps_total))
                     scheduler.last_epoch = expected_steps_total
                     scheduler._step_count = expected_steps_total + 1
                     # Sync optimizer learning rates with the stretched step to prevent Velocity Bomb/stagnation
@@ -2316,7 +2327,9 @@ def main():
                             # 2026: SOTA Scheduler Sync
                             if 'scheduler_state' in ckpt:
                                 try:
-                                    load_scheduler_state_stretched(scheduler, ckpt['scheduler_state'], total_steps)
+                                    steps_per_epoch = max(1, len(train_loader) // accumulation_steps)
+                                    expected_step = (ckpt.get('epoch', start_epoch) * steps_per_epoch) + max(0, ckpt.get('iteration', 0) // accumulation_steps)
+                                    load_scheduler_state_stretched(scheduler, ckpt['scheduler_state'], total_steps, expected_step=expected_step)
                                     print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
                                 except Exception as sched_err:
                                     print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
@@ -2458,7 +2471,9 @@ def main():
                             # 2026: SOTA Scheduler Sync
                             if 'scheduler_state' in ckpt:
                                 try:
-                                    load_scheduler_state_stretched(scheduler, ckpt['scheduler_state'], total_steps)
+                                    steps_per_epoch = max(1, len(train_loader) // accumulation_steps)
+                                    expected_step = (ckpt.get('epoch', start_epoch) * steps_per_epoch) + max(0, ckpt.get('iteration', 0) // accumulation_steps)
+                                    load_scheduler_state_stretched(scheduler, ckpt['scheduler_state'], total_steps, expected_step=expected_step)
                                     print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
                                 except Exception as sched_err:
                                     print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
@@ -2545,7 +2560,17 @@ def main():
                     skip_lr_sched = (scale_before > scaler.get_scale())
                     if not skip_lr_sched:
                         current_lr = scheduler.get_last_lr()[0]
-                        scheduler.step()
+                        if hasattr(scheduler, 'total_steps') and scheduler.last_epoch >= scheduler.total_steps - 1:
+                            # Prevent OneCycleLR from exceeding total_steps
+                            pass
+                        else:
+                            try:
+                                scheduler.step()
+                            except ValueError as sched_err:
+                                if "total steps" in str(sched_err):
+                                    pass
+                                else:
+                                    raise sched_err
 
                     # --- 2026 Resilience: Velocity Floor (v3.2) ---
                     # We enforce a hard floor of 5e-7 to prevent the scheduler from decaying
