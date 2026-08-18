@@ -1066,7 +1066,9 @@ def main():
             for s_dir in src_ckpt_dirs:
                 if not os.path.exists(s_dir): continue
                 for f in os.listdir(s_dir):
-                    if f.endswith('.pth') and (args.model in f or reg_filename in f or "latest" in f or "best" in f):
+                    if f.endswith('.pth') and (args.model in f or reg_filename in f or "latest" in f or "best" in f or "progress" in f):
+                        if any(bad in f.lower() for bad in ["obsolete", "backup", ".tmp", "temp"]):
+                            continue
                         src_f = os.path.join(s_dir, f)
                         # Standardize name for resumption engine
                         target_f = f
@@ -1075,10 +1077,16 @@ def main():
                         elif "progress" in f: target_f = f"{args.model}_progress.pth"
 
                         dst_f = os.path.join(hub_ckpt_dir, target_f)
+                        dst_local = os.path.join(local_ckpt_dir, target_f)
                         if not os.path.exists(dst_f) or os.path.getmtime(src_f) > os.path.getmtime(dst_f):
                             shutil.copy2(src_f, dst_f)
                             print(f" -> [RECOVERED] {f} -> {target_f}")
                             found_any = True
+                        if not os.path.exists(dst_local) or os.path.getmtime(src_f) > os.path.getmtime(dst_local):
+                            try:
+                                os.makedirs(local_ckpt_dir, exist_ok=True)
+                                shutil.copy2(src_f, dst_local)
+                            except: pass
 
             # Deep recursive backup for orphaned .pth files
             try:
@@ -1087,18 +1095,26 @@ def main():
                 for src_f in res:
                     if src_f and os.path.exists(src_f):
                         f = os.path.basename(src_f)
-                        # Ensure the file belongs to our model or is a generic latest/best
-                        if args.model in f or reg_filename in f or "latest" in f or "best" in f:
+                        if any(bad in f.lower() for bad in ["obsolete", "backup", ".tmp", "temp"]):
+                            continue
+                        # Ensure the file belongs to our model or is a generic latest/best/progress
+                        if args.model in f or reg_filename in f or "latest" in f or "best" in f or "progress" in f:
                             target_f = f
                             if "latest" in f: target_f = f"{args.model}_latest.pth"
                             elif "best" in f: target_f = f"{args.model}_best.pth"
                             elif "progress" in f: target_f = f"{args.model}_progress.pth"
 
                             dst_f = os.path.join(hub_ckpt_dir, target_f)
+                            dst_local = os.path.join(local_ckpt_dir, target_f)
                             if not os.path.exists(dst_f) or os.path.getmtime(src_f) > os.path.getmtime(dst_f):
                                 shutil.copy2(src_f, dst_f)
                                 print(f" -> [RECOVERED-DEEP] {f} -> {target_f}")
                                 found_any = True
+                            if not os.path.exists(dst_local) or os.path.getmtime(src_f) > os.path.getmtime(dst_local):
+                                try:
+                                    os.makedirs(local_ckpt_dir, exist_ok=True)
+                                    shutil.copy2(src_f, dst_local)
+                                except: pass
             except: pass
 
 
@@ -1285,35 +1301,52 @@ def main():
     # Priority Candidate Selection (v15.0):
     # We probe metadata to find the ABSOLUTE highest epoch/iteration across all locations.
     candidates = []
-    hub_max_epoch = -1
+    hub_max_score = -1.0
     for ckpt in fallback_chain:
         if os.path.exists(ckpt):
             try:
                 # 2026 Resilience: Fast-probe metadata without loading full state_dict
                 meta = torch.load(ckpt, map_location='cpu', weights_only=False) # Metadata check
                 epoch = meta.get('epoch', 0)
-                effective_epoch = epoch + 1 if ("_latest.pth" in ckpt or "_best.pth" in ckpt) else epoch
+                iteration = meta.get('iteration', 0)
+                loader_len = meta.get('loader_len', 10000)
+                val_iteration = meta.get('val_iteration', 0)
+
+                # Continuous Progress Score:
+                # - latest.pth / best.pth are saved at the END of epoch -> score = epoch + 1.0
+                # - progress.pth is saved DURING epoch at iteration -> score = epoch + (iteration / loader_len)
+                if "_latest.pth" in ckpt or "_best.pth" in ckpt:
+                    effective_progress = float(epoch) + 1.0
+                else: # progress.pth
+                    if val_iteration > 0:
+                        iter_fraction = 0.99
+                    elif loader_len > 0 and iteration > 0:
+                        iter_fraction = min(0.98, float(iteration) / float(loader_len))
+                    else:
+                        iter_fraction = 0.0
+                    effective_progress = float(epoch) + iter_fraction
+
                 mtime = os.path.getmtime(ckpt)
-                candidates.append((effective_epoch, mtime, ckpt))
+                candidates.append((effective_progress, mtime, ckpt))
                 if "LemGendaryModels" in ckpt:
-                    hub_max_epoch = max(hub_max_epoch, effective_epoch)
+                    hub_max_score = max(hub_max_score, effective_progress)
             except:
-                candidates.append((0, os.path.getmtime(ckpt), ckpt))
+                candidates.append((0.0, os.path.getmtime(ckpt), ckpt))
 
     # --- 2026 Resilience: Poisoned Progress Purge ---
-    # If a local progress file is found but it is significantly behind the Hub (e.g. Kaggle crash artifact),
+    # If a local progress file is found but it is significantly behind the Hub (e.g. Kaggle crash artifact from an old epoch),
     # we purge it to prevent the "Epoch 1 Resume" trap.
-    if hub_max_epoch > 0:
-        for i, (epoch, mtime, ckpt) in enumerate(candidates):
+    if hub_max_score > 0.0:
+        for i, (score, mtime, ckpt) in enumerate(candidates):
             if "checkpoints" in ckpt and "LemGendaryModels" not in ckpt: # Local checkpoint
-                if epoch < hub_max_epoch:
-                    print(f" [FIRE] [RESILIENCE] Purging poisoned local progress (Epoch {epoch}) in favor of Hub SOTA (Epoch {hub_max_epoch}).")
+                if score < (hub_max_score - 0.01):
+                    print(f" [FIRE] [RESILIENCE] Purging stale local progress (Progress Score {score:.4f}) in favor of Hub SOTA ({hub_max_score:.4f}).")
                     try:
                         backup_path = ckpt.replace('.pth', f'_obsolete_backup_{int(time.time())}.pth')
                         os.rename(ckpt, backup_path)
                     except: pass
                     # Remove from candidates
-                    candidates[i] = (-1, 0, ckpt)
+                    candidates[i] = (-1.0, 0, ckpt)
 
     ckpt_loaded = False
     loaded_ckpt_path = None
@@ -1817,6 +1850,7 @@ def main():
     # Recover non-improving epoch count from checkpoint to prevent reset-on-resume
     epochs_no_improve = start_epochs_no_improve
 
+    sota_targets = model_info.get("sota_targets", {})
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
 
     # 2026 Telemetry Engine Integration
@@ -1840,7 +1874,19 @@ def main():
     last_val_audit_size = None
     last_val_audit_fraction = None
 
-    for epoch in range(start_epoch, epochs):
+    # --- 2026 SOTA Dynamic Horizon (Infinite Target Enforcement) ---
+    epoch = start_epoch
+    while True:
+        if epoch >= epochs:
+            if sota_targets and not sota_baseline_achieved:
+                epochs = epoch + 50
+                print(f"\n{'='*80}", file=sys.stderr)
+                print(f" [GOVERNOR] [SOTA ENFORCEMENT] Epoch budget ({epoch}) reached without achieving SOTA targets.", file=sys.stderr)
+                print(f" -> Auto-extending training horizon to Epoch {epochs}. Training will NEVER stop until SOTA targets are breached!", file=sys.stderr)
+                print(f"{'='*80}\n", file=sys.stderr)
+            else:
+                break
+
         last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.12) ---
         # 2026: SOTA Stabilization and Thermal Sharding
         # Physical batch constraints are now established pre-emptively during initialization.
@@ -3859,8 +3905,14 @@ def main():
                 print(f" [WARNING] [HUB-SYNC] Deployment skipped: {e}")
 
         if epochs_no_improve >= patience:
-            print(f"\n[Early Stopping] Model structurally converged. Halting training to prevent overfitting.")
-            break
+            if sota_targets and not sota_baseline_achieved:
+                print(f"\n [GOVERNOR] [SOTA PERSISTENCE] Plateau detected ({epochs_no_improve} epochs) before SOTA targets achieved.", file=sys.stderr)
+                print(f" -> Halting PREVENTED: Triggering NPP Recoil & Thermal Annealing to break local minimum (Training will NEVER stop before hitting SOTA targets).", file=sys.stderr)
+                governor.recoil()
+                epochs_no_improve = 0
+            else:
+                print(f"\n[Early Stopping] Model structurally converged. Halting training to prevent overfitting.")
+                break
 
         # Aggressive memory cleanup for low-VRAM 4GB cards (GTX 1650)
         if torch.cuda.is_available(): torch.cuda.empty_cache()
@@ -3994,6 +4046,7 @@ def main():
         resume_iteration = 0
         val_resume_iteration = 0
         current_iter = 0
+        epoch += 1
 
     # --- 2026: Universal Post-Training Target Audit & Interactive Guidance ---
     if not sota_baseline_achieved:
