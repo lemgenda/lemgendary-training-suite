@@ -82,7 +82,7 @@ nima_aesthetic_mobile:
   description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
     optimized for artistic composition and color harmony.
   datasets:
-  - LemGendizedNimaAesthetic
+  - LemGendizedNimaAestheticLarge
   sota_targets:
     plcc: 0.65
     srcc: 0.65
@@ -143,7 +143,7 @@ nima_aesthetic_efficientnet:
   description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
     optimized for artistic composition and color harmony using EfficientNetV2-S backbone.
   datasets:
-  - LemGendizedNimaAesthetic
+  - LemGendizedNimaAestheticLarge
   sota_targets:
     plcc: 0.7
     srcc: 0.7
@@ -203,7 +203,7 @@ nima_aesthetic_pro:
   description: High-end aesthetic quality scorer using Swin Transformer V2, optimized
     for high-res global composition.
   datasets:
-  - LemGendizedNimaAesthetic
+  - LemGendizedNimaAestheticLarge
   sota_targets:
     plcc: 0.75
     srcc: 0.75
@@ -263,7 +263,7 @@ nima_technical:
   description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset,
     optimized for detecting micro-defects, noise, and artifacts.
   datasets:
-  - LemGendizedNimaTechnical
+  - LemGendizedNimaTechnicalLarge
   stabilizers:
     min_temp: 0.96
     softmax_temp: 1.0
@@ -325,7 +325,7 @@ nima_authenticity:
   architecture_type: EfficientNetV2-S (Distribution Scorer)
   description: DeepFake and AI-generated image detection model built on EfficientNetV2.
   datasets:
-  - LemGendizedNimaAuthenticity
+  - LemGendizedNimaAuthenticityLarge
   stabilizers:
     softmax_temp: 1.0
     emd_epsilon: 1.0e-05
@@ -393,7 +393,7 @@ upn_v2:
     - 256
     plateau_priority: data
   datasets:
-  - LemGendizedUpnV2
+  - LemGendizedUpnV2Large
   val_resolution: 256
 film_restorer:
   name: LemGendary Universal Film Restorer
@@ -429,7 +429,7 @@ film_restorer:
     - 512
     plateau_priority: resolution
   datasets:
-  - LemGendizedFilmRestorer
+  - LemGendizedFilmRestorerLarge
   val_resolution: 512
 codeformer:
   name: LemGendary CodeFormer Face Restoration
@@ -460,7 +460,7 @@ codeformer:
   stabilizers:
     logit_clamp: 15.0
   datasets:
-  - LemGendizedCodeFormer
+  - LemGendizedCodeFormerLarge
   sota_targets:
     fid: 5.2
     psnr: 30.5
@@ -484,7 +484,7 @@ parsenet:
   optimal_key: parsenet
   description: Face parsing model for segmentation
   datasets:
-  - LemGendizedParseNet
+  - LemGendizedParseNetLarge
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -517,7 +517,7 @@ retinaface_mobilenet:
   optimal_key: retinaface_mobilenet
   description: MobileNet-based face detection
   datasets:
-  - LemGendizedRetinaFaceMobileNet
+  - LemGendizedRetinaFaceMobileNetLarge
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -549,7 +549,7 @@ ffanet_indoor:
   optimal_key: ffanet_indoor
   description: FFANet indoor dehazing restoration
   datasets:
-  - LemGendizedFfaNetIndoor
+  - LemGendizedFfaNetIndoorLarge
   stabilizers:
     numerical_sentinel:
     - -0.2
@@ -589,7 +589,7 @@ ffanet_outdoor:
   optimal_key: ffanet_outdoor
   description: FFANet outdoor dehazing restoration
   datasets:
-  - LemGendizedFfaNetOutdoor
+  - LemGendizedFfaNetOutdoorLarge
   stabilizers:
     numerical_sentinel:
     - -0.2
@@ -628,7 +628,7 @@ mirnet_lowlight:
   optimal_key: mirnet_lowlight
   description: MIRNet v2 low-light image enhancement
   datasets:
-  - LemGendizedMirNetLowLight
+  - LemGendizedMirNetLowLightLarge
   stabilizers:
     numerical_sentinel:
     - -0.2
@@ -667,7 +667,7 @@ mirnet_exposure:
   optimal_key: mirnet_exposure
   description: MIRNet v2 for overexposure correction and dynamic range adjustment
   datasets:
-  - LemGendizedMirNetExposure
+  - LemGendizedMirNetExposureLarge
   stabilizers:
     numerical_sentinel:
     - -0.2
@@ -706,7 +706,7 @@ mprnet_deraining:
   optimal_key: mprnet_deraining
   description: MPRNet image deraining
   datasets:
-  - LemGendizedMprNetDeraining
+  - LemGendizedMprNetDerainingLarge
   stabilizers:
     numerical_sentinel:
     - -0.2
@@ -757,7 +757,7 @@ nafnet_debluring:
     - 384
     - 512
   datasets:
-  - LemGendizedNafNetDebluring
+  - LemGendizedNafNetDebluringLarge
   stabilizers:
     numerical_sentinel:
     - -0.2
@@ -797,7 +797,7 @@ nafnet_denoising:
     - 384
     - 512
   datasets:
-  - LemGendizedNafNetDenoising
+  - LemGendizedNafNetDenoisingLarge
   stabilizers:
     numerical_sentinel:
     - -0.2
@@ -839,7 +839,7 @@ yolov8n:
     - 640
     plateau_priority: resolution
   datasets:
-  - LemGendizedYoloV8n
+  - LemGendizedYoloV8nLarge
   sota_targets:
     map50: 0.540
     map50_95: 0.390
@@ -879,10 +879,10 @@ professional_multitask_restoration:
     lpips: 0.07
     fid: 12.0
   datasets:
-  - LemGendizedNafNetDebluring
-  - LemGendizedFfaNetIndoor
-  - LemGendizedMirNetLowLight
-  - LemGendizedNafNetDenoising
+  - LemGendizedNafNetDebluringLarge
+  - LemGendizedFfaNetIndoorLarge
+  - LemGendizedMirNetLowLightLarge
+  - LemGendizedNafNetDenoisingLarge
   val_resolution: 512
 ultrazoom:
   name: LemGendary UltraZoom Master Model
@@ -900,7 +900,7 @@ ultrazoom:
   optimal_key: ultrazoom
   description: Dynamic scale super-resolution model
   datasets:
-  - LemGendizedUltraZoom
+  - LemGendizedUltraZoomLarge
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -936,7 +936,7 @@ universal_nsfw_classification:
   description: Universal safety filter and NSFW classifier for realistic and anime
     content.
   datasets:
-  - ClassificationMasterManifold
+  - LemGendizedClassificationMasterManifoldLarge
   sota_targets:
     accuracy: 0.98
   optimization:
