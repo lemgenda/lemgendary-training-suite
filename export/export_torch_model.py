@@ -6,11 +6,11 @@ import torch
 import torch.nn as nn
 
 # --- 2026 Unicode Windows Patch ---
-# Force stdout/stderr to pure ASCII to physically strip out PyTorch's rich logging (emojis) from crashing
+# Force stdout/stderr to UTF-8 for clean cross-platform logging
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="ascii", errors="ignore")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="ascii", errors="ignore")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Anchor the search path to the parent directory to allow root module imports
@@ -38,16 +38,18 @@ def main():
         print(f" Error: config.yaml not found at {config_path}")
         return
         
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
         
-    unified_models_name = config.get("unified_models", "unified_models.yaml")
+    unified_models_name = config.get("unified_models", "unified_models_v2.yaml")
     unified_models_path = os.path.join(project_root, unified_models_name)
     if not os.path.exists(unified_models_path):
-        print(f" Error: {unified_models_path} not found.")
+        unified_models_path = os.path.join(project_root, "unified_models.yaml")
+    if not os.path.exists(unified_models_path):
+        print(f" Error: Unified models YAML not found.")
         return
         
-    with open(unified_models_path, 'r') as f:
+    with open(unified_models_path, 'r', encoding='utf-8') as f:
         unified_models_registry = yaml.safe_load(f)
 
     model_info = unified_models_registry.get(args.model)

@@ -6,11 +6,11 @@ import torch
 import time
 
 # --- 2026 Unicode Windows Patch ---
-# Force stdout/stderr to pure ASCII to physically strip out PyTorch's rich logging emojis (e.g. \u2705)
+# Force stdout/stderr to UTF-8 for clean cross-platform logging
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="ascii", errors="ignore")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="ascii", errors="ignore")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Anchor the search path to the parent directory to allow root module imports
@@ -36,16 +36,18 @@ def main():
         print(f" Error: config.yaml not found at {config_path}")
         return
         
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
         
-    unified_models_name = config.get("unified_models", "unified_models.yaml")
+    unified_models_name = config.get("unified_models", "unified_models_v2.yaml")
     unified_models_path = os.path.join(project_root, unified_models_name)
     if not os.path.exists(unified_models_path):
-        print(f" Error: {unified_models_path} not found.")
+        unified_models_path = os.path.join(project_root, "unified_models.yaml")
+    if not os.path.exists(unified_models_path):
+        print(f" Error: Unified models YAML not found.")
         return
         
-    with open(unified_models_path, 'r') as f:
+    with open(unified_models_path, 'r', encoding='utf-8') as f:
         unified_models_registry = yaml.safe_load(f)
 
     model_info = unified_models_registry.get(args.model)
@@ -189,7 +191,6 @@ def main():
             import logging
             import warnings
             
-            # --- 2026 Resilience: Silent Version Down-Conversion Probing ---
             onnx_logger = logging.getLogger("onnxscript")
             torch_logger = logging.getLogger("torch.onnx")
             old_onnx_level = onnx_logger.level
@@ -198,52 +199,28 @@ def main():
             torch_logger.setLevel(logging.CRITICAL)
             
             try:
-                # Temporarily redirect sys.stderr to suppress C++ conversion stack traces/warnings
-                with open(os.devnull, 'w') as devnull:
-                    old_stderr = sys.stderr
-                    sys.stderr = devnull
-                    try:
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore")
-                            torch.onnx.export(
-                                model, (inp,), target_path,
-                                export_params=True, opset_version=17,
-                                do_constant_folding=False,
-                                input_names=['input'], output_names=['output']
-                            )
-                    finally:
-                        sys.stderr = old_stderr
-            except Exception:
-                # Restore loggers for transparent fallback debugging
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    torch.onnx.export(
+                        model, (inp,), target_path,
+                        export_params=True, opset_version=17,
+                        do_constant_folding=True,
+                        input_names=['input'], output_names=['output']
+                    )
+            except Exception as e17:
                 onnx_logger.setLevel(old_onnx_level)
                 torch_logger.setLevel(old_torch_level)
-                
-                # --- 2026 SOTA Resilience: Dynamic Opset Escalation ---
-                # Newer PyTorch/onnxscript versions enforce Opset 18 internally and fail during down-conversion.
-                # We gracefully escalate to Opset 18.
-                print("   [RECOVER] Opset 17 export/down-conversion failed. Escalating to Opset 18...")
-                
-                # Re-apply suppression context for Opset 18 in case of minor internal conversion logging
+                print(f"   [RECOVER] Opset 17 export failed ({e17}). Escalating to Opset 18...")
                 onnx_logger.setLevel(logging.CRITICAL)
                 torch_logger.setLevel(logging.CRITICAL)
-                try:
-                    with open(os.devnull, 'w') as devnull:
-                        old_stderr = sys.stderr
-                        sys.stderr = devnull
-                        try:
-                            with warnings.catch_warnings():
-                                warnings.simplefilter("ignore")
-                                torch.onnx.export(
-                                    model, (inp,), target_path,
-                                    export_params=True, opset_version=18,
-                                    do_constant_folding=False,
-                                    input_names=['input'], output_names=['output']
-                                )
-                        finally:
-                            sys.stderr = old_stderr
-                finally:
-                    onnx_logger.setLevel(old_onnx_level)
-                    torch_logger.setLevel(old_torch_level)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    torch.onnx.export(
+                        model, (inp,), target_path,
+                        export_params=True, opset_version=18,
+                        do_constant_folding=True,
+                        input_names=['input'], output_names=['output']
+                    )
             finally:
                 onnx_logger.setLevel(old_onnx_level)
                 torch_logger.setLevel(old_torch_level)

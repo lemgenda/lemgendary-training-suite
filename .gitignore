@@ -13,6 +13,8 @@ kaggle.json
 #GitHub PAT
 .SUITE_PAT
 .GITHUB_PAT
+# Saturn Cloud API tokens
+.SATURN_PAT
 
 # ML Artifacts (Checkpoints are managed via Hub repository)
 *.pth
