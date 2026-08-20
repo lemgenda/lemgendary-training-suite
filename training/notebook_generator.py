@@ -562,25 +562,38 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         return
 
     # 2. Dataset Manifold Synchronization
-    target_dataset_folder = None
     if unified_models_registry:
         m_info = unified_models_registry.get(model_key, {})
         ds_list = m_info.get("datasets", [])
-        if ds_list: 
-            target_dataset_folder = ds_list[0]
+        
+        target_candidates = list(ds_list)
+        if model_key not in target_candidates:
+            target_candidates.append(model_key)
             
-            # 2026: Resolve PascalCase folder naming with prefix/suffix (Parity with Dataset Hub)
-            pascal_ds_name = target_dataset_folder.replace("_", " ").title().replace(" ", "")
+        synced_dirs = set()
+        for target_folder in target_candidates:
+            if not target_folder:
+                continue
+            # Handle PascalCase and snake_case correctly without destructive title()
+            clean_name = target_folder
+            if "_" in clean_name or "-" in clean_name:
+                pascal_name = "".join(part.capitalize() for part in clean_name.replace("-", "_").split("_"))
+            else:
+                pascal_name = clean_name
+                
             possible_manifold_folders = [
-                target_dataset_folder,
-                f"{target_dataset_folder}Large",
-                f"LemGendized{pascal_ds_name}",
-                f"LemGendized{pascal_ds_name}Large"
+                target_folder,
+                f"{target_folder}Large",
+                f"LemGendized{pascal_name}",
+                f"LemGendized{pascal_name}Large",
+                f"LemGendized{target_folder}Large",
+                f"LemGendized{target_folder}"
             ]
             
             for m_folder in possible_manifold_folders:
                 ds_dir = os.path.join(datasets_hub_root, m_folder)
-                if os.path.exists(ds_dir):
+                if os.path.exists(ds_dir) and ds_dir not in synced_dirs:
+                    synced_dirs.add(ds_dir)
                     ds_output_path = os.path.join(ds_dir, f"{model_key}_training.ipynb")
                     try:
                         with open(ds_output_path, "w", encoding='utf-8') as f:
