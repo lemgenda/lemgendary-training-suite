@@ -110,6 +110,7 @@ function Get-ModelSelection {
 
 function Show-ModelList {
     param([string[]]$Models)
+    if ($Models.Count -eq 1) { return $Models[0] }
     Write-Header "SELECT SPECIFIC MODEL MANIFOLD"
     for ($i=0; $i -lt $Models.Count; $i++) {
         Write-Host "  $($i+1). $($Models[$i])" -ForegroundColor Green
@@ -209,9 +210,8 @@ while ($true) {
             if (Test-Environment) {
                 $selectedModel = Get-ModelSelection
                 if ($null -ne $selectedModel) {
-                    $rocket = [char]0xD83D + [char]0xDE80
                     $extraArgs = @()
-                    Write-Host "  [$rocket] Launching Training Matrix for >> $selectedModel <<..." -ForegroundColor Green
+                    Write-Host "  [*] Launching Training Matrix for >> $selectedModel <<..." -ForegroundColor Green
                     Write-Host "      -> Target Manifold: $selectedModel" -ForegroundColor Gray
                     Invoke-JanitorPurge # Ensure clean start
                     $env:PYTHONPATH="$script:HUB_DIR"; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"

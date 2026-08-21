@@ -28,12 +28,55 @@ TIMEFRAME_LOOKBACK = {
     1440:  252,  # D1  → ~1 year
 }
 
-# Major currency pair index (0-based, used for pair embedding)
-PAIR_INDEX = {
-    "EURUSD": 0, "GBPUSD": 1, "USDJPY": 2, "USDCHF": 3,
-    "AUDUSD": 4, "USDCAD": 5, "NZDUSD": 6, "XAUUSD": 7,
-}
+# Currency Universe: Titan 4 starting core, extensible up to 16 professional assets
+TITAN_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
+MAJOR_PAIRS = TITAN_PAIRS
+
+EXTENDED_PAIRS = [
+    # G7 Majors (4 Core + 3 G7)
+    "EURUSD", "GBPUSD", "USDJPY", "XAUUSD",
+    "USDCAD", "USDCHF", "AUDUSD", "NZDUSD",
+    # High-Beta Crosses
+    "EURJPY", "GBPJPY", "EURGBP",
+    # Commodities & Energy
+    "XAGUSD", "USOIL",
+    # Global Equity Indices
+    "US500", "USTEC", "GER40"
+]
+
+# Currency pair index (0-based) — shared across suite
+PAIR_INDEX = {p: i for i, p in enumerate(EXTENDED_PAIRS)}
 NUM_PAIRS = len(PAIR_INDEX)
+
+
+class ForexDualLoss(nn.Module):
+    """
+    Combined Direction (Classification) + Magnitude (Pip Regression) Loss
+    with Anti-Hold Entropy Regularization.
+    """
+    def __init__(self, mag_weight: float = 0.5, entropy_weight: float = 0.05):
+        super().__init__()
+        self.mag_weight = mag_weight
+        self.entropy_weight = entropy_weight
+        # Class weights: Penalize HOLD overconfidence, give higher importance to BUY / SELL
+        self.ce = nn.CrossEntropyLoss(weight=torch.tensor([1.2, 0.8, 1.2]))
+        self.smooth_l1 = nn.SmoothL1Loss()
+
+    def forward(self, preds: dict, targets: dict) -> torch.Tensor:
+        dir_logits = preds["direction"]
+        mag_preds = preds["magnitude"]
+        
+        dir_targets = targets["direction"].to(dir_logits.device)
+        mag_targets = targets["magnitude"].to(mag_preds.device)
+
+        loss_dir = self.ce(dir_logits, dir_targets)
+        loss_mag = self.smooth_l1(mag_preds, mag_targets)
+
+        # Anti-Hold Entropy Regularization: penalize uniform or collapsed distributions
+        probs = F.softmax(dir_logits, dim=-1)
+        entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=-1).mean()
+
+        return loss_dir + self.mag_weight * loss_mag - self.entropy_weight * entropy
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -268,7 +311,7 @@ class ForexPredictor(nn.Module):
     """
     def __init__(
         self,
-        active_timeframes: list = None,
+        active_timeframes: list | None = None,
         d_model: int = 128,
         n_heads: int = 4,
         n_layers: int = 4,
@@ -279,7 +322,7 @@ class ForexPredictor(nn.Module):
         super().__init__()
 
         if active_timeframes is None:
-            active_timeframes = [60, 240]
+            active_timeframes = [1, 5, 15, 60, 240, 1440]
 
         self.active_timeframes = active_timeframes
         self.d_model = d_model
@@ -383,6 +426,7 @@ class ForexPredictor(nn.Module):
         magnitude  = self.magnitude_head(manifold)            # [B, 2]
 
         return {
+            "direction":        direction,
             "direction_logits": direction,
             "magnitude":        magnitude,
         }
@@ -414,11 +458,13 @@ class ForexPredictor(nn.Module):
         self.active_timeframes.append(new_tf)
 
         # Rebuild cross-attention and projection heads to match new n_tf
-        n_tf           = len(self.active_timeframes)
-        old_attn       = self.cross_attn
+        n_tf = len(self.active_timeframes)
+        # Ensure n_heads divides d_model evenly
+        valid_heads = [h for h in [8, 4, 2, 1] if self.d_model % h == 0 and h <= n_tf]
+        n_heads = valid_heads[0] if valid_heads else 1
         self.cross_attn = CrossTimeframeAttention(
             d_model = self.d_model,
-            n_heads = min(old_attn.attn.num_heads + 1, n_tf),
+            n_heads = n_heads,
         )
         fused_dim = n_tf * self.d_model + self.d_model
         old_proj  = self.fused_project

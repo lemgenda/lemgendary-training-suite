@@ -25,14 +25,24 @@ forex_predictor:
   kwargs:
     active_timeframes:
       - 1
+      - 5
+      - 15
+      - 60
+      - 240
+      - 1440
     d_model: 128
     n_heads: 4
     n_layers: 4
     head_hidden: 256
     dropout: 0.1
   sota_targets:
-    direction_accuracy: 0.60
-    win_rate: 0.55
+    dir_acc: 60.0
+    win_rate: 56.0
+    profit_factor: 1.85
+    sharpe_ratio: 2.10
+    max_drawdown: 6.5
+    tp_mae: 12.0
+    sl_mae: 10.0
   stabilizers:
     numerical_sentinel:
       - -50.0

@@ -40,7 +40,7 @@ class LLaVA_v1_5(nn.Module):
                 task_type="CAUSAL_LM"
             )
             self.model = get_peft_model(self.model, lora_config)
-            print("✨ [MULTIMODAL] LLaVA-v1.6 Hardened with QLoRA.")
+            print("[MULTIMODAL] LLaVA-v1.6 Hardened with QLoRA.")
         except ImportError:
             print("[WARNING] [RESILIENCE] PEFT not found. LLaVA remains in Standard mode.")
         
@@ -87,7 +87,7 @@ class BLIP_2(nn.Module):
                 bias="none"
             )
             self.model = get_peft_model(self.model, lora_config)
-            print("✨ [MULTIMODAL] BLIP-2 Hardened with QLoRA.")
+            print("[MULTIMODAL] BLIP-2 Hardened with QLoRA.")
         except ImportError:
             pass
         

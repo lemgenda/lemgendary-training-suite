@@ -31,7 +31,7 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
     
     # Use the FIRST dataset listed as the primary path anchor
     suffix = "KaggleReady" if config.get("env") == 'kaggle' else config.get("execution", {}).get("suffixes", {}).get(config.get("execution", {}).get("mode", "training"), "")
-    primary_ds = f"{dataset_names[0]}{suffix}"
+    primary_ds = dataset_names[0] if (suffix and dataset_names[0].endswith(suffix)) else f"{dataset_names[0]}{suffix}"
     train_path = os.path.join(abs_data_root, primary_ds, "images", "train")
     val_path = os.path.join(abs_data_root, primary_ds, "images", "val")
     
@@ -49,5 +49,5 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
     with open(temp_cfg_path, "w") as f:
         yaml.dump(yolo_cfg, f, default_flow_style=False)
         
-    print(f"✨ [YOLO GEN] Dynamic config materialized for {model_key} with {len(names)} classes.")
+    print(f"[YOLO GEN] Dynamic config materialized for {model_key} with {len(names)} classes.")
     return temp_cfg_path

@@ -79,7 +79,7 @@ def export_onnx(
     import torch.onnx
 
     if active_timeframes is None:
-        active_timeframes = [60]
+        active_timeframes = [1, 5, 15, 60, 240, 1440]
 
     if out_path is None:
         base = os.path.splitext(checkpoint_path)[0]
@@ -307,7 +307,7 @@ def generate_signal(
         Signal dict: {direction, confidence, tp_pips, sl_pips, probs}
     """
     if active_timeframes is None:
-        active_timeframes = [60]
+        active_timeframes = [1, 5, 15, 60, 240, 1440]
 
     if not connect_mt5(login=login, password=password, server=server):
         return {
@@ -425,8 +425,8 @@ def main():
     parser.add_argument("--checkpoint",   default=None,     help="Path to .pth checkpoint for export")
     parser.add_argument("--onnx",         default=None,     help="Path to .onnx model for signal mode")
     parser.add_argument("--pair",         default="EURUSD", help="Currency pair for signal mode")
-    parser.add_argument("--timeframes",   nargs="+", type=int, default=[60],
-                        help="Active timeframe rungs in minutes")
+    parser.add_argument("--timeframes",   nargs="+", type=int, default=[1, 5, 15, 60, 240, 1440],
+                        help="Active timeframe rungs in minutes (default: 1 5 15 60 240 1440)")
     parser.add_argument("--out",          default=None,     help="Output path for ONNX or MQL5 file")
     parser.add_argument("--opset",        type=int, default=17, help="ONNX opset version")
     parser.add_argument("--login",       type=int, default=None, help="MT5 demo account login ID")

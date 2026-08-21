@@ -16,7 +16,9 @@ METRIC_WEIGHTS = {
     'rank_margin': 20, 'accuracy': 100, 'mae': 100,
     # [2026: SOTA Expansion Targets]
     'miou': 100, 'map_medium': 100, 'map_hard': 100, 'accuracy_vqa': 100,
-    'dir_acc': 1.0, 'win_rate': 1.0, 'tp_mae': 1.0, 'sl_mae': 1.0
+    'dir_acc': 1.0, 'win_rate': 1.0, 'profit_factor': 10.0,
+    'sharpe_ratio': 10.0, 'sortino_ratio': 10.0, 'max_drawdown': 1.0,
+    'tp_mae': 1.0, 'sl_mae': 1.0
 }
 
 METRIC_DIRECTIONS = {
@@ -25,7 +27,9 @@ METRIC_DIRECTIONS = {
     'rank_margin': False, 'accuracy': True, 'mae': False,
     # [2026: SOTA Expansion Targets]
     'miou': True, 'map_medium': True, 'map_hard': True, 'accuracy_vqa': True,
-    'dir_acc': True, 'win_rate': True, 'tp_mae': False, 'sl_mae': False
+    'dir_acc': True, 'win_rate': True, 'profit_factor': True,
+    'sharpe_ratio': True, 'sortino_ratio': True, 'max_drawdown': False,
+    'tp_mae': False, 'sl_mae': False
 }
 
 class TelemetryEngine:
@@ -112,10 +116,11 @@ class TelemetryEngine:
             if direction:
                 quality_score += val * weight
             else:
-                # Inverted: We use standard 2026 normalization for restoration metrics
                 if k == 'fid': quality_score += (100.0 - val) * weight
                 elif k == 'lpips': quality_score += (1.0 - val) * weight
                 elif k == 'rank_margin': quality_score += (10.0 - val) * weight # Margin is 0-9 scale
+                elif k == 'max_drawdown': quality_score += max(0.0, 100.0 - val) * weight
+                elif k in ['tp_mae', 'sl_mae']: quality_score += max(0.0, 50.0 - val) * weight
                 else: quality_score += (1.0 / (val + 1e-6)) * weight
                 
         return quality_score, False

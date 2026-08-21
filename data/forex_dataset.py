@@ -16,6 +16,7 @@ from data.mt5_pipeline import (
     TIMEFRAME_LOOKBACK,
     TIMEFRAME_RUNGS,
     MAJOR_PAIRS,
+    EXTENDED_PAIRS,
     PAIR_INDEX,
     load_shard,
 )
@@ -50,6 +51,8 @@ class ForexDataset(Dataset):
         active_timeframes: list | None = None,
         is_train: bool = True,
         sample_fraction: float = 1.0,
+        fold: int | None = None,
+        spread_stress_pips: float = 0.0,
     ):
         # Auto-resolve shard_root across compiled manifold and local paths
         candidates = [
@@ -64,12 +67,20 @@ class ForexDataset(Dataset):
                 resolved_root = os.path.normpath(cand)
                 break
 
-        self.shard_root        = resolved_root
-        self.pairs             = pairs or MAJOR_PAIRS
-        self.active_timeframes = active_timeframes or [60, 240]
-        self.is_train          = is_train
-        self.sample_fraction   = sample_fraction
-        self.split             = "train" if is_train else "val"
+        self.shard_root = resolved_root
+        if pairs:
+            self.pairs = pairs
+        elif os.path.exists(self.shard_root):
+            disk_pairs = [d for d in os.listdir(self.shard_root) if os.path.isdir(os.path.join(self.shard_root, d)) and not d.startswith('.') and d in PAIR_INDEX]
+            self.pairs = disk_pairs if disk_pairs else EXTENDED_PAIRS
+        else:
+            self.pairs = EXTENDED_PAIRS
+        self.active_timeframes  = active_timeframes or [1, 5, 15, 60, 240, 1440]
+        self.is_train           = is_train
+        self.sample_fraction    = sample_fraction
+        self.split              = "train" if is_train else "val"
+        self.fold               = fold
+        self.spread_stress_pips = spread_stress_pips
 
         # Build flat sample index: (pair_idx, tf, shard_row_idx)
         self._build_index()
@@ -81,16 +92,22 @@ class ForexDataset(Dataset):
     def _build_index(self):
         """Build flat sample index over all pairs × active_timeframes × rows."""
         self._shards = {}     # (pair, tf) → (X, y_dir, y_mag)
-        self._index  = []     # [(pair_idx, tf, row_idx), ...]
+        self._index  = []     # [(pair_idx, tf, key, row_idx), ...]
 
         for pair in self.pairs:
             p_idx = PAIR_INDEX.get(pair, 0)
             for tf in self.active_timeframes:
-                shard_dir = os.path.join(self.shard_root, pair, str(tf), self.split)
-                X, y_dir, y_mag = load_shard(shard_dir)
+                # Check for fold-specific shard first if fold is specified
+                if self.fold is not None:
+                    shard_dir = os.path.join(self.shard_root, pair, str(tf), "folds", f"fold_{self.fold}", self.split)
+                    if not os.path.exists(shard_dir):
+                        shard_dir = os.path.join(self.shard_root, pair, str(tf), self.split)
+                else:
+                    shard_dir = os.path.join(self.shard_root, pair, str(tf), self.split)
+
+                X, y_dir, y_mag = load_shard(shard_dir, mmap_mode="r")
                 if X is None:
                     # Shard not yet downloaded — skip silently during build
-                    # (will become populated once MT5 pipeline runs)
                     continue
                 key = (pair, tf)
                 self._shards[key] = (X, y_dir, y_mag)
@@ -100,14 +117,13 @@ class ForexDataset(Dataset):
         self.all_samples = list(self._index)
         # Governor fractional sampling (train only, chronological order preserved)
         if self.is_train and self.sample_fraction < 1.0:
-            # Take first N samples (chronological) — no shuffle to preserve temporal validity
             n = max(1, int(len(self._index) * self.sample_fraction))
             self._index = self._index[:n]
 
         if len(self._index) == 0:
             print(
-                f" [ForexDataset] WARNING: No shards found in {self.shard_root}. "
-                "Run mt5_pipeline.py --mode download to generate data."
+                f" [ForexDataset] NOTICE: No matching shards found in {self.shard_root} "
+                f"for pairs={self.pairs}, TFs={self.active_timeframes}."
             )
 
     def update_strategy(self, fraction: float | None = None, active_timeframes: list | None = None, size: float | int | tuple | None = None, **kwargs):
@@ -168,9 +184,16 @@ class ForexDataset(Dataset):
                 # Pad with zeros if this TF shard not loaded yet
                 tf_inputs[other_tf] = torch.zeros(TIMEFRAME_LOOKBACK[other_tf], X.shape[-1])
 
+        mag_tp = float(y_mag[row, 0])
+        mag_sl = float(y_mag[row, 1])
+        if self.spread_stress_pips > 0.0:
+            # Spread friction reduces net TP gain and increases effective SL risk
+            mag_tp = max(0.0, mag_tp - self.spread_stress_pips)
+            mag_sl = mag_sl + self.spread_stress_pips
+
         labels = {
             "direction": torch.tensor(int(y_dir[row]), dtype=torch.long),
-            "magnitude": torch.tensor([float(y_mag[row, 0]), float(y_mag[row, 1])], dtype=torch.float32),
+            "magnitude": torch.tensor([mag_tp, mag_sl], dtype=torch.float32),
         }
 
         return (

@@ -85,7 +85,7 @@ async def main():
     hub = LemGendaryCloudHub()
     # Bind to 0.0.0.0 to allow WAN/Edge nodes
     async with websockets.serve(hub.handler, "0.0.0.0", 8765):
-        logging.info(" 🌩️ LemGendary Cloud Link Coordinator Hub started on ws://0.0.0.0:8765")
+        logging.info(" [CLOUD] LemGendary Cloud Link Coordinator Hub started on ws://0.0.0.0:8765")
         await asyncio.Future()  # run forever
 
 if __name__ == "__main__":

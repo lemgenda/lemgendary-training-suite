@@ -369,6 +369,17 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
     Performs a real-world VRAM test at the specified resolution to find the
     absolute physical limit of the current GPU.
     """
+    if model_info.get("dataset_type") == "forex" or "forex" in model_key.lower():
+        configured_batch = model_info.get("batch_size", 64)
+        if isinstance(configured_batch, str) and configured_batch.lower() == "auto":
+            final_batch = 128 if mode == 'val' else 64
+        else:
+            final_batch = int(configured_batch) if configured_batch is not None else 64
+        gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'
+        vram_gb = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) if torch.cuda.is_available() else 0.0
+        print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ Sequence | Batch: {final_batch} | Dataset Fraction: {sample_fraction*100:.1f}%")
+        return final_batch
+
     # 2026 Resilience: Check for restoration models early to adjust VRAM margins and capabilities globally.
     is_restoration = any(x in model_key.lower() for x in ["nafnet", "mprnet", "mirnet", "ffanet", "codeformer", "film_restorer", "parsenet"])
     try:
@@ -655,6 +666,7 @@ def main():
     parser.add_argument("--hub_repo", type=str, default=None, help="GitHub repository name for model hub")
     parser.add_argument("--auto_sync", action="store_true", help="Enable automated cloud synchronization per epoch (Kaggle only)")
     parser.add_argument("--reset-scheduler", action="store_true", help="Bypass loaded scheduler state and re-initialize fresh curve at current step")
+    parser.add_argument("--fold", type=int, default=None, help="Walk-forward fold index (1..6)")
     args = parser.parse_args()
 
     print(" [TRACE] Loading GITHUB PAT...", flush=True)
@@ -838,7 +850,7 @@ def main():
             governor.current_res = max_local_res
 
     sample_fraction = governor.current_fraction
-    val_anchor_size = model_info.get("val_resolution", governor.current_res)
+    val_anchor_size = model_info.get("val_resolution") or governor.current_res
     if max_local_res and vram_gb_init < 4.5 and val_anchor_size is not None and val_anchor_size > max_local_res:
         val_anchor_size = max_local_res
 
@@ -901,8 +913,8 @@ def main():
         if not os.path.exists(manifold_root):
             manifold_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets", "LemGendizedForexPredictorLarge"))
         shard_root = manifold_root if (os.path.exists(manifold_root) and any(os.path.isdir(os.path.join(manifold_root, d)) for d in os.listdir(manifold_root) if not d.startswith('.'))) else os.path.normpath(os.path.join(project_root, "data", "forex"))
-        train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction)
-        val_ds = ForexDataset(shard_root=shard_root, is_train=False)
+        train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction, fold=args.fold)
+        val_ds = ForexDataset(shard_root=shard_root, is_train=False, fold=args.fold)
     else:
         train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
         val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
@@ -1838,9 +1850,9 @@ def main():
 
 
     # Initialize metrics for export stability (Avoids NameErrors on skip)
-    # Initialize metrics for export stability
     plcc, srcc, psnr, ssim_val, lpips_val, fid, map50, map50_95 = 0.0, 0.0, 0.0, 0.0, 0.05, 50.0, 0.0, 0.0
     mae, miou, map_medium, map_hard, accuracy_vqa = 0.0, 0.0, 0.0, 0.0, 0.0
+    dir_acc, win_rate, profit_factor, sharpe_ratio, sortino_ratio, max_drawdown, tp_mae, sl_mae = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     epoch = start_epoch
 
 
@@ -3222,13 +3234,42 @@ def main():
                 accuracy = dir_acc / 100.0
 
                 non_hold_mask = (pred_classes != 1)
-                win_rate = float((pred_classes[non_hold_mask] == t_dirs[non_hold_mask]).float().mean().item()) * 100.0 if non_hold_mask.sum() > 0 else dir_acc
+                win_mask = (pred_classes[non_hold_mask] == t_dirs[non_hold_mask])
+                win_rate = float(win_mask.float().mean().item()) * 100.0 if non_hold_mask.sum() > 0 else dir_acc
 
                 tp_mae = float(torch.abs(p_mags[:, 0] - t_mags[:, 0]).mean().item())
                 sl_mae = float(torch.abs(p_mags[:, 1] - t_mags[:, 1]).mean().item())
                 mae = tp_mae
 
-                metrics_str = f" | Dir Acc: {dir_acc:.2f}% | Win Rate: {win_rate:.2f}% | TP MAE: {tp_mae:.4f} | SL MAE: {sl_mae:.4f}"
+                # Quantitative Simulated Trade Performance
+                if non_hold_mask.sum() > 0:
+                    pred_tps = p_mags[non_hold_mask, 0].numpy()
+                    pred_sls = p_mags[non_hold_mask, 1].numpy()
+                    wins = win_mask.numpy()
+
+                    trade_returns = np.where(wins, pred_tps, -pred_sls)
+                    gross_profit = float(np.sum(np.maximum(0, trade_returns)))
+                    gross_loss = float(np.abs(np.sum(np.minimum(0, trade_returns))))
+                    profit_factor = gross_profit / max(1e-4, gross_loss) if gross_loss > 0 else 2.5
+
+                    mean_r = np.mean(trade_returns)
+                    std_r = np.std(trade_returns)
+                    downside_std = np.std(trade_returns[trade_returns < 0]) if (trade_returns < 0).sum() > 1 else std_r
+                    ann_factor = np.sqrt(252 * 24)
+                    sharpe_ratio = float((mean_r / max(1e-4, std_r)) * ann_factor) if std_r > 0 else 0.0
+                    sortino_ratio = float((mean_r / max(1e-4, downside_std)) * ann_factor) if downside_std > 0 else 0.0
+
+                    equity_curve = np.cumsum(trade_returns)
+                    running_max = np.maximum.accumulate(equity_curve)
+                    drawdowns = (running_max - equity_curve) / np.maximum(100.0, running_max + 100.0) * 100.0
+                    max_drawdown = float(np.max(drawdowns)) if len(drawdowns) > 0 else 0.0
+                else:
+                    profit_factor = 1.0
+                    sharpe_ratio = 0.0
+                    sortino_ratio = 0.0
+                    max_drawdown = 0.0
+
+                metrics_str = f" | Dir Acc: {dir_acc:.2f}% | Win Rate: {win_rate:.2f}% | PF: {profit_factor:.2f} | Sharpe: {sharpe_ratio:.2f} | MaxDD: {max_drawdown:.2f}% | TP MAE: {tp_mae:.2f} | SL MAE: {sl_mae:.2f}"
             elif train_ds.task_type == "classification" and len(all_preds) > 0:
                 p = torch.cat(all_preds)
                 t = torch.cat(all_targets)
@@ -3321,7 +3362,10 @@ def main():
                 'lpips': lpips_val, 'fid': fid, 'map50': map50, 'map50_95': map50_95,
                 'rank_margin': rank_margin, 'accuracy': accuracy,
                 'mae': -psnr if train_ds.task_type == 'parameter_prediction' else 0.0,
-                'miou': miou, 'map_medium': map_medium, 'map_hard': map_hard, 'accuracy_vqa': accuracy_vqa
+                'miou': miou, 'map_medium': map_medium, 'map_hard': map_hard, 'accuracy_vqa': accuracy_vqa,
+                'dir_acc': dir_acc, 'win_rate': win_rate, 'profit_factor': profit_factor,
+                'sharpe_ratio': sharpe_ratio, 'sortino_ratio': sortino_ratio,
+                'max_drawdown': max_drawdown, 'tp_mae': tp_mae, 'sl_mae': sl_mae
             }
             current_quality_score, singularity_collapse = telemetry_engine.compute_quality_score(curr_metrics, sota_targets, train_ds.task_type)
 

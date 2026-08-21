@@ -108,8 +108,8 @@ def main():
             ckpt_path = os.path.normpath(os.path.join(project_root, "checkpoints", f"{args.model}_best.pth"))
         out_onnx = os.path.join(production_dir, f"{base_name}.onnx")
         if os.path.exists(ckpt_path):
-            print(f" [EXPORT] Forex model detected. Exporting via MT5 signal engine: {ckpt_path} -> {out_onnx}")
-            export_onnx(ckpt_path, out_onnx, active_timeframes=[60, 240])
+            active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
+            export_onnx(ckpt_path, out_onnx, active_timeframes=active_tfs)
         else:
             print(f" [WARNING] [EXPORT] No checkpoint found for {args.model} at {ckpt_path}.")
         return

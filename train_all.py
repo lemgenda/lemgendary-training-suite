@@ -53,7 +53,7 @@ def main():
 
     print("\n" + "="*80)
     print(" [LAUNCH] NUCLEAR FLEET ORCHESTRATOR v16.0")
-    print(" 🧠 Sequential Manifold Execution + Driver Cooldown Enabled")
+    print(" [SYSTEM] Sequential Manifold Execution + Driver Cooldown Enabled")
     print("="*80 + "\n")
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -93,7 +93,7 @@ def main():
             final_pth = os.path.join(base_dir, "trained-models", model_key, f"{model_key}_best.pth")
             
             if os.path.exists(final_pth) and not args.force:
-                print(f"✨ [SKIP] Model '{model_key}' has existing SOTA artifacts. Use --force to re-train.")
+                print(f"[SKIP] Model '{model_key}' has existing SOTA artifacts. Use --force to re-train.")
                 continue
 
             # Diagnostic Skip Logic (Option 4)
@@ -104,7 +104,7 @@ def main():
                     has_onnx = any(f.endswith('.onnx') for f in files)
                     has_pt = any(f.endswith('.pt') or f.endswith('.pth') for f in files)
                     if has_onnx and has_pt:
-                        print(f"✨ [SKIP] Model '{model_key}' already has exported ONNX and PT binaries (Single-Epoch Test Bypass).")
+                        print(f"[SKIP] Model '{model_key}' already has exported ONNX and PT binaries (Single-Epoch Test Bypass).")
                         continue
 
             if auto_accept or input(f"▶ Train >> {model_key} << ? (y/n/all): ").strip().lower() in ['y', 'all']:
@@ -134,11 +134,11 @@ def main():
                 if not args.yes and input("Proceed to next? (y/n): ").lower() != 'y': sys.exit(1)
             
             # --- Task 11.3: Driver Cooldown ---
-            print("💤 [COOLDOWN] Reclaiming physical VRAM manifold...")
+            print("[COOLDOWN] Reclaiming physical VRAM manifold...")
             time.sleep(2)
 
     # --- Task 11.4: Global Dashboard Hook ---
-    print("\n🏁 Nuclear Orchestration Complete!")
+    print("\n[COMPLETE] Nuclear Orchestration Complete!")
     if failure_report["failures"]:
         print(f"[WARNING] Warning: {len(failure_report['failures'])} models failed. See {failure_log_path}")
 
@@ -146,6 +146,6 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n⏸️ [ORCHESTRATOR] Training Suite Aborted by User. All internal model progress was safely committed by the Resiliency Shield.")
+        print("\n[INTERRUPT] [ORCHESTRATOR] Training Suite Aborted by User. All internal model progress was safely committed by the Resiliency Shield.")
         import sys
         sys.exit(0)

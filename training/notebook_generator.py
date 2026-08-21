@@ -79,7 +79,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        print(f'[OK] [AUTH] Kaggle Secrets mounted: {\", \".join(active)}')\n",
         "    else:\n",
         "        print('[ERROR] [CRITICAL] No PATs found in Kaggle Secrets! Private repositories will fail to clone.')\n",
-        "        print('👉 Action Required: In Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT.')\n",
+        "        print('[ACTION REQUIRED] In Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT.')\n",
         "except Exception as e:\n",
         "    print(f'[ERROR] Secret mounting failed: {e}')\n"
     ]
@@ -95,7 +95,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    print(f'[AUTH] Using {\"SUITE_PAT\" if os.environ.get(\"SUITE_PAT\") else \"GITHUB_PAT\"} for cloning...')\n",
         "else:\n",
         "    print('[WARNING] No PAT found in environment. Attempting public clone (will fail for private repos)...')\n",
-        "    print('👉 If clone fails, add SUITE_PAT or GITHUB_PAT to Kaggle Add-ons -> Secrets.')\n",
+        "    print('[ACTION REQUIRED] If clone fails, add SUITE_PAT or GITHUB_PAT to Kaggle Add-ons -> Secrets.')\n",
         "    auth_url = repo_url\n",
         "\n",
         "env = os.environ.copy()\n",
@@ -109,7 +109,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    else: \n",
         "        print(f'[ERROR] Clone failed: {res.stderr.strip()}')\n",
         "        if '403' in res.stderr or '401' in res.stderr or 'terminal prompts disabled' in res.stderr:\n",
-        "            print('👉 Action Required: Add SUITE_PAT or GITHUB_PAT to Kaggle Add-ons -> Secrets with GitHub read permissions.')\n",
+        "            print('[ACTION REQUIRED] Add SUITE_PAT or GITHUB_PAT to Kaggle Add-ons -> Secrets with GitHub read permissions.')\n",
         "else:\n",
         "    print('[OK] Suite resident. Syncing origin and pulling latest...')\n",
         "    subprocess.run(['git', 'remote', 'set-url', 'origin', auth_url], cwd=suite_path, env=env)\n",
@@ -189,8 +189,8 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        print('[WARNING] Dependency installation finished with non-zero exit code.')\n",
         "else:\n",
         "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
-        "    print('👉 ACTION REQUIRED: Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
-        "    print('👉 Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
+        "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
+        "    print('[ACTION REQUIRED] Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
     ]
 
     hub_prep_source = [
@@ -564,11 +564,20 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     # 2. Dataset Manifold Synchronization
     if unified_models_registry:
         m_info = unified_models_registry.get(model_key, {})
-        ds_list = m_info.get("datasets", [])
-        
-        target_candidates = list(ds_list)
-        if model_key not in target_candidates:
-            target_candidates.append(model_key)
+        ds_raw = m_info.get("datasets", []) or m_info.get("dataset", [])
+        if isinstance(ds_raw, str):
+            ds_list = [ds_raw]
+        elif isinstance(ds_raw, (list, tuple)):
+            ds_list = list(ds_raw)
+        else:
+            ds_list = []
+
+        if model_key == "professional_multitask_restoration":
+            target_candidates = ["LemGendizedProfessionalMultitaskRestorationLarge", "professional_multitask_restoration"]
+        else:
+            target_candidates = list(ds_list)
+            if model_key not in target_candidates:
+                target_candidates.append(model_key)
             
         synced_dirs = set()
         for target_folder in target_candidates:

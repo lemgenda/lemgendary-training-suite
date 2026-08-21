@@ -231,12 +231,13 @@ class MultiTaskDataset(Dataset):
 
         raw_dataset_names = self.model_info.get("datasets", [])
         suffix = "KaggleReady" if self.env == 'kaggle' else config.get("execution", {}).get("suffixes", {}).get(config.get("execution", {}).get("mode", "training"), "")
-        # 2026 Resilience: Support 'LemGendized' prefix automatically
+        # 2026 Resilience: Support 'LemGendized' prefix automatically and guard against double-suffixing
         dataset_names = []
         for name in raw_dataset_names:
-            dataset_names.append(f"{name}{suffix}")
-            if not name.lower().startswith("lemgendized"):
-                dataset_names.append(f"LemGendized{name}{suffix}")
+            ds_entry = name if (suffix and name.endswith(suffix)) else f"{name}{suffix}"
+            dataset_names.append(ds_entry)
+            if not ds_entry.lower().startswith("lemgendized"):
+                dataset_names.append(f"LemGendized{ds_entry}")
         
         for ds_name in dataset_names:
             ds_path = self.get_dataset_path(ds_name)

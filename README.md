@@ -9,7 +9,7 @@
 ## [SYNC] Mission Status: v16.2.9 (High-Fidelity Era)
 
 [LAUNCH] **Status**: High-Fidelity Calibration Active / Global Registry Hardened  
-🧪 **Current Goal**: Finalize the **Resolution Ladder (256px-640px)** with **Ladder-Aware SOTA Guards** and **Manifold Hardening**.
+[GOAL] **Current Goal**: Finalize the **Resolution Ladder (256px-640px)** with **Ladder-Aware SOTA Guards** and **Manifold Hardening**.
 
 ---
 
@@ -32,7 +32,7 @@ For an exhaustive breakdown of the Training Suite architecture, please consult t
 
 ---
 
-## 🛠️ Getting Started
+## Getting Started
 
 ### 1. The Models Hub
 
@@ -42,7 +42,7 @@ The master orchestration console for system bootstrapping and cloud sync.
 ./lemgendary_models_hub.ps1
 ```
 
-#### 📋 Detailed Menu Structure
+#### Detailed Menu Structure
 
 | Option | Action | Sub-Prompts & Details |
 | :--- | :--- | :--- |
@@ -53,7 +53,7 @@ The master orchestration console for system bootstrapping and cloud sync.
 
 ---
 
-## 📂 Project Anatomy (Stateless Multi-Tenant)
+## Project Anatomy (Stateless Multi-Tenant)
 
 - `unified_models_v2.yaml` — **The Master Registry**: High-Fidelity floor, refined SOTA targets (FID/PLCC), and standardized learning rates.
 - `training/optimization_engine.py` — **The Governor**: Sawtooth scaling, Turbulence Dampening, and NPP Recoil.
@@ -78,7 +78,7 @@ Standardized historical audit (`metrics.csv`) captures the complete state:
 
 ---
 
-## ⚖️ Standalone Judicial Audit CLI (`judicial_audit_api.py`)
+## Standalone Judicial Audit CLI (`judicial_audit_api.py`)
 
 A fully decoupled, zero-dependency validation wrapper designed for CI/CD integration and isolated model auditing.
 
@@ -97,7 +97,7 @@ python judicial_audit_api.py --model_path .\export\model.onnx --dataset_dir .\te
 
 ---
 
-## ☁️ Dual-Repo SOTA Hub Sync & Kaggle Deployment
+## Dual-Repo SOTA Hub Sync & Kaggle Deployment
 
 The Governor automatically synchronizes with your `LemGendaryModels` repository, saving `_latest.pth` and `_best.pth` directly to the Hub. It uses **Dual-Token PATs** (`SUITE_PAT` and `GITHUB_PAT`) for secure, headless authentication on Kaggle.
 

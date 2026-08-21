@@ -258,6 +258,7 @@ function Get-ModelSelection {
             }
 
             '3' {
+                # --- DOMAIN 3: Financial & Time-Series ---
                 while ($true) {
                     Write-Header "FINANCIAL & TIME-SERIES - SUB-CATEGORIES"
                     Write-Host "  1. Forex Trading (ForexPredictor Multi-Scale CNN-Transformer)" -ForegroundColor Cyan
@@ -288,6 +289,7 @@ function Get-ModelSelection {
 
 function Show-ModelList {
     param([string[]]$Models)
+    if ($Models.Count -eq 1) { return $Models[0] }
     Write-Header "SELECT SPECIFIC MODEL MANIFOLD"
     for ($i=0; $i -lt $Models.Count; $i++) {
         Write-Host "  $($i+1). $($Models[$i])" -ForegroundColor Green
@@ -312,11 +314,11 @@ function Invoke-BootstrapCheck {
         Write-Host "  [!] CRITICAL: Python 3.12 Core not detected on this system." -ForegroundColor Red
         Write-Host "********************************************************************************" -ForegroundColor Yellow
         Write-Host "  The LemGendary Hub requires a system-level Python 3.12 to bootstrap natively." -ForegroundColor White
-        $choice = Read-Host "  👉 Would you like me to attempt an AUTOMATIC installation now? (y/n)"
+        $choice = Read-Host "  [?] Would you like me to attempt an AUTOMATIC installation now? (y/n)"
         if ($choice -eq 'y' -or $choice -eq 'Y') {
             Initialize-Environment
         } else {
-            Write-Host "  🛑 Python absolute requirement failed. Aborting Hub launch..." -ForegroundColor Red
+            Write-Host "  [ERROR] Python absolute requirement failed. Aborting Hub launch..." -ForegroundColor Red
             Start-Sleep -Seconds 2
             exit
         }
