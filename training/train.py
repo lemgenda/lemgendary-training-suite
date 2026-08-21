@@ -4186,10 +4186,13 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
         model.eval()
         model_info = unified_models_registry.get(args.model, {})
         size_raw = model_info.get("input_size", config.get("default_img_size", 256))
-        if isinstance(size_raw, list):
-            h, w = (int(size_raw[1]), int(size_raw[2])) if len(size_raw)==3 else (int(size_raw[0]), int(size_raw[1]))
+        if size_raw is not None:
+            if isinstance(size_raw, list):
+                h, w = (int(size_raw[1]), int(size_raw[2])) if len(size_raw)==3 else (int(size_raw[0]), int(size_raw[1]))
+            else:
+                h, w = int(size_raw), int(size_raw)
         else:
-            h, w = int(size_raw), int(size_raw)
+            h, w = None, None
 
         # --- 2026 SOTA Universal Export Suite Synchronization ---
         python_exe = sys.executable
