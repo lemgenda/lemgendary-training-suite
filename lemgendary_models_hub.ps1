@@ -83,15 +83,17 @@ function Get-ModelSelection {
                 while ($true) {
                     Write-Header "FINANCIAL & TIME-SERIES - SUB-CATEGORIES"
                     Write-Host "  1. Forex Trading (ForexPredictor Multi-Scale CNN-Transformer)" -ForegroundColor Cyan
+                    Write-Host "  2. Forex Trading (Walk-Forward Curriculum Orchestrator)" -ForegroundColor Cyan
                     Write-Host "  B. Back to Domain Menu" -ForegroundColor Gray
                     Write-Host ""
 
-                    $subChoice = (Read-Host "Select sub-category (1, B)").Trim()
+                    $subChoice = (Read-Host "Select sub-category (1-2, B)").Trim()
                     if ($subChoice -eq 'B' -or $subChoice -eq 'b') { break }
 
                     $modelList = @()
                     switch ($subChoice) {
                         '1' { $modelList = @("forex_predictor") }
+                        '2' { $modelList = @("forex_curriculum") }
                         default { continue }
                     }
 
@@ -216,7 +218,11 @@ while ($true) {
                     Invoke-JanitorPurge # Ensure clean start
                     $env:PYTHONPATH="$script:HUB_DIR"; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
                     $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
-                    Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" -m training.train --model $selectedModel $extraArgs; Pop-Location
+                    if ($selectedModel -eq "forex_curriculum") {
+                        Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" -m training.train_forex_curriculum; Pop-Location
+                    } else {
+                        Push-Location $script:HUB_DIR; & "$script:VENV_DIR\Scripts\python.exe" -m training.train --model $selectedModel $extraArgs; Pop-Location
+                    }
                 }
             }
             Read-Host "Press Enter to return..."

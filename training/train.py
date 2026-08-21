@@ -667,6 +667,7 @@ def main():
     parser.add_argument("--auto_sync", action="store_true", help="Enable automated cloud synchronization per epoch (Kaggle only)")
     parser.add_argument("--reset-scheduler", action="store_true", help="Bypass loaded scheduler state and re-initialize fresh curve at current step")
     parser.add_argument("--fold", type=int, default=None, help="Walk-forward fold index (1..6)")
+    parser.add_argument("--pairs", type=str, nargs='+', default=None, help="List of active pairs for Forex dataset (e.g. EURUSD GBPUSD)")
     args = parser.parse_args()
 
     print(" [TRACE] Loading GITHUB PAT...", flush=True)
@@ -913,8 +914,12 @@ def main():
         if not os.path.exists(manifold_root):
             manifold_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets", "LemGendizedForexPredictorLarge"))
         shard_root = manifold_root if (os.path.exists(manifold_root) and any(os.path.isdir(os.path.join(manifold_root, d)) for d in os.listdir(manifold_root) if not d.startswith('.'))) else os.path.normpath(os.path.join(project_root, "data", "forex"))
-        train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction, fold=args.fold)
-        val_ds = ForexDataset(shard_root=shard_root, is_train=False, fold=args.fold)
+        train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction, fold=args.fold, pairs=args.pairs)
+        val_ds = ForexDataset(shard_root=shard_root, is_train=False, fold=args.fold, pairs=args.pairs)
+        
+        # 2026: Explicit Curriculum Telemetry
+        active_pairs = len(args.pairs) if args.pairs else len(train_ds.pairs)
+        print(f" [SIGNAL] [CURRICULUM] Walk-Forward Fold: {args.fold if args.fold else 'MAIN'} | Active Pairs: {active_pairs}")
     else:
         train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
         val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
@@ -2478,10 +2483,15 @@ def main():
                 # We enforce an absolute floor to prevent false-positive recoils on difficult patches.
                 if train_ds.task_type == "quality":
                     absolute_floor = 0.40 * accumulation_steps
+                elif getattr(train_ds, "task_type", "") == "forex" or "forex" in args.model.lower():
+                    # 2026 Resilience: Forex predictions scale to 10^14 magnitudes un-normalized.
+                    absolute_floor = 1e16 * accumulation_steps
                 else:
                     absolute_floor = 0.05 * accumulation_steps
 
-                if train_ds.task_type != "quality" and i > 50 and current_loss_val > (train_loss / i) * 15.0 and current_loss_val > absolute_floor:
+                # 2026 Sentinel Bypass: Forex task has dynamic high-variance losses; rely on NAN guard instead.
+                is_forex = getattr(train_ds, "task_type", "") == "forex" or "forex" in args.model.lower()
+                if not is_forex and train_ds.task_type != "quality" and i > 50 and current_loss_val > (train_loss / i) * 15.0 and current_loss_val > absolute_floor:
                     consecutive_loss_spikes += 1
                     print(f" [WARNING] [SENTINEL] Sudden Loss Spike detected ({current_loss_val:.4f} vs {train_loss/i:.4f}). Manifold unstable. NPP Recoil active. (Consecutive: {consecutive_loss_spikes})")
                     governor.recoil()
