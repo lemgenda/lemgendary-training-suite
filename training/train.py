@@ -1871,7 +1871,7 @@ def main():
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
 
     # 2026 Telemetry Engine Integration
-    telemetry_engine = TelemetryEngine(export_dir)
+    telemetry_engine = TelemetryEngine(export_dir, task_type=model_info.get("dataset_type", "image"))
     telemetry_engine.validate_and_initialize_csv()
 
     effective_batch_size = batch_size

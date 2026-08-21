@@ -69,11 +69,13 @@ All features have been exhaustively documented in the [Master Training Suite Gui
 
 ---
 
-## [METRICS] Universal SOTA Telemetry (20-Column Audit)
+## [METRICS] Universal SOTA Telemetry (Dynamic Hardware-Aware Schema)
 
-Standardized historical audit (`metrics.csv`) captures the complete state:
+Standardized historical audit (`metrics.csv`) automatically scales based on the active domain:
 
-- **Standardized Schema**: Epoch, Loss, LR, Accuracy, Res, Data, Temp, Clamp, Batch, Accumulation, and Stress.
+- **28-Column Image Telemetry**: Epoch, Loss, LR, PLCC, SRCC, PSNR, SSIM, LPIPS, FID, mAP50, mIoU, Accuracy, Res, Data, Temp, Clamp, Batch, Accumulation, Stress.
+- **21-Column Financial Telemetry**: Epoch, Loss, LR, DirAcc, WinRate, ProfitFactor, Sharpe, Sortino, MaxDD, TP_MAE, SL_MAE, Quality_Score, Pairs, Data, Temp, Clamp, Batch, Accumulation, Stress.
+- **Auto-Recovery**: Instantly detects domain/column mismatch upon resume, archiving corrupted/legacy logs to `_legacy.csv` and initializing a fresh schema.
 - **Metrics Sanitizer**: Explicitly sanitizes `inf`/`NaN` artifacts to prevent numerical poison.
 - **Cloud Persistence**: Metrics are synchronized across local and cloud via the CloudSyncManager.
 

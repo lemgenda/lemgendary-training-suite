@@ -33,19 +33,28 @@ METRIC_DIRECTIONS = {
 }
 
 class TelemetryEngine:
-    def __init__(self, export_dir: str):
+    def __init__(self, export_dir: str, task_type: str = "image"):
         self.export_dir = export_dir
+        self.task_type = task_type
         self.metrics_csv_path = os.path.join(export_dir, "metrics.csv")
 
     def validate_and_initialize_csv(self):
-        """2026 Schema Guard: Force-rebuild or transition the CSV to 28-column hardware-aware parity."""
+        """2026 Schema Guard: Force-rebuild or transition the CSV to hardware-aware parity."""
         schema_ok = False
+        
+        # Determine expected columns based on task_type
+        if self.task_type == "forex":
+            expected_cols = 21
+            header_str = "Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,Quality_Score,Pairs,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
+        else:
+            expected_cols = 28
+            header_str = "Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Rank_Margin,MAE,mIoU,mAP_Medium,mAP_Hard,Accuracy_VQA,Quality_Score,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
+
         if os.path.exists(self.metrics_csv_path):
             try:
                 with open(self.metrics_csv_path, "r", encoding='utf-8') as f:
                     header = f.readline().strip()
-                    # 2026 Schema: 28 columns (v10.0 includes SOTA telemetry expansion)
-                    if len(header.split(",")) == 28:
+                    if len(header.split(",")) == expected_cols:
                         schema_ok = True
             except: pass
 
@@ -57,32 +66,16 @@ class TelemetryEngine:
                     if os.path.exists(legacy_path):
                         legacy_path = legacy_path.replace(".csv", f"_{int(time.time())}.csv")
                     os.rename(self.metrics_csv_path, legacy_path)
-                    print(f" [TELEMETRY] Legacy or corrupted metrics detected. Archiving to {os.path.basename(legacy_path)} and initializing 28-column SOTA log.")
+                    print(f" [TELEMETRY] Legacy or corrupted metrics detected. Archiving to {os.path.basename(legacy_path)} and initializing {expected_cols}-column SOTA log.")
                 except: pass
 
             with open(self.metrics_csv_path, "w", encoding='utf-8') as f:
-                f.write("Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Rank_Margin,MAE,mIoU,mAP_Medium,mAP_Hard,Accuracy_VQA,Quality_Score,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n")
+                f.write(header_str)
 
     def write_epoch_row(self, epoch, train_loss, val_loss, lr, curr_metrics, quality_score, governor_state, stress):
-        """Mathematically serialize the 28-column row directly to the IO stream."""
-        plcc = curr_metrics.get('plcc', 0.0)
-        srcc = curr_metrics.get('srcc', 0.0)
-        psnr = curr_metrics.get('psnr', 0.0)
-        ssim = curr_metrics.get('ssim', 0.0)
-        lpips = curr_metrics.get('lpips', 0.0)
-        fid = curr_metrics.get('fid', 0.0)
-        map50 = curr_metrics.get('map50', 0.0)
-        map50_95 = curr_metrics.get('map50_95', 0.0)
-        accuracy = curr_metrics.get('accuracy', 0.0)
-        rank_margin = curr_metrics.get('rank_margin', 0.0)
-        mae = curr_metrics.get('mae', 0.0)
-        miou = curr_metrics.get('miou', 0.0)
-        map_medium = curr_metrics.get('map_medium', 0.0)
-        map_hard = curr_metrics.get('map_hard', 0.0)
-        acc_vqa = curr_metrics.get('accuracy_vqa', 0.0)
-
+        """Mathematically serialize the row directly to the IO stream."""
+        
         # 2026 Governor extraction variables
-        res = governor_state.get('input_size', 512) if governor_state else 512
         data = governor_state.get('sample_fraction', 0.15) if governor_state else 0.15
         temp = governor_state.get('softmax_temp', 1.5) if governor_state else 1.5
         clamp = governor_state.get('logit_clamp', 15.0) if governor_state else 15.0
@@ -90,12 +83,46 @@ class TelemetryEngine:
         batch = governor_state.get('batch_size', 1) if governor_state else 1
         accum = governor_state.get('accumulation_steps', 24) if governor_state else 24
 
-        with open(self.metrics_csv_path, "a", encoding='utf-8') as f:
-            f.write(f"{epoch+1},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"
-                    f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim:.4f},{lpips:.4f},{fid:.4f},"
-                    f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{rank_margin:.4f},{mae:.4f},"
-                    f"{miou:.4f},{map_medium:.4f},{map_hard:.4f},{acc_vqa:.4f},{quality_score:.4f},"
-                    f"{res},{data:.2f},{temp:.4f},{clamp:.1f},{cooldown},{batch},{accum},{stress:.6f}\n")
+        if self.task_type == "forex":
+            dir_acc = curr_metrics.get('dir_acc', 0.0)
+            win_rate = curr_metrics.get('win_rate', 0.0)
+            profit_factor = curr_metrics.get('profit_factor', 0.0)
+            sharpe = curr_metrics.get('sharpe_ratio', 0.0)
+            sortino = curr_metrics.get('sortino_ratio', 0.0)
+            max_dd = curr_metrics.get('max_drawdown', 0.0)
+            tp_mae = curr_metrics.get('tp_mae', 0.0)
+            sl_mae = curr_metrics.get('sl_mae', 0.0)
+            pairs = governor_state.get('input_size', 16) if governor_state else 16
+            
+            with open(self.metrics_csv_path, "a", encoding='utf-8') as f:
+                f.write(f"{epoch+1},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"
+                        f"{dir_acc:.4f},{win_rate:.4f},{profit_factor:.4f},{sharpe:.4f},{sortino:.4f},"
+                        f"{max_dd:.4f},{tp_mae:.4f},{sl_mae:.4f},{quality_score:.4f},"
+                        f"{pairs},{data:.2f},{temp:.4f},{clamp:.1f},{cooldown},{batch},{accum},{stress:.6f}\n")
+        else:
+            plcc = curr_metrics.get('plcc', 0.0)
+            srcc = curr_metrics.get('srcc', 0.0)
+            psnr = curr_metrics.get('psnr', 0.0)
+            ssim = curr_metrics.get('ssim', 0.0)
+            lpips = curr_metrics.get('lpips', 0.0)
+            fid = curr_metrics.get('fid', 0.0)
+            map50 = curr_metrics.get('map50', 0.0)
+            map50_95 = curr_metrics.get('map50_95', 0.0)
+            accuracy = curr_metrics.get('accuracy', 0.0)
+            rank_margin = curr_metrics.get('rank_margin', 0.0)
+            mae = curr_metrics.get('mae', 0.0)
+            miou = curr_metrics.get('miou', 0.0)
+            map_medium = curr_metrics.get('map_medium', 0.0)
+            map_hard = curr_metrics.get('map_hard', 0.0)
+            acc_vqa = curr_metrics.get('accuracy_vqa', 0.0)
+            res = governor_state.get('input_size', 512) if governor_state else 512
+    
+            with open(self.metrics_csv_path, "a", encoding='utf-8') as f:
+                f.write(f"{epoch+1},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"
+                        f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim:.4f},{lpips:.4f},{fid:.4f},"
+                        f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{rank_margin:.4f},{mae:.4f},"
+                        f"{miou:.4f},{map_medium:.4f},{map_hard:.4f},{acc_vqa:.4f},{quality_score:.4f},"
+                        f"{res},{data:.2f},{temp:.4f},{clamp:.1f},{cooldown},{batch},{accum},{stress:.6f}\n")
 
     def compute_quality_score(self, curr_metrics, sota_targets, task_type):
         """Dynamic Quality Score: Weighted average of all SOTA targets."""
