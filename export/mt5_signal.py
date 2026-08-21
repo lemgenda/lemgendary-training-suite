@@ -93,7 +93,7 @@ def export_onnx(
     model_kwargs["active_timeframes"] = active_timeframes
     model = ForexPredictor(**model_kwargs)
 
-    state_dict = ckpt.get("model_state_dict", ckpt)
+    state_dict = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
     # Strip DataParallel prefix if present
     state_dict = {
         k[7:] if k.startswith("module.") else k: v

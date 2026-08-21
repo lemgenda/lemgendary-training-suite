@@ -3980,15 +3980,19 @@ def main():
             all_met = True
             met_details = []
 
-            curr_metrics = {
+            curr_metrics_local = {
                 'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
                 'lpips': lpips_val, 'fid': fid, 'map50': map50, 'map50_95': map50_95,
                 'rank_margin': rank_margin, 'accuracy': accuracy,
-                'mae': -psnr if train_ds.task_type == 'parameter_prediction' else 0.0
+                'mae': -psnr if train_ds.task_type == 'parameter_prediction' else 0.0,
+                'miou': miou, 'map_medium': map_medium, 'map_hard': map_hard, 'accuracy_vqa': accuracy_vqa,
+                'dir_acc': dir_acc, 'win_rate': win_rate, 'profit_factor': profit_factor,
+                'sharpe_ratio': sharpe_ratio, 'sortino_ratio': sortino_ratio,
+                'max_drawdown': max_drawdown, 'tp_mae': tp_mae, 'sl_mae': sl_mae
             }
 
             for k, v in sota_targets.items():
-                val = curr_metrics.get(k, 0.0)
+                val = curr_metrics_local.get(k, 0.0)
                 direction = METRIC_DIRECTIONS.get(k, True)
                 met = (val >= v) if direction else (val <= v)
 

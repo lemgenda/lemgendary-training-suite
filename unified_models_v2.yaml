@@ -36,13 +36,14 @@ forex_predictor:
     head_hidden: 256
     dropout: 0.1
   sota_targets:
-    dir_acc: 60.0
-    win_rate: 56.0
-    profit_factor: 1.85
-    sharpe_ratio: 2.10
-    max_drawdown: 6.5
-    tp_mae: 12.0
-    sl_mae: 10.0
+    dir_acc: 78.7
+    win_rate: 68.2
+    profit_factor: 2.2
+    sharpe_ratio: 2.31
+    sortino_ratio: 2.94
+    max_drawdown: 9.5
+    tp_mae: 3.8
+    sl_mae: 3.8
   stabilizers:
     numerical_sentinel:
       - -50.0
