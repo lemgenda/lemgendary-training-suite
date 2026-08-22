@@ -2897,7 +2897,7 @@ def main():
                 is_high_fidelity = is_max_res and governor.current_fraction >= fidelity_thresh
             except: pass
 
-            if is_refinement or is_high_fidelity or train_ds.task_type == "quality":
+            if is_refinement or is_high_fidelity or getattr(train_ds, "task_type", "") in ["quality", "forex"]:
                 shard_limit = len(val_loader)
                 if pbar: pbar.write(" [GOVERNOR] High Fidelity Audit Active: Auto-expanding Validation Manifold to 100% for strict SOTA evaluation.")
             else:
