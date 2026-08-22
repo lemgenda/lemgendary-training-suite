@@ -118,6 +118,23 @@ function Initialize-Environment {
         Write-Host "  [PASS] Node.js is installed." -ForegroundColor Green
     }
 
+    Write-Host "  [*] Checking for Google Drive for Desktop (Dataset Streaming)..." -ForegroundColor Gray
+    $gdrivePath = "C:\Program Files\Google\Drive File Stream\GoogleDriveFS.exe"
+    if (-not (Test-Path $gdrivePath)) {
+        Write-Host "  [!] Google Drive for Desktop not found. This is highly recommended for streaming remote datasets without downloading." -ForegroundColor Yellow
+        $choice = Read-Host "  Would you like to install it now via winget? (Y/N)"
+        if ($choice -eq 'Y' -or $choice -eq 'y') {
+            try {
+                winget install --id "Google.Drive" -e --silent --accept-package-agreements --accept-source-agreements
+                Write-Host "  [+] Google Drive installed. Please sign in after setup to map your virtual drive." -ForegroundColor Green
+            } catch {
+                Write-Host "  [ERROR] Auto-install for Google Drive failed. Please install manually." -ForegroundColor Red
+            }
+        }
+    } else {
+        Write-Host "  [PASS] Google Drive for Desktop is installed." -ForegroundColor Green
+    }
+
     # 1. Advanced Discovery: Find SYSTEM Python (Skip .venv paths)
     $pyPath = Get-Command python -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike "*\.venv\*" } | Select-Object -First 1 -ExpandProperty Source
     $knownSystemPath = "C:\Users\lemtr\AppData\Local\Programs\Python\Python312\python.exe"

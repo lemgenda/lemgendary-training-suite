@@ -248,7 +248,7 @@ def generate_mock_bars(pair: str, timeframe_min: int, n_bars: int | None = None,
             times = pd.date_range(end=dt_end, periods=n_bars, freq=freq)
 
     total_bars = len(times)
-    returns = np.random.normal(loc=0.00001, scale=0.001, size=total_bars)
+    returns = np.random.normal(loc=0.0, scale=0.001, size=total_bars)
     price_curve = base_price * np.exp(np.cumsum(returns))
     
     spread = pip_size * np.random.uniform(1.0, 3.0, size=total_bars)

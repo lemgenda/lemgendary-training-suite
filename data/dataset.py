@@ -332,30 +332,26 @@ class MultiTaskDataset(Dataset):
             ])
 
     def get_dataset_path(self, ds_name):
-        # 1. Standard Resolution
-        path = os.path.join(self.data_root, ds_name)
-        if os.path.exists(os.path.join(path, 'images', 'train')) or os.path.exists(os.path.join(path, 'targets', 'train')):
-            return path
-            
-        # 1b. Case-Insensitive Local Check
-        if os.path.exists(self.data_root):
-            try:
-                for item in os.listdir(self.data_root):
-                    if item.lower() == ds_name.lower():
-                        cand = os.path.join(self.data_root, item)
-                        if os.path.exists(os.path.join(cand, 'images', 'train')) or os.path.exists(os.path.join(cand, 'targets', 'train')):
-                            return cand
-            except Exception:
-                pass
-            
-        # 2. Nuclear Brute-Force (Kaggle Only)
-        if self.env == 'kaggle':
-            # Strip suffixes to get the core target slug (e.g., lemgendizednimaauthenticity)
+        model_info = self.unified_models.get(self.model_key, {})
+        gdrive_id = model_info.get("google_drive_dataset_id")
+        
+        if self.env == 'colab':
+            if gdrive_id:
+                drive_path = f"/content/drive/MyDrive/LemGendaryDatasets/{ds_name}"
+                if not os.path.exists(drive_path):
+                    print(f"\n[ERROR] Colab requires Google Drive dataset at {drive_path}")
+                    print(f"Please ensure dataset is uploaded and extracted in your Google Drive.")
+                    import sys; sys.exit(1)
+                return drive_path
+            else:
+                print("\n[ERROR] google_drive_dataset_id missing in unified_models_v2.yaml")
+                import sys; sys.exit(1)
+                
+        elif self.env == 'kaggle':
             target = ds_name.lower().replace("-", "").replace("_", "")
             for suffix in ["kaggleready", "large", "mini"]:
                 target = target.replace(suffix, "")
-                
-            # Perform a sub-millisecond Depth-Restricted BFS directory scan (max depth 4, directories only)
+            
             if os.path.exists('/kaggle/input'):
                 try:
                     queue = ['/kaggle/input']
@@ -364,44 +360,60 @@ class MultiTaskDataset(Dataset):
                         curr = queue.pop(0)
                         depth = depths[curr]
                         if depth > 4: continue
-                        
                         try:
                             items = os.listdir(curr)
-                        except Exception:
-                            continue
-                            
+                        except: continue
                         for item in items:
                             path = os.path.join(curr, item)
                             if os.path.isdir(path):
                                 depths[path] = depth + 1
                                 queue.append(path)
-                                
                                 name_lower = item.lower().replace("-", "").replace("_", "")
                                 if target in name_lower or 'lemgendary' in name_lower:
-                                    # Check 1: Direct mount (e.g., path/images/train)
-                                    if os.path.exists(os.path.join(path, 'images', 'train')):
-                                        if self.config.get("debug", False):
-                                            print(f"[SYNC] [DEBUG] get_dataset_path({ds_name}) target={target} -> Direct match: {path}")
+                                    if os.path.exists(os.path.join(path, 'images', 'train')) or os.path.exists(os.path.join(path, 'targets', 'train')):
                                         return path
-                                    # Check 2: Nested ZIP mount (e.g., path/NestedFolder/images/train)
                                     try:
                                         for sub in os.listdir(path):
                                             sub_path = os.path.join(path, sub)
                                             if os.path.isdir(sub_path):
-                                                if os.path.exists(os.path.join(sub_path, 'images', 'train')):
-                                                    if self.config.get("debug", False):
-                                                        print(f"[SYNC] [DEBUG] get_dataset_path({ds_name}) target={target} -> Nested match: {sub_path}")
+                                                if os.path.exists(os.path.join(sub_path, 'images', 'train')) or os.path.exists(os.path.join(sub_path, 'targets', 'train')):
                                                     return sub_path
-                                    except Exception:
-                                        pass
-                except Exception as e:
-                    if self.config.get("debug", False):
-                        print(f"[SYNC] [DEBUG] get_dataset_path scan error: {e}")
-                    pass
-            if self.config.get("debug", False):
-                print(f"[SYNC] [DEBUG] get_dataset_path({ds_name}) target={target} -> Failed to resolve path!")
+                                    except: pass
+                except: pass
+            print(f"\n[WARNING] No attached dataset found for '{ds_name}' in Kaggle /kaggle/input!")
+            print("Please attach the dataset to your Kaggle Notebook.")
+            return None
             
-        return None
+        else: # Local Environment
+            # Priority 1: Check Local Root
+            path = os.path.join(self.data_root, ds_name)
+            if os.path.exists(os.path.join(path, 'images', 'train')) or os.path.exists(os.path.join(path, 'targets', 'train')):
+                return path
+            
+            if os.path.exists(self.data_root):
+                try:
+                    for item in os.listdir(self.data_root):
+                        if item.lower() == ds_name.lower():
+                            cand = os.path.join(self.data_root, item)
+                            if os.path.exists(os.path.join(cand, 'images', 'train')) or os.path.exists(os.path.join(cand, 'targets', 'train')):
+                                return cand
+                except: pass
+            
+            # Priority 2: Use gdown
+            if gdrive_id:
+                print(f"\n[DATA] Local dataset not found. Falling back to gdown from Google Drive (ID: {gdrive_id})...")
+                import subprocess, sys, zipfile
+                os.makedirs(self.data_root, exist_ok=True)
+                dest = os.path.join(self.data_root, f"{ds_name}.zip")
+                subprocess.run([sys.executable, "-m", "gdown", "--id", gdrive_id, "-O", dest])
+                if os.path.exists(dest):
+                    print(f"[DATA] Extracting {dest}...")
+                    with zipfile.ZipFile(dest, 'r') as zip_ref:
+                        zip_ref.extractall(self.data_root)
+                    os.remove(dest)
+                    return os.path.join(self.data_root, ds_name)
+            
+            return None
 
     def load_image(self, img_path):
         """Fallback Shield: Returns Neutral-Gray tensor on I/O failure (Task 9.1)."""

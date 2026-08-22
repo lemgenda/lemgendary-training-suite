@@ -660,7 +660,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--lr", type=float, default=None)
-    parser.add_argument("--env", type=str, default="local", choices=["local", "kaggle"], help="Execution environment")
+    parser.add_argument("--env", type=str, default="local", choices=["local", "kaggle", "colab"], help="Execution environment")
     parser.add_argument("--prefetch_datasets", type=str, default="", help="Comma separated kaggle endpoint list natively executed asynchronously sequentially upon passing SOTA.")
     parser.add_argument("--hub_user", type=str, default=None, help="GitHub username for model hub")
     parser.add_argument("--hub_repo", type=str, default=None, help="GitHub repository name for model hub")
@@ -3253,11 +3253,13 @@ def main():
 
                 # Quantitative Simulated Trade Performance
                 if non_hold_mask.sum() > 0:
-                    pred_tps = p_mags[non_hold_mask, 0].numpy()
-                    pred_sls = p_mags[non_hold_mask, 1].numpy()
+                    # Real market returns are dictated by the actual target magnitudes, not model predictions.
+                    # This prevents the simulator from artificially inflating returns (and Sharpe/Sortino) when the model predicts massive TPs.
+                    act_tps = t_mags[non_hold_mask, 0].numpy()
+                    act_sls = t_mags[non_hold_mask, 1].numpy()
                     wins = win_mask.numpy()
 
-                    trade_returns = np.where(wins, pred_tps, -pred_sls)
+                    trade_returns = np.where(wins, act_tps, -act_sls)
                     gross_profit = float(np.sum(np.maximum(0, trade_returns)))
                     gross_loss = float(np.abs(np.sum(np.minimum(0, trade_returns))))
                     profit_factor = gross_profit / max(1e-4, gross_loss) if gross_loss > 0 else 2.5
@@ -3811,6 +3813,7 @@ def main():
         # --- 2026: SOTA Telemetry Sync (Resilience v3.1) ---
         # We record the CSV using the exact governor state that was used DURING this epoch's training.
         # This guarantees that the CSV metrics and hyperparameters perfectly align on the same row.
+        num_pairs = len(args.pairs) if getattr(args, 'pairs', None) else (len(train_ds.pairs) if train_ds and hasattr(train_ds, 'pairs') else 1)
         telemetry_engine.write_epoch_row(
             epoch=epoch,
             train_loss=avg_train_loss,
@@ -3819,7 +3822,8 @@ def main():
             curr_metrics=curr_metrics,
             quality_score=current_quality_score,
             governor_state=current_epoch_governor_state,
-            stress=current_epoch_governor_state.get('stress', 0.0) if current_epoch_governor_state else 0.0
+            stress=current_epoch_governor_state.get('stress', 0.0) if current_epoch_governor_state else 0.0,
+            num_pairs=num_pairs
         )
 
         prev_quality_score = current_quality_score

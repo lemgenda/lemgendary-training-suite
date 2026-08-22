@@ -72,7 +72,7 @@ class TelemetryEngine:
             with open(self.metrics_csv_path, "w", encoding='utf-8') as f:
                 f.write(header_str)
 
-    def write_epoch_row(self, epoch, train_loss, val_loss, lr, curr_metrics, quality_score, governor_state, stress):
+    def write_epoch_row(self, epoch, train_loss, val_loss, lr, curr_metrics, quality_score, governor_state, stress, num_pairs=None):
         """Mathematically serialize the row directly to the IO stream."""
         
         # 2026 Governor extraction variables
@@ -92,7 +92,7 @@ class TelemetryEngine:
             max_dd = curr_metrics.get('max_drawdown', 0.0)
             tp_mae = curr_metrics.get('tp_mae', 0.0)
             sl_mae = curr_metrics.get('sl_mae', 0.0)
-            pairs = governor_state.get('input_size', 16) if governor_state else 16
+            pairs = num_pairs if num_pairs is not None else (governor_state.get('input_size', 16) if governor_state else 16)
             
             with open(self.metrics_csv_path, "a", encoding='utf-8') as f:
                 f.write(f"{epoch+1},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"

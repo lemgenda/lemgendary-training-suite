@@ -9,6 +9,7 @@ forex_predictor:
   checkpoint: ForexPredictorWeights_FP32.pth
   # input_size is not applicable for sequence models — governed by seq_len rung
   input_size: null
+  sample_fraction: 1.0 # Override for Walk-Forward Macro Curriculum (always use 100% of fold)
   batch_size: auto
   learning_rate: 1.0e-04
   loss_fn: forex_dual
@@ -21,7 +22,11 @@ forex_predictor:
     Architecture uses causal Conv1D stacks per timeframe fused via cross-timeframe attention.
     Fully stateless and ONNX-compatible for live MT5 EA deployment.
   datasets:
-    - LemGendizedForexPredictorLarge
+    - LemGendizedForexTitanCoreLarge
+    - LemGendizedForexG7MajorsLarge
+    - LemGendizedForexHighBetaLarge
+    - LemGendizedForexUniverseLarge
+  google_drive_dataset_ids: []
   kwargs:
     active_timeframes:
       - 1

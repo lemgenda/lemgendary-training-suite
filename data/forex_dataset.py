@@ -54,25 +54,85 @@ class ForexDataset(Dataset):
         fold: int | None = None,
         spread_stress_pips: float = 0.0,
     ):
-        # Auto-resolve shard_root across compiled manifold and local paths
-        candidates = [
-            shard_root,
-            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "LemGendaryDatasets", "LemGendizedForexPredictorLarge", "forex"),
-            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "LemGendaryDatasets", "LemGendizedForexPredictorLarge"),
-            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "forex"),
-        ]
-        resolved_root = shard_root
-        for cand in candidates:
-            if cand and os.path.exists(cand) and any(os.path.isdir(os.path.join(cand, d)) for d in os.listdir(cand) if not d.startswith('.')):
-                resolved_root = os.path.normpath(cand)
-                break
+# --- Multi-Environment Resolution (Multi-Root Distributed Loader) ---
+        import yaml
+        unified_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "unified_models_v2.yaml")
+        gdrive_ids = []
+        if os.path.exists(unified_path):
+            with open(unified_path, 'r') as f:
+                um = yaml.safe_load(f)
+                gdrive_ids = um.get("forex_predictor", {}).get("google_drive_dataset_ids", [])
 
-        self.shard_root = resolved_root
+        env = os.environ.get("ENV", "local")
+        import sys
+        if 'colab' in sys.modules or os.path.exists('/content'):
+            env = 'colab'
+        elif os.path.exists('/kaggle'):
+            env = 'kaggle'
+
+        resolved_roots = []
+        if shard_root and os.path.exists(shard_root):
+            resolved_roots.append(shard_root)
+        
+        if env == 'colab':
+            base_drive = "/content/drive/MyDrive/LemGendaryDatasets"
+            if os.path.exists(base_drive):
+                for d in os.listdir(base_drive):
+                    if "Forex" in d:
+                        cand = os.path.join(base_drive, d, "forex")
+                        if os.path.exists(cand):
+                            resolved_roots.append(cand)
+            if not resolved_roots:
+                print(f"\n[ERROR] Colab requires Google Drive dataset modular packages at {base_drive}")
+                import sys; sys.exit(1)
+                
+        elif env == 'kaggle':
+            if os.path.exists('/kaggle/input'):
+                for root, dirs, files in os.walk('/kaggle/input'):
+                    if 'forex' in dirs:
+                        resolved_roots.append(os.path.join(root, 'forex'))
+                if not resolved_roots:
+                    print(f"\n[WARNING] No attached forex datasets found in Kaggle /kaggle/input!")
+            
+        else: # Local
+            base_search = [
+                os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "LemGendaryDatasets"),
+                os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+            ]
+            for bs in base_search:
+                if os.path.exists(bs):
+                    for d in os.listdir(bs):
+                        if "Forex" in d or d == "forex":
+                            cand = os.path.join(bs, d, "forex") if "Forex" in d else os.path.join(bs, d)
+                            if os.path.exists(cand) and cand not in resolved_roots:
+                                resolved_roots.append(cand)
+            
+            if not resolved_roots and gdrive_ids:
+                print(f"\n[DATA] Local forex dataset not found. Attempting gdown from {len(gdrive_ids)} Google Drive IDs...")
+                import subprocess, zipfile
+                base_out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "LemGendaryDatasets")
+                os.makedirs(base_out, exist_ok=True)
+                for gid in gdrive_ids:
+                    dest = os.path.join(base_out, f"dataset_{gid}.zip")
+                    subprocess.run([sys.executable, "-m", "gdown", "--id", gid, "-O", dest])
+                    if os.path.exists(dest):
+                        with zipfile.ZipFile(dest, 'r') as zip_ref:
+                            zip_ref.extractall(base_out)
+                        os.remove(dest)
+                for d in os.listdir(base_out):
+                    if "Forex" in d:
+                        cand = os.path.join(base_out, d, "forex")
+                        if os.path.exists(cand) and cand not in resolved_roots:
+                            resolved_roots.append(cand)
+
+        self.shard_roots = resolved_roots
         if pairs:
             self.pairs = pairs
-        elif os.path.exists(self.shard_root):
-            disk_pairs = [d for d in os.listdir(self.shard_root) if os.path.isdir(os.path.join(self.shard_root, d)) and not d.startswith('.') and d in PAIR_INDEX]
-            self.pairs = disk_pairs if disk_pairs else EXTENDED_PAIRS
+        elif self.shard_roots:
+            disk_pairs = []
+            for root in self.shard_roots:
+                disk_pairs.extend([d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)) and not d.startswith('.') and d in PAIR_INDEX])
+            self.pairs = list(set(disk_pairs)) if disk_pairs else EXTENDED_PAIRS
         else:
             self.pairs = EXTENDED_PAIRS
         self.active_timeframes  = active_timeframes or [1, 5, 15, 60, 240, 1440]
@@ -96,14 +156,25 @@ class ForexDataset(Dataset):
 
         for pair in self.pairs:
             p_idx = PAIR_INDEX.get(pair, 0)
+            pair_root = None
+            for root in self.shard_roots:
+                if os.path.exists(os.path.join(root, pair)):
+                    pair_root = root
+                    break
+            
+            if pair_root is None:
+                print(f"\\n[ERROR] Pair {pair} requested but not found in any attached dataset roots!")
+                print(f"Attached roots: {self.shard_roots}")
+                import sys; sys.exit(1)
+
             for tf in self.active_timeframes:
                 # Check for fold-specific shard first if fold is specified
                 if self.fold is not None:
-                    shard_dir = os.path.join(self.shard_root, pair, str(tf), "folds", f"fold_{self.fold}", self.split)
+                    shard_dir = os.path.join(pair_root, pair, str(tf), "folds", f"fold_{self.fold}", self.split)
                     if not os.path.exists(shard_dir):
-                        shard_dir = os.path.join(self.shard_root, pair, str(tf), self.split)
+                        shard_dir = os.path.join(pair_root, pair, str(tf), self.split)
                 else:
-                    shard_dir = os.path.join(self.shard_root, pair, str(tf), self.split)
+                    shard_dir = os.path.join(pair_root, pair, str(tf), self.split)
 
                 X, y_dir, y_mag = load_shard(shard_dir, mmap_mode="r")
                 if X is None:
@@ -122,7 +193,7 @@ class ForexDataset(Dataset):
 
         if len(self._index) == 0:
             print(
-                f" [ForexDataset] NOTICE: No matching shards found in {self.shard_root} "
+                f" [ForexDataset] NOTICE: No matching shards found in {self.shard_roots} "
                 f"for pairs={self.pairs}, TFs={self.active_timeframes}."
             )
 
