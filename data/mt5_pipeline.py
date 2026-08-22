@@ -751,9 +751,16 @@ def main():
             for tf in args.timeframes:
                 for split in ["train", "val"]:
                     shard_dir = os.path.join(args.out_dir, pair, str(tf), split)
-                    X, y_dir, _ = load_shard(shard_dir, mmap_mode="r")
+                    X, y_dir, y_mag = load_shard(shard_dir, mmap_mode="r")
                     if X is not None:
-                        print(f"   [OK] {pair}/{tf}min/{split}: {len(X)} samples, shape {X.shape}")
+                        import numpy as np
+                        corrupt = False
+                        for tensor, name in [(X, 'X'), (y_dir, 'y_dir'), (y_mag, 'y_mag')]:
+                            if tensor is not None and (np.isnan(tensor).any() or np.isinf(tensor).any()):
+                                print(f"   [CORRUPT] {pair}/{tf}min/{split}: Tensor {name} contains NaN or Inf values!")
+                                corrupt = True
+                        if not corrupt:
+                            print(f"   [OK] {pair}/{tf}min/{split}: {len(X)} samples pristine, shape {X.shape}")
                     else:
                         print(f"   [MISSING] {pair}/{tf}min/{split}: No shard found")
 
