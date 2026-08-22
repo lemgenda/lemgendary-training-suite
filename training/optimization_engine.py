@@ -46,7 +46,7 @@ class SmartTrainingGovernor:
         self.recovery_streak = 0
 
         # --- Persistent State ---
-        self.current_fraction = opt.get("initial_fraction", manifold_defaults.get("initial_fraction", 0.15))
+        self.current_fraction = model_info.get("sample_fraction") or opt.get("initial_fraction", manifold_defaults.get("initial_fraction", 0.15))
         self.current_batch = int(model_info.get("batch_size", 16)) if model_info.get("batch_size") and model_info.get("batch_size") != "auto" else 16
         self.current_acc = 1
 
