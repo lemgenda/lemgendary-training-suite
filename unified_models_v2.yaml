@@ -22,9 +22,6 @@ forex_predictor:
     Architecture uses causal Conv1D stacks per timeframe fused via cross-timeframe attention.
     Fully stateless and ONNX-compatible for live MT5 EA deployment.
   datasets:
-    - LemGendizedForexTitanCoreLarge
-    - LemGendizedForexG7MajorsLarge
-    - LemGendizedForexHighBetaLarge
     - LemGendizedForexUniverseLarge
   google_drive_dataset_ids: []
   kwargs:
