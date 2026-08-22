@@ -910,9 +910,10 @@ def main():
 
     if model_info.get("dataset_type") == "forex" or "forex" in args.model.lower():
         from data.forex_dataset import ForexDataset
-        manifold_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets", "LemGendizedForexPredictorLarge", "forex"))
+        target_ds = ds_reqs[0] if ds_reqs else "LemGendizedForexPredictorLarge"
+        manifold_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets", target_ds, "forex"))
         if not os.path.exists(manifold_root):
-            manifold_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets", "LemGendizedForexPredictorLarge"))
+            manifold_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets", target_ds))
         shard_root = manifold_root if (os.path.exists(manifold_root) and any(os.path.isdir(os.path.join(manifold_root, d)) for d in os.listdir(manifold_root) if not d.startswith('.'))) else os.path.normpath(os.path.join(project_root, "data", "forex"))
         train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction, fold=args.fold, pairs=args.pairs)
         val_ds = ForexDataset(shard_root=shard_root, is_train=False, fold=args.fold, pairs=args.pairs)
