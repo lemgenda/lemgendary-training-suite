@@ -38,6 +38,22 @@ except ImportError:
     pass
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True, write_through=True)
+
+# 2026 Resilience: Force TTY for tqdm under Colab/Kaggle subprocess execution
+class ForceTTY:
+    def __init__(self, stream):
+        self.stream = stream
+    def write(self, data):
+        return self.stream.write(data)
+    def flush(self):
+        return self.stream.flush()
+    def isatty(self):
+        return True
+    def __getattr__(self, attr):
+        return getattr(self.stream, attr)
+
+sys.stdout = ForceTTY(sys.stdout)
+sys.stderr = ForceTTY(sys.stderr)
 import argparse
 import warnings
 import atexit
@@ -2054,10 +2070,11 @@ def main():
             # If batch size changed, the resume iteration might exceed the new total.
             current_iter = min(current_iter, len(train_loader))
 
+            desc_mode = "[Train RECOVERY]" if getattr(globals(), 'in_recovery_mode', False) or locals().get('in_recovery_mode', False) else "[Train]"
             pbar = tqdm(
                 total=len(train_loader),
                 initial=current_iter,
-                desc=f"Epoch {epoch+1}/{epochs} [Train]",
+                desc=f"Epoch {epoch+1}/{epochs} {desc_mode}",
                 unit="batch",
                 dynamic_ncols=True,
                 leave=True,
@@ -2213,18 +2230,8 @@ def main():
                             # Update iterator position to maintain absolute manifold parity (v6.1.7)
                             current_iter = int(i * (old_bs / batch_size))
                             if pbar: pbar.close() # Clean up zombie bar before re-initialization
-                            # 2026: Clamped Recovery Bar
+                            # 2026: Clamped Recovery Bar (Handled by outer loop)
                             current_iter = min(current_iter, len(train_loader))
-                            pbar = tqdm(
-                                total=len(train_loader),
-                                initial=current_iter,
-                                desc=f"Epoch {epoch+1}/{epochs} [Train RECOVERY]",
-                                unit="batch",
-                                colour="yellow",
-                                file=sys.stderr,
-                                dynamic_ncols=True,
-                                mininterval=2.0
-                            )
 
                             # --- 2026 Resilience: Emergency Recovery Save (v6.1.10) ---
                             # Immediately lock in the new hardware profile and position
