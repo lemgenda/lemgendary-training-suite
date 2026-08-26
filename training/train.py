@@ -944,8 +944,8 @@ def main():
     # 2026 Resilience: Dynamic Worker & Thread Topology Management
     cpu_count = os.cpu_count() or 2
     if args.env == 'kaggle':
-        # On Kaggle (2 vCPUs on standard GPU instances), use 2 workers to prevent CPU thrashing
-        num_workers = min(cpu_count, 2)
+        # On Kaggle (Dual T4 instances have 4 vCPUs), use up to 4 workers to prevent GPU starvation
+        num_workers = min(cpu_count, 4)
         try: torch.set_num_threads(max(1, cpu_count))
         except: pass
     elif getattr(train_ds, "task_type", "") == "forex":
