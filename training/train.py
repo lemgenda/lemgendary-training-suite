@@ -2060,7 +2060,8 @@ def main():
                 desc=f"Epoch {epoch+1}/{epochs} [Train]",
                 unit="batch",
                 dynamic_ncols=True,
-                leave=True
+                leave=True,
+                mininterval=2.0
             )
             # Sync intra-epoch save threshold to resume point
             last_intra_epoch_pct = (current_iter / len(train_loader)) if len(train_loader) > 0 else 0.0
@@ -2076,8 +2077,6 @@ def main():
                 current_iter = i + 1
                 if pbar.n < pbar.total:
                     pbar.update(1)
-                pbar.set_postfix({"loss": "..."})
-                pbar.refresh()
 
                 # --- 2026 Resilience: Universal Batch Unpacking ---
                 inputs, targets, tasks = batch
@@ -2223,7 +2222,8 @@ def main():
                                 unit="batch",
                                 colour="yellow",
                                 file=sys.stderr,
-                                dynamic_ncols=True
+                                dynamic_ncols=True,
+                                mininterval=2.0
                             )
 
                             # --- 2026 Resilience: Emergency Recovery Save (v6.1.10) ---
@@ -2937,7 +2937,7 @@ def main():
             if val_interval_pct > 0:
                 last_val_pct = round(math.floor(last_val_pct / val_interval_pct) * val_interval_pct, 2)
 
-            val_pbar = tqdm(total=shard_limit, initial=val_resume_iteration, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=True, file=sys.stderr, dynamic_ncols=True)
+            val_pbar = tqdm(total=shard_limit, initial=val_resume_iteration, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=True, file=sys.stderr, dynamic_ncols=True, mininterval=2.0)
             val_session_batches = 0
             for v_idx, batch in val_iterator:
                 # --- 2026: Global Index Alignment ---
