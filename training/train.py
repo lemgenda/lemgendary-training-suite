@@ -1871,8 +1871,8 @@ def main():
     # 2026 Resilience: Disable cuDNN Benchmark for High-Res Dynamic Manifolds
     # This prevents the CUDNN_STATUS_BAD_PARAM_STREAM_MISMATCH error on Windows Turing GPUs.
     if device.type == 'cuda':
-        torch.backends.cudnn.benchmark = False
-        print(" [GUARD] [cuDNN] Benchmark disabled for stream stability.")
+        torch.backends.cudnn.benchmark = True
+        print(" [SPEED] [cuDNN] Benchmark ENABLED for maximum hardware throughput.")
 
 
     # Initialize metrics for export stability (Avoids NameErrors on skip)
@@ -2134,7 +2134,7 @@ def main():
                     # parameter_prediction: No task_idx needed (single regression head)
 
                 use_fp16 = str(device) == 'cuda'
-                if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "mirnet", "codeformer", "nima"]):
+                if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "codeformer", "nima"]):
                     use_fp16 = False
 
                 try:
