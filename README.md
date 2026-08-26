@@ -28,6 +28,7 @@ The deep architectural backlog, including the **Memory-Sentinel**, **Sawtooth Go
 - **Headless Kaggle Cloud Engine**: Full CLI and PowerShell API orchestration for launching, monitoring, and pulling high-VRAM GPU training runs (Tesla T4 x2 / P100) headlessly.
 - **Universal Post-Training Target Audit & Interactive Guidance**: Diagnostic gap analysis against `sota_targets` upon epoch ceiling completion with interactive cloud escalation and export options.
 - **Walk-Forward Curriculum Orchestrator (v17.1)**: Automated 6-fold spatial-temporal expansion matrix (Phase 1: 4 Pairs $\to$ Phase 4: 16 Pairs) for robust financial regime generalization without manual intervention.
+- **Forex High-Entropy Resilience (v17.2)**: `SmartTrainingGovernor` bypasses standard Turbulence Shields for financial manifolds, doubling the Intense Cyclical Learning Rate (Jolt Protocol) intensity ($2.0\times$ multiplier over 5-epoch windows) while extending absolute plateau patience to prevent false-positive retreats.
 
 For an exhaustive breakdown of the Training Suite architecture, please consult the [Master Training Suite Guide](file:///c:/Development/python/model-training/lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md) in the `lemgendary-docs` repository.
 

@@ -639,7 +639,7 @@ mirnet_lowlight:
   - 256
   - 256
   learning_rate: 5.0e-05
-  loss_fn: l1
+  loss_fn: l1_lpips
   dataset_type: restoration
   optimal_key: mirnet_lowlight
   description: MIRNet v2 low-light image enhancement
@@ -678,7 +678,7 @@ mirnet_exposure:
   - 256
   - 256
   learning_rate: 5.0e-05
-  loss_fn: l1
+  loss_fn: l1_lpips
   dataset_type: restoration
   optimal_key: mirnet_exposure
   description: MIRNet v2 for overexposure correction and dynamic range adjustment

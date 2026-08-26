@@ -1292,6 +1292,7 @@ def main():
 
     start_epoch = 0
     start_epochs_no_improve = 0
+    start_absolute_epochs_no_improve = 0
     sota_baseline_achieved = False
     sota_countdown = 1
     resume_iteration = -1
@@ -1436,6 +1437,8 @@ def main():
                         print(f" [RESILIENCY] Checkpoint best_metrics are zeroed. Preserving Global Guardrail values.")
                 if 'epochs_no_improve' in ckpt:
                     start_epochs_no_improve = ckpt['epochs_no_improve']
+                if 'absolute_epochs_no_improve' in ckpt:
+                    start_absolute_epochs_no_improve = ckpt['absolute_epochs_no_improve']
                 if 'iteration' in ckpt and not ("_latest.pth" in attempt_ckpt or "_best.pth" in attempt_ckpt):
                     resume_iteration = ckpt['iteration']
                     print(f"[INFO] [RESILIENCY] Intra-epoch progress detected. Iteration: {resume_iteration}")
@@ -1577,6 +1580,7 @@ def main():
         best_quality_score = -1.0
         sota_baseline_achieved = False
         start_epochs_no_improve = 0
+        start_absolute_epochs_no_improve = 0
 
     if ckpt_loaded and start_epoch > 0:
         # Align start_epoch with metrics.csv if it exists
@@ -1867,6 +1871,7 @@ def main():
     patience = config.get("defaults", {}).get("patience", 250)
     # Recover non-improving epoch count from checkpoint to prevent reset-on-resume
     epochs_no_improve = start_epochs_no_improve
+    absolute_epochs_no_improve = start_absolute_epochs_no_improve
 
     sota_targets = model_info.get("sota_targets", {})
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
@@ -3694,9 +3699,10 @@ def main():
         absolute_patience = opt_cfg.get("absolute_patience", 15)
 
         # 2026 Absolute Anti-Loop Guard (Dead Man's Switch)
-        if epochs_no_improve >= absolute_patience:
-            print(f" [NUCLEAR] Absolute Plateau Reached ({epochs_no_improve} epochs). Force-Triggering SOTA Rollback.")
+        if absolute_epochs_no_improve >= absolute_patience:
+            print(f" [NUCLEAR] Absolute Plateau Reached ({absolute_epochs_no_improve} epochs). Force-Triggering SOTA Rollback.")
             force_rollback = True
+            absolute_epochs_no_improve = 0
 
         if (sota_targets and current_quality_score < (best_quality_score * drift_gate) and not is_best) or force_rollback:
             if not force_rollback:
@@ -3832,9 +3838,11 @@ def main():
         if is_improving:
             epochs_no_improve = 0
             regression_epochs = 0
+            absolute_epochs_no_improve = 0
         else:
             epochs_no_improve += 1
-            print(f" -> No improvement for {epochs_no_improve} epoch(s).")
+            absolute_epochs_no_improve += 1
+            print(f" -> No improvement for {epochs_no_improve} epoch(s). Absolute: {absolute_epochs_no_improve}")
 
         # --- 2026 Resilience: Hub Mirroring & Sync (v13.0 Stateless) ---
         # Latest and Best are now stored DIRECTLY in the Hub repository to keep Suite repo clean.
@@ -4295,6 +4303,7 @@ if __name__ == "__main__":
                 best_quality_score = frame.f_locals.get("best_quality_score", -1.0)
                 best_metrics = frame.f_locals.get("best_metrics", {})
                 epochs_no_improve = frame.f_locals.get("epochs_no_improve", 0)
+                absolute_epochs_no_improve = frame.f_locals.get("absolute_epochs_no_improve", 0)
                 regression_epochs = frame.f_locals.get("regression_epochs", 0)
                 sota_baseline_achieved = frame.f_locals.get("sota_baseline_achieved", False)
                 progress_local = frame.f_locals.get("progress_local")
@@ -4313,6 +4322,7 @@ if __name__ == "__main__":
                         'best_quality_score': best_quality_score,
                         'best_metrics': best_metrics,
                         'epochs_no_improve': epochs_no_improve,
+                        'absolute_epochs_no_improve': absolute_epochs_no_improve,
                         'regression_epochs': regression_epochs,
                         'sota_achieved': sota_baseline_achieved,
                         'avg_train_loss': avg_train_loss

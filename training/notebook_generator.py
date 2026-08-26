@@ -1333,7 +1333,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         ]
     }
 
-    output_path = os.path.join(export_dir, f"{model_key}_training.ipynb")
+    output_path = os.path.join(export_dir, f"{model_key}_colab_training.ipynb")
     
     # --- 2026 Resilience: Dual-Export & Manifold Synchronization ---
 
@@ -1394,7 +1394,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
                 ds_dir = os.path.join(datasets_hub_root, m_folder)
                 if os.path.exists(ds_dir) and ds_dir not in synced_dirs:
                     synced_dirs.add(ds_dir)
-                    ds_output_path = os.path.join(ds_dir, f"{model_key}_training.ipynb")
+                    ds_output_path = os.path.join(ds_dir, f"{model_key}_colab_training.ipynb")
                     try:
                         with open(ds_output_path, "w", encoding='utf-8') as f:
                             f.write(json_str)

@@ -17,6 +17,17 @@ class SmartTrainingGovernor:
     - Proportional Manifold Stride (Balanced scaling)
     - Surgical State-Loop Penalties (Blacklists breaking points)
     """
+    
+    @property
+    def current_fraction(self):
+        if hasattr(self, 'task_type') and self.task_type == "forex":
+            return 1.0
+        return getattr(self, '_current_fraction', 1.0)
+        
+    @current_fraction.setter
+    def current_fraction(self, value):
+        self._current_fraction = value
+
     def __init__(self, model_info, config=None, stabilizers=None):
         self.model_info = model_info
         self.config = config or {}
@@ -68,6 +79,10 @@ class SmartTrainingGovernor:
         self.stab = stabilizers or {}
         self.task_type = model_info.get("dataset_type", "quality")
         if isinstance(self.task_type, list): self.task_type = self.task_type[0]
+        
+        # 2026 Forex Specialization: Extended Patience
+        if self.task_type == "forex":
+            self.plateau_patience = max(self.plateau_patience, 15)
 
         # --- 2026 Resilience: Hardware Resolution Cap (v19.1) ---
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if torch.cuda.is_available() else 8.0
@@ -308,7 +323,11 @@ class SmartTrainingGovernor:
         # Prevents "Panic Recoils" during natural SRCC/PLCC jitter
         regress_threshold = -0.03 if self.task_type in ["quality", "parameter_prediction"] else -0.01
         is_regressing = delta_q < (self.prev_quality * regress_threshold) if self.prev_quality else False
-        is_collapsed = (current_quality < 0.05) or (plcc < -0.1) # Near-zero or negative correlation
+        
+        if self.task_type == "forex":
+            is_collapsed = current_quality < 45.0 # Total loss of directional edge
+        else:
+            is_collapsed = (current_quality < 0.05) or (plcc < -0.1) # Near-zero or negative correlation
 
         # --- 2026 NPP v15.7: Momentum Guard ---
         # If Loss is stable/decreasing, we assume the regression is just metric noise.
@@ -343,8 +362,8 @@ class SmartTrainingGovernor:
         # --- 2026 NPP v15.8: Resonance Shield ---
         # Quality tasks (SRCC/PLCC) are naturally turbulent. We disable Turbulence Recoils
         # for these tasks and only rely on sustained Regression or Collapse.
-        if self.task_type == "quality":
-            is_turbulent = False # Turbulence is expected in high-entropy NIMA manifolds
+        if self.task_type in ["quality", "forex"]:
+            is_turbulent = False # Turbulence is expected in high-entropy financial/NIMA manifolds
             if is_expanding: msg_parts.append("[SIGNAL] [RESONANCE] Turbulence detected but shielded. Holding manifold.")
 
         should_retreat = (is_regressing or is_turbulent or is_collapsed)
@@ -472,6 +491,11 @@ class SmartTrainingGovernor:
                 jolt = self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5)
                 # NPP: If trapped, increase Jolt intensity to break the classification trap
                 if is_trapped: jolt *= 1.5
+                
+                # 2026 Forex Specialization: Intense Cyclical Learning Rate (CLR)
+                if self.task_type == "forex":
+                    jolt *= 2.0
+                    
                 jolt_base = float(jolt)
 
                 # 2026 Head-Differential Jolt (Safety Measure 2: Ratio Clamp <= 3.0x)
@@ -482,10 +506,11 @@ class SmartTrainingGovernor:
                     self.lr_multiplier = jolt_base
                     self.head_lr_multiplier = jolt_base
 
-                self.jolt_window_remaining = 3 # Engage 3-epoch sustained window
+                window_size = 5 if self.task_type == "forex" else 3
+                self.jolt_window_remaining = window_size # Engage sustained window
                 lr_changed = True
                 self.last_jolt_epoch = self.epoch_count
-                msg_parts.append(f"JOLT: Breaking Plateau with Head-Differential Propulsion (Head: {self.head_lr_multiplier:.2f}x, Backbone: {self.lr_multiplier:.2f}x | 3-Epoch Window)")
+                msg_parts.append(f"JOLT: Breaking Plateau with Head-Differential Propulsion (Head: {self.head_lr_multiplier:.2f}x, Backbone: {self.lr_multiplier:.2f}x | {window_size}-Epoch Window)")
 
 
             next_frac = min(1.0, self.current_fraction + self.fraction_increment) # NPP: Smaller steps
