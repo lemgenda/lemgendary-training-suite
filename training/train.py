@@ -2067,7 +2067,7 @@ def main():
             last_intra_epoch_pct = (current_iter / len(train_loader)) if len(train_loader) > 0 else 0.0
             if interval_pct > 0:
                 last_intra_epoch_pct = round(math.floor(last_intra_epoch_pct / interval_pct) * interval_pct, 2)
-            pbar.set_postfix({"loss": "..."})
+            pbar.set_postfix({"loss": "..."}, refresh=False)
 
             optimizer.zero_grad() # Initial zero
 
@@ -2310,7 +2310,7 @@ def main():
                         for _i, _batch in iter_obj:
                             if _i >= resume_iteration:
                                 break
-                        pbar.set_postfix({"loss": "SINGULARITY", "skip": "+50"})
+                        pbar.set_postfix({"loss": "SINGULARITY", "skip": "+50"}, refresh=False)
 
                         torch.cuda.empty_cache()
                 else:
@@ -2320,7 +2320,7 @@ def main():
                 if torch.isnan(loss) or is_corrupt:
                     if torch.isnan(loss):
                         print(f" [RESILIENCE] NaN detected in iteration {i}! Skipping corrupt batch...")
-                        pbar.set_postfix({"loss": "NaN", "resilience": "Active"})
+                        pbar.set_postfix({"loss": "NaN", "resilience": "Active"}, refresh=False)
                     optimizer.zero_grad()
                     deep_state_corrupt = False
 
@@ -2467,7 +2467,7 @@ def main():
                     else:
                         consecutive_nans = 0 # Batch was skip-stabilized
 
-                    pbar.set_postfix({"loss": "RECOVERING", "retry": consecutive_nans})
+                    pbar.set_postfix({"loss": "RECOVERING", "retry": consecutive_nans}, refresh=False)
                     continue
 
                 # --- 2026: Thermal Reset ---
@@ -2607,7 +2607,7 @@ def main():
                 # Step only after accumulating enough gradients
                 # Cleaned legacy execution path.
                 train_loss += loss.item() * accumulation_steps # Audit physical loss
-                pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"})
+                pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"}, refresh=False)
 
                 # Step only after accumulating enough gradients
                 if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_loader):
@@ -3031,7 +3031,7 @@ def main():
                     continue
 
                 val_loss += loss.item()
-                val_pbar.set_postfix({"v_loss": f"{loss.item():.4f}"})
+                val_pbar.set_postfix({"v_loss": f"{loss.item():.4f}"}, refresh=False)
 
                 if train_ds.task_type in ["quality", "classification", "segmentation", "parameter_prediction"]:
                     all_preds.append(preds.detach().cpu())
