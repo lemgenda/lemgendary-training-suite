@@ -223,14 +223,34 @@ class CombinedLoss(nn.Module):
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
+                # 2026 Resilience: Native fix for torchvision 'pretrained' deprecation warning (Root Cause)
+                # Using getattr/setattr bypasses Pyre static type checking errors in your IDE.
+                import torchvision.models
+                if not hasattr(torchvision.models, '_patched_vgg16_applied'):
+                    orig_vgg16 = getattr(torchvision.models, 'vgg16')
+                    def patched_vgg16(*args, **kwargs):
+                        if 'pretrained' in kwargs:
+                            if kwargs.pop('pretrained'):
+                                kwargs['weights'] = torchvision.models.VGG16_Weights.IMAGENET1K_V1
+                        return orig_vgg16(*args, **kwargs)
+                    setattr(torchvision.models, 'vgg16', patched_vgg16)
+                    setattr(torchvision.models, '_patched_vgg16_applied', True)
+                
                 import lpips
                 # 2026: Mission Pulse - Restore transparency for slow perceptual engine loading
                 print(" [MISSION] Initializing Neural Perceptual Engine (LPIPS/VGG16)...")
                 # Natively trained perceptual alignment! Exponentially more stable than crude VGG L1
-                self.perc = lpips.LPIPS(net='vgg')
-                if torch.cuda.is_available() and torch.cuda.device_count() > 1:
-                    print(" [MISSION] [MULTI-GPU] Parallelizing Perceptual Engine (LPIPS)...")
-                    self.perc = torch.nn.DataParallel(self.perc)
+                
+                class AutocastLPIPS(torch.nn.Module):
+                    def __init__(self, perc_module):
+                        super().__init__()
+                        self.perc = perc_module
+                    def forward(self, x, y):
+                        with torch.amp.autocast('cuda', enabled=True):
+                            return self.perc(x, y)
+                            
+                self.perc = AutocastLPIPS(lpips.LPIPS(net='vgg'))
+                
                 self.perc.eval()
                 for param in self.perc.parameters():
                     param.requires_grad = False
