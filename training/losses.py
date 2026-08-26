@@ -228,6 +228,9 @@ class CombinedLoss(nn.Module):
                 print(" [MISSION] Initializing Neural Perceptual Engine (LPIPS/VGG16)...")
                 # Natively trained perceptual alignment! Exponentially more stable than crude VGG L1
                 self.perc = lpips.LPIPS(net='vgg')
+                if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+                    print(" [MISSION] [MULTI-GPU] Parallelizing Perceptual Engine (LPIPS)...")
+                    self.perc = torch.nn.DataParallel(self.perc)
                 self.perc.eval()
                 for param in self.perc.parameters():
                     param.requires_grad = False
