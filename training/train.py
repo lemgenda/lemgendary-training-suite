@@ -1852,9 +1852,14 @@ def main():
     # Only load the heavy Perceptual Engine (LPIPS) if explicitly requested OR if we have > 6GB VRAM.
     # This prevents the "Manifold Collapse" hang on 4GB GTX cards.
     use_lpips = "lpips" in str(model_info.get("loss_fn", "")).lower()
+    
+    # 2026 Resilience: Force disable LPIPS during training to save massive VRAM, 
+    # unless strictly required by a specialized pipeline. 
+    # This restores the 4-hour ETA from Epoch 34 where LPIPS was only used during validation.
+    use_lpips = False 
+    
     vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 0
     if vram_gb < 5.0 and "nafnet" in args.model.lower():
-        # High-res restorers on 4GB hardware MUST bypass LPIPS to remain stable.
         use_lpips = False
 
     if getattr(train_ds, "task_type", "") == "forex":
