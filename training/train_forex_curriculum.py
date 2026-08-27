@@ -3,6 +3,7 @@ import sys
 import subprocess
 import time
 import shutil
+import csv
 
 # --- Walk-Forward Curriculum Configuration ---
 CURRICULUM_PHASES = [
@@ -35,6 +36,20 @@ CURRICULUM_PHASES = [
 NUM_FOLDS = 6
 MODEL_KEY = "forex_predictor"
 
+def get_latest_epoch(model_key, project_root):
+    """Dynamically reads the latest epoch from metrics.csv."""
+    metrics_path = os.path.abspath(os.path.join(project_root, "..", "LemGendaryModels", model_key, "metrics.csv"))
+    if not os.path.exists(metrics_path):
+        return 0
+    try:
+        with open(metrics_path, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+            if len(lines) > 1 and lines[-1].strip():
+                return int(lines[-1].split(',')[0])
+    except Exception as e:
+        print(f" [WARNING] Failed to parse metrics.csv for dynamic target: {e}")
+    return 0
+
 def main():
     print("================================================================================")
     print("  LEMGENDARY FOREX CURRICULUM ORCHESTRATOR")
@@ -46,17 +61,17 @@ def main():
     
     # 2026: Auto-resolve checkpoint dir to preserve phase states
     project_root = os.path.dirname(script_dir)
-    ckpt_dir = os.path.join(project_root, "checkpoints")
+    ckpt_dir = os.path.abspath(os.path.join(project_root, "..", "LemGendaryModels", MODEL_KEY, "checkpoints"))
     os.makedirs(ckpt_dir, exist_ok=True)
-
-    global_target_epochs = 0
 
     for phase in CURRICULUM_PHASES:
         p_id = phase["phase"]
         p_name = phase["name"]
         pairs = phase["pairs"]
-        epochs_per_fold = int(phase["epochs"])
+        epochs_raw = phase["epochs"]
         assert isinstance(pairs, list)
+        assert isinstance(epochs_raw, (int, str))
+        epochs_per_fold = int(epochs_raw)
         
         print(f"\n>>>>> ENTERING PHASE {p_id}: {p_name} <<<<<")
         print(f"      Pairs: {len(pairs)} active")
@@ -64,8 +79,10 @@ def main():
         for fold in range(1, NUM_FOLDS + 1):
             print(f"\n--- Launching Phase {p_id} | Fold {fold}/{NUM_FOLDS} ---")
             
-            # Dynamic Epoch Scaling: Monotonically increasing across ALL phases and folds
-            global_target_epochs += epochs_per_fold
+            # Dynamic Epoch Scaling: Read actual current epoch to prevent resiliency guardrail starvation
+            current_epoch = get_latest_epoch(MODEL_KEY, project_root)
+            global_target_epochs = current_epoch + epochs_per_fold
+            print(f" [ORCHESTRATOR] Current Epoch: {current_epoch} | Target Epoch: {global_target_epochs}")
             
             # Construct command
             cmd = [
