@@ -98,7 +98,19 @@ restored_img.save("restored.png")
     badge_str = " ".join(badges)
 
     # --- 2026: Mermaid Topology (Task 7.2) ---
-    topology_mermaid = f"""```mermaid
+    if task == "forex":
+        topology_mermaid = f"""```mermaid
+graph TD
+    Input[OHLCV Sequence] --> Backbone[Causal TCN]
+    Backbone --> Attention[Cross-Timeframe Attention]
+    Attention --> Head[Directional & Magnitude Head]
+    Head --> Output[TP/SL & Trade Signal]
+    
+    style Input fill:#f9f,stroke:#333,stroke-width:2px
+    style Output fill:#00ff00,stroke:#333,stroke-width:4px
+```"""
+    else:
+        topology_mermaid = f"""```mermaid
 graph TD
     Input[RGB Input {res_str}] --> Backbone[{arch}]
     Backbone --> Manifold[Latent Manifold]
@@ -117,10 +129,10 @@ graph TD
         stability_str = f"Trained using **{loss_fn} Loss** to enforce strict manifold alignment."
     if task == "quality":
         metrics_summary = f"**PLCC**: {metrics.get('plcc', '0.90+')} | **SRCC**: {metrics.get('srcc', '0.83+')}"
-        vector_section = f"""> [!IMPORTANT]
-> **Quality Vector**: This model is specialized for **{"Aesthetics" if "aesthetic" in model_key else "Technical Integrity"}**. 
-> - **Primary Targets**: {"Composition, Color, Lighting, Artistic Intent" if "aesthetic" in model_key else "Noise, Blur, Compression, Sharpness"}.
-"""
+        vector_section = f"""> [!IMPORTANT]\n> **Quality Vector**: This model is specialized for **{"Aesthetics" if "aesthetic" in model_key else "Technical Integrity"}**. \n> - **Primary Targets**: {"Composition, Color, Lighting, Artistic Intent" if "aesthetic" in model_key else "Noise, Blur, Compression, Sharpness"}.\n"""
+    elif task == "forex":
+        metrics_summary = f"**Dir Acc**: {metrics.get('dir_acc', '50.0')}% | **Win Rate**: {metrics.get('win_rate', '50.0')}% | **PF**: {metrics.get('profit_factor', '1.0')} | **Sharpe**: {metrics.get('sharpe_ratio', '0.0')} | **MaxDD**: {metrics.get('max_drawdown', '0.0')}%"
+        vector_section = ""
     else:
         metrics_summary = f"**PSNR**: {metrics.get('psnr', '32.5+')} | **SSIM**: {metrics.get('ssim', '0.94+')} | **LPIPS**: {metrics.get('lpips', '0.06-')} | **FID**: {metrics.get('fid', '2.5-')}"
         vector_section = ""
@@ -134,8 +146,20 @@ graph TD
     for d in datasets:
         count = ds_registry.get(d, {}).get('count', 'N/A')
         if isinstance(count, int) and count >= 1000: count = f"{round(count / 1000)}k"
-        ds_sizes.append(f"- **{d}**: ~{count} binary image samples.")
+        if task == "forex":
+            ds_sizes.append(f"- **{d}**: ~{count} time-series OHLCV sequences (2019-2026).")
+        else:
+            ds_sizes.append(f"- **{d}**: ~{count} binary image samples.")
     ds_str = "\n".join(ds_sizes)
+
+    if task == "forex":
+        input_reqs_str = "- **Input Requirements**: Normalized OHLCV tensor sequences across multiple timeframes.\n- **Failures**: Susceptible to spread friction and lookahead leakage if walk-forward validation is compromised."
+        eval_split_str = "- **Validation Protocol**: 6-Fold Anchored Walk-Forward Cross-Validation (14-day Embargo)."
+        metrics_label = "SOTA Metrics"
+    else:
+        input_reqs_str = "- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats.\n- **Failures**: Large aspect ratio distortions during standard resize phases."
+        eval_split_str = "- **Split**: 80/20 train/validate with zero sample-leakage."
+        metrics_label = "Baseline Achievement"
 
     # --- Premium 10-Section Template ---
     return f"""# {name}
@@ -162,8 +186,7 @@ The **{name}** is a professional-grade AI model optimized for the `{task}` lifec
 > [!TIP]
 > **Implementation Guide**: For high-performance deployment including ONNX (FP32/FP16) and standalone PyTorch snippets, refer to the **[{model_key}_usage.ipynb]({model_key}_usage.ipynb)** notebook in this directory.
 
-- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats.
-- **Failures**: Large aspect ratio distortions during standard resize phases.
+{input_reqs_str}
 
 ## Implementation Requirements
 
@@ -183,8 +206,8 @@ The **{name}** is a professional-grade AI model optimized for the `{task}` lifec
 
 ## Evaluation Results
 
-- **Baseline Achievement**: {metrics_summary}
-- **Split**: 80/20 train/validate with zero sample-leakage.
+- **{metrics_label}**: {metrics_summary}
+{eval_split_str}
 
 ---
 **LemGendary AI Training Suite** | *SOTA-Autonomous & Nuclear-Hardened Matrix*

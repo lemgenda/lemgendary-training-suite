@@ -499,6 +499,15 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
 
         pixel_cap = int(max_pixels / (h * w))
         system_cap = 256 if mode == 'val' else 128
+        
+        # 2026 Resilience: System RAM Safeguard against Dataloader Bloat
+        # Kaggle instances have 30GB RAM. With 4 workers and large val batches, this spikes.
+        try:
+            import psutil
+            sys_ram_gb = psutil.virtual_memory().total / (1024**3)
+            if sys_ram_gb < 35.0:
+                system_cap = min(system_cap, 48 if mode == 'val' else 32)
+        except: pass
 
         # 2026 Resilience: Restoration models (like NAFNet/MIRNet) use ConvTranspose2d which has CuDNN
         # workspace overheads. Scale workspace cap dynamically based on hardware VRAM tier.
