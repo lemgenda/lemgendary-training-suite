@@ -2828,7 +2828,14 @@ def main():
                     FrechetInceptionDistance = None
 
                 try:
-                    loss_fn_vgg = lpips.LPIPS(net='vgg').eval().to(device)
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        _base_vgg = lpips.LPIPS(net='vgg').eval().to(device)
+                        if torch.cuda.device_count() > 1:
+                            loss_fn_vgg = torch.nn.DataParallel(_base_vgg)
+                        else:
+                            loss_fn_vgg = _base_vgg
                 except: pass
 
             # --- 2026 Resilience: Validation State Recovery (v10.1.4) ---

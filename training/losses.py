@@ -249,7 +249,10 @@ class CombinedLoss(nn.Module):
                         with torch.amp.autocast('cuda', enabled=True):
                             return self.perc(x, y)
                             
-                self.perc = AutocastLPIPS(lpips.LPIPS(net='vgg'))
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    self.perc = AutocastLPIPS(lpips.LPIPS(net='vgg'))
                 
                 self.perc.eval()
                 for param in self.perc.parameters():
