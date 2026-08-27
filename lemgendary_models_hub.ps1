@@ -82,18 +82,16 @@ function Get-ModelSelection {
                 # --- DOMAIN 3: Financial & Time-Series ---
                 while ($true) {
                     Write-Header "FINANCIAL & TIME-SERIES - SUB-CATEGORIES"
-                    Write-Host "  1. Forex Trading (ForexPredictor Multi-Scale CNN-Transformer)" -ForegroundColor Cyan
-                    Write-Host "  2. Forex Trading (Walk-Forward Curriculum Orchestrator)" -ForegroundColor Cyan
+                    Write-Host "  1. Forex Trading (Walk-Forward Curriculum Orchestrator)" -ForegroundColor Cyan
                     Write-Host "  B. Back to Domain Menu" -ForegroundColor Gray
                     Write-Host ""
 
-                    $subChoice = (Read-Host "Select sub-category (1-2, B)").Trim()
+                    $subChoice = (Read-Host "Select sub-category (1, B)").Trim()
                     if ($subChoice -eq 'B' -or $subChoice -eq 'b') { break }
 
                     $modelList = @()
                     switch ($subChoice) {
-                        '1' { $modelList = @("forex_predictor") }
-                        '2' { $modelList = @("forex_curriculum") }
+                        '1' { $modelList = @("forex_curriculum") }
                         default { continue }
                     }
 

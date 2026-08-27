@@ -49,11 +49,13 @@ def main():
     ckpt_dir = os.path.join(project_root, "checkpoints")
     os.makedirs(ckpt_dir, exist_ok=True)
 
+    global_target_epochs = 0
+
     for phase in CURRICULUM_PHASES:
         p_id = phase["phase"]
         p_name = phase["name"]
         pairs = phase["pairs"]
-        epochs = phase["epochs"]
+        epochs_per_fold = phase["epochs"]
         assert isinstance(pairs, list)
         
         print(f"\n>>>>> ENTERING PHASE {p_id}: {p_name} <<<<<")
@@ -62,11 +64,14 @@ def main():
         for fold in range(1, NUM_FOLDS + 1):
             print(f"\n--- Launching Phase {p_id} | Fold {fold}/{NUM_FOLDS} ---")
             
+            # Dynamic Epoch Scaling: Monotonically increasing across ALL phases and folds
+            global_target_epochs += epochs_per_fold
+            
             # Construct command
             cmd = [
                 sys.executable, train_script,
                 "--model", MODEL_KEY,
-                "--epochs", str(epochs),
+                "--epochs", str(global_target_epochs),
                 "--fold", str(fold)
             ]
             
