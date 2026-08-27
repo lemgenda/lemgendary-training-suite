@@ -3987,11 +3987,25 @@ def main():
                         os.makedirs(target_hub_ckpt_dir, exist_ok=True)
                         shutil.copy2(latest_ckpt_src, latest_ckpt_dst)
 
+                    # 2.5. Sync Progress Checkpoint (Intra-Epoch Resumption Anchor)
+                    progress_ckpt_src = os.path.join(hub_ckpt_dir, f"{args.model}_progress.pth")
+                    progress_ckpt_dst = os.path.join(target_hub_ckpt_dir, f"{args.model}_progress.pth")
+                    if os.path.exists(progress_ckpt_src) and os.path.abspath(progress_ckpt_src) != os.path.abspath(progress_ckpt_dst):
+                        os.makedirs(target_hub_ckpt_dir, exist_ok=True)
+                        shutil.copy2(progress_ckpt_src, progress_ckpt_dst)
+
                     # 3. Sync Metrics (Audit Trail)
                     hub_metrics_dst = os.path.join(target_hub_model_dir, "metrics.csv")
                     if os.path.exists(metrics_csv_path) and os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_dst):
                         os.makedirs(target_hub_model_dir, exist_ok=True)
                         shutil.copy2(metrics_csv_path, hub_metrics_dst)
+
+                    # 3.5 Generate Dynamic Hub README
+                    try:
+                        from training.hub_readme_generator import generate_hub_readme
+                        generate_hub_readme(project_root)
+                    except Exception as e:
+                        print(f" [WARNING] Failed to generate hub README: {e}")
 
                     # 4. Global Push (Models Only)
                     commit_msg = f"Update new best weights and metrics for {args.model} from {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"

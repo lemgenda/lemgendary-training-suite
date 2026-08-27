@@ -370,13 +370,13 @@ class MultiTaskDataset(Dataset):
                                 queue.append(path)
                                 name_lower = item.lower().replace("-", "").replace("_", "")
                                 if target in name_lower or 'lemgendary' in name_lower:
-                                    if os.path.exists(os.path.join(path, 'images', 'train')) or os.path.exists(os.path.join(path, 'targets', 'train')):
+                                    if os.path.exists(os.path.join(path, 'images')) or os.path.exists(os.path.join(path, 'targets')):
                                         return path
                                     try:
                                         for sub in os.listdir(path):
                                             sub_path = os.path.join(path, sub)
                                             if os.path.isdir(sub_path):
-                                                if os.path.exists(os.path.join(sub_path, 'images', 'train')) or os.path.exists(os.path.join(sub_path, 'targets', 'train')):
+                                                if os.path.exists(os.path.join(sub_path, 'images')) or os.path.exists(os.path.join(sub_path, 'targets')):
                                                     return sub_path
                                     except: pass
                 except: pass
@@ -387,7 +387,7 @@ class MultiTaskDataset(Dataset):
         else: # Local Environment
             # Priority 1: Check Local Root
             path = os.path.join(self.data_root, ds_name)
-            if os.path.exists(os.path.join(path, 'images', 'train')) or os.path.exists(os.path.join(path, 'targets', 'train')):
+            if os.path.exists(os.path.join(path, 'images')) or os.path.exists(os.path.join(path, 'targets')):
                 return path
             
             if os.path.exists(self.data_root):
@@ -395,7 +395,7 @@ class MultiTaskDataset(Dataset):
                     for item in os.listdir(self.data_root):
                         if item.lower() == ds_name.lower():
                             cand = os.path.join(self.data_root, item)
-                            if os.path.exists(os.path.join(cand, 'images', 'train')) or os.path.exists(os.path.join(cand, 'targets', 'train')):
+                            if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')):
                                 return cand
                 except: pass
             
