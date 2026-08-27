@@ -55,7 +55,7 @@ def main():
         p_id = phase["phase"]
         p_name = phase["name"]
         pairs = phase["pairs"]
-        epochs_per_fold = phase["epochs"]
+        epochs_per_fold = int(phase["epochs"])
         assert isinstance(pairs, list)
         
         print(f"\n>>>>> ENTERING PHASE {p_id}: {p_name} <<<<<")
