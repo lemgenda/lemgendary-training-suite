@@ -3091,9 +3091,9 @@ def main():
                     # GPU-accelerated vectorized SSIM (100x faster than single-threaded CPU skimage)
                     ssim_sum += compute_ssim_gpu(p_chunk, t_chunk, data_range=1.0)
 
-                    # Dynamic batch chunking: use larger chunks on >=8GB cards (e.g. T4/3090), scaled by GPU count
+                    # Dynamic batch chunking: safely scaled for Multi-GPU VRAM limits during LPIPS
                     gpu_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
-                    eval_chunk_size = (32 if vram_gb >= 12.0 else (16 if vram_gb >= 8.0 else 4)) * gpu_count
+                    eval_chunk_size = (16 if vram_gb >= 12.0 else (8 if vram_gb >= 8.0 else 4)) * gpu_count
 
                     if loss_fn_vgg:
                         lpips_val_local = 0.0
