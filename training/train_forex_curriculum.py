@@ -64,6 +64,14 @@ def main():
     ckpt_dir = os.path.abspath(os.path.join(project_root, "..", "LemGendaryModels", MODEL_KEY, "checkpoints"))
     os.makedirs(ckpt_dir, exist_ok=True)
 
+    state_file = os.path.join(ckpt_dir, "curriculum_state.json")
+    import json
+    if os.path.exists(state_file):
+        with open(state_file, "r") as f:
+            state = json.load(f)
+    else:
+        state = {}
+
     for phase in CURRICULUM_PHASES:
         p_id = phase["phase"]
         p_name = phase["name"]
@@ -77,18 +85,36 @@ def main():
         print(f"      Pairs: {len(pairs)} active")
         
         for fold in range(1, NUM_FOLDS + 1):
-            print(f"\n--- Launching Phase {p_id} | Fold {fold}/{NUM_FOLDS} ---")
+            fold_key = f"phase{p_id}_fold{fold}"
+            archive_ckpt = os.path.join(ckpt_dir, f"{MODEL_KEY}_phase{p_id}_fold{fold}.pth")
             
-            # Dynamic Epoch Scaling: Read actual current epoch to prevent resiliency guardrail starvation
+            # Check if fold is already complete
+            if state.get(fold_key, {}).get("completed", False) or os.path.exists(archive_ckpt):
+                print(f" [ORCHESTRATOR] Skipping {fold_key} (Already completed)")
+                # Self-heal state file if only archive exists
+                if not state.get(fold_key, {}).get("completed"):
+                    state[fold_key] = {"completed": True, "target": 0}
+                    with open(state_file, "w") as f: json.dump(state, f)
+                continue
+
             current_epoch = get_latest_epoch(MODEL_KEY, project_root)
-            global_target_epochs = current_epoch + epochs_per_fold
-            print(f" [ORCHESTRATOR] Current Epoch: {current_epoch} | Target Epoch: {global_target_epochs}")
+            
+            # Assign and lock target for this fold if it hasn't been started
+            if fold_key not in state:
+                target_epoch = current_epoch + epochs_per_fold
+                state[fold_key] = {"completed": False, "target": target_epoch}
+                with open(state_file, "w") as f: json.dump(state, f)
+            else:
+                target_epoch = state[fold_key]["target"]
+
+            print(f"\n--- Launching Phase {p_id} | Fold {fold}/{NUM_FOLDS} ---")
+            print(f" [ORCHESTRATOR] Current Epoch: {current_epoch} | Target Epoch: {target_epoch}")
             
             # Construct command
             cmd = [
                 sys.executable, train_script,
                 "--model", MODEL_KEY,
-                "--epochs", str(global_target_epochs),
+                "--epochs", str(target_epoch),
                 "--fold", str(fold)
             ]
             
@@ -110,13 +136,16 @@ def main():
                 
             # Copy checkpoint state at the end of the fold for historical preservation
             latest_ckpt = os.path.join(ckpt_dir, f"{MODEL_KEY}_latest.pth")
-            archive_ckpt = os.path.join(ckpt_dir, f"{MODEL_KEY}_phase{p_id}_fold{fold}.pth")
             if os.path.exists(latest_ckpt):
                 try:
                     shutil.copy2(latest_ckpt, archive_ckpt)
                     print(f" [ARCHIVE] Preserved state: {archive_ckpt}")
                 except Exception as e:
                     print(f" [WARNING] Failed to archive checkpoint: {e}")
+                    
+            # Mark fold as completed
+            state[fold_key]["completed"] = True
+            with open(state_file, "w") as f: json.dump(state, f)
                     
         print(f"\n<<<<< PHASE {p_id} ({p_name}) COMPLETE >>>>>")
         time.sleep(2)

@@ -504,9 +504,12 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         # Kaggle instances have 30GB RAM. With 4 workers and large val batches, this spikes.
         try:
             import psutil
+            import os
             sys_ram_gb = psutil.virtual_memory().total / (1024**3)
-            if sys_ram_gb < 35.0:
-                system_cap = min(system_cap, 48 if mode == 'val' else 32)
+            is_kaggle = os.path.exists('/kaggle/working') or os.environ.get('KAGGLE_KERNEL_RUN_TYPE') is not None
+            # Containerized envs often misreport physical host RAM. Force clamp on Kaggle.
+            if sys_ram_gb < 35.0 or is_kaggle:
+                system_cap = min(system_cap, 32 if mode == 'val' else 24)
         except: pass
 
         # 2026 Resilience: Restoration models (like NAFNet/MIRNet) use ConvTranspose2d which has CuDNN
