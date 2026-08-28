@@ -52,6 +52,9 @@ def generate_hub_readme(project_root=workspace_root):
         current_res = max_res
         current_qs = 0.0
         
+        current_phase = 1
+        current_fold = 1
+        
         if os.path.exists(metrics_csv):
             try:
                 with open(metrics_csv, "r", encoding="utf-8") as f:
@@ -66,13 +69,16 @@ def generate_hub_readme(project_root=workspace_root):
                         current_res = float(res_val) if res_val is not None else float(current_res)
                         qs_val = last_row.get("Quality_Score")
                         current_qs = float(qs_val) if qs_val is not None else 0.0
+                        
+                        if task_type == "forex":
+                            phase_val = last_row.get("Phase")
+                            current_phase = int(phase_val) if phase_val is not None else 1
+                            fold_val = last_row.get("Fold")
+                            current_fold = int(fold_val) if fold_val is not None else 1
             except: pass
             
         completeness = 0.0
         if epoch > 1:
-            data_pct = min(1.0, current_data)
-            res_pct = min(1.0, current_res / max_res) if max_res > 0 else 1.0
-            
             target_qs = 0.0
             if sota_targets:
                 target_qs, _ = engine.compute_quality_score(sota_targets, sota_targets, task_type)
@@ -83,7 +89,14 @@ def generate_hub_readme(project_root=workspace_root):
             else:
                 qs_pct = min(1.0, epoch / 100.0) # Fallback heuristic
                 
-            completeness = (data_pct + res_pct + qs_pct) / 3.0 * 100.0
+            if task_type == "forex":
+                phase_pct = min(1.0, current_phase / 4.0)
+                fold_pct = min(1.0, current_fold / 6.0)
+                completeness = (phase_pct + fold_pct + qs_pct) / 3.0 * 100.0
+            else:
+                data_pct = min(1.0, current_data)
+                res_pct = min(1.0, current_res / max_res) if max_res > 0 else 1.0
+                completeness = (data_pct + res_pct + qs_pct) / 3.0 * 100.0
             
         # 2. Check if SOTA achieved
         is_sota = (completeness >= 99.99)
@@ -91,7 +104,7 @@ def generate_hub_readme(project_root=workspace_root):
         if is_sota:
             completed.append(model_name)
         elif epoch > 1:
-            in_progress.append((model_name, completeness, epoch, current_data, current_res))
+            in_progress.append((model_name, completeness, epoch, current_data, current_res, task_type, current_phase, current_fold))
         else:
             not_started.append(model_name)
             
@@ -122,12 +135,15 @@ def generate_hub_readme(project_root=workspace_root):
     ])
     
     if in_progress:
-        lines.append("| Model | Completeness | Epochs | Data Fraction | Resolution |")
+        lines.append("| Model | Completeness | Epochs | Data / Phase | Res / Fold |")
         lines.append("| --- | --- | --- | --- | --- |")
         # Sort descending by completeness
         in_progress.sort(key=lambda x: x[1], reverse=True)
-        for m, pct, ep, df, res in in_progress:
-            lines.append(f"| {m} | **{pct:.1f}%** | {ep} | {df*100:.0f}% | {int(res)}px |")
+        for m, pct, ep, df, res, t_type, ph, fd in in_progress:
+            if t_type == "forex":
+                lines.append(f"| {m} | **{pct:.1f}%** | {ep} | Phase {ph} | Fold {fd} |")
+            else:
+                lines.append(f"| {m} | **{pct:.1f}%** | {ep} | {df*100:.0f}% | {int(res)}px |")
     else:
         lines.append("- *No models currently in active training.*")
         

@@ -1,6 +1,15 @@
 _registry_metadata:
   version: 2.2.0
   specialization: 2026_Resiliency
+  datasets:
+    LemGendizedForexTitanCoreLarge:
+      count: 2450000
+    LemGendizedForexG7MajorsLarge:
+      count: 4900000
+    LemGendizedForexHighBetaLarge:
+      count: 7350000
+    LemGendizedForexUniverseLarge:
+      count: 9800000
 forex_predictor:
   name: LemGendary Forex Predictor (Multi-Scale CNN-Transformer)
   class_name: ForexPredictor
