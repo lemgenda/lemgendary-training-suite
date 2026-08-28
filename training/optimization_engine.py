@@ -111,6 +111,7 @@ class SmartTrainingGovernor:
         # 2026 Audit Fix: Configurable rank_weight ceiling and rank_margin floor per model
         self.max_rank_weight = float(self.stab.get("max_rank_weight", 1.5))
         self.min_rank_margin = float(self.stab.get("min_rank_margin", 0.05))
+        self.current_spearman_weight = float(self.stab.get("soft_spearman_weight", 0.5))
 
         # --- 2026 Resilience: Adaptive Anti-Loop Governance ---
         self.loop_breaker_enabled = opt.get("loop_breaker_enabled", True)
@@ -184,7 +185,7 @@ class SmartTrainingGovernor:
             
         return "REFINEMENT"
 
-    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, srcc=0.0, target_std=None, force_jump=False, train_loss=None):
+    def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, srcc=0.0, target_std=None, force_jump=False, train_loss=None, metrics_dict=None):
         if not self.enabled and not force_jump: return False, False, False, False, False, False, ""
         self.epoch_count += 1
         self.session_epoch_count += 1
@@ -580,25 +581,86 @@ class SmartTrainingGovernor:
                         lr_changed = True
                         msg_parts.append("REFINEMENT: SOTA Precision Cooling")
 
-                    # --- 2026 Autonomous SOTA Adaptations ---
+                    # --- 2026 Omni-Metric Autonomous SOTA Adaptations ---
                     # Dynamically tune loss parameters on the fly without mid-training YAML changes
+                    # based on metric-specific deficits.
+                    if metrics_dict is None:
+                        metrics_dict = {'plcc': plcc, 'srcc': srcc}
+                        
+                    # Extract values safely
+                    m_plcc = metrics_dict.get('plcc', plcc)
+                    m_srcc = metrics_dict.get('srcc', srcc)
+                    m_psnr = metrics_dict.get('psnr', 0.0)
+                    m_lpips = metrics_dict.get('lpips', 1.0)
+                    m_tp_mae = metrics_dict.get('tp_mae', 999.0)
+                    m_dir_acc = metrics_dict.get('dir_acc', 0.0)
+
                     if self.task_type == "quality":
                         target_srcc = float(self.sota_targets.get("srcc", 0.9100)) if isinstance(self.sota_targets, dict) else 0.9100
+                        target_plcc = float(self.sota_targets.get("plcc", 0.9100)) if isinstance(self.sota_targets, dict) else 0.9100
                         target_emd  = float(self.sota_targets.get("rank_margin", 0.0700)) if isinstance(self.sota_targets, dict) else 0.0700
                         max_rw = getattr(self, 'max_rank_weight', 1.5)
                         min_rm = getattr(self, 'min_rank_margin', 0.05)
 
-                        # 1. Dynamically boost rank_weight up to max_rank_weight if SRCC is below SOTA target.
-                        # Audit Fix: use srcc (rank-order) not plcc (linear) for this comparison.
-                        if srcc < target_srcc or (self.best_quality < self.target_quality_score):
+                        # SRCC Deficit: Boost Rank/Spearman
+                        if m_srcc < target_srcc or (self.best_quality < self.target_quality_score):
                             if self.current_rank_weight < max_rw:
                                 self.current_rank_weight = min(max_rw, round(self.current_rank_weight + 0.1, 2))
-                                msg_parts.append(f"[AUTONOMOUS GOVERNOR] Dynamic SRCC Boost: Rank Weight -> {self.current_rank_weight:.2f} (cap: {max_rw:.2f})")
+                                msg_parts.append(f"[OMNI-GOVERNOR] SRCC Deficit: Rank Weight -> {self.current_rank_weight:.2f}")
+                            
+                            if getattr(self, 'current_spearman_weight', 0.0) < 2.0:
+                                self.current_spearman_weight = min(2.0, round(getattr(self, 'current_spearman_weight', 0.5) + 0.1, 2))
+                                msg_parts.append(f"[OMNI-GOVERNOR] SRCC Deficit: Soft Spearman -> {self.current_spearman_weight:.2f}")
+                        elif m_srcc >= target_srcc and m_plcc < target_plcc:
+                            # PLCC Deficit but SRCC is fine: Relax pairwise rank to allow global score alignment
+                            if self.current_rank_weight > 0.5:
+                                self.current_rank_weight = max(0.5, round(self.current_rank_weight - 0.1, 2))
+                                msg_parts.append(f"[OMNI-GOVERNOR] PLCC Priority: Relaxing Rank Weight -> {self.current_rank_weight:.2f}")
 
-                        # 2. Dynamically tighten rank_margin down to min_rank_margin when converging
+                        # Rank Margin Deficit: Tighten margin
                         if self.current_rank_margin > min_rm and current_quality > (self.target_quality_score * 0.70):
                             self.current_rank_margin = max(min_rm, round(self.current_rank_margin - 0.01, 2))
-                            msg_parts.append(f"[AUTONOMOUS GOVERNOR] Dynamic Rank Margin Tightening -> {self.current_rank_margin:.3f} (floor: {min_rm:.3f})")
+                            msg_parts.append(f"[OMNI-GOVERNOR] Rank Margin Tightening -> {self.current_rank_margin:.3f}")
+
+                    elif self.task_type in ["restoration", "enhancement"]:
+                        target_psnr = float(self.sota_targets.get("psnr", 30.0)) if isinstance(self.sota_targets, dict) else 30.0
+                        target_lpips = float(self.sota_targets.get("lpips", 0.15)) if isinstance(self.sota_targets, dict) else 0.15
+                        
+                        self.current_lpips_weight = float(getattr(self, 'current_lpips_weight', 0.025))
+                        
+                        # Deficits
+                        psnr_deficit = max(0, target_psnr - m_psnr)
+                        lpips_deficit = max(0, m_lpips - target_lpips) # lower is better for LPIPS
+                        
+                        if psnr_deficit > 0.5 and lpips_deficit <= 0.02:
+                            # PSNR lagging, LPIPS fine: reduce LPIPS weight to focus on L1
+                            if self.current_lpips_weight > 0.005:
+                                self.current_lpips_weight = max(0.005, round(self.current_lpips_weight - 0.002, 4))
+                                msg_parts.append(f"[OMNI-GOVERNOR] PSNR Deficit: LPIPS Weight Relaxed -> {self.current_lpips_weight:.4f}")
+                        elif lpips_deficit > 0.02:
+                            # LPIPS lagging: increase LPIPS weight
+                            if self.current_lpips_weight < 0.100:
+                                self.current_lpips_weight = min(0.100, round(self.current_lpips_weight + 0.005, 4))
+                                msg_parts.append(f"[OMNI-GOVERNOR] LPIPS Deficit: Perceptual Weight Boosted -> {self.current_lpips_weight:.4f}")
+                                
+                    elif self.task_type == "forex":
+                        target_dir = float(self.sota_targets.get("dir_acc", 0.55)) if isinstance(self.sota_targets, dict) else 0.55
+                        target_mae = float(self.sota_targets.get("tp_mae", 5.0)) if isinstance(self.sota_targets, dict) else 5.0
+                        
+                        self.current_mag_weight = float(getattr(self, 'current_mag_weight', 0.5))
+                        self.current_dir_weight = float(getattr(self, 'current_dir_weight', 1.0))
+                        
+                        dir_deficit = max(0, target_dir - m_dir_acc)
+                        mae_deficit = max(0, m_tp_mae - target_mae)
+                        
+                        if dir_deficit > 0.02 and mae_deficit <= 0.5:
+                            if self.current_dir_weight < 2.0:
+                                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.1, 2))
+                                msg_parts.append(f"[OMNI-GOVERNOR] DirAcc Deficit: Dir Weight Boosted -> {self.current_dir_weight:.2f}")
+                        elif mae_deficit > 0.5 and dir_deficit <= 0.01:
+                            if self.current_mag_weight < 1.5:
+                                self.current_mag_weight = min(1.5, round(self.current_mag_weight + 0.1, 2))
+                                msg_parts.append(f"[OMNI-GOVERNOR] MAE Deficit: Mag Weight Boosted -> {self.current_mag_weight:.2f}")
 
         # --- Senior Feature: Gradual Temperature Sharpening (Success Branch) ---
         if not (is_regressing or is_turbulent or sentinel_trigger_rate > 0.15) and self.current_temp > self.min_temp:
@@ -669,7 +731,11 @@ class SmartTrainingGovernor:
             "sota_resolution": getattr(self, 'sota_resolution', None),
             "breakout_lock": getattr(self, 'breakout_lock', 0),
             "rank_weight": getattr(self, 'current_rank_weight', 0.8),
-            "rank_margin": getattr(self, 'current_rank_margin', 0.10)
+            "rank_margin": getattr(self, 'current_rank_margin', 0.10),
+            "soft_spearman_weight": getattr(self, 'current_spearman_weight', 0.5),
+            "lpips_weight": getattr(self, 'current_lpips_weight', 0.025),
+            "mag_weight": getattr(self, 'current_mag_weight', 0.5),
+            "dir_weight": getattr(self, 'current_dir_weight', 1.0)
         }
 
     def load_state(self, state, preserve_curriculum=False):
@@ -692,6 +758,10 @@ class SmartTrainingGovernor:
         self.current_clamp = state.get("logit_clamp", self.current_clamp)
         if "rank_weight" in state: self.current_rank_weight = float(state["rank_weight"])
         if "rank_margin" in state: self.current_rank_margin = float(state["rank_margin"])
+        if "soft_spearman_weight" in state: self.current_spearman_weight = float(state["soft_spearman_weight"])
+        if "lpips_weight" in state: self.current_lpips_weight = float(state["lpips_weight"])
+        if "mag_weight" in state: self.current_mag_weight = float(state["mag_weight"])
+        if "dir_weight" in state: self.current_dir_weight = float(state["dir_weight"])
         self.lr_multiplier = state.get("lr_multiplier", self.lr_multiplier)
         self.head_lr_multiplier = state.get("head_lr_multiplier", self.lr_multiplier)
         self.jolt_window_remaining = state.get("jolt_window_remaining", 0)

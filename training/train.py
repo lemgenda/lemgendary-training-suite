@@ -3486,6 +3486,11 @@ def main():
         current_epoch_governor_state = governor.get_state()
 
         # Moved BEFORE CSV write and Checkpoint creation to ensure total manifold parity.
+        metrics_dict = {
+            'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
+            'lpips': lpips_val, 'fid': fid, 'dir_acc': dir_acc, 'tp_mae': tp_mae
+        }
+        
         f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
             current_quality=locals().get('current_quality_score', 0.0),
             best_quality=best_quality_score,
@@ -3499,7 +3504,8 @@ def main():
             srcc=srcc,
             target_std=t_std,
             force_jump=False,
-            train_loss=avg_train_loss
+            train_loss=avg_train_loss,
+            metrics_dict=metrics_dict
         )
 
         if smart_msg:
@@ -3511,6 +3517,10 @@ def main():
                 if 'rank_weight' in new_params: criterion.stab['rank_weight'] = new_params['rank_weight']
                 if 'rank_margin' in new_params: criterion.stab['rank_margin'] = new_params['rank_margin']
                 if 'softmax_temp' in new_params or t_changed: criterion.stab['softmax_temp'] = new_params['softmax_temp']
+                if 'soft_spearman_weight' in new_params: criterion.stab['soft_spearman_weight'] = new_params['soft_spearman_weight']
+                if 'lpips_weight' in new_params: criterion.stab['lpips_weight'] = new_params['lpips_weight']
+                if 'mag_weight' in new_params: criterion.stab['mag_weight'] = new_params['mag_weight']
+                if 'dir_weight' in new_params: criterion.stab['dir_weight'] = new_params['dir_weight']
 
             # --- 2026 Resilience: Dynamic Stress Protocol ---
             stress_changed = new_params.get('stress', 0.0) != getattr(train_ds, 'stress', 0.0)
