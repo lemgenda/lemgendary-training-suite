@@ -113,6 +113,20 @@ class SmartTrainingGovernor:
         self.min_rank_margin = float(self.stab.get("min_rank_margin", 0.05))
         self.current_spearman_weight = float(self.stab.get("soft_spearman_weight", 0.5))
 
+        # --- 2026 Omni-Governor: Dynamic Loss Knobs ---
+        # All read from stab at init; governor ratchets them live each epoch.
+        # Synced to criterion.stab by train.py after each audit_epoch call.
+        self.current_emd_weight    = float(self.stab.get('emd_weight', 1.0))
+        self.current_ssim_weight   = float(self.stab.get('ssim_weight', 0.0))
+        self.current_huber_delta   = float(self.stab.get('huber_delta', 1.0))
+        self.current_conf_gate_str = float(self.stab.get('conf_gate_strength', 1.0))
+
+        # --- 2026 Omni-Governor: Metric Focus Burst ---
+        # Generalised burst that can focus on any lagging metric for N epochs.
+        self.metric_focus_epochs_remaining = 0
+        self.metric_focus_target = None           # e.g. 'srcc', 'dir_acc'
+        self.metric_focus_last_fired = {}         # {metric_key: epoch_count} cooldown tracking
+
         # --- 2026 Resilience: Adaptive Anti-Loop Governance ---
         self.loop_breaker_enabled = opt.get("loop_breaker_enabled", True)
         self.loop_breaker_threshold = opt.get("loop_breaker_threshold", 2)
@@ -172,6 +186,228 @@ class SmartTrainingGovernor:
                     target_score *= 100.0
                 self.target_quality_score = target_score
 
+    def _identify_lagging_metric(self, metrics_dict):
+        results = []
+        for key, target in self.sota_targets.items():
+            current = metrics_dict.get(key)
+            if current is None or target is None or target == 0:
+                continue
+            is_higher_better = METRIC_DIRECTIONS.get(key, True)
+            if is_higher_better:
+                deficit = max(0.0, (target - current) / abs(target))
+            else:
+                deficit = max(0.0, (current - target) / abs(target))
+            if deficit > 0:
+                results.append((key, deficit))
+        return sorted(results, key=lambda x: x[1], reverse=True)
+
+    def _apply_targeted_optimizations(self, lagging_list, metrics_dict):
+        msg_parts = []
+        if not lagging_list:
+            return msg_parts
+
+        primary_metric, deficit = lagging_list[0]
+        
+        severity = "MILD"
+        if deficit >= 0.35: severity = "CRITICAL"
+        elif deficit >= 0.15: severity = "SEVERE"
+
+        if primary_metric == 'srcc':
+            if severity == "MILD":
+                self.current_spearman_weight = min(2.0, round(self.current_spearman_weight + 0.15, 2))
+                self.current_rank_weight = min(self.max_rank_weight, round(self.current_rank_weight + 0.10, 2))
+            elif severity == "SEVERE":
+                self.current_spearman_weight = min(3.0, round(self.current_spearman_weight + 0.50, 2))
+                self.current_rank_weight = min(self.max_rank_weight, round(self.current_rank_weight + 0.40, 2))
+                self.current_rank_margin = self.min_rank_margin
+                self.current_emd_weight = max(0.1, round(self.current_emd_weight - 0.05, 2))
+            elif severity == "CRITICAL":
+                self.current_spearman_weight = 3.0
+                self.current_rank_weight = 2.0
+                self.current_rank_margin = self.min_rank_margin
+                self.current_emd_weight = max(0.1, round(self.current_emd_weight - 0.05, 2))
+                self.metric_focus_target = 'srcc'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'plcc':
+            if severity == "MILD":
+                self.current_emd_weight = min(2.0, round(self.current_emd_weight + 0.10, 2))
+                self.current_rank_weight = max(0.0, round(self.current_rank_weight - 0.10, 2))
+            elif severity == "SEVERE":
+                self.current_emd_weight = min(2.0, round(self.current_emd_weight + 0.25, 2))
+                self.current_rank_weight = max(0.0, round(self.current_rank_weight - 0.30, 2))
+                self.current_spearman_weight = max(0.0, round(self.current_spearman_weight - 0.10, 2))
+            elif severity == "CRITICAL":
+                self.current_emd_weight = 1.5
+                self.current_rank_weight = 0.3
+                self.current_spearman_weight = 0.2
+                self.metric_focus_target = 'plcc'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'rank_margin':
+            self.current_rank_margin = max(self.min_rank_margin, round(self.current_rank_margin - (deficit * 0.05), 3))
+        elif primary_metric == 'psnr':
+            if severity == "MILD":
+                self.current_lpips_weight = max(0.005, round(self.current_lpips_weight - 0.003, 4))
+            elif severity == "SEVERE":
+                self.current_lpips_weight = max(0.005, round(self.current_lpips_weight - 0.010, 4))
+                self.current_ssim_weight = max(0.0, round(self.current_ssim_weight - 0.02, 3))
+            elif severity == "CRITICAL":
+                self.current_lpips_weight = 0.005
+                self.head_lr_multiplier = min(self.lr_multiplier * 1.5, self.head_lr_multiplier * 1.3)
+        elif primary_metric == 'ssim':
+            if severity == "MILD":
+                self.current_ssim_weight = min(0.2, round(self.current_ssim_weight + 0.02, 3))
+                self.current_lpips_weight = min(0.1, round(self.current_lpips_weight + 0.002, 4))
+            elif severity == "SEVERE":
+                self.current_ssim_weight = min(0.2, round(self.current_ssim_weight + 0.06, 3))
+                self.current_lpips_weight = min(0.1, round(self.current_lpips_weight + 0.005, 4))
+            elif severity == "CRITICAL":
+                self.current_ssim_weight = 0.15
+                self.metric_focus_target = 'ssim'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'lpips':
+            if severity == "MILD":
+                self.current_lpips_weight = min(0.1, round(self.current_lpips_weight + 0.005, 4))
+            elif severity == "SEVERE":
+                self.current_lpips_weight = min(0.1, round(self.current_lpips_weight + 0.015, 4))
+            elif severity == "CRITICAL":
+                self.current_lpips_weight = 0.08
+                self.metric_focus_target = 'lpips'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'fid':
+            if severity == "MILD":
+                self.current_stress = min(5.0, getattr(self, 'current_stress', 0.0) + 0.5)
+            elif severity == "SEVERE":
+                self.current_stress = min(5.0, getattr(self, 'current_stress', 0.0) + 1.0)
+            elif severity == "CRITICAL":
+                self.current_stress = 5.0
+                self.metric_focus_target = 'fid'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'map50':
+            self.head_lr_multiplier = min(self.lr_multiplier * 1.5, getattr(self, 'head_lr_multiplier', self.lr_multiplier) * 1.3)
+            self.current_stress = min(5.0, getattr(self, 'current_stress', 0.0) + 0.5)
+        elif primary_metric in ['map50_95', 'map_hard']:
+            if primary_metric == 'map_hard' and severity == "MILD":
+                pass
+            else:
+                self.head_lr_multiplier = min(self.lr_multiplier * 1.5, getattr(self, 'head_lr_multiplier', self.lr_multiplier) * 1.3)
+        elif primary_metric in ['accuracy', 'accuracy_vqa', 'miou', 'map_medium']:
+            if severity == "MILD" or primary_metric != 'accuracy':
+                self.current_temp = max(self.min_temp, self.current_temp * 0.95)
+                if primary_metric in ['miou', 'map_medium']:
+                    self.current_stress = min(5.0, getattr(self, 'current_stress', 0.0) + 0.5)
+                if primary_metric != 'accuracy':
+                    self.head_lr_multiplier = min(self.lr_multiplier * 1.5, getattr(self, 'head_lr_multiplier', self.lr_multiplier) * 1.2)
+            elif severity == "SEVERE":
+                self.current_temp = self.min_temp
+                self.head_lr_multiplier = min(self.lr_multiplier * 1.5, getattr(self, 'head_lr_multiplier', self.lr_multiplier) * 1.2)
+            elif severity == "CRITICAL":
+                self.current_temp = self.min_temp
+                self.metric_focus_target = 'accuracy'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'mae':
+            if severity == "MILD":
+                self.current_huber_delta = max(0.01, self.current_huber_delta * 0.8)
+            elif severity == "SEVERE":
+                self.current_huber_delta = max(0.01, self.current_huber_delta * 0.5)
+                self.head_lr_multiplier = min(self.lr_multiplier * 1.5, getattr(self, 'head_lr_multiplier', self.lr_multiplier) * 1.2)
+            elif severity == "CRITICAL":
+                self.current_huber_delta = 0.1
+                self.metric_focus_target = 'mae'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'dir_acc':
+            if severity == "MILD":
+                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.10, 2))
+            elif severity == "SEVERE":
+                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.30, 2))
+            elif severity == "CRITICAL":
+                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.50, 2))
+                self.metric_focus_target = 'dir_acc'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'win_rate':
+            if severity == "MILD":
+                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.10, 2))
+                self.current_conf_gate_str = min(2.0, round(self.current_conf_gate_str + 0.1, 2))
+            elif severity == "SEVERE":
+                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.25, 2))
+                self.current_conf_gate_str = min(2.0, round(self.current_conf_gate_str + 0.3, 2))
+            elif severity == "CRITICAL":
+                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.40, 2))
+                self.metric_focus_target = 'win_rate'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'profit_factor':
+            if severity == "MILD":
+                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.10, 2))
+                self.current_mag_weight = max(0.1, round(self.current_mag_weight - 0.05, 2))
+            elif severity == "SEVERE":
+                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.20, 2))
+                self.current_mag_weight = max(0.1, round(self.current_mag_weight - 0.15, 2))
+            elif severity == "CRITICAL":
+                self.metric_focus_target = 'profit_factor'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'sharpe_ratio':
+            if severity == "MILD":
+                self.current_mag_weight = max(0.1, round(self.current_mag_weight - 0.05, 2))
+            elif severity == "SEVERE":
+                self.current_mag_weight = max(0.1, round(self.current_mag_weight - 0.15, 2))
+                self.current_conf_gate_str = min(2.0, round(self.current_conf_gate_str + 0.2, 2))
+            elif severity == "CRITICAL":
+                self.current_mag_weight = 0.1
+                self.metric_focus_target = 'sharpe_ratio'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'sortino_ratio':
+            if severity == "MILD":
+                self.current_mag_weight = max(0.1, round(self.current_mag_weight - 0.05, 2))
+                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.05, 2))
+            elif severity == "SEVERE":
+                self.current_mag_weight = max(0.1, round(self.current_mag_weight - 0.10, 2))
+                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.15, 2))
+            elif severity == "CRITICAL":
+                self.metric_focus_target = 'sortino_ratio'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'max_drawdown':
+            if severity == "MILD":
+                self.current_mag_weight = max(0.1, round(self.current_mag_weight - 0.08, 2))
+            elif severity == "SEVERE":
+                self.current_mag_weight = max(0.1, round(self.current_mag_weight - 0.20, 2))
+                self.current_conf_gate_str = min(2.0, round(self.current_conf_gate_str + 0.3, 2))
+            elif severity == "CRITICAL":
+                self.current_mag_weight = 0.1
+                self.current_conf_gate_str = 2.0
+                self.metric_focus_target = 'max_drawdown'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'tp_mae':
+            if severity == "MILD":
+                self.current_mag_weight = min(2.0, round(self.current_mag_weight + 0.10, 2))
+            elif severity == "SEVERE":
+                self.current_mag_weight = min(2.0, round(self.current_mag_weight + 0.25, 2))
+            elif severity == "CRITICAL":
+                self.current_mag_weight = min(2.0, round(self.current_mag_weight + 0.40, 2))
+                self.metric_focus_target = 'tp_mae'
+                self.metric_focus_epochs_remaining = 5
+        elif primary_metric == 'sl_mae':
+            if severity == "MILD":
+                self.current_mag_weight = min(2.0, round(self.current_mag_weight + 0.06, 2))
+            elif severity == "SEVERE":
+                self.current_mag_weight = min(2.0, round(self.current_mag_weight + 0.15, 2))
+            elif severity == "CRITICAL":
+                self.current_mag_weight = min(2.0, round(self.current_mag_weight + 0.25, 2))
+                self.metric_focus_target = 'sl_mae'
+                self.metric_focus_epochs_remaining = 5
+
+        msg_parts.append(f"[OMNI-GOVERNOR] [{severity}] {primary_metric.upper()} Deficit ({deficit*100:.1f}%) -> Target Optimizations Applied.")
+
+        if self.metric_focus_epochs_remaining > 0 and self.metric_focus_target == primary_metric:
+            last_fired = self.metric_focus_last_fired.get(primary_metric, 0)
+            if self.epoch_count - last_fired > 10 or last_fired == 0:
+                self.metric_focus_last_fired[primary_metric] = self.epoch_count
+                msg_parts.append(f"[METRIC FOCUS BURST] Triggered for {primary_metric.upper()} (5 Epochs)")
+            else:
+                self.metric_focus_epochs_remaining = 0
+                self.metric_focus_target = None
+                msg_parts.append(f"[METRIC FOCUS BURST] Queued for {primary_metric.upper()} (Cooldown active)")
+
+        return msg_parts
+
     def get_phase(self):
         res_idx = self.res_ladder.index(self.current_res)
         if res_idx == 0 and self.current_fraction < 0.5: return "FOUNDATION"
@@ -189,6 +425,42 @@ class SmartTrainingGovernor:
         if not self.enabled and not force_jump: return False, False, False, False, False, False, ""
         self.epoch_count += 1
         self.session_epoch_count += 1
+
+        if getattr(self, 'metric_focus_epochs_remaining', 0) > 0:
+            self.metric_focus_epochs_remaining -= 1
+            if self.metric_focus_target == 'srcc':
+                self.current_spearman_weight = 3.0
+                self.current_rank_weight = 2.0
+            elif self.metric_focus_target == 'plcc':
+                self.current_emd_weight = 1.5
+                self.current_rank_weight = 0.3
+                self.current_spearman_weight = 0.2
+            elif self.metric_focus_target == 'ssim':
+                self.current_ssim_weight = 0.15
+            elif self.metric_focus_target == 'lpips':
+                self.current_lpips_weight = 0.08
+            elif self.metric_focus_target == 'fid':
+                self.current_stress = 5.0
+            elif self.metric_focus_target == 'mae':
+                self.current_huber_delta = 0.1
+            elif self.metric_focus_target == 'dir_acc' or self.metric_focus_target == 'win_rate':
+                self.current_dir_weight = 2.0
+                if self.metric_focus_target == 'win_rate': self.current_conf_gate_str = 1.5
+            elif self.metric_focus_target == 'profit_factor':
+                self.current_dir_weight = 2.0
+                self.current_mag_weight = 0.2
+            elif self.metric_focus_target == 'max_drawdown':
+                self.current_mag_weight = 0.1
+                self.current_conf_gate_str = 2.0
+            elif self.metric_focus_target == 'tp_mae' or self.metric_focus_target == 'sl_mae':
+                self.current_mag_weight = 1.2
+
+            self.lr_multiplier = getattr(self, 'cooling_factor', 0.8) # dampen backbone
+            self.head_lr_multiplier = min(self.lr_multiplier * 2.0, 1.5)
+            self.jolt_window_remaining = 5
+            
+            if self.metric_focus_epochs_remaining == 0:
+                self.metric_focus_target = None
 
         if getattr(self, 'breakout_lock', 0) > 0:
             self.breakout_lock -= 1
@@ -586,81 +858,11 @@ class SmartTrainingGovernor:
                     # based on metric-specific deficits.
                     if metrics_dict is None:
                         metrics_dict = {'plcc': plcc, 'srcc': srcc}
-                        
-                    # Extract values safely
-                    m_plcc = metrics_dict.get('plcc', plcc)
-                    m_srcc = metrics_dict.get('srcc', srcc)
-                    m_psnr = metrics_dict.get('psnr', 0.0)
-                    m_lpips = metrics_dict.get('lpips', 1.0)
-                    m_tp_mae = metrics_dict.get('tp_mae', 999.0)
-                    m_dir_acc = metrics_dict.get('dir_acc', 0.0)
 
-                    if self.task_type == "quality":
-                        target_srcc = float(self.sota_targets.get("srcc", 0.9100)) if isinstance(self.sota_targets, dict) else 0.9100
-                        target_plcc = float(self.sota_targets.get("plcc", 0.9100)) if isinstance(self.sota_targets, dict) else 0.9100
-                        target_emd  = float(self.sota_targets.get("rank_margin", 0.0700)) if isinstance(self.sota_targets, dict) else 0.0700
-                        max_rw = getattr(self, 'max_rank_weight', 1.5)
-                        min_rm = getattr(self, 'min_rank_margin', 0.05)
-
-                        # SRCC Deficit: Boost Rank/Spearman
-                        if m_srcc < target_srcc or (self.best_quality < self.target_quality_score):
-                            if self.current_rank_weight < max_rw:
-                                self.current_rank_weight = min(max_rw, round(self.current_rank_weight + 0.1, 2))
-                                msg_parts.append(f"[OMNI-GOVERNOR] SRCC Deficit: Rank Weight -> {self.current_rank_weight:.2f}")
-                            
-                            if getattr(self, 'current_spearman_weight', 0.0) < 2.0:
-                                self.current_spearman_weight = min(2.0, round(getattr(self, 'current_spearman_weight', 0.5) + 0.1, 2))
-                                msg_parts.append(f"[OMNI-GOVERNOR] SRCC Deficit: Soft Spearman -> {self.current_spearman_weight:.2f}")
-                        elif m_srcc >= target_srcc and m_plcc < target_plcc:
-                            # PLCC Deficit but SRCC is fine: Relax pairwise rank to allow global score alignment
-                            if self.current_rank_weight > 0.5:
-                                self.current_rank_weight = max(0.5, round(self.current_rank_weight - 0.1, 2))
-                                msg_parts.append(f"[OMNI-GOVERNOR] PLCC Priority: Relaxing Rank Weight -> {self.current_rank_weight:.2f}")
-
-                        # Rank Margin Deficit: Tighten margin
-                        if self.current_rank_margin > min_rm and current_quality > (self.target_quality_score * 0.70):
-                            self.current_rank_margin = max(min_rm, round(self.current_rank_margin - 0.01, 2))
-                            msg_parts.append(f"[OMNI-GOVERNOR] Rank Margin Tightening -> {self.current_rank_margin:.3f}")
-
-                    elif self.task_type in ["restoration", "enhancement"]:
-                        target_psnr = float(self.sota_targets.get("psnr", 30.0)) if isinstance(self.sota_targets, dict) else 30.0
-                        target_lpips = float(self.sota_targets.get("lpips", 0.15)) if isinstance(self.sota_targets, dict) else 0.15
-                        
-                        self.current_lpips_weight = float(getattr(self, 'current_lpips_weight', 0.025))
-                        
-                        # Deficits
-                        psnr_deficit = max(0, target_psnr - m_psnr)
-                        lpips_deficit = max(0, m_lpips - target_lpips) # lower is better for LPIPS
-                        
-                        if psnr_deficit > 0.5 and lpips_deficit <= 0.02:
-                            # PSNR lagging, LPIPS fine: reduce LPIPS weight to focus on L1
-                            if self.current_lpips_weight > 0.005:
-                                self.current_lpips_weight = max(0.005, round(self.current_lpips_weight - 0.002, 4))
-                                msg_parts.append(f"[OMNI-GOVERNOR] PSNR Deficit: LPIPS Weight Relaxed -> {self.current_lpips_weight:.4f}")
-                        elif lpips_deficit > 0.02:
-                            # LPIPS lagging: increase LPIPS weight
-                            if self.current_lpips_weight < 0.100:
-                                self.current_lpips_weight = min(0.100, round(self.current_lpips_weight + 0.005, 4))
-                                msg_parts.append(f"[OMNI-GOVERNOR] LPIPS Deficit: Perceptual Weight Boosted -> {self.current_lpips_weight:.4f}")
-                                
-                    elif self.task_type == "forex":
-                        target_dir = float(self.sota_targets.get("dir_acc", 0.55)) if isinstance(self.sota_targets, dict) else 0.55
-                        target_mae = float(self.sota_targets.get("tp_mae", 5.0)) if isinstance(self.sota_targets, dict) else 5.0
-                        
-                        self.current_mag_weight = float(getattr(self, 'current_mag_weight', 0.5))
-                        self.current_dir_weight = float(getattr(self, 'current_dir_weight', 1.0))
-                        
-                        dir_deficit = max(0, target_dir - m_dir_acc)
-                        mae_deficit = max(0, m_tp_mae - target_mae)
-                        
-                        if dir_deficit > 0.02 and mae_deficit <= 0.5:
-                            if self.current_dir_weight < 2.0:
-                                self.current_dir_weight = min(2.0, round(self.current_dir_weight + 0.1, 2))
-                                msg_parts.append(f"[OMNI-GOVERNOR] DirAcc Deficit: Dir Weight Boosted -> {self.current_dir_weight:.2f}")
-                        elif mae_deficit > 0.5 and dir_deficit <= 0.01:
-                            if self.current_mag_weight < 1.5:
-                                self.current_mag_weight = min(1.5, round(self.current_mag_weight + 0.1, 2))
-                                msg_parts.append(f"[OMNI-GOVERNOR] MAE Deficit: Mag Weight Boosted -> {self.current_mag_weight:.2f}")
+                    lagging = self._identify_lagging_metric(metrics_dict)
+                    if lagging:
+                        adjustments = self._apply_targeted_optimizations(lagging, metrics_dict)
+                        msg_parts.extend(adjustments)
 
         # --- Senior Feature: Gradual Temperature Sharpening (Success Branch) ---
         if not (is_regressing or is_turbulent or sentinel_trigger_rate > 0.15) and self.current_temp > self.min_temp:
@@ -735,7 +937,14 @@ class SmartTrainingGovernor:
             "soft_spearman_weight": getattr(self, 'current_spearman_weight', 0.5),
             "lpips_weight": getattr(self, 'current_lpips_weight', 0.025),
             "mag_weight": getattr(self, 'current_mag_weight', 0.5),
-            "dir_weight": getattr(self, 'current_dir_weight', 1.0)
+            "dir_weight": getattr(self, 'current_dir_weight', 1.0),
+            "emd_weight": getattr(self, 'current_emd_weight', 1.0),
+            "ssim_weight": getattr(self, 'current_ssim_weight', 0.0),
+            "huber_delta": getattr(self, 'current_huber_delta', 1.0),
+            "conf_gate_str": getattr(self, 'current_conf_gate_str', 1.0),
+            "metric_focus_epochs_remaining": getattr(self, 'metric_focus_epochs_remaining', 0),
+            "metric_focus_target": getattr(self, 'metric_focus_target', None),
+            "metric_focus_last_fired": getattr(self, 'metric_focus_last_fired', {}),
         }
 
     def load_state(self, state, preserve_curriculum=False):
@@ -762,6 +971,14 @@ class SmartTrainingGovernor:
         if "lpips_weight" in state: self.current_lpips_weight = float(state["lpips_weight"])
         if "mag_weight" in state: self.current_mag_weight = float(state["mag_weight"])
         if "dir_weight" in state: self.current_dir_weight = float(state["dir_weight"])
+        if "emd_weight" in state: self.current_emd_weight = float(state["emd_weight"])
+        if "ssim_weight" in state: self.current_ssim_weight = float(state["ssim_weight"])
+        if "huber_delta" in state: self.current_huber_delta = float(state["huber_delta"])
+        if "conf_gate_str" in state: self.current_conf_gate_str = float(state["conf_gate_str"])
+        self.metric_focus_epochs_remaining = state.get("metric_focus_epochs_remaining", 0)
+        self.metric_focus_target = state.get("metric_focus_target", None)
+        raw_mflf = state.get("metric_focus_last_fired", {})
+        self.metric_focus_last_fired = {k: int(v) for k, v in raw_mflf.items()}
         self.lr_multiplier = state.get("lr_multiplier", self.lr_multiplier)
         self.head_lr_multiplier = state.get("head_lr_multiplier", self.lr_multiplier)
         self.jolt_window_remaining = state.get("jolt_window_remaining", 0)

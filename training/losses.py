@@ -54,11 +54,13 @@ class ForexDualLoss(nn.Module):
         dir_loss = self.ce(dir_logits, dir_target)
 
         # Confidence gate: high-entropy bars get lower magnitude weight
+        # conf_gate_strength > 1.0 makes the gate stricter (only high-confidence trades contribute)
+        conf_gate_strength = float(getattr(self, 'conf_gate_strength', 1.0))
         with torch.no_grad():
             probs     = torch.softmax(dir_logits, dim=-1)           # [B, 3]
             entropy   = -(probs * (probs + 1e-8).log()).sum(dim=-1)  # [B]
             max_ent   = torch.log(torch.tensor(3.0, device=probs.device))
-            conf_gate = 1.0 - (entropy / max_ent).clamp(0.0, 1.0)  # [B] ∈ [0,1]
+            conf_gate = (1.0 - (entropy / max_ent).clamp(0.0, 1.0)) ** conf_gate_strength  # [B]
 
         # Huber loss for magnitude, gated by direction confidence
         huber = F.smooth_l1_loss(mag_pred, mag_target, reduction='none', beta=self.huber_delta)  # [B, 2]
@@ -89,6 +91,7 @@ class SoftSpearmanLoss(nn.Module):
         """
         n = p_scores.size(0)
         if n < 2:
+            # N=1 guard: rank correlation is undefined for a single sample
             return torch.tensor(0.0, device=p_scores.device, requires_grad=True)
 
         # Pairwise difference matrices: [N, N]
@@ -107,6 +110,10 @@ class SoftSpearmanLoss(nn.Module):
         cov = (p_ranks_c * t_ranks_c).sum()
         var_p = (p_ranks_c ** 2).sum()
         var_t = (t_ranks_c ** 2).sum()
+
+        # N=1 variance guard: both variances must be non-zero
+        if var_p < self.eps or var_t < self.eps:
+            return torch.tensor(0.0, device=p_scores.device, requires_grad=True)
 
         denom = torch.sqrt(torch.clamp(var_p * var_t, min=self.eps))
         soft_spearman = cov / denom
@@ -349,7 +356,11 @@ class CombinedLoss(nn.Module):
             else:
                 p_eval, t_eval = p_mean, t_mean
 
-            total_loss = emd
+            # --- 2026 Governor: Dynamic EMD weight ---
+            # emd_weight is raised to boost PLCC (distribution matching) and lowered
+            # to make rank losses dominant when SRCC is the lagging metric.
+            emd_weight = float(self.stab.get('emd_weight', 1.0))
+            total_loss = emd_weight * emd
 
             # --- 2026: Differentiable Soft-Spearman Loss ---
             use_soft_spearman = self.stab.get("use_soft_spearman", True)
@@ -357,6 +368,19 @@ class CombinedLoss(nn.Module):
                 spearman_loss = self.soft_spearman(p_eval, t_eval)
                 spearman_weight = float(self.stab.get("soft_spearman_weight", 0.5))
                 total_loss = total_loss + (spearman_weight * spearman_loss)
+
+            # --- 2026 Governor: SSIM-proxy auxiliary loss ---
+            # ssim_weight > 0 adds a differentiable structural-similarity proxy:
+            # Pearson correlation of predicted vs target expected scores.
+            # Boosted by governor when SSIM is the lagging metric.
+            ssim_w = float(self.stab.get('ssim_weight', 0.0))
+            if ssim_w > 0.0 and p_eval.size(0) > 1:
+                p_c = p_eval - p_eval.mean()
+                t_c = t_eval - t_eval.mean()
+                denom_ssim = torch.sqrt(
+                    torch.clamp((p_c ** 2).sum() * (t_c ** 2).sum(), min=1e-8))
+                ssim_proxy = 1.0 - (p_c * t_c).sum() / denom_ssim
+                total_loss = total_loss + ssim_w * ssim_proxy
 
             # --- 2026: Neural Rank-Boost (Pairwise Margin Loss) ---
             rank_weight = float(self.stab.get('rank_weight', 0.0))
@@ -378,12 +402,15 @@ class CombinedLoss(nn.Module):
             # 2026: Bounded Regression Loss for UPNv2 Parameter Predictor
             # SmoothL1 (Huber) is robust to outliers and stable for bounded [0,1] targets.
             # Normalize theta by π so all parameters contribute equally in [0,1] range.
+            # huber_delta is dynamically reduced by the governor when MAE is the lagging metric,
+            # making the loss more L2-like near zero (more sensitive to small residuals).
             pred_norm = pred.clone()
             target_norm = target.clone()
             if pred_norm.shape[-1] >= 3:
-                pred_norm[:, 1] = pred_norm[:, 1] / 3.14159265  # theta / π → [0,1]
+                pred_norm[:, 1] = pred_norm[:, 1] / 3.14159265  # theta / pi -> [0,1]
                 target_norm[:, 1] = target_norm[:, 1] / 3.14159265
-            return F.smooth_l1_loss(pred_norm, target_norm)
+            huber_delta = float(self.stab.get('huber_delta', 1.0))
+            return F.smooth_l1_loss(pred_norm, target_norm, beta=huber_delta)
 
         elif self.task_type == "classification":
             return self.ce(pred, target)

@@ -1297,6 +1297,9 @@ def main():
     best_metrics = {
         "plcc": 0.0, "srcc": 0.0, "psnr": 0.0, "ssim": 0.0, "lpips": 0.05, "fid": 50.0
     }
+    
+    # --- 2026: MS-SWA Per-Metric Checkpoint Vault ---
+    metric_vaults = {}
 
     # --- 2026: Global Historical Best Guardrail ---
     # We probe the 'best.pth' artifact to establish a high-water mark for the entire project.
@@ -1310,6 +1313,7 @@ def main():
             if 'best_quality_score' in best_ckpt:
                 best_quality_score = best_ckpt.get('best_quality_score', -1.0)
             best_metrics = best_ckpt.get('best_metrics', best_ckpt.get('metrics', {})) # Resilient key fallback
+            metric_vaults = best_ckpt.get('metric_vaults', {})
             sota_baseline_achieved = best_ckpt.get('sota_achieved', False)
             print(f" [OK] [GLOBAL GUARDRAIL] Historical SOTA baseline DETECTED (Score: {best_quality_score:.4f})")
             # Sanitizer: Ensure no historical 'inf' values survive the reload
@@ -2747,6 +2751,7 @@ def main():
                         'sota_achieved': sota_baseline_achieved,
                         'last_intra_epoch_pct': last_intra_epoch_pct,
                         'interval_pct': interval_pct,
+                        'metric_vaults': metric_vaults,
                         'avg_train_loss': (train_loss / (i + 1)) if (i + 1) > 0 else 0.0
                     }, prog_ckpt)
                     tier_str = f"{current_pct*100:.0f}%"
@@ -2775,7 +2780,8 @@ def main():
             'avg_train_loss': avg_train_loss,
             'epochs_no_improve': epochs_no_improve,
             'regression_epochs': regression_epochs,
-            'sota_achieved': sota_baseline_achieved
+            'sota_achieved': sota_baseline_achieved,
+            'metric_vaults': metric_vaults
         }, prog_ckpt)
 
         # --- 2026: Manifold Leak Guard ---
@@ -3419,6 +3425,23 @@ def main():
             }
             current_quality_score, singularity_collapse = telemetry_engine.compute_quality_score(curr_metrics, sota_targets, train_ds.task_type)
 
+            # --- 2026: MS-SWA Per-Metric Checkpoint Vault Update ---
+            for m_key, m_val in curr_metrics.items():
+                is_higher_better = m_key not in ['lpips', 'fid', 'mae', 'max_drawdown', 'tp_mae', 'sl_mae']
+                current_best_score = metric_vaults.get(m_key, None)
+                
+                is_new_best = False
+                if current_best_score is None:
+                    is_new_best = True
+                else:
+                    if is_higher_better and m_val > current_best_score: is_new_best = True
+                    elif not is_higher_better and m_val < current_best_score: is_new_best = True
+                    
+                if is_new_best:
+                    metric_vaults[m_key] = m_val
+                    vault_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_vault_{m_key}.pth")
+                    torch.save(model.state_dict(), vault_ckpt)
+
             if singularity_collapse:
                 print(f" [NUCLEAR] Metric Singularity detected! Manifold collapsed.")
                 print(f" [GUARD] [RESILIENCE] Triggering Tactical Recoil and Rollback to recover distribution...")
@@ -3524,6 +3547,31 @@ def main():
                 if 'lpips_weight' in new_params: criterion.stab['lpips_weight'] = new_params['lpips_weight']
                 if 'mag_weight' in new_params: criterion.stab['mag_weight'] = new_params['mag_weight']
                 if 'dir_weight' in new_params: criterion.stab['dir_weight'] = new_params['dir_weight']
+                
+                # --- 2026 Omni-Governor: Dynamic Loss Knobs Sync ---
+                if 'emd_weight' in new_params: criterion.stab['emd_weight'] = new_params['emd_weight']
+                if 'ssim_weight' in new_params: criterion.stab['ssim_weight'] = new_params['ssim_weight']
+                if 'huber_delta' in new_params: criterion.stab['huber_delta'] = new_params['huber_delta']
+                if 'conf_gate_str' in new_params: criterion.stab['conf_gate_strength'] = new_params['conf_gate_str']
+
+            # --- 2026: MS-SWA Merge Trigger Logic ---
+            if getattr(governor, 'trigger_mini_swa', False):
+                governor.trigger_mini_swa = False
+                print(" [MS-SWA] Triggering Metric-Specific Stochastic Weight Averaging...")
+                vault_states = []
+                # Retrieve available vaults for core metrics
+                for m_key in ['plcc', 'srcc', 'psnr', 'ssim', 'dir_acc', 'tp_mae', 'win_rate', 'accuracy']:
+                    vault_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_vault_{m_key}.pth")
+                    if os.path.exists(vault_ckpt):
+                        vault_states.append(torch.load(vault_ckpt, map_location='cpu'))
+                
+                if len(vault_states) > 1:
+                    avg_state = {}
+                    for k in vault_states[0].keys():
+                        avg_state[k] = torch.stack([state[k].float() for state in vault_states]).mean(dim=0).to(vault_states[0][k].dtype)
+                    
+                    model.load_state_dict(avg_state)
+                    print(f" [MS-SWA] Successfully merged {len(vault_states)} top metric checkpoints into active model.")
 
             # --- 2026 Resilience: Dynamic Stress Protocol ---
             stress_changed = new_params.get('stress', 0.0) != getattr(train_ds, 'stress', 0.0)
