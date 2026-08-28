@@ -42,10 +42,11 @@ def get_latest_epoch(model_key, project_root):
     if not os.path.exists(metrics_path):
         return 0
     try:
+        import csv
         with open(metrics_path, "r", encoding="utf-8") as f:
-            lines = f.read().splitlines()
-            if len(lines) > 1 and lines[-1].strip():
-                return int(lines[-1].split(',')[0])
+            reader = list(csv.DictReader(f))
+            if len(reader) > 0:
+                return int(reader[-1].get("Epoch", 0))
     except Exception as e:
         print(f" [WARNING] Failed to parse metrics.csv for dynamic target: {e}")
     return 0

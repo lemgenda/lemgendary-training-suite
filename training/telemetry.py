@@ -44,8 +44,8 @@ class TelemetryEngine:
         
         # Determine expected columns based on task_type
         if self.task_type == "forex":
-            expected_cols = 21
-            header_str = "Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,Quality_Score,Pairs,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
+            expected_cols = 23
+            header_str = "Phase,Fold,Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,Quality_Score,Pairs,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
         else:
             expected_cols = 28
             header_str = "Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Rank_Margin,MAE,mIoU,mAP_Medium,mAP_Hard,Accuracy_VQA,Quality_Score,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
@@ -72,7 +72,7 @@ class TelemetryEngine:
             with open(self.metrics_csv_path, "w", encoding='utf-8') as f:
                 f.write(header_str)
 
-    def write_epoch_row(self, epoch, train_loss, val_loss, lr, curr_metrics, quality_score, governor_state, stress, num_pairs=None):
+    def write_epoch_row(self, epoch, train_loss, val_loss, lr, curr_metrics, quality_score, governor_state, stress, num_pairs=None, phase=1, fold=1):
         """Mathematically serialize the row directly to the IO stream."""
         
         # 2026 Governor extraction variables
@@ -95,7 +95,7 @@ class TelemetryEngine:
             pairs = num_pairs if num_pairs is not None else (governor_state.get('input_size', 16) if governor_state else 16)
             
             with open(self.metrics_csv_path, "a", encoding='utf-8') as f:
-                f.write(f"{epoch+1},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"
+                f.write(f"{phase},{fold},{epoch+1},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"
                         f"{dir_acc:.4f},{win_rate:.4f},{profit_factor:.4f},{sharpe:.4f},{sortino:.4f},"
                         f"{max_dd:.4f},{tp_mae:.4f},{sl_mae:.4f},{quality_score:.4f},"
                         f"{pairs},{data:.2f},{temp:.4f},{clamp:.1f},{cooldown},{batch},{accum},{stress:.6f}\n")

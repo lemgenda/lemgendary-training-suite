@@ -694,7 +694,8 @@ def main():
     parser.add_argument("--hub_repo", type=str, default=None, help="GitHub repository name for model hub")
     parser.add_argument("--auto_sync", action="store_true", help="Enable automated cloud synchronization per epoch (Kaggle only)")
     parser.add_argument("--reset-scheduler", action="store_true", help="Bypass loaded scheduler state and re-initialize fresh curve at current step")
-    parser.add_argument("--fold", type=int, default=None, help="Walk-forward fold index (1..6)")
+    parser.add_argument("--phase", type=int, default=1, help="Training Phase (e.g., Pre-training=1, Fine-tuning=2)")
+    parser.add_argument("--fold", type=int, default=1, help="Walk-forward fold index (1..6)")
     parser.add_argument("--pairs", type=str, nargs='+', default=None, help="List of active pairs for Forex dataset (e.g. EURUSD GBPUSD)")
     args = parser.parse_args()
 
@@ -1616,12 +1617,11 @@ def main():
         last_csv_epoch = None
         if os.path.exists(metrics_csv_path):
             try:
+                import csv
                 with open(metrics_csv_path, "r", encoding='utf-8') as f:
-                    lines = [line.strip() for line in f.readlines() if line.strip()]
-                    if len(lines) > 1:
-                        last_line = lines[-1]
-                        parts = last_line.split(",")
-                        last_csv_epoch = int(parts[0])
+                    reader = list(csv.DictReader(f))
+                    if len(reader) > 0:
+                        last_csv_epoch = int(reader[-1].get("Epoch", 0))
             except Exception as csv_err:
                 print(f" [WARNING] Failed to parse last epoch from metrics.csv: {csv_err}")
 
@@ -3872,7 +3872,9 @@ def main():
             quality_score=current_quality_score,
             governor_state=current_epoch_governor_state,
             stress=current_epoch_governor_state.get('stress', 0.0) if current_epoch_governor_state else 0.0,
-            num_pairs=num_pairs
+            num_pairs=num_pairs,
+            phase=getattr(args, 'phase', 1) or 1,
+            fold=getattr(args, 'fold', 1) or 1
         )
 
         prev_quality_score = current_quality_score
