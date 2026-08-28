@@ -209,8 +209,13 @@ class SmartTrainingGovernor:
         primary_metric, deficit = lagging_list[0]
         
         severity = "MILD"
-        if deficit >= 0.35: severity = "CRITICAL"
-        elif deficit >= 0.15: severity = "SEVERE"
+        if primary_metric in ['srcc', 'plcc', 'accuracy', 'dir_acc', 'win_rate']:
+            # Correlation/Probability metrics scale non-linearly towards 1.0
+            if deficit >= 0.10: severity = "CRITICAL"
+            elif deficit >= 0.05: severity = "SEVERE"
+        else:
+            if deficit >= 0.35: severity = "CRITICAL"
+            elif deficit >= 0.15: severity = "SEVERE"
 
         if primary_metric == 'srcc':
             if severity == "MILD":
