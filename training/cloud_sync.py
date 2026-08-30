@@ -179,12 +179,21 @@ except Exception as e:
     print(f"Upload Error: {{e}}", file=sys.stderr)
     sys.exit(1)
 """
+                env = os.environ.copy()
+                # 2026 Resilience: Redirect KaggleHub's aggressive delta-caching to persistent disk
+                # to prevent catastrophic System RAM OOM crashes caused by overlayfs limits on /root/.cache
+                env['KAGGLEHUB_CACHE'] = '/kaggle/working/.cache/kagglehub'
+                
                 res = subprocess.run(
                     [sys.executable, "-c", upload_script],
                     capture_output=True,
                     text=True,
-                    env=os.environ.copy()
+                    env=env
                 )
+                
+                # Immediately purge the massive cache to prevent disk space exhaustion
+                import shutil
+                shutil.rmtree('/kaggle/working/.cache/kagglehub', ignore_errors=True)
                 
                 if res.returncode == 0:
                     print(f" [KAGGLER] Manifold successfully synchronized to Kaggle Hub ({handle})!")
