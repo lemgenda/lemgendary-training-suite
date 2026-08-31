@@ -1992,7 +1992,7 @@ def main():
 
         # Sync dataset strategy and re-init loader
         val_ds.update_strategy(size=val_anchor_size)
-        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
+        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
 
         # 2026 Resilience: Seed train_loss from checkpoint if resuming mid-epoch or after training
         train_loss = 0
@@ -2890,7 +2890,7 @@ def main():
                         val_batch_size = max(1, val_batch_size // 2)
                         val_num_workers = num_workers
                         val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False,
-                                              num_workers=val_num_workers, pin_memory=True)
+                                              num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
 
             # --- 2026: Dynamic Validation Anchor (v19.0 High-Res Lock) ---
             vram_gb_current = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
@@ -2914,7 +2914,7 @@ def main():
                     last_val_audit_fraction = val_ds.sample_fraction
                     if pbar: pbar.write(f" [SIGNAL] [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size} @ {val_anchor_size}px")
                     # Re-initialize DataLoader if batch size changed
-                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True)
+                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
 
             if getattr(train_ds, "task_type", "") == "forex":
                 val_batch_size = batch_size
@@ -3190,10 +3190,9 @@ def main():
                     all_targets.append(targets.detach().cpu())
 
                 # --- 2026 Resilience: Iteration VRAM Purge ---
+                # 2026: Removed per-batch empty_cache() and gc.collect(). They caused massive OS memory 
+                # fragmentation (crashing Kaggle via System RAM OOM) and destroyed validation speed.
                 del preds, loss, inputs, targets, task_idx
-                if device.type == 'cuda':
-                    torch.cuda.empty_cache()
-                gc.collect()
 
         avg_val_loss = val_loss / max(1, val_session_batches)
         avg_sentinel_stress = float(np.mean(sentinel_stresses)) if sentinel_stresses else 0.0
