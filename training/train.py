@@ -1911,6 +1911,9 @@ def main():
     absolute_epochs_no_improve = start_absolute_epochs_no_improve
 
     sota_targets = model_info.get("sota_targets", {})
+    if sota_targets:
+        # Prune obsolete metrics from the legacy vaults so they stop tracking
+        metric_vaults = {k: v for k, v in metric_vaults.items() if k in sota_targets}
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
 
     # 2026 Telemetry Engine Integration
@@ -3425,7 +3428,10 @@ def main():
             current_quality_score, singularity_collapse = telemetry_engine.compute_quality_score(curr_metrics, sota_targets, train_ds.task_type)
 
             # --- 2026: MS-SWA Per-Metric Checkpoint Vault Update ---
-            for m_key, m_val in curr_metrics.items():
+            for m_key in sota_targets.keys():
+                m_val = curr_metrics.get(m_key)
+                if m_val is None:
+                    continue
                 is_higher_better = m_key not in ['lpips', 'fid', 'mae', 'max_drawdown', 'tp_mae', 'sl_mae']
                 current_best_score = metric_vaults.get(m_key, None)
                 
