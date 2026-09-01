@@ -1227,8 +1227,46 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "        if metrics_found: break\n",
         "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs manifold.')\n"
     ]
-
-
+    continuous_sync_source = [
+        "import os, time, shutil, threading\n",
+        f"model_key = '{model_key}'\n",
+        "hub_root = '/content/LemGendaryModels'\n",
+        "model_hub_dir = os.path.join(hub_root, model_key)\n",
+        "ckpt_hub_dir = os.path.join(model_hub_dir, 'checkpoints')\n",
+        "\n",
+        "drive_target_dir = None\n",
+        "if found_ckpts:\n",
+        "    drive_target_dir = os.path.dirname(found_ckpts[0])\n",
+        "\n",
+        "def drive_sync_worker():\n",
+        "    print(f'[SYNC] Background sync thread started. Target: {drive_target_dir}')\n",
+        "    while True:\n",
+        "        try:\n",
+        "            for f in os.listdir(ckpt_hub_dir):\n",
+        "                src = os.path.join(ckpt_hub_dir, f)\n",
+        "                if os.path.isfile(src):\n",
+        "                    dst = os.path.join(drive_target_dir, f)\n",
+        "                    # Copy if newer or doesn't exist\n",
+        "                    if not os.path.exists(dst) or os.path.getmtime(src) > os.path.getmtime(dst):\n",
+        "                        tmp_dst = dst + '.tmp'\n",
+        "                        shutil.copy2(src, tmp_dst)\n",
+        "                        os.rename(tmp_dst, dst)\n",
+        "            # Sync metrics.csv\n",
+        "            m_src = os.path.join(model_hub_dir, 'metrics.csv')\n",
+        "            if os.path.exists(m_src):\n",
+        "                m_dst = os.path.join(os.path.dirname(drive_target_dir), 'metrics.csv')\n",
+        "                if not os.path.exists(m_dst) or os.path.getmtime(m_src) > os.path.getmtime(m_dst):\n",
+        "                    shutil.copy2(m_src, m_dst)\n",
+        "        except Exception as e:\n",
+        "            pass\n",
+        "        time.sleep(30) # Sync every 30 seconds\n",
+        "\n",
+        "if drive_target_dir:\n",
+        "    t = threading.Thread(target=drive_sync_worker, daemon=True)\n",
+        "    t.start()\n",
+        "else:\n",
+        "    print('[WARNING] No Google Drive checkpoint directory found. Background sync disabled.')\n"
+    ]
 
 
     notebook_content = {
@@ -1324,7 +1362,17 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
             },
             {
                 "cell_type": "markdown",
-                "source": ["## 7. Nuclear Training Matrix\n"],
+                "source": ["## 7. Continuous Drive Synchronization\n"],
+                "metadata": {}
+            },
+            {
+                "cell_type": "code",
+                "source": continuous_sync_source,
+                "metadata": {}, "outputs": [], "execution_count": None
+            },
+            {
+                "cell_type": "markdown",
+                "source": ["## 8. Nuclear Training Matrix\n"],
                 "metadata": {}
             },
             {
