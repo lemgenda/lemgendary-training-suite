@@ -167,13 +167,27 @@ class CloudSyncManager:
             for handle in handles_to_try:
                 print(f" [KAGGLER] Syncing SOTA Manifold to Kaggle: {handle}...")
                 upload_script = f"""
-import kagglehub, os, sys
+import kagglehub, os, sys, shutil
 try:
+    # 2026 Resilience: Targeted Staging Upload
+    # Exclude massive checkpoints folder to prevent API timeouts and RAM exhaustion
+    staging_dir = '/kaggle/working/.kaggle_upload_stage'
+    if os.path.exists(staging_dir): shutil.rmtree(staging_dir)
+    os.makedirs(staging_dir)
+    
+    for item in os.listdir('{safe_model_dir}'):
+        if item.lower() != 'checkpoints':
+            src = os.path.join('{safe_model_dir}', item)
+            dst = os.path.join(staging_dir, item)
+            if os.path.isdir(src): shutil.copytree(src, dst)
+            else: shutil.copy2(src, dst)
+
     kagglehub.model_upload(
         handle='{handle}',
-        local_model_dir='{safe_model_dir}',
+        local_model_dir=staging_dir,
         version_notes='SOTA Update: {self.model_name} | Epoch {self.epoch}'
     )
+    shutil.rmtree(staging_dir, ignore_errors=True)
     sys.exit(0)
 except Exception as e:
     print(f"Upload Error: {{e}}", file=sys.stderr)
@@ -183,6 +197,9 @@ except Exception as e:
                 # 2026 Resilience: Redirect KaggleHub's aggressive delta-caching to persistent disk
                 # to prevent catastrophic System RAM OOM crashes caused by overlayfs limits on /root/.cache
                 env['KAGGLEHUB_CACHE'] = '/kaggle/working/.cache/kagglehub'
+                # Redirect TMPDIR to persistent disk to prevent tmpfs (System RAM) exhaustion during tarball creation
+                env['TMPDIR'] = '/kaggle/working/.tmp'
+                os.makedirs('/kaggle/working/.tmp', exist_ok=True)
                 
                 res = subprocess.run(
                     [sys.executable, "-c", upload_script],
