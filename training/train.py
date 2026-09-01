@@ -1914,6 +1914,15 @@ def main():
     if sota_targets:
         # Prune obsolete metrics from the legacy vaults so they stop tracking
         metric_vaults = {k: v for k, v in metric_vaults.items() if k in sota_targets}
+        
+        # Self-clean legacy vault files from disk (fixes Kaggle mounting old bloated datasets)
+        import glob
+        for f in glob.glob(os.path.join(config.get("checkpoint_dir", ""), f"{args.model}_vault_*.pth")):
+            m_key = os.path.basename(f).split('_vault_')[-1].replace('.pth', '')
+            if m_key not in sota_targets:
+                print(f" [CLEANUP] Deleting obsolete legacy vault checkpoint: {os.path.basename(f)}")
+                try: os.remove(f)
+                except: pass
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
 
     # 2026 Telemetry Engine Integration
