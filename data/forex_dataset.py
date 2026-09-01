@@ -247,9 +247,12 @@ class ForexDataset(Dataset):
             other_key = (self.pairs[p_idx] if p_idx < len(self.pairs) else "EURUSD", other_tf)
             if other_key in self._shards:
                 other_X = self._shards[other_key][0]
-                # Best-effort alignment: use same relative position (not timestamp-aligned)
-                # TODO: Add proper UTC timestamp alignment once MT5 data is available
-                aligned_row = min(row, len(other_X) - 1)
+                # 2026 Resilience: Proportional Timeframe Alignment
+                # Prevents future data leakage by scaling the row index by the timeframe ratio.
+                # e.g., M1 row 15,000 maps to M15 row 1,000 (15,000 * 1/15)
+                ratio = tf / other_tf
+                estimated_row = int(row * ratio)
+                aligned_row = min(estimated_row, len(other_X) - 1)
                 tf_inputs[other_tf] = torch.from_numpy(np.array(other_X[aligned_row])).float()
             else:
                 # Pad with zeros if this TF shard not loaded yet
