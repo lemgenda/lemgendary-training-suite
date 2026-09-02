@@ -2122,6 +2122,7 @@ def main():
                 unit="batch",
                 dynamic_ncols=True,
                 leave=True,
+                file=ForceTTY(sys.stderr),
                 mininterval=2.0
             )
             # Sync intra-epoch save threshold to resume point
@@ -3003,7 +3004,7 @@ def main():
             if val_interval_pct > 0:
                 last_val_pct = round(math.floor(last_val_pct / val_interval_pct) * val_interval_pct, 2)
 
-            val_pbar = tqdm(total=shard_limit, initial=val_resume_iteration, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=True, file=sys.stderr, dynamic_ncols=True, mininterval=2.0)
+            val_pbar = tqdm(total=shard_limit, initial=val_resume_iteration, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=True, file=ForceTTY(sys.stderr), dynamic_ncols=True, mininterval=2.0)
             val_session_batches = 0
             for v_idx, batch in val_iterator:
                 # --- 2026: Global Index Alignment ---
