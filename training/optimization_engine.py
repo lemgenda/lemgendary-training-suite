@@ -99,7 +99,7 @@ class SmartTrainingGovernor:
             print(f" [GUARD] [GOVERNOR] Aligning start resolution {self.current_res}px -> lowest rung {self.res_ladder[0]}px.")
             self.current_res = self.res_ladder[0]
 
-        if self.current_res not in self.res_ladder:
+        if self.current_res is not None and self.current_res not in self.res_ladder:
             self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
         self.min_temp = float(self.stab.get("min_temp", 0.5 if self.task_type == "quality" else (0.01 if self.task_type == "parameter_prediction" else 0.1)))
         self.current_temp = self.stab.get("softmax_temp", self.min_temp)
