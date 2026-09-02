@@ -961,8 +961,6 @@ def main():
         num_workers = min(cpu_count, 4)
         try: torch.set_num_threads(max(1, cpu_count))
         except: pass
-    elif getattr(train_ds, "task_type", "") == "forex":
-        num_workers = 0
     elif sys.platform == "win32":
         # Windows multiprocessing guard: protect against PageFile Error 1455
         try:
@@ -1244,8 +1242,10 @@ def main():
         if os.path.exists(os.path.join(hub_root, ".git")):
             print(f"[SYNC] [HUB SYNC] Synchronizing Hub repo for stateless resume...")
             subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=hub_root, capture_output=True)
-            # Pull latest to ensure we have the absolute SOTA and Latest state
-            subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, capture_output=True)
+            # Pull latest to ensure we have the absolute SOTA and Latest state without smudging EVERYTHING
+            env = os.environ.copy()
+            env["GIT_LFS_SKIP_SMUDGE"] = "1"
+            subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, env=env, capture_output=True)
             # 2026 Resilience: Ensure binary weights are smudged surgically
             subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
             print(f"[PACKAGE] [LFS] Syncing surgical manifold for {args.model}...")
@@ -1264,7 +1264,9 @@ def main():
                     except: pass
 
                 os.makedirs(os.path.dirname(hub_root), exist_ok=True)
-                res = subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", authenticated_url, hub_root], capture_output=True, text=True)
+                env = os.environ.copy()
+                env["GIT_LFS_SKIP_SMUDGE"] = "1"
+                res = subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", authenticated_url, hub_root], env=env, capture_output=True, text=True)
                 if res.returncode == 0:
                     print('[SUCCESS] [HUB SYNC] Hub structure initialized (Stateless).')
                     subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)

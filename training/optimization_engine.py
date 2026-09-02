@@ -95,7 +95,7 @@ class SmartTrainingGovernor:
                 self.current_res = max_safe_res
 
         # 2026: Ensure training starts at the lowest resolution in the ladder for a fresh run
-        if self.res_ladder and self.current_res != self.res_ladder[0]:
+        if self.res_ladder and self.current_res != self.res_ladder[0] and self.task_type != "forex":
             print(f" [GUARD] [GOVERNOR] Aligning start resolution {self.current_res}px -> lowest rung {self.res_ladder[0]}px.")
             self.current_res = self.res_ladder[0]
 
