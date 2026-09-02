@@ -2065,7 +2065,13 @@ def main():
                     train_ds.sync_mode.value = True
                 else:
                     train_ds.sync_mode = True  # type: ignore
-                with tqdm(total=current_iter, desc=" [RESILIENCY] Fast-forwarding", unit="batch", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True, mininterval=2.0) as skip_pbar:
+                class ForceTTY:
+                    def __init__(self, stream): self.stream = stream
+                    def write(self, data): self.stream.write(data); self.stream.flush()
+                    def flush(self): self.stream.flush()
+                    def isatty(self): return True
+                    def __getattr__(self, name): return getattr(self.stream, name)
+                with tqdm(total=current_iter, desc=" [RESILIENCY] Fast-forwarding", unit="batch", leave=False, colour="cyan", file=ForceTTY(sys.stderr), dynamic_ncols=True, mininterval=2.0) as skip_pbar:
                     for i, _ in iter_obj:
                         skip_pbar.update(1)
                         if i >= current_iter - 1:
@@ -2969,7 +2975,13 @@ def main():
                     val_ds.sync_mode.value = True
                 else:
                     val_ds.sync_mode = True  # type: ignore
-                with tqdm(total=val_resume_iteration, desc=" [RESILIENCY] Fast-forwarding Val", unit="it", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True, mininterval=2.0) as skip_val_pbar:
+                class ForceTTY:
+                    def __init__(self, stream): self.stream = stream
+                    def write(self, data): self.stream.write(data); self.stream.flush()
+                    def flush(self): self.stream.flush()
+                    def isatty(self): return True
+                    def __getattr__(self, name): return getattr(self.stream, name)
+                with tqdm(total=val_resume_iteration, desc=" [RESILIENCY] Fast-forwarding Val", unit="it", leave=False, colour="cyan", file=ForceTTY(sys.stderr), dynamic_ncols=True, mininterval=2.0) as skip_val_pbar:
                     for v_idx, _ in val_iterator:
                         if skip_val_pbar.n < skip_val_pbar.total:
                             skip_val_pbar.update(1)
