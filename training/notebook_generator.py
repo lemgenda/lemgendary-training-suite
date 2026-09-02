@@ -420,6 +420,11 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "if found_ckpts:\n",
         "    print(f'   -> [FOUND] {len(found_ckpts)} binaries in Kaggle Manifold.')\n",
         "    for src in found_ckpts:\n",
+        "        if f'/{model_key}/' not in src.replace('\\\\', '/') and f'{model_key}' not in os.path.basename(src):\n",
+        "            continue\n",
+        "        if not os.path.exists(src):\n",
+        "            print(f'   -> [WARNING] Source missing (Ghost File/Broken Link): {src}')\n",
+        "            continue\n",
         "        fname = os.path.basename(src)\n",
         "        target_f = fname\n",
         "        if 'latest' in fname.lower(): target_f = f'{model_key}_latest.pth'\n",
@@ -563,7 +568,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         return
 
     # 2. Dataset Manifold Synchronization
-    if unified_models_registry:
+    if unified_models_registry and model_key != "forex_predictor":
         m_info = unified_models_registry.get(model_key, {})
         ds_raw = m_info.get("datasets", []) or m_info.get("dataset", [])
         if isinstance(ds_raw, str):
@@ -1204,6 +1209,11 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "if found_ckpts:\n",
         "    print(f'   -> [FOUND] {len(found_ckpts)} binaries in Kaggle Manifold.')\n",
         "    for src in found_ckpts:\n",
+        "        if f'/{model_key}/' not in src.replace('\\\\', '/') and f'{model_key}' not in os.path.basename(src):\n",
+        "            continue\n",
+        "        if not os.path.exists(src):\n",
+        "            print(f'   -> [WARNING] Source missing (Ghost File/Broken Link): {src}')\n",
+        "            continue\n",
         "        fname = os.path.basename(src)\n",
         "        target_f = fname\n",
         "        if 'latest' in fname.lower(): target_f = f'{model_key}_latest.pth'\n",
@@ -1405,7 +1415,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         return
 
     # 2. Dataset Manifold Synchronization
-    if unified_models_registry:
+    if unified_models_registry and model_key != "forex_predictor":
         m_info = unified_models_registry.get(model_key, {})
         ds_raw = m_info.get("datasets", []) or m_info.get("dataset", [])
         if isinstance(ds_raw, str):
