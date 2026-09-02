@@ -586,7 +586,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         except: pass
     elif args.env == 'kaggle':
         # On Kaggle (Dual T4 instances have 4 vCPUs), use up to 4 workers to prevent GPU starvation
-        num_workers = min(cpu_count, 4)
+        num_workers = min(cpu_count, 2)
         try: torch.set_num_threads(max(1, cpu_count))
         except: pass
     elif args.env == 'colab':
@@ -824,7 +824,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     # --- 2026: Mission Data Infrastructure (v6.0) ---
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, persistent_workers=(active_workers > 0), pin_memory=True if device.type=='cuda' else False)
 
-    val_num_workers = num_workers
+    val_num_workers = 0 if getattr(args, 'env', '') == 'kaggle' else min(num_workers, 2)
     if is_heavy_manifold:
         print(f" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
 
@@ -2545,7 +2545,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                     if is_critical:
                         val_batch_size = max(1, val_batch_size // 2)
-                        val_num_workers = num_workers
+                        val_num_workers = 0 if getattr(args, 'env', '') == 'kaggle' else min(num_workers, 2)
                         val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False,
                                               num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
 
@@ -3279,7 +3279,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 # v17.5: Enforce Shield during inter-epoch resolution jumps
                 _workers = num_workers
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
+                _vw = 0 if getattr(args, 'env', '') == 'kaggle' else min(_workers, 2)
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_vw, persistent_workers=(_vw > 0), pin_memory=True if device.type=='cuda' else False)
 
                 # 2026 Senior Hardening: VRAM De-fragmentation (Task 4.2)
                 if device.type == 'cuda':
@@ -3859,7 +3860,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                 _workers = num_workers
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
+                _vw = 0 if getattr(args, 'env', '') == 'kaggle' else min(_workers, 2)
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_vw, persistent_workers=(_vw > 0), pin_memory=True if device.type=='cuda' else False)
                 if device.type == 'cuda': torch.cuda.empty_cache()
             elif not is_max_res:
                 # 2026: The message is now handled INSIDE governor.audit_epoch
@@ -3895,7 +3897,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                     _workers = num_workers
                     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
-                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
+                    _vw = 0 if getattr(args, 'env', '') == 'kaggle' else min(_workers, 2)
+                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_vw, persistent_workers=(_vw > 0), pin_memory=True if device.type=='cuda' else False)
                     if device.type == 'cuda': torch.cuda.empty_cache()
             else:
                 print(f"\n[MISSION COMPLETE] {msg} mathematically breached at Final Resolution ({governor.current_res}px) with 100% Data! Engaging 1-Epoch Reinforcement SOTA Countdown...")
