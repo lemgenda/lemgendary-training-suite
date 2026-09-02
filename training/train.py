@@ -697,6 +697,7 @@ def main():
     parser.add_argument("--phase", type=int, default=1, help="Training Phase (e.g., Pre-training=1, Fine-tuning=2)")
     parser.add_argument("--fold", type=int, default=1, help="Walk-forward fold index (1..6)")
     parser.add_argument("--pairs", type=str, nargs='+', default=None, help="List of active pairs for Forex dataset (e.g. EURUSD GBPUSD)")
+    parser.add_argument("--num_workers", type=int, default=None, help="Force a specific number of workers")
     args = parser.parse_args()
 
     print(" [TRACE] Loading GITHUB PAT...", flush=True)
@@ -956,7 +957,12 @@ def main():
 
     # 2026 Resilience: Dynamic Worker & Thread Topology Management
     cpu_count = os.cpu_count() or 2
-    if args.env == 'kaggle':
+    
+    if getattr(args, 'num_workers', None) is not None:
+        num_workers = args.num_workers
+        try: torch.set_num_threads(max(1, cpu_count))
+        except: pass
+    elif args.env == 'kaggle':
         # On Kaggle (Dual T4 instances have 4 vCPUs), use up to 4 workers to prevent GPU starvation
         num_workers = min(cpu_count, 4)
         try: torch.set_num_threads(max(1, cpu_count))
@@ -3845,6 +3851,8 @@ def main():
                 if target_ckpt:
                     try:
                         ckpt = torch.load(target_ckpt, map_location=device, weights_only=False)
+                        if not isinstance(ckpt, dict):
+                            raise ValueError("Loaded checkpoint is not a dictionary")
                         load_state_dict_robust(model, ckpt['model_state'])
                         rollback_success = True
                     except Exception as e:
