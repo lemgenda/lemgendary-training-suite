@@ -2065,7 +2065,7 @@ def main():
                     train_ds.sync_mode.value = True
                 else:
                     train_ds.sync_mode = True  # type: ignore
-                with tqdm(total=current_iter, desc=" [RESILIENCY] Fast-forwarding", unit="batch", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_pbar:
+                with tqdm(total=current_iter, desc=" [RESILIENCY] Fast-forwarding", unit="batch", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True, mininterval=2.0) as skip_pbar:
                     for i, _ in iter_obj:
                         skip_pbar.update(1)
                         if i >= current_iter - 1:
@@ -2969,7 +2969,7 @@ def main():
                     val_ds.sync_mode.value = True
                 else:
                     val_ds.sync_mode = True  # type: ignore
-                with tqdm(total=val_resume_iteration, desc=" [RESILIENCY] Fast-forwarding Val", unit="it", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True) as skip_val_pbar:
+                with tqdm(total=val_resume_iteration, desc=" [RESILIENCY] Fast-forwarding Val", unit="it", leave=False, colour="cyan", file=sys.stderr, dynamic_ncols=True, mininterval=2.0) as skip_val_pbar:
                     for v_idx, _ in val_iterator:
                         if skip_val_pbar.n < skip_val_pbar.total:
                             skip_val_pbar.update(1)
