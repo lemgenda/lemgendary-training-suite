@@ -151,7 +151,8 @@ class ForexDataset(Dataset):
 
     def _build_index(self):
         """Build flat sample index over all pairs × active_timeframes × rows."""
-        self._shards = {}     # (pair, tf) → (X, y_dir, y_mag)
+        self._shard_paths = {} # (pair, tf) -> shard_dir
+        self._shards = {}      # Populated lazily in __getitem__ by each worker
         self._index  = []     # [(pair_idx, tf, key, row_idx), ...]
 
         for pair in self.pairs:
@@ -163,7 +164,7 @@ class ForexDataset(Dataset):
                     break
             
             if pair_root is None:
-                print(f"\\n[ERROR] Pair {pair} requested but not found in any attached dataset roots!")
+                print(f"\n[ERROR] Pair {pair} requested but not found in any attached dataset roots!")
                 print(f"Attached roots: {self.shard_roots}")
                 import sys; sys.exit(1)
 
@@ -181,8 +182,11 @@ class ForexDataset(Dataset):
                     # Shard not yet downloaded — skip silently during build
                     continue
                 key = (pair, tf)
-                self._shards[key] = (X, y_dir, y_mag)
-                for row in range(len(X)):
+                self._shard_paths[key] = shard_dir
+                length = len(X)
+                # Delete references so the memmap file handles are released before pickling
+                del X, y_dir, y_mag
+                for row in range(length):
                     self._index.append((p_idx, tf, key, row))
 
         self.all_samples = list(self._index)
@@ -234,6 +238,11 @@ class ForexDataset(Dataset):
             )
 
         p_idx, tf, key, row = self._index[index]
+        if getattr(self, '_shards', None) is None:
+            self._shards = {}
+            
+        if key not in self._shards:
+            self._shards[key] = load_shard(self._shard_paths[key], mmap_mode="r")
         X, y_dir, y_mag = self._shards[key]
 
         # Primary timeframe features
@@ -245,7 +254,9 @@ class ForexDataset(Dataset):
             if other_tf == tf:
                 continue
             other_key = (self.pairs[p_idx] if p_idx < len(self.pairs) else "EURUSD", other_tf)
-            if other_key in self._shards:
+            if other_key in self._shard_paths:
+                if other_key not in self._shards:
+                    self._shards[other_key] = load_shard(self._shard_paths[other_key], mmap_mode="r")
                 other_X = self._shards[other_key][0]
                 # 2026 Resilience: Proportional Timeframe Alignment
                 # Prevents future data leakage by scaling the row index by the timeframe ratio.

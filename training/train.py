@@ -37,7 +37,7 @@ try:
 except ImportError:
     pass
 if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(line_buffering=True, write_through=True)
+    sys.stdout.reconfigure(line_buffering=True, write_through=True)  # pyright: ignore[reportAttributeAccessIssue]
 
 # 2026 Resilience: Force TTY for tqdm under Colab/Kaggle subprocess execution
 class ForceTTY:
@@ -379,7 +379,7 @@ def compute_ssim_gpu(img1, img2, window_size=11, sigma=1.5, data_range=1.0):
     return ssim_map.mean(dim=[-3, -2, -1]).sum().item()
 
 
-def audit_hardware_vram(model_key, model_info, config, device, model, res_override=None, mode='train', sample_fraction=1.0):
+def audit_hardware_vram(model_key, model_info, config, device, model, res_override=None, mode='train', sample_fraction=1.0, fold=None, pairs=None):
     """
     2026 Memory-Sentinel: Atomic Hardware Probe (v17.0 Nuclear).
     Performs a real-world VRAM test at the specified resolution to find the
@@ -393,7 +393,9 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             final_batch = int(configured_batch) if configured_batch is not None else 64
         gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'
         vram_gb = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) if torch.cuda.is_available() else 0.0
-        print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ Sequence | Batch: {final_batch} | Dataset Fraction: {sample_fraction*100:.1f}%")
+        symbols_str = " | ".join(pairs) if pairs else "ALL"
+        fold_str = fold if fold else "MAIN"
+        print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | Phase: {mode.capitalize()} | Batch: {final_batch} | Fold: {fold_str} | Symbols: {symbols_str}")
         return final_batch
 
     # 2026 Resilience: Check for restoration models early to adjust VRAM margins and capabilities globally.
@@ -675,7 +677,7 @@ def load_scheduler_state_stretched(scheduler, state_dict, current_total_steps, e
             pass
 
 
-def main():
+def main(): # pyright: ignore[reportGeneralTypeIssues]
     print("[BOOT] LemGendary Training Suite initiating...", flush=True)
     print(" [TRACE] Entering main()...", flush=True)
     # 2026 Resilience: Force UTF-8 encoding for Windows terminals to support emojis
@@ -889,7 +891,7 @@ def main():
     # --- 2026 Resilience: Pre-Emptive Memory-Sentinel ---
     # We use the Governor's current resolution (which may have been restored from checkpoint)
     # to ensure the initial batch audit is physically accurate for the current manifold.
-    hardware_limit = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=sample_fraction)
+    hardware_limit = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=sample_fraction, fold=args.fold, pairs=args.pairs)
     if args.batch_size:
         batch_size = args.batch_size
     elif config_batch and str(config_batch).lower() != "auto":
@@ -898,7 +900,7 @@ def main():
             print(f" [GUARD] Hardware limit ({hardware_limit}) overrides config request ({config_batch}).")
     else:
         batch_size = hardware_limit
-    val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val')
+    val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val', fold=args.fold, pairs=args.pairs)
 
     # --- 2026 Resilience: Universal Accumulation Stride (v12.0) ---
     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
@@ -1200,13 +1202,13 @@ def main():
     active_workers = num_workers
 
     # --- 2026: Mission Data Infrastructure (v6.0) ---
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, pin_memory=True if device.type=='cuda' else False)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, persistent_workers=(active_workers > 0), pin_memory=True if device.type=='cuda' else False)
 
     val_num_workers = num_workers
     if is_heavy_manifold:
         print(f" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
 
-    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
+    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, persistent_workers=(val_num_workers > 0), pin_memory=True if device.type=='cuda' else False)
     # --- 2026 Senior Hardening: Head-Differential & Surgical Weight Decay (Task 4.3) ---
     # Separate parameters into Backbone vs Output Head and Decayed vs Non-Decayed groups.
     head_keywords = ["head", "fc", "classifier", "outro", "predict", "linear"]
@@ -1535,7 +1537,7 @@ def main():
 
                     old_batch_size = batch_size
                     if (config_batch == "auto" or config_batch is None) and not args.batch_size:
-                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='train', sample_fraction=g_start_state.get('sample_fraction', 1.0))
+                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='train', sample_fraction=g_start_state.get('sample_fraction', 1.0), fold=args.fold, pairs=args.pairs)
 
                     # 2026 Resilience: Recalculate accumulation to maintain target effective batch.
                     # The governor state stores the accumulation from the PREVIOUS session's batch size.
@@ -1602,7 +1604,10 @@ def main():
                         print(f" - Scaled Progress: {pct*100:.1f}% -> Iteration {resume_iteration}/{new_loader_len}")
 
                     # 2026: val_ds is NOT updated here it must remain anchored at 384px!
-                    print(f" [RESILIENCY] Smart Governor state RESTORED. Manifold Re-Audited: {res_size}px | Batch: {batch_size} | Fraction: {g_start_state['sample_fraction']*100:.1f}%")
+                    if model_info.get("dataset_type") == "forex" or "forex" in args.model.lower():
+                        print(f" [RESILIENCY] Smart Governor state RESTORED. Walk-Forward Re-Audited | Batch: {batch_size}")
+                    else:
+                        print(f" [RESILIENCY] Smart Governor state RESTORED. Manifold Re-Audited: {res_size}px | Batch: {batch_size} | Fraction: {g_start_state['sample_fraction']*100:.1f}%")
                 if ckpt.get('sota_achieved', False):
                     sota_baseline_achieved = True
             else:
@@ -1662,7 +1667,7 @@ def main():
         probe_preds, probe_tgtes = [], []
         # 2026: Synchronized manfold audit. weights 10..1 match the user's 'inverted' dataset files.
         weights = torch.arange(1, 11).float().to(device)
-        val_loader_probe = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+        val_loader_probe = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=(num_workers > 0))
         with torch.no_grad():
             for j, (p_img, p_tgt, _) in enumerate(val_loader_probe):
                 if j >= 10: break # Must evaluate at least 10 batches for statistical significance
@@ -2016,11 +2021,11 @@ def main():
 
         last_val_anchor = val_anchor_size
 
-        val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val', sample_fraction=val_ds.sample_fraction)
+        val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val', sample_fraction=val_ds.sample_fraction, fold=args.fold, pairs=args.pairs)
 
         # Sync dataset strategy and re-init loader
         val_ds.update_strategy(size=val_anchor_size)
-        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
+        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, persistent_workers=(val_num_workers > 0), pin_memory=True if device.type=='cuda' else False)
 
         # 2026 Resilience: Seed train_loss from checkpoint if resuming mid-epoch or after training
         train_loss = 0
@@ -2072,7 +2077,7 @@ def main():
             # v18.5: Hardened Shield check to prevent transition if in recovery or on 4GB hardware
             if train_loader.num_workers == 0 and current_iter == 0 and num_workers > 0 and not (in_recovery_mode and vram_gb < 6.0):
                 print(f" [MISSION CONTROL] Transitioning to Parallel Data Pipeline ({num_workers} workers)...")
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0), pin_memory=True if device.type=='cuda' else False)
 
             iter_obj = enumerate(train_loader)
             if current_iter > 0:
@@ -2094,14 +2099,16 @@ def main():
                 # v17.2: Also skip if we are in OOM Recovery Mode on low-end hardware
                 if num_workers > 0 and train_loader.num_workers == 0 and not (in_recovery_mode and vram_gb < 6.0):
                     print(f" [MISSION CONTROL] Fast-forward complete. Engaging Parallel Pipeline ({num_workers} workers)...")
-                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0), pin_memory=True if device.type=='cuda' else False)
                     iter_obj = enumerate(train_loader)
                     # We must align the new loader's iterator (deterministic due to seeds)
                     for i, _ in iter_obj:
                         if i >= current_iter - 1: break
                 else:
-                    # In serial mode, we can just continue with the existing iterator
-                    print(f" [MISSION CONTROL] Fast-forward complete. Continuing in Serial Mode.")
+                    if train_loader.num_workers > 0:
+                        print(f" [MISSION CONTROL] Fast-forward complete. Continuing in Parallel Mode ({train_loader.num_workers} workers).")
+                    else:
+                        print(f" [MISSION CONTROL] Fast-forward complete. Continuing in Serial Mode.")
 
                 if hasattr(train_ds, 'sync_mode') and hasattr(train_ds.sync_mode, 'value'):
                     train_ds.sync_mode.value = False
@@ -2939,16 +2946,16 @@ def main():
                 if getattr(val_ds, "size", None) != last_val_audit_size or getattr(val_ds, "sample_fraction", 1.0) != last_val_audit_fraction:
                     # 2026 Resilience: Must use val_ds.size to prevent paging if validation is anchored higher than training
                     temp_info = {**model_info, "input_size": val_ds.size}
-                    val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val', sample_fraction=val_ds.sample_fraction)
+                    val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val', sample_fraction=val_ds.sample_fraction, fold=args.fold, pairs=args.pairs)
                     last_val_audit_size = val_ds.size
                     last_val_audit_fraction = val_ds.sample_fraction
                     if pbar: pbar.write(f" [SIGNAL] [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size} @ {val_anchor_size}px")
                     # Re-initialize DataLoader if batch size changed
-                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
+                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, persistent_workers=(val_num_workers > 0), pin_memory=True if device.type=='cuda' else False)
 
             if getattr(train_ds, "task_type", "") == "forex":
                 val_batch_size = batch_size
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=num_workers)
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=num_workers, persistent_workers=(num_workers > 0))
 
             # 2026 Validation Sharding & Resolution Sync
             # Auto-expand validation set to 100% during Refinement Phase or when training fraction >= threshold (at max res)
@@ -3207,7 +3214,7 @@ def main():
 
                 # Progress commitments and state cleanup moved outside loop for manifold stability
 
-                elif train_ds.task_type == "parameter_prediction":
+                if train_ds.task_type == "parameter_prediction":
                     # 2026: Streaming MAE for parameter regression
                     p_cpu = preds.detach().cpu()
                     t_cpu = targets.detach().cpu()
@@ -3215,10 +3222,6 @@ def main():
                     for p_idx in range(min(3, abs_err.shape[-1])):
                         param_mae_sums[p_idx] += abs_err[:, p_idx].sum().item()  # type: ignore
                     param_mae_counts += p_cpu.shape[0]
-
-                elif train_ds.task_type == "classification":
-                    all_preds.append(preds.detach().cpu())
-                    all_targets.append(targets.detach().cpu())
 
                 # --- 2026 Resilience: Iteration VRAM Purge ---
                 # 2026: Removed per-batch empty_cache() and gc.collect(). They caused massive OS memory 
@@ -3575,17 +3578,24 @@ def main():
             if hasattr(criterion, 'stab') and isinstance(criterion.stab, dict):
                 if 'rank_weight' in new_params: criterion.stab['rank_weight'] = new_params['rank_weight']
                 if 'rank_margin' in new_params: criterion.stab['rank_margin'] = new_params['rank_margin']
-                if 'softmax_temp' in new_params or t_changed: criterion.stab['softmax_temp'] = new_params['softmax_temp']
-                if 'soft_spearman_weight' in new_params: criterion.stab['soft_spearman_weight'] = new_params['soft_spearman_weight']
-                if 'lpips_weight' in new_params: criterion.stab['lpips_weight'] = new_params['lpips_weight']
-                if 'mag_weight' in new_params: criterion.stab['mag_weight'] = new_params['mag_weight']
-                if 'dir_weight' in new_params: criterion.stab['dir_weight'] = new_params['dir_weight']
+                metric_opts_applied = []
+                if 'softmax_temp' in new_params or t_changed:
+                    criterion.stab['softmax_temp'] = new_params['softmax_temp']
                 
-                # --- 2026 Omni-Governor: Dynamic Loss Knobs Sync ---
-                if 'emd_weight' in new_params: criterion.stab['emd_weight'] = new_params['emd_weight']
-                if 'ssim_weight' in new_params: criterion.stab['ssim_weight'] = new_params['ssim_weight']
-                if 'huber_delta' in new_params: criterion.stab['huber_delta'] = new_params['huber_delta']
-                if 'conf_gate_str' in new_params: criterion.stab['conf_gate_strength'] = new_params['conf_gate_str']
+                for k, stab_k in [('soft_spearman_weight', 'soft_spearman_weight'), 
+                                  ('lpips_weight', 'lpips_weight'), 
+                                  ('mag_weight', 'mag_weight'), 
+                                  ('dir_weight', 'dir_weight'), 
+                                  ('emd_weight', 'emd_weight'), 
+                                  ('ssim_weight', 'ssim_weight'), 
+                                  ('huber_delta', 'huber_delta'), 
+                                  ('conf_gate_str', 'conf_gate_strength')]:
+                    if k in new_params:
+                        criterion.stab[stab_k] = new_params[k]
+                        metric_opts_applied.append(f"{k}={new_params[k]:.4f}")
+                
+                if metric_opts_applied:
+                    print(f" [GOVERNOR] [OPTIMIZATION] Applying metric-specific optimizations: {', '.join(metric_opts_applied)}")
 
             # --- 2026: MS-SWA Merge Trigger Logic ---
             if getattr(governor, 'trigger_mini_swa', False):
@@ -3617,11 +3627,11 @@ def main():
             # Recalculate batch sizes at the epoch boundary to maximize efficiency.
             if not args.batch_size:
                 if r_changed or config_batch == "auto" or config_batch is None:
-                    batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=new_params['sample_fraction'])
+                    batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=new_params['sample_fraction'], fold=args.fold, pairs=args.pairs)
 
                     # Validation resolution might be anchored
                     v_res = model_info.get("val_resolution", governor.current_res)
-                    val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val', sample_fraction=val_ds.sample_fraction)
+                    val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val', sample_fraction=val_ds.sample_fraction, fold=args.fold, pairs=args.pairs)
 
                     # Recalculate accumulation to maintain Effective Batch
                     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
@@ -3648,8 +3658,8 @@ def main():
 
                 # v17.5: Enforce Shield during inter-epoch resolution jumps
                 _workers = num_workers
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
 
                 # 2026 Senior Hardening: VRAM De-fragmentation (Task 4.2)
                 if device.type == 'cuda':
@@ -3847,29 +3857,30 @@ def main():
                 elif os.path.exists(local_best_path) and os.path.getsize(local_best_path) > 1024 * 1024:
                     target_ckpt = local_best_path
                     
+                loaded_ckpt = None
                 rollback_success = False
                 if target_ckpt:
                     try:
-                        ckpt = torch.load(target_ckpt, map_location=device, weights_only=False)
-                        if not isinstance(ckpt, dict):
+                        loaded_ckpt = torch.load(target_ckpt, map_location=device, weights_only=False)
+                        if not isinstance(loaded_ckpt, dict):
                             raise ValueError("Loaded checkpoint is not a dictionary")
-                        load_state_dict_robust(model, ckpt['model_state'])
+                        load_state_dict_robust(model, loaded_ckpt['model_state'])
                         rollback_success = True
                     except Exception as e:
                         print(f" [WARNING] [REGRESSION GUARD] Failed to load checkpoint {target_ckpt} (Corrupted/LFS Pointer): {e}")
                 else:
                     print(f" [WARNING] [REGRESSION GUARD] No valid SOTA weights available for rollback! Continuing with current weights.")
 
-                if rollback_success:
+                if rollback_success and loaded_ckpt is not None:
 
                     for param in model.parameters():
                         param.data = param.data.contiguous()
                     for buf in model.buffers():
                         buf.data = buf.data.contiguous()
 
-                    if 'optimizer_state' in ckpt:
+                    if 'optimizer_state' in loaded_ckpt:
                         try:
-                            optimizer.load_state_dict(ckpt['optimizer_state'])
+                            optimizer.load_state_dict(loaded_ckpt['optimizer_state'])
                             for group in optimizer.param_groups:
                                 for p in group['params']:
                                     if p in optimizer.state:
@@ -3884,17 +3895,17 @@ def main():
                     # --- 2026: SOTA Governor Sync (Restoration -> Safety Pullback) ---
                     # We restore the state FIRST, then apply the Recoil safety on top of it.
                     # We pass preserve_curriculum=True to prevent resetting the resolution and dataset fraction.
-                    if 'governor_state' in ckpt:
-                        governor.load_state(ckpt['governor_state'], preserve_curriculum=True)
+                    if 'governor_state' in loaded_ckpt:
+                        governor.load_state(loaded_ckpt['governor_state'], preserve_curriculum=True)
 
                     # 2026: SOTA Scheduler Sync [DISABLED: Velocity Bomb Fix]
                     # We INTENTIONALLY skip rolling back the scheduler state chronologically.
                     # Reverting the scheduler to an older phase of the curve causes the Learning Rate
                     # to spike back up (Velocity Bomb), shattering the converged manifold.
                     # The LR cooling curve must reflect the *total epochs trained*, not the state of the weights.
-                    # if 'scheduler_state' in ckpt:
+                    # if 'scheduler_state' in loaded_ckpt:
                     #     try:
-                    #         load_scheduler_state_stretched(scheduler, ckpt['scheduler_state'], total_steps)
+                    #         load_scheduler_state_stretched(scheduler, loaded_ckpt['scheduler_state'], total_steps)
                     #         print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
                     #     except Exception as sched_err:
                     #         print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
@@ -3908,7 +3919,12 @@ def main():
                     val_res_sync = model_info.get("val_resolution", g_state['input_size'])
                     if "val_resolution" not in model_info:
                         val_ds.update_strategy(size=g_state['input_size'])
-                    print(f"[SYNC] [GOVERNOR SYNC] Retained Dataset Fraction at {g_state['sample_fraction']*100:.0f}% | Val sync to {val_res_sync}px | Temp Cooled to {g_state['softmax_temp']}")
+                    if getattr(train_ds, "task_type", "") == "forex" or "forex" in args.model.lower():
+                        symbols_str = " | ".join(args.pairs) if args.pairs else "ALL"
+                        fold_str = args.fold if args.fold else "MAIN"
+                        print(f"[SYNC] [GOVERNOR SYNC] Fold: {fold_str} | Symbols: {symbols_str} | Temp Cooled to {g_state['softmax_temp']}")
+                    else:
+                        print(f"[SYNC] [GOVERNOR SYNC] Retained Dataset Fraction at {g_state['sample_fraction']*100:.0f}% | Val sync to {val_res_sync}px | Temp Cooled to {g_state['softmax_temp']}")
 
                     # Force 50% LR cooling to 'seat' the model back into the stable manifold
                     # --- 2026: SOTA Velocity Shield (v3.1) ---
@@ -4195,24 +4211,27 @@ def main():
                 next_frac = min(1.0, governor.current_fraction + getattr(governor, 'fraction_increment', 0.2))
                 if next_frac >= 0.99: next_frac = 1.0 # Snap to 100%
 
-                print(f"\n -> [SOTA GUARD] SOTA targets met at {governor.current_res}px but on a data subset ({governor.current_fraction*100:.0f}%).")
-                print(f" -> [SOTA GUARD] Expanding dataset fraction to {next_frac*100:.0f}% to progressively verify SOTA without memorization.")
+                if getattr(train_ds, "task_type", "") == "forex" or "forex" in args.model.lower():
+                    print(f"\n -> [SOTA GUARD] Progressive SOTA verification triggered.")
+                else:
+                    print(f"\n -> [SOTA GUARD] SOTA targets met at {governor.current_res}px but on a data subset ({governor.current_fraction*100:.0f}%).")
+                    print(f" -> [SOTA GUARD] Expanding dataset fraction to {next_frac*100:.0f}% to progressively verify SOTA without memorization.")
 
                 # Expand data fraction in governor and dataset
                 governor.current_fraction = next_frac
 
                 if not args.batch_size:
-                    batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=next_frac)
+                    batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=next_frac, fold=args.fold, pairs=args.pairs)
                     v_res = model_info.get("val_resolution", governor.current_res)
-                    val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
+                    val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val', fold=args.fold, pairs=args.pairs)
                     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
                     accumulation_steps = max(1, target_eff // batch_size)
 
                 train_ds.update_strategy(fraction=next_frac)
 
                 _workers = num_workers
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
+                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
                 if device.type == 'cuda': torch.cuda.empty_cache()
             elif not is_max_res:
                 # 2026: The message is now handled INSIDE governor.audit_epoch
@@ -4232,9 +4251,9 @@ def main():
                 stress_changed = new_params.get('stress', 0.0) != getattr(train_ds, 'stress', 0.0)
                 if f_changed or r_changed or b_changed or stress_changed:
                     if not args.batch_size:
-                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=new_params.get('sample_fraction', 1.0))
+                        batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=new_params.get('sample_fraction', 1.0), fold=args.fold, pairs=args.pairs)
                         v_res = model_info.get("val_resolution", governor.current_res)
-                        val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val')
+                        val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val', fold=args.fold, pairs=args.pairs)
                         target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
                         accumulation_steps = max(1, target_eff // batch_size)
 
@@ -4247,8 +4266,8 @@ def main():
                         val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
 
                     _workers = num_workers
-                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
-                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=False, pin_memory=True if device.type=='cuda' else False)
+                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
+                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
                     if device.type == 'cuda': torch.cuda.empty_cache()
             else:
                 print(f"\n[MISSION COMPLETE] {msg} mathematically breached at Final Resolution ({governor.current_res}px) with 100% Data! Engaging 1-Epoch Reinforcement SOTA Countdown...")

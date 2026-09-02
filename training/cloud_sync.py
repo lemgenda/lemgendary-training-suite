@@ -14,6 +14,7 @@ try:
     import websockets.sync.client as ws_client
     HAS_WEBSOCKETS = True
 except ImportError:
+    ws_client = None
     HAS_WEBSOCKETS = False
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1042]
@@ -81,8 +82,8 @@ class CloudSyncManager:
             return
 
         try:
-            self.ws = ws_client.connect(uri)
-            self.ws.send(json.dumps({"type": "NODE_HEARTBEAT", "params": {"vram": "Dynamic Allocation"}}))
+            self.ws = ws_client.connect(uri)  # pyright: ignore[reportOptionalMemberAccess]
+            self.ws.send(json.dumps({"type": "NODE_HEARTBEAT", "params": {"vram": "Dynamic Allocation"}})) # pyright: ignore[reportOptionalMemberAccess]
             print(" [CLOUD LINK] Connected to LemGendary Edge Hub.")
         except Exception as e:
             print(f" [CLOUD LINK] Failed to connect to Edge Hub: {e}")
@@ -99,9 +100,9 @@ class CloudSyncManager:
         if getattr(self, 'ws', None):
             try:
                 # Push lightweight compressed gradients
-                self.ws.send(json.dumps({"type": "GRADIENT_PUSH", "payload": "compressed_tensor_placeholder"}))
+                self.ws.send(json.dumps({"type": "GRADIENT_PUSH", "payload": "compressed_tensor_placeholder"})) # pyright: ignore[reportOptionalMemberAccess]
                 # Block until Hub broadcasts the federated average (bypassing heavy WAN payloads)
-                response = self.ws.recv()
+                response = self.ws.recv() # pyright: ignore[reportOptionalMemberAccess]
                 data = json.loads(response)
                 if data.get("type") == "GRADIENT_AVERAGE_SYNC":
                     print(" [CLOUD LINK] Federated Gradient Average Sync Successful.")
@@ -176,9 +177,18 @@ try:
     os.makedirs(staging_dir)
     
     for item in os.listdir('{safe_model_dir}'):
-        if item.lower() != 'checkpoints':
-            src = os.path.join('{safe_model_dir}', item)
-            dst = os.path.join(staging_dir, item)
+        src = os.path.join('{safe_model_dir}', item)
+        dst = os.path.join(staging_dir, item)
+        
+        if item.lower() == 'checkpoints' and os.path.isdir(src):
+            # 2026 Resilience: Zero-Copy Checkpoint Staging
+            # We must upload checkpoints per user request, but shutil.copytree will cause Disk OOM.
+            # Solution: Hardlink the actual checkpoint files into the staging directory!
+            os.makedirs(dst, exist_ok=True)
+            for f in os.listdir(src):
+                try: os.link(os.path.join(src, f), os.path.join(dst, f))
+                except: shutil.copy2(os.path.join(src, f), os.path.join(dst, f)) # Fallback if cross-device
+        else:
             if os.path.isdir(src): shutil.copytree(src, dst)
             else: shutil.copy2(src, dst)
 
