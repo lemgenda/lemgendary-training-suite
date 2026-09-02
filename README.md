@@ -65,7 +65,7 @@ The master orchestration console for system bootstrapping and cloud sync.
 - `unified_models_v2.yaml` — **The Master Registry**: High-Fidelity floor, refined SOTA targets (FID/PLCC), and standardized learning rates.
 - `training/optimization_engine.py` — **The Governor**: Sawtooth scaling, Turbulence Dampening, and NPP Recoil.
 - `training/train.py` — **The Master Pipeline**: Features **Active Memory-Sentinel** and **Atomic SOTA Export**.
-- `LemGendaryModels/` — **The Artifact Vault**: Decoupled repository for SOTA weights, metrics, and ONNX binaries.
+- `LemGendaryModels/` — **The Central Hub & Artifact Vault**: Decoupled repository acting as the exclusive destination for all model weights (`_latest`, `_best`, `_progress`, and `_vault_`), telemetric metrics, and ONNX binaries, fully obsoleting local temporary checkpoint directories.
 
 ---
 
