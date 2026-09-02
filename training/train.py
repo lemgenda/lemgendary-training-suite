@@ -961,6 +961,11 @@ def main():
         num_workers = min(cpu_count, 4)
         try: torch.set_num_threads(max(1, cpu_count))
         except: pass
+    elif args.env == 'colab':
+        # Colab (T4) reports 2 vCPUs, but we want 4 workers to optimize I/O
+        num_workers = 4
+        try: torch.set_num_threads(max(1, cpu_count))
+        except: pass
     elif sys.platform == "win32":
         # Windows multiprocessing guard: protect against PageFile Error 1455
         try:
