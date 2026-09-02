@@ -3827,10 +3827,27 @@ def main():
                 print(f"[LAUNCH] [REGRESSION GUARD] SOTA Rollback triggered! Hard-Resetting to SOTA best weights...")
                 governor.register_rollback()
                 best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
-                if os.path.exists(best_ckpt_path):
-                    # Notify Governor to perform a Tactical Retreat (Recoil)
-                    ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
-                    load_state_dict_robust(model, ckpt['model_state'])
+                local_best_path = os.path.join(checkpoint_dir, f"{args.model}_best.pth")
+                target_ckpt = None
+                
+                # Check for valid checkpoints (LFS pointers are tiny text files, usually < 10KB. Valid weights are > 1MB)
+                if os.path.exists(best_ckpt_path) and os.path.getsize(best_ckpt_path) > 1024 * 1024:
+                    target_ckpt = best_ckpt_path
+                elif os.path.exists(local_best_path) and os.path.getsize(local_best_path) > 1024 * 1024:
+                    target_ckpt = local_best_path
+                    
+                rollback_success = False
+                if target_ckpt:
+                    try:
+                        ckpt = torch.load(target_ckpt, map_location=device, weights_only=False)
+                        load_state_dict_robust(model, ckpt['model_state'])
+                        rollback_success = True
+                    except Exception as e:
+                        print(f" [WARNING] [REGRESSION GUARD] Failed to load checkpoint {target_ckpt} (Corrupted/LFS Pointer): {e}")
+                else:
+                    print(f" [WARNING] [REGRESSION GUARD] No valid SOTA weights available for rollback! Continuing with current weights.")
+
+                if rollback_success:
 
                     for param in model.parameters():
                         param.data = param.data.contiguous()
