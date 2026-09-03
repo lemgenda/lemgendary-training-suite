@@ -3225,8 +3225,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         )
 
         if early_stop_triggered:
-            print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
-            break
+            sota_targets_local = model_info.get("sota_targets", {})
+            if sota_targets_local and not locals().get("sota_baseline_achieved", False):
+                print(f"\n [GOVERNOR] [SOTA PERSISTENCE] Governor requested Early Stopping, but SOTA targets not met.", file=sys.stderr)
+                print(f" -> Halting PREVENTED: Triggering NPP Recoil to break local minimum.", file=sys.stderr)
+                governor.recoil()
+                epochs_no_improve = 0
+            else:
+                print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
+                break
 
         if smart_msg:
             print(smart_msg)
@@ -3928,12 +3935,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 # --- 2026: SOTA-Sync (v18.2) ---
                 # We must immediately apply these changes to the loaders before the next epoch starts
                 if early_stop_triggered:
-                    print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
-                    break
-
-                if early_stop_triggered:
-                    print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
-                    break
+                    sota_targets_local = model_info.get("sota_targets", {})
+                    if sota_targets_local and not locals().get("sota_baseline_achieved", False):
+                        print(f"\n [GOVERNOR] [SOTA PERSISTENCE] Governor requested Early Stopping, but SOTA targets not met.", file=sys.stderr)
+                        print(f" -> Halting PREVENTED: Triggering NPP Recoil to break local minimum.", file=sys.stderr)
+                        governor.recoil()
+                        epochs_no_improve = 0
+                    else:
+                        print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
+                        break
 
                 if smart_msg: print(smart_msg)
                 new_params = governor.get_state()
