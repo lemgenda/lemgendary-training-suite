@@ -4069,9 +4069,16 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
 
         # 4. Notebook Generation
         try:
-            from training.notebook_generator import generate_inference_notebook, generate_usage_notebook
+            from training.notebook_generator import (
+                generate_inference_notebook, 
+                generate_usage_notebook,
+                generate_colab_inference_notebook,
+                generate_colab_usage_notebook
+            )
             generate_inference_notebook(args.model, export_dir, unified_models_registry, config)
             generate_usage_notebook(args.model, export_dir, unified_models_registry, config)
+            generate_colab_inference_notebook(args.model, export_dir, unified_models_registry, config)
+            generate_colab_usage_notebook(args.model, export_dir, unified_models_registry, config)
         except Exception as nb_err:
             print(f" [WARNING] [NOTEBOOK GENERATION] Failed to generate notebooks: {nb_err}")
 
@@ -4094,6 +4101,17 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
                             print(f" [KAGGLER] Artifact mirrored to root: /kaggle/working/{exp_f}")
                         except Exception as e:
                             print(f"[REMEDY] Failed to mirror artifact {exp_f}: {e}")
+                            
+        # 7. Final Kaggle Cloud Sync
+        # Ensure that ONNX, README, and Notebooks generated after the epoch loop are actually pushed to the Kaggle Model.
+        if args.env == 'kaggle':
+            try:
+                from training.cloud_sync import trigger_cloud_sync
+                final_epoch = epoch + 1 if 'epoch' in locals() else args.epochs
+                print(f"[SIGNAL] [KAGGLE] Triggering final cloud sync to push exported artifacts and notebooks.")
+                trigger_cloud_sync(args.model, final_epoch, config)
+            except Exception as sync_err:
+                print(f" [WARNING] [CLOUD SYNC] Final sync failed: {sync_err}")
 
     except Exception as e:
         print(f"[WARNING] [EXPORT FAILURE] {e}")
