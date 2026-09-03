@@ -490,9 +490,9 @@ class SmartTrainingGovernor:
                     self.spatial_lock_remaining = self.stabilization_lock
                     self.stabilization_epochs = self.stabilization_lock
                     self.history = [] # 2026: Clear history to prevent cross-resolution trend contamination
-                    return True, True, False, False, False, True, f"[LAUNCH] [SOTA-FORCE] Jumping to {next_res}px Manifold..."
+                    return True, True, False, False, False, True, False, f"[LAUNCH] [SOTA-FORCE] Jumping to {next_res}px Manifold..."
                 else:
-                    return False, False, False, False, False, False, "[SUCCESS] [SOTA-MAX] Already at maximum resolution."
+                    return False, False, False, False, False, False, False, "[SUCCESS] [SOTA-MAX] Already at maximum resolution."
             except Exception as e:
                 print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
 
@@ -540,7 +540,7 @@ class SmartTrainingGovernor:
                 if current_loss: self.prev_loss = current_loss
                 status_msg = f"[SIGNAL] Anchoring Manifold... (Cooldown: {self.cooldown_remaining})" if self.cooldown_remaining > 0 else "[SIGNAL] Anchoring Manifold..."
                 if msg_parts: status_msg = " | ".join(msg_parts) + " | " + status_msg
-                return False, False, False, False, False, False, status_msg
+                return False, False, False, False, False, False, False, status_msg
 
         # 2026 Resilience: Resumption Shield
         # Ignore massive quality drops in the first epoch of a session (Momentum Shock)
@@ -551,7 +551,7 @@ class SmartTrainingGovernor:
             # Bypass audit for resumption epoch to buffer momentum shock
             self.prev_quality = current_quality
             if current_loss: self.prev_loss = current_loss
-            return False, False, False, False, False, False, "[GUARD] [SHIELD] Resumption Shield Active. Buffering Momentum Shock."
+            return False, False, False, False, False, False, False, "[GUARD] [SHIELD] Resumption Shield Active. Buffering Momentum Shock."
 
         # Overfitting Detection (NPP): check training vs validation loss trends over the last 3 epochs
         is_overfitting = False
