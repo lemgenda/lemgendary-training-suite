@@ -426,6 +426,7 @@ class SmartTrainingGovernor:
             
         return "REFINEMENT"
 
+    # pylint: disable=too-many-return-statements
     def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, srcc=0.0, target_std=None, force_jump=False, train_loss=None, metrics_dict=None):
         if not self.enabled and not force_jump: return False, False, False, False, False, False, ""
         self.epoch_count += 1
@@ -448,7 +449,7 @@ class SmartTrainingGovernor:
                 self.current_stress = 5.0
             elif self.metric_focus_target == 'mae':
                 self.current_huber_delta = 0.1
-            elif self.metric_focus_target == 'dir_acc' or self.metric_focus_target == 'win_rate':
+            elif self.metric_focus_target in ('dir_acc', 'win_rate'):
                 self.current_dir_weight = 2.0
                 if self.metric_focus_target == 'win_rate': self.current_conf_gate_str = 1.5
             elif self.metric_focus_target == 'profit_factor':
@@ -457,7 +458,7 @@ class SmartTrainingGovernor:
             elif self.metric_focus_target == 'max_drawdown':
                 self.current_mag_weight = 0.1
                 self.current_conf_gate_str = 2.0
-            elif self.metric_focus_target == 'tp_mae' or self.metric_focus_target == 'sl_mae':
+            elif self.metric_focus_target in ('tp_mae', 'sl_mae'):
                 self.current_mag_weight = 1.2
 
             self.lr_multiplier = getattr(self, 'cooling_factor', 0.8) # dampen backbone
@@ -492,7 +493,8 @@ class SmartTrainingGovernor:
                     return True, True, False, False, False, True, f"[LAUNCH] [SOTA-FORCE] Jumping to {next_res}px Manifold..."
                 else:
                     return False, False, False, False, False, False, "[SUCCESS] [SOTA-MAX] Already at maximum resolution."
-            except: pass
+            except Exception as e:
+                print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
 
         # --- NPP: Aggressive Recovery ---
         if sentinel_trigger_rate == 0:
@@ -800,7 +802,7 @@ class SmartTrainingGovernor:
                 lr_changed = True
                 msg_parts.append(f"ANCHOR: Caution ahead (Previous Failures). 0.6x LR.")
 
-            if phase == "FOUNDATION" or phase == "EXPANSION":
+            if phase in ("FOUNDATION", "EXPANSION"):
                 if self.current_fraction < 1.0:
                     self.current_fraction = next_frac
                     f_changed = True
@@ -1048,7 +1050,7 @@ class SmartTrainingGovernor:
                 strategy = "escalate" if self.task_type == "quality" else "relax"
                 
             current_idx = self.res_ladder.index(self.current_res) if (hasattr(self, 'res_ladder') and self.current_res in self.res_ladder) else -1
-            has_higher_res = (current_idx >= 0 and current_idx < len(self.res_ladder) - 1)
+            has_higher_res = (0 <= current_idx < len(self.res_ladder) - 1)
             target_res = self.sota_resolution if (self.sota_resolution is not None and self.sota_resolution > self.current_res) else (self.res_ladder[current_idx + 1] if has_higher_res else None)
 
             if strategy == "escalate" and target_res is not None:

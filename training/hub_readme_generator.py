@@ -75,7 +75,8 @@ def generate_hub_readme(project_root=workspace_root):
                             current_phase = int(phase_val) if phase_val is not None else 1
                             fold_val = last_row.get("Fold")
                             current_fold = int(fold_val) if fold_val is not None else 1
-            except: pass
+            except Exception as e:
+                print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
             
         completeness = 0.0
         if epoch > 1:

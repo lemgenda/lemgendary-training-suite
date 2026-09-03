@@ -56,7 +56,8 @@ class TelemetryEngine:
                     header = f.readline().strip()
                     if len(header.split(",")) == expected_cols:
                         schema_ok = True
-            except: pass
+            except Exception as e:
+                print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
 
         if not schema_ok:
             legacy_path = self.metrics_csv_path.replace(".csv", "_legacy.csv")
@@ -67,7 +68,8 @@ class TelemetryEngine:
                         legacy_path = legacy_path.replace(".csv", f"_{int(time.time())}.csv")
                     os.rename(self.metrics_csv_path, legacy_path)
                     print(f" [TELEMETRY] Legacy or corrupted metrics detected. Archiving to {os.path.basename(legacy_path)} and initializing {expected_cols}-column SOTA log.")
-                except: pass
+                except Exception as e:
+                    print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
 
             with open(self.metrics_csv_path, "w", encoding='utf-8') as f:
                 f.write(header_str)

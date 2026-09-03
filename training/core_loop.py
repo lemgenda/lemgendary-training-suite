@@ -8,6 +8,7 @@ import time
 # Disable OpenCV's OpenCL driver binding to prevent GPU driver deadlocks with PyTorch CUDA context initialization
 os.environ["OPENCV_OPENCL_DEVICE"] = "DISABLED"
 import sys
+import gc
 
 # --- 2026 Resilience: Child Process Interrupt Handler ---
 # Prevent spawned DataLoader workers from spewing tracebacks and crashing the parent abruptly
@@ -82,11 +83,7 @@ from training.telemetry import TelemetryEngine, METRIC_DIRECTIONS
 # Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
 sys.setrecursionlimit(2000)
 
-# Suppress noisy Triton, torchvision, and serialization warnings (benign across GTX/RTX training)
-warnings.filterwarnings("ignore", category=UserWarning, module="triton")
-warnings.filterwarnings("ignore", category=FutureWarning, module="diffusers")
-warnings.filterwarnings("ignore", message=".*Flax classes are deprecated.*")
-warnings.filterwarnings("ignore", message=r".*clamping frac to range \[0, 1\]")
+# Removed noisy warning suppressions per rigorous engineering standards
 
 # 2026: Nuclear Silence (Hard-kill diffusers/transformers noise)
 os.environ["DIFFUSERS_VERBOSITY"] = "error"
@@ -141,7 +138,8 @@ def cleanup_active_processes(*args):
                     subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True)
                 else:
                     p.terminate()
-            except Exception: pass
+            except Exception as e:
+                print(f"[REMEDY] Failed to terminate subprocess {p.pid}: {e}")
     _active_processes.clear()
 
 atexit.register(cleanup_active_processes)
@@ -174,7 +172,8 @@ def load_pat():
                             val = f.read().strip()
                             if val:
                                 os.environ[pat_name] = val
-                    except: pass
+                    except Exception as e:
+                        print(f"[REMEDY] Could not read secret {pat_name} from {path}: {e}")
 
 def git_hub_sync(repo_path, remote_url, message):
     """
@@ -193,7 +192,8 @@ def git_hub_sync(repo_path, remote_url, message):
             try:
                 os.remove(lock_file)
                 print(f" [GUARD] [LOCK BUSTER] Removed stale Git lock in {os.path.basename(repo_path)}")
-            except: pass
+            except Exception as e:
+                print(f"[REMEDY] Failed to remove stale Git lock in {os.path.basename(repo_path)}: {e}")
 
         # If remote_url is 'origin', we must resolve the physical URL from git config
         if remote_url == "origin":
@@ -201,7 +201,8 @@ def git_hub_sync(repo_path, remote_url, message):
                 res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=repo_path, capture_output=True, text=True, timeout=10)
                 if res.returncode == 0:
                     remote_url = res.stdout.strip()
-            except: pass
+            except Exception as e:
+                print(f"[REMEDY] git remote get-url origin failed: {e}")
 
         # 2026 Resilience: Always ensure the local 'origin' points to the desired authenticated URL
         if pat and "github.com" in remote_url and "@" not in remote_url:
@@ -583,17 +584,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     if getattr(args, 'num_workers', None) is not None:
         num_workers = args.num_workers
         try: torch.set_num_threads(max(1, cpu_count))
-        except: pass
+        except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'kaggle':
         # On Kaggle (Dual T4 instances have 4 vCPUs), use up to 4 workers to prevent GPU starvation
         num_workers = min(cpu_count, 2)
         try: torch.set_num_threads(max(1, cpu_count))
-        except: pass
+        except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'colab':
         # Colab (T4) reports 2 vCPUs, but we want 4 workers to optimize I/O
         num_workers = 4
         try: torch.set_num_threads(max(1, cpu_count))
-        except: pass
+        except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif sys.platform == "win32":
         # Windows multiprocessing guard: protect against PageFile Error 1455
         try:
@@ -679,7 +680,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     if target == "lemgendary": continue
                     res = find_paths_pruned('/kaggle/input', target, max_depth=8, is_dir=True)
                     possible_roots.extend(res)
-            except: pass
+            except Exception as e:
+                print(f"[REMEDY] Directory search failed for target: {e}")
 
         # Priority: Process ALL possible roots to maximize recovery
         possible_roots = sorted(list(set(possible_roots)), key=lambda x: x.count(os.sep), reverse=True)
@@ -711,7 +713,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 try:
                     res = find_paths_pruned(recovery_root, "metrics.csv", max_depth=8, is_dir=False)
                     if res: src_metrics = res[0]
-                except: pass
+                except Exception as e:
+                    print(f"[REMEDY] Metric recovery search failed: {e}")
 
             dst_metrics = os.path.join(hub_model_dir, "metrics.csv")
             if src_metrics and not os.path.exists(dst_metrics):
@@ -720,7 +723,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     shutil.copy2(src_metrics, dst_metrics)
                     print(f" -> [RECOVERED] metrics.csv from {os.path.basename(os.path.dirname(src_metrics))}")
                     found_any = True
-                except: pass
+                except Exception as e:
+                    print(f"[REMEDY] Failed to recover metrics.csv: {e}")
 
             # Recovery 2: Checkpoints
             src_ckpt_dirs = [
@@ -744,7 +748,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             for s_dir in src_ckpt_dirs:
                 if not os.path.exists(s_dir): continue
                 for f in os.listdir(s_dir):
-                    if f.endswith('.pth') and (args.model in f or reg_filename in f or "latest" in f or "best" in f or "progress" in f):
+                    if f.endswith('.pth') and (args.model in f or reg_filename in f or "latest" in f or "best" in f or "progress" in f or "vault" in f):
                         if any(bad in f.lower() for bad in ["obsolete", "backup", ".tmp", "temp"]):
                             continue
                         src_f = os.path.join(s_dir, f)
@@ -753,6 +757,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         if "latest" in f: target_f = f"{args.model}_latest.pth"
                         elif "best" in f: target_f = f"{args.model}_best.pth"
                         elif "progress" in f: target_f = f"{args.model}_progress.pth"
+                        # For vault files, keep original naming convention (they use m_key suffix)
 
                         dst_f = os.path.join(hub_ckpt_dir, target_f)
                         dst_local = os.path.join(local_ckpt_dir, target_f)
@@ -764,7 +769,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             try:
                                 os.makedirs(local_ckpt_dir, exist_ok=True)
                                 shutil.copy2(src_f, dst_local)
-                            except: pass
+                            except Exception as e:
+                                print(f"[REMEDY] Failed to recover checkpoint {src_f}: {e}")
 
             # Deep recursive backup for orphaned .pth files
             try:
@@ -775,12 +781,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         f = os.path.basename(src_f)
                         if any(bad in f.lower() for bad in ["obsolete", "backup", ".tmp", "temp"]):
                             continue
-                        # Ensure the file belongs to our model or is a generic latest/best/progress
-                        if args.model in f or reg_filename in f or "latest" in f or "best" in f or "progress" in f:
+                        # Ensure the file belongs to our model or is a generic latest/best/progress/vault
+                        if args.model in f or reg_filename in f or "latest" in f or "best" in f or "progress" in f or "vault" in f:
                             target_f = f
                             if "latest" in f: target_f = f"{args.model}_latest.pth"
                             elif "best" in f: target_f = f"{args.model}_best.pth"
                             elif "progress" in f: target_f = f"{args.model}_progress.pth"
+                            # Vault files don't need translation
 
                             dst_f = os.path.join(hub_ckpt_dir, target_f)
                             dst_local = os.path.join(local_ckpt_dir, target_f)
@@ -792,8 +799,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                 try:
                                     os.makedirs(local_ckpt_dir, exist_ok=True)
                                     shutil.copy2(src_f, dst_local)
-                                except: pass
-            except: pass
+                                except Exception as e:
+                                    print(f"[REMEDY] Failed to recover checkpoint {src_f}: {e}")
+            except Exception as outer_e:
+                print(f"[REMEDY] Broad exception in checkpoint deep recovery: {outer_e}")
 
 
         if not found_any:
@@ -824,7 +833,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     # --- 2026: Mission Data Infrastructure (v6.0) ---
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, persistent_workers=(active_workers > 0), pin_memory=True if device.type=='cuda' else False)
 
-    val_num_workers = 0 if getattr(args, 'env', '') == 'kaggle' else min(num_workers, 2)
+    val_num_workers = min(num_workers, 2)
     if is_heavy_manifold:
         print(f" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
 
@@ -896,7 +905,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 if os.path.exists(hub_root):
                     # If directory exists but no .git, it might be a partial/failed clone
                     try: shutil.rmtree(hub_root, ignore_errors=True)
-                    except: pass
+                    except Exception as e: print(f"[REMEDY] Failed to clear partial clone {hub_root}: {e}")
 
                 os.makedirs(os.path.dirname(hub_root), exist_ok=True)
                 env = os.environ.copy()
@@ -985,7 +994,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         if os.path.exists(proc_file):
             print(f"[RESILIENCE] Clearing stale lock: {os.path.basename(proc_file)}")
             try: os.remove(proc_file)
-            except: pass
+            except Exception as e: print(f"[REMEDY] Failed to clear stale lock {proc_file}: {e}")
 
     fallback_chain = [progress_local, progress_hub, latest_hub, best_hub]
     # Priority Candidate Selection (v15.0):
@@ -1034,7 +1043,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     try:
                         backup_path = ckpt.replace('.pth', f'_obsolete_backup_{int(time.time())}.pth')
                         os.rename(ckpt, backup_path)
-                    except: pass
+                    except Exception as e:
+                        print(f"[REMEDY] Failed to rename stale local progress: {e}")
                     # Remove from candidates
                     candidates[i] = (-1.0, 0, ckpt)
 
@@ -1563,7 +1573,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             if m_key not in sota_targets:
                 print(f" [CLEANUP] Deleting obsolete legacy vault checkpoint: {os.path.basename(f)}")
                 try: os.remove(f)
-                except: pass
+                except Exception as e: print(f"[REMEDY] Failed to delete obsolete legacy vault checkpoint {f}: {e}")
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
 
     # 2026 Telemetry Engine Integration
@@ -1975,7 +1985,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             try:
                                 backup_path = latest_ckpt.replace('.pth', f'_singularity_backup_{int(time.time())}.pth')
                                 os.rename(latest_ckpt, backup_path)
-                            except: pass
+                            except Exception as e:
+                                print(f"[REMEDY] Failed to rename latest ckpt: {e}")
 
                         # Force a deep rollback to best.pth
                         is_corrupt = True
@@ -2461,6 +2472,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         all_preds = []
         all_targets = []
         # sentinel_stresses moved to epoch start to capture training instability
+        
+        # --- 2026: Worker Lifecycle Graceful Shutdown ---
+        # Explicitly reap persistent worker processes to prevent System RAM hoarding during validation.
+        if 'iter_obj' in locals():
+            del iter_obj # type: ignore
+            gc.collect()
         with torch.no_grad():
             # --- 2026: VRAM Defibrillation Pulse ---
             # Purge training memory caches before high-res validation inference.
@@ -2493,16 +2510,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     print(f"[WARNING] [RESILIENCE] FID Engine init failed ({e}).")
                     FrechetInceptionDistance = None
 
-                try:
-                    import warnings
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        _base_vgg = lpips.LPIPS(net='vgg').eval().to(device)
-                        if torch.cuda.device_count() > 1:
-                            loss_fn_vgg = torch.nn.DataParallel(_base_vgg)
-                        else:
-                            loss_fn_vgg = _base_vgg
-                except: pass
+                # Initialize LPIPS directly. Do not suppress warnings or catch exceptions silently.
+                _base_vgg = lpips.LPIPS(net='vgg').eval().to(device)
+                if torch.cuda.device_count() > 1:
+                    loss_fn_vgg = torch.nn.DataParallel(_base_vgg)
+                else:
+                    loss_fn_vgg = _base_vgg
 
             # --- 2026 Resilience: Validation State Recovery (v10.1.4) ---
             if val_resume_iteration > 0:
@@ -2545,7 +2558,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                     if is_critical:
                         val_batch_size = max(1, val_batch_size // 2)
-                        val_num_workers = 0 if getattr(args, 'env', '') == 'kaggle' else min(num_workers, 2)
+                        val_num_workers = min(num_workers, 2)
                         val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False,
                                               num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
 
@@ -2594,7 +2607,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     is_max_res = True
 
                 is_high_fidelity = is_max_res and governor.current_fraction >= fidelity_thresh
-            except: pass
+            except Exception as e:
+                print(f"[REMEDY] Failed high fidelity calculation: {e}")
+                is_high_fidelity = False
 
             if is_refinement or is_high_fidelity or getattr(train_ds, "task_type", "") in ["quality", "forex"]:
                 shard_limit = len(val_loader)
@@ -3035,7 +3050,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             try:
                 val_speed = val_pbar.format_dict.get('rate', 0.0) or 0.0
                 val_pbar.close()
-            except: pass
+            except Exception as e:
+                print(f"[REMEDY] Failed to close validation progress bar: {e}")
 
         print(f"[SIGNAL] [RESONANCE SYNC] Train: {train_speed:.2f} it/s | Val: {val_speed:.2f} it/s | Efficiency: Optimized", file=sys.stderr)
 
@@ -3279,7 +3295,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 # v17.5: Enforce Shield during inter-epoch resolution jumps
                 _workers = num_workers
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
-                _vw = 0 if getattr(args, 'env', '') == 'kaggle' else min(_workers, 2)
+                _vw = min(_workers, 2)
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_vw, persistent_workers=(_vw > 0), pin_memory=True if device.type=='cuda' else False)
 
                 # 2026 Senior Hardening: VRAM De-fragmentation (Task 4.2)
@@ -3588,7 +3604,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             try:
                                 os.remove(doomed)
                                 print(f"[FIRE] [REGRESSION GUARD] Physically purged poisoned checkpoint: {os.path.basename(doomed)}")
-                            except: pass
+                            except Exception as e:
+                                print(f"[REMEDY] Failed to purge poisoned checkpoint {doomed}: {e}")
 
                     print(f"[SUCCESS] [GUARD] SOTA Rollback successful. LR cooled to {optimizer.param_groups[0]['lr']:.8f} | Momentum dampened.")
                     regression_epochs = 0
@@ -3860,7 +3877,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                 _workers = num_workers
                 train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
-                _vw = 0 if getattr(args, 'env', '') == 'kaggle' else min(_workers, 2)
+                _vw = min(_workers, 2)
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_vw, persistent_workers=(_vw > 0), pin_memory=True if device.type=='cuda' else False)
                 if device.type == 'cuda': torch.cuda.empty_cache()
             elif not is_max_res:
@@ -3897,7 +3914,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                     _workers = num_workers
                     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
-                    _vw = 0 if getattr(args, 'env', '') == 'kaggle' else min(_workers, 2)
+                    _vw = min(_workers, 2)
                     val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_vw, persistent_workers=(_vw > 0), pin_memory=True if device.type=='cuda' else False)
                     if device.type == 'cuda': torch.cuda.empty_cache()
             else:
@@ -4029,10 +4046,10 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
         # Free up VRAM so the heavy ONNX exporter doesn't OOM on 4GB GPUs
         try:
             model.cpu()
-            import gc
             gc.collect()
             torch.cuda.empty_cache()
-        except: pass
+        except Exception as e:
+            print(f"[REMEDY] Failed to clear VRAM cache: {e}")
 
         subprocess.call([python_exe, onnx_script, "--model", args.model, "--checkpoint", best_ckpt_path, "--yes"])
 
@@ -4075,7 +4092,8 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
                         try:
                             shutil.copy2(src_f, dst_f)
                             print(f" [KAGGLER] Artifact mirrored to root: /kaggle/working/{exp_f}")
-                        except Exception: pass
+                        except Exception as e:
+                            print(f"[REMEDY] Failed to mirror artifact {exp_f}: {e}")
 
     except Exception as e:
         print(f"[WARNING] [EXPORT FAILURE] {e}")

@@ -8,9 +8,9 @@ import time
 # --- 2026 Unicode Windows Patch ---
 # Force stdout/stderr to UTF-8 for clean cross-platform logging
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace") # type: ignore
 if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace") # type: ignore
 
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Anchor the search path to the parent directory to allow root module imports
@@ -34,7 +34,7 @@ def main():
     config_path = os.path.join(project_root, "config.yaml")
     if not os.path.exists(config_path):
         print(f" Error: config.yaml not found at {config_path}")
-        return
+        sys.exit(1)
         
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
@@ -45,7 +45,7 @@ def main():
         unified_models_path = os.path.join(project_root, "unified_models.yaml")
     if not os.path.exists(unified_models_path):
         print(f" Error: Unified models YAML not found.")
-        return
+        sys.exit(1)
         
     with open(unified_models_path, 'r', encoding='utf-8') as f:
         unified_models_registry = yaml.safe_load(f)
@@ -53,7 +53,7 @@ def main():
     model_info = unified_models_registry.get(args.model)
     if not model_info:
         print(f" Error: Model '{args.model}' not found in registry.")
-        return
+        sys.exit(1)
 
     # 2. Architecture Instantiation
     from models.factory import get_model
@@ -65,7 +65,7 @@ def main():
         model = get_model(args.model, config).to(device)
     except Exception as e:
         print(f" Error during instantiation: {e}")
-        return
+        sys.exit(1)
 
     # 3. Checkpoint Discovery
     if args.checkpoint:
@@ -77,7 +77,7 @@ def main():
     
     if not os.path.exists(ckpt_path):
         print(f" Error: SOTA Checkpoint not found at {ckpt_path}")
-        return
+        sys.exit(1)
 
     print("\n [DEPLOY] Synchronizing SOTA models to Production Hub...")
     try:
@@ -88,7 +88,7 @@ def main():
             model.load_state_dict(ckpt)
     except Exception as e:
         print(f" Error during load: {e}")
-        return
+        sys.exit(1)
     
     model.eval()
 
@@ -112,7 +112,8 @@ def main():
             export_onnx(ckpt_path, out_onnx, active_timeframes=active_tfs)
         else:
             print(f" [WARNING] [EXPORT] No checkpoint found for {args.model} at {ckpt_path}.")
-        return
+            sys.exit(1)
+        sys.exit(0)
 
     size_raw = model_info.get("input_size", config.get("default_img_size", 256))
     if size_raw is None:
@@ -199,28 +200,24 @@ def main():
             torch_logger.setLevel(logging.CRITICAL)
             
             try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    torch.onnx.export(
-                        model, (inp,), target_path,
-                        export_params=True, opset_version=17,
-                        do_constant_folding=True,
-                        input_names=['input'], output_names=['output']
-                    )
+                torch.onnx.export(
+                    model, (inp,), target_path,
+                    export_params=True, opset_version=17,
+                    do_constant_folding=True,
+                    input_names=['input'], output_names=['output']
+                )
             except Exception as e17:
                 onnx_logger.setLevel(old_onnx_level)
                 torch_logger.setLevel(old_torch_level)
                 print(f"   [RECOVER] Opset 17 export failed ({e17}). Escalating to Opset 18...")
                 onnx_logger.setLevel(logging.CRITICAL)
                 torch_logger.setLevel(logging.CRITICAL)
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    torch.onnx.export(
-                        model, (inp,), target_path,
-                        export_params=True, opset_version=18,
-                        do_constant_folding=True,
-                        input_names=['input'], output_names=['output']
-                    )
+                torch.onnx.export(
+                    model, (inp,), target_path,
+                    export_params=True, opset_version=18,
+                    do_constant_folding=True,
+                    input_names=['input'], output_names=['output']
+                )
             finally:
                 onnx_logger.setLevel(old_onnx_level)
                 torch_logger.setLevel(old_torch_level)
@@ -235,10 +232,8 @@ def main():
                     print(f"   -> [NOTICE] Exporting ONNX model to FP16 will safely truncate incredibly small FP32 values.")
                     onnx_model = onnx.load(target_path)
                     
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        onnx_model_fp16 = float16.convert_float_to_float16(onnx_model)
-                        
+                    onnx_model_fp16 = float16.convert_float_to_float16(onnx_model)
+
                     onnx.save(onnx_model_fp16, target_path)
                 except Exception as e:
                     print(f"   [ERROR] Failed to convert ONNX to FP16: {e}")

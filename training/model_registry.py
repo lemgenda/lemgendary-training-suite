@@ -70,7 +70,8 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 _loss = sum(v.mean() for v in _out.values()) if isinstance(_out, dict) else _out.mean()
                 if isinstance(_loss, torch.Tensor): _loss.backward()
                 model.zero_grad(set_to_none=True)
-        except: pass
+        except Exception as e:
+            print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
 
         if device.type == 'cuda':
             torch.cuda.reset_peak_memory_stats(0)
@@ -135,7 +136,8 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             # Containerized envs often misreport physical host RAM. Force clamp on Kaggle.
             if sys_ram_gb < 35.0 or is_kaggle:
                 system_cap = min(system_cap, 32 if mode == 'val' else 24)
-        except: pass
+        except Exception as e:
+            print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
 
         # 2026 Resilience: Restoration models (like NAFNet/MIRNet) use ConvTranspose2d which has CuDNN
         # workspace overheads. Scale workspace cap dynamically based on hardware VRAM tier.

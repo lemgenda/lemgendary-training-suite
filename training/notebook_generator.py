@@ -2,6 +2,7 @@ import os
 import json
 import base64
 import argparse
+import sys
 
 def generate_inference_notebook(model_key, export_dir, unified_models_registry=None, config=None):
     """
@@ -50,13 +51,13 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    k_key = None\n",
         "    k_user = None\n",
         "    try: g_pat = _c.get_secret('GITHUB_PAT')\n",
-        "    except: pass\n",
+        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "    try: s_pat = _c.get_secret('SUITE_PAT')\n",
-        "    except: pass\n",
+        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "    try: k_key = _c.get_secret('KAGGLE_KEY')\n",
-        "    except: pass\n",
+        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "    try: k_user = _c.get_secret('KAGGLE_USERNAME')\n",
-        "    except: pass\n",
+        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "    \n",
         "    if g_pat: _os.environ['GITHUB_PAT'] = g_pat\n",
         "    if s_pat: _os.environ['SUITE_PAT'] = s_pat\n",
@@ -173,7 +174,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            link_name = os.path.join(target_dir, link)\n",
         "            if not os.path.exists(link_name):\n",
         "                try: os.symlink(d, link_name)\n",
-        "                except: pass\n",
+        "                except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "                print(f'[OK] [LINKED] {link} -> {d}')\n"
     ]
 
@@ -278,7 +279,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                        src_met = path\n",
         "                        break\n",
         "                if src_met: break\n",
-        "        except: pass\n",
+        "        except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "        \n",
         "    if src_met:\n",
         "        dst_met = os.path.join(model_hub_dir, 'metrics.csv')\n",
@@ -380,7 +381,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    if os.path.exists(yaml_path):\n",
         "        with open(yaml_path, 'r') as f: reg = yaml.safe_load(f)\n",
         "        reg_filename = reg.get(model_key, {}).get('filename', '')\n",
-        "except: pass\n",
+        "except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "\n",
         "target_slugs = [model_key.lower().replace('_', ''), model_key.lower().replace('_', '-'), reg_filename.lower() if reg_filename else '']\n",
         "target_slugs = [s for s in target_slugs if s]\n",
@@ -446,7 +447,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                    shutil.copy2(m_path, os.path.join(model_hub_dir, 'metrics.csv'))\n",
         "                    print(f'[METRICS] Recovered metrics.csv from {os.path.basename(d)}')\n",
         "                    metrics_found = True; break\n",
-        "                except: pass\n",
+        "                except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "        if metrics_found: break\n",
         "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs manifold.')\n"
     ]
@@ -826,15 +827,15 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    k_user = None\n",
         "    g_drive = None\n",
         "    try: g_pat = userdata.get('GITHUB_PAT')\n",
-        "    except: pass\n",
+        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "    try: s_pat = userdata.get('SUITE_PAT')\n",
-        "    except: pass\n",
+        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "    try: k_key = userdata.get('KAGGLE_KEY')\n",
-        "    except: pass\n",
+        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "    try: k_user = userdata.get('KAGGLE_USERNAME')\n",
-        "    except: pass\n",
+        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "    try: g_drive = userdata.get('GOOGLE_DRIVE')\n",
-        "    except: pass\n",
+        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "    \n",
         "    if g_pat: _os.environ['GITHUB_PAT'] = g_pat\n",
         "    if s_pat: _os.environ['SUITE_PAT'] = s_pat\n",
@@ -946,7 +947,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                                for sub in os.listdir(path):\n",
         "                                    sub_cand = os.path.join(path, sub)\n",
         "                                    if os.path.isdir(sub_cand) and is_valid_ds(sub_cand): found.append(sub_cand)\n",
-        "                            except: pass\n",
+        "                            except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "    except Exception:\n",
         "        pass\n",
         "\n",
@@ -958,7 +959,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "            link_name = os.path.join(target_dir, link)\n",
         "            if not os.path.exists(link_name):\n",
         "                try: os.symlink(d, link_name)\n",
-        "                except: pass\n",
+        "                except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "                print(f'[OK] [LINKED] {link} -> {d}')\n"
     ]
 
@@ -1063,7 +1064,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                        src_met = path\n",
         "                        break\n",
         "                if src_met: break\n",
-        "        except: pass\n",
+        "        except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "        \n",
         "    if src_met:\n",
         "        dst_met = os.path.join(model_hub_dir, 'metrics.csv')\n",
@@ -1168,7 +1169,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    if os.path.exists(yaml_path):\n",
         "        with open(yaml_path, 'r') as f: reg = yaml.safe_load(f)\n",
         "        reg_filename = reg.get(model_key, {}).get('filename', '')\n",
-        "except: pass\n",
+        "except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "\n",
         "target_slugs = [model_key.lower().replace('_', ''), model_key.lower().replace('_', '-'), reg_filename.lower() if reg_filename else '']\n",
         "target_slugs = [s for s in target_slugs if s]\n",
@@ -1234,7 +1235,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                    shutil.copy2(m_path, os.path.join(model_hub_dir, 'metrics.csv'))\n",
         "                    print(f'[METRICS] Recovered metrics.csv from {os.path.basename(d)}')\n",
         "                    metrics_found = True; break\n",
-        "                except: pass\n",
+        "                except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
         "        if metrics_found: break\n",
         "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs manifold.')\n"
     ]
@@ -1659,10 +1660,10 @@ if __name__ == "__main__":
             models_to_gen = [args.model]
         else:
             print(f"[ERROR] Model '{args.model}' not found in registry.")
-            exit(1)
+            sys.exit(1)
     else:
         parser.print_help()
-        exit(0)
+        sys.exit(0)
 
     for m_key in models_to_gen:
         m_dir = os.path.join(export_root, m_key)

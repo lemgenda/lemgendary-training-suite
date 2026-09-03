@@ -23,7 +23,8 @@ def safe_torch_save(obj, path):
                             f_path = os.path.join(dir_name, f)
                             if os.path.abspath(f_path) != os.path.abspath(path):
                                 os.remove(f_path)
-                        except: pass
+                        except Exception as e:
+                            print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
             else:
                 # Soft Warning (Passive) - No pruning unless < 1GB
                 pass
@@ -33,7 +34,8 @@ def safe_torch_save(obj, path):
             if free / (1024**3) < 0.2: # Less than 200MB
                 print(f" [ERROR] [DISK SENTINEL] DISK FULL! Cannot save {os.path.basename(path)}. Aborting save to preserve manifold.", file=sys.stderr)
                 return False
-    except: pass
+    except Exception as e:
+        print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
 
     # 2. Atomic Save
     tmp_path = f"{path}.tmp"
@@ -45,7 +47,8 @@ def safe_torch_save(obj, path):
         print(f" [ERROR] [DISK SENTINEL] Save failed for {os.path.basename(path)}: {e}", file=sys.stderr)
         if os.path.exists(tmp_path):
             try: os.remove(tmp_path)
-            except: pass
+            except Exception as e:
+                print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
         return False
 
 
@@ -98,8 +101,8 @@ def load_scheduler_state_stretched(scheduler, state_dict, current_total_steps, e
                 param_group['lr'] = lr_val
             if hasattr(scheduler, '_last_lr'):
                 scheduler._last_lr = [p['lr'] for p in scheduler.optimizer.param_groups]
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
 
 
 
@@ -117,7 +120,8 @@ def safe_replace(src, dst):
                 os.rename(dst, temp_old)
                 os.rename(src, dst)
                 try: os.remove(temp_old)
-                except: pass
+                except Exception as e:
+                    print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
             else:
                 os.rename(src, dst)
             return True

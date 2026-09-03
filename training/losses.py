@@ -253,13 +253,10 @@ class CombinedLoss(nn.Module):
                         super().__init__()
                         self.perc = perc_module
                     def forward(self, x, y):
-                        with torch.amp.autocast('cuda', enabled=True):
+                        with torch.autocast(device_type='cuda', enabled=True):
                             return self.perc(x, y)
                             
-                import warnings
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    self.perc = AutocastLPIPS(lpips.LPIPS(net='vgg'))
+                self.perc = AutocastLPIPS(lpips.LPIPS(net='vgg'))
                 
                 self.perc.eval()
                 for param in self.perc.parameters():
@@ -268,6 +265,7 @@ class CombinedLoss(nn.Module):
                 print(f"[WARNING] [RESILIENCE] LPIPS failed to bind ({e}). Defaulting to pure L1.")
 
 
+    # pylint: disable=too-many-return-statements
     def forward(self, pred, target, task_idx=None):
         if self.task_type in ["restoration", "enhancement"]:
             # 2026: Branched Multi-Task Support (e.g., BranchedFFANet)
@@ -301,7 +299,7 @@ class CombinedLoss(nn.Module):
                 if self.perc is not None:
                     # LPIPS natively outputs spatial arrays. Clamp to [-1, 1].
                     p_scaled = torch.clamp(pred[0], 0, 1) * 2.0 - 1.0
-                    t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0
+                    t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0 # type: ignore
                     
                     raw_lpips = self.perc(p_scaled, t_scaled).view(-1) # [B]
                     
@@ -318,7 +316,7 @@ class CombinedLoss(nn.Module):
                 base_loss = self.l1(pred, target)
                 if self.perc is not None:
                     p_scaled = torch.clamp(pred, 0, 1) * 2.0 - 1.0
-                    t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0
+                    t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0 # type: ignore
                     
                     raw_lpips = self.perc(p_scaled, t_scaled).view(-1) # [B]
                     
@@ -429,7 +427,7 @@ class CombinedLoss(nn.Module):
                 t_bbox = target[:, 1:5]
                 t_landm = target[:, 5:15]
                 
-                with torch.amp.autocast('cuda', enabled=False):
+                with torch.autocast(device_type='cuda', enabled=False):
                     loss_conf = F.binary_cross_entropy(p_conf.float(), t_conf.float())
                 
                 pos_mask = t_conf > 0.5
@@ -444,4 +442,3 @@ class CombinedLoss(nn.Module):
             return self.mse(pred, target)
             
         return self.mse(pred, target)
-
