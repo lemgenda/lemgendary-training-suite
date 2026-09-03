@@ -11,25 +11,25 @@ CURRICULUM_PHASES = [
         "phase": 1,
         "name": "Titan 4 Core",
         "pairs": ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"],
-        "epochs": 50 # Base epochs per fold in this phase
+        "max_epochs": 200 # Dynamic ceiling; early stopping dictates actual length
     },
     {
         "phase": 2,
         "name": "G7 Majors (8)",
         "pairs": ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "USDCAD", "USDCHF", "AUDUSD", "NZDUSD"],
-        "epochs": 40
+        "max_epochs": 200
     },
     {
         "phase": 3,
         "name": "High-Beta Crosses (12)",
         "pairs": ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "USDCAD", "USDCHF", "AUDUSD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY", "USOIL"],
-        "epochs": 30
+        "max_epochs": 200
     },
     {
         "phase": 4,
         "name": "Full Universe (16)",
         "pairs": ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "USDCAD", "USDCHF", "AUDUSD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY", "USOIL", "US500", "USTEC", "GER40", "XAGUSD"],
-        "epochs": 20
+        "max_epochs": 200
     }
 ]
 
@@ -77,10 +77,10 @@ def main():
         p_id = phase["phase"]
         p_name = phase["name"]
         pairs = phase["pairs"]
-        epochs_raw = phase["epochs"]
+        max_epochs_raw = phase["max_epochs"]
         assert isinstance(pairs, list)
-        assert isinstance(epochs_raw, (int, str))
-        epochs_per_fold = int(epochs_raw)
+        assert isinstance(max_epochs_raw, (int, str))
+        max_epochs_per_fold = int(max_epochs_raw)
         
         print(f"\n>>>>> ENTERING PHASE {p_id}: {p_name} <<<<<")
         print(f"      Pairs: {len(pairs)} active")
@@ -102,14 +102,18 @@ def main():
             
             # Assign and lock target for this fold if it hasn't been started
             if fold_key not in state:
-                target_epoch = current_epoch + epochs_per_fold
-                state[fold_key] = {"completed": False, "target": target_epoch}
+                target_epoch = current_epoch + max_epochs_per_fold
+                state[fold_key] = {"completed": False, "target": target_epoch, "start": current_epoch}
                 with open(state_file, "w") as f: json.dump(state, f)
             else:
-                target_epoch = state[fold_key]["target"]
+                # 2026 Dynamic Walk-Forward: Ensure we respect the original start epoch for max_epochs calculation
+                fold_start = state[fold_key].get("start", current_epoch)
+                target_epoch = fold_start + max_epochs_per_fold
+                state[fold_key]["target"] = target_epoch
+                with open(state_file, "w") as f: json.dump(state, f)
 
             print(f"\n--- Launching Phase {p_id} | Fold {fold}/{NUM_FOLDS} ---")
-            print(f" [ORCHESTRATOR] Current Epoch: {current_epoch} | Target Epoch: {target_epoch}")
+            print(f" [ORCHESTRATOR] Current Epoch: {current_epoch} | Max Target Epoch: {target_epoch}")
             
             # Construct command
             cmd = [
@@ -129,13 +133,25 @@ def main():
             try:
                 res = subprocess.run(cmd)
                 if res.returncode != 0:
-                    print(f"\n[CRITICAL ERROR] Training aborted in Phase {p_id}, Fold {fold}. Orchestrator halted.")
-                    print("[REMEDY] Check telemetry logs for NaN loss or resource exhaustion. Try reducing the batch size or lowering the learning rate.")
-                    sys.exit(res.returncode)
-            except KeyboardInterrupt:
-                print("\n[INTERRUPT] Curriculum Orchestrator halted by user.")
-                sys.exit(0)
+                    print(f"\n [ERROR] Training crashed during Phase {p_id} Fold {fold}. Exiting curriculum.")
+                    sys.exit(1)
                 
+                # Check actual completed epoch (dynamic due to early stopping)
+                completed_epoch = get_latest_epoch(MODEL_KEY, project_root)
+                print(f" [ORCHESTRATOR] Fold {fold} completed at Epoch {completed_epoch}.")
+                
+                # Update state
+                state[fold_key]["completed"] = True
+                state[fold_key]["finished_at"] = completed_epoch
+                with open(state_file, "w") as f: json.dump(state, f)
+                
+            except KeyboardInterrupt:
+                print("\n [INTERRUPT] Caught KeyboardInterrupt. Exiting curriculum orchestrator safely.")
+                sys.exit(0)
+            except Exception as e:
+                print(f"\n [ERROR] Subprocess failed: {e}")
+                sys.exit(1)
+                    
             # Copy checkpoint state at the end of the fold for historical preservation
             latest_ckpt = os.path.join(ckpt_dir, f"{MODEL_KEY}_latest.pth")
             if os.path.exists(latest_ckpt):

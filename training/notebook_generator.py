@@ -192,7 +192,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        print('[WARNING] Dependency installation finished with non-zero exit code.')\n",
         "else:\n",
         "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
-        "    print('[REMEDY] Ensure \'requirements.txt\' exists in the root of the lemgendary-training-suite repository.')\n",
+        "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the lemgendary-training-suite repository.\")\n",
         "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
         "    print('[ACTION REQUIRED] Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
     ]
@@ -982,7 +982,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "        print('[WARNING] Dependency installation finished with non-zero exit code.')\n",
         "else:\n",
         "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
-        "    print('[REMEDY] Ensure \'requirements.txt\' exists in the root of the lemgendary-training-suite repository.')\n",
+        "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the lemgendary-training-suite repository.\")\n",
         "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
         "    print('[ACTION REQUIRED] Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
     ]

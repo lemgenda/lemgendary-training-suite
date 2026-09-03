@@ -587,8 +587,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         try: torch.set_num_threads(max(1, cpu_count))
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'kaggle':
-        # On Kaggle (Dual T4 instances have 4 vCPUs), use up to 4 workers to prevent GPU starvation
-        num_workers = min(cpu_count, 2)
+        # On Kaggle, ALWAYS use 4 workers to prevent GPU starvation
+        num_workers = 4
         try: torch.set_num_threads(max(1, cpu_count))
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'colab':
@@ -832,10 +832,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     has_resume_candidate = len(candidates) > 0
     active_workers = num_workers
 
-    # --- 2026: Mission Data Infrastructure (v6.0) ---
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, persistent_workers=(active_workers > 0), pin_memory=True if device.type=='cuda' else False)
+    # 2026 Resilience: Kaggle OOM Guard
+    # Persistent workers hold massive GPU IPC cache; we explicitly disable them on constrained platforms
+    is_constrained_env = args.env == 'kaggle' or (device.type == 'cuda' and torch.cuda.get_device_properties(0).total_memory < 15e9)
+    use_persistent = active_workers > 0 and not is_constrained_env
 
-    val_num_workers = min(num_workers, 2)
+    # --- 2026: Mission Data Infrastructure (v6.0) ---
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, persistent_workers=use_persistent, pin_memory=True if device.type=='cuda' else False)
+
+    val_num_workers = num_workers
     if is_heavy_manifold:
         print(f" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
 
@@ -904,30 +909,30 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 print("[WARNING] [HUB SYNC] Kaggle detected. Bypassing massive Git clone to avoid LFS quota limits.")
                 os.makedirs(hub_ckpt_dir, exist_ok=True)
             else:
-                if os.path.exists(hub_root):
-                    # If directory exists but no .git, it might be a partial/failed clone
-                    try: shutil.rmtree(hub_root, ignore_errors=True)
-                    except Exception as e: print(f"[REMEDY] Failed to clear partial clone {hub_root}: {e}")
-
-                os.makedirs(os.path.dirname(hub_root), exist_ok=True)
-                env = os.environ.copy()
-                env["GIT_LFS_SKIP_SMUDGE"] = "1"
-                res = subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse", authenticated_url, hub_root], env=env, capture_output=True, text=True)
-                if res.returncode == 0:
-                    subprocess.run(["git", "sparse-checkout", "set", args.model], cwd=hub_root, capture_output=True)
-                    print('[SUCCESS] [HUB SYNC] Hub structure initialized (Stateless).')
-                    subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
-                    # Surgical LFS Pull: Only pull the checkpoints for the current model
-                    print(f"[PACKAGE] [LFS] Hydrating surgical manifold for {args.model}...")
-                    subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
-                else:
-                    err_msg = res.stderr.strip()
-                    print(f"[WARNING] [HUB SYNC] Initial clone failed. Error: {err_msg}")
-                    print("[REMEDY] Verify your Git configuration and network access to the remote repository.")
-                    if "repository not found" in err_msg.lower() or "authentication" in err_msg.lower():
-                        print(" [ACTION] [AUTH] Ensure GITHUB_PAT is valid and has 'repo' scope.")
-                    print(f"[WARNING] [HUB SYNC] Creating local-only hub structure as fallback.")
+                if os.path.exists(hub_root) and len(os.listdir(hub_root)) > 0:
+                    print(f"[WARNING] [HUB SYNC] Directory {hub_root} exists but lacks a .git folder.")
+                    print(f"[WARNING] [HUB SYNC] Bypassing clone to protect local models. Using local-only mode.")
                     os.makedirs(hub_ckpt_dir, exist_ok=True)
+                else:
+                    os.makedirs(os.path.dirname(hub_root), exist_ok=True)
+                    env = os.environ.copy()
+                    env["GIT_LFS_SKIP_SMUDGE"] = "1"
+                    res = subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse", authenticated_url, hub_root], env=env, capture_output=True, text=True)
+                    if res.returncode == 0:
+                        subprocess.run(["git", "sparse-checkout", "set", args.model], cwd=hub_root, capture_output=True)
+                        print('[SUCCESS] [HUB SYNC] Hub structure initialized (Stateless).')
+                        subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
+                        # Surgical LFS Pull: Only pull the checkpoints for the current model
+                        print(f"[PACKAGE] [LFS] Hydrating surgical manifold for {args.model}...")
+                        subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
+                    else:
+                        err_msg = res.stderr.strip()
+                        print(f"[WARNING] [HUB SYNC] Initial clone failed. Error: {err_msg}")
+                        print("[REMEDY] Verify your Git configuration and network access to the remote repository.")
+                        if "repository not found" in err_msg.lower() or "authentication" in err_msg.lower():
+                            print(" [ACTION] [AUTH] Ensure GITHUB_PAT is valid and has 'repo' scope.")
+                        print(f"[WARNING] [HUB SYNC] Creating local-only hub structure as fallback.")
+                        os.makedirs(hub_ckpt_dir, exist_ok=True)
     except Exception as e:
         print(f"[WARNING] [HUB SYNC] Hub synchronization critical failure: {e}")
 
@@ -1710,7 +1715,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             # v18.5: Hardened Shield check to prevent transition if in recovery or on 4GB hardware
             if train_loader.num_workers == 0 and current_iter == 0 and num_workers > 0 and not (in_recovery_mode and vram_gb < 6.0):
                 print(f" [MISSION CONTROL] Transitioning to Parallel Data Pipeline ({num_workers} workers)...")
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0), pin_memory=True if device.type=='cuda' else False)
+                is_constrained_env = args.env == 'kaggle' or vram_gb < 15.0
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
 
             iter_obj = enumerate(train_loader)
             if current_iter > 0:
@@ -2547,6 +2553,14 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 val_interval_pct = 0.0
             last_val_pct = (max(0, val_resume_iteration) / len(val_loader)) if len(val_loader) > 0 else 0.0
 
+            # --- 2026 Resilience: Dispose Training Workers ---
+            # Shut down and dispose training workers before engaging new workers for validation
+            if hasattr(train_loader, '_iterator') and train_loader._iterator is not None:
+                print(" [MISSION CONTROL] Disposing training workers to free memory for validation...")
+                del train_loader._iterator
+                train_loader._iterator = None
+                gc.collect()
+
             # --- 2026 Resilience: Validation VRAM Sentinel (v10.1.5-PROACTIVE) ---
             # Increased threshold to 750MB to ensure zero paging during high-res evaluation.
             if device.type == 'cuda':
@@ -2562,7 +2576,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                     if is_critical:
                         val_batch_size = max(1, val_batch_size // 2)
-                        val_num_workers = min(num_workers, 2)
+                        val_num_workers = num_workers
                         val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False,
                                               num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
 
@@ -3193,7 +3207,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             'lpips': lpips_val, 'fid': fid, 'dir_acc': dir_acc, 'tp_mae': tp_mae
         }
         
-        f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
+        f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, early_stop_triggered, smart_msg = governor.audit_epoch(
             current_quality=locals().get('current_quality_score', 0.0),
             best_quality=best_quality_score,
             epochs_no_improve=epochs_no_improve,
@@ -3209,6 +3223,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             train_loss=avg_train_loss,
             metrics_dict=metrics_dict
         )
+
+        if early_stop_triggered:
+            print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
+            break
 
         if smart_msg:
             print(smart_msg)
@@ -3424,6 +3442,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             print(f" [SUCCESS] [MINI-SWA] Weight averaging pulse completed successfully! Quality: {current_quality_score:.4f}")
                 except Exception as swa_err:
                     print(f" [WARNING] [MINI-SWA] Weight averaging pulse failed cleanly: {swa_err}.")
+
+        if early_stop_triggered:
+            print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
+            break
 
         # 2026 Resilience: best_metrics is preserved from the last SOTA/best update block to prevent metric corruption.
 
@@ -3645,6 +3667,14 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             epochs_no_improve += 1
             absolute_epochs_no_improve += 1
             print(f" -> No improvement for {epochs_no_improve} epoch(s). Absolute: {absolute_epochs_no_improve}")
+
+            # --- 2026: Dynamic Walk-Forward Early Stopping ---
+            # If patience is exceeded and the learning rate has bottomed out, terminate the fold natively.
+            if getattr(train_ds, "task_type", "") == "forex" and epochs_no_improve >= governor.plateau_patience:
+                # OneCycleLR typically bottoms out around min_lr. governor.lr_multiplier also decays.
+                if epoch_lr <= 1e-5 or governor.lr_multiplier <= 0.05:
+                    print(f"\n[EARLY STOPPING] Patience of {governor.plateau_patience} epochs exceeded. Learning rate bottomed out. Terminating fold natively.")
+                    break
 
         # --- 2026 Resilience: Hub Mirroring & Sync (v13.0 Stateless) ---
         # Latest and Best are now stored DIRECTLY in the Hub repository to keep Suite repo clean.
@@ -3886,9 +3916,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_vw, persistent_workers=(_vw > 0), pin_memory=True if device.type=='cuda' else False)
                 if device.type == 'cuda': torch.cuda.empty_cache()
             elif not is_max_res:
-                # 2026: The message is now handled INSIDE governor.audit_epoch
-                # to prevent preemptive/false jump announcements.
-                f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, smart_msg = governor.audit_epoch(
+                # 2026: Governor Audit (Now returns 8 values including early_stop)
+                f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, early_stop_triggered, smart_msg = governor.audit_epoch(
                     current_quality=locals().get('current_quality_score', 0.0),
                     best_quality=best_quality_score,
                     epochs_no_improve=0,
@@ -3898,6 +3927,14 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                 # --- 2026: SOTA-Sync (v18.2) ---
                 # We must immediately apply these changes to the loaders before the next epoch starts
+                if early_stop_triggered:
+                    print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
+                    break
+
+                if early_stop_triggered:
+                    print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
+                    break
+
                 if smart_msg: print(smart_msg)
                 new_params = governor.get_state()
                 stress_changed = new_params.get('stress', 0.0) != getattr(train_ds, 'stress', 0.0)

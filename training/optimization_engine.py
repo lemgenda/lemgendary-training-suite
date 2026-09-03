@@ -428,7 +428,7 @@ class SmartTrainingGovernor:
 
     # pylint: disable=too-many-return-statements
     def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, srcc=0.0, target_std=None, force_jump=False, train_loss=None, metrics_dict=None):
-        if not self.enabled and not force_jump: return False, False, False, False, False, False, ""
+        if not self.enabled and not force_jump: return False, False, False, False, False, False, False, ""
         self.epoch_count += 1
         self.session_epoch_count += 1
 
@@ -479,7 +479,7 @@ class SmartTrainingGovernor:
                 epochs_at_res = self.epoch_count - self.last_res_jump_epoch
                 print(f" [SEARCH] [HARDENING-DEBUG] Current Res: {self.current_res}px | Epochs at Res: {epochs_at_res} | Maturity Required: {self.manifold_maturity}")
                 if epochs_at_res < self.manifold_maturity:
-                    return False, False, False, False, False, False, f"[GUARD] [HARDENING] SOTA hit early, but locking at {self.current_res}px for weight stabilization (Manifold Maturity: {epochs_at_res}/{self.manifold_maturity})."
+                    return False, False, False, False, False, False, False, f"[GUARD] [HARDENING] SOTA hit early, but locking at {self.current_res}px for weight stabilization (Manifold Maturity: {epochs_at_res}/{self.manifold_maturity})."
 
                 current_idx = self.res_ladder.index(self.current_res)
                 if current_idx < len(self.res_ladder) - 1:
@@ -901,9 +901,15 @@ class SmartTrainingGovernor:
                 self.current_temp = min(1.0, self.current_temp)
             self.current_clamp = min(self.clamp_range[1], self.current_clamp) # Prevent logit explosion
 
+        early_stop_triggered = False
+        if epochs_no_improve >= self.plateau_patience:
+            if getattr(self, 'metric_focus_epochs_remaining', 0) == 0 and self.stabilization_epochs == 0 and self.cooldown_remaining == 0:
+                early_stop_triggered = True
+                msg_parts.append(f"[EARLY STOPPING] Patience exceeded ({epochs_no_improve}/{self.plateau_patience}). Fold exhausted.")
+
         final_msg = f"[LAUNCH] [{phase}] " + " | ".join(msg_parts) if msg_parts else ""
 
-        return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, final_msg
+        return f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, early_stop_triggered, final_msg
 
     def get_dynamic_save_interval(self, avg_iter_time, total_iters):
         if avg_iter_time <= 0: return 0.2
