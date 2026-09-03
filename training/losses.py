@@ -231,19 +231,55 @@ class CombinedLoss(nn.Module):
                     torch.cuda.empty_cache()
 
                 # 2026 Resilience: Native fix for torchvision 'pretrained' deprecation warning (Root Cause)
-                # Using getattr/setattr bypasses Pyre static type checking errors in your IDE.
-                import torchvision.models
-                if not hasattr(torchvision.models, '_patched_vgg16_applied'):
-                    orig_vgg16 = getattr(torchvision.models, 'vgg16')
-                    def patched_vgg16(*args, **kwargs):
-                        if 'pretrained' in kwargs:
-                            if kwargs.pop('pretrained'):
-                                kwargs['weights'] = torchvision.models.VGG16_Weights.IMAGENET1K_V1
-                        return orig_vgg16(*args, **kwargs)
-                    setattr(torchvision.models, 'vgg16', patched_vgg16)
-                    setattr(torchvision.models, '_patched_vgg16_applied', True)
+                # Monkeypatching fails if lpips bypasses it or uses positional args. 
+                # We use warnings filter for absolute suppression.
                 
                 import lpips
+                import lpips.pretrained_networks
+                
+                # 2026 Resilience: TRUE FIX for torchvision 'pretrained' deprecation warning.
+                # Instead of suppressing warnings, we fundamentally fix the root cause by overriding
+                # the 3rd-party LPIPS library's internal VGG16 loader to use the modern weights enum.
+                import torchvision.models as tv
+                
+                class CleanVGG16(torch.nn.Module):
+                    def __init__(self, requires_grad=False, pretrained=True):
+                        super().__init__()
+                        weights = tv.VGG16_Weights.IMAGENET1K_V1 if pretrained else None
+                        vgg_pretrained_features = tv.vgg16(weights=weights).features
+                        self.slice1 = torch.nn.Sequential()
+                        self.slice2 = torch.nn.Sequential()
+                        self.slice3 = torch.nn.Sequential()
+                        self.slice4 = torch.nn.Sequential()
+                        self.slice5 = torch.nn.Sequential()
+                        self.N_slices = 5
+                        for x in range(4): self.slice1.add_module(str(x), vgg_pretrained_features[x])  # type: ignore
+                        for x in range(4, 9): self.slice2.add_module(str(x), vgg_pretrained_features[x])  # type: ignore
+                        for x in range(9, 16): self.slice3.add_module(str(x), vgg_pretrained_features[x])  # type: ignore
+                        for x in range(16, 23): self.slice4.add_module(str(x), vgg_pretrained_features[x])  # type: ignore
+                        for x in range(23, 30): self.slice5.add_module(str(x), vgg_pretrained_features[x])  # type: ignore
+                        if not requires_grad:
+                            for param in self.parameters():
+                                param.requires_grad = False
+
+                    def forward(self, x):
+                        h = self.slice1(x)
+                        h_relu1_2 = h
+                        h = self.slice2(h)
+                        h_relu2_2 = h
+                        h = self.slice3(h)
+                        h_relu3_3 = h
+                        h = self.slice4(h)
+                        h_relu4_3 = h
+                        h = self.slice5(h)
+                        h_relu5_3 = h
+                        from collections import namedtuple
+                        VggOutputs = namedtuple("VggOutputs", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3', 'relu5_3'])
+                        out = VggOutputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3, h_relu5_3)
+                        return out
+
+                lpips.pretrained_networks.vgg16 = CleanVGG16  # type: ignore
+                
                 # 2026: Mission Pulse - Restore transparency for slow perceptual engine loading
                 print(" [MISSION] Initializing Neural Perceptual Engine (LPIPS/VGG16)...")
                 # Natively trained perceptual alignment! Exponentially more stable than crude VGG L1
