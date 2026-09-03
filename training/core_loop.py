@@ -3231,6 +3231,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 print(f" -> Halting PREVENTED: Triggering NPP Recoil to break local minimum.", file=sys.stderr)
                 governor.recoil()
                 epochs_no_improve = 0
+                early_stop_triggered = False
             else:
                 print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
                 break
@@ -3941,6 +3942,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         print(f" -> Halting PREVENTED: Triggering NPP Recoil to break local minimum.", file=sys.stderr)
                         governor.recoil()
                         epochs_no_improve = 0
+                        early_stop_triggered = False
                     else:
                         print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
                         break
