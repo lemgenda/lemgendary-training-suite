@@ -569,7 +569,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         return
 
     # 2. Dataset Manifold Synchronization
-    if unified_models_registry and model_key != "forex_predictor":
+    if unified_models_registry:
         m_info = unified_models_registry.get(model_key, {})
         ds_raw = m_info.get("datasets", []) or m_info.get("dataset", [])
         if isinstance(ds_raw, str):

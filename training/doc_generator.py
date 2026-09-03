@@ -14,11 +14,11 @@ def build_model_readme(model_key, unified_models, epochs_trained, metrics, hardw
     arch_type = model_info.get("architecture_type", "Standard Backbone")
     
     # Handle input_size for documentation
-    size_raw = model_info.get("input_size", [3, 256, 256])
-    if isinstance(size_raw, list):
-        if len(size_raw) == 3: h, w = size_raw[1], size_raw[2]
-        else: h, w = size_raw[0], size_raw[1]
-    else: h, w = size_raw, size_raw
+    sz_raw = model_info.get("input_size", [3, 256, 256])
+    if isinstance(sz_raw, list):
+        h, w = (sz_raw[1], sz_raw[2]) if len(sz_raw) == 3 else (sz_raw[0], sz_raw[1])
+    else:
+        h, w = sz_raw, sz_raw
     res_str = f"{h}x{w}"
 
     # --- 2026 Resilience: v16.0 Stealth Usage Snippets ---
@@ -129,7 +129,7 @@ graph TD
         stability_str = f"Trained using **{loss_fn} Loss** to enforce strict manifold alignment."
     if task == "quality":
         metrics_summary = f"**PLCC**: {metrics.get('plcc', '0.90+')} | **SRCC**: {metrics.get('srcc', '0.83+')}"
-        vector_section = f"""> [!IMPORTANT]\n> **Quality Vector**: This model is specialized for **{"Aesthetics" if "aesthetic" in model_key else "Technical Integrity"}**. \n> - **Primary Targets**: {"Composition, Color, Lighting, Artistic Intent" if "aesthetic" in model_key else "Noise, Blur, Compression, Sharpness"}.\n"""
+        vector_section = f"""> [!IMPORTANT]\n> **Quality Vector**: This model is specialized for **{"Aesthetics" if "aesthetic" in model_key else "Technical Integrity"}**.\n>\n> - **Primary Targets**: {"Composition, Color, Lighting, Artistic Intent" if "aesthetic" in model_key else "Noise, Blur, Compression, Sharpness"}.\n"""
     elif task == "forex":
         metrics_summary = f"**Dir Acc**: {metrics.get('dir_acc', '50.0')}% | **Win Rate**: {metrics.get('win_rate', '50.0')}% | **PF**: {metrics.get('profit_factor', '1.0')} | **Sharpe**: {metrics.get('sharpe_ratio', '0.0')} | **MaxDD**: {metrics.get('max_drawdown', '0.0')}%"
         vector_section = ""
