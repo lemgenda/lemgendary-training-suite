@@ -891,8 +891,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         if os.path.exists(os.path.join(hub_root, ".git")):
             print(f"[SYNC] [HUB SYNC] Synchronizing Hub repo for stateless resume...")
             subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=hub_root, capture_output=True)
-            # Enforce sparse checkout to avoid bloating the FUSE disk with all models
-            subprocess.run(["git", "sparse-checkout", "set", args.model], cwd=hub_root, capture_output=True)
+            # Sparse checkout has been disabled by user request
             # Pull latest to ensure we have the absolute SOTA and Latest state without smudging EVERYTHING
             env = os.environ.copy()
             env["GIT_LFS_SKIP_SMUDGE"] = "1"
@@ -917,9 +916,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     os.makedirs(os.path.dirname(hub_root), exist_ok=True)
                     env = os.environ.copy()
                     env["GIT_LFS_SKIP_SMUDGE"] = "1"
-                    res = subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse", authenticated_url, hub_root], env=env, capture_output=True, text=True)
+                    res = subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", authenticated_url, hub_root], env=env, capture_output=True, text=True)
                     if res.returncode == 0:
-                        subprocess.run(["git", "sparse-checkout", "set", args.model], cwd=hub_root, capture_output=True)
+                        # Sparse checkout disabled
                         print('[SUCCESS] [HUB SYNC] Hub structure initialized (Stateless).')
                         subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
                         # Surgical LFS Pull: Only pull the checkpoints for the current model
