@@ -112,6 +112,7 @@ except ImportError as e:
     print(f"Current Path (sys.path[0]): {sys.path[0]}")
     print(f"Full sys.path: {sys.path}")
     print(f"\n[ERROR] [CRITICAL] Dependency Error: {e}")
+    print("[REMEDY] Ensure you have installed all dependencies via 'pip install -r requirements.txt'.")
     print(" [!] Your LemGendary environment is incomplete or corrupted.")
     print(" [!] Fix: Run the 'lemgendary_hub.ps1' script and select Option 1.")
     sys.exit(1)
@@ -614,6 +615,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     # --- 2026 Resilience: Empty Dataset Guard ---
     if len(train_ds) == 0:
         print(f"\n[ERROR] [CRITICAL ERROR] Training dataset for '{args.model}' has ZERO samples.")
+        print("[REMEDY] Check your dataset path and ensure images are correctly formatted and accessible.")
         print(f" [ACTION] This manifold '{ds_reqs[0]}' is missing or empty in {data_dir}.")
         print(f" [ACTION] Recommended action: Run 'lemgendary_datasets_hub.ps1' Option 1 to acquire raw sources, then Option 2 to compile.")
         sys.exit(1)
@@ -921,6 +923,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 else:
                     err_msg = res.stderr.strip()
                     print(f"[WARNING] [HUB SYNC] Initial clone failed. Error: {err_msg}")
+                    print("[REMEDY] Verify your Git configuration and network access to the remote repository.")
                     if "repository not found" in err_msg.lower() or "authentication" in err_msg.lower():
                         print(" [ACTION] [AUTH] Ensure GITHUB_PAT is valid and has 'repo' scope.")
                     print(f"[WARNING] [HUB SYNC] Creating local-only hub structure as fallback.")
@@ -1965,6 +1968,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         import traceback
                         print("\n================================================================================")
                         print(" [CRITICAL] UNEXPECTED RUNTIME ERROR")
+                        print("[REMEDY] Please report this stacktrace to the support team or check for OOM (Out Of Memory) issues.")
                         traceback.print_exc()
                         print("================================================================================\n")
                         sys.exit(1)
@@ -3747,6 +3751,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         res = subprocess.run(["git", "clone", auth_hub_url, target_hub_root], capture_output=True, text=True, env=clone_env, timeout=120)
                         if res.returncode != 0:
                             print(f"[WARNING] [HUB SYNC] Initial clone failed. Falling back to local init. Error: {res.stderr.strip()}", file=sys.stderr)
+                            print("[REMEDY] Verify your GITHUB_PAT has repo access or run 'git clone' manually.", file=sys.stderr)
                             subprocess.run(["git", "init"], cwd=target_hub_root, capture_output=True)
                             subprocess.run(["git", "remote", "add", "origin", auth_hub_url], cwd=target_hub_root, capture_output=True)
 

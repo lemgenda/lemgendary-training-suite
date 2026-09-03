@@ -222,8 +222,8 @@ def load_onnx_session(onnx_path: str):
     """
     try:
         import onnxruntime as ort
-    except ImportError:
-        raise RuntimeError("[ONNX] onnxruntime not installed. Check requirements.txt.")
+    except ImportError as exc:
+        raise RuntimeError("[ONNX] onnxruntime not installed. Check requirements.txt.") from exc
 
     providers = []
     if sys.platform == "win32":
@@ -437,6 +437,7 @@ def main():
     if args.mode == "export":
         if not args.checkpoint:
             print("[ERROR] --checkpoint required for export mode.")
+            print("[REMEDY] Provide a valid path to your PyTorch checkpoint using --checkpoint.")
             return
         export_onnx(
             checkpoint_path  = args.checkpoint,
@@ -448,6 +449,7 @@ def main():
     elif args.mode == "signal":
         if not args.onnx:
             print("[ERROR] --onnx required for signal mode.")
+            print("[REMEDY] Provide a valid path to your ONNX model using --onnx.")
             return
         print(f" [Signal] Generating signal for {args.pair}...")
         result = generate_signal(

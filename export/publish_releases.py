@@ -11,6 +11,7 @@ def publish_model_release(model_key, models_root, tag="v1.0.0-sota", repo="lemge
     model_dir = os.path.join(models_root, model_key)
     if not os.path.exists(model_dir):
         print(f"[ERROR] Model directory not found: {model_dir}")
+        print("[REMEDY] Check if the model has been trained and saved successfully.")
         return False
         
     # Discover all weight binaries
@@ -44,6 +45,7 @@ def publish_model_release(model_key, models_root, tag="v1.0.0-sota", repo="lemge
         res_create = subprocess.run(create_cmd, capture_output=True, text=True)
         if res_create.returncode != 0:
             print(f"[ERROR] Failed to create release: {res_create.stderr}")
+            print("[REMEDY] Ensure GITHUB_PAT is set with 'repo' permissions.")
             return False
         print(f"[OK] Release {tag} created successfully.")
         
@@ -56,6 +58,7 @@ def publish_model_release(model_key, models_root, tag="v1.0.0-sota", repo="lemge
         return True
     else:
         print(f"[ERROR] Asset upload failed: {res_upload.stderr}")
+        print("[REMEDY] Check your network connection and Github API limits.")
         return False
 
 

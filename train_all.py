@@ -3,6 +3,7 @@ import os
 import sys
 
 # --- 2026: kagglesdk Dependency Hardening (ImportError Patch) ---
+# pylint: disable=duplicate-code
 try:
     import kagglesdk.kaggle_env as ke
     if not hasattr(ke, 'get_web_endpoint'):
@@ -129,6 +130,7 @@ def main():
                 print(f"\n[OK] {model_key} converged.")
             except subprocess.CalledProcessError as e:
                 print(f"\n[ERROR] {model_key} structural failure. Logging to report.")
+                print(f"[REMEDY] Check the logs in {failure_log_path} or ensure {model_key} exists and is properly configured in unified_models.yaml.")
                 failure_report["failures"].append({"model": model_key, "phase": phase["name"], "code": e.returncode})
                 with open(failure_log_path, 'w') as f: json.dump(failure_report, f, indent=4)
                 if not args.yes and input("Proceed to next? (y/n): ").lower() != 'y': sys.exit(1)

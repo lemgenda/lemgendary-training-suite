@@ -8,9 +8,9 @@ import torch.nn as nn
 # --- 2026 Unicode Windows Patch ---
 # Force stdout/stderr to UTF-8 for clean cross-platform logging
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
 if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
 
 # --- 2026 Hardware Acceleration & Stability Patch ---
 # Anchor the search path to the parent directory to allow root module imports
@@ -24,6 +24,7 @@ sys.setrecursionlimit(2000)
 from models.nima import SoftmaxWrapper
 
 def main():
+    # pylint: disable=too-many-return-statements
     parser = argparse.ArgumentParser(description="LemGendary SOTA Exporter: Checkpoint to Standalone PyTorch")
     parser.add_argument("--model", type=str, required=True, help="Model key from unified_models.yaml")
     parser.add_argument("--checkpoint", type=str, help="Path to specific .pth checkpoint to export")
@@ -36,6 +37,7 @@ def main():
     config_path = os.path.join(project_root, "config.yaml")
     if not os.path.exists(config_path):
         print(f" Error: config.yaml not found at {config_path}")
+        print("[REMEDY] Ensure your model folder contains a valid config.yaml file.")
         return
         
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -47,6 +49,7 @@ def main():
         unified_models_path = os.path.join(project_root, "unified_models.yaml")
     if not os.path.exists(unified_models_path):
         print(f" Error: Unified models YAML not found.")
+        print("[REMEDY] Run this script from the root of the repository where unified_models.yaml is located.")
         return
         
     with open(unified_models_path, 'r', encoding='utf-8') as f:
@@ -55,6 +58,7 @@ def main():
     model_info = unified_models_registry.get(args.model)
     if not model_info:
         print(f"Error: Model '{args.model}' not found in registry.")
+        print("[REMEDY] Verify the spelling of the model in unified_models.yaml.")
         return
 
     # 2. Architecture Instantiation

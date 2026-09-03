@@ -51,13 +51,13 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    k_key = None\n",
         "    k_user = None\n",
         "    try: g_pat = _c.get_secret('GITHUB_PAT')\n",
-        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "    except Exception: print('[REMEDY] Missing secret! You should create new secret named GITHUB_PAT with your GitHub Personal Access Token as value')\n",
         "    try: s_pat = _c.get_secret('SUITE_PAT')\n",
-        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "    except Exception: print('[REMEDY] Missing secret! You should create new secret named SUITE_PAT with your GitHub Personal Access Token as value')\n",
         "    try: k_key = _c.get_secret('KAGGLE_KEY')\n",
-        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "    except Exception: print('[REMEDY] Missing secret! You should create new secret named KAGGLE_KEY with your Kaggle API Token as value')\n",
         "    try: k_user = _c.get_secret('KAGGLE_USERNAME')\n",
-        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "    except Exception: print('[REMEDY] Missing secret! You should create new secret named KAGGLE_USERNAME with your Kaggle username as value')\n",
         "    \n",
         "    if g_pat: _os.environ['GITHUB_PAT'] = g_pat\n",
         "    if s_pat: _os.environ['SUITE_PAT'] = s_pat\n",
@@ -109,6 +109,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        print('[OK] Suite cloned.')\n",
         "    else: \n",
         "        print(f'[ERROR] Clone failed: {res.stderr.strip()}')\n",
+        "        print('[REMEDY] If a 403/401 occurs, ensure your SUITE_PAT or GITHUB_PAT has repo read permissions.')\n",
         "        if '403' in res.stderr or '401' in res.stderr or 'terminal prompts disabled' in res.stderr:\n",
         "            print('[ACTION REQUIRED] Add SUITE_PAT or GITHUB_PAT to Kaggle Add-ons -> Secrets with GitHub read permissions.')\n",
         "else:\n",
@@ -174,7 +175,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            link_name = os.path.join(target_dir, link)\n",
         "            if not os.path.exists(link_name):\n",
         "                try: os.symlink(d, link_name)\n",
-        "                except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "                except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
         "                print(f'[OK] [LINKED] {link} -> {d}')\n"
     ]
 
@@ -191,6 +192,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        print('[WARNING] Dependency installation finished with non-zero exit code.')\n",
         "else:\n",
         "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
+        "    print('[REMEDY] Ensure \'requirements.txt\' exists in the root of the lemgendary-training-suite repository.')\n",
         "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
         "    print('[ACTION REQUIRED] Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
     ]
@@ -279,7 +281,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                        src_met = path\n",
         "                        break\n",
         "                if src_met: break\n",
-        "        except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "        except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
         "        \n",
         "    if src_met:\n",
         "        dst_met = os.path.join(model_hub_dir, 'metrics.csv')\n",
@@ -362,6 +364,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        print('[DONE] Deployment Complete.')\n",
         "    except Exception as e:\n",
         "        print(f'[ERROR] Deployment failed: {e}')\n",
+        "        print('[REMEDY] Ensure your Kaggle API key is correctly configured and the destination kernel slug is valid.')\n",
         "else: print(f'[WARNING] Local manifold not found at {local_path}')\n"
     ]
 
@@ -381,7 +384,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    if os.path.exists(yaml_path):\n",
         "        with open(yaml_path, 'r') as f: reg = yaml.safe_load(f)\n",
         "        reg_filename = reg.get(model_key, {}).get('filename', '')\n",
-        "except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
         "\n",
         "target_slugs = [model_key.lower().replace('_', ''), model_key.lower().replace('_', '-'), reg_filename.lower() if reg_filename else '']\n",
         "target_slugs = [s for s in target_slugs if s]\n",
@@ -447,7 +450,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                    shutil.copy2(m_path, os.path.join(model_hub_dir, 'metrics.csv'))\n",
         "                    print(f'[METRICS] Recovered metrics.csv from {os.path.basename(d)}')\n",
         "                    metrics_found = True; break\n",
-        "                except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "                except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
         "        if metrics_found: break\n",
         "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs manifold.')\n"
     ]
@@ -566,6 +569,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         print(f"[OK] Generated Training Notebook: {output_path}")
     except Exception as e:
         print(f"[ERROR] JSON Validation failed for {model_key}: {e}")
+        print("[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings.")
         return
 
     # 2. Dataset Manifold Synchronization
@@ -781,6 +785,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
         print(f"[OK] Generated Usage Notebook: {output_path}")
     except Exception as e:
         print(f"[ERROR] JSON Validation failed for {model_key} usage: {e}")
+        print("[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings.")
 
 
 def generate_colab_inference_notebook(model_key, export_dir, unified_models_registry=None, config=None):
@@ -827,15 +832,15 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    k_user = None\n",
         "    g_drive = None\n",
         "    try: g_pat = userdata.get('GITHUB_PAT')\n",
-        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "    except Exception: print('[REMEDY] Missing secret! You should create new secret named GITHUB_PAT with your GitHub Personal Access Token as value')\n",
         "    try: s_pat = userdata.get('SUITE_PAT')\n",
-        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "    except Exception: print('[REMEDY] Missing secret! You should create new secret named SUITE_PAT with your GitHub Personal Access Token as value')\n",
         "    try: k_key = userdata.get('KAGGLE_KEY')\n",
-        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "    except Exception: print('[REMEDY] Missing secret! You should create new secret named KAGGLE_KEY with your Kaggle API Token as value')\n",
         "    try: k_user = userdata.get('KAGGLE_USERNAME')\n",
-        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "    except Exception: print('[REMEDY] Missing secret! You should create new secret named KAGGLE_USERNAME with your Kaggle username as value')\n",
         "    try: g_drive = userdata.get('GOOGLE_DRIVE')\n",
-        "    except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "    except Exception: print('[REMEDY] Missing secret! You should create new secret named GOOGLE_DRIVE with your Google Drive token as value')\n",
         "    \n",
         "    if g_pat: _os.environ['GITHUB_PAT'] = g_pat\n",
         "    if s_pat: _os.environ['SUITE_PAT'] = s_pat\n",
@@ -889,6 +894,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "        print('[OK] Suite cloned.')\n",
         "    else: \n",
         "        print(f'[ERROR] Clone failed: {res.stderr.strip()}')\n",
+        "        print('[REMEDY] If a 403/401 occurs, ensure your SUITE_PAT or GITHUB_PAT has repo read permissions.')\n",
         "        if '403' in res.stderr or '401' in res.stderr or 'terminal prompts disabled' in res.stderr:\n",
         "            print('[ACTION REQUIRED] Add SUITE_PAT or GITHUB_PAT to Kaggle Add-ons -> Secrets with GitHub read permissions.')\n",
         "else:\n",
@@ -947,7 +953,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                                for sub in os.listdir(path):\n",
         "                                    sub_cand = os.path.join(path, sub)\n",
         "                                    if os.path.isdir(sub_cand) and is_valid_ds(sub_cand): found.append(sub_cand)\n",
-        "                            except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "                            except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
         "    except Exception:\n",
         "        pass\n",
         "\n",
@@ -959,7 +965,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "            link_name = os.path.join(target_dir, link)\n",
         "            if not os.path.exists(link_name):\n",
         "                try: os.symlink(d, link_name)\n",
-        "                except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "                except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
         "                print(f'[OK] [LINKED] {link} -> {d}')\n"
     ]
 
@@ -976,6 +982,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "        print('[WARNING] Dependency installation finished with non-zero exit code.')\n",
         "else:\n",
         "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
+        "    print('[REMEDY] Ensure \'requirements.txt\' exists in the root of the lemgendary-training-suite repository.')\n",
         "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
         "    print('[ACTION REQUIRED] Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
     ]
@@ -1064,7 +1071,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                        src_met = path\n",
         "                        break\n",
         "                if src_met: break\n",
-        "        except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "        except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
         "        \n",
         "    if src_met:\n",
         "        dst_met = os.path.join(model_hub_dir, 'metrics.csv')\n",
@@ -1150,6 +1157,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "        print('[DONE] Deployment Complete.')\n",
         "    except Exception as e:\n",
         "        print(f'[ERROR] Deployment failed: {e}')\n",
+        "        print('[REMEDY] Ensure your Kaggle API key is correctly configured and the destination kernel slug is valid.')\n",
         "else: print(f'[WARNING] Local manifold not found at {local_path}')\n"
     ]
 
@@ -1169,7 +1177,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    if os.path.exists(yaml_path):\n",
         "        with open(yaml_path, 'r') as f: reg = yaml.safe_load(f)\n",
         "        reg_filename = reg.get(model_key, {}).get('filename', '')\n",
-        "except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
         "\n",
         "target_slugs = [model_key.lower().replace('_', ''), model_key.lower().replace('_', '-'), reg_filename.lower() if reg_filename else '']\n",
         "target_slugs = [s for s in target_slugs if s]\n",
@@ -1235,7 +1243,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                    shutil.copy2(m_path, os.path.join(model_hub_dir, 'metrics.csv'))\n",
         "                    print(f'[METRICS] Recovered metrics.csv from {os.path.basename(d)}')\n",
         "                    metrics_found = True; break\n",
-        "                except Exception as e: print(f'[REMEDY] Caught exception in notebook logic: {e}')\n",
+        "                except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
         "        if metrics_found: break\n",
         "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs manifold.')\n"
     ]
@@ -1412,6 +1420,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         print(f"[OK] Generated Training Notebook: {output_path}")
     except Exception as e:
         print(f"[ERROR] JSON Validation failed for {model_key}: {e}")
+        print("[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings.")
         return
 
     # 2. Dataset Manifold Synchronization
@@ -1627,6 +1636,7 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
         print(f"[OK] Generated Usage Notebook: {output_path}")
     except Exception as e:
         print(f"[ERROR] JSON Validation failed for {model_key} usage: {e}")
+        print("[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings.")
 
 
 
@@ -1660,6 +1670,7 @@ if __name__ == "__main__":
             models_to_gen = [args.model]
         else:
             print(f"[ERROR] Model '{args.model}' not found in registry.")
+            print("[REMEDY] Verify the spelling of the model key in 'unified_models.yaml'.")
             sys.exit(1)
     else:
         parser.print_help()

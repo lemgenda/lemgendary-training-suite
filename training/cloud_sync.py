@@ -68,6 +68,7 @@ class CloudSyncManager:
             res = subprocess.run(['git'] + args, cwd=cwd or self.hub_root, capture_output=True, text=True)
             if res.returncode != 0:
                 print(f" [GIT ERROR] {self._mask_pat(res.stderr)}")
+                print("[REMEDY] Try running the git command manually to debug. Ensure you have network connectivity.")
                 return False
             return True
         except Exception as e:

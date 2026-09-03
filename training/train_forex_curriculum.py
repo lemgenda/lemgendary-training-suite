@@ -130,6 +130,7 @@ def main():
                 res = subprocess.run(cmd)
                 if res.returncode != 0:
                     print(f"\n[CRITICAL ERROR] Training aborted in Phase {p_id}, Fold {fold}. Orchestrator halted.")
+                    print("[REMEDY] Check telemetry logs for NaN loss or resource exhaustion. Try reducing the batch size or lowering the learning rate.")
                     sys.exit(res.returncode)
             except KeyboardInterrupt:
                 print("\n[INTERRUPT] Curriculum Orchestrator halted by user.")

@@ -176,6 +176,7 @@ def launch_kaggle_training(model_name: str, config: Optional[dict] = None, usern
         return True
     except Exception as e:
         print(f"[ERROR] [KAGGLE CLOUD] Push failed: {e}")
+        print("[REMEDY] Ensure your Kaggle API token is valid, has write permissions, and the Kaggle API is not experiencing downtime.")
         # Fallback to CLI
         try:
             print("[INFO] Attempting CLI push fallback...")
@@ -185,8 +186,10 @@ def launch_kaggle_training(model_name: str, config: Optional[dict] = None, usern
                 return True
             else:
                 print(f"[ERROR] CLI push failed: {res.stderr.strip()}")
+                print("[REMEDY] Try running 'kaggle kernels push' manually from the terminal to debug authentication or quota issues.")
         except Exception as cli_err:
             print(f"[ERROR] CLI fallback failed: {cli_err}")
+            print("[REMEDY] Try running 'kaggle kernels push' manually from the terminal to debug authentication or quota issues.")
         return False
 
 
@@ -220,6 +223,7 @@ def monitor_kaggle_training(model_name: str, username: Optional[str] = None, pol
 
     except Exception as e:
         print(f"[ERROR] [KAGGLE MONITOR] Monitoring stream encountered an error: {e}")
+        print("[REMEDY] Check your internet connection or Kaggle API rate limits. You can resume monitoring later.")
 
 
 def pull_kaggle_artifacts(model_name: str, destination_dir: Optional[str] = None, username: Optional[str] = None) -> bool:
@@ -261,6 +265,7 @@ def pull_kaggle_artifacts(model_name: str, destination_dir: Optional[str] = None
         return True
     except Exception as k_err:
         print(f"[ERROR] Artifact pull failed: {k_err}")
+        print("[REMEDY] Ensure the Kaggle kernel has successfully finished executing and actually generated output files before pulling.")
         return False
 
 

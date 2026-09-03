@@ -33,6 +33,7 @@ def safe_torch_save(obj, path):
             _, _, free = shutil.disk_usage(dir_name)
             if free / (1024**3) < 0.2: # Less than 200MB
                 print(f" [ERROR] [DISK SENTINEL] DISK FULL! Cannot save {os.path.basename(path)}. Aborting save to preserve manifold.", file=sys.stderr)
+                print(f" [REMEDY] Free up disk space on {os.path.dirname(path)} before resuming training to prevent checkpoint corruption.", file=sys.stderr)
                 return False
     except Exception as e:
         print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
@@ -45,6 +46,7 @@ def safe_torch_save(obj, path):
         return True
     except Exception as e:
         print(f" [ERROR] [DISK SENTINEL] Save failed for {os.path.basename(path)}: {e}", file=sys.stderr)
+        print(" [REMEDY] Check if you have write permissions in the checkpoints directory or if the disk is full.", file=sys.stderr)
         if os.path.exists(tmp_path):
             try: os.remove(tmp_path)
             except Exception as e:
