@@ -2511,7 +2511,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
             elif train_ds.task_type in ["restoration", "enhancement", "face"]:
                 import torch.nn.functional as _F_resize
-                import lpips
+                from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
                 try:
                     from torchmetrics.image.fid import FrechetInceptionDistance
                     if sota_targets.get('fid') is not None:
@@ -2521,7 +2521,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     FrechetInceptionDistance = None
 
                 # Initialize LPIPS directly. Do not suppress warnings or catch exceptions silently.
-                _base_vgg = lpips.LPIPS(net='vgg').eval().to(device)
+                _base_vgg = LearnedPerceptualImagePatchSimilarity(net_type='vgg').eval().to(device)
                 if torch.cuda.device_count() > 1:
                     loss_fn_vgg = torch.nn.DataParallel(_base_vgg)
                 else:
