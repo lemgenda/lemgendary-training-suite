@@ -3744,7 +3744,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     # so the Hub is always ready for production deployment.
                     try:
                         metrics_to_report = best_metrics if best_quality_score > -1.0 else {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
-                        trigger_sota_export(args, model, device, config, unified_models_registry, epoch, metrics_to_report, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root)
+                        trigger_sota_export(args, model, device, config, unified_models_registry, epoch, metrics_to_report, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root, skip_sync=True)
                     except Exception as e_exp:
                         print(f" [WARNING] [REAL-TIME EXPORT] Failed to generate production artifacts: {e_exp}", file=sys.stderr)
 
@@ -4085,7 +4085,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             print("=" * 80)
 
 
-def trigger_sota_export(args, model, device, config, unified_models_registry, epoch, best_metrics, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root):
+def trigger_sota_export(args, model, device, config, unified_models_registry, epoch, best_metrics, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root, skip_sync=False):
     """
     Standardized 2026 SOTA Export Suite.
     Handles ONNX conversion, PyTorch Unity synthesis, documentation, and Hub mirroring.
@@ -4175,7 +4175,7 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
                             
         # 7. Final Kaggle Cloud Sync
         # Ensure that ONNX, README, and Notebooks generated after the epoch loop are actually pushed to the Kaggle Model.
-        if args.env == 'kaggle':
+        if args.env == 'kaggle' and not skip_sync:
             try:
                 from training.cloud_sync import trigger_cloud_sync
                 final_epoch = epoch + 1 if 'epoch' in locals() else args.epochs

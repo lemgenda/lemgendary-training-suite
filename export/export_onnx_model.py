@@ -21,6 +21,9 @@ sys.path.insert(0, project_root)
 # Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
 sys.setrecursionlimit(2000)
 
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 def main():
     parser = argparse.ArgumentParser(description="LemGendary SOTA Exporter: Checkpoint to FP32/FP16 ONNX")
     parser.add_argument("--model", type=str, required=True, help="Model key from unified_models.yaml")

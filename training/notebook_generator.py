@@ -620,7 +620,8 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                             f.write(json_str)
                         print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
                     except Exception as ds_err:
-                        print(f"[NOTICE] Skipped dataset manifold notebook sync for {ds_output_path} (read-only or unavailable: {ds_err})")
+                        # Silently skip on read-only filesystems (e.g., Kaggle attached datasets)
+                        pass
 
 
 
@@ -1471,7 +1472,8 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
                             f.write(json_str)
                         print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
                     except Exception as ds_err:
-                        print(f"[NOTICE] Skipped dataset manifold notebook sync for {ds_output_path} (read-only or unavailable: {ds_err})")
+                        # Silently skip on read-only filesystems (e.g., Kaggle attached datasets)
+                        pass
 
 
 
