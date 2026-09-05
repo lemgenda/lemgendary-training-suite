@@ -3717,7 +3717,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     if hub_epoch > epoch:
                         print(f" [GUARD] [HUB LOCK] Hub has a HIGHER epoch ({hub_epoch+1}) than local session ({epoch+1}).", file=sys.stderr)
                         print(f" [GUARD] [HUB LOCK] Skipping Hub push for this epoch to prevent clobbering. Continuing training...", file=sys.stderr)
-                        # We still update local progress, but skip the Hub push
+                        # We still update local progress, but skip the Hub push.
+                        # Refresh governor_state from live governor to capture any in-epoch fraction expansion.
+                        ckpt_state['governor_state'] = governor.get_state()
                         safe_torch_save(ckpt_state, progress_local)
                         skip_hub_push = True
                 except Exception as e:
