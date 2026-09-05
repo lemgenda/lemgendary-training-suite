@@ -46,8 +46,8 @@ onnxconverter-common>=1.14.0
 onnxscript>=0.1.0
 
 # --- Data Acquisition ---
-kaggle
-kagglehub
+kaggle>=2.2.4
+kagglehub>=1.0.2
 gdown>=5.1.0
 albumentations
 websockets
