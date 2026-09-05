@@ -3940,6 +3940,26 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 _vw = min(_workers, 2)
                 val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_vw, persistent_workers=(_vw > 0), pin_memory=True if device.type=='cuda' else False)
                 if device.type == 'cuda': torch.cuda.empty_cache()
+
+                # --- 2026: SOTA Fraction Persistence Fix ---
+                # The fraction expansion fires AFTER _latest.pth and _best.pth are written this epoch.
+                # Without this patch, the saved checkpoints always contain the PRE-expansion fraction,
+                # so any crash or session expiry causes an invisible rollback (e.g. 90% -> 75%).
+                # We flush the updated governor state back into ckpt_state and overwrite both files.
+                governor.current_batch = batch_size
+                governor.current_acc = accumulation_steps
+                ckpt_state['governor_state'] = governor.get_state()
+                ckpt_state['loader_len'] = len(train_loader)
+                try:
+                    latest_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
+                    safe_torch_save(ckpt_state, latest_hub_path)
+                    if is_best:
+                        best_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
+                        if os.path.abspath(latest_hub_path) != os.path.abspath(best_hub_path):
+                            shutil.copy2(latest_hub_path, best_hub_path)
+                    print(f" -> [SOTA GUARD] Fraction expansion persisted to checkpoints: {next_frac*100:.0f}%")
+                except Exception as frac_persist_err:
+                    print(f" [WARNING] [SOTA GUARD] Failed to persist expanded fraction to checkpoint: {frac_persist_err}")
             elif not is_max_res:
                 # 2026: Governor Audit (Now returns 8 values including early_stop)
                 f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, early_stop_triggered, smart_msg = governor.audit_epoch(
