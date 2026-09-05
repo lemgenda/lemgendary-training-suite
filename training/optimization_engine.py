@@ -695,7 +695,7 @@ class SmartTrainingGovernor:
                 not is_proven_manifold
             )
 
-            if can_spatial_retreat:
+            if can_spatial_retreat and self.current_res in self.res_ladder:
                 # If we fail shortly after a jump AND the resolution never proved high quality,
                 # retreat to previous resolution at 100% data anchor.
                 res_idx = self.res_ladder.index(self.current_res)
@@ -743,7 +743,7 @@ class SmartTrainingGovernor:
         # 2026: Dynamic Stride Thresholds (Foundation vs Refinement)
         # 2026 v15.10: Propulsion is BLOCKED during cooldown/recoil to prevent
         # data fraction ramps while the model is supposed to be stabilizing.
-        stride_threshold = 0.75 if self.current_res < 512 else 0.90
+        stride_threshold = 0.75 if (self.current_res is not None and self.current_res < 512) else 0.90
         # Scale threshold to match the task's score range.
         if self.target_quality_score > 1.0:
             stride_threshold = stride_threshold * self.target_quality_score
@@ -818,8 +818,8 @@ class SmartTrainingGovernor:
                     msg_parts.append(f"PROPULSION: Data -> {self.current_fraction*100:.0f}%")
                     self.stabilization_epochs = 1
                     self.best_quality = current_quality
-            elif phase == "DEEPENING":
-                current_idx = self.res_ladder.index(self.current_res)
+            elif phase == "DEEPENING" and self.current_res is not None and self.current_res in self.res_ladder:
+                current_idx = self.res_ladder.index(int(self.current_res))
                 next_res = self.res_ladder[current_idx + 1]
                 
                 # SOTA Validation Check before spatial jump
@@ -977,7 +977,7 @@ class SmartTrainingGovernor:
             self.current_res = raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res
             
             # --- 2026 Resilience: Dynamic Resolution Ladder Sync ---
-            if self.current_res not in self.res_ladder:
+            if self.current_res is not None and self.current_res not in self.res_ladder:
                 self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
         else:
             # We are rolling back; extract the SOTA resolution at which the best checkpoint was saved

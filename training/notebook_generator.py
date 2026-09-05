@@ -19,6 +19,17 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                 dataset_slug = url.split("/")[-1]
                 break
 
+    model_info = unified_models_registry.get(model_key, {}) if unified_models_registry else {}
+    ds_raw = model_info.get("datasets", []) or model_info.get("dataset", [])
+    if isinstance(ds_raw, str):
+        ds_list = [ds_raw]
+    elif isinstance(ds_raw, (list, tuple)):
+        ds_list = list(ds_raw)
+    else:
+        ds_list = []
+    is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
+    ds_keys_repr = repr([model_key.lower(), model_key.replace("_", "-"), model_key.replace("_", "")] + [d.lower() for d in ds_list] + (["forex"] if is_forex else []))
+
     # --- Section Logic: v16.0 Nuclear Orchestration ---
     
     hardware_sentinel_source = [
@@ -115,7 +126,16 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "else:\n",
         "    print('[OK] Suite resident. Syncing origin and pulling latest...')\n",
         "    subprocess.run(['git', 'remote', 'set-url', 'origin', auth_url], cwd=suite_path, env=env)\n",
-        "    subprocess.run(['git', 'pull'], cwd=suite_path, env=env)\n"
+        "    subprocess.run(['git', 'pull'], cwd=suite_path, env=env)\n",
+        "\n",
+        "# Clone LemGendary Environment Manager for centralized manifests\n",
+        "env_mgr_url = 'https://github.com/lemgenda/lemgendary-env-manager.git'\n",
+        "env_mgr_path = '/kaggle/working/lemgendary-env-manager'\n",
+        "env_mgr_auth = env_mgr_url.replace('https://', f'https://x-access-token:{pat}@') if pat else env_mgr_url\n",
+        "if not os.path.exists(env_mgr_path):\n",
+        "    subprocess.run(['git', 'clone', '--depth', '1', env_mgr_auth, env_mgr_path], capture_output=True, text=True, env=env)\n",
+        "else:\n",
+        "    subprocess.run(['git', 'pull'], cwd=env_mgr_path, env=env, capture_output=True)\n"
     ]
 
     symlink_source = [
@@ -126,7 +146,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "\n",
         "print(f'[DATA] Resolving manifolds for {model_key}...')\n",
         "found = []\n",
-        "keys = [model_key.lower(), model_key.replace(\"_\", \"-\"), model_key.replace(\"_\", \"\")]\n",
+        f"keys = {ds_keys_repr}\n",
         "\n",
         "# 1. Restricted BFS Scanner (max depth 4, directories only) to bypass FUSE latency\n",
         "if os.path.exists('/kaggle/input'):\n",
@@ -143,25 +163,23 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                    item_lower = item.lower()\n",
         "                    # Prune models/checkpoints to prevent wasting time scanning weights\n",
         "                    # 2026 Resilience: Aggressive FUSE Pruning - NEVER enter raw image/target dirs to prevent OOM stat storms\n",
-        "                    if item_lower in ['models', 'checkpoints', 'weights', 'images', 'targets', 'labels', 'masks', 'train', 'val', 'test', 'eval']:\n",
+        "                    if item_lower in ['models', 'checkpoints', 'weights']:\n",
         "                        continue\n",
         "                    depths[path] = depth + 1\n",
         "                    queue.append(path)\n",
         "                    \n",
         "                    is_match = any(k in item_lower for k in keys) or 'lemgendary' in item_lower or 'datasets' in item_lower\n",
         "                    if is_match:\n",
-        "                        # Check direct images or targets\n",
-        "                        if os.path.exists(os.path.join(path, 'images')) or os.path.exists(os.path.join(path, 'targets')):\n",
-        "                            found.append(path)\n",
+        "                        def is_valid_ds(p):\n",
+        "                            try: return os.path.exists(os.path.join(p, 'images')) or os.path.exists(os.path.join(p, 'targets')) or os.path.exists(os.path.join(p, 'forex')) or 'forex' in os.path.basename(p).lower() or any(f.endswith('.csv') or f.endswith('.json') or f.endswith('.parquet') or f.endswith('.npy') for f in os.listdir(p))\n",
+        "                            except: return False\n",
+        "                        if is_valid_ds(path): found.append(path)\n",
         "                        else:\n",
-        "                            # Check nested images or targets (1 level deeper)\n",
         "                            try:\n",
         "                                for sub in os.listdir(path):\n",
         "                                    sub_cand = os.path.join(path, sub)\n",
-        "                                    if os.path.isdir(sub_cand) and (os.path.exists(os.path.join(sub_cand, 'images')) or os.path.exists(os.path.join(sub_cand, 'targets'))):\n",
-        "                                        found.append(sub_cand)\n",
-        "                            except:\n",
-        "                                pass\n",
+        "                                    if os.path.isdir(sub_cand) and is_valid_ds(sub_cand): found.append(sub_cand)\n",
+        "                            except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
         "    except Exception:\n",
         "        pass\n",
         "\n",
@@ -180,24 +198,74 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     ]
 
     install_source = [
-        "import os, sys, subprocess, shutil\n",
-        "print('[ENV] Installing Nuclear Dependencies...')\n",
-        "suite_candidates = ['/kaggle/working/lemgendary-training-suite', '/kaggle/working/model-training/lemgendary-training-suite', '/kaggle/working']\n",
-        "req_path = next((os.path.join(p, 'requirements.txt') for p in suite_candidates if os.path.exists(os.path.join(p, 'requirements.txt'))), None)\n",
+        "import os, sys, subprocess, platform, shutil\n",
+        "print('[ENV] Probing hardware accelerator...')\n",
+        "\n",
+        "# Full hardware detection: CUDA > ROCm > DirectML > CPU\n",
+        "torch_index = 'https://download.pytorch.org/whl/cpu'\n",
+        "accel_type = 'cpu'\n",
+        "if shutil.which('nvidia-smi'):\n",
+        "    torch_index = 'https://download.pytorch.org/whl/cu121'\n",
+        "    accel_type = 'cuda_cu121'\n",
+        "elif shutil.which('rocm-smi'):\n",
+        "    torch_index = 'https://download.pytorch.org/whl/rocm6.1'\n",
+        "    accel_type = 'rocm6.1'\n",
+        "else:\n",
+        "    try:\n",
+        "        import torch\n",
+        "        if torch.cuda.is_available():\n",
+        "            v = torch.version.cuda or ''\n",
+        "            parts = v.split('.')[:2]\n",
+        "            cuda_tag = 'cu' + ''.join(parts)\n",
+        "            torch_index = f'https://download.pytorch.org/whl/{cuda_tag}'\n",
+        "            accel_type = f'cuda_{cuda_tag}'\n",
+        "        elif hasattr(torch, 'version') and hasattr(torch.version, 'hip') and torch.version.hip:\n",
+        "            v = torch.version.hip or ''\n",
+        "            parts = v.split('.')[:2]\n",
+        "            rocm_tag = 'rocm' + '.'.join(parts)\n",
+        "            torch_index = f'https://download.pytorch.org/whl/{rocm_tag}'\n",
+        "            accel_type = f'rocm_{rocm_tag}'\n",
+        "    except ImportError:\n",
+        "        pass\n",
+        "\n",
+        "if accel_type == 'cpu' and platform.system() == 'Windows':\n",
+        "    torch_index = 'https://download.pytorch.org/whl/cpu'\n",
+        "    accel_type = 'directml'\n",
+        "\n",
+        "print(f'[ENV] Accelerator: {accel_type}')\n",
+        "print(f'[ENV] PyTorch index: {torch_index}')\n",
+        "\n",
+        "# Prefer centralized manifest from env-manager; fall back to cloned suite\n",
+        "req_candidates = [\n",
+        "    '/kaggle/working/lemgendary-env-manager/requirements/requirements-training.txt',\n",
+        "    '/kaggle/working/lemgendary-env-manager/requirements/lemgendary-training-suite.requirements.txt',\n",
+        "    '/kaggle/working/lemgendary-training-suite/requirements.txt',\n",
+        "    '/kaggle/working/model-training/lemgendary-training-suite/requirements.txt',\n",
+        "]\n",
+        "req_path = next((p for p in req_candidates if os.path.exists(p)), None)\n",
+        "\n",
         "if req_path:\n",
-        "    extra_idx = []\n",
-        "    if shutil.which('nvidia-smi'):\n",
-        "        print('[ENV] NVIDIA Accelerator Detected. Binding PyTorch CUDA index.')\n",
-        "        extra_idx = ['--extra-index-url', 'https://download.pytorch.org/whl/cu121']\n",
-        "    elif shutil.which('rocm-smi'):\n",
-        "        print('[ENV] AMD ROCm Accelerator Detected. Binding PyTorch ROCm index.')\n",
-        "        extra_idx = ['--extra-index-url', 'https://download.pytorch.org/whl/rocm6.0']\n",
-        "    cmd = [sys.executable, '-m', 'pip', 'install', '-q', '--no-warn-conflicts', '--upgrade-strategy', 'only-if-needed', '-r', req_path] + extra_idx\n",
-        "    res = subprocess.run(cmd)\n",
+        "    print(f'[ENV] Manifest: {req_path}')\n",
+        "    res = subprocess.run([\n",
+        "        sys.executable, '-m', 'pip', 'install', '-q',\n",
+        "        '--extra-index-url', torch_index,\n",
+        "        '--no-warn-conflicts',\n",
+        "        '--upgrade-strategy', 'only-if-needed',\n",
+        "        '-r', req_path,\n",
+        "    ], capture_output=True, text=True)\n",
         "    if res.returncode == 0:\n",
         "        print('[OK] Environment Ready.')\n",
+        "        try:\n",
+        "            import importlib; importlib.invalidate_caches()\n",
+        "            import torch as _t\n",
+        "            dev = 'CUDA ' + _t.version.cuda if _t.cuda.is_available() else 'CPU'\n",
+        "            print(f'[OK] torch {_t.__version__} on {dev}')\n",
+        "        except Exception:\n",
+        "            pass\n",
         "    else:\n",
         "        print('[WARNING] Dependency installation finished with non-zero exit code.')\n",
+        "        if res.stderr:\n",
+        "            print(res.stderr[-2000:])\n",
         "else:\n",
         "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
         "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the repository.\")\n",
@@ -334,8 +402,8 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "except Exception:\n",
         "    pass\n",
         "\n",
-        "print(f'[LAUNCH] [NUCLEAR] Initiating Training Matrix for {model_key}...')\n",
-        "cmd = [sys.executable, '-u', 'training/train.py', '--model', f'{model_key}', '--env', 'kaggle', '--auto_sync']\n",
+        f"print(f'[LAUNCH] [NUCLEAR] Initiating {'Forex Curriculum Orchestrator' if is_forex else 'Training Matrix'} for {model_key}...')\n",
+        ("cmd = [sys.executable, '-u', '-m', 'training.train_forex_curriculum']\n" if is_forex else "cmd = [sys.executable, '-u', 'training/train.py', '--model', f'{model_key}', '--env', 'kaggle', '--auto_sync']\n"),
         "p = subprocess.Popen(cmd)\n",
         "try:\n",
         "    p.wait()\n",
@@ -812,6 +880,17 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
                 dataset_slug = url.split("/")[-1]
                 break
 
+    model_info = unified_models_registry.get(model_key, {}) if unified_models_registry else {}
+    ds_raw = model_info.get("datasets", []) or model_info.get("dataset", [])
+    if isinstance(ds_raw, str):
+        ds_list = [ds_raw]
+    elif isinstance(ds_raw, (list, tuple)):
+        ds_list = list(ds_raw)
+    else:
+        ds_list = []
+    is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
+    colab_ds_keys_repr = repr([model_key.lower(), model_key.replace("_", "-"), model_key.replace("_", "")] + [d.lower() for d in ds_list] + (["forex"] if is_forex else []))
+
     # --- Section Logic: v16.0 Nuclear Orchestration ---
     
     hardware_sentinel_source = [
@@ -909,7 +988,16 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "else:\n",
         "    print('[OK] Suite resident. Syncing origin and pulling latest...')\n",
         "    subprocess.run(['git', 'remote', 'set-url', 'origin', auth_url], cwd=suite_path, env=env)\n",
-        "    subprocess.run(['git', 'pull'], cwd=suite_path, env=env)\n"
+        "    subprocess.run(['git', 'pull'], cwd=suite_path, env=env)\n",
+        "\n",
+        "# Clone LemGendary Environment Manager for centralized manifests\n",
+        "env_mgr_url = 'https://github.com/lemgenda/lemgendary-env-manager.git'\n",
+        "env_mgr_path = '/content/lemgendary-env-manager'\n",
+        "env_mgr_auth = env_mgr_url.replace('https://', f'https://x-access-token:{pat}@') if pat else env_mgr_url\n",
+        "if not os.path.exists(env_mgr_path):\n",
+        "    subprocess.run(['git', 'clone', '--depth', '1', env_mgr_auth, env_mgr_path], capture_output=True, text=True, env=env)\n",
+        "else:\n",
+        "    subprocess.run(['git', 'pull'], cwd=env_mgr_path, env=env, capture_output=True)\n"
     ]
 
     fuse_mount_source = [
@@ -927,7 +1015,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "\n",
         "print(f'[DATA] Resolving manifolds for {model_key}...')\n",
         "found = []\n",
-        "keys = [model_key.lower(), model_key.replace(\"_\", \"-\"), model_key.replace(\"_\", \"\")]\n",
+        f"keys = {colab_ds_keys_repr}\n",
         "\n",
         "# 1. Restricted BFS Scanner (max depth 4, directories only) to bypass FUSE latency\n",
         "if True:\n",
@@ -979,19 +1067,73 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
     ]
 
     install_source = [
-        "import os, sys, subprocess\n",
-        "print('[ENV] Installing Nuclear Dependencies...')\n",
-        "suite_candidates = ['/content/lemgendary-training-suite', '/content/model-training/lemgendary-training-suite', '/content']\n",
-        "req_path = next((os.path.join(p, 'requirements.txt') for p in suite_candidates if os.path.exists(os.path.join(p, 'requirements.txt'))), None)\n",
+        "import os, sys, subprocess, platform, shutil\n",
+        "print('[ENV] Probing hardware accelerator...')\n",
+        "\n",
+        "# Full hardware detection: CUDA > ROCm > DirectML > CPU\n",
+        "torch_index = 'https://download.pytorch.org/whl/cpu'\n",
+        "accel_type = 'cpu'\n",
+        "if shutil.which('nvidia-smi'):\n",
+        "    torch_index = 'https://download.pytorch.org/whl/cu121'\n",
+        "    accel_type = 'cuda_cu121'\n",
+        "elif shutil.which('rocm-smi'):\n",
+        "    torch_index = 'https://download.pytorch.org/whl/rocm6.1'\n",
+        "    accel_type = 'rocm6.1'\n",
+        "else:\n",
+        "    try:\n",
+        "        import torch\n",
+        "        if torch.cuda.is_available():\n",
+        "            v = torch.version.cuda or ''\n",
+        "            parts = v.split('.')[:2]\n",
+        "            cuda_tag = 'cu' + ''.join(parts)\n",
+        "            torch_index = f'https://download.pytorch.org/whl/{cuda_tag}'\n",
+        "            accel_type = f'cuda_{cuda_tag}'\n",
+        "        elif hasattr(torch, 'version') and hasattr(torch.version, 'hip') and torch.version.hip:\n",
+        "            v = torch.version.hip or ''\n",
+        "            parts = v.split('.')[:2]\n",
+        "            rocm_tag = 'rocm' + '.'.join(parts)\n",
+        "            torch_index = f'https://download.pytorch.org/whl/{rocm_tag}'\n",
+        "            accel_type = f'rocm_{rocm_tag}'\n",
+        "    except ImportError:\n",
+        "        pass\n",
+        "\n",
+        "print(f'[ENV] Accelerator: {accel_type}')\n",
+        "print(f'[ENV] PyTorch index: {torch_index}')\n",
+        "\n",
+        "# Prefer centralized manifest from env-manager; fall back to cloned suite\n",
+        "req_candidates = [\n",
+        "    '/content/lemgendary-env-manager/requirements/requirements-training.txt',\n",
+        "    '/content/lemgendary-env-manager/requirements/lemgendary-training-suite.requirements.txt',\n",
+        "    '/content/lemgendary-training-suite/requirements.txt',\n",
+        "    '/content/model-training/lemgendary-training-suite/requirements.txt',\n",
+        "]\n",
+        "req_path = next((p for p in req_candidates if os.path.exists(p)), None)\n",
+        "\n",
         "if req_path:\n",
-        "    res = subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--no-warn-conflicts', '--upgrade-strategy', 'only-if-needed', '-r', req_path])\n",
+        "    print(f'[ENV] Manifest: {req_path}')\n",
+        "    res = subprocess.run([\n",
+        "        sys.executable, '-m', 'pip', 'install', '-q',\n",
+        "        '--extra-index-url', torch_index,\n",
+        "        '--no-warn-conflicts',\n",
+        "        '--upgrade-strategy', 'only-if-needed',\n",
+        "        '-r', req_path,\n",
+        "    ], capture_output=True, text=True)\n",
         "    if res.returncode == 0:\n",
         "        print('[OK] Environment Ready.')\n",
+        "        try:\n",
+        "            import importlib; importlib.invalidate_caches()\n",
+        "            import torch as _t\n",
+        "            dev = 'CUDA ' + _t.version.cuda if _t.cuda.is_available() else 'CPU'\n",
+        "            print(f'[OK] torch {_t.__version__} on {dev}')\n",
+        "        except Exception:\n",
+        "            pass\n",
         "    else:\n",
         "        print('[WARNING] Dependency installation finished with non-zero exit code.')\n",
+        "        if res.stderr:\n",
+        "            print(res.stderr[-2000:])\n",
         "else:\n",
         "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
-        "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the lemgendary-training-suite repository.\")\n",
+        "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the repository.\")\n",
         "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
         "    print('[ACTION REQUIRED] Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
     ]
@@ -1125,8 +1267,8 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "except Exception:\n",
         "    pass\n",
         "\n",
-        "print(f'[LAUNCH] [NUCLEAR] Initiating Training Matrix for {model_key}...')\n",
-        "cmd = [sys.executable, '-u', 'training/train.py', '--model', f'{model_key}', '--env', 'colab', '--auto_sync']\n",
+        f"print(f'[LAUNCH] [NUCLEAR] Initiating {'Forex Curriculum Orchestrator' if is_forex else 'Training Matrix'} for {model_key}...')\n",
+        ("cmd = [sys.executable, '-u', '-m', 'training.train_forex_curriculum']\n" if is_forex else "cmd = [sys.executable, '-u', 'training/train.py', '--model', f'{model_key}', '--env', 'colab', '--auto_sync']\n"),
         "p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n",
         "try:\n",
         "    import io\n",

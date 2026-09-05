@@ -1,7 +1,5 @@
-# LemGendary AI Training Suite - 2026 SOTA Stack
-# Python 3.12+ / PyTorch 2.4.0+
-
-# --- Core Engine ---
+# LemGendary AI Training Suite - Centralized Requirements Manifest
+--extra-index-url https://download.pytorch.org/whl/cu121
 torch>=2.4.0
 torchvision>=0.19.0
 torchaudio>=2.4.0
@@ -19,8 +17,6 @@ matplotlib>=3.8.0
 einops>=0.7.0
 timm>=0.9.0
 requests
-
-# --- SOTA Generative & Multimodal (Phase 4 & 5) ---
 diffusers>=0.30.0
 transformers>=4.44.0
 accelerate>=0.33.0
@@ -28,32 +24,19 @@ peft>=0.12.0
 bitsandbytes>=0.43.0
 sentencepiece>=0.2.0
 huggingface-hub>=0.24.0
-
-# --- Detection & Safety (Phase 1 & 2) ---
 ultralytics>=8.2.0
 pycocotools>=2.0.7
 torch-fidelity>=0.3.0
-
-# --- Deployment & Export ---
-# Platform-Agnostic GPU Acceleration
-# Linux (Kaggle): NVIDIA CUDA
 onnxruntime-gpu>=1.19.0; sys_platform == 'linux' or sys_platform == 'linux2'
-# Windows (Local): DirectML natively supports AMD, Intel, and NVIDIA GPUs
 onnxruntime-directml>=1.19.0; sys_platform == 'win32'
 onnx>=1.16.0
 onnxsim>=0.4.36
 onnxconverter-common>=1.14.0
 onnxscript>=0.1.0
-
-# --- Data Acquisition ---
 kaggle>=2.2.4
 kagglehub>=1.0.2
 gdown>=5.1.0
 albumentations
 websockets
-
-# --- Forex Trading (MT5 Pipeline) ---
-# MetaTrader5 Python API (Windows only — requires MT5 terminal installed)
 MetaTrader5>=5.0.45; sys_platform == 'win32'
-# Technical indicators (used by mt5_pipeline.py; falls back to manual NumPy if absent)
 pandas-ta>=0.3.14b

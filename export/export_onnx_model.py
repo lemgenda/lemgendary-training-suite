@@ -103,20 +103,24 @@ def main():
     os.makedirs(production_dir, exist_ok=True)
 
     if model_info.get("dataset_type") == "forex" or "forex" in args.model.lower():
-        from export.mt5_signal import export_onnx
-        ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_best.pth")
-        if not os.path.exists(ckpt_path):
-            ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_latest.pth")
-        if not os.path.exists(ckpt_path):
-            ckpt_path = os.path.normpath(os.path.join(project_root, "checkpoints", f"{args.model}_best.pth"))
-        out_onnx = os.path.join(production_dir, f"{base_name}.onnx")
-        if os.path.exists(ckpt_path):
-            active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
-            export_onnx(ckpt_path, out_onnx, active_timeframes=active_tfs)
-        else:
-            print(f" [WARNING] [EXPORT] No checkpoint found for {args.model} at {ckpt_path}.")
+        try:
+            from export.mt5_signal import export_onnx
+            ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_best.pth")
+            if not os.path.exists(ckpt_path):
+                ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_latest.pth")
+            if not os.path.exists(ckpt_path):
+                ckpt_path = os.path.normpath(os.path.join(project_root, "checkpoints", f"{args.model}_best.pth"))
+            out_onnx = os.path.join(production_dir, f"{base_name}.onnx")
+            if os.path.exists(ckpt_path):
+                active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
+                export_onnx(ckpt_path, out_onnx, active_timeframes=active_tfs)
+                sys.exit(0)
+            else:
+                print(f" [WARNING] [EXPORT] No checkpoint found for {args.model} at {ckpt_path}.")
+                sys.exit(1)
+        except Exception as e:
+            print(f" [ERROR] [EXPORT] Forex ONNX export failed: {e}")
             sys.exit(1)
-        sys.exit(0)
 
     size_raw = model_info.get("input_size", config.get("default_img_size", 256))
     if size_raw is None:

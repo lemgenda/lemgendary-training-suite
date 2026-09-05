@@ -1166,7 +1166,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     # 2026 Guardrail: Clamp restored resolution against new YAML config constraints
                     res_ladder = model_info.get("optimization", {}).get("res_ladder", [res_size])
                     max_allowed_res = res_ladder[-1] if res_ladder else res_size
-                    if res_size > max_allowed_res:
+                    if res_size is not None and max_allowed_res is not None and res_size > max_allowed_res:
                         print(f" [GUARD] Restored resolution ({res_size}px) exceeds current YAML ladder limit ({max_allowed_res}px). Clamping to {max_allowed_res}px.")
                         res_size = max_allowed_res
                         g_start_state['input_size'] = res_size
@@ -2616,7 +2616,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 fidelity_thresh = opt_config.get("high_fidelity_fraction", 0.7)
 
                 is_max_res = False
-                if hasattr(governor, 'res_ladder') and governor.res_ladder:
+                if hasattr(governor, 'res_ladder') and governor.res_ladder and getattr(governor, 'current_res', None) is not None:
                     is_max_res = governor.current_res >= max(governor.res_ladder)
                 else:
                     is_max_res = True
@@ -3908,7 +3908,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         # --- 2026: Ladder-Aware SOTA Guard (v18.0) ---
         is_max_res = False
         try:
-            if hasattr(governor, 'res_ladder') and governor.res_ladder:
+            if hasattr(governor, 'res_ladder') and governor.res_ladder and getattr(governor, 'current_res', None) is not None:
                 is_max_res = governor.current_res >= max(governor.res_ladder)
             else:
                 is_max_res = True # Default to true if no ladder exists

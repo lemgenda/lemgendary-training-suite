@@ -1,4 +1,5 @@
 import os
+import sys
 import yaml # pyre-ignore
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 9942]
@@ -286,3 +287,59 @@ def build_dataset_readme(dataset_name, dataset_path):
                 
     save_readme(readme_path, new_content)
     return True
+
+
+if __name__ == "__main__":
+    import argparse
+    import csv
+
+    parser = argparse.ArgumentParser(description="LemGendary Model Documentation Generator")
+    parser.add_argument("--all", action="store_true", help="Regenerate READMEs for all registered models")
+    parser.add_argument("--model", type=str, help="Regenerate README for a specific model key")
+    args = parser.parse_args()
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    yaml_path = os.path.join(base_dir, "unified_models_v2.yaml")
+    hub_dir = os.path.abspath(os.path.join(base_dir, "..", "LemGendaryModels"))
+
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        unified_models = yaml.safe_load(f)
+
+    models_to_process = []
+    if args.all:
+        models_to_process = [k for k in unified_models.keys() if k != "_registry_metadata"]
+    elif args.model:
+        if args.model in unified_models:
+            models_to_process = [args.model]
+        else:
+            print(f"[ERROR] Model '{args.model}' not found in unified_models_v2.yaml.")
+            sys.exit(1)
+    else:
+        parser.print_help()
+        sys.exit(0)
+
+    for m_key in models_to_process:
+        m_dir = os.path.join(hub_dir, m_key)
+        os.makedirs(m_dir, exist_ok=True)
+        m_readme_path = os.path.join(m_dir, "README.md")
+        m_csv = os.path.join(m_dir, "metrics.csv")
+
+        epochs_trained = 0
+        metrics = {}
+        if os.path.exists(m_csv):
+            try:
+                with open(m_csv, "r", encoding="utf-8") as cf:
+                    reader = list(csv.DictReader(cf))
+                    if reader:
+                        epochs_trained = len(reader)
+                        metrics = reader[-1]
+            except Exception:
+                pass
+
+        content = build_model_readme(m_key, unified_models, epochs_trained, metrics)
+        save_readme(m_readme_path, content)
+        print(f"[OK] Generated Model README: {m_readme_path}")
+
+    from training.hub_readme_generator import generate_hub_readme
+    generate_hub_readme(base_dir)
+    print("\n[SUCCESS] Model README Matrix Synchronized.")

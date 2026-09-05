@@ -1,3 +1,4 @@
+# pylint: disable=no-member,too-few-public-methods,too-many-return-statements
 import os
 import multiprocessing
 import math
@@ -129,6 +130,28 @@ def apply_film_degradation(img_tensor):
     img_np = np.clip(img_np, 0.0, 1.0)
     return torch.from_numpy(img_np).permute(2, 0, 1).float()
 
+def synthesize_degradation(target_img):
+    """Synthesize degradation (blur, noise, JPEG compression, median filtering)."""
+    degraded = target_img.copy()
+    r = random.random()
+    if r < 0.25:
+        degraded = degraded.filter(ImageFilter.GaussianBlur(radius=random.uniform(1.0, 3.0)))
+    elif r < 0.50:
+        degraded = degraded.filter(ImageFilter.MedianFilter(size=random.choice([3, 5])))
+    elif r < 0.75:
+        buf = io.BytesIO()
+        if degraded.mode != "RGB":
+            degraded = degraded.convert("RGB")
+        degraded.save(buf, format="JPEG", quality=random.randint(20, 60))
+        buf.seek(0)
+        degraded = Image.open(buf)
+    else:
+        arr = np.array(degraded, dtype=np.float32)
+        noise = np.random.normal(0, random.uniform(5.0, 20.0), arr.shape)
+        arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
+        degraded = Image.fromarray(arr)
+    return degraded
+
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1152]
 
 class MultiTaskDataset(Dataset):
@@ -230,18 +253,34 @@ class MultiTaskDataset(Dataset):
                 print("  -> Error listing /kaggle/input:", e)
 
         raw_dataset_names = self.model_info.get("datasets", [])
+        if isinstance(raw_dataset_names, str):
+            raw_dataset_names = [raw_dataset_names]
+        elif not isinstance(raw_dataset_names, list):
+            raw_dataset_names = []
+        if not raw_dataset_names:
+            raw_dataset_names = [self.model_key]
+
         suffix = "KaggleReady" if self.env == 'kaggle' else config.get("execution", {}).get("suffixes", {}).get(config.get("execution", {}).get("mode", "training"), "")
         # 2026 Resilience: Support 'LemGendized' prefix automatically and guard against double-suffixing
         dataset_names = []
         for name in raw_dataset_names:
+            dataset_names.append(name)
             ds_entry = name if (suffix and name.endswith(suffix)) else f"{name}{suffix}"
-            dataset_names.append(ds_entry)
-            if not ds_entry.lower().startswith("lemgendized"):
-                dataset_names.append(f"LemGendized{ds_entry}")
+            if ds_entry not in dataset_names:
+                dataset_names.append(ds_entry)
+            if not name.lower().startswith("lemgendized"):
+                lem_name = f"LemGendized{name}"
+                if lem_name not in dataset_names:
+                    dataset_names.append(lem_name)
+                lem_entry = f"LemGendized{ds_entry}"
+                if lem_entry not in dataset_names:
+                    dataset_names.append(lem_entry)
         
+        loaded_paths = set()
         for ds_name in dataset_names:
             ds_path = self.get_dataset_path(ds_name)
-            if ds_path is None: continue
+            if ds_path is None or ds_path in loaded_paths: continue
+            loaded_paths.add(ds_path)
             self.path_cache[ds_name] = ds_path
             # 2026: Parameter prediction loads from targets/ (clean source images)
             tgt_dir = None
@@ -348,7 +387,22 @@ class MultiTaskDataset(Dataset):
                 import sys; sys.exit(1)
                 
         elif self.env == 'kaggle':
-            target = ds_name.lower().replace("-", "").replace("_", "")
+            # Priority 1: Check symlinked data_root (/kaggle/working/LemGendaryDatasets)
+            if hasattr(self, 'data_root') and os.path.exists(self.data_root):
+                cand = os.path.join(self.data_root, ds_name)
+                if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')):
+                    return cand
+                try:
+                    for item in os.listdir(self.data_root):
+                        if item.lower() == ds_name.lower():
+                            cand = os.path.join(self.data_root, item)
+                            if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')):
+                                return cand
+                except Exception:
+                    pass
+
+            # Priority 2: Direct lookup in /kaggle/input
+            target = ds_name.lower().replace("-", "").replace("_", "").replace("lemgendized", "").replace("lemgendary", "")
             for suffix in ["kaggleready", "large", "mini"]:
                 target = target.replace(suffix, "")
             
@@ -368,8 +422,8 @@ class MultiTaskDataset(Dataset):
                             if os.path.isdir(path):
                                 depths[path] = depth + 1
                                 queue.append(path)
-                                name_lower = item.lower().replace("-", "").replace("_", "")
-                                if target in name_lower or 'lemgendary' in name_lower:
+                                name_lower = item.lower().replace("-", "").replace("_", "").replace("lemgendized", "").replace("lemgendary", "")
+                                if target and target in name_lower:
                                     if os.path.exists(os.path.join(path, 'images')) or os.path.exists(os.path.join(path, 'targets')):
                                         return path
                                     try:
@@ -494,33 +548,7 @@ class MultiTaskDataset(Dataset):
 
         if not has_img and has_tgt and self.task_type in ["restoration", "enhancement", "face"]:
             target = self.load_image(tgt_path)
-            
-            try:
-                import albumentations as A  # type: ignore
-                import numpy as np
-                aug = A.Compose([
-                    A.OneOf([
-                        A.MotionBlur(p=1.0),
-                        A.MedianBlur(blur_limit=5, p=1.0),
-                        A.GaussianBlur(p=1.0),
-                    ], p=0.6),
-                    A.OneOf([
-                        A.GaussNoise(var_limit=(10.0, 50.0), p=1.0),
-                        A.ISONoise(p=1.0),
-                        A.MultiplicativeNoise(multiplier=(0.9, 1.1), p=1.0),
-                    ], p=0.6),
-                    A.ImageCompression(quality_lower=15, quality_upper=60, p=0.4),
-                    A.OneOf([
-                        A.RandomFog(p=1.0),
-                        A.RandomBrightnessContrast(p=1.0),
-                    ], p=0.3)
-                ])
-                target_np = np.array(target)
-                degraded_np = aug(image=target_np)['image']
-                img = Image.fromarray(degraded_np)
-            except Exception as e:
-                # Fallback if Albumentations is missing or fails
-                img = target.filter(ImageFilter.GaussianBlur(radius=random.uniform(1.0, 3.0)))
+            img = synthesize_degradation(target)
                 
             # 2026 Resilience: Force identical random seeds so RandomCrop and Flips perfectly align 
             # the degraded input with the clean target.

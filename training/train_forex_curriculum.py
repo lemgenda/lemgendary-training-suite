@@ -65,25 +65,28 @@ def main():
     
     # 2026: Validate multiphase fold consistency across attached manifolds
     resolved_roots = []
+    search_dirs = [
+        os.path.abspath(os.path.join(project_root, "..", "LemGendaryDatasets")),
+        os.path.abspath(os.path.join(project_root, "data"))
+    ]
     if os.path.exists("/kaggle/input"):
-        for d in os.listdir("/kaggle/input"):
-            if "Forex" in d or d == "forex":
-                cand = os.path.join("/kaggle/input", d, "forex") if "Forex" in d else os.path.join("/kaggle/input", d)
-                if os.path.exists(cand) and cand not in resolved_roots:
+        search_dirs.append("/kaggle/input")
+    if os.path.exists("/kaggle/working/LemGendaryDatasets"):
+        search_dirs.append("/kaggle/working/LemGendaryDatasets")
+    if os.path.exists("/content/drive/MyDrive/LemGendaryDatasets"):
+        search_dirs.append("/content/drive/MyDrive/LemGendaryDatasets")
+
+    for base in search_dirs:
+        if not os.path.exists(base):
+            continue
+        for root, dirs, _ in os.walk(base):
+            if "forex" in dirs:
+                cand = os.path.join(root, "forex")
+                if cand not in resolved_roots:
                     resolved_roots.append(cand)
-    else:
-        # pylint: disable=duplicate-code
-        base_search = [
-            os.path.abspath(os.path.join(project_root, "..", "LemGendaryDatasets")),
-            os.path.abspath(os.path.join(project_root, "data"))
-        ]
-        for bs in base_search:
-            if os.path.exists(bs):
-                for d in os.listdir(bs):
-                    if "Forex" in d or d == "forex":
-                        cand = os.path.join(bs, d, "forex") if "Forex" in d else os.path.join(bs, d)
-                        if os.path.exists(cand) and cand not in resolved_roots:
-                            resolved_roots.append(cand)
+            elif "Forex" in os.path.basename(root) and any(os.path.isdir(os.path.join(root, d)) for d in os.listdir(root)):
+                if root not in resolved_roots and any(d in ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"] for d in os.listdir(root)):
+                    resolved_roots.append(root)
 
     manifold_folds = {}
     for root in resolved_roots:
@@ -188,6 +191,11 @@ def main():
             # Add pairs argument
             cmd.append("--pairs")
             cmd.extend(pairs)
+            
+            # 2026 Cloud Environment Auto-Forwarding
+            env_type = "kaggle" if os.path.exists("/kaggle") else ("colab" if os.path.exists("/content") else "local")
+            if env_type in ["kaggle", "colab"]:
+                cmd.extend(["--env", env_type, "--auto_sync"])
             
             print(f" [EXEC] {' '.join(cmd)}")
             
