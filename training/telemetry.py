@@ -16,9 +16,10 @@ METRIC_WEIGHTS = {
     'rank_margin': 20, 'accuracy': 100, 'mae': 100,
     # [2026: SOTA Expansion Targets]
     'miou': 100, 'map_medium': 100, 'map_hard': 100, 'accuracy_vqa': 100,
-    'dir_acc': 1.0, 'win_rate': 1.0, 'profit_factor': 10.0,
+    # Forex: dir_acc and win_rate are the primary learning signal -- heavily weighted
+    'dir_acc': 5.0, 'win_rate': 5.0, 'profit_factor': 10.0,
     'sharpe_ratio': 10.0, 'sortino_ratio': 10.0, 'max_drawdown': 1.0,
-    'tp_mae': 1.0, 'sl_mae': 1.0
+    'tp_mae': 1.0, 'sl_mae': 1.0, 'dir_entropy': 2.0,
 }
 
 METRIC_DIRECTIONS = {
@@ -29,7 +30,7 @@ METRIC_DIRECTIONS = {
     'miou': True, 'map_medium': True, 'map_hard': True, 'accuracy_vqa': True,
     'dir_acc': True, 'win_rate': True, 'profit_factor': True,
     'sharpe_ratio': True, 'sortino_ratio': True, 'max_drawdown': False,
-    'tp_mae': False, 'sl_mae': False
+    'tp_mae': False, 'sl_mae': False, 'dir_entropy': False,
 }
 
 class TelemetryEngine:
@@ -44,8 +45,8 @@ class TelemetryEngine:
         
         # Determine expected columns based on task_type
         if self.task_type == "forex":
-            expected_cols = 23
-            header_str = "Phase,Fold,Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,Quality_Score,Pairs,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
+            expected_cols = 25
+            header_str = "Phase,Fold,Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,DirEntropy,Quality_Score,Pairs,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
         else:
             expected_cols = 28
             header_str = "Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Rank_Margin,MAE,mIoU,mAP_Medium,mAP_Hard,Accuracy_VQA,Quality_Score,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
@@ -94,12 +95,13 @@ class TelemetryEngine:
             max_dd = curr_metrics.get('max_drawdown', 0.0)
             tp_mae = curr_metrics.get('tp_mae', 0.0)
             sl_mae = curr_metrics.get('sl_mae', 0.0)
+            dir_entropy = curr_metrics.get('dir_entropy', float('inf'))
             pairs = num_pairs if num_pairs is not None else (governor_state.get('input_size', 16) if governor_state else 16)
-            
+
             with open(self.metrics_csv_path, "a", encoding='utf-8') as f:
                 f.write(f"{phase},{fold},{epoch+1},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"
                         f"{dir_acc:.4f},{win_rate:.4f},{profit_factor:.4f},{sharpe:.4f},{sortino:.4f},"
-                        f"{max_dd:.4f},{tp_mae:.4f},{sl_mae:.4f},{quality_score:.4f},"
+                        f"{max_dd:.4f},{tp_mae:.4f},{sl_mae:.4f},{dir_entropy:.4f},{quality_score:.4f},"
                         f"{pairs},{data:.2f},{temp:.4f},{clamp:.1f},{cooldown},{batch},{accum},{stress:.6f}\n")
         else:
             plcc = curr_metrics.get('plcc', 0.0)
@@ -147,9 +149,12 @@ class TelemetryEngine:
             else:
                 if k == 'fid': quality_score += (100.0 - val) * weight
                 elif k == 'lpips': quality_score += (1.0 - val) * weight
-                elif k == 'rank_margin': quality_score += (10.0 - val) * weight # Margin is 0-9 scale
+                elif k == 'rank_margin': quality_score += (10.0 - val) * weight
                 elif k == 'max_drawdown': quality_score += max(0.0, 100.0 - val) * weight
                 elif k in ['tp_mae', 'sl_mae']: quality_score += max(0.0, 50.0 - val) * weight
+                # dir_entropy: lower is better. Max theoretical entropy for 3 classes = ln(3) ~= 1.099
+                # Contribution is 0 when entropy = ln(3) (random), and rises as model becomes confident.
+                elif k == 'dir_entropy': quality_score += max(0.0, 1.099 - val) * weight
                 else: quality_score += (1.0 / (val + 1e-6)) * weight
                 
         return quality_score, False

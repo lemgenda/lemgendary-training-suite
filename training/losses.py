@@ -8,33 +8,50 @@ import torch.nn.functional as F
 
 class ForexDualLoss(nn.Module):
     """
-    LemGendary Forex Dual Loss Engine.
+    LemGendary Forex Dual Loss Engine v2.0.
 
     Combines:
-        - CrossEntropy for direction (Down / Sideways / Up)
+        - Focal Loss for direction (Down / Sideways / Up)
+          Focal loss (gamma=2.0) down-weights easy Sideways predictions and forces
+          attention to hard Buy/Sell boundary cases, preventing class collapse.
         - Huber (SmoothL1) for magnitude (TP pips, SL pips)
+          Magnitude predictions are clamped to 200 pips before loss computation.
 
     Direction confidence gates magnitude loss:
         Low-confidence bars (high entropy in direction logits) contribute
         proportionally less to the magnitude regression signal, preventing
         the magnitude head from fitting noise on ambiguous bars.
 
+    Governor integration:
+        softmax_temp and logit_clamp from the Governor stabilizer dict are applied
+        to direction logits so the Governor's temperature/clamp adjustments are
+        reflected in the forex training signal.
+
     Args:
-        direction_weight: Weight for CE loss component (default 1.0).
+        direction_weight: Weight for Focal loss component (default 1.0).
         magnitude_weight: Weight for Huber loss component (default 0.5).
-        huber_delta:      Huber delta — transitions L2→L1 at this pip threshold.
+        huber_delta:      Huber delta -- transitions L2->L1 at this pip threshold.
+        focal_gamma:      Focal loss focusing parameter (default 2.0).
+        label_smoothing:  Label smoothing for direction targets (default 0.05).
     """
     def __init__(
         self,
         direction_weight: float = 1.0,
         magnitude_weight: float = 0.5,
         huber_delta: float = 20.0,
+        focal_gamma: float = 2.0,
+        label_smoothing: float = 0.05,
     ):
         super().__init__()
         self.direction_weight = direction_weight
         self.magnitude_weight = magnitude_weight
         self.huber_delta      = huber_delta
-        self.ce               = nn.CrossEntropyLoss()
+        self.focal_gamma      = focal_gamma
+        self.label_smoothing  = label_smoothing
+        self.max_pips         = 200.0
+        # Asymmetric class weights: stronger Sideways penalty to prevent collapse
+        # Weight vector: [Down=1.3, Sideways=0.7, Up=1.3]
+        self.register_buffer('class_weights', torch.tensor([1.3, 0.7, 1.3]))
 
     def forward(self, pred: dict, labels: dict) -> torch.Tensor:
         """
@@ -50,11 +67,27 @@ class ForexDualLoss(nn.Module):
         dir_target  = labels["direction"]            # [B] long
         mag_target  = labels["magnitude"]            # [B, 2] float
 
-        # Direction loss
-        dir_loss = self.ce(dir_logits, dir_target)
+        # Governor stabilizer integration: apply temperature scaling and logit clamping
+        stab = getattr(self, 'stab', {})
+        softmax_temp = float(stab.get('softmax_temp', 1.0)) if stab else 1.0
+        logit_clamp  = float(stab.get('logit_clamp', 15.0)) if stab else 15.0
+        if logit_clamp > 0:
+            dir_logits = torch.clamp(dir_logits, min=-logit_clamp, max=logit_clamp)
+        if softmax_temp != 1.0 and softmax_temp > 0:
+            dir_logits = dir_logits / softmax_temp
+
+        # Focal Loss for direction: down-weights easy Sideways, focuses on hard Buy/Sell
+        class_weights = self.class_weights.to(dir_logits.device)
+        ce_loss = F.cross_entropy(
+            dir_logits, dir_target,
+            weight=class_weights,
+            reduction='none',
+            label_smoothing=self.label_smoothing,
+        )
+        pt = torch.exp(-ce_loss)
+        dir_loss = (((1.0 - pt) ** self.focal_gamma) * ce_loss).mean()
 
         # Confidence gate: high-entropy bars get lower magnitude weight
-        # conf_gate_strength > 1.0 makes the gate stricter (only high-confidence trades contribute)
         conf_gate_strength = float(getattr(self, 'conf_gate_strength', 1.0))
         with torch.no_grad():
             probs     = torch.softmax(dir_logits, dim=-1)           # [B, 3]
@@ -62,8 +95,11 @@ class ForexDualLoss(nn.Module):
             max_ent   = torch.log(torch.tensor(3.0, device=probs.device))
             conf_gate = (1.0 - (entropy / max_ent).clamp(0.0, 1.0)) ** conf_gate_strength  # [B]
 
+        # Clamp magnitude predictions before Huber to prevent runaway pip gradients
+        mag_pred_clamped = torch.clamp(mag_pred, max=self.max_pips)
+
         # Huber loss for magnitude, gated by direction confidence
-        huber = F.smooth_l1_loss(mag_pred, mag_target, reduction='none', beta=self.huber_delta)  # [B, 2]
+        huber    = F.smooth_l1_loss(mag_pred_clamped, mag_target, reduction='none', beta=self.huber_delta)  # [B, 2]
         mag_loss = (huber.mean(dim=1) * conf_gate).mean()
 
         return self.direction_weight * dir_loss + self.magnitude_weight * mag_loss

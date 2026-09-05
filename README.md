@@ -180,7 +180,7 @@ The Governor's `res_ladder` is repurposed as a **timeframe expansion ladder**. T
 | `models/forex_predictor.py` | Model architecture (ForexPredictor) |
 | `data/mt5_pipeline.py` | MT5 data download, indicator computation, label generation |
 | `data/forex_dataset.py` | ForexDataset (Governor-aligned fractional sampling) |
-| `training/losses.py` | ForexDualLoss (CE direction + Huber magnitude) |
+| `training/losses.py` | ForexDualLoss (Focal direction + Huber magnitude) |
 | `export/mt5_signal.py` | ONNX export + live signal generator + MQL5 EA stub |
 
 ### MT5 Deployment

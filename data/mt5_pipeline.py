@@ -18,6 +18,8 @@ TODO (requires demo account):
 
 import os
 import sys
+
+# pylint: disable=no-member,too-many-return-statements,duplicate-code
 import argparse
 import numpy as np
 import pandas as pd
@@ -44,7 +46,7 @@ EXTENDED_PAIRS = [
     "US500", "USTEC", "GER40"
 ]
 
-# Currency pair index (0-based) — shared across suite
+# Currency pair index (0-based) - shared across suite
 PAIR_INDEX = {p: i for i, p in enumerate(EXTENDED_PAIRS)}
 NUM_PAIRS = len(PAIR_INDEX)
 
@@ -113,12 +115,24 @@ WALK_FORWARD_FOLDS = {
     }
 }
 
-FEATURES = ["open", "high", "low", "close", "volume",  # OHLCV (5)
-            "rsi", "macd", "macd_signal", "atr", "bb_width"]  # Indicators (5)
+FEATURES = [
+    "open", "high", "low", "close", "volume",     # OHLCV (5)
+    "rsi", "macd", "macd_signal", "atr", "bb_width",  # Indicators (5)
+    "session_sin", "session_cos",                  # Session encoding (2)
+    "atr_percentile", "bar_range_ratio",           # Volatility regime (2)
+]  # Total: 14 features
 
 # Label generation: forward-looking window to measure price movement
 LABEL_HORIZON_BARS = 20       # Look N bars ahead for TP/SL determination
-DIRECTION_THRESHOLD_PIPS = 10 # Minimum move (pips) to be classified as Up/Down (else Sideways)
+DIRECTION_THRESHOLD_PIPS = 5  # 5-pip threshold produces healthy 3-class distribution (Down/Sideways/Up)
+
+# Per-pair average spread in pips (deducted at label generation time for realistic trade economics)
+PAIR_SPREADS_PIPS = {
+    "EURUSD": 1.2,  "GBPUSD": 1.5,  "USDJPY": 1.3,  "XAUUSD": 35.0,
+    "USDCAD": 1.8,  "USDCHF": 1.5,  "AUDUSD": 1.4,  "NZDUSD": 2.0,
+    "EURGBP": 1.5,  "EURJPY": 1.8,  "GBPJPY": 2.5,  "USOIL":  40.0,
+    "US500":  10.0, "USTEC":  20.0,  "GER40":  10.0,  "XAGUSD": 20.0,
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MT5 Connection (requires live MT5 terminal)
@@ -310,17 +324,17 @@ def download_bars(pair: str, timeframe_min: int, n_bars: int = 50000, start_date
 
         df = pd.DataFrame(rates)
         df['time'] = pd.to_datetime(df['time'], unit='s', utc=True)
-        df = df[['time', 'open', 'high', 'low', 'close', 'tick_volume']].rename(
-            columns={'tick_volume': 'volume'}
-        )
-        print(f" [MT5] Downloaded {len(df)} bars for {pair} {timeframe_min}min (Spans {df['time'].iloc[0].strftime('%Y-%m-%d')} -> {df['time'].iloc[-1].strftime('%Y-%m-%d')})")
+        df['volume'] = df['tick_volume']
+        df = df[['time', 'open', 'high', 'low', 'close', 'volume']]
+        print(f" [MT5] Downloaded {len(df)} bars for {pair} {timeframe_min}min (Spans {pd.Series(df['time']).iloc[0].strftime('%Y-%m-%d')} -> {pd.Series(df['time']).iloc[-1].strftime('%Y-%m-%d')})")
+        assert isinstance(df, pd.DataFrame)
         return df
 
-    except ImportError:
+    except ImportError as exc:
         raise RuntimeError(
             "[MT5] MetaTrader5 not installed. Run: pip install MetaTrader5\n"
             "      Ensure MT5 terminal is running with a demo account."
-        )
+        ) from exc
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -329,21 +343,25 @@ def download_bars(pair: str, timeframe_min: int, n_bars: int = 50000, start_date
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Add technical indicators to OHLCV DataFrame.
+    Add technical indicators and regime features to OHLCV DataFrame.
     Uses pandas-ta if available and compatible, falls back to manual NumPy implementations.
 
-    Indicators added:
-        rsi        — RSI(14)
-        macd       — MACD line (12-26-9)
-        macd_signal— MACD signal line
-        atr        — ATR(14), normalized by close price
-        bb_width   — Bollinger Band width (20, 2σ), normalized by close price
+    Indicators added (10 -> 14 total features):
+        rsi          -- RSI(14)
+        macd         -- MACD line (12-26-9), normalized by close
+        macd_signal  -- MACD signal line, normalized by close
+        atr          -- ATR(14), normalized by close price
+        bb_width     -- Bollinger Band width (20, 2sigma), normalized by close
+        session_sin  -- sine encoding of hour-of-day for cyclical time representation
+        session_cos  -- cosine encoding of hour-of-day
+        atr_percentile -- ATR rank over rolling 100-bar window, normalized [0, 1]
+        bar_range_ratio -- (high - low) / (atr + 1e-8), intrabar volatility vs. trend
 
     Args:
-        df: DataFrame with [open, high, low, close, volume] columns.
+        df: DataFrame with [time, open, high, low, close, volume] columns.
 
     Returns:
-        DataFrame with 5 additional indicator columns.
+        DataFrame with 9 additional indicator columns (14 features total).
     """
     df = df.copy()
     close = np.asarray(df['close'], dtype=np.float64)
@@ -383,6 +401,36 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         df['macd_signal'] = (sig       / (close + 1e-8)).tolist()
         df['atr']         = (_atr_manual(high, low, close, 14) / (close + 1e-8)).tolist()
         df['bb_width']    = (_bbwidth_manual(close, 20, 2)     / (close + 1e-8)).tolist()
+
+    df.fillna(0.0, inplace=True)
+    df.replace([np.inf, -np.inf], 0.0, inplace=True)
+
+    # Session encoding: cyclical hour-of-day (works for both datetime index and 'time' column)
+    if 'time' in df.columns:
+        hours = pd.to_datetime(df['time'], utc=True).dt.hour
+    elif isinstance(df.index, pd.DatetimeIndex):
+        hours = df.index.hour  # type: ignore
+    else:
+        hours = pd.Series([0.0] * len(df))
+    hour_norm = np.asarray(hours, dtype=np.float64) / 23.0 * 2.0 * np.pi
+    df['session_sin'] = np.sin(hour_norm).tolist()
+    df['session_cos'] = np.cos(hour_norm).tolist()
+
+    # Volatility regime features using the already-computed raw ATR
+    raw_atr = _atr_manual(np.asarray(df['high'], dtype=np.float64),
+                          np.asarray(df['low'],  dtype=np.float64),
+                          np.asarray(df['close'], dtype=np.float64), 14)
+    # ATR percentile: rolling 100-bar rank normalized to [0, 1]
+    atr_series = pd.Series(list(raw_atr), dtype=float)
+    atr_pct = atr_series.rolling(100, min_periods=1).apply(
+        lambda x: float(np.sum(x <= x[-1])) / float(len(x)), raw=True
+    )
+    df['atr_percentile'] = np.asarray(atr_pct, dtype=np.float32).tolist()
+
+    # Bar range ratio: (high - low) / (ATR + 1e-8) — intrabar volatility relative to trend
+    high_arr = np.asarray(df['high'], dtype=np.float64)
+    low_arr  = np.asarray(df['low'],  dtype=np.float64)
+    df['bar_range_ratio'] = ((high_arr - low_arr) / (raw_atr + 1e-8)).astype(np.float32).tolist()
 
     df.fillna(0.0, inplace=True)
     df.replace([np.inf, -np.inf], 0.0, inplace=True)
@@ -432,21 +480,35 @@ def _bbwidth_manual(close: np.ndarray, period: int = 20, std_mult: float = 2.0) 
 def generate_labels(df: pd.DataFrame, pair: str, horizon: int = LABEL_HORIZON_BARS,
                     threshold_pips: float = DIRECTION_THRESHOLD_PIPS) -> pd.DataFrame:
     """
-    Generate direction + magnitude labels for each bar.
+    Generate direction + magnitude labels for each bar using the Triple Barrier Method.
 
     Direction (3-class):
-        0 = Down  (close fell > threshold_pips within horizon)
-        1 = Sideways (move < threshold_pips)
-        2 = Up    (close rose > threshold_pips within horizon)
+        0 = Down     (net downward move > threshold_pips and dominates within horizon)
+        1 = Sideways (move < threshold_pips in both directions)
+        2 = Up       (net upward move > threshold_pips and dominates within horizon)
 
-    Magnitude:
-        tp_pips = peak upward move within horizon (pips)
-        sl_pips = peak downward move within horizon (pips)
+    Magnitude (spread-adjusted for realistic trade economics):
+        tp_pips = peak upward move minus per-pair average spread
+        sl_pips = peak downward move plus per-pair average spread
 
-    Pip size per pair (standard 4-decimal vs JPY/XAU):
-        USDJPY, XAUUSD → 0.01 pip size; others → 0.0001 pip size
+    Pip size per pair:
+        JPY/XAU pairs: 0.01 pip size
+        US500/USTEC/GER40/USOIL: index-specific pip sizes
+        Others: 0.0001 pip size
     """
-    pip_size = 0.01 if any(x in pair for x in ["JPY", "XAU"]) else 0.0001
+    if any(x in pair for x in ["JPY"]):
+        pip_size = 0.01
+    elif "XAU" in pair:
+        pip_size = 0.1
+    elif any(x in pair for x in ["US500", "USTEC", "GER40"]):
+        pip_size = 1.0
+    elif "USOIL" in pair or "XAG" in pair:
+        pip_size = 0.01
+    else:
+        pip_size = 0.0001
+
+    # Per-pair average spread in pips for realistic label economics
+    spread_pips = PAIR_SPREADS_PIPS.get(pair, 2.0)
 
     close_arr = np.asarray(df['close'], dtype=np.float64)
     high_arr  = np.asarray(df['high'],  dtype=np.float64)
@@ -464,8 +526,9 @@ def generate_labels(df: pd.DataFrame, pair: str, horizon: int = LABEL_HORIZON_BA
         up_move   = (fut_high - entry) / pip_size
         down_move = (entry - fut_low)  / pip_size
 
-        tp_pips[i] = float(up_move)
-        sl_pips[i] = float(down_move)
+        # Spread-adjusted magnitudes: TP shrinks (spread cost), SL grows (spread widens stop)
+        tp_pips[i] = max(0.0, float(up_move) - spread_pips)
+        sl_pips[i] = max(0.0, float(down_move) + spread_pips)
 
         if up_move >= threshold_pips and up_move > down_move:
             directions[i] = 2  # Up
@@ -515,7 +578,7 @@ def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 
 def build_windows(df: pd.DataFrame, seq_len: int, max_samples: int = 50000, stride: int | None = None) -> tuple:
     """
-    Slice the processed DataFrame into (features, direction, magnitude) windows.
+    Slice the processed DataFrame into (features, direction, magnitude, timestamps) windows.
     Uses memory-efficient preallocation and uniform strided sampling for ultra-dense timeframes (M1/M5)
     to prevent multi-gigabyte RAM overflows while maintaining 100% historical multi-regime coverage.
 
@@ -526,10 +589,11 @@ def build_windows(df: pd.DataFrame, seq_len: int, max_samples: int = 50000, stri
         stride:      Explicit sampling step. If None, automatically derived from max_samples.
 
     Returns:
-        Tuple of (X, y_dir, y_mag):
-            X:     [N, seq_len, n_features]  float32
-            y_dir: [N]                        int64 direction class
-            y_mag: [N, 2]                     float32 (tp_pips, sl_pips)
+        Tuple of (X, y_dir, y_mag, timestamps):
+            X:          [N, seq_len, n_features]  float32
+            y_dir:      [N]                        int64 direction class
+            y_mag:      [N, 2]                     float32 (tp_pips, sl_pips)
+            timestamps: [N]                        int64 Unix timestamps (seconds) of each window's last bar
     """
     available = [c for c in FEATURES if c in df.columns]
     feat_arr  = np.asarray(df[available], dtype=np.float32)    # [T, F]
@@ -537,11 +601,21 @@ def build_windows(df: pd.DataFrame, seq_len: int, max_samples: int = 50000, stri
     tp_arr    = np.asarray(df['tp_pips'], dtype=np.float32)
     sl_arr    = np.asarray(df['sl_pips'], dtype=np.float32)
 
+    # Build Unix timestamp array for precise multi-timeframe alignment
+    if 'time' in df.columns:
+        ts_arr = np.asarray(
+            pd.to_datetime(df['time'], utc=True).astype(np.int64) // 10**9,
+            dtype=np.int64
+        )
+    else:
+        ts_arr = np.arange(len(df), dtype=np.int64)
+
     n_total = len(df) - seq_len
     if n_total <= 0:
-        return np.empty((0, seq_len, len(available)), dtype=np.float32), \
-               np.empty(0, dtype=np.int64), \
-               np.empty((0, 2), dtype=np.float32)
+        return (np.empty((0, seq_len, len(available)), dtype=np.float32),
+                np.empty(0, dtype=np.int64),
+                np.empty((0, 2), dtype=np.float32),
+                np.empty(0, dtype=np.int64))
 
     if stride is None:
         stride = max(1, int(np.ceil(n_total / max_samples))) if max_samples > 0 else 1
@@ -554,20 +628,22 @@ def build_windows(df: pd.DataFrame, seq_len: int, max_samples: int = 50000, stri
         X[out_i] = feat_arr[i : i + seq_len]
 
     target_indices = indices + seq_len
-    y_dir = dir_arr[target_indices]
-    y_mag = np.stack([tp_arr[target_indices], sl_arr[target_indices]], axis=1)
-    return X, y_dir, y_mag
+    y_dir      = dir_arr[target_indices]
+    y_mag      = np.stack([tp_arr[target_indices], sl_arr[target_indices]], axis=1)
+    timestamps = ts_arr[target_indices]
+    return X, y_dir, y_mag, timestamps
 
 
-def save_shards(X, y_dir, y_mag, out_dir: str, pair: str, timeframe_min: int, split: str = "train"):
+def save_shards(X, y_dir, y_mag, out_dir: str, pair: str, timeframe_min: int, split: str = "train", timestamps=None):
     """
     Save windowed samples as .npy files for fast DataLoader access.
 
     Output structure:
         data/forex/{pair}/{timeframe_min}/{split}/
-            X.npy       — [N, seq_len, features]
-            y_dir.npy   — [N] int64 direction classes
-            y_mag.npy   — [N, 2] float32 (tp_pips, sl_pips)
+            X.npy           -- [N, seq_len, features]
+            y_dir.npy       -- [N] int64 direction classes
+            y_mag.npy       -- [N, 2] float32 (tp_pips, sl_pips)
+            timestamps.npy  -- [N] int64 Unix timestamps of each window's last bar
     """
     shard_dir = os.path.join(out_dir, pair, str(timeframe_min), split)
     os.makedirs(shard_dir, exist_ok=True)
@@ -575,71 +651,72 @@ def save_shards(X, y_dir, y_mag, out_dir: str, pair: str, timeframe_min: int, sp
     np.save(os.path.join(shard_dir, "X.npy"),     X)
     np.save(os.path.join(shard_dir, "y_dir.npy"), y_dir)
     np.save(os.path.join(shard_dir, "y_mag.npy"), y_mag)
+    if timestamps is not None:
+        np.save(os.path.join(shard_dir, "timestamps.npy"), timestamps)
     print(f" [MT5Pipeline] Saved {len(X)} samples -> {shard_dir}")
 
 
 def load_shard(shard_dir: str, mmap_mode: Literal['c', 'r', 'r+', 'w+'] | None = None) -> tuple:
     """
-    Load a shard from disk. Returns (X, y_dir, y_mag) or empty arrays if not found.
+    Load a shard from disk. Returns (X, y_dir, y_mag, timestamps) or (None, None, None, None) if not found.
+    timestamps is optional — may be None if shard was built before v2.0.
     """
     X_path     = os.path.join(shard_dir, "X.npy")
     ydir_path  = os.path.join(shard_dir, "y_dir.npy")
     ymag_path  = os.path.join(shard_dir, "y_mag.npy")
+    ts_path    = os.path.join(shard_dir, "timestamps.npy")
 
     if not (os.path.exists(X_path) and os.path.exists(ydir_path) and os.path.exists(ymag_path)):
-        return None, None, None
+        return None, None, None, None
 
-    X     = np.load(X_path,     mmap_mode=mmap_mode)  # type: ignore
-    y_dir = np.load(ydir_path,  mmap_mode=mmap_mode)  # type: ignore
-    y_mag = np.load(ymag_path,  mmap_mode=mmap_mode)  # type: ignore
-    return X, y_dir, y_mag
+    X          = np.load(X_path,    mmap_mode=mmap_mode)  # type: ignore
+    y_dir      = np.load(ydir_path, mmap_mode=mmap_mode)  # type: ignore
+    y_mag      = np.load(ymag_path, mmap_mode=mmap_mode)  # type: ignore
+    timestamps = np.load(ts_path,   mmap_mode=mmap_mode) if os.path.exists(ts_path) else None  # type: ignore
+    return X, y_dir, y_mag, timestamps
 
 
 def build_walk_forward_folds(df: pd.DataFrame, seq_len: int, out_dir: str, pair: str, tf: int):
     """
     Generate and save 6-Fold Anchored Walk-Forward shards with 14-day embargo.
+    Includes timestamps.npy for precise multi-timeframe temporal alignment.
     """
     for fold_id, fold_info in WALK_FORWARD_FOLDS.items():
         fold_dir = os.path.join(out_dir, pair, str(tf), "folds", f"fold_{fold_id}")
-        
+
         # Filter by datetime if time column exists, otherwise partition chronologically
         if "time" in df.columns:
             df_time = pd.to_datetime(df["time"], utc=True)
             t_start = pd.to_datetime(fold_info["train_start"], utc=True)
-            t_end = pd.to_datetime(fold_info["train_end"], utc=True)
-            v_start = pd.to_datetime(fold_info["val_start"], utc=True)
-            v_end = pd.to_datetime(fold_info["val_end"], utc=True)
+            t_end   = pd.to_datetime(fold_info["train_end"],   utc=True)
+            v_start = pd.to_datetime(fold_info["val_start"],   utc=True)
+            v_end   = pd.to_datetime(fold_info["val_end"],     utc=True)
             train_mask = (df_time >= t_start) & (df_time <= t_end)
-            val_mask = (df_time >= v_start) & (df_time <= v_end)
-            
+            val_mask   = (df_time >= v_start) & (df_time <= v_end)
             train_df = df[train_mask]
-            val_df = df[val_mask]
+            val_df   = df[val_mask]
         else:
             # Chronological fraction fallback
             n_total = len(df)
             train_end_idx = int(n_total * (0.5 + 0.08 * fold_id))
-            val_start_idx = train_end_idx + int(n_total * 0.02) # 2% embargo gap
-            val_end_idx = min(n_total, val_start_idx + int(n_total * 0.08))
-            
+            val_start_idx = train_end_idx + int(n_total * 0.02)
+            val_end_idx   = min(n_total, val_start_idx + int(n_total * 0.08))
             train_df = df.iloc[:train_end_idx]
-            val_df = df.iloc[val_start_idx:val_end_idx]
-            
+            val_df   = df.iloc[val_start_idx:val_end_idx]
+        assert isinstance(train_df, pd.DataFrame)
+        assert isinstance(val_df, pd.DataFrame)
+
         if len(train_df) > seq_len and len(val_df) > seq_len:
-            X_tr, yd_tr, ym_tr = build_windows(train_df, seq_len)
-            X_va, yd_va, ym_va = build_windows(val_df, seq_len)
-            
+            X_tr, yd_tr, ym_tr, ts_tr = build_windows(train_df, seq_len)
+            X_va, yd_va, ym_va, ts_va = build_windows(val_df, seq_len)
+
             train_out = os.path.join(fold_dir, "train")
-            val_out = os.path.join(fold_dir, "val")
+            val_out   = os.path.join(fold_dir, "val")
             os.makedirs(train_out, exist_ok=True)
-            os.makedirs(val_out, exist_ok=True)
-            
-            np.save(os.path.join(train_out, "X.npy"), X_tr)
-            np.save(os.path.join(train_out, "y_dir.npy"), yd_tr)
-            np.save(os.path.join(train_out, "y_mag.npy"), ym_tr)
-            
-            np.save(os.path.join(val_out, "X.npy"), X_va)
-            np.save(os.path.join(val_out, "y_dir.npy"), yd_va)
-            np.save(os.path.join(val_out, "y_mag.npy"), ym_va)
+            os.makedirs(val_out,   exist_ok=True)
+
+            save_shards(X_tr, yd_tr, ym_tr, os.path.join(out_dir, pair, str(tf), "folds", f"fold_{fold_id}"), pair="", timeframe_min=0, split="train", timestamps=ts_tr)
+            save_shards(X_va, yd_va, ym_va, os.path.join(out_dir, pair, str(tf), "folds", f"fold_{fold_id}"), pair="", timeframe_min=0, split="val",   timestamps=ts_va)
             print(f"   [FOLD {fold_id}] Generated {pair}@{tf}min (Train: {len(X_tr)} | Val: {len(X_va)}) -> {fold_info['regime']}")
 
 
@@ -694,11 +771,11 @@ def run_download_pipeline(
                     train_df  = df.iloc[:split_idx]
                     val_df    = df.iloc[split_idx:]
 
-                    X_tr, yd_tr, ym_tr = build_windows(train_df, seq_len)
-                    X_va, yd_va, ym_va = build_windows(val_df, seq_len)
+                    X_tr, yd_tr, ym_tr, ts_tr = build_windows(train_df, seq_len)
+                    X_va, yd_va, ym_va, ts_va = build_windows(val_df, seq_len)
 
-                    save_shards(X_tr, yd_tr, ym_tr, out_dir, pair, tf, "train")
-                    save_shards(X_va, yd_va, ym_va, out_dir, pair, tf, "val")
+                    save_shards(X_tr, yd_tr, ym_tr, out_dir, pair, tf, "train", timestamps=ts_tr)
+                    save_shards(X_va, yd_va, ym_va, out_dir, pair, tf, "val",   timestamps=ts_va)
 
                     # 2. 6-Fold Walk-Forward Matrix
                     if build_folds:

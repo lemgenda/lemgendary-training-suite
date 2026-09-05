@@ -177,7 +177,7 @@ class ForexDataset(Dataset):
                 else:
                     shard_dir = os.path.join(pair_root, pair, str(tf), self.split)
 
-                X, y_dir, y_mag = load_shard(shard_dir, mmap_mode="r")
+                X, y_dir, y_mag, _timestamps = load_shard(shard_dir, mmap_mode="r")
                 if X is None:
                     # Shard not yet downloaded — skip silently during build
                     continue
@@ -185,7 +185,7 @@ class ForexDataset(Dataset):
                 self._shard_paths[key] = shard_dir
                 length = len(X)
                 # Delete references so the memmap file handles are released before pickling
-                del X, y_dir, y_mag
+                del X, y_dir, y_mag, _timestamps
                 for row in range(length):
                     self._index.append((p_idx, tf, key, row))
 
@@ -243,27 +243,34 @@ class ForexDataset(Dataset):
             
         if key not in self._shards:
             self._shards[key] = load_shard(self._shard_paths[key], mmap_mode="r")
-        X, y_dir, y_mag = self._shards[key]
+        X, y_dir, y_mag, timestamps = self._shards[key]
 
         # Primary timeframe features
         tf_inputs = {tf: torch.from_numpy(np.array(X[row])).float()}
 
-        # For multi-timeframe mode: attempt to load aligned bars from other TFs
-        # (During M1-only FOUNDATION phase, only tf is populated)
+        # For multi-timeframe mode: load aligned bars from other TFs
+        # Priority: timestamp-based alignment (precise), fallback to ratio-based (legacy shards)
         for other_tf in self.active_timeframes:
             if other_tf == tf:
                 continue
-            other_key = (self.pairs[p_idx] if p_idx < len(self.pairs) else "EURUSD", other_tf)
+            pair_name = self.pairs[p_idx] if p_idx < len(self.pairs) else "EURUSD"
+            other_key = (pair_name, other_tf)
             if other_key in self._shard_paths:
                 if other_key not in self._shards:
                     self._shards[other_key] = load_shard(self._shard_paths[other_key], mmap_mode="r")
-                other_X = self._shards[other_key][0]
-                # 2026 Resilience: Proportional Timeframe Alignment
-                # Prevents future data leakage by scaling the row index by the timeframe ratio.
-                # e.g., M1 row 15,000 maps to M15 row 1,000 (15,000 * 1/15)
-                ratio = tf / other_tf
-                estimated_row = int(row * ratio)
-                aligned_row = min(estimated_row, len(other_X) - 1)
+                other_X, _, _, other_ts = self._shards[other_key]
+                if other_X is None:
+                    tf_inputs[other_tf] = torch.zeros(TIMEFRAME_LOOKBACK[other_tf], X.shape[-1])
+                    continue
+                if timestamps is not None and other_ts is not None:
+                    # Precise alignment: find the latest other-TF bar that is <= current bar's timestamp
+                    current_ts = int(timestamps[row])
+                    aligned_row = int(np.searchsorted(other_ts, current_ts, side='right')) - 1
+                    aligned_row = max(0, min(aligned_row, len(other_X) - 1))
+                else:
+                    # Legacy fallback: proportional ratio alignment
+                    ratio = tf / other_tf
+                    aligned_row = min(int(row * ratio), len(other_X) - 1)
                 tf_inputs[other_tf] = torch.from_numpy(np.array(other_X[aligned_row])).float()
             else:
                 # Pad with zeros if this TF shard not loaded yet

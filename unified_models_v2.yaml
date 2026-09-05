@@ -44,10 +44,11 @@ forex_predictor:
       - 60
       - 240
       - 1440
-    d_model: 128
-    n_heads: 4
+    d_model: 192
+    n_heads: 6
     n_layers: 4
-    head_hidden: 256
+    head_hidden: 384
+    in_features: 14
     dropout: 0.1
   sota_targets:
     dir_acc: 78.7
@@ -64,8 +65,8 @@ forex_predictor:
       - 50.0
   optimization:
     enabled: true
-    absolute_patience: 20
-    plateau_patience: 6
+    absolute_patience: 30
+    plateau_patience: 12
     fraction_increment: 0.15
     cooling_factor: 0.85
     plateau_priority: data
