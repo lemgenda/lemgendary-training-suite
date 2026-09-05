@@ -8,8 +8,56 @@ chcp 65001 | Out-Null
 $script:HUB_DIR = $PSScriptRoot
 if (-not $script:HUB_DIR) { $script:HUB_DIR = Get-Location }
 
-# Load Infrastructure Logic
-. (Join-Path $script:HUB_DIR "lemgendary_env_manager.ps1")
+$script:VENV_DIR = Join-Path $script:HUB_DIR ".venv"
+$script:REQ_FILE = Join-Path $script:HUB_DIR "requirements.txt"
+$script:ENV_MGR = Join-Path (Split-Path -Parent $script:HUB_DIR) "lemgendary-env-manager\lemgendary_env_manager.ps1"
+
+function Write-Header($text) {
+    Write-Host "`n================================================================================" -ForegroundColor Cyan
+    Write-Host "  $text" -ForegroundColor White
+    Write-Host "================================================================================`n" -ForegroundColor Cyan
+}
+
+function Invoke-BootstrapCheck {
+    # Handled by LemGendary Environment Manager
+}
+
+function Initialize-Environment {
+    Write-Header "INITIALIZING ENVIRONMENT"
+    if (Test-Path $script:ENV_MGR) {
+        Write-Host "  [*] Delegating to LemGendary Environment Manager..." -ForegroundColor Cyan
+        & $script:ENV_MGR install --project lemgendary-training-suite
+    } else {
+        Write-Host "  [!] LemGendary Environment Manager not found at $script:ENV_MGR. Falling back to local python -m venv." -ForegroundColor Yellow
+        $GlobalPy = (Get-Command python -ErrorAction SilentlyContinue).Source
+        & $GlobalPy -m venv $script:VENV_DIR
+        & "$script:VENV_DIR\Scripts\python.exe" -m pip install --upgrade pip wheel setuptools
+        if (Test-Path $script:REQ_FILE) {
+            & "$script:VENV_DIR\Scripts\python.exe" -m pip install -r $script:REQ_FILE
+        }
+    }
+}
+
+function Test-Environment {
+    $py = "$script:VENV_DIR\Scripts\python.exe"
+    if (-not (Test-Path $py)) {
+        Write-Host "  [!] Virtual environment not detected at $script:VENV_DIR" -ForegroundColor Yellow
+        $choice = Read-Host "  Would you like to initialize it now? (Y/N)"
+        if ($choice -eq 'Y' -or $choice -eq 'y') {
+            Initialize-Environment
+            return (Test-Path $py)
+        }
+        return $false
+    }
+    return $true
+}
+
+function Invoke-JanitorPurge {
+    $lockedProcs = Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*$script:VENV_DIR*" }
+    foreach ($proc in $lockedProcs) {
+        try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+    }
+}
 
 function Get-ModelSelection {
     while ($true) {

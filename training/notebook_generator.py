@@ -180,19 +180,27 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     ]
 
     install_source = [
-        "import os, sys, subprocess\n",
+        "import os, sys, subprocess, shutil\n",
         "print('[ENV] Installing Nuclear Dependencies...')\n",
         "suite_candidates = ['/kaggle/working/lemgendary-training-suite', '/kaggle/working/model-training/lemgendary-training-suite', '/kaggle/working']\n",
         "req_path = next((os.path.join(p, 'requirements.txt') for p in suite_candidates if os.path.exists(os.path.join(p, 'requirements.txt'))), None)\n",
         "if req_path:\n",
-        "    res = subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--no-warn-conflicts', '--upgrade-strategy', 'only-if-needed', '-r', req_path])\n",
+        "    extra_idx = []\n",
+        "    if shutil.which('nvidia-smi'):\n",
+        "        print('[ENV] NVIDIA Accelerator Detected. Binding PyTorch CUDA index.')\n",
+        "        extra_idx = ['--extra-index-url', 'https://download.pytorch.org/whl/cu121']\n",
+        "    elif shutil.which('rocm-smi'):\n",
+        "        print('[ENV] AMD ROCm Accelerator Detected. Binding PyTorch ROCm index.')\n",
+        "        extra_idx = ['--extra-index-url', 'https://download.pytorch.org/whl/rocm6.0']\n",
+        "    cmd = [sys.executable, '-m', 'pip', 'install', '-q', '--no-warn-conflicts', '--upgrade-strategy', 'only-if-needed', '-r', req_path] + extra_idx\n",
+        "    res = subprocess.run(cmd)\n",
         "    if res.returncode == 0:\n",
         "        print('[OK] Environment Ready.')\n",
         "    else:\n",
         "        print('[WARNING] Dependency installation finished with non-zero exit code.')\n",
         "else:\n",
         "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
-        "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the lemgendary-training-suite repository.\")\n",
+        "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the repository.\")\n",
         "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
         "    print('[ACTION REQUIRED] Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
     ]
