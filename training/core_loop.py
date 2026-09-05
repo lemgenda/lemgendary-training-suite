@@ -2522,10 +2522,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                 # Initialize LPIPS directly. Do not suppress warnings or catch exceptions silently.
                 _base_vgg = LearnedPerceptualImagePatchSimilarity(net_type='vgg').eval().to(device)
-                if torch.cuda.device_count() > 1:
-                    loss_fn_vgg = torch.nn.DataParallel(_base_vgg)
-                else:
-                    loss_fn_vgg = _base_vgg
+                loss_fn_vgg = _base_vgg
 
             # --- 2026 Resilience: Validation State Recovery (v10.1.4) ---
             if val_resume_iteration > 0:
