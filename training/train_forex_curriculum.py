@@ -72,6 +72,7 @@ def main():
                 if os.path.exists(cand) and cand not in resolved_roots:
                     resolved_roots.append(cand)
     else:
+        # pylint: disable=duplicate-code
         base_search = [
             os.path.abspath(os.path.join(project_root, "..", "LemGendaryDatasets")),
             os.path.abspath(os.path.join(project_root, "data"))
