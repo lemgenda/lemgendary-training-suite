@@ -12,14 +12,40 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from data.mt5_pipeline import (
-    TIMEFRAME_LOOKBACK,
-    TIMEFRAME_RUNGS,
-    MAJOR_PAIRS,
-    EXTENDED_PAIRS,
-    PAIR_INDEX,
-    load_shard,
-)
+from typing import Literal
+
+TIMEFRAME_RUNGS = [1, 5, 15, 60, 240, 1440]
+TIMEFRAME_LOOKBACK = {
+    1: 512,
+    5: 288,
+    15: 192,
+    60: 168,
+    240: 90,
+    1440: 252,
+}
+
+MAJOR_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
+EXTENDED_PAIRS = [
+    "EURUSD", "GBPUSD", "USDJPY", "XAUUSD",
+    "USDCAD", "USDCHF", "AUDUSD", "NZDUSD",
+    "EURJPY", "GBPJPY", "EURGBP",
+    "XAGUSD", "USOIL",
+    "US500", "USTEC", "GER40"
+]
+PAIR_INDEX = {p: i for i, p in enumerate(EXTENDED_PAIRS)}
+
+def load_shard(shard_dir: str, mmap_mode: Literal['c', 'r', 'r+', 'w+'] | None=None) -> tuple:
+    X_path = os.path.join(shard_dir, 'X.npy')
+    ydir_path = os.path.join(shard_dir, 'y_dir.npy')
+    ymag_path = os.path.join(shard_dir, 'y_mag.npy')
+    ts_path = os.path.join(shard_dir, 'timestamps.npy')
+    if not (os.path.exists(X_path) and os.path.exists(ydir_path) and os.path.exists(ymag_path)):
+        return (None, None, None, None)
+    X = np.load(X_path, mmap_mode=mmap_mode)
+    y_dir = np.load(ydir_path, mmap_mode=mmap_mode)
+    y_mag = np.load(ymag_path, mmap_mode=mmap_mode)
+    timestamps = np.load(ts_path, mmap_mode=mmap_mode) if os.path.exists(ts_path) else None
+    return (X, y_dir, y_mag, timestamps)
 
 # [LemGendary Forex Suite v1.0 - SYNC_ID: FOREX_02]
 
@@ -169,25 +195,31 @@ class ForexDataset(Dataset):
                 import sys; sys.exit(1)
 
             for tf in self.active_timeframes:
-                # Check for fold-specific shard first if fold is specified
-                if self.fold is not None:
-                    shard_dir = os.path.join(pair_root, pair, str(tf), "folds", f"fold_{self.fold}", self.split)
-                    if not os.path.exists(shard_dir):
-                        shard_dir = os.path.join(pair_root, pair, str(tf), self.split)
+                if self.split == "val":
+                    # Load only global validation
+                    shard_dir = os.path.join(pair_root, pair, str(tf), "folds", "val")
+                    key = (pair, tf, "val")
+                    X, y_dir, y_mag, _timestamps = load_shard(shard_dir, mmap_mode="r")
+                    if X is not None:
+                        self._shard_paths[key] = shard_dir
+                        length = len(X)
+                        del X, y_dir, y_mag, _timestamps
+                        for row in range(length):
+                            self._index.append((p_idx, tf, key, row))
                 else:
-                    shard_dir = os.path.join(pair_root, pair, str(tf), self.split)
-
-                X, y_dir, y_mag, _timestamps = load_shard(shard_dir, mmap_mode="r")
-                if X is None:
-                    # Shard not yet downloaded — skip silently during build
-                    continue
-                key = (pair, tf)
-                self._shard_paths[key] = shard_dir
-                length = len(X)
-                # Delete references so the memmap file handles are released before pickling
-                del X, y_dir, y_mag, _timestamps
-                for row in range(length):
-                    self._index.append((p_idx, tf, key, row))
+                    # Train split: concatenate all chronological folds up to self.fold
+                    max_fold = self.fold if self.fold is not None else 6
+                    for f in range(1, max_fold + 1):
+                        fold_name = f"fold_{f}"
+                        shard_dir = os.path.join(pair_root, pair, str(tf), "folds", fold_name)
+                        key = (pair, tf, fold_name)
+                        X, y_dir, y_mag, _timestamps = load_shard(shard_dir, mmap_mode="r")
+                        if X is not None:
+                            self._shard_paths[key] = shard_dir
+                            length = len(X)
+                            del X, y_dir, y_mag, _timestamps
+                            for row in range(length):
+                                self._index.append((p_idx, tf, key, row))
 
         self.all_samples = list(self._index)
         # Governor fractional sampling (train only, chronological order preserved)

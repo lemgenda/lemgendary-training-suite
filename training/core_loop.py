@@ -2794,10 +2794,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                     if loss_fn_vgg:
                         lpips_val_local = 0.0
-                        for c_idx in range(0, len(p_chunk), eval_chunk_size):
-                            p_sub = p_chunk[c_idx:c_idx+eval_chunk_size] * 2 - 1
-                            t_sub = t_chunk[c_idx:c_idx+eval_chunk_size] * 2 - 1
-                            lpips_val_local += loss_fn_vgg(p_sub, t_sub).sum().item()
+                        # LPIPS is extremely VRAM hungry, use a smaller sub-chunk
+                        lpips_chunk = max(1, eval_chunk_size // 2)
+                        with torch.no_grad():
+                            for c_idx in range(0, len(p_chunk), lpips_chunk):
+                                p_sub = p_chunk[c_idx:c_idx+lpips_chunk] * 2 - 1
+                                t_sub = t_chunk[c_idx:c_idx+lpips_chunk] * 2 - 1
+                                lpips_val_local += loss_fn_vgg(p_sub, t_sub).sum().item()
+                                # Prevent torchmetrics from indefinitely accumulating state memory
+                                loss_fn_vgg.reset()
                         lpips_sum += lpips_val_local
 
                     if fid_metric is not None:
