@@ -3160,7 +3160,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             if train_ds.task_type == "quality":
                 stagnation_threshold = governor.min_delta
             else:
-                res = governor.current_res if hasattr(governor, 'current_res') else 512
+                res = getattr(governor, 'current_res', None)
+                res = res if res is not None else 512
                 # Proportionally reduce threshold at higher resolutions (0.5% at 512, ~0.1% at 768+)
                 stagnation_threshold = max(0.001, 0.005 * (512.0 / max(res, 512)))
             loss_improves = avg_val_loss < (best_val_loss * (1.0 - stagnation_threshold))

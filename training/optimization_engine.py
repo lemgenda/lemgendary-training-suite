@@ -414,17 +414,26 @@ class SmartTrainingGovernor:
         return msg_parts
 
     def get_phase(self):
-        res_idx = self.res_ladder.index(self.current_res)
-        if res_idx == 0 and self.current_fraction < 0.5: return "FOUNDATION"
+        if self.current_res not in self.res_ladder:
+            return "REFINEMENT"
         
-        if self.plateau_priority == "resolution":
-            if res_idx < len(self.res_ladder) - 1: return "DEEPENING"
-            if self.current_fraction < 1.0: return "EXPANSION"
+        res_idx = self.res_ladder.index(self.current_res)
+        phase = "REFINEMENT"
+        
+        if res_idx == 0 and self.current_fraction < 0.5:
+            phase = "FOUNDATION"
+        elif self.plateau_priority == "resolution":
+            if res_idx < len(self.res_ladder) - 1:
+                phase = "DEEPENING"
+            elif self.current_fraction < 1.0:
+                phase = "EXPANSION"
         else: # Default: data priority
-            if self.current_fraction < 1.0: return "EXPANSION"
-            if res_idx < len(self.res_ladder) - 1: return "DEEPENING"
+            if self.current_fraction < 1.0:
+                phase = "EXPANSION"
+            elif res_idx < len(self.res_ladder) - 1:
+                phase = "DEEPENING"
             
-        return "REFINEMENT"
+        return phase
 
     # pylint: disable=too-many-return-statements
     def audit_epoch(self, current_quality, best_quality, epochs_no_improve, regression_epochs, sentinel_trigger_rate=0.0, current_lr=None, base_lr=None, current_loss=None, plcc=0.0, srcc=0.0, target_std=None, force_jump=False, train_loss=None, metrics_dict=None):
