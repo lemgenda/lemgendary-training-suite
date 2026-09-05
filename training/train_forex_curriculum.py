@@ -62,6 +62,48 @@ def main():
     
     # 2026: Auto-resolve checkpoint dir to preserve phase states
     project_root = os.path.dirname(script_dir)
+    
+    # 2026: Validate multiphase fold consistency across attached manifolds
+    resolved_roots = []
+    if os.path.exists("/kaggle/input"):
+        for d in os.listdir("/kaggle/input"):
+            if "Forex" in d or d == "forex":
+                cand = os.path.join("/kaggle/input", d, "forex") if "Forex" in d else os.path.join("/kaggle/input", d)
+                if os.path.exists(cand) and cand not in resolved_roots:
+                    resolved_roots.append(cand)
+    else:
+        base_search = [
+            os.path.abspath(os.path.join(project_root, "..", "LemGendaryDatasets")),
+            os.path.abspath(os.path.join(project_root, "data"))
+        ]
+        for bs in base_search:
+            if os.path.exists(bs):
+                for d in os.listdir(bs):
+                    if "Forex" in d or d == "forex":
+                        cand = os.path.join(bs, d, "forex") if "Forex" in d else os.path.join(bs, d)
+                        if os.path.exists(cand) and cand not in resolved_roots:
+                            resolved_roots.append(cand)
+
+    manifold_folds = {}
+    for root in resolved_roots:
+        if not os.path.exists(root): continue
+        pairs = [d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)) and not d.startswith('.')]
+        if pairs:
+            first_pair = pairs[0]
+            fold_dirs = [d for d in os.listdir(os.path.join(root, first_pair)) if d.startswith("fold_")]
+            manifold_folds[root] = len(fold_dirs)
+
+    if manifold_folds:
+        unique_fold_counts = set(manifold_folds.values())
+        if len(unique_fold_counts) > 1:
+            print(f"\n[ERROR] Multiphase Fold Mismatch Detected!")
+            print(f"Attached manifolds have different number of folds:")
+            for m, count in manifold_folds.items():
+                print(f" - {os.path.basename(os.path.dirname(m))}: {count} folds")
+            print("\n[REQUIRED ACTION] You are using reduced manifolds with a mismatched number of folds.")
+            print("Please ensure all mounted manifolds have the exact same number of folds before continuing.")
+            sys.exit(1)
+            
     ckpt_dir = os.path.abspath(os.path.join(project_root, "..", "LemGendaryModels", MODEL_KEY, "checkpoints"))
     os.makedirs(ckpt_dir, exist_ok=True)
 
@@ -73,8 +115,25 @@ def main():
     else:
         state = {}
 
+    import yaml
+    active_phases = [1, 2, 3, 4]
+    active_folds = list(range(1, NUM_FOLDS + 1))
+    yaml_path = os.path.abspath(os.path.join(project_root, "unified_models_v2.yaml"))
+    if os.path.exists(yaml_path):
+        try:
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                y = yaml.safe_load(f)
+                curr = y.get(MODEL_KEY, {}).get("curriculum", {})
+                if "active_phases" in curr: active_phases = curr["active_phases"]
+                if "active_folds" in curr: active_folds = curr["active_folds"]
+        except Exception as e:
+            print(f" [WARNING] Failed to parse unified_models_v2.yaml: {e}")
+
     for phase in CURRICULUM_PHASES:
         p_id = phase["phase"]
+        if p_id not in active_phases:
+            continue
+
         p_name = phase["name"]
         pairs = phase["pairs"]
         max_epochs_raw = phase["max_epochs"]
@@ -86,6 +145,8 @@ def main():
         print(f"      Pairs: {len(pairs)} active")
         
         for fold in range(1, NUM_FOLDS + 1):
+            if fold not in active_folds:
+                continue
             fold_key = f"phase{p_id}_fold{fold}"
             archive_ckpt = os.path.join(ckpt_dir, f"{MODEL_KEY}_phase{p_id}_fold{fold}.pth")
             

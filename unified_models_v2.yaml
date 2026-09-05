@@ -35,6 +35,9 @@ forex_predictor:
     - LemGendizedForexG7MajorsLarge
     - LemGendizedForexHighBetaLarge
     - LemGendizedForexUniverseLarge
+  curriculum:
+    active_phases: [1, 2, 3, 4]
+    active_folds: [1, 2, 3, 4, 5, 6]
   google_drive_dataset_ids: []
   kwargs:
     active_timeframes:

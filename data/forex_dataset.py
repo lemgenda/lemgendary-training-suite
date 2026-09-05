@@ -168,6 +168,28 @@ class ForexDataset(Dataset):
         self.fold               = fold
         self.spread_stress_pips = spread_stress_pips
 
+        # Auto-detect available timeframes across all active pairs
+        available_tfs = None
+        for pair in self.pairs:
+            pair_root = None
+            for root in self.shard_roots:
+                if os.path.exists(os.path.join(root, pair)):
+                    pair_root = root
+                    break
+            if pair_root:
+                tfs_for_pair = set()
+                pair_dir = os.path.join(pair_root, pair)
+                for tf_dir in os.listdir(pair_dir):
+                    if os.path.isdir(os.path.join(pair_dir, tf_dir)) and tf_dir.isdigit():
+                        tfs_for_pair.add(int(tf_dir))
+                if available_tfs is None:
+                    available_tfs = tfs_for_pair
+                else:
+                    available_tfs = available_tfs.intersection(tfs_for_pair)
+        
+        if available_tfs is not None:
+            self.active_timeframes = [tf for tf in self.active_timeframes if tf in available_tfs]
+
         # Build flat sample index: (pair_idx, tf, shard_row_idx)
         self._build_index()
 
