@@ -34,6 +34,14 @@ EXTENDED_PAIRS = [
 ]
 PAIR_INDEX = {p: i for i, p in enumerate(EXTENDED_PAIRS)}
 
+PAIR_PIP_SCALE = {
+    "EURUSD": 1.0, "GBPUSD": 1.0, "USDJPY": 1.0, "USDCAD": 1.0,
+    "USDCHF": 1.0, "AUDUSD": 1.0, "NZDUSD": 1.0,
+    "EURGBP": 1.0, "EURJPY": 1.0, "GBPJPY": 1.0,
+    "XAGUSD": 5.0, "USOIL": 5.0, "XAUUSD": 10.0,
+    "US500": 20.0, "GER40": 20.0, "USTEC": 40.0
+}
+
 def load_shard(shard_dir: str, mmap_mode: Literal['c', 'r', 'r+', 'w+'] | None=None) -> tuple:
     X_path = os.path.join(shard_dir, 'X.npy')
     ydir_path = os.path.join(shard_dir, 'y_dir.npy')
@@ -330,12 +338,14 @@ class ForexDataset(Dataset):
                 # Pad with zeros if this TF shard not loaded yet
                 tf_inputs[other_tf] = torch.zeros(TIMEFRAME_LOOKBACK[other_tf], X.shape[-1])
 
-        mag_tp = float(y_mag[row, 0])
-        mag_sl = float(y_mag[row, 1])
+        pair_name = self.pairs[p_idx] if p_idx < len(self.pairs) else "EURUSD"
+        scale = PAIR_PIP_SCALE.get(pair_name, 1.0)
+        mag_tp = float(y_mag[row, 0]) / scale
+        mag_sl = float(y_mag[row, 1]) / scale
         if self.spread_stress_pips > 0.0:
             # Spread friction reduces net TP gain and increases effective SL risk
-            mag_tp = max(0.0, mag_tp - self.spread_stress_pips)
-            mag_sl = mag_sl + self.spread_stress_pips
+            mag_tp = max(0.0, mag_tp - (self.spread_stress_pips / scale))
+            mag_sl = mag_sl + (self.spread_stress_pips / scale)
 
         labels = {
             "direction": torch.tensor(int(y_dir[row]), dtype=torch.long),

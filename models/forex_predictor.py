@@ -51,6 +51,15 @@ EXTENDED_PAIRS = [
 PAIR_INDEX = {p: i for i, p in enumerate(EXTENDED_PAIRS)}
 NUM_PAIRS = len(PAIR_INDEX)
 
+# Canonical pip scaling factors (Normalized Pip Units / NPU)
+PAIR_PIP_SCALE = {
+    "EURUSD": 1.0, "GBPUSD": 1.0, "USDJPY": 1.0, "USDCAD": 1.0,
+    "USDCHF": 1.0, "AUDUSD": 1.0, "NZDUSD": 1.0,
+    "EURGBP": 1.0, "EURJPY": 1.0, "GBPJPY": 1.0,
+    "XAGUSD": 5.0, "USOIL": 5.0, "XAUUSD": 10.0,
+    "US500": 20.0, "GER40": 20.0, "USTEC": 40.0
+}
+
 
 class ForexDualLoss(nn.Module):
     """

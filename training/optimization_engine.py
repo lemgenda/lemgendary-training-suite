@@ -101,8 +101,12 @@ class SmartTrainingGovernor:
 
         if self.current_res is not None and self.current_res not in self.res_ladder:
             self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
-        self.min_temp = float(self.stab.get("min_temp", 0.5 if self.task_type == "quality" else (0.01 if self.task_type == "parameter_prediction" else 0.1)))
-        self.current_temp = self.stab.get("softmax_temp", self.min_temp)
+        if self.task_type == "forex":
+            self.min_temp = max(0.75, float(self.stab.get("min_temp", 0.75)))
+            self.current_temp = max(self.min_temp, float(self.stab.get("softmax_temp", 1.0)))
+        else:
+            self.min_temp = float(self.stab.get("min_temp", 0.5 if self.task_type == "quality" else (0.01 if self.task_type == "parameter_prediction" else 0.1)))
+            self.current_temp = self.stab.get("softmax_temp", self.min_temp)
         self.current_clamp = self.stab.get("logit_clamp", 15.0)
 
         # --- 2026 SOTA Dynamic Governance Targets ---
@@ -180,6 +184,9 @@ class SmartTrainingGovernor:
                     if k == 'fid': target_score += (100.0 - target_v) * weight
                     elif k == 'lpips': target_score += (1.0 - target_v) * weight
                     elif k == 'rank_margin': target_score += (10.0 - target_v) * weight
+                    elif k == 'max_drawdown': target_score += max(0.0, 100.0 - target_v) * weight
+                    elif k in ['tp_mae', 'sl_mae']: target_score += max(0.0, 50.0 - target_v) * weight
+                    elif k == 'dir_entropy': target_score += max(0.0, 1.099 - target_v) * weight
                     else: target_score += (1.0 / (target_v + 1e-6)) * weight
             if target_score > 0:
                 if target_score <= 1.0 and self.task_type == "quality":
@@ -414,6 +421,8 @@ class SmartTrainingGovernor:
         return msg_parts
 
     def get_phase(self):
+        if self.task_type == "forex":
+            return "CURRICULUM_FOLD"
         if self.current_res not in self.res_ladder:
             return "REFINEMENT"
         
@@ -668,8 +677,12 @@ class SmartTrainingGovernor:
         elif is_overfitting and self.current_fraction >= 1.0:
             should_retreat = False
             self.cooldown_remaining = 0
-            self.current_stress = min(5.0, self.current_stress + 1.0)
-            msg_parts.append(f"[RESCUE] [OVERFITTING] Dataset exhausted. Deploying Stress Protocol (Level {self.current_stress}).")
+            if self.task_type == "forex":
+                self.current_stress = min(2.0, self.current_stress + 0.5)
+                msg_parts.append(f"[REGULARIZE] [OVERFITTING] Temporal fold divergence detected. Applying mild stabilization (Level {self.current_stress}).")
+            else:
+                self.current_stress = min(5.0, self.current_stress + 1.0)
+                msg_parts.append(f"[RESCUE] [OVERFITTING] Dataset exhausted. Deploying Stress Protocol (Level {self.current_stress}).")
 
         if should_retreat:
             self.failure_log[str(current_state)] = failures + 1
@@ -840,7 +853,21 @@ class SmartTrainingGovernor:
                     self.stabilization_epochs = self.stabilization_lock
             else:
                 # New Rule: If plateaued far from SOTA goal, deploy Stress to break local minima
-                if getattr(self, 'current_stress', 0.0) < 5.0 and self.target_quality_score > 0 and self.best_quality < self.target_quality_score * 0.90:
+                if self.task_type == "forex":
+                    if getattr(self, 'current_stress', 0.0) < 2.0 and self.target_quality_score > 0 and self.best_quality < self.target_quality_score * 0.90:
+                        self.current_stress = min(2.0, getattr(self, 'current_stress', 0.0) + 0.5)
+                        self.lr_multiplier = 1.0
+                        self.head_lr_multiplier = 1.10
+                        self.jolt_window_remaining = 2
+                        lr_changed = True
+                        msg_parts.append(f"REFINEMENT: Plateau in Temporal Fold. Deploying Gentle Fold Tuning (Head LR: 1.10x)")
+                    else:
+                        if getattr(self, 'jolt_window_remaining', 0) == 0:
+                            self.lr_multiplier = self.cooling_factor
+                            self.head_lr_multiplier = self.cooling_factor
+                            lr_changed = True
+                            msg_parts.append("REFINEMENT: Precision Cooling")
+                elif getattr(self, 'current_stress', 0.0) < 5.0 and self.target_quality_score > 0 and self.best_quality < self.target_quality_score * 0.90:
                     self.current_stress = min(5.0, getattr(self, 'current_stress', 0.0) + 1.0)
                     jolt_base = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
                     self.lr_multiplier = round(jolt_base * 0.5, 3)
@@ -883,7 +910,9 @@ class SmartTrainingGovernor:
         # --- Senior Feature: Gradual Temperature Sharpening (Success Branch) ---
         if not (is_regressing or is_turbulent or sentinel_trigger_rate > 0.15) and self.current_temp > self.min_temp:
             # 2026: VLM Temperature Relaxation (Foundation vs Refinement)
-            if self.task_type != "quality":
+            if self.task_type == "forex":
+                phase_min = self.min_temp # Financial models require temperature floor >= 0.75
+            elif self.task_type != "quality":
                 phase_min = 0.05 if phase == "REFINEMENT" else 0.1
             else:
                 phase_min = self.min_temp # NIMA remains at 0.5 for stability

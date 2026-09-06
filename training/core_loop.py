@@ -1515,8 +1515,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     if start_epoch > 0:
         g_state = governor.get_state()
         if 'softmax_temp' in g_state:
-            # Apply thermal floor for quality tasks during sync
-            floor = 0.4 if train_ds.task_type == "quality" else 0.1
+            # Apply thermal floor for quality tasks and forex during sync
+            floor = 0.75 if getattr(train_ds, "task_type", "") == "forex" else (0.4 if train_ds.task_type == "quality" else 0.1)
             stab['softmax_temp'] = max(floor, g_state['softmax_temp'])
         if 'logit_clamp' in g_state: stab['logit_clamp'] = g_state['logit_clamp']
 
@@ -3159,7 +3159,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             # For high-resolution restoration, we need 0.5% improvement to reset the plateau clock.
             # v4.2: Scale threshold by resolution — at 768px+ quality scores are tightly converged
             # and a flat 0.5% bar (~2.5pts on a 509-point score) is unreachable for real gains.
-            if train_ds.task_type == "quality":
+            if train_ds.task_type in ("quality", "forex"):
                 stagnation_threshold = governor.min_delta
             else:
                 res = getattr(governor, 'current_res', None)

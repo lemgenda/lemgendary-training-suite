@@ -43,7 +43,7 @@ from data.mt5_pipeline import (
     disconnect_mt5,
     download_bars,
 )
-from models.forex_predictor import ForexPredictor, DIRECTION_CLASSES
+from models.forex_predictor import ForexPredictor, DIRECTION_CLASSES, FOREX_FEATURES_PER_BAR
 
 # [LemGendary Forex Suite v1.0 - SYNC_ID: FOREX_03]
 
@@ -104,8 +104,9 @@ def export_onnx(
 
     # Build dummy inputs for tracing
     B = 1
+    in_feats = getattr(model, "in_features", FOREX_FEATURES_PER_BAR)
     tf_inputs_dummy = {
-        tf: torch.zeros(B, TIMEFRAME_LOOKBACK[tf], 10)
+        tf: torch.zeros(B, TIMEFRAME_LOOKBACK[tf], in_feats)
         for tf in active_timeframes
     }
     pair_dummy = torch.zeros(B, dtype=torch.long)

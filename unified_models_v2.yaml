@@ -54,15 +54,17 @@ forex_predictor:
     in_features: 14
     dropout: 0.1
   sota_targets:
-    dir_acc: 78.7
-    win_rate: 68.2
-    profit_factor: 2.2
-    sharpe_ratio: 2.31
-    sortino_ratio: 2.94
-    max_drawdown: 9.5
-    tp_mae: 3.8
-    sl_mae: 3.8
+    dir_acc: 58.5
+    win_rate: 56.0
+    profit_factor: 1.65
+    sharpe_ratio: 1.85
+    sortino_ratio: 2.10
+    max_drawdown: 12.0
+    tp_mae: 12.5
+    sl_mae: 12.5
   stabilizers:
+    softmax_temp: 1.0
+    min_temp: 0.75
     numerical_sentinel:
       - -50.0
       - 50.0
@@ -84,7 +86,7 @@ forex_predictor:
       - 60
       - 240
       - 1440
-    jolt_multiplier: 1.5
+    jolt_multiplier: 1.15
     target_effective_batch: 64
     min_delta: 0.002
     swa_start_pct: 0.70

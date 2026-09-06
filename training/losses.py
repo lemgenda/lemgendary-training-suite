@@ -36,9 +36,9 @@ class ForexDualLoss(nn.Module):
     """
     def __init__(
         self,
-        direction_weight: float = 1.0,
-        magnitude_weight: float = 0.5,
-        huber_delta: float = 20.0,
+        direction_weight: float = 0.5,
+        magnitude_weight: float = 0.02,
+        huber_delta: float = 2.0,
         focal_gamma: float = 2.0,
         label_smoothing: float = 0.05,
     ):
@@ -48,7 +48,7 @@ class ForexDualLoss(nn.Module):
         self.huber_delta      = huber_delta
         self.focal_gamma      = focal_gamma
         self.label_smoothing  = label_smoothing
-        self.max_pips         = 200.0
+        self.max_pips         = 100.0
         # Asymmetric class weights: stronger Sideways penalty to prevent collapse
         # Weight vector: [Down=1.3, Sideways=0.7, Up=1.3]
         self.register_buffer('class_weights', torch.tensor([1.3, 0.7, 1.3]))

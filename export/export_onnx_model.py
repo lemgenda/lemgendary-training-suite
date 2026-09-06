@@ -58,7 +58,37 @@ def main():
         print(f" Error: Model '{args.model}' not found in registry.")
         sys.exit(1)
 
-    # 2. Architecture Instantiation
+    # 2. Domain-Specific Export Fast-Paths (e.g., Forex MT5)
+    model_filename = model_info.get("filename", args.model)
+    base_name = f"LemGendary{model_filename}"
+    production_dir_rel = os.path.join(config.get("export_dir", "../LemGendaryModels"), args.model)
+    production_dir = os.path.normpath(os.path.join(project_root, production_dir_rel))
+    os.makedirs(production_dir, exist_ok=True)
+
+    if model_info.get("dataset_type") == "forex" or "forex" in args.model.lower():
+        try:
+            from export.mt5_signal import export_onnx
+            if args.checkpoint and os.path.exists(os.path.normpath(args.checkpoint)):
+                ckpt_path = os.path.normpath(args.checkpoint)
+            else:
+                ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_best.pth")
+                if not os.path.exists(ckpt_path):
+                    ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_latest.pth")
+                if not os.path.exists(ckpt_path):
+                    ckpt_path = os.path.normpath(os.path.join(project_root, "checkpoints", f"{args.model}_best.pth"))
+            out_onnx = os.path.join(production_dir, f"{base_name}.onnx")
+            if os.path.exists(ckpt_path):
+                active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
+                export_onnx(ckpt_path, out_onnx, active_timeframes=active_tfs)
+                sys.exit(0)
+            else:
+                print(f" [WARNING] [EXPORT] No checkpoint found for {args.model} at {ckpt_path}.")
+                sys.exit(1)
+        except Exception as e:
+            print(f" [ERROR] [EXPORT] Forex ONNX export failed: {e}")
+            sys.exit(1)
+
+    # 3. Architecture Instantiation (Vision / Generic Models)
     from models.factory import get_model
     # --- 2026 Resilience Patch ---
     # Force CPU for export subprocesses to prevent CUDA OOM when train.py holds VRAM
@@ -70,7 +100,7 @@ def main():
         print(f" Error during instantiation: {e}")
         sys.exit(1)
 
-    # 3. Checkpoint Discovery
+    # 4. Checkpoint Discovery
     if args.checkpoint:
         ckpt_path = os.path.normpath(args.checkpoint)
     else:
@@ -94,33 +124,6 @@ def main():
         sys.exit(1)
     
     model.eval()
-
-    # 4. Production Synchronization
-    model_filename = model_info.get("filename", args.model)
-    base_name = f"LemGendary{model_filename}"
-    production_dir_rel = os.path.join(config.get("export_dir", "../LemGendaryModels"), args.model)
-    production_dir = os.path.normpath(os.path.join(project_root, production_dir_rel))
-    os.makedirs(production_dir, exist_ok=True)
-
-    if model_info.get("dataset_type") == "forex" or "forex" in args.model.lower():
-        try:
-            from export.mt5_signal import export_onnx
-            ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_best.pth")
-            if not os.path.exists(ckpt_path):
-                ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_latest.pth")
-            if not os.path.exists(ckpt_path):
-                ckpt_path = os.path.normpath(os.path.join(project_root, "checkpoints", f"{args.model}_best.pth"))
-            out_onnx = os.path.join(production_dir, f"{base_name}.onnx")
-            if os.path.exists(ckpt_path):
-                active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
-                export_onnx(ckpt_path, out_onnx, active_timeframes=active_tfs)
-                sys.exit(0)
-            else:
-                print(f" [WARNING] [EXPORT] No checkpoint found for {args.model} at {ckpt_path}.")
-                sys.exit(1)
-        except Exception as e:
-            print(f" [ERROR] [EXPORT] Forex ONNX export failed: {e}")
-            sys.exit(1)
 
     size_raw = model_info.get("input_size", config.get("default_img_size", 256))
     if size_raw is None:
