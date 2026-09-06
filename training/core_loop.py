@@ -323,6 +323,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     parser.add_argument("--fold", type=int, default=1, help="Walk-forward fold index (1..6)")
     parser.add_argument("--pairs", type=str, nargs='+', default=None, help="List of active pairs for Forex dataset (e.g. EURUSD GBPUSD)")
     parser.add_argument("--num_workers", type=int, default=None, help="Force a specific number of workers")
+    parser.add_argument("--val_num_workers", type=int, default=None, help="Force a specific number of validation workers")
     args = parser.parse_args()
 
     print(" [TRACE] Loading GITHUB PAT...", flush=True)
@@ -612,7 +613,39 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             _cfg_workers = cpu_count  # 'auto' or any non-int falls back to cpu_count
         num_workers = min(cpu_count, _cfg_workers)
 
-    print(f" [DATA] Initializing Parallel Manifold (Workers: {num_workers} | Persistent: {num_workers > 0})...")
+    # 2026 Resilience: Independent Validation Worker Topology
+    # Training needs higher workers for online augmentation; validation is forward-pass bound
+    # and excess workers cause massive host RAM bloat (especially at 512px+ in Kaggle).
+    if getattr(args, 'val_num_workers', None) is not None:
+        val_num_workers = args.val_num_workers
+    else:
+        _cfg_val_workers = config.get("hardware", {}).get("val_num_workers", "auto")
+        if isinstance(_cfg_val_workers, int):
+            val_num_workers = _cfg_val_workers
+        elif args.env in ['kaggle', 'colab']:
+            # Kaggle/Colab have tight 13-30GB RAM limits. Cap validation workers to 2 (or 1 if high-res anchor).
+            val_anchor = model_info.get("val_resolution", 256)
+            val_num_workers = 1 if (isinstance(val_anchor, int) and val_anchor >= 512) else 2
+        elif sys.platform == "win32":
+            val_num_workers = 0
+        else:
+            val_num_workers = min(2, num_workers)
+
+    print(f" [DATA] Initializing Parallel Manifold (Train Workers: {num_workers} | Val Workers: {val_num_workers})...")
+
+    def build_val_loader(v_ds, v_batch, v_workers, is_constrained=False, dev=device):
+        kwargs = {
+            'batch_size': v_batch,
+            'shuffle': False,
+            'num_workers': v_workers,
+            'persistent_workers': False,
+            'pin_memory': True if dev.type == 'cuda' else False
+        }
+        if v_workers > 0:
+            val_res = getattr(v_ds, "size", (256, 256))
+            val_h = val_res[0] if isinstance(val_res, (list, tuple)) else val_res
+            kwargs['prefetch_factor'] = 1 if (is_constrained or (isinstance(val_h, int) and val_h >= 512)) else 2
+        return DataLoader(v_ds, **kwargs)
     # --- 2026 Resilience: Empty Dataset Guard ---
     if len(train_ds) == 0:
         print(f"\n[ERROR] [CRITICAL ERROR] Training dataset for '{args.model}' has ZERO samples.")
@@ -841,11 +874,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     # --- 2026: Mission Data Infrastructure (v6.0) ---
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, persistent_workers=use_persistent, pin_memory=True if device.type=='cuda' else False)
 
-    val_num_workers = num_workers
     if is_heavy_manifold:
-        print(f" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
+        print(" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
 
-    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, persistent_workers=(val_num_workers > 0), pin_memory=True if device.type=='cuda' else False)
+    val_loader = build_val_loader(val_ds, val_batch_size, val_num_workers, is_constrained=is_constrained_env, dev=device)
     # --- 2026 Senior Hardening: Head-Differential & Surgical Weight Decay (Task 4.3) ---
     # Separate parameters into Backbone vs Output Head and Decayed vs Non-Decayed groups.
     head_keywords = ["head", "fc", "classifier", "outro", "predict", "linear"]
@@ -1329,7 +1361,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         probe_preds, probe_tgtes = [], []
         # 2026: Synchronized manfold audit. weights 10..1 match the user's 'inverted' dataset files.
         weights = torch.arange(1, 11).float().to(device)
-        val_loader_probe = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, persistent_workers=(num_workers > 0))
+        val_loader_probe = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
         with torch.no_grad():
             for j, (p_img, p_tgt, _) in enumerate(val_loader_probe):
                 if j >= 10: break # Must evaluate at least 10 batches for statistical significance
@@ -1338,6 +1370,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 p_soft = torch.nn.functional.softmax(p_out / config.get('stabilizers', {}).get('softmax_temp', 0.1), dim=-1)
                 probe_preds.append((p_soft * weights).sum(dim=-1).cpu())
                 probe_tgtes.append((p_tgt * weights).sum(dim=-1).cpu() / torch.clamp(p_tgt.sum(dim=-1).cpu(), min=1e-6))
+        del val_loader_probe
 
         if len(probe_preds) > 0:
             import scipy.stats
@@ -1688,7 +1721,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
         # Sync dataset strategy and re-init loader
         val_ds.update_strategy(size=val_anchor_size)
-        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, persistent_workers=(val_num_workers > 0), pin_memory=True if device.type=='cuda' else False)
+        val_loader = build_val_loader(val_ds, val_batch_size, val_num_workers, is_constrained=is_constrained_env, dev=device)
 
         # 2026 Resilience: Seed train_loss from checkpoint if resuming mid-epoch or after training
         train_loss = 0
@@ -1763,7 +1796,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 # v17.2: Also skip if we are in OOM Recovery Mode on low-end hardware
                 if num_workers > 0 and train_loader.num_workers == 0 and not (in_recovery_mode and vram_gb < 6.0):
                     print(f" [MISSION CONTROL] Fast-forward complete. Engaging Parallel Pipeline ({num_workers} workers)...")
-                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0), pin_memory=True if device.type=='cuda' else False)
+                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
                     iter_obj = enumerate(train_loader)
                     # We must align the new loader's iterator (deterministic due to seeds)
                     for i, _ in iter_obj:
@@ -2576,10 +2609,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             last_val_pct = (max(0, val_resume_iteration) / len(val_loader)) if len(val_loader) > 0 else 0.0
 
             # --- 2026 Resilience: Dispose Training Workers ---
-            # Shut down and dispose training workers before engaging new workers for validation
+            # Explicitly shut down and dispose training workers before engaging new workers for validation
             if hasattr(train_loader, '_iterator') and train_loader._iterator is not None:
                 print(" [MISSION CONTROL] Disposing training workers to free memory for validation...")
-                del train_loader._iterator
+                try:
+                    train_loader._iterator._shutdown_workers()
+                except Exception:
+                    pass
                 train_loader._iterator = None
                 gc.collect()
 
@@ -2598,9 +2634,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                     if is_critical:
                         val_batch_size = max(1, val_batch_size // 2)
-                        val_num_workers = num_workers
-                        val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False,
-                                              num_workers=val_num_workers, pin_memory=True if device.type=='cuda' else False)
+                        val_loader = build_val_loader(val_ds, val_batch_size, val_num_workers, is_constrained=is_constrained_env, dev=device)
 
             # --- 2026: Dynamic Validation Anchor (v19.0 High-Res Lock) ---
             vram_gb_current = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
@@ -2624,11 +2658,11 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     last_val_audit_fraction = val_ds.sample_fraction
                     if pbar: pbar.write(f" [SIGNAL] [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size} @ {val_anchor_size}px")
                     # Re-initialize DataLoader if batch size changed
-                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=val_num_workers, persistent_workers=(val_num_workers > 0), pin_memory=True if device.type=='cuda' else False)
+                    val_loader = build_val_loader(val_ds, val_batch_size, val_num_workers, is_constrained=is_constrained_env, dev=device)
 
             if getattr(train_ds, "task_type", "") == "forex":
                 val_batch_size = batch_size
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=num_workers, persistent_workers=(num_workers > 0))
+                val_loader = build_val_loader(val_ds, val_batch_size, val_num_workers, is_constrained=is_constrained_env, dev=device)
 
             # 2026 Validation Sharding & Resolution Sync
             # Auto-expand validation set to 100% during Refinement Phase or when training fraction >= threshold (at max res)
@@ -2891,6 +2925,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     }, f"{prog_ckpt}.tmp")
                     safe_replace(f"{prog_ckpt}.tmp", prog_ckpt)
                     val_pbar.write(f" [RESILIENCY] VAL PROGRESS COMMITTED: {current_pct*100:.0f}% (Iter {v_idx+1})")
+                    gc.collect()
 
                 # Progress commitments and state cleanup moved outside loop for manifold stability
 
@@ -3109,6 +3144,24 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 val_pbar.close()
             except Exception as e:
                 print(f"[REMEDY] Failed to close validation progress bar: {e}")
+
+        # --- 2026 Resilience: Deterministic Validation Worker Disposal ---
+        # Explicitly terminate validation workers and free shared memory queues before training
+        if hasattr(val_loader, '_iterator') and val_loader._iterator is not None:
+            try:
+                val_loader._iterator._shutdown_workers()
+            except Exception:
+                pass
+            val_loader._iterator = None
+        if 'val_iterator' in locals():
+            del val_iterator
+        if 'all_preds' in locals() and isinstance(all_preds, list):
+            all_preds.clear()
+        if 'all_targets' in locals() and isinstance(all_targets, list):
+            all_targets.clear()
+        gc.collect()
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
 
         print(f"[SIGNAL] [RESONANCE SYNC] Train: {train_speed:.2f} it/s | Val: {val_speed:.2f} it/s | Efficiency: Optimized", file=sys.stderr)
 
@@ -3365,9 +3418,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                 # v17.5: Enforce Shield during inter-epoch resolution jumps
                 _workers = num_workers
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
-                _vw = min(_workers, 2)
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_vw, persistent_workers=(_vw > 0), pin_memory=True if device.type=='cuda' else False)
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                _vw = min(val_num_workers, 2)
+                val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
 
                 # 2026 Senior Hardening: VRAM De-fragmentation (Task 4.2)
                 if device.type == 'cuda':
@@ -3963,9 +4016,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 train_ds.update_strategy(fraction=next_frac)
 
                 _workers = num_workers
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
-                _vw = min(_workers, 2)
-                val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_vw, persistent_workers=(_vw > 0), pin_memory=True if device.type=='cuda' else False)
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                _vw = min(val_num_workers, 2)
+                val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
                 if device.type == 'cuda': torch.cuda.empty_cache()
 
                 # --- 2026: SOTA Fraction Persistence Fix ---
@@ -4031,9 +4084,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
 
                     _workers = num_workers
-                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0), pin_memory=True if device.type=='cuda' else False)
-                    _vw = min(_workers, 2)
-                    val_loader = DataLoader(val_ds, batch_size=val_batch_size, shuffle=False, num_workers=_vw, persistent_workers=(_vw > 0), pin_memory=True if device.type=='cuda' else False)
+                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                    _vw = min(val_num_workers, 2)
+                    val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
                     if device.type == 'cuda': torch.cuda.empty_cache()
             else:
                 print(f"\n[MISSION COMPLETE] {msg} mathematically breached at Final Resolution ({governor.current_res}px) with 100% Data! Engaging 1-Epoch Reinforcement SOTA Countdown...")

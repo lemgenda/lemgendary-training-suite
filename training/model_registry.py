@@ -115,7 +115,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         dynamic_batch = int(available_vram / sample_vram)
 
         # --- Pixel Volume Cap (v20.0 Strict) ---
-        # v20.0: Validation allows for 2x pixel volume since no gradients/shit are stored.
+        # v20.0: Validation allows for 2x pixel volume since no gradients are stored.
         val_mult = 2.0 if mode == 'val' else 1.0
         max_pixels = 12.0 * (1024**2) * val_mult
         if vram_gb < 4.5: max_pixels = 1.5 * (1024**2) * val_mult # Relaxed Sub-Nuclear 4GB Lockdown (Targets Batch 6 at 512px)
@@ -127,7 +127,9 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         system_cap = 256 if mode == 'val' else 128
         
         # 2026 Resilience: System RAM Safeguard against Dataloader Bloat
-        # Kaggle instances have 30GB RAM. With 4 workers and large val batches, this spikes.
+        # Kaggle instances have 30GB RAM. With multiple workers and large val batches, this spikes.
+        sys_ram_gb = 64.0
+        is_kaggle = False
         try:
             import psutil
             import os
@@ -172,6 +174,13 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         gpu_count = torch.cuda.device_count() if device.type == 'cuda' else 1
         if gpu_count > 1:
             final_batch = final_batch * gpu_count
+
+        # 2026 Resilience: Multi-GPU Host RAM Guard
+        # Multi-GPU scales VRAM capacity but shares the exact same host system RAM (30GB on Kaggle).
+        # We must clamp total validation batch across all GPUs to prevent host RAM exhaustion.
+        if mode == 'val' and (is_kaggle or sys_ram_gb < 35.0):
+            max_host_val_batch = 16 if max(h, w) >= 512 else (24 if max(h, w) >= 384 else 32)
+            final_batch = min(final_batch, max_host_val_batch)
 
         # --- 2026: Hardware Bottleneck Cloud Recommendation ---
         if final_batch <= 1 and vram_gb < 4.5:

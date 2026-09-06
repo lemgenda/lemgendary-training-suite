@@ -21,7 +21,8 @@ hardware:
   # cudnn_workspace_cap_val: 4
   # cudnn_workspace_cap_train: 16
   max_allowed_local_resolution: 640
-  num_workers: auto # Dynamically managed by train.py: 0 on Windows (small RAM), 2 on Kaggle, cpu_count on Linux
+  num_workers: auto # Dynamically managed by train.py: 0 on Windows (small RAM), 4 on Kaggle/Colab, cpu_count on Linux
+  val_num_workers: auto # Independent validation workers: 0 on Windows, 1-2 on Kaggle/Colab to prevent host RAM OOM
   pin_memory: true
   use_fp16: true
 
