@@ -238,10 +238,9 @@ function Show-Menu {
     Clear-Host
     Write-Header "LEMGENDARY AI TRAINING SUITE (2026 SPECIALIZATION)"
     Write-Host " [ENVIRONMENT: $(if ($env:VIRTUAL_ENV) { 'VIRTUAL' } else { 'GLOBAL' })]" -ForegroundColor Gray
-    Write-Host "  1. Initialize/Fix All Systems (Python + Node.js + Specialized GPUs)"
-    Write-Host "  2. Train Individual Model      (Launches Local LemGendary Training Suite)"
-    Write-Host "  3. Single-Epoch Unit Test      (Diagnostic 1-Epoch pass for ALL models)"
-    Write-Host "  4. Kaggle Cloud Engine         (Headless GPU: Launch / Monitor / Pull)"
+    Write-Host "  1. Train Individual Model      (Launches Local LemGendary Training Suite)"
+    Write-Host "  2. Single-Epoch Unit Test      (Diagnostic 1-Epoch pass for ALL models)"
+    Write-Host "  3. Kaggle Cloud Engine         (Headless GPU: Launch / Monitor / Pull)"
     Write-Host "  Q. Exit"
     Write-Host ""
 }
@@ -251,10 +250,9 @@ Invoke-BootstrapCheck
 
 while ($true) {
     Show-Menu
-    $choice = (Read-Host "Select an option (1-4, Q)").Trim()
+    $choice = (Read-Host "Select an option (1-3, Q)").Trim()
     switch ($choice) {
-        '1' { Initialize-Environment; Read-Host "Press Enter to return..." }
-        '2' {
+        '1' {
             if (Test-Environment) {
                 $selectedModel = Get-ModelSelection
                 if ($null -ne $selectedModel) {
@@ -273,7 +271,7 @@ while ($true) {
             }
             Read-Host "Press Enter to return..."
         }
-        '3' {
+        '2' {
             if (Test-Environment) {
                 Invoke-JanitorPurge
                 $env:PYTHONPATH=""; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
@@ -282,7 +280,7 @@ while ($true) {
             }
             Read-Host "Press Enter to return..."
         }
-        '4' {
+        '3' {
             if (Test-Environment) {
                 Invoke-KaggleCloudMenu
             }

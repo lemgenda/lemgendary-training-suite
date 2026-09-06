@@ -64,29 +64,48 @@ def main():
     project_root = os.path.dirname(script_dir)
     
     # 2026: Validate multiphase fold consistency across attached manifolds
+    # Targeted search: only scan directories whose names contain 'forex'/'Forex'
+    # to avoid an expensive full os.walk across all large image dataset directories.
+    KNOWN_PAIR_ANCHORS = {"EURUSD", "GBPUSD", "USDJPY", "XAUUSD"}
     resolved_roots = []
-    search_dirs = [
+    base_search_dirs = [
         os.path.abspath(os.path.join(project_root, "..", "LemGendaryDatasets")),
         os.path.abspath(os.path.join(project_root, "data"))
     ]
     if os.path.exists("/kaggle/input"):
-        search_dirs.append("/kaggle/input")
+        base_search_dirs.append("/kaggle/input")
     if os.path.exists("/kaggle/working/LemGendaryDatasets"):
-        search_dirs.append("/kaggle/working/LemGendaryDatasets")
+        base_search_dirs.append("/kaggle/working/LemGendaryDatasets")
     if os.path.exists("/content/drive/MyDrive/LemGendaryDatasets"):
-        search_dirs.append("/content/drive/MyDrive/LemGendaryDatasets")
+        base_search_dirs.append("/content/drive/MyDrive/LemGendaryDatasets")
 
-    for base in search_dirs:
+    for base in base_search_dirs:
         if not os.path.exists(base):
             continue
-        for root, dirs, _ in os.walk(base):
-            if "forex" in dirs:
-                cand = os.path.join(root, "forex")
-                if cand not in resolved_roots:
-                    resolved_roots.append(cand)
-            elif "Forex" in os.path.basename(root) and any(os.path.isdir(os.path.join(root, d)) for d in os.listdir(root)):
-                if root not in resolved_roots and any(d in ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"] for d in os.listdir(root)):
-                    resolved_roots.append(root)
+        try:
+            top_level = os.listdir(base)
+        except OSError:
+            continue
+        for entry in top_level:
+            # Only descend into directories that are forex-related by name
+            if "forex" not in entry.lower():
+                continue
+            candidate_base = os.path.join(base, entry)
+            if not os.path.isdir(candidate_base):
+                continue
+            # Pattern 1: candidate_base/forex/<PAIR>/fold_N
+            forex_sub = os.path.join(candidate_base, "forex")
+            if os.path.isdir(forex_sub) and forex_sub not in resolved_roots:
+                resolved_roots.append(forex_sub)
+                continue
+            # Pattern 2: candidate_base/<PAIR>/fold_N (pairs directly inside)
+            try:
+                children = set(os.listdir(candidate_base))
+            except OSError:
+                continue
+            if KNOWN_PAIR_ANCHORS & children:
+                if candidate_base not in resolved_roots:
+                    resolved_roots.append(candidate_base)
 
     manifold_folds = {}
     for root in resolved_roots:
