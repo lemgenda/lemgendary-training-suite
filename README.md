@@ -37,6 +37,7 @@ The deep architectural backlog, including the **Memory-Sentinel**, **Sawtooth Go
 - **Forex High-Entropy Resilience (v17.2)**: `SmartTrainingGovernor` bypasses standard Turbulence Shields for financial manifolds, doubling the Intense Cyclical Learning Rate (Jolt Protocol) intensity ($2.0\times$ multiplier over 5-epoch windows) while extending absolute plateau patience to prevent false-positive retreats.
 - **Multi-Phase Fold Parity Verification (v17.3)**: When training multi-phase Forex curricula with reduced manifold subsets, the orchestrator verifies identical fold counts across all active phases before execution, proactively rejecting mismatched Walk-Forward Cross-Validation splits.
 - **Normalized Pip Scaling & Financial Governance Hardening (v17.4)**: Solves commodity and equity index pip scale divergence via `PAIR_PIP_SCALE` mapping (FX Majors 1.0, Commodities 5.0-10.0, Indices 20.0-40.0) standardizing all loss calculations and regression targets to Normalized Pip Units (0–100 NPUs). Enforces a 0.75 temperature floor for financial manifolds, aligns SOTA target score mathematics, gates differential learning rate jolts to $\le 1.15\times$, and maps training phases to `CURRICULUM_FOLD`.
+- **Clean Training Execution & Checkpoint Isolation (v17.5)**: The CLI (`train.py`) and walk-forward curriculum orchestrator (`train_forex_curriculum.py`) support `--clean` / `--fresh` to initiate runs cleanly from epoch 1 without phantom checkpoint resurrection. When active, Hub Sync bypasses `git lfs pull`, purges local residual checkpoints, resets `curriculum_state.json`, and wipes `metrics.csv`. All checkpoints (`_latest`, `_best`, `_progress`, and `_vault_`) are strictly saved to and loaded from `LemGendaryModels/<model>/checkpoints/`.
 
 For an exhaustive breakdown of the Training Suite architecture, please consult the [Master Training Suite Guide](file:///c:/Development/python/model-training/lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md) in the `lemgendary-docs` repository.
 
@@ -83,7 +84,7 @@ All features have been exhaustively documented in the [Master Training Suite Gui
 Standardized historical audit (`metrics.csv`) automatically scales based on the active domain:
 
 - **28-Column Image Telemetry**: Epoch, Loss, LR, PLCC, SRCC, PSNR, SSIM, LPIPS, FID, mAP50, mIoU, Accuracy, Res, Data, Temp, Clamp, Batch, Accumulation, Stress.
-- **21-Column Financial Telemetry**: Epoch, Loss, LR, DirAcc, WinRate, ProfitFactor, Sharpe, Sortino, MaxDD, TP_MAE, SL_MAE, Quality_Score, Pairs, Data, Temp, Clamp, Batch, Accumulation, Stress.
+- **24-Column Financial Telemetry**: Phase, Fold, Epoch, Train_Loss, Val_Loss, LR, DirAcc, WinRate, ProfitFactor, Sharpe, Sortino, MaxDD, TP_MAE, SL_MAE, DirEntropy, Quality_Score, Pairs, Data, Temp, Clamp, Cooldown, Batch, Accumulation, Stress.
 - **Auto-Recovery**: Instantly detects domain/column mismatch upon resume, archiving corrupted/legacy logs to `_legacy.csv` and initializing a fresh schema.
 - **Metrics Sanitizer**: Explicitly sanitizes `inf`/`NaN` artifacts to prevent numerical poison.
 - **Cloud Persistence**: Metrics are synchronized across local and cloud via the CloudSyncManager.

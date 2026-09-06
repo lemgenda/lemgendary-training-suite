@@ -14,20 +14,26 @@ def main():
     persistence_root = os.path.join(args.target, model_name_formatted)
     os.makedirs(persistence_root, exist_ok=True)
     
+    hub_model_dir = os.path.normpath(os.path.join(project_root, "..", "LemGendaryModels", args.model))
+
     # 1. Sync metrics.csv
-    src_metrics = os.path.join(project_root, "metrics.csv")
+    src_metrics = os.path.join(hub_model_dir, "metrics.csv")
+    if not os.path.exists(src_metrics):
+        src_metrics = os.path.join(project_root, "metrics.csv")
     if os.path.exists(src_metrics):
         shutil.copy2(src_metrics, os.path.join(persistence_root, "metrics.csv"))
         print(f"[OK] Synced metrics.csv -> {persistence_root}")
 
     # 2. Sync Checkpoints
-    src_ckpt_dir = os.path.join(project_root, "checkpoints")
+    src_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
+    if not os.path.exists(src_ckpt_dir):
+        src_ckpt_dir = os.path.join(project_root, "checkpoints")
     dst_ckpt_dir = os.path.join(persistence_root, "checkpoints")
     os.makedirs(dst_ckpt_dir, exist_ok=True)
     
     if os.path.exists(src_ckpt_dir):
         for f in os.listdir(src_ckpt_dir):
-            if f.endswith('.pth') and args.model in f:
+            if f.endswith('.pth') and (args.model in f or len(os.listdir(src_ckpt_dir)) <= 10):
                 shutil.copy2(os.path.join(src_ckpt_dir, f), os.path.join(dst_ckpt_dir, f))
                 print(f"[OK] Synced {f} -> {dst_ckpt_dir}")
 

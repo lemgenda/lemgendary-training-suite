@@ -1,28 +1,22 @@
 import os
 import sys
 import argparse
-import yaml
-import torch
 import time
-
-# --- 2026 Unicode Windows Patch ---
-# Force stdout/stderr to UTF-8 for clean cross-platform logging
-if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace") # type: ignore
-if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace") # type: ignore
-
-# --- 2026 Hardware Acceleration & Stability Patch ---
-# Anchor the search path to the parent directory to allow root module imports
-script_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(script_dir)
-sys.path.insert(0, project_root)
-
-# Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
-sys.setrecursionlimit(2000)
-
 import warnings
+import torch
+
+from export.export_common import (
+    init_export_environment,
+    load_export_configs,
+    resolve_export_paths,
+    resolve_checkpoint_file,
+    build_export_model,
+    wrap_quality_model,
+)
+
+project_root = init_export_environment()
 warnings.filterwarnings("ignore", category=FutureWarning)
+
 
 def main():
     parser = argparse.ArgumentParser(description="LemGendary SOTA Exporter: Checkpoint to FP32/FP16 ONNX")
@@ -32,52 +26,25 @@ def main():
     args = parser.parse_args()
 
     print(f"\nInitializing On-Demand SOTA ONNX Exporter for model: {args.model}")
-    
-    # 1. Environment Discovery (Hierarchical Path Resolution)
-    config_path = os.path.join(project_root, "config.yaml")
-    if not os.path.exists(config_path):
-        print(f" Error: config.yaml not found at {config_path}")
-        sys.exit(1)
-        
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f)
-        
-    unified_models_name = config.get("unified_models", "unified_models_v2.yaml")
-    unified_models_path = os.path.join(project_root, unified_models_name)
-    if not os.path.exists(unified_models_path):
-        unified_models_path = os.path.join(project_root, "unified_models.yaml")
-    if not os.path.exists(unified_models_path):
-        print(f" Error: Unified models YAML not found.")
-        sys.exit(1)
-        
-    with open(unified_models_path, 'r', encoding='utf-8') as f:
-        unified_models_registry = yaml.safe_load(f)
 
-    model_info = unified_models_registry.get(args.model)
+    config, registry = load_export_configs(project_root)
+    if not config or not registry:
+        sys.exit(1)
+
+    model_info = registry.get(args.model)
     if not model_info:
         print(f" Error: Model '{args.model}' not found in registry.")
         sys.exit(1)
 
-    # 2. Domain-Specific Export Fast-Paths (e.g., Forex MT5)
-    model_filename = model_info.get("filename", args.model)
-    base_name = f"LemGendary{model_filename}"
-    production_dir_rel = os.path.join(config.get("export_dir", "../LemGendaryModels"), args.model)
-    production_dir = os.path.normpath(os.path.join(project_root, production_dir_rel))
-    os.makedirs(production_dir, exist_ok=True)
+    base_name, production_dir = resolve_export_paths(args.model, model_info, config, project_root)
 
+    # Domain-Specific Export Fast-Paths (e.g., Forex MT5)
     if model_info.get("dataset_type") == "forex" or "forex" in args.model.lower():
         try:
             from export.mt5_signal import export_onnx
-            if args.checkpoint and os.path.exists(os.path.normpath(args.checkpoint)):
-                ckpt_path = os.path.normpath(args.checkpoint)
-            else:
-                ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_best.pth")
-                if not os.path.exists(ckpt_path):
-                    ckpt_path = os.path.join(production_dir, "checkpoints", f"{args.model}_latest.pth")
-                if not os.path.exists(ckpt_path):
-                    ckpt_path = os.path.normpath(os.path.join(project_root, "checkpoints", f"{args.model}_best.pth"))
+            ckpt_path = resolve_checkpoint_file(args.model, production_dir, config, project_root, args.checkpoint)
             out_onnx = os.path.join(production_dir, f"{base_name}.onnx")
-            if os.path.exists(ckpt_path):
+            if ckpt_path and os.path.exists(ckpt_path):
                 active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
                 export_onnx(ckpt_path, out_onnx, active_timeframes=active_tfs)
                 sys.exit(0)
@@ -88,27 +55,13 @@ def main():
             print(f" [ERROR] [EXPORT] Forex ONNX export failed: {e}")
             sys.exit(1)
 
-    # 3. Architecture Instantiation (Vision / Generic Models)
-    from models.factory import get_model
-    # --- 2026 Resilience Patch ---
-    # Force CPU for export subprocesses to prevent CUDA OOM when train.py holds VRAM
     device = torch.device("cpu")
-    print(f" [ARCH] Instantiating architecture for {args.model} on {device}...")
-    try:
-        model = get_model(args.model, config).to(device)
-    except Exception as e:
-        print(f" Error during instantiation: {e}")
+    model = build_export_model(args.model, config, device)
+    if model is None:
         sys.exit(1)
 
-    # 4. Checkpoint Discovery
-    if args.checkpoint:
-        ckpt_path = os.path.normpath(args.checkpoint)
-    else:
-        ckpt_dir_rel = config.get("checkpoint_dir", "checkpoints")
-        ckpt_dir = os.path.normpath(os.path.join(project_root, ckpt_dir_rel))
-        ckpt_path = os.path.join(ckpt_dir, f"{args.model}_best.pth")
-    
-    if not os.path.exists(ckpt_path):
+    ckpt_path = resolve_checkpoint_file(args.model, production_dir, config, project_root, args.checkpoint)
+    if not ckpt_path or not os.path.exists(ckpt_path):
         print(f" Error: SOTA Checkpoint not found at {ckpt_path}")
         sys.exit(1)
 
@@ -122,42 +75,22 @@ def main():
     except Exception as e:
         print(f" Error during load: {e}")
         sys.exit(1)
-    
+
     model.eval()
 
     size_raw = model_info.get("input_size", config.get("default_img_size", 256))
     if size_raw is None:
         size_raw = 256
     if isinstance(size_raw, list):
-        h, w = (int(size_raw[1]), int(size_raw[2])) if len(size_raw)==3 else (int(size_raw[0]), int(size_raw[1]))
+        h, w = (int(size_raw[1]), int(size_raw[2])) if len(size_raw) == 3 else (int(size_raw[0]), int(size_raw[1]))
     else:
         h, w = int(size_raw), int(size_raw)
 
-    # --- 2026 Resilience: Cap ONNX Export Resolution ---
+    # Cap ONNX Export Resolution for stability
     h = min(h, 512)
     w = min(w, 512)
-    
-    # 3.5 Production Wrapping (Probabilities for Quality Manifolds)
-    if model_info.get("dataset_type") == "quality":
-        import torch.nn as nn
-        class SoftmaxWrapper(nn.Module):
-            def __init__(self, inner_model, temperature=1.0):
-                super().__init__()
-                self.inner_model = inner_model
-                self.temperature = temperature
-            def forward(self, x):
-                logits = self.inner_model(x)
-                return torch.nn.functional.softmax(logits / self.temperature, dim=1)
-        
-        # 2026 Resilience: Use temperature from model if anchored, else config default
-        temp = getattr(model, "softmax_temp", torch.tensor(1.0)).item()
-        if temp == 1.0:
-            stab = model_info.get("stabilizers", {})
-            temp = stab.get("softmax_temp", 1.0)
-        
-        print(f" [WRAP] Applying production Softmax wrapper with Temp={temp}")
-        model = SoftmaxWrapper(model, temperature=temp)
-        model.eval()
+
+    model = wrap_quality_model(model, model_info)
 
     dummy_input = torch.randn(1, 3, h, w).to(device)
 

@@ -4,6 +4,7 @@ import subprocess
 import time
 import shutil
 import csv
+import argparse
 
 # --- Walk-Forward Curriculum Configuration ---
 CURRICULUM_PHASES = [
@@ -52,6 +53,10 @@ def get_latest_epoch(model_key, project_root):
     return 0
 
 def main():
+    parser = argparse.ArgumentParser(description="LemGendary Forex Curriculum Orchestrator")
+    parser.add_argument("--clean", "--fresh", dest="clean", action="store_true", help="Start curriculum fresh from fold 1 epoch 1, wiping all checkpoints and states")
+    args = parser.parse_args()
+
     print("================================================================================")
     print("  LEMGENDARY FOREX CURRICULUM ORCHESTRATOR")
     print("  Executing Walk-Forward Expansion Matrix (4 -> 16 Pairs | Folds 1 -> 6)")
@@ -129,6 +134,20 @@ def main():
             
     ckpt_dir = os.path.abspath(os.path.join(project_root, "..", "LemGendaryModels", MODEL_KEY, "checkpoints"))
     os.makedirs(ckpt_dir, exist_ok=True)
+
+    if getattr(args, 'clean', False):
+        print(" [CLEAN] [RESET] Fresh curriculum run requested. Wiping checkpoints, state file, and telemetry...")
+        target_root = os.path.dirname(ckpt_dir)
+        purge_targets = [
+            os.path.join(target_root, "metrics.csv"),
+            *[os.path.join(ckpt_dir, f) for f in os.listdir(ckpt_dir) if f.endswith((".pth", ".json", ".processing"))]
+        ] if os.path.exists(ckpt_dir) else [os.path.join(target_root, "metrics.csv")]
+        for artifact in purge_targets:
+            if os.path.isfile(artifact):
+                try:
+                    os.unlink(artifact)
+                except OSError as purge_err:
+                    print(f" [PURGE] Note: could not delete {os.path.basename(artifact)}: {purge_err}")
 
     state_file = os.path.join(ckpt_dir, "curriculum_state.json")
     import json
@@ -210,6 +229,9 @@ def main():
             # Add pairs argument
             cmd.append("--pairs")
             cmd.extend(pairs)
+
+            if getattr(args, 'clean', False) and p_id == 1 and fold == 1:
+                cmd.append("--clean")
             
             # 2026 Cloud Environment Auto-Forwarding
             env_type = "kaggle" if os.path.exists("/kaggle") else ("colab" if os.path.exists("/content") else "local")

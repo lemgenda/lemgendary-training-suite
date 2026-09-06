@@ -45,7 +45,7 @@ class TelemetryEngine:
         
         # Determine expected columns based on task_type
         if self.task_type == "forex":
-            expected_cols = 25
+            expected_cols = 24
             header_str = "Phase,Fold,Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,DirEntropy,Quality_Score,Pairs,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
         else:
             expected_cols = 28

@@ -1,96 +1,55 @@
+"""LemGendary SOTA Exporter: Checkpoint to Standalone PyTorch."""
+
 import os
-import sys
 import argparse
-import yaml
 import torch
-import torch.nn as nn
+from export.export_common import (
+    init_export_environment,
+    load_export_configs,
+    resolve_export_paths,
+    resolve_checkpoint_file,
+    build_export_model,
+    wrap_quality_model,
+)
 
-# --- 2026 Unicode Windows Patch ---
-# Force stdout/stderr to UTF-8 for clean cross-platform logging
-if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
-if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
+project_root = init_export_environment()
 
-# --- 2026 Hardware Acceleration & Stability Patch ---
-# Anchor the search path to the parent directory to allow root module imports
-script_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(script_dir)
-sys.path.insert(0, project_root)
-
-# Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
-sys.setrecursionlimit(2000)
-
-from models.nima import SoftmaxWrapper
 
 def main():
-    # pylint: disable=too-many-return-statements
     parser = argparse.ArgumentParser(description="LemGendary SOTA Exporter: Checkpoint to Standalone PyTorch")
     parser.add_argument("--model", type=str, required=True, help="Model key from unified_models.yaml")
     parser.add_argument("--checkpoint", type=str, help="Path to specific .pth checkpoint to export")
-    parser.add_argument("--yes", action="store_true", help="Bypass interactive prompts for automated 2026 pipelines")
+    parser.add_argument("--yes", action="store_true", help="Bypass interactive prompts for automated pipelines")
     args = parser.parse_args()
 
     print(f"\nInitializing On-Demand SOTA PT Exporter for model: {args.model}")
-    
-    # 1. Environment Discovery (Hierarchical Path Resolution)
-    config_path = os.path.join(project_root, "config.yaml")
-    if not os.path.exists(config_path):
-        print(f" Error: config.yaml not found at {config_path}")
-        print("[REMEDY] Ensure your model folder contains a valid config.yaml file.")
-        return
-        
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f)
-        
-    unified_models_name = config.get("unified_models", "unified_models_v2.yaml")
-    unified_models_path = os.path.join(project_root, unified_models_name)
-    if not os.path.exists(unified_models_path):
-        unified_models_path = os.path.join(project_root, "unified_models.yaml")
-    if not os.path.exists(unified_models_path):
-        print(f" Error: Unified models YAML not found.")
-        print("[REMEDY] Run this script from the root of the repository where unified_models.yaml is located.")
-        return
-        
-    with open(unified_models_path, 'r', encoding='utf-8') as f:
-        unified_models_registry = yaml.safe_load(f)
 
-    model_info = unified_models_registry.get(args.model)
+    config, registry = load_export_configs(project_root)
+    if not config or not registry:
+        return
+
+    model_info = registry.get(args.model)
     if not model_info:
         print(f"Error: Model '{args.model}' not found in registry.")
         print("[REMEDY] Verify the spelling of the model in unified_models.yaml.")
         return
 
-    # 2. Architecture Instantiation
-    from models.factory import get_model
-    # --- 2026 Resilience Patch ---
-    # Force CPU for export subprocesses to prevent CUDA OOM when train.py holds VRAM
-    device = torch.device("cpu")
-    print(f" [ARCH] Instantiating architecture for {args.model} on {device}...")
-    try:
-        model = get_model(args.model, config).to(device)
-    except Exception as e:
-        print(f" Error during instantiation: {e}")
+    model = build_export_model(args.model, config, torch.device("cpu"))
+    if model is None:
         return
 
-    # 3. Checkpoint Discovery
-    if args.checkpoint:
-        ckpt_path = os.path.normpath(args.checkpoint)
-    else:
-        ckpt_dir_rel = config.get("checkpoint_dir", "checkpoints")
-        ckpt_dir = os.path.normpath(os.path.join(project_root, ckpt_dir_rel))
-        ckpt_path = os.path.join(ckpt_dir, f"{args.model}_best.pth")
-    
-    if not os.path.exists(ckpt_path):
-        print(f" Error: SOTA Checkpoint not found at {ckpt_path}")
+    base_name, production_dir = resolve_export_paths(args.model, model_info, config, project_root)
+    ckpt_path = resolve_checkpoint_file(args.model, production_dir, config, project_root, args.checkpoint)
+
+    if not ckpt_path or not os.path.exists(ckpt_path):
+        print(f" Error: SOTA Checkpoint not found for {args.model}")
         return
 
     print(f" [LOAD] Extracting weights from {ckpt_path}...")
     try:
-        ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-        if isinstance(ckpt, dict) and 'model_state' in ckpt:
-            # Handle missing softmax_temp by using strict=False
-            model.load_state_dict(ckpt['model_state'], strict=False)
+        ckpt = torch.load(ckpt_path, map_location=torch.device("cpu"), weights_only=False)
+        if isinstance(ckpt, dict) and "model_state" in ckpt:
+            model.load_state_dict(ckpt["model_state"], strict=False)
             print(f"   -> Epoch: {ckpt.get('epoch', 'N/A')} | Quality: {ckpt.get('sota_metric', 'N/A')}")
         else:
             model.load_state_dict(ckpt)
@@ -98,52 +57,34 @@ def main():
     except Exception as e:
         print(f" Error: Failed to load state dictionary: {e}")
         return
-    
+
     model.eval()
+    model = wrap_quality_model(model, model_info)
 
-    # 3.5 Production Wrapping (Probabilities for Quality Manifolds)
-    if model_info.get("dataset_type") == "quality":
-        temp = getattr(model, "softmax_temp", torch.tensor(1.0)).item()
-        if temp == 1.0:
-            stab = model_info.get("stabilizers", {})
-            temp = stab.get("softmax_temp", 1.0)
-        
-        print(f" [WRAP] Applying production Softmax wrapper with Temp={temp}")
-        model = SoftmaxWrapper(model, temperature=temp)
-        model.eval()
-
-    # 4. Production Synchronization
-    model_filename = model_info.get("filename", args.model)
-    base_name = f"LemGendary{model_filename}"
-    production_dir_rel = os.path.join(config.get("export_dir", "../LemGendaryModels"), args.model)
-    production_dir = os.path.normpath(os.path.join(project_root, production_dir_rel))
-    os.makedirs(production_dir, exist_ok=True)
-    
     target_path = os.path.join(production_dir, f"{base_name}.pt")
-    
     if os.path.exists(target_path):
         if args.yes:
             print(f"   -> [OVERWRITE] Non-interactive bypass active for {base_name}.pt.")
         else:
             print(f"\n  [WARNING] Production artifact '{target_path}' already exists.")
             ans = input("  Do you want to OVERWRITE this standalone model? [y/N]: ")
-            if ans.lower().strip() != 'y':
+            if ans.lower().strip() != "y":
                 print("  Export aborted by user.")
                 return
 
     print(f" [EXPORT] Saving standalone PyTorch model object to {target_path}...")
     try:
-        # Unwrap SoftmaxWrapper if present to ensure clean module serialization
-        raw_model = model.model if hasattr(model, 'model') and isinstance(model.model, torch.nn.Module) else model
+        raw_model = model.model if hasattr(model, "model") and isinstance(model.model, torch.nn.Module) else model
         save_obj = {
             "model_state": raw_model.state_dict(),
-            "model": raw_model
+            "model": raw_model,
         }
         torch.save(save_obj, target_path)
         print(" [SUCCESS] Standalone SOTA model is now production-ready.")
         print(f"   -> Usage: model = torch.load('{target_path}')")
     except Exception as e:
         print(f" Error during export: {e}")
+
 
 if __name__ == "__main__":
     main()

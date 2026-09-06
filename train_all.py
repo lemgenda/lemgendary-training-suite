@@ -91,7 +91,7 @@ def main():
             # SOTA Skip Logic (Task 11.1)
             model_info = registry[model_key]
             model_filename = model_info.get("filename", model_key)
-            final_pth = os.path.join(base_dir, "trained-models", model_key, f"{model_key}_best.pth")
+            final_pth = os.path.abspath(os.path.join(base_dir, "..", "LemGendaryModels", model_key, "checkpoints", f"{model_key}_best.pth"))
             
             if os.path.exists(final_pth) and not args.force:
                 print(f"[SKIP] Model '{model_key}' has existing SOTA artifacts. Use --force to re-train.")

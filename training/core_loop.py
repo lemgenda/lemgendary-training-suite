@@ -318,6 +318,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     parser.add_argument("--hub_repo", type=str, default=None, help="GitHub repository name for model hub")
     parser.add_argument("--auto_sync", action="store_true", help="Enable automated cloud synchronization per epoch (Kaggle only)")
     parser.add_argument("--reset-scheduler", action="store_true", help="Bypass loaded scheduler state and re-initialize fresh curve at current step")
+    parser.add_argument("--clean", "--fresh", dest="clean", action="store_true", help="Start training fresh from epoch 1, wiping local checkpoints and ignoring hub checkpoints")
     parser.add_argument("--phase", type=int, default=1, help="Training Phase (e.g., Pre-training=1, Fine-tuning=2)")
     parser.add_argument("--fold", type=int, default=1, help="Walk-forward fold index (1..6)")
     parser.add_argument("--pairs", type=str, nargs='+', default=None, help="List of active pairs for Forex dataset (e.g. EURUSD GBPUSD)")
@@ -898,8 +899,11 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, env=env, capture_output=True)
             # 2026 Resilience: Ensure binary weights are smudged surgically
             subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
-            print(f"[PACKAGE] [LFS] Syncing surgical manifold for {args.model}...")
-            subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
+            if not getattr(args, 'clean', False):
+                print(f"[PACKAGE] [LFS] Syncing surgical manifold for {args.model}...")
+                subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
+            else:
+                print(f"[PACKAGE] [LFS] Fresh start requested (--clean). Bypassing LFS checkpoint pull for {args.model}.")
         else:
             print(f"[LAUNCH] [HUB SYNC] Initializing Hub at {hub_root}...")
             # 2026: On Kaggle, skip cloning if LFS is likely to fail or if user wants lean manifold.
@@ -921,9 +925,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         # Sparse checkout disabled
                         print('[SUCCESS] [HUB SYNC] Hub structure initialized (Stateless).')
                         subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
-                        # Surgical LFS Pull: Only pull the checkpoints for the current model
-                        print(f"[PACKAGE] [LFS] Hydrating surgical manifold for {args.model}...")
-                        subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
+                        if not getattr(args, 'clean', False):
+                            # Surgical LFS Pull: Only pull the checkpoints for the current model
+                            print(f"[PACKAGE] [LFS] Hydrating surgical manifold for {args.model}...")
+                            subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
+                        else:
+                            print(f"[PACKAGE] [LFS] Fresh start requested (--clean). Bypassing LFS checkpoint pull for {args.model}.")
                     else:
                         err_msg = res.stderr.strip()
                         print(f"[WARNING] [HUB SYNC] Initial clone failed. Error: {err_msg}")
@@ -944,6 +951,23 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
     config["checkpoint_dir"] = hub_ckpt_dir
     os.makedirs(config["checkpoint_dir"], exist_ok=True)
+
+    if getattr(args, 'clean', False):
+        print(f"[CLEAN] [RESET] Fresh start active. Purging existing checkpoints and telemetry for {args.model}...")
+        if os.path.exists(hub_ckpt_dir):
+            for f in os.listdir(hub_ckpt_dir):
+                if f.endswith(".pth") or f.endswith(".json") or f.endswith(".processing"):
+                    try:
+                        os.remove(os.path.join(hub_ckpt_dir, f))
+                    except Exception as e:
+                        print(f" [WARNING] Failed to remove checkpoint artifact {f}: {e}")
+        metrics_csv_candidate = os.path.join(hub_model_dir, "metrics.csv")
+        if os.path.exists(metrics_csv_candidate):
+            try:
+                os.remove(metrics_csv_candidate)
+            except Exception as e:
+                print(f" [WARNING] Failed to remove metrics.csv: {e}")
+
     best_val_loss = float('inf')
     best_quality_score = -1.0
 
@@ -959,7 +983,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     # We probe the 'best.pth' artifact to establish a high-water mark for the entire project.
     # This prevents regression epochs in a new session from overwriting a previous SOTA peak.
     best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
-    if os.path.exists(best_ckpt_path):
+    if not getattr(args, 'clean', False) and os.path.exists(best_ckpt_path):
         try:
             best_ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False) # pyre-ignore
             if 'best_val_loss' in best_ckpt:
@@ -988,22 +1012,22 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     val_resume_iteration = 0
     restored_avg_train_loss = None # 2026: Carry-over for resume reporting
 
-    # Priority: 1. Local Progress (fastest) 2. Hub Progress 3. Hub Latest 4. Hub Best
+    # Priority: 1. Hub Progress 2. Hub Latest 3. Hub Best
     latest_hub = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
     best_hub = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
-    progress_local = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
     progress_hub = os.path.join(hub_ckpt_dir, f"{args.model}_progress.pth")
+    progress_local = progress_hub
 
     # --- 2026 Resilience: Stale Lock Clearance (Task 13.1) ---
     # If a previous run crashed, clear the .processing locks to allow resume.
-    for ckpt_path in [progress_local, progress_hub, latest_hub, best_hub]:
+    for ckpt_path in [progress_hub, latest_hub, best_hub]:
         proc_file = ckpt_path + ".processing"
         if os.path.exists(proc_file):
             print(f"[RESILIENCE] Clearing stale lock: {os.path.basename(proc_file)}")
             try: os.remove(proc_file)
             except Exception as e: print(f"[REMEDY] Failed to clear stale lock {proc_file}: {e}")
 
-    fallback_chain = [progress_local, progress_hub, latest_hub, best_hub]
+    fallback_chain = [] if getattr(args, 'clean', False) else [progress_hub, latest_hub, best_hub]
     # Priority Candidate Selection (v15.0):
     # We probe metadata to find the ABSOLUTE highest epoch/iteration across all locations.
     candidates = []
@@ -1291,9 +1315,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             expected_start_epoch = last_csv_epoch
             if start_epoch != expected_start_epoch:
                 print(f" [TELEMETRY] CSV Alignment: metrics.csv ends at Epoch {last_csv_epoch}. Aligned start_epoch: {start_epoch + 1} -> {expected_start_epoch + 1}.")
-                start_epoch = expected_start_epoch
-
-    print(f"[OK] [CONTINUITY] Successfully resumed from epoch {start_epoch+1}.")
+    if ckpt_loaded:
+        print(f"[OK] [CONTINUITY] Successfully resumed from epoch {start_epoch+1}.")
+    else:
+        print(f"[LAUNCH] [FRESH START] Initializing training from epoch {start_epoch+1}.")
     # --- 2026: Polarity Governor (Resilience v3.3) ---
     # Perform a surgical 10-batch 'Probe' of validation correlation to detect inverse heads.
     # This prevents hours of wasted training on inverted manifolds.
@@ -4243,7 +4268,7 @@ if __name__ == "__main__":
                 absolute_epochs_no_improve = frame.f_locals.get("absolute_epochs_no_improve", 0)
                 regression_epochs = frame.f_locals.get("regression_epochs", 0)
                 sota_baseline_achieved = frame.f_locals.get("sota_baseline_achieved", False)
-                progress_local = frame.f_locals.get("progress_local")
+                progress_local = frame.f_locals.get("progress_local") or frame.f_locals.get("progress_hub")
                 avg_train_loss = frame.f_locals.get("avg_train_loss", 0.0)
 
                 if model and progress_local:

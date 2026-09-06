@@ -58,7 +58,7 @@ fleet:
 # --- Orchestration Paths ---
 paths:
   datasets_root: "../LemGendaryDatasets"
-  checkpoints_root: "checkpoints"
+  checkpoints_root: "../LemGendaryModels"
   export_root: "../LemGendaryModels"
 
 # --- Training Defaults ---
