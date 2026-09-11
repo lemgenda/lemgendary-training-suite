@@ -11,6 +11,7 @@ tmp/
 # Kaggle API tokens
 kaggle.json
 .kaggle_token
+.kaggle_users
 #GitHub PAT
 .SUITE_PAT
 .GITHUB_PAT

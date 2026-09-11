@@ -118,7 +118,10 @@ The Governor automatically synchronizes with your `LemGendaryModels` repository,
 
 The training suite natively intercepts execution environments with multiple GPUs (e.g., Kaggle Tesla T4 x2) and automatically wraps compatible models in PyTorch's `nn.DataParallel` API.
 
-- **Dynamic Batch Distribution**: Seamlessly splits large high-fidelity pixel matrices (e.g., `768px`) across available GPUs, doubling effective throughput.
+- **Dynamic Batch Distribution**: Seamlessly splits large high-fidelity pixel matrices across available GPUs, doubling effective throughput.
+- **DataParallel Gathering Safeguard (v20.0)**: Fixes primary-device VRAM bottlenecking by eliminating naive `gpu_count` micro-batch multiplication at high resolutions ($\ge 512\text{px}$) and for restoration architectures. GPU 0 is protected from output gathering saturation and loss graph spikes, utilizing Universal Gradient Accumulation to maintain the target effective batch size.
+- **Dynamic Headroom Tiering & Pre-Jump Dry-Run Probe**: Enforces a 30% free VRAM safety headroom margin (`safety_multiplier = 0.70`) for spatial ladders $\ge 512\text{px}$ and perceptual loss engines (LPIPS/VGG). Runs an isolated forward and backward dry-run probe with full loss evaluation before committing to spatial ladder escalation (`512px -> 640px`), automatically vetoing resolution jumps and anchoring weights at the proven resolution if physical VRAM headroom is breached.
+- **Hardware ECC & Virtual Memory Fragmentation Guard**: Detects uncorrectable ECC hardware errors during pre-flight sanity checks with clear diagnostic recovery guidance, and configures `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` to eliminate CUDA memory allocator fragmentation.
 - **Seamless CPU Checkpointing**: Intelligently intercepts the `.pth` save hooks, stripping the `module.` prefix injected by `DataParallel` before saving to disk. This guarantees that Kaggle Multi-GPU checkpoints can be effortlessly downloaded and evaluated natively on standalone Windows environments or CPU deployments without manual layer re-mapping.
 - **ONNX Trace Resilience (FakeTensor Guards)**: Dynamically wraps unmapped `FakeTensor` memory pointer access (`data_ptr()`) during FX/ONNX graph tracing within the DataParallel multi-GPU engine to prevent false-positive segmentation faults during structural graph export.
 - **Real-Time SOTA Export Device Re-Anchoring**: Guarantees that multi-GPU DataParallel parameters and buffers are atomically restored to the primary accelerator (`cuda:0`) across all SOTA export cycles via `finally` execution blocks, with proactive start-of-epoch device alignment verification.
@@ -128,7 +131,7 @@ The training suite natively intercepts execution environments with multiple GPUs
 
 All inference notebooks and training engines natively fall back to **DirectML** on local machines, providing zero-config GPU acceleration for **AMD** and **Intel** graphics cards on Windows.
 
-- **Hardware-Aware Resolution Capping**: Dynamically limits maximum training and validation resolution (e.g. `max_allowed_local_resolution: 640`) on local environments to prevent 4GB VRAM exhaustion, while permitting 1024px+ scaling on robust cloud infrastructures.
+- **Hardware-Aware Resolution Capping**: Dynamically limits maximum training and validation resolution (e.g. `max_allowed_local_resolution: 640`, `max_allowed_cloud_resolution: 512` on 16GB tiers) on local and cloud environments to prevent VRAM exhaustion and hardware ECC faults, while permitting 1024px+ scaling on robust high-memory cloud infrastructures.
 
 ---
 

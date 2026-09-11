@@ -30,22 +30,33 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 return 16
             return int(fallback_val) if fallback_val is not None else 16
 
+        # Pre-flight CUDA sanity check (detects hardware uncorrectable ECC error)
+        try:
+            _test = torch.zeros(1, device=device)
+            del _test
+        except Exception as ecc_err:
+            if "ECC" in str(ecc_err) or "uncorrectable" in str(ecc_err).lower():
+                print("\n[CRITICAL ERROR] [HARDWARE SENTINEL] Uncorrectable ECC error detected on GPU!")
+                print(" The accelerator memory is physically corrupted and locked by the NVIDIA driver.")
+                print(" RECOMMENDATION: Restart your Kaggle session to acquire a healthy GPU node.")
+                print(" Checkpoints remain intact; resume training with --model <model_name> on the new session.\n")
+                sys.exit(1)
+            raise ecc_err
+
+        # Pre-probe surgical cache purge
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+
         # 2026 Resilience: Total VRAM Discovery (incorporating PyTorch's reserved pool)
         free_vram, total_vram = torch.cuda.mem_get_info(0)
         vram_gb = total_vram / (1024**3)
 
-        if device.type == 'cuda':
-            unused_reserved = torch.cuda.memory_reserved(0) - torch.cuda.memory_allocated(0)
-            free_vram = free_vram + unused_reserved
+        unused_reserved = torch.cuda.memory_reserved(0) - torch.cuda.memory_allocated(0)
+        free_vram = free_vram + unused_reserved
 
         # 2026 Resilience: Paging Awareness (Shared Memory Guard)
-        # If free VRAM is critically low (< 15% of total), we must assume
-        # we are already paging into slow Shared Memory.
         is_exhausted = (free_vram / total_vram) < 0.15
-
-        # Relaxed safety buffer: 4GB cards need all the VRAM they can get
-        safety_multiplier = 0.90 if vram_gb < 4.5 else 0.95
-        available_vram = free_vram * safety_multiplier
 
         # Use resolution from override or model_info
         res = res_override
@@ -55,6 +66,20 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
 
         h = w = int(res)
 
+        # Dynamic Headroom Tiering:
+        # High resolution (>= 512px) and heavy restoration architectures require large headroom
+        # for intermediate perceptual losses (LPIPS/VGG) and AdamW FP32 moment buffers.
+        if h >= 512 or is_restoration:
+            safety_multiplier = 0.70  # 30% free headroom safety margin
+        elif h >= 384:
+            safety_multiplier = 0.75  # 25% free headroom safety margin
+        elif vram_gb < 4.5:
+            safety_multiplier = 0.80  # 20% safety margin on 4GB cards
+        else:
+            safety_multiplier = 0.85  # 15% safety margin on standard workloads
+
+        available_vram = free_vram * safety_multiplier
+
         # --- The Probe (v17.2) ---
         # We instantiate a single-sample manifold to measure exact activation/gradient volume
         torch.cuda.empty_cache()
@@ -62,7 +87,6 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         try:
             # 2026 SOTA Resilience: The "Warmup" Pass
             # The absolute FIRST forward/backward pass in PyTorch initializes massive lazy buffers (CuDNN, etc.).
-            # We must run a warmup pass FIRST so these lazy allocations don't inflate our peak memory reading!
             _dummy = {"pixel_values": torch.randn(1, 3, h, w).to(device)} if "diffusion" in model_key.lower() else torch.randn(1, 3, h, w).to(device)
             model.eval() if mode == 'val' else model.train()
             _out = model(_dummy)
@@ -70,6 +94,8 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 _loss = sum(v.mean() for v in _out.values()) if isinstance(_out, dict) else _out.mean()
                 if isinstance(_loss, torch.Tensor): _loss.backward()
                 model.zero_grad(set_to_none=True)
+            del _dummy, _out
+            torch.cuda.empty_cache()
         except Exception as e:
             print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
 
@@ -95,22 +121,26 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 if isinstance(loss, torch.Tensor): loss.backward()
                 # Use peak memory to capture activation volume during backward pass
                 peak_probe = torch.cuda.max_memory_allocated(0) if device.type == 'cuda' else torch.cuda.memory_allocated(0)
-                # Subtracting before_probe leaves peak activation + gradients. We apply a 1.2x multiplier for optimizer step spikes.
-                sample_vram = (peak_probe - before_probe) * 1.2
+                # Factor in perceptual loss (LPIPS/VGG) and optimizer step memory footprint
+                probe_multiplier = 1.6 if is_restoration else 1.25
+                sample_vram = (peak_probe - before_probe) * probe_multiplier
             else:
                 with torch.no_grad():
                     _ = model(dummy_input)
                 # Use peak memory to capture activation volume during forward pass
                 peak_probe = torch.cuda.max_memory_allocated(0) if device.type == 'cuda' else torch.cuda.memory_allocated(0)
-                val_mult = 1.5 if is_restoration else 1.1
+                val_mult = 1.6 if is_restoration else 1.15
                 sample_vram = (peak_probe - before_probe) * val_mult
 
+            del dummy_input
+            model.zero_grad(set_to_none=True)
             torch.cuda.empty_cache()
             if sample_vram <= 0: raise ValueError("Probe failed to measure manifold")
 
         except Exception as e:
             res_multiplier = (h * w) / (224 * 224)
-            sample_vram = 60 * 1024 * 1024 * res_multiplier
+            base_mb = 90 if is_restoration else 60
+            sample_vram = base_mb * 1024 * 1024 * res_multiplier
 
         dynamic_batch = int(available_vram / sample_vram)
 
@@ -120,22 +150,19 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         max_pixels = 12.0 * (1024**2) * val_mult
         if vram_gb < 4.5: max_pixels = 1.5 * (1024**2) * val_mult # Relaxed Sub-Nuclear 4GB Lockdown (Targets Batch 6 at 512px)
         elif vram_gb < 8.5: max_pixels = 5.0 * (1024**2) * val_mult
-        elif vram_gb < 16.5: max_pixels = 12.0 * (1024**2) * val_mult
-        else: max_pixels = 36.0 * (1024**2)
+        elif vram_gb < 16.5: max_pixels = 10.0 * (1024**2) * val_mult # Hardened 16GB limit
+        else: max_pixels = 32.0 * (1024**2)
 
         pixel_cap = int(max_pixels / (h * w))
         system_cap = 256 if mode == 'val' else 128
         
         # 2026 Resilience: System RAM Safeguard against Dataloader Bloat
-        # Kaggle instances have 30GB RAM. With multiple workers and large val batches, this spikes.
         sys_ram_gb = 64.0
         is_kaggle = False
         try:
             import psutil
-            import os
             sys_ram_gb = psutil.virtual_memory().total / (1024**3)
             is_kaggle = os.path.exists('/kaggle/working') or os.environ.get('KAGGLE_KERNEL_RUN_TYPE') is not None
-            # Containerized envs often misreport physical host RAM. Force clamp on Kaggle.
             if sys_ram_gb < 35.0 or is_kaggle:
                 system_cap = min(system_cap, 32 if mode == 'val' else 24)
         except Exception as e:
@@ -145,15 +172,11 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
         # workspace overheads. Scale workspace cap dynamically based on hardware VRAM tier.
         if is_restoration:
             if mode == 'train':
-                dynamic_cap_train = 16 if vram_gb < 8.0 else (32 if vram_gb < 16.0 else 64)
+                dynamic_cap_train = 8 if vram_gb < 8.0 else (16 if vram_gb < 16.5 else 32)
                 system_cap = config.get("hardware", {}).get("cudnn_workspace_cap_train", dynamic_cap_train)
             else:
-                dynamic_cap_val = 4 if vram_gb < 4.5 else (12 if vram_gb < 8.5 else (24 if vram_gb < 16.5 else 48))
+                dynamic_cap_val = 4 if vram_gb < 4.5 else (8 if vram_gb < 8.5 else (16 if vram_gb < 16.5 else 32))
                 system_cap = config.get("hardware", {}).get("cudnn_workspace_cap_val", dynamic_cap_val)
-
-        # 2026: Diagnostic Telemetry (v18.7)
-        if vram_gb < 4.5:
-            pass # Silenced [SENTINEL-DEBUG]
 
         final_batch = max(1, min(dynamic_batch, pixel_cap, system_cap))
 
@@ -162,7 +185,6 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             final_batch = min(final_batch, 4) # Force-clamp to tiny batch if card is nearly full
             print(f" [WARNING] [MEMORY-SENTINEL] Dedicated VRAM exhausted ({free_vram/1e6:.1f}MB free). Hard-clamping Batch to {final_batch} to avoid Shared Memory paging.")
         elif vram_gb < 4.5 and free_vram < 500 * 1024 * 1024:
-            # v19.0: Secondary safety clamp for 4GB cards with low headroom
             final_batch = min(final_batch, 8)
             print(f" [WARNING] [MEMORY-SENTINEL] Low Headroom Detected ({free_vram/1e6:.1f}MB free). Clamping to {final_batch}.")
 
@@ -172,14 +194,29 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
 
         gpu_name = torch.cuda.get_device_name(0)
         gpu_count = torch.cuda.device_count() if device.type == 'cuda' else 1
+        is_dataparallel = isinstance(model, torch.nn.DataParallel) or (hasattr(model, 'module') and gpu_count > 1)
+
+        # 2026 Resilience: DataParallel Gathering Safeguard (v20.0)
+        # Under PyTorch DataParallel, GPU 0 gathers all outputs and executes loss evaluation.
+        # Linearly multiplying final_batch by gpu_count saturates GPU 0 memory at high resolutions.
+        # For high resolutions (>= 512px) or restoration models, keep batch un-inflated and rely
+        # on Universal Gradient Accumulation to hit target effective batch size.
         if gpu_count > 1:
-            final_batch = final_batch * gpu_count
+            if is_dataparallel:
+                if max(h, w) >= 512 or is_restoration:
+                    # Keep per-device batch conservative; do not multiply by gpu_count
+                    final_batch = min(final_batch, 4 if is_restoration else 8)
+                else:
+                    dp_factor = min(float(gpu_count), 1.5)
+                    final_batch = max(1, int(final_batch * dp_factor))
+                    if final_batch > 1 and final_batch % 2 != 0:
+                        final_batch -= 1
+            else:
+                final_batch = final_batch * gpu_count
 
         # 2026 Resilience: Multi-GPU Host RAM Guard
-        # Multi-GPU scales VRAM capacity but shares the exact same host system RAM (30GB on Kaggle).
-        # We must clamp total validation batch across all GPUs to prevent host RAM exhaustion.
         if mode == 'val' and (is_kaggle or sys_ram_gb < 35.0):
-            max_host_val_batch = 16 if max(h, w) >= 512 else (24 if max(h, w) >= 384 else 32)
+            max_host_val_batch = 12 if max(h, w) >= 512 else (16 if max(h, w) >= 384 else 24)
             final_batch = min(final_batch, max_host_val_batch)
 
         # --- 2026: Hardware Bottleneck Cloud Recommendation ---

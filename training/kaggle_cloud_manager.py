@@ -116,10 +116,19 @@ import os
 import sys
 import subprocess
 
+# Prevent PyTorch virtual memory fragmentation
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 print("[OK] [CLOUD WORKER] Booting Kaggle High-VRAM GPU Environment...")
 
-# Verify GPU
-subprocess.run(["nvidia-smi"])
+# Verify GPU and check for ECC errors
+try:
+    smi_out = subprocess.run(["nvidia-smi"], capture_output=True, text=True)
+    print(smi_out.stdout)
+    if "ERR!" in smi_out.stdout or "ECC" in smi_out.stdout and "Error" in smi_out.stdout:
+        print("[WARNING] [HARDWARE SENTINEL] Warning: Potential ECC errors detected in nvidia-smi!")
+except Exception as e:
+    print(f"[CLOUD WORKER] nvidia-smi check skipped: {{e}}")
 
 # Clone/Sync LemGendary Training Suite
 repo_url = "https://github.com/lemgenda/lemgendary-training-suite.git"

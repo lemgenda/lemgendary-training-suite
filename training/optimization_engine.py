@@ -84,14 +84,26 @@ class SmartTrainingGovernor:
         if self.task_type == "forex":
             self.plateau_patience = max(self.plateau_patience, 15)
 
-        # --- 2026 Resilience: Hardware Resolution Cap (v19.1) ---
+        # --- 2026 Resilience: Multi-Tier Hardware Resolution Cap (v20.0) ---
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if torch.cuda.is_available() else 8.0
-        if vram_gb < 4.5 and self.task_type in ["restoration", "parameter_prediction"]:
-            max_safe_res = 640 if self.task_type == "restoration" else 256
+        if self.task_type in ["restoration", "enhancement", "face", "parameter_prediction"]:
+            if vram_gb < 4.5:
+                max_safe_res = 256 if self.task_type == "parameter_prediction" else 384
+            elif vram_gb < 8.5:
+                max_safe_res = 384
+            elif vram_gb < 16.5:
+                max_safe_res = 512
+            else:
+                max_safe_res = 1024
+
+            cfg_max_res = self.config.get("hardware", {}).get("max_allowed_resolution")
+            if cfg_max_res:
+                max_safe_res = min(max_safe_res, int(cfg_max_res))
+
             self.res_ladder = [r for r in self.res_ladder if r <= max_safe_res]
             if not self.res_ladder: self.res_ladder = [max_safe_res]
-            if self.current_res > max_safe_res:
-                print(f" [GUARD] [GOVERNOR] Hardware Cap Active: Downscaling {self.current_res}px -> {max_safe_res}px for stability.")
+            if self.current_res is not None and self.current_res > max_safe_res:
+                print(f" [GUARD] [GOVERNOR] Hardware VRAM Cap Active ({vram_gb:.1f}GB): Clamping {self.current_res}px -> {max_safe_res}px for memory stability.")
                 self.current_res = max_safe_res
 
         # 2026: Ensure training starts at the lowest resolution in the ladder for a fresh run
@@ -954,6 +966,21 @@ class SmartTrainingGovernor:
         epoch_duration_mins = (avg_iter_time * total_iters) / 60
         target_pct = 15 / max(1, epoch_duration_mins)
         return max(0.05, min(0.5, target_pct))
+
+    def veto_resolution_jump(self, fallback_res, reason="VRAM physical ceiling"):
+        """
+        Vetos a spatial resolution jump if the pre-jump hardware probe indicates OOM risk.
+        Locks the governor at fallback_res for stabilization and caps the ladder.
+        """
+        self.current_res = fallback_res
+        self.spatial_lock_remaining = max(self.spatial_lock_remaining, self.stabilization_lock)
+        self.stabilization_epochs = max(self.stabilization_epochs, self.stabilization_lock)
+        self.cooldown_remaining = max(self.cooldown_remaining, 5)
+        if hasattr(self, 'res_ladder') and self.res_ladder:
+            self.res_ladder = [r for r in self.res_ladder if r <= fallback_res]
+            if not self.res_ladder:
+                self.res_ladder = [fallback_res]
+        print(f" [GUARD] [GOVERNOR] Spatial jump VETOED ({reason}). Anchoring at {fallback_res}px (Lock: ON).")
 
     def get_state(self):
         return {

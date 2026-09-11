@@ -3,6 +3,9 @@
 import sys
 import os
 
+if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 # --- Hyper-Verbose Path Defense (2026 Specialization) ---
 script_dir = os.path.dirname(os.path.abspath(__file__))
 workspace_root = os.path.dirname(script_dir)

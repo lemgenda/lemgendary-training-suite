@@ -7,6 +7,8 @@ import time
 #     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 # Disable OpenCV's OpenCL driver binding to prevent GPU driver deadlocks with PyTorch CUDA context initialization
 os.environ["OPENCV_OPENCL_DEVICE"] = "DISABLED"
+if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import sys
 import gc
 
@@ -2610,10 +2612,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
             # --- 2026 Resilience: Dispose Training Workers ---
             # Explicitly shut down and dispose training workers before engaging new workers for validation
-            if hasattr(train_loader, '_iterator') and train_loader._iterator is not None:
+            if hasattr(train_loader, '_iterator') and getattr(train_loader, '_iterator', None) is not None:
                 print(" [MISSION CONTROL] Disposing training workers to free memory for validation...")
                 try:
-                    train_loader._iterator._shutdown_workers()
+                    loader_iter = getattr(train_loader, '_iterator', None)
+                    if loader_iter is not None and hasattr(loader_iter, '_shutdown_workers'):
+                        loader_iter._shutdown_workers()
                 except Exception:
                     pass
                 train_loader._iterator = None
@@ -3147,9 +3151,11 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
         # --- 2026 Resilience: Deterministic Validation Worker Disposal ---
         # Explicitly terminate validation workers and free shared memory queues before training
-        if hasattr(val_loader, '_iterator') and val_loader._iterator is not None:
+        if hasattr(val_loader, '_iterator') and getattr(val_loader, '_iterator', None) is not None:
             try:
-                val_loader._iterator._shutdown_workers()
+                val_iter = getattr(val_loader, '_iterator', None)
+                if val_iter is not None and hasattr(val_iter, '_shutdown_workers'):
+                    val_iter._shutdown_workers()
             except Exception:
                 pass
             val_loader._iterator = None
@@ -3385,6 +3391,41 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
             # --- 2026 Resilience: Inter-Epoch Adaptive Batch Strategy (v17.0) ---
             # Recalculate batch sizes at the epoch boundary to maximize efficiency.
+            if r_changed:
+                gc.collect()
+                if device.type == 'cuda':
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+
+                # Controlled pre-jump dry-run probe to prevent Kaggle OOM / ECC hardware faults
+                prev_raw_res = getattr(train_ds, 'input_size', getattr(governor, 'current_res', 256))
+                prev_res = prev_raw_res[0] if isinstance(prev_raw_res, (list, tuple)) else prev_raw_res
+                if device.type == 'cuda':
+                    try:
+                        h_probe = w_probe = int(governor.current_res)
+                        test_x = torch.randn(1, 3, h_probe, w_probe, device=device)
+                        model.train()
+                        test_out = model(test_x)
+                        if isinstance(test_out, dict) and "restored_image" in test_out:
+                            test_y = torch.randn(1, 3, h_probe, w_probe, device=device)
+                            test_loss = criterion(test_out, {"image": test_y})
+                            del test_y
+                        elif isinstance(test_out, torch.Tensor):
+                            test_loss = test_out.mean()
+                        else:
+                            test_loss = sum(v.mean() for v in test_out.values() if isinstance(v, torch.Tensor))
+                        if isinstance(test_loss, torch.Tensor) and test_loss.requires_grad:
+                            test_loss.backward()
+                        model.zero_grad(set_to_none=True)
+                        del test_x, test_out, test_loss
+                        torch.cuda.empty_cache()
+                    except (torch.cuda.OutOfMemoryError, RuntimeError) as probe_err:
+                        print(f"\n[GUARD] [MEMORY-SENTINEL] Spatial Jump to {governor.current_res}px VETOED due to VRAM physical ceiling: {probe_err}")
+                        governor.veto_resolution_jump(prev_res, reason="Pre-Jump VRAM Dry-Run OOM")
+                        r_changed = False
+                        torch.cuda.empty_cache()
+                        gc.collect()
+
             if not args.batch_size:
                 if r_changed or config_batch == "auto" or config_batch is None:
                     batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=new_params['sample_fraction'], fold=args.fold, pairs=args.pairs)
@@ -3415,6 +3456,16 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 # 2026: Validation perfectly mirrors the Training Resolution UNLESS anchored
                 if "val_resolution" not in model_info:
                     val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
+
+                # Explicitly clean up old DataLoader workers to prevent RAM / GPU pinned memory leak
+                try:
+                    del train_loader
+                    del val_loader
+                except Exception:
+                    pass
+                gc.collect()
+                if device.type == 'cuda':
+                    torch.cuda.empty_cache()
 
                 # v17.5: Enforce Shield during inter-epoch resolution jumps
                 _workers = num_workers
@@ -4068,6 +4119,40 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 new_params = governor.get_state()
                 stress_changed = new_params.get('stress', 0.0) != getattr(train_ds, 'stress', 0.0)
                 if f_changed or r_changed or b_changed or stress_changed:
+                    if r_changed:
+                        gc.collect()
+                        if device.type == 'cuda':
+                            torch.cuda.empty_cache()
+                            torch.cuda.ipc_collect()
+
+                        prev_raw_res = getattr(train_ds, 'input_size', getattr(governor, 'current_res', 256))
+                        prev_res = prev_raw_res[0] if isinstance(prev_raw_res, (list, tuple)) else prev_raw_res
+                        if device.type == 'cuda':
+                            try:
+                                h_probe = w_probe = int(governor.current_res)
+                                test_x = torch.randn(1, 3, h_probe, w_probe, device=device)
+                                model.train()
+                                test_out = model(test_x)
+                                if isinstance(test_out, dict) and "restored_image" in test_out:
+                                    test_y = torch.randn(1, 3, h_probe, w_probe, device=device)
+                                    test_loss = criterion(test_out, {"image": test_y})
+                                    del test_y
+                                elif isinstance(test_out, torch.Tensor):
+                                    test_loss = test_out.mean()
+                                else:
+                                    test_loss = sum(v.mean() for v in test_out.values() if isinstance(v, torch.Tensor))
+                                if isinstance(test_loss, torch.Tensor) and test_loss.requires_grad:
+                                    test_loss.backward()
+                                model.zero_grad(set_to_none=True)
+                                del test_x, test_out, test_loss
+                                torch.cuda.empty_cache()
+                            except (torch.cuda.OutOfMemoryError, RuntimeError) as probe_err:
+                                print(f"\n[GUARD] [MEMORY-SENTINEL] SOTA Force Jump to {governor.current_res}px VETOED due to VRAM physical ceiling: {probe_err}")
+                                governor.veto_resolution_jump(prev_res, reason="SOTA Force Jump VRAM OOM")
+                                r_changed = False
+                                torch.cuda.empty_cache()
+                                gc.collect()
+
                     if not args.batch_size:
                         batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=new_params.get('sample_fraction', 1.0), fold=args.fold, pairs=args.pairs)
                         v_res = model_info.get("val_resolution", governor.current_res)
@@ -4082,6 +4167,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     )
                     if "val_resolution" not in model_info:
                         val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
+
+                    try:
+                        del train_loader
+                        del val_loader
+                    except Exception:
+                        pass
+                    gc.collect()
+                    if device.type == 'cuda':
+                        torch.cuda.empty_cache()
 
                     _workers = num_workers
                     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
