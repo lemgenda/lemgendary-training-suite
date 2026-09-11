@@ -212,15 +212,19 @@ def main():
     predictions = np.array(predictions)
     targets = np.array(targets)
     
-    plcc, _ = scipy.stats.pearsonr(predictions, targets)
-    srcc, _ = scipy.stats.spearmanr(predictions, targets)
-    
-    if np.isnan(plcc): plcc = 0.0
-    if np.isnan(srcc): srcc = 0.0
-    
+    plcc_res, _ = scipy.stats.pearsonr(predictions, targets)
+    srcc_res, _ = scipy.stats.spearmanr(predictions, targets)
+    plcc_val = float(plcc_res)  # type: ignore
+    srcc_val = float(srcc_res)  # type: ignore
+
+    if np.isnan(plcc_val):
+        plcc_val = 0.0
+    if np.isnan(srcc_val):
+        srcc_val = 0.0
+
     print(f"\n[RESULTS] Samples Evaluated: {len(targets)}")
-    print(f"[RESULTS] PLCC: {plcc:.4f} | SRCC: {srcc:.4f}")
-    
+    print(f"[RESULTS] PLCC: {plcc_val:.4f} | SRCC: {srcc_val:.4f}")
+
     output_data = {
         "model_path": str(Path(args.model_path).resolve()),
         "backend": "ONNX" if is_onnx else "PyTorch",
@@ -228,8 +232,8 @@ def main():
         "dataset_dir": str(Path(args.dataset_dir).resolve()),
         "samples_evaluated": len(targets),
         "metrics": {
-            "PLCC": round(float(plcc), 4),
-            "SRCC": round(float(srcc), 4)
+            "PLCC": round(plcc_val, 4),
+            "SRCC": round(srcc_val, 4)
         }
     }
     

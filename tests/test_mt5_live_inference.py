@@ -94,6 +94,7 @@ def test_multi_timeframe_live_pipeline():
     # 4. Latency Benchmark (100 Iterations)
     print(" -> Benchmarking Inference Latency over 100 passes...", flush=True)
     latencies = []
+    preds = {}
     with torch.no_grad():
         # Warmup
         for _ in range(10):

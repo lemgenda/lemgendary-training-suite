@@ -23,3 +23,4 @@
 | `professional_multitask_restoration` | LemGendary Professional Multi-Task Restoration Model | SharedEncoder (MoE) | [256, 384, 512] | 703x584 | PSNR: 32.0, SSIM: 0.93, LPIPS: 0.07, FID: 12.0 | *N/A (Custom Architecture)* |
 | `ultrazoom` | LemGendary UltraZoom Master Model | NAFNet-Derived Base | [256, 384, 512] | 2040x1368 | PSNR: 34.0, SSIM: 0.95, LPIPS: 0.04, FID: 10.0 | *N/A (Custom Architecture)* |
 | `universal_nsfw_classification` | LemGendary Universal NSFW Classifier | MobileNetV2 (Categorical Anchor) | [224] | 693x672 | ACCURACY: 0.98 | Accuracy: ~0.95+ |
+| `forex_predictor` | LemGendary Forex Predictor | Causal TCN + Cross-Timeframe Attention | [1, 5, 15, 60, 240, 1440] (TFs) | 168 bars x 14 feats | DIR_ACC: 58.5%, WIN_RATE: 56.0%, PROFIT_FACTOR: 1.65, SHARPE: 1.85 | DirAcc: ~58.5%, WinRate: ~56.0% |

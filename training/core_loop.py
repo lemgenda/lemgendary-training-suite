@@ -558,14 +558,25 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
     # --- 2026: Auto-Recovery Dataset Downloader (v16.2 Nuclear) ---
     if args.env != 'kaggle':
-        for ds in ds_reqs:
-            ds_path = os.path.join(data_dir, ds)
-            if not os.path.exists(ds_path):
-                print(f" [SEARCH] [DATA] Required manifold '{ds}' missing locally.")
-                # Attempt to download from Kaggle
-                success = download_and_extract_dataset(ds, data_dir, config)
-                if not success:
-                    print(f" [WARNING] [DATA] Auto-acquisition failed for {ds}. Manual intervention may be required.")
+        is_forex_task = (model_info.get("dataset_type") == "forex" or "forex" in args.model.lower())
+        forex_has_local = False
+        if is_forex_task:
+            base_ds_dir = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets"))
+            for cand in ["LemGendizedForexUniverseLarge"] + list(ds_reqs):
+                p = os.path.normpath(os.path.join(base_ds_dir, cand))
+                if os.path.exists(p) and any(os.path.isdir(os.path.join(p, d)) for d in os.listdir(p) if not d.startswith('.')):
+                    forex_has_local = True
+                    break
+
+        if not forex_has_local:
+            for ds in ds_reqs:
+                ds_path = os.path.join(data_dir, ds)
+                if not os.path.exists(ds_path):
+                    print(f" [SEARCH] [DATA] Required manifold '{ds}' missing locally.")
+                    # Attempt to download from Kaggle
+                    success = download_and_extract_dataset(ds, data_dir, config)
+                    if not success:
+                        print(f" [WARNING] [DATA] Auto-acquisition failed for {ds}. Manual intervention may be required.")
 
     if model_info.get("dataset_type") == "forex" or "forex" in args.model.lower():
         from data.forex_dataset import ForexDataset
@@ -574,15 +585,33 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         if "LemGendizedForexUniverseLarge" not in candidate_datasets:
             candidate_datasets.insert(0, "LemGendizedForexUniverseLarge")
 
-        base_datasets_dir = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets"))
-        for cand_ds in candidate_datasets:
-            for sub in ["forex", ""]:
-                p = os.path.normpath(os.path.join(base_datasets_dir, cand_ds, sub)) if sub else os.path.normpath(os.path.join(base_datasets_dir, cand_ds))
-                if os.path.exists(p) and any(os.path.isdir(os.path.join(p, d)) for d in os.listdir(p) if not d.startswith('.')):
-                    shard_root = p
+        search_base_dirs = [
+            os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets")),
+            "/kaggle/working/LemGendaryDatasets",
+            "/content/LemGendaryDatasets",
+            "/content/drive/MyDrive/LemGendaryDatasets",
+            os.path.normpath(os.path.join(project_root, "data", "forex")),
+            os.path.normpath(os.path.join(project_root, "data"))
+        ]
+        for base_datasets_dir in search_base_dirs:
+            if not os.path.exists(base_datasets_dir):
+                continue
+            for cand_ds in candidate_datasets:
+                for sub in ["forex", ""]:
+                    p = os.path.normpath(os.path.join(base_datasets_dir, cand_ds, sub)) if sub else os.path.normpath(os.path.join(base_datasets_dir, cand_ds))
+                    if os.path.exists(p) and any(os.path.isdir(os.path.join(p, d)) for d in os.listdir(p) if not d.startswith('.')):
+                        shard_root = p
+                        break
+                if shard_root:
                     break
             if shard_root:
                 break
+            try:
+                if any(d.startswith("ForexUniverse") for d in os.listdir(base_datasets_dir) if os.path.isdir(os.path.join(base_datasets_dir, d))):
+                    shard_root = base_datasets_dir
+                    break
+            except OSError:
+                pass
 
         if not shard_root:
             shard_root = os.path.normpath(os.path.join(project_root, "data", "forex"))
@@ -1390,7 +1419,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         del val_loader_probe
 
         if len(probe_preds) > 0:
-            import scipy.stats
+            import scipy.stats  # type: ignore[import-untyped]
             p_res = torch.cat(probe_preds).numpy()
             t_res = torch.cat(probe_tgtes).numpy()
             try:
@@ -2978,7 +3007,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
         try:
             if train_ds.task_type == "quality" and len(all_preds) > 0:
-                import scipy.stats
+                import scipy.stats  # type: ignore[import-untyped]
                 import torch.nn.functional as F
                 p = torch.cat(all_preds)
                 t = torch.cat(all_targets)

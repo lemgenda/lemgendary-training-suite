@@ -245,19 +245,39 @@ class ForexDataset(Dataset):
         self._tf_map = {}
 
         # 1. Detect if any attached root has year-based structure (ForexUniverseYYYY)
-        year_manifold_root = None
+        # Supports single unified folder or multiple distinct dataset roots (e.g. multi-dataset mounts on Kaggle)
+        year_dirs_map = {}
         for root in self.shard_roots:
             if not os.path.exists(root):
                 continue
+            bname = os.path.basename(root)
+            if bname.startswith("ForexUniverse") and os.path.isdir(root):
+                year_dirs_map[bname] = root
             try:
                 subdirs = [d for d in os.listdir(root) if d.startswith("ForexUniverse") and not d.endswith(".zip") and os.path.isdir(os.path.join(root, d))]
-                if subdirs:
-                    year_manifold_root = root
-                    break
+                for sd in subdirs:
+                    if sd not in year_dirs_map:
+                        year_dirs_map[sd] = os.path.join(root, sd)
             except OSError:
                 continue
 
-        if year_manifold_root is not None:
+        # In Kaggle environment, scan /kaggle/input if year_dirs_map has fewer than 8 years
+        if os.path.exists('/kaggle/input') and len(year_dirs_map) < 8:
+            try:
+                for root_dir, dirs, _ in os.walk('/kaggle/input'):
+                    for d in dirs:
+                        if d.startswith("ForexUniverse") and not d.endswith(".zip"):
+                            cand = os.path.join(root_dir, d)
+                            if os.path.isdir(cand) and d not in year_dirs_map:
+                                try:
+                                    if any(p in os.listdir(cand) for p in ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'XAUUSD']):
+                                        year_dirs_map[d] = cand
+                                except OSError:
+                                    pass
+            except OSError:
+                pass
+
+        if year_dirs_map:
             # --- Year-Based Walk-Forward Manifold ---
             # Fold k: Train = [2019..2019+k], Val = [2019+k+1]
             fold_idx = max(1, min(6, self.fold))
@@ -267,8 +287,8 @@ class ForexDataset(Dataset):
                 target_years = [f"ForexUniverse{2019 + fold_idx + 1}"]
 
             for yr_name in target_years:
-                yr_dir = os.path.join(year_manifold_root, yr_name)
-                if not os.path.isdir(yr_dir):
+                yr_dir = year_dirs_map.get(yr_name)
+                if not yr_dir or not os.path.isdir(yr_dir):
                     continue
 
                 for pair in self.pairs:

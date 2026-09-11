@@ -2,14 +2,8 @@ _registry_metadata:
   version: 2.2.0
   specialization: 2026_Resiliency
   datasets:
-    LemGendizedForexTitanCoreLarge:
-      count: 2450000
-    LemGendizedForexG7MajorsLarge:
-      count: 4900000
-    LemGendizedForexHighBetaLarge:
-      count: 7350000
     LemGendizedForexUniverseLarge:
-      count: 9800000
+      count: 30810572
 forex_predictor:
   name: LemGendary Forex Predictor (Multi-Scale CNN-Transformer)
   class_name: ForexPredictor
@@ -18,7 +12,6 @@ forex_predictor:
   checkpoint: ForexPredictorWeights_FP32.pth
   # input_size is not applicable for sequence models — governed by seq_len rung
   input_size: null
-  sample_fraction: 1.0 # Override for Walk-Forward Macro Curriculum (always use 100% of fold)
   batch_size: auto
   learning_rate: 1.0e-04
   loss_fn: forex_dual
@@ -32,13 +25,18 @@ forex_predictor:
     Fully stateless and ONNX-compatible for live MT5 EA deployment.
   datasets:
     - LemGendizedForexUniverseLarge
-    - LemGendizedForexTitanCoreLarge
-    - LemGendizedForexG7MajorsLarge
-    - LemGendizedForexHighBetaLarge
   curriculum:
-    active_phases: [1, 2, 3, 4]
     active_folds: [1, 2, 3, 4, 5, 6]
   google_drive_dataset_ids: []
+  kaggle_dataset_urls:
+    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2019
+    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2020
+    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2021
+    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2022
+    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2023
+    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2024
+    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2025
+    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2026
   kwargs:
     active_timeframes:
       - 1
@@ -47,6 +45,23 @@ forex_predictor:
       - 60
       - 240
       - 1440
+    pairs:
+      - EURUSD
+      - GBPUSD
+      - USDJPY
+      - XAUUSD
+      - USDCAD
+      - USDCHF
+      - AUDUSD
+      - NZDUSD
+      - EURJPY
+      - GBPJPY
+      - EURGBP
+      - XAGUSD
+      - USOIL
+      - US500
+      - NAS100
+      - DE40
     d_model: 192
     n_heads: 6
     n_layers: 4
@@ -70,9 +85,10 @@ forex_predictor:
       - 50.0
   optimization:
     enabled: true
+    initial_fraction: 0.15
+    fraction_increment: 0.15
     absolute_patience: 30
     plateau_patience: 12
-    fraction_increment: 0.15
     cooling_factor: 0.85
     plateau_priority: data
     drift_gate: 0.90

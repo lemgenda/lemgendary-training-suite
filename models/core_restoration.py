@@ -1,3 +1,4 @@
+from torch.nn.modules.utils import _pair
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,7 +12,7 @@ import torch.nn.functional as F
 # This monkey-patch reallocates unaligned weights on the fly to restore alignment.
 
 _orig_conv2d_forward = nn.Conv2d.forward
-def _aligned_conv2d_forward(self, input):
+def _aligned_conv2d_forward(self, input):  # pylint: disable=redefined-builtin
     is_unaligned = False
     try:
         is_unaligned = (self.weight.data_ptr() % 16 != 0)
@@ -22,16 +23,13 @@ def _aligned_conv2d_forward(self, input):
         b = self.bias.clone() if self.bias is not None else None
         
         if self.padding_mode != 'zeros':
-            from torch.nn.modules.utils import _pair
-            pad = self.padding
-            if isinstance(pad, int):
-                pad = _pair(pad)
-            reversed_pad = (pad[1], pad[1], pad[0], pad[0])
-            return F.conv2d(F.pad(input, reversed_pad, mode=self.padding_mode),
-                            w, b, self.stride, _pair(0), self.dilation, self.groups)
-        return F.conv2d(input, w, b, self.stride, self.padding, self.dilation, self.groups)
+            return F.conv2d(F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode),
+                            w, b, self.stride,
+                            _pair(0), self.dilation, self.groups)
+        return F.conv2d(input, w, b, self.stride,
+                        self.padding, self.dilation, self.groups)
     return _orig_conv2d_forward(self, input)
-nn.Conv2d.forward = _aligned_conv2d_forward
+nn.Conv2d.forward = _aligned_conv2d_forward  # type: ignore
 
 # ==========================================
 # 1. NAFNet (Nonlinear Activation Free Network)
@@ -89,8 +87,12 @@ class NAFBlock(nn.Module):
 
 class NAFNet(nn.Module):
     """Real NAFNet Architecture for Denoising/Deblurring"""
-    def __init__(self, in_ch=3, out_ch=3, width=32, middle_blk_num=1, enc_blk_nums=[1, 1, 1, 1], dec_blk_nums=[1, 1, 1, 1]):
+    def __init__(self, in_ch=3, out_ch=3, width=32, middle_blk_num=1, enc_blk_nums=None, dec_blk_nums=None):
         super().__init__()
+        if enc_blk_nums is None:
+            enc_blk_nums = [1, 1, 1, 1]
+        if dec_blk_nums is None:
+            dec_blk_nums = [1, 1, 1, 1]
         self.intro = nn.Conv2d(in_channels=in_ch, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1, bias=True)
         self.ending = nn.Conv2d(in_channels=width, out_channels=out_ch, kernel_size=3, padding=1, stride=1, groups=1, bias=True)
 
@@ -148,7 +150,7 @@ class NAFNet(nn.Module):
                 pass # FakeTensor during ONNX/FX tracing
             
             w = up.weight.clone() if is_w_unaligned else up.weight
-            b = up.bias.clone() if is_b_unaligned else up.bias
+            b = up.bias.clone() if (is_b_unaligned and up.bias is not None) else up.bias
             x = F.conv_transpose2d(x, w, b, stride=up.stride, padding=up.padding, output_padding=up.output_padding, groups=up.groups, dilation=up.dilation)
             x = x + enc_skip
             x = decoder(x)
@@ -164,7 +166,7 @@ class NAFNet(nn.Module):
 
 class PALayer(nn.Module):
     def __init__(self, channel):
-        super(PALayer, self).__init__()
+        super().__init__()
         self.pa = nn.Sequential(
                 nn.Conv2d(channel, channel // 8, 1, padding=0, bias=True),
                 nn.ReLU(inplace=True),
@@ -176,7 +178,7 @@ class PALayer(nn.Module):
 
 class CALayer(nn.Module):
     def __init__(self, channel):
-        super(CALayer, self).__init__()
+        super().__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.ca = nn.Sequential(
                 nn.Conv2d(channel, channel // 8, 1, padding=0, bias=True),
@@ -189,7 +191,7 @@ class CALayer(nn.Module):
 
 class Block(nn.Module):
     def __init__(self, conv, dim, kernel_size):
-        super(Block, self).__init__()
+        super().__init__()
         self.conv1 = conv(dim, dim, kernel_size, bias=True)
         self.act1 = nn.ReLU(inplace=True)
         self.conv2 = conv(dim, dim, kernel_size, bias=True)
@@ -208,7 +210,7 @@ class Block(nn.Module):
 class FFANet(nn.Module):
     """Real FFANet Architecture for Dehazing"""
     def __init__(self, gps=3, blocks=3):
-        super(FFANet, self).__init__()
+        super().__init__()
         dim = 32
         self.conv1 = nn.Conv2d(3, dim, 3, padding=1, bias=True)
         self.gps = gps
@@ -273,7 +275,7 @@ class YOLOv8AnchorBasedHead(nn.Module):
 class BranchedFFANet(nn.Module):
     """Multi-Task FFANet Architecture for Dehazing + Detection"""
     def __init__(self, gps=3, blocks=3, num_classes=80):
-        super(BranchedFFANet, self).__init__()
+        super().__init__()
         dim = 32
         self.conv1 = nn.Conv2d(3, dim, 3, padding=1, bias=True)
         self.gps = gps
@@ -318,7 +320,7 @@ class BranchedFFANet(nn.Module):
 
 class CSFF(nn.Module):
     def __init__(self, in_c):
-        super(CSFF, self).__init__()
+        super().__init__()
         self.conv = nn.Conv2d(in_c, in_c, 1)
     def forward(self, x, prev):
         return self.conv(x) + prev
@@ -472,4 +474,3 @@ class UPN_v2_Model(nn.Module):
         theta = torch.sigmoid(raw[:, 1]) * 3.14159265  # [0, π]
         conf = torch.sigmoid(raw[:, 2])
         return torch.stack([deg, theta, conf], dim=1)
-

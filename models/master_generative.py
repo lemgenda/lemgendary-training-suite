@@ -53,7 +53,7 @@ class Flux1_Master(nn.Module):
                 lora_dropout=0.05,
                 bias="none"
             )
-            self.transformer = get_peft_model(self.transformer, lora_config)
+            self.transformer = get_peft_model(self.transformer, lora_config)  # type: ignore
             
             self.vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae")
             self.vae.requires_grad_(False)
