@@ -564,7 +564,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             base_ds_dir = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets"))
             for cand in ["LemGendizedForexUniverseLarge"] + list(ds_reqs):
                 p = os.path.normpath(os.path.join(base_ds_dir, cand))
-                if os.path.exists(p) and any(os.path.isdir(os.path.join(p, d)) for d in os.listdir(p) if not d.startswith('.')):
+                if os.path.exists(p) and any((os.path.isdir(os.path.join(p, d)) or d.endswith('.parquet')) for d in os.listdir(p) if not d.startswith('.')):
                     forex_has_local = True
                     break
 
@@ -599,7 +599,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             for cand_ds in candidate_datasets:
                 for sub in ["forex", ""]:
                     p = os.path.normpath(os.path.join(base_datasets_dir, cand_ds, sub)) if sub else os.path.normpath(os.path.join(base_datasets_dir, cand_ds))
-                    if os.path.exists(p) and any(os.path.isdir(os.path.join(p, d)) for d in os.listdir(p) if not d.startswith('.')):
+                    if os.path.exists(p) and any((os.path.isdir(os.path.join(p, d)) or d.endswith('.parquet')) for d in os.listdir(p) if not d.startswith('.')):
                         shard_root = p
                         break
                 if shard_root:
@@ -607,7 +607,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             if shard_root:
                 break
             try:
-                if any(d.startswith("ForexUniverse") for d in os.listdir(base_datasets_dir) if os.path.isdir(os.path.join(base_datasets_dir, d))):
+                if any(d.startswith("ForexUniverse") and (os.path.isdir(os.path.join(base_datasets_dir, d)) or d.endswith('.parquet')) for d in os.listdir(base_datasets_dir)):
                     shard_root = base_datasets_dir
                     break
             except OSError:

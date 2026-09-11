@@ -19,6 +19,7 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
     # 2026: Universal Class Mapping for LemGendary Detection Array
     # This ensures consistency across RetinaFace and YOLOv8 backbones
     class_map = {
+        "retinaface": ["face"],
         "retinaface_mobilenet": ["face"],
         "retinaface_resnet": ["face"],
         "yolov8n": ["face", "person", "hand", "eye"] # Expanded Master Detection Set
@@ -40,7 +41,7 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
         "train": os.path.join(primary_ds, "images", "train"),
         "val": os.path.join(primary_ds, "images", "val"),
         "nc": len(names),
-        "names": {i: name for i, name in enumerate(names)}
+        "names": dict(enumerate(names))
     }
     
     temp_cfg_path = os.path.join("data", f"yolo_{model_key}_config.yaml")

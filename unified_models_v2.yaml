@@ -10,58 +10,59 @@ forex_predictor:
   category: forex
   filename: ForexPredictor
   checkpoint: ForexPredictorWeights_FP32.pth
-  # input_size is not applicable for sequence models — governed by seq_len rung
   input_size: null
   batch_size: auto
-  learning_rate: 1.0e-04
+  learning_rate: 0.0001
   loss_fn: forex_dual
   dataset_type: forex
   optimal_key: forex_predictor
   architecture_type: Multi-Scale CNN-Transformer (Causal TCN + Cross-Timeframe Attention)
-  description: >
-    Multi-pair, multi-timeframe Forex trading model trained on MetaTrader 5 OHLCV data.
-    Predicts trade direction (Up/Down/Sideways) and magnitude (TP/SL pips) for all major currency pairs.
-    Architecture uses causal Conv1D stacks per timeframe fused via cross-timeframe attention.
-    Fully stateless and ONNX-compatible for live MT5 EA deployment.
+  description: 'Multi-pair, multi-timeframe Forex trading model trained on MetaTrader
+    5 OHLCV data. Predicts trade direction (Up/Down/Sideways) and magnitude (TP/SL
+    pips) for all major currency pairs. Architecture uses causal Conv1D stacks per
+    timeframe fused via cross-timeframe attention. Fully stateless and ONNX-compatible
+    for live MT5 EA deployment.
+
+    '
   datasets:
-    - LemGendizedForexUniverseLarge
+  - LemGendizedForexUniverseLarge
   curriculum:
-    active_folds: [1, 2, 3, 4, 5, 6]
+    active_folds:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
   google_drive_dataset_ids: []
+  kaggle_ref: kaggle://lemtreursi/lemgendizedforexuniverselarge
   kaggle_dataset_urls:
-    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2019
-    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2020
-    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2021
-    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2022
-    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2023
-    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2024
-    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2025
-    - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverse2026
+  - https://www.kaggle.com/datasets/lemtreursi/lemgendizedforexuniverselarge
   kwargs:
     active_timeframes:
-      - 1
-      - 5
-      - 15
-      - 60
-      - 240
-      - 1440
+    - 1
+    - 5
+    - 15
+    - 60
+    - 240
+    - 1440
     pairs:
-      - EURUSD
-      - GBPUSD
-      - USDJPY
-      - XAUUSD
-      - USDCAD
-      - USDCHF
-      - AUDUSD
-      - NZDUSD
-      - EURJPY
-      - GBPJPY
-      - EURGBP
-      - XAGUSD
-      - USOIL
-      - US500
-      - NAS100
-      - DE40
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+    - XAUUSD
+    - USDCAD
+    - USDCHF
+    - AUDUSD
+    - NZDUSD
+    - EURJPY
+    - GBPJPY
+    - EURGBP
+    - XAGUSD
+    - USOIL
+    - US500
+    - NAS100
+    - DE40
     d_model: 192
     n_heads: 6
     n_layers: 4
@@ -73,7 +74,7 @@ forex_predictor:
     win_rate: 56.0
     profit_factor: 1.65
     sharpe_ratio: 1.85
-    sortino_ratio: 2.10
+    sortino_ratio: 2.1
     max_drawdown: 12.0
     tp_mae: 12.5
     sl_mae: 12.5
@@ -81,8 +82,8 @@ forex_predictor:
     softmax_temp: 1.0
     min_temp: 0.75
     numerical_sentinel:
-      - -50.0
-      - 50.0
+    - -50.0
+    - 50.0
   optimization:
     enabled: true
     initial_fraction: 0.15
@@ -91,23 +92,22 @@ forex_predictor:
     plateau_patience: 12
     cooling_factor: 0.85
     plateau_priority: data
-    drift_gate: 0.90
+    drift_gate: 0.9
     regression_limit: 8
     high_fidelity_fraction: 0.6
-    # res_ladder for forex = timeframe rungs in minutes (Governor expands TFs, not image resolution)
     res_ladder:
-      - 1
-      - 5
-      - 15
-      - 60
-      - 240
-      - 1440
+    - 1
+    - 5
+    - 15
+    - 60
+    - 240
+    - 1440
     jolt_multiplier: 1.15
     target_effective_batch: 64
     min_delta: 0.002
-    swa_start_pct: 0.70
+    swa_start_pct: 0.7
   val_resolution: null
-
+  kaggle_accelerator: P100
 nima_aesthetic_mobile:
   name: LemGendary NIMA Aesthetic Scorer (Mobile)
   class_name: NIMA_Model
@@ -116,6 +116,7 @@ nima_aesthetic_mobile:
   checkpoint: NIMAAestheticMobileWeights_FP32.pth
   kwargs:
     hidden_dim: 256
+    backbone: mobilenet_v2
   input_size:
   - 3
   - 224
@@ -149,7 +150,7 @@ nima_aesthetic_mobile:
     - -15.0
     - 15.0
   optimization:
-    drift_gate: 0.90
+    drift_gate: 0.9
     regression_limit: 8
     high_fidelity_fraction: 0.7
     enabled: true
@@ -168,6 +169,7 @@ nima_aesthetic_mobile:
     min_delta: 0.001
     swa_start_pct: 0.65
   val_resolution: 224
+  kaggle_accelerator: P100
 nima_aesthetic_efficientnet:
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
   class_name: NIMA_Model
@@ -229,6 +231,7 @@ nima_aesthetic_efficientnet:
     min_delta: 0.001
     swa_start_pct: 0.65
   val_resolution: 384
+  kaggle_accelerator: P100
 nima_aesthetic_pro:
   name: LemGendary NIMA Aesthetic Scorer (Pro ViT)
   class_name: NIMA_Model
@@ -288,6 +291,7 @@ nima_aesthetic_pro:
     min_delta: 0.001
     swa_start_pct: 0.65
   val_resolution: 512
+  kaggle_accelerator: Dual T4
 nima_technical:
   name: LemGendary NIMA Technical Scorer
   class_name: NIMA_Model
@@ -352,6 +356,7 @@ nima_technical:
     min_delta: 0.0005
     swa_start_pct: 0.75
   val_resolution: 512
+  kaggle_accelerator: P100
 nima_authenticity:
   name: LemGendary Authenticity Scorer (AI vs Human)
   class_name: NIMA_Model
@@ -397,6 +402,7 @@ nima_authenticity:
     target_effective_batch: 24
     plateau_priority: data
   val_resolution: 768
+  kaggle_accelerator: P100
 upn_v2:
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2
@@ -442,10 +448,14 @@ upn_v2:
   datasets:
   - LemGendizedUpnV2Large
   val_resolution: 256
+  kaggle_accelerator: P100
+  architecture_type: UPN_v2 (MobileNet-Lite Parameter Regressor)
+  kwargs:
+    backbone: mobilenet_lite
 film_restorer:
   name: LemGendary Universal Film Restorer
   class_name: UniversalFilmRestorer
-  category: enhance
+  category: restoration
   filename: UniversalFilmRestorer
   checkpoint: UniversalFilmRestorerWeights_FP32.pth
   input_size:
@@ -462,6 +472,7 @@ film_restorer:
     psnr: 24.0
     ssim: 0.8
     lpips: 0.25
+    fid: 12.0
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -478,6 +489,10 @@ film_restorer:
   datasets:
   - LemGendizedFilmRestorerLarge
   val_resolution: 512
+  kaggle_accelerator: Dual T4
+  architecture_type: UniversalFilmRestorer (Residual Dense Autoencoder)
+  kwargs:
+    backbone: residual_dense_blocks
 codeformer:
   name: LemGendary CodeFormer Face Restoration
   class_name: CodeFormer
@@ -504,6 +519,7 @@ codeformer:
     plateau_priority: data
     jolt_multiplier: 5.0
     res_ladder:
+    - 512
   stabilizers:
     logit_clamp: 15.0
   datasets:
@@ -512,7 +528,12 @@ codeformer:
     fid: 5.2
     psnr: 30.5
     ssim: 0.93
+    lpips: 0.08
   val_resolution: 512
+  kaggle_accelerator: Dual T4
+  architecture_type: CodeFormer (Transformer-Based Face Restoration)
+  kwargs:
+    backbone: unet_transformer
 parsenet:
   name: LemGendary ParseNet Face Parsing
   class_name: ParseNet
@@ -544,41 +565,10 @@ parsenet:
   val_resolution: 512
   sota_targets:
     miou: 0.86
-retinaface_mobilenet:
-  name: LemGendary RetinaFace MobileNet Detection
-  class_name: RetinaFace
-  category: face
-  filename: MobileNet0.25-Detection
-  checkpoint: MobileNet0.25-DetectionWeights_FP32.pth
-  input_size:
-  - 3
-  - 640
-  - 640
-  learning_rate: 0.0005
-  loss_fn: retinaface
-  dataset_type: face_detection
-  output_names:
-  - output
-  - output2
-  - output3
-  optimal_key: retinaface_mobilenet
-  description: MobileNet-based face detection
-  datasets:
-  - LemGendizedRetinaFaceMobileNetLarge
-  optimization:
-    high_fidelity_fraction: 0.7
-    enabled: true
-    absolute_patience: 15
-    fraction_increment: 0.25
-    plateau_patience: 10
-    plateau_priority: data
-    res_ladder:
-    - 640
-  val_resolution: 640
-  sota_targets:
-    map_easy: 0.915
-    map_medium: 0.89
-    map_hard: 0.75
+  kaggle_accelerator: Dual T4
+  architecture_type: ParseNet (Bilateral Face Segmentation Network)
+  kwargs:
+    backbone: resnet_fpn
 ffanet_indoor:
   name: LemGendary FFANet Dehazing (Indoor)
   class_name: BranchedFFANet
@@ -602,8 +592,8 @@ ffanet_indoor:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 36.50
-    ssim: 0.990
+    psnr: 36.5
+    ssim: 0.99
     lpips: 0.08
     fid: 12.0
   optimization:
@@ -619,6 +609,10 @@ ffanet_indoor:
     - 512
     plateau_priority: resolution
   val_resolution: 512
+  kaggle_accelerator: Dual T4
+  architecture_type: BranchedFFANet (Feature Fusion Attention)
+  kwargs:
+    backbone: ffanet_branched
 ffanet_outdoor:
   name: LemGendary FFANet Dehazing (Outdoor)
   class_name: BranchedFFANet
@@ -642,7 +636,7 @@ ffanet_outdoor:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 33.70
+    psnr: 33.7
     ssim: 0.986
     lpips: 0.08
     fid: 12.0
@@ -659,6 +653,10 @@ ffanet_outdoor:
     - 512
     plateau_priority: resolution
   val_resolution: 512
+  kaggle_accelerator: Dual T4
+  architecture_type: BranchedFFANet (Feature Fusion Attention)
+  kwargs:
+    backbone: ffanet_branched
 mirnet_lowlight:
   name: LemGendary MIRNet v2 Low-Light Enhancement
   class_name: MIRNet
@@ -681,8 +679,8 @@ mirnet_lowlight:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 24.30
-    ssim: 0.840
+    psnr: 24.3
+    ssim: 0.84
     lpips: 0.08
     fid: 12.0
   optimization:
@@ -698,6 +696,10 @@ mirnet_lowlight:
     - 512
     plateau_priority: resolution
   val_resolution: 512
+  kaggle_accelerator: Dual T4
+  architecture_type: MIRNet_v2 (Multi-Scale Residual Network)
+  kwargs:
+    backbone: multi_scale_residual
 mirnet_exposure:
   name: LemGendary MIRNet v2 Exposure Correction
   class_name: MIRNet
@@ -720,8 +722,8 @@ mirnet_exposure:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 24.30
-    ssim: 0.840
+    psnr: 24.3
+    ssim: 0.84
     lpips: 0.08
     fid: 12.0
   optimization:
@@ -737,6 +739,10 @@ mirnet_exposure:
     - 512
     plateau_priority: resolution
   val_resolution: 512
+  kaggle_accelerator: Dual T4
+  architecture_type: MIRNet_v2 (Multi-Scale Residual Network)
+  kwargs:
+    backbone: multi_scale_residual
 mprnet_deraining:
   name: LemGendary MPRNet Deraining
   class_name: MPRNet
@@ -759,8 +765,8 @@ mprnet_deraining:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 30.60
-    ssim: 0.900
+    psnr: 30.6
+    ssim: 0.9
     lpips: 0.07
     fid: 12.0
   optimization:
@@ -776,6 +782,10 @@ mprnet_deraining:
     - 512
     plateau_priority: resolution
   val_resolution: 512
+  kaggle_accelerator: Dual T4
+  architecture_type: MPRNet (Multi-Stage Progressive Network)
+  kwargs:
+    backbone: multi_stage_progressive
 nafnet_debluring:
   name: LemGendary NAFNet Debluring
   class_name: NAFNet
@@ -810,11 +820,15 @@ nafnet_debluring:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 33.90
-    ssim: 0.970
+    psnr: 33.9
+    ssim: 0.97
     lpips: 0.04
     fid: 6.0
   val_resolution: 512
+  kaggle_accelerator: Dual T4
+  architecture_type: NAFNet (Nonlinear Activation-Free Network)
+  kwargs:
+    backbone: nafnet_blocks
 nafnet_denoising:
   name: LemGendary NAFNet Denoising
   class_name: NAFNet
@@ -850,11 +864,15 @@ nafnet_denoising:
     - -0.2
     - 1.2
   sota_targets:
-    psnr: 40.20
+    psnr: 40.2
     ssim: 0.965
     lpips: 0.02
     fid: 4.0
   val_resolution: 512
+  kaggle_accelerator: Dual T4
+  architecture_type: NAFNet (Nonlinear Activation-Free Network)
+  kwargs:
+    backbone: nafnet_blocks
 yolov8n:
   name: LemGendary YOLOv8n Multi-Task Model
   class_name: YOLO
@@ -888,9 +906,13 @@ yolov8n:
   datasets:
   - LemGendizedYoloV8nLarge
   sota_targets:
-    map50: 0.540
-    map50_95: 0.390
+    map50: 0.54
+    map50_95: 0.39
   val_resolution: 640
+  kaggle_accelerator: P100
+  architecture_type: YOLOv8n (CSPDarknet53 + PANet)
+  kwargs:
+    backbone: cspdarknet
 professional_multitask_restoration:
   name: LemGendary Professional Multi-Task Restoration Model
   class_name: MultiTaskRestorer
@@ -926,15 +948,19 @@ professional_multitask_restoration:
     lpips: 0.07
     fid: 12.0
   datasets:
-  - LemGendizedNafNetDebluringLarge
-  - LemGendizedFfaNetIndoorLarge
-  - LemGendizedMirNetLowLightLarge
-  - LemGendizedNafNetDenoisingLarge
+  - LemGendizedProfessionalMultitaskRestorationLarge
   val_resolution: 512
+  kaggle_accelerator: Dual T4
+  architecture_type: MultiTaskRestorer (Shared Encoder Multi-Task MoE)
+  kwargs:
+    backbone: shared_encoder_moe
+  kaggle_ref: kaggle://lemtreursi/lemgendizedprofessionalmultitaskrestorationlarge
+  kaggle_dataset_urls:
+  - https://www.kaggle.com/datasets/lemtreursi/lemgendizedprofessionalmultitaskrestorationlarge
 ultrazoom:
   name: LemGendary UltraZoom Master Model
   class_name: UltraZoomMaster
-  category: ultrazoom
+  category: restoration
   filename: UltraZoom(Master)
   checkpoint: UltraZoom(Master)Weights_FP32.pth
   input_size:
@@ -965,6 +991,10 @@ ultrazoom:
     lpips: 0.04
     fid: 10.0
   val_resolution: 512
+  kaggle_accelerator: Dual T4
+  architecture_type: UltraZoomMaster (Sub-Pixel ESPCN Super-Resolution)
+  kwargs:
+    backbone: espcn_residual
 universal_nsfw_classification:
   name: LemGendary Universal NSFW Classifier
   class_name: UniversalClassifier
@@ -979,7 +1009,7 @@ universal_nsfw_classification:
   loss_fn: cross_entropy
   dataset_type: classification
   optimal_key: universal_nsfw_classification
-  architecture_type: MobileNetV2 (Categorical Anchor)
+  architecture_type: EfficientNetV2-S (Multi-Class Categorical Head)
   description: Universal safety filter and NSFW classifier for realistic and anime
     content.
   datasets:
@@ -997,3 +1027,45 @@ universal_nsfw_classification:
     res_ladder:
     - 224
   val_resolution: 224
+  kaggle_accelerator: P100
+  kwargs:
+    backbone: efficientnet_v2_s
+retinaface:
+  name: LemGendary RetinaFace Detection
+  class_name: RetinaFace
+  category: face
+  filename: RetinaFace-Detection
+  checkpoint: RetinaFaceWeights_FP32.pth
+  input_size:
+  - 3
+  - 640
+  - 640
+  learning_rate: 0.0005
+  loss_fn: retinaface
+  dataset_type: face_detection
+  output_names:
+  - output
+  - output2
+  - output3
+  optimal_key: retinaface
+  description: MobileNet-based face detection
+  datasets:
+  - LemGendizedRetinaFaceMobileNetLarge
+  optimization:
+    high_fidelity_fraction: 0.7
+    enabled: true
+    absolute_patience: 15
+    fraction_increment: 0.25
+    plateau_patience: 10
+    plateau_priority: data
+    res_ladder:
+    - 640
+  val_resolution: 640
+  sota_targets:
+    map_easy: 0.915
+    map_medium: 0.89
+    map_hard: 0.75
+  architecture_type: RetinaFace (MobileNetV1-0.25 FPN Backbone)
+  kwargs:
+    backbone: mobilenet_0.25
+  kaggle_accelerator: P100

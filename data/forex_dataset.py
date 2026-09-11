@@ -57,6 +57,55 @@ PAIR_PIP_SCALE = {
 }
 
 
+class ParquetRowGroupCache:  # pylint: disable=too-few-public-methods
+    """
+    Process-safe LRU cache for Parquet row groups.
+    Caches unpacked binary float buffers to deliver sub-microsecond row access.
+    """
+    def __init__(self, parquet_path: str, max_cached_groups: int = 4):
+        import pyarrow.parquet as pq
+        self.parquet_path = parquet_path
+        self.max_cached = max_cached_groups
+        self.pf = pq.ParquetFile(parquet_path)
+        self.num_row_groups = self.pf.num_row_groups
+        self.metadata = self.pf.metadata
+        self._cache = {}
+        self._lru_order = []
+
+        self.rg_starts = []
+        curr = 0
+        for i in range(self.num_row_groups):
+            self.rg_starts.append(curr)
+            curr += self.metadata.row_group(i).num_rows
+        self.total_rows = curr
+
+    def get_row_features(self, global_row_idx: int) -> np.ndarray:
+        import bisect
+        rg_idx = bisect.bisect_right(self.rg_starts, global_row_idx) - 1
+        rg_offset = global_row_idx - self.rg_starts[rg_idx]
+
+        if rg_idx not in self._cache:
+            rg_tbl = self.pf.read_row_group(rg_idx, columns=['features', 'seq_len', 'n_features'])
+            feats = rg_tbl['features']
+            seq_lens = rg_tbl['seq_len'].to_numpy()
+            n_feats = rg_tbl['n_features'].to_numpy()
+            self._cache[rg_idx] = (seq_lens, n_feats, feats)
+            self._lru_order.append(rg_idx)
+
+            if len(self._lru_order) > self.max_cached:
+                evict = self._lru_order.pop(0)
+                del self._cache[evict]
+        else:
+            self._lru_order.remove(rg_idx)
+            self._lru_order.append(rg_idx)
+
+        seq_lens, n_feats, feats = self._cache[rg_idx]
+        buf = feats[rg_offset].as_buffer()
+        s_len = int(seq_lens[rg_offset])
+        n_feat = int(n_feats[rg_offset])
+        return np.frombuffer(buf, dtype=np.float32).reshape(s_len, n_feat)
+
+
 def load_shard(
     shard_dir: str,
     chunk_idx: int | None = None,
@@ -222,6 +271,11 @@ class ForexDataset(Dataset):
         self.fold = fold if fold is not None else 1
         self.spread_stress_pips = spread_stress_pips
 
+        self._parquet_caches = {}
+        self._parquet_meta = {}
+        self._parquet_tf_rows = {}
+        self._parquet_tf_ts = {}
+
         self._build_index()
 
     def _resolve_pair_dir(self, parent_dir: str, pair: str) -> str | None:
@@ -244,31 +298,42 @@ class ForexDataset(Dataset):
         self._index = []
         self._tf_map = {}
 
-        # 1. Detect if any attached root has year-based structure (ForexUniverseYYYY)
+        # 1. Detect if any attached root has year-based structure (ForexUniverseYYYY.parquet or ForexUniverseYYYY/)
         # Supports single unified folder or multiple distinct dataset roots (e.g. multi-dataset mounts on Kaggle)
+        year_parquet_map = {}
         year_dirs_map = {}
         for root in self.shard_roots:
             if not os.path.exists(root):
                 continue
             bname = os.path.basename(root)
-            if bname.startswith("ForexUniverse") and os.path.isdir(root):
+            if bname.startswith("ForexUniverse") and bname.endswith(".parquet") and os.path.isfile(root):
+                year_parquet_map[bname.replace(".parquet", "")] = root
+            elif bname.startswith("ForexUniverse") and os.path.isdir(root):
                 year_dirs_map[bname] = root
             try:
-                subdirs = [d for d in os.listdir(root) if d.startswith("ForexUniverse") and not d.endswith(".zip") and os.path.isdir(os.path.join(root, d))]
-                for sd in subdirs:
-                    if sd not in year_dirs_map:
-                        year_dirs_map[sd] = os.path.join(root, sd)
+                for sd in os.listdir(root):
+                    full_p = os.path.join(root, sd)
+                    if sd.startswith("ForexUniverse") and sd.endswith(".parquet") and os.path.isfile(full_p):
+                        year_parquet_map[sd.replace(".parquet", "")] = full_p
+                    elif sd.startswith("ForexUniverse") and not sd.endswith(".zip") and os.path.isdir(full_p):
+                        if sd not in year_dirs_map:
+                            year_dirs_map[sd] = full_p
             except OSError:
                 continue
 
-        # In Kaggle environment, scan /kaggle/input if year_dirs_map has fewer than 8 years
-        if os.path.exists('/kaggle/input') and len(year_dirs_map) < 8:
+        # In Kaggle environment, scan /kaggle/input
+        if os.path.exists('/kaggle/input') and (len(year_parquet_map) + len(year_dirs_map)) < 8:
             try:
-                for root_dir, dirs, _ in os.walk('/kaggle/input'):
+                for root_dir, dirs, files in os.walk('/kaggle/input'):
+                    for f in files:
+                        if f.startswith("ForexUniverse") and f.endswith(".parquet"):
+                            yk = f.replace(".parquet", "")
+                            if yk not in year_parquet_map:
+                                year_parquet_map[yk] = os.path.join(root_dir, f)
                     for d in dirs:
                         if d.startswith("ForexUniverse") and not d.endswith(".zip"):
                             cand = os.path.join(root_dir, d)
-                            if os.path.isdir(cand) and d not in year_dirs_map:
+                            if d not in year_dirs_map:
                                 try:
                                     if any(p in os.listdir(cand) for p in ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'XAUUSD']):
                                         year_dirs_map[d] = cand
@@ -277,7 +342,7 @@ class ForexDataset(Dataset):
             except OSError:
                 pass
 
-        if year_dirs_map:
+        if year_parquet_map or year_dirs_map:
             # --- Year-Based Walk-Forward Manifold ---
             # Fold k: Train = [2019..2019+k], Val = [2019+k+1]
             fold_idx = max(1, min(6, self.fold))
@@ -287,56 +352,106 @@ class ForexDataset(Dataset):
                 target_years = [f"ForexUniverse{2019 + fold_idx + 1}"]
 
             for yr_name in target_years:
-                yr_dir = year_dirs_map.get(yr_name)
-                if not yr_dir or not os.path.isdir(yr_dir):
-                    continue
+                if yr_name in year_parquet_map:
+                    p_path = year_parquet_map[yr_name]
+                    cache = ParquetRowGroupCache(p_path)
+                    self._parquet_caches[yr_name] = cache
 
-                for pair in self.pairs:
-                    p_idx = PAIR_INDEX.get(pair, 0)
-                    pair_dir = self._resolve_pair_dir(yr_dir, pair)
-                    if not pair_dir:
+                    import pyarrow.parquet as pq
+                    meta_tbl = pq.read_table(
+                        p_path,
+                        columns=['pair', 'timeframe', 'timestamp', 'y_dir', 'tp_pips', 'sl_pips', 'seq_len', 'n_features']
+                    )
+                    pairs_arr = meta_tbl['pair'].to_numpy(zero_copy_only=False)
+                    tfs_arr = meta_tbl['timeframe'].to_numpy()
+                    ts_arr = meta_tbl['timestamp'].to_numpy()
+                    ydir_arr = meta_tbl['y_dir'].to_numpy()
+                    tp_arr = meta_tbl['tp_pips'].to_numpy()
+                    sl_arr = meta_tbl['sl_pips'].to_numpy()
+                    seqlen_arr = meta_tbl['seq_len'].to_numpy()
+                    nfeat_arr = meta_tbl['n_features'].to_numpy()
+
+                    self._parquet_meta[yr_name] = {
+                        "pair": pairs_arr,
+                        "timeframe": tfs_arr,
+                        "timestamp": ts_arr,
+                        "y_dir": ydir_arr,
+                        "tp_pips": tp_arr,
+                        "sl_pips": sl_arr,
+                        "seq_len": seqlen_arr,
+                        "n_features": nfeat_arr,
+                    }
+
+                    pair_set = set(self.pairs)
+                    tf_set = set(self.active_timeframes)
+
+                    for r, p_val in enumerate(pairs_arr):
+                        p = str(p_val)
+                        tf = int(tfs_arr[r])
+                        if p in pair_set and tf in tf_set:
+                            p_idx = PAIR_INDEX.get(p, 0)
+                            self._index.append((p_idx, tf, ("parquet", yr_name), r))
+                            tf_key = (p, tf, yr_name)
+                            if tf_key not in self._parquet_tf_rows:
+                                self._parquet_tf_rows[tf_key] = []
+                                self._parquet_tf_ts[tf_key] = []
+                            self._parquet_tf_rows[tf_key].append(r)
+                            self._parquet_tf_ts[tf_key].append(ts_arr[r])
+
+                    for tf_key in list(self._parquet_tf_rows.keys()):
+                        if tf_key[2] == yr_name and isinstance(self._parquet_tf_rows[tf_key], list):
+                            self._parquet_tf_rows[tf_key] = np.asarray(self._parquet_tf_rows[tf_key], dtype=np.int64)
+                            self._parquet_tf_ts[tf_key] = np.asarray(self._parquet_tf_ts[tf_key], dtype=np.int64)
+
+                elif yr_name in year_dirs_map:
+                    yr_dir = year_dirs_map.get(yr_name)
+                    if not yr_dir or not os.path.isdir(yr_dir):
                         continue
 
-                    for tf in self.active_timeframes:
-                        tf_dir = os.path.join(pair_dir, str(tf))
-                        if not os.path.isdir(tf_dir):
+                    for pair in self.pairs:
+                        p_idx = PAIR_INDEX.get(pair, 0)
+                        pair_dir = self._resolve_pair_dir(yr_dir, pair)
+                        if not pair_dir:
                             continue
 
-                        # Prioritize unified unchunked shard (X.npy) for seamless cross-timeframe alignment
-                        X_path = os.path.join(tf_dir, "X.npy")
-                        if os.path.exists(X_path):
-                            key = (pair, tf, yr_name, -1)
-                            self._shard_paths[key] = (tf_dir, -1)
-                            tf_group_key = (pair, tf, yr_name)
-                            if tf_group_key not in self._tf_map:
-                                self._tf_map[tf_group_key] = []
-                            self._tf_map[tf_group_key].append(key)
+                        for tf in self.active_timeframes:
+                            tf_dir = os.path.join(pair_dir, str(tf))
+                            if not os.path.isdir(tf_dir):
+                                continue
 
-                            X, _, _, _ = load_shard(tf_dir, chunk_idx=None, mmap_mode="r")
-                            if X is not None:
-                                length = len(X)
-                                del X
-                                for row in range(length):
-                                    self._index.append((p_idx, tf, key, row))
-                        else:
-                            # Fallback to chunked shards (X_chunk*.npy)
-                            chunk_files = [f for f in os.listdir(tf_dir) if f.startswith("X_chunk") and f.endswith(".npy")]
-                            if chunk_files:
-                                chunk_indices = sorted([int(f.replace("X_chunk", "").replace(".npy", "")) for f in chunk_files])
-                                for c in chunk_indices:
-                                    key = (pair, tf, yr_name, c)
-                                    self._shard_paths[key] = (tf_dir, c)
-                                    tf_group_key = (pair, tf, yr_name)
-                                    if tf_group_key not in self._tf_map:
-                                        self._tf_map[tf_group_key] = []
-                                    self._tf_map[tf_group_key].append(key)
+                            X_path = os.path.join(tf_dir, "X.npy")
+                            if os.path.exists(X_path):
+                                key = (pair, tf, yr_name, -1)
+                                self._shard_paths[key] = (tf_dir, -1)
+                                tf_group_key = (pair, tf, yr_name)
+                                if tf_group_key not in self._tf_map:
+                                    self._tf_map[tf_group_key] = []
+                                self._tf_map[tf_group_key].append(key)
 
-                                    X, _, _, _ = load_shard(tf_dir, chunk_idx=c, mmap_mode="r")
-                                    if X is not None:
-                                        length = len(X)
-                                        del X
-                                        for row in range(length):
-                                            self._index.append((p_idx, tf, key, row))
+                                X, _, _, _ = load_shard(tf_dir, chunk_idx=None, mmap_mode="r")
+                                if X is not None:
+                                    length = len(X)
+                                    del X
+                                    for row in range(length):
+                                        self._index.append((p_idx, tf, key, row))
+                            else:
+                                chunk_files = [f for f in os.listdir(tf_dir) if f.startswith("X_chunk") and f.endswith(".npy")]
+                                if chunk_files:
+                                    chunk_indices = sorted([int(f.replace("X_chunk", "").replace(".npy", "")) for f in chunk_files])
+                                    for c in chunk_indices:
+                                        key = (pair, tf, yr_name, c)
+                                        self._shard_paths[key] = (tf_dir, c)
+                                        tf_group_key = (pair, tf, yr_name)
+                                        if tf_group_key not in self._tf_map:
+                                            self._tf_map[tf_group_key] = []
+                                        self._tf_map[tf_group_key].append(key)
+
+                                        X, _, _, _ = load_shard(tf_dir, chunk_idx=c, mmap_mode="r")
+                                        if X is not None:
+                                            length = len(X)
+                                            del X
+                                            for row in range(length):
+                                                self._index.append((p_idx, tf, key, row))
 
         else:
             # --- Legacy Fold-Based Manifold (folds/fold_N) ---
@@ -381,7 +496,7 @@ class ForexDataset(Dataset):
 
         # Governor fractional sampling (train only, uniform chronological stride across all pairs/years)
         if self.is_train and self.sample_fraction < 1.0:
-            stride = max(1, int(round(1.0 / max(1e-4, self.sample_fraction))))
+            stride = max(1, round(1.0 / max(1e-4, self.sample_fraction)))
             self._index = self.all_samples[::stride]
 
         if len(self._index) == 0:
@@ -412,7 +527,7 @@ class ForexDataset(Dataset):
         if fraction is not None and fraction != self.sample_fraction:
             self.sample_fraction = fraction
             if not rebuild and hasattr(self, 'all_samples') and self.all_samples:
-                stride = max(1, int(round(1.0 / max(1e-4, self.sample_fraction)))) if (self.is_train and self.sample_fraction < 1.0) else 1
+                stride = max(1, round(1.0 / max(1e-4, self.sample_fraction))) if (self.is_train and self.sample_fraction < 1.0) else 1
                 self._index = self.all_samples[::stride]
                 return
 
@@ -482,7 +597,70 @@ class ForexDataset(Dataset):
             )
 
         p_idx, tf, key, row = self._index[index]
-        pair_name, _, yr_identifier, _ = key
+
+        # ─── Branch A: Native High-Throughput Parquet Retrieval ─────────────
+        if isinstance(key, tuple) and len(key) == 2 and key[0] == "parquet":
+            yr_name = key[1]
+            meta = self._parquet_meta[yr_name]
+            cache = self._parquet_caches[yr_name]
+            pair_name = str(meta["pair"][row])
+            current_ts = meta["timestamp"][row]
+
+            target_len = TIMEFRAME_LOOKBACK.get(tf, 168)
+            raw_sample = cache.get_row_features(row)
+            if raw_sample.shape[0] < target_len:
+                pad = np.zeros((target_len - raw_sample.shape[0], raw_sample.shape[1]), dtype=raw_sample.dtype)
+                raw_sample = np.concatenate([pad, raw_sample], axis=0)
+            elif raw_sample.shape[0] > target_len:
+                raw_sample = raw_sample[-target_len:]
+
+            tf_inputs = {tf: torch.from_numpy(np.array(raw_sample, copy=True)).float()}
+
+            # Cross-timeframe alignment via pre-extracted timestamps
+            for other_tf in self.active_timeframes:
+                if other_tf == tf:
+                    continue
+                other_target_len = TIMEFRAME_LOOKBACK.get(other_tf, 168)
+                other_key = (pair_name, other_tf, yr_name)
+                if other_key in self._parquet_tf_rows:
+                    other_rows = self._parquet_tf_rows[other_key]
+                    other_ts = self._parquet_tf_ts[other_key]
+                    if len(other_rows) > 0 and len(other_ts) > 0:
+                        aligned_idx = np.searchsorted(other_ts, current_ts, side="right") - 1
+                        aligned_idx = max(0, min(aligned_idx, len(other_rows) - 1))
+                        aligned_row = int(other_rows[aligned_idx])
+                        other_sample = cache.get_row_features(aligned_row)
+                        if other_sample.shape[0] < other_target_len:
+                            pad = np.zeros((other_target_len - other_sample.shape[0], other_sample.shape[1]), dtype=other_sample.dtype)
+                            other_sample = np.concatenate([pad, other_sample], axis=0)
+                        elif other_sample.shape[0] > other_target_len:
+                            other_sample = other_sample[-other_target_len:]
+                        tf_inputs[other_tf] = torch.from_numpy(np.array(other_sample, copy=True)).float()
+                    else:
+                        tf_inputs[other_tf] = torch.zeros(other_target_len, raw_sample.shape[-1])
+                else:
+                    tf_inputs[other_tf] = torch.zeros(other_target_len, raw_sample.shape[-1])
+
+            scale = PAIR_PIP_SCALE.get(pair_name, 1.0)
+            mag_tp = float(meta["tp_pips"][row]) / scale
+            mag_sl = float(meta["sl_pips"][row]) / scale
+            if self.spread_stress_pips > 0.0:
+                mag_tp = max(0.0, mag_tp - (self.spread_stress_pips / scale))
+                mag_sl = mag_sl + (self.spread_stress_pips / scale)
+
+            labels = {
+                "direction": torch.tensor(int(meta["y_dir"][row]), dtype=torch.long),
+                "magnitude": torch.tensor([mag_tp, mag_sl], dtype=torch.float32),
+            }
+            return (
+                tf_inputs,
+                labels,
+                torch.tensor(p_idx, dtype=torch.long),
+            )
+
+        # ─── Branch B: Legacy .npy Shard Retrieval ──────────────────────────
+        pair_name = str(key[0])
+        yr_identifier = str(key[2]) if len(key) > 2 else ""
 
         X, y_dir, y_mag, _ = self._get_shard_data(key)
 

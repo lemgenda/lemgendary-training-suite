@@ -90,7 +90,7 @@ function Get-ModelSelection {
                     $modelList = @()
                     switch ($subChoice) {
                         '1' { $modelList = @("nima_aesthetic_mobile", "nima_aesthetic_efficientnet", "nima_aesthetic_pro", "nima_technical", "nima_authenticity", "universal_nsfw_classification") }
-                        '2' { $modelList = @("codeformer", "parsenet", "retinaface_mobilenet", "yolov8n") }
+                        '2' { $modelList = @("codeformer", "parsenet", "retinaface", "yolov8n") }
                         '3' { $modelList = @("ultrazoom") }
                         '4' { $modelList = @("ffanet_indoor", "ffanet_outdoor", "mprnet_deraining", "mirnet_lowlight", "mirnet_exposure", "nafnet_debluring", "nafnet_denoising") }
                         '5' { $modelList = @("upn_v2", "professional_multitask_restoration", "film_restorer") }
