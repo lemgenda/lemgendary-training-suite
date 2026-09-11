@@ -31,10 +31,10 @@ forex_predictor:
     Architecture uses causal Conv1D stacks per timeframe fused via cross-timeframe attention.
     Fully stateless and ONNX-compatible for live MT5 EA deployment.
   datasets:
+    - LemGendizedForexUniverseLarge
     - LemGendizedForexTitanCoreLarge
     - LemGendizedForexG7MajorsLarge
     - LemGendizedForexHighBetaLarge
-    - LemGendizedForexUniverseLarge
   curriculum:
     active_phases: [1, 2, 3, 4]
     active_folds: [1, 2, 3, 4, 5, 6]

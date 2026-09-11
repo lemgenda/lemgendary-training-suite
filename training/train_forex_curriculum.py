@@ -29,7 +29,7 @@ CURRICULUM_PHASES = [
     {
         "phase": 4,
         "name": "Full Universe (16)",
-        "pairs": ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "USDCAD", "USDCHF", "AUDUSD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY", "USOIL", "US500", "USTEC", "GER40", "XAGUSD"],
+        "pairs": ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "USDCAD", "USDCHF", "AUDUSD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY", "USOIL", "US500", "NAS100", "DE40", "XAGUSD"],
         "max_epochs": 200
     }
 ]
@@ -55,6 +55,8 @@ def get_latest_epoch(model_key, project_root):
 def main():
     parser = argparse.ArgumentParser(description="LemGendary Forex Curriculum Orchestrator")
     parser.add_argument("--clean", "--fresh", dest="clean", action="store_true", help="Start curriculum fresh from fold 1 epoch 1, wiping all checkpoints and states")
+    parser.add_argument("--timeframes", type=int, nargs='+', default=None, help="Force specific active timeframes in minutes (e.g. 60 240 1440)")
+    parser.add_argument("--timeframe-curriculum", action="store_true", help="Stage timeframe expansion across phases: Phase 1=Macro (60,240,1440), Phase 2=Swing (15,60,240,1440), Phase 3-4=Full (1,5,15,60,240,1440)")
     args = parser.parse_args()
 
     print("================================================================================")
@@ -111,10 +113,23 @@ def main():
             if KNOWN_PAIR_ANCHORS & children:
                 if candidate_base not in resolved_roots:
                     resolved_roots.append(candidate_base)
+                continue
+            # Pattern 3: candidate_base contains ForexUniverseYYYY folders directly
+            if any(d.startswith("ForexUniverse") for d in children):
+                if candidate_base not in resolved_roots:
+                    resolved_roots.append(candidate_base)
+                continue
 
     manifold_folds = {}
     for root in resolved_roots:
-        if not os.path.exists(root): continue
+        if not os.path.exists(root):
+            continue
+        # Check year-based manifold (ForexUniverseYYYY)
+        year_dirs = [d for d in os.listdir(root) if d.startswith("ForexUniverse") and not d.endswith(".zip") and os.path.isdir(os.path.join(root, d))]
+        if year_dirs:
+            # 8 years (2019..2026) -> 6 folds
+            manifold_folds[root] = max(1, len(year_dirs) - 2)
+            continue
         pairs = [d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)) and not d.startswith('.')]
         if pairs:
             first_pair = pairs[0]
@@ -229,6 +244,20 @@ def main():
             # Add pairs argument
             cmd.append("--pairs")
             cmd.extend(pairs)
+
+            # Add timeframe progression if specified
+            if getattr(args, 'timeframes', None):
+                cmd.append("--timeframes")
+                cmd.extend([str(t) for t in args.timeframes])
+            elif getattr(args, 'timeframe_curriculum', False):
+                if p_id == 1:
+                    tfs = [60, 240, 1440]
+                elif p_id == 2:
+                    tfs = [15, 60, 240, 1440]
+                else:
+                    tfs = [1, 5, 15, 60, 240, 1440]
+                cmd.append("--timeframes")
+                cmd.extend([str(t) for t in tfs])
 
             if getattr(args, 'clean', False) and p_id == 1 and fold == 1:
                 cmd.append("--clean")

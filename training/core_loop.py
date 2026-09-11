@@ -324,6 +324,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     parser.add_argument("--phase", type=int, default=1, help="Training Phase (e.g., Pre-training=1, Fine-tuning=2)")
     parser.add_argument("--fold", type=int, default=1, help="Walk-forward fold index (1..6)")
     parser.add_argument("--pairs", type=str, nargs='+', default=None, help="List of active pairs for Forex dataset (e.g. EURUSD GBPUSD)")
+    parser.add_argument("--timeframes", type=int, nargs='+', default=None, help="List of active timeframes in minutes (e.g. 60 240 1440)")
     parser.add_argument("--num_workers", type=int, default=None, help="Force a specific number of workers")
     parser.add_argument("--val_num_workers", type=int, default=None, help="Force a specific number of validation workers")
     args = parser.parse_args()
@@ -568,17 +569,31 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
     if model_info.get("dataset_type") == "forex" or "forex" in args.model.lower():
         from data.forex_dataset import ForexDataset
-        target_ds = ds_reqs[0] if ds_reqs else "LemGendizedForexPredictorLarge"
-        manifold_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets", target_ds, "forex"))
-        if not os.path.exists(manifold_root):
-            manifold_root = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets", target_ds))
-        shard_root = manifold_root if (os.path.exists(manifold_root) and any(os.path.isdir(os.path.join(manifold_root, d)) for d in os.listdir(manifold_root) if not d.startswith('.'))) else os.path.normpath(os.path.join(project_root, "data", "forex"))
-        train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction, fold=args.fold, pairs=args.pairs)
-        val_ds = ForexDataset(shard_root=shard_root, is_train=False, fold=args.fold, pairs=args.pairs)
+        shard_root = None
+        candidate_datasets = list(ds_reqs) if ds_reqs else []
+        if "LemGendizedForexUniverseLarge" not in candidate_datasets:
+            candidate_datasets.insert(0, "LemGendizedForexUniverseLarge")
+
+        base_datasets_dir = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets"))
+        for cand_ds in candidate_datasets:
+            for sub in ["forex", ""]:
+                p = os.path.normpath(os.path.join(base_datasets_dir, cand_ds, sub)) if sub else os.path.normpath(os.path.join(base_datasets_dir, cand_ds))
+                if os.path.exists(p) and any(os.path.isdir(os.path.join(p, d)) for d in os.listdir(p) if not d.startswith('.')):
+                    shard_root = p
+                    break
+            if shard_root:
+                break
+
+        if not shard_root:
+            shard_root = os.path.normpath(os.path.join(project_root, "data", "forex"))
+
+        active_tfs = args.timeframes if getattr(args, 'timeframes', None) else model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
+        train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction, fold=args.fold, pairs=args.pairs, active_timeframes=active_tfs)
+        val_ds = ForexDataset(shard_root=shard_root, is_train=False, fold=args.fold, pairs=args.pairs, active_timeframes=active_tfs)
         
         # 2026: Explicit Curriculum Telemetry
         active_pairs = len(args.pairs) if args.pairs else len(train_ds.pairs)
-        print(f" [SIGNAL] [CURRICULUM] Walk-Forward Fold: {args.fold if args.fold else 'MAIN'} | Active Pairs: {active_pairs}")
+        print(f" [SIGNAL] [CURRICULUM] Walk-Forward Fold: {args.fold if args.fold else 'MAIN'} | Active Pairs: {active_pairs} | Active TFs: {active_tfs}")
     else:
         train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
         val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)

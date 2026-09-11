@@ -36,7 +36,7 @@ TITAN_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
 MAJOR_PAIRS = TITAN_PAIRS
 
 EXTENDED_PAIRS = [
-    # G7 Majors (4 Core + 3 G7)
+    # G7 Majors (4 Core + 4 G7)
     "EURUSD", "GBPUSD", "USDJPY", "XAUUSD",
     "USDCAD", "USDCHF", "AUDUSD", "NZDUSD",
     # High-Beta Crosses
@@ -44,12 +44,20 @@ EXTENDED_PAIRS = [
     # Commodities & Energy
     "XAGUSD", "USOIL",
     # Global Equity Indices
-    "US500", "USTEC", "GER40"
+    "US500", "NAS100", "DE40"
 ]
+
+# Alias mapping for alternate CFD broker tickers
+ALIAS_PAIRS = {
+    "USTEC": "NAS100",
+    "GER40": "DE40",
+}
 
 # Currency pair index (0-based) - shared across suite
 PAIR_INDEX = {p: i for i, p in enumerate(EXTENDED_PAIRS)}
-NUM_PAIRS = len(PAIR_INDEX)
+PAIR_INDEX["USTEC"] = PAIR_INDEX["NAS100"]
+PAIR_INDEX["GER40"] = PAIR_INDEX["DE40"]
+NUM_PAIRS = len(EXTENDED_PAIRS)
 
 # Canonical pip scaling factors (Normalized Pip Units / NPU)
 PAIR_PIP_SCALE = {
@@ -57,7 +65,8 @@ PAIR_PIP_SCALE = {
     "USDCHF": 1.0, "AUDUSD": 1.0, "NZDUSD": 1.0,
     "EURGBP": 1.0, "EURJPY": 1.0, "GBPJPY": 1.0,
     "XAGUSD": 5.0, "USOIL": 5.0, "XAUUSD": 10.0,
-    "US500": 20.0, "GER40": 20.0, "USTEC": 40.0
+    "US500": 20.0, "DE40": 20.0, "GER40": 20.0,
+    "NAS100": 40.0, "USTEC": 40.0
 }
 
 
@@ -231,13 +240,15 @@ class CrossTimeframeAttention(nn.Module):
     """
     Multi-head self-attention over the set of timeframe embeddings.
     Learns which timeframes carry the most predictive signal for the current bar.
+    Includes Timeframe Dropout during training to prevent single-timeframe co-adaptation.
 
     Args:
-        d_model:  Embedding dimension per timeframe.
-        n_heads:  Number of attention heads.
-        dropout:  Dropout probability.
+        d_model:    Embedding dimension per timeframe.
+        n_heads:    Number of attention heads.
+        dropout:    Dropout probability.
+        tf_dropout: Timeframe dropout probability during training.
     """
-    def __init__(self, d_model: int = 128, n_heads: int = 4, dropout: float = 0.1):
+    def __init__(self, d_model: int = 128, n_heads: int = 4, dropout: float = 0.1, tf_dropout: float = 0.15):
         super().__init__()
         self.attn = nn.MultiheadAttention(
             embed_dim=d_model,
@@ -247,6 +258,7 @@ class CrossTimeframeAttention(nn.Module):
         )
         self.norm = nn.LayerNorm(d_model)
         self.drop = nn.Dropout(dropout)
+        self.tf_dropout = tf_dropout
 
     def forward(self, tf_feats: torch.Tensor) -> torch.Tensor:
         """
@@ -255,6 +267,16 @@ class CrossTimeframeAttention(nn.Module):
         Returns:
             out: [B, num_timeframes * d_model]  (flattened for head input)
         """
+        if self.training and self.tf_dropout > 0.0 and tf_feats.shape[1] > 1:
+            mask = (torch.rand(tf_feats.shape[0], tf_feats.shape[1], 1, device=tf_feats.device) >= self.tf_dropout).float()
+            all_masked = (mask.sum(dim=1, keepdim=True) == 0)
+            if all_masked.any():
+                rand_idx = torch.randint(0, tf_feats.shape[1], (tf_feats.shape[0],), device=tf_feats.device)
+                for b in range(tf_feats.shape[0]):
+                    if all_masked[b, 0, 0]:
+                        mask[b, rand_idx[b], 0] = 1.0
+            tf_feats = tf_feats * mask
+
         residual = tf_feats
         attn_out, _ = self.attn(tf_feats, tf_feats, tf_feats)
         out = self.norm(residual + self.drop(attn_out))  # [B, n_tf, d_model]
@@ -359,6 +381,7 @@ class ForexPredictor(nn.Module):
         n_layers: int = 4,
         head_hidden: int = 384,
         dropout: float = 0.1,
+        tf_dropout: float = 0.15,
         in_features: int = FOREX_FEATURES_PER_BAR,
     ):
         super().__init__()
@@ -368,6 +391,7 @@ class ForexPredictor(nn.Module):
 
         self.active_timeframes = active_timeframes
         self.d_model = d_model
+        self.tf_dropout = tf_dropout
 
         # Pair embedding: early projection for TCN input conditioning
         self.pair_embed   = nn.Embedding(NUM_PAIRS, d_model)
@@ -394,6 +418,7 @@ class ForexPredictor(nn.Module):
             d_model = d_model,
             n_heads = min(n_heads, n_tf),   # Can't exceed n_tf heads
             dropout = dropout,
+            tf_dropout = tf_dropout,
         )
 
         # Fused manifold dimension: n_tf * d_model (from cross_attn) + d_model (pair embed)
@@ -509,6 +534,7 @@ class ForexPredictor(nn.Module):
         self.cross_attn = CrossTimeframeAttention(
             d_model = self.d_model,
             n_heads = n_heads,
+            tf_dropout = getattr(self, 'tf_dropout', 0.15),
         )
         fused_dim = n_tf * self.d_model + self.d_model
         old_proj  = self.fused_project

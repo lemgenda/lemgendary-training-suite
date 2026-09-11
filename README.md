@@ -38,6 +38,7 @@ The deep architectural backlog, including the **Memory-Sentinel**, **Sawtooth Go
 - **Multi-Phase Fold Parity Verification (v17.3)**: When training multi-phase Forex curricula with reduced manifold subsets, the orchestrator verifies identical fold counts across all active phases before execution, proactively rejecting mismatched Walk-Forward Cross-Validation splits.
 - **Normalized Pip Scaling & Financial Governance Hardening (v17.4)**: Solves commodity and equity index pip scale divergence via `PAIR_PIP_SCALE` mapping (FX Majors 1.0, Commodities 5.0-10.0, Indices 20.0-40.0) standardizing all loss calculations and regression targets to Normalized Pip Units (0–100 NPUs). Enforces a 0.75 temperature floor for financial manifolds, aligns SOTA target score mathematics, gates differential learning rate jolts to $\le 1.15\times$, and maps training phases to `CURRICULUM_FOLD`.
 - **Clean Training Execution & Checkpoint Isolation (v17.5)**: The CLI (`train.py`) and walk-forward curriculum orchestrator (`train_forex_curriculum.py`) support `--clean` / `--fresh` to initiate runs cleanly from epoch 1 without phantom checkpoint resurrection. When active, Hub Sync bypasses `git lfs pull`, purges local residual checkpoints, resets `curriculum_state.json`, and wipes `metrics.csv`. All checkpoints (`_latest`, `_best`, `_progress`, and `_vault_`) are strictly saved to and loaded from `LemGendaryModels/<model>/checkpoints/`.
+- **16-Symbol Forex Universe Walk-Forward Matrix (v17.6)**: Upgrades ForexPredictor training to natively ingest the 16-symbol physical manifold (`LemGendizedForexUniverseLarge`, 2019-2026). Supports an expanding-window 6-fold Walk-Forward Cross-Validation (WFCV) structure (Fold 1: 2019-2020 -> 2021 through Fold 6: 2019-2025 -> 2026) with automatic symbol aliasing (`NAS100` <-> `USTEC`, `DE40` <-> `GER40`), chunked .npy shard loading, cross-timeframe alignment, and Timeframe Dropout regularizer ($p=0.15$) to prevent high-frequency noise co-adaptation.
 
 For an exhaustive breakdown of the Training Suite architecture, please consult the [Master Training Suite Guide](file:///c:/Development/python/model-training/lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md) in the `lemgendary-docs` repository.
 
@@ -176,9 +177,15 @@ Causal TCN   Causal TCN   Causal TCN   Causal TCN  Causal TCN  Causal TCN
 | H4 | 90 bars | ~2.5 weeks |
 | D1 | 252 bars | ~1 year |
 
-### Governor Curriculum
+### Governor Curriculum & Temporal Progression
 
-The Governor's `res_ladder` is repurposed as a **timeframe expansion ladder**. Training starts on M1 only (FOUNDATION phase) and expands to all 6 timeframes as metrics stabilize.
+Training employs a staged **Macro-to-Micro Temporal Curriculum** to prevent high-frequency microstructure noise (M1/M5) from overwhelming macro trend representations:
+
+- **Stage A (Macro Anchor)**: Train on H1, H4, D1 (`60, 240, 1440` min) to establish structural trend, swing momentum, and regime identification.
+- **Stage B (Intraday Structure)**: Add M15 (`15` min) for session breaks and intraday momentum setups.
+- **Stage C (Precision Execution)**: Add M5 and M1 (`5, 1` min) for precise entry timing and slippage-resilient TP/SL calibration.
+- **Timeframe Dropout Regularization**: Injects stochastic TF masking ($p=0.15$) during training to prevent single-timeframe co-adaptation.
+- **6-Fold Walk-Forward Matrix**: Evaluates continuous chronological out-of-sample performance across years 2019-2026.
 
 ### Key Files
 
