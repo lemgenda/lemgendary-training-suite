@@ -146,8 +146,10 @@ def get_registered_models() -> List[str]:
     return []
 
 
-def match_model_from_slug(slug: str) -> Optional[str]:
+def match_model_from_slug(slug: Optional[str]) -> Optional[str]:
     """Infers registered model manifold key from kernel slug."""
+    if not slug:
+        return None
     models = get_registered_models()
     clean_slug = slug.lower().replace("-", "").replace("_", "")
     for m in models:

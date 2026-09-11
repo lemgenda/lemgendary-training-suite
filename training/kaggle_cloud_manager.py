@@ -225,14 +225,16 @@ def monitor_kaggle_training(model_name: str, username: Optional[str] = None, pol
 
     print(f"\n[SIGNAL] [KAGGLE CLOUD] Connecting to telemetry stream for: {slug}")
     try:
+        import importlib
         from kaggle.api.kaggle_api_extended import KaggleApi
-        from training.kaggle_monitor import stream_kernel_logs
+        km = importlib.import_module("training.kaggle_monitor")
         api = KaggleApi()
         api.authenticate()
-        stream_kernel_logs(api, slug, poll_interval=poll_interval)
+        km.stream_kernel_logs(api, slug, poll_interval=poll_interval)
     except Exception as e:
         print(f"[ERROR] [KAGGLE MONITOR] Monitoring stream encountered an error: {e}")
         print("[REMEDY] Check your internet connection or Kaggle API rate limits. You can resume monitoring later.")
+
 
 
 def pull_kaggle_artifacts(model_name: str, destination_dir: Optional[str] = None, username: Optional[str] = None) -> bool:
@@ -294,12 +296,14 @@ def main():
     elif args.action == "launch":
         launch_kaggle_training(args.model, username=args.username, key=args.key, gpu=args.gpu)
     elif args.action == "monitor_interactive":
-        from training.kaggle_monitor import run_interactive_monitor
-        run_interactive_monitor()
+        import importlib
+        km = importlib.import_module("training.kaggle_monitor")
+        km.run_interactive_monitor()
     elif args.action == "monitor":
         if args.model == "interactive":
-            from training.kaggle_monitor import run_interactive_monitor
-            run_interactive_monitor()
+            import importlib
+            km = importlib.import_module("training.kaggle_monitor")
+            km.run_interactive_monitor()
         else:
             monitor_kaggle_training(args.model, username=args.username)
     elif args.action == "pull":
