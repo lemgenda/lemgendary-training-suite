@@ -130,6 +130,20 @@ try:
 except Exception as e:
     print(f"[CLOUD WORKER] nvidia-smi check skipped: {{e}}")
 
+# Verify Compute Capability compatibility
+try:
+    import torch
+    if torch.cuda.is_available():
+        cap = torch.cuda.get_device_capability(0)
+        gpu_name = torch.cuda.get_device_name(0)
+        if cap[0] < 7:
+            print(f"[CRITICAL ERROR] Incompatible GPU detected: {{gpu_name}} (sm_{{cap[0]}}{{cap[1]}}).")
+            print("Tesla P100 (sm_60) is not supported by Kaggle PyTorch. Please switch accelerator to GPU T4 x2.")
+            sys.exit(1)
+except Exception as cap_err:
+    print(f"[CLOUD WORKER] GPU capability verification notice: {{cap_err}}")
+
+
 # Clone/Sync LemGendary Training Suite
 repo_url = "https://github.com/lemgenda/lemgendary-training-suite.git"
 work_dir = "/kaggle/working/lemgendary-training-suite"
@@ -202,7 +216,7 @@ def launch_kaggle_training(model_name: str, config: Optional[dict] = None, usern
         return False
 
 
-def monitor_kaggle_training(model_name: str, username: Optional[str] = None, poll_interval: int = 15):
+def monitor_kaggle_training(model_name: str, username: Optional[str] = None, poll_interval: int = 5):
     """
     Streams live status and logs from Kaggle for the specified model kernel.
     """
@@ -212,24 +226,10 @@ def monitor_kaggle_training(model_name: str, username: Optional[str] = None, pol
     print(f"\n[SIGNAL] [KAGGLE CLOUD] Connecting to telemetry stream for: {slug}")
     try:
         from kaggle.api.kaggle_api_extended import KaggleApi
+        from training.kaggle_monitor import stream_kernel_logs
         api = KaggleApi()
         api.authenticate()
-
-        last_status = None
-        while True:
-            status_obj = api.kernels_status(slug)
-            status = getattr(status_obj, 'status', str(status_obj))
-            
-            if status != last_status:
-                print(f" -> [{time.strftime('%H:%M:%S')}] Cloud Status: {status.upper()}")
-                last_status = status
-
-            if status in ["complete", "error", "cancelAck"]:
-                print(f"\n[INFO] Cloud Job reached terminal state: {status}")
-                break
-
-            time.sleep(poll_interval)
-
+        stream_kernel_logs(api, slug, poll_interval=poll_interval)
     except Exception as e:
         print(f"[ERROR] [KAGGLE MONITOR] Monitoring stream encountered an error: {e}")
         print("[REMEDY] Check your internet connection or Kaggle API rate limits. You can resume monitoring later.")
@@ -280,7 +280,7 @@ def pull_kaggle_artifacts(model_name: str, destination_dir: Optional[str] = None
 
 def main():
     parser = argparse.ArgumentParser(description="LemGendary Headless Kaggle Cloud Engine")
-    parser.add_argument("--action", type=str, required=True, choices=["launch", "status", "monitor", "pull", "cancel", "setup_auth"])
+    parser.add_argument("--action", type=str, required=True, choices=["launch", "status", "monitor", "monitor_interactive", "pull", "cancel", "setup_auth"])
     parser.add_argument("--model", type=str, default="nima_technical", help="Model manifold name")
     parser.add_argument("--username", type=str, default=None, help="Kaggle Username override")
     parser.add_argument("--key", type=str, default=None, help="Kaggle API Key override")
@@ -289,12 +289,19 @@ def main():
     args = parser.parse_args()
 
     if args.action == "setup_auth":
-        u, k = resolve_kaggle_credentials(prompt_interactive=True)
+        u, _ = resolve_kaggle_credentials(prompt_interactive=True)
         print(f"[OK] Authentication verified for Kaggle user: {u}")
     elif args.action == "launch":
         launch_kaggle_training(args.model, username=args.username, key=args.key, gpu=args.gpu)
+    elif args.action == "monitor_interactive":
+        from training.kaggle_monitor import run_interactive_monitor
+        run_interactive_monitor()
     elif args.action == "monitor":
-        monitor_kaggle_training(args.model, username=args.username)
+        if args.model == "interactive":
+            from training.kaggle_monitor import run_interactive_monitor
+            run_interactive_monitor()
+        else:
+            monitor_kaggle_training(args.model, username=args.username)
     elif args.action == "pull":
         pull_kaggle_artifacts(args.model, destination_dir=args.output_dir, username=args.username)
     elif args.action == "status":

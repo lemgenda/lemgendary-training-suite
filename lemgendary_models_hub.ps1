@@ -176,8 +176,8 @@ function Show-ModelList {
 function Invoke-KaggleCloudMenu {
     while ($true) {
         Write-Header "KAGGLE CLOUD ENGINE (HEADLESS GPU ORCHESTRATION)"
-        Write-Host "  1. Launch Cloud Training Job  (Pushes & executes kernel on Tesla T4/P100)" -ForegroundColor Cyan
-        Write-Host "  2. Monitor Active Cloud Jobs   (Live terminal status & log streaming)" -ForegroundColor Cyan
+        Write-Host "  1. Train on Kaggle            (Launch notebook, stream logs, auto-pull checkpoints)" -ForegroundColor Cyan
+        Write-Host "  2. Monitor Active Cloud Jobs   (Monitor only: stream live logs, no pulling)" -ForegroundColor Cyan
         Write-Host "  3. Pull & Save Checkpoints     (Downloads .pth & metrics.csv to local disk)" -ForegroundColor Cyan
         Write-Host "  4. Setup / Verify Credentials  (Configure Kaggle Username & Token)" -ForegroundColor Cyan
         Write-Host "  B. Back to Main Menu" -ForegroundColor Gray
@@ -188,26 +188,19 @@ function Invoke-KaggleCloudMenu {
 
         switch ($cloudChoice) {
             '1' {
-                $targetModel = Get-ModelSelection
-                if ($null -ne $targetModel) {
-                    Write-Host "  [CLOUD] Deploying GPU training for >> $targetModel <<..." -ForegroundColor Green
-                    $env:PYTHONPATH="$script:HUB_DIR"; $env:PYTHONHOME=""
-                    $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
-                    Push-Location $script:HUB_DIR
-                    & "$script:VENV_DIR\Scripts\python.exe" -m training.kaggle_cloud_manager --action launch --model $targetModel
-                    Pop-Location
-                }
+                $env:PYTHONPATH="$script:HUB_DIR"; $env:PYTHONHOME=""
+                $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
+                Push-Location $script:HUB_DIR
+                & "$script:VENV_DIR\Scripts\python.exe" -m training.kaggle_monitor --action train
+                Pop-Location
                 Read-Host "Press Enter to return..."
             }
             '2' {
-                $targetModel = Get-ModelSelection
-                if ($null -ne $targetModel) {
-                    $env:PYTHONPATH="$script:HUB_DIR"; $env:PYTHONHOME=""
-                    $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
-                    Push-Location $script:HUB_DIR
-                    & "$script:VENV_DIR\Scripts\python.exe" -m training.kaggle_cloud_manager --action monitor --model $targetModel
-                    Pop-Location
-                }
+                $env:PYTHONPATH="$script:HUB_DIR"; $env:PYTHONHOME=""
+                $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
+                Push-Location $script:HUB_DIR
+                & "$script:VENV_DIR\Scripts\python.exe" -m training.kaggle_monitor --action monitor
+                Pop-Location
                 Read-Host "Press Enter to return..."
             }
             '3' {

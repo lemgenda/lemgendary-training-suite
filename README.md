@@ -59,10 +59,10 @@ The master orchestration console for system bootstrapping and cloud sync.
 
 | Option | Action | Sub-Prompts & Details |
 | :--- | :--- | :--- |
-| **1. Initialize Systems** | **Environment Sync** | Installs Python 3.12, creates `.venv`, and Auto-Detects GPU. Installs PyTorch 2.7.0+ and **Master SOTA Stack**. |
-| **2. Train Model Locally** | **Two-Level Domain Selection** | Select from parent domains (**Image Manipulation & Restoration**, **Image Generation & Multimodal**, **Financial & Time-Series**) with 24+ SOTA architectures. |
-| **3. Single-Epoch Unit Test** | **Fleet Smoke Test** | Diagnostic 1-epoch execution across all registered models. |
-| **4. Kaggle Cloud Engine** | **Headless GPU Orchestration** | Launch, stream telemetry, and pull trained checkpoints from Kaggle Cloud GPU headlessly. |
+| **1. Train Individual Model** | **Local Model Training** | Select from parent domains (**Image Manipulation & Restoration**, **Image Generation & Multimodal**, **Financial & Time-Series**) with 24+ SOTA architectures. |
+| **2. Single-Epoch Unit Test** | **Fleet Smoke Test** | Diagnostic 1-epoch execution across all registered models. |
+| **3. Kaggle Cloud Engine** | **Headless GPU Orchestration** | Submenu: **1. Train on Kaggle** (user selection from `.kaggle_users` or new user, notebook selection, launch GPU training, stream telemetry, auto-pull checkpoints and weights after each epoch); **2. Monitor Active Cloud Jobs** (monitor-only live log streaming, no pulling); **3. Pull & Save Checkpoints**; **4. Setup / Verify Credentials**. |
+
 
 ---
 
@@ -265,3 +265,53 @@ To maintain zero cloud manifold drift and strictly prioritize Kaggle Models as t
 1. **Startup Discovery**: Checkpoints are loaded exclusively from attached Kaggle Models (`/kaggle/input/models/<owner>/<slug>/pytorch/default/`), automatically resolving the latest numerical version in descending order without pulling from GitHub or Google Drive.
 2. **Mid-Epoch Persistence & Preemption**: During training, intra-epoch progress is saved locally to `/kaggle/working/LemGendaryModels/<model>/checkpoints/`. If the session is interrupted or preempted (`SIGINT` or `SIGTERM`), an emergency hook pushes the progress checkpoint solely to Kaggle Models, deferring Google Drive synchronization.
 3. **Epoch Completion Gating**: The model is synchronized to Google Drive strictly after an epoch has fully completed AND `kagglehub.model_upload()` has successfully committed a new model version on Kaggle.
+
+---
+
+## Kaggle Cloud Engine & Multi-Account Orchestrator (`kaggle_monitor.py`)
+
+The suite integrates a high-performance, multi-tenant Kaggle Cloud Engine accessible directly via Option 3 in `lemgendary_models_hub.ps1`. It orchestrates headless GPU training, real-time telemetry streaming, and automated checkpoint synchronization without requiring a web browser.
+
+### Submenu Capabilities (Option 3)
+
+1. **1. Train on Kaggle (`--action train`)**:
+   - Prompts for user selection from `.kaggle_users` or entry of a new username and API token.
+   - Queries and lists notebooks from the user's Kaggle account (or allows deploying a registered local model manifold).
+   - Launches training on Kaggle GPU, automatically streaming execution logs back to the local terminal.
+   - Dynamically detects completed epochs and pulls updated model weights and checkpoints (`.pth`, `metrics.csv`) to `LemGendaryModels/<model_name>/` after each epoch, concluding with a final sync upon completion.
+2. **2. Monitor Active Cloud Jobs (`--action monitor`)**:
+   - Prompts for user selection from `.kaggle_users` or entry of a new username and API token.
+   - Concurrently resolves active (`RUNNING` / `QUEUED`) and recent kernels via multi-threaded workers.
+   - Operates in strict monitor-only mode: streams live stdout and stderr telemetry without pulling model weights or checkpoints.
+3. **3. Pull & Save Checkpoints (`--action pull`)**:
+   - Manually downloads latest checkpoints and metrics from Kaggle Models or kernel outputs to local disk.
+4. **4. Setup / Verify Credentials (`--action setup_auth`)**:
+   - Configures, validates, and stores Kaggle credentials.
+
+### Multi-Account Registry (`.kaggle_users`)
+
+The engine parses credentials from `.kaggle_users` located in the suite root:
+
+```text
+KAGGLE_USERNAME=kuznetsovr, KAGGLE_API_TOKEN=KGAT_...;
+KAGGLE_USERNAME=shyning123, KAGGLE_API_TOKEN=KGAT_...;
+KAGGLE_USERNAME=lemgenda, KAGGLE_API_TOKEN=KGAT_...;
+KAGGLE_USERNAME=lemtreursi, KAGGLE_API_TOKEN=KGAT_...;
+```
+
+### CLI Execution
+
+Launch training or monitoring directly from the command line:
+
+```powershell
+# Interactive Train on Kaggle (Launch, stream, auto-pull checkpoints per epoch)
+python -m training.kaggle_monitor --action train
+
+# Interactive Monitor Only (Stream live logs, no pulling)
+python -m training.kaggle_monitor --action monitor
+
+# Direct CLI Stream for automated pipelines
+python -m training.kaggle_monitor --user lemtreursi --token KGAT_... --kernel lemgendizedmirnetexposuretraining
+```
+
+

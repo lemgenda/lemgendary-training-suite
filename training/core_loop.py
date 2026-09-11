@@ -361,8 +361,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     if torch.cuda.is_available():
         device = torch.device("cuda")
         gpu_name = torch.cuda.get_device_name(0)
+        cap = torch.cuda.get_device_capability(0)
+        if cap[0] < 7:
+            print("\n" + "!" * 76)
+            print(f"[CRITICAL ERROR] [INCOMPATIBLE ACCELERATOR] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]})")
+            print("Modern PyTorch requires CUDA Compute Capability >= 7.0 (sm_70+).")
+            print("NVIDIA Tesla P100 (sm_60) has been deprecated and dropped in modern PyTorch builds.")
+            print("[ACTION REQUIRED] Switch Kaggle Accelerator to 'GPU T4 x2' in Session Options.")
+            print("!" * 76 + "\n")
+            raise RuntimeError(f"Incompatible GPU: {gpu_name} (sm_{cap[0]}{cap[1]}). Please switch Kaggle accelerator to 'GPU T4 x2'.")
         torch.backends.cudnn.benchmark = True
-        print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} | CUDA {getattr(torch.version, 'cuda', 'Unknown')} Active")
+        print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]}) | CUDA {getattr(torch.version, 'cuda', 'Unknown')} Active")
     elif hasattr(torch, "mps") and torch.backends.mps.is_available():
         device = torch.device("mps")
         print(f"[LAUNCH] [HARDWARE] Apple Silicon (Metal) Acceleration Active")

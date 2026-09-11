@@ -32,8 +32,8 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
 
     # --- Section Logic: v16.0 Nuclear Orchestration ---
     
-    kaggle_accel = model_info.get("kaggle_accelerator", "Dual T4 or P100")
-    accel_str = "GPU T4 x2" if kaggle_accel == "Dual T4" else ("GPU P100" if kaggle_accel == "P100" else str(kaggle_accel))
+    kaggle_accel = model_info.get("kaggle_accelerator", "Dual T4")
+    accel_str = "GPU T4 x2" if kaggle_accel in ["Dual T4", "Dual T4 or P100", "P100"] else str(kaggle_accel)
 
     hardware_sentinel_source = [
         "import torch, sys\n",
@@ -47,11 +47,25 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    print('   -> Continuing in CPU Fallback Mode for dry-run validation...')\n",
         "else:\n",
         "    props = torch.cuda.get_device_properties(0)\n",
-        "    print(f'[OK] [ACTIVE] {props.name}')\n",
+        "    cap = torch.cuda.get_device_capability(0)\n",
+        "    print(f'[OK] [ACTIVE] {props.name} (Compute Capability sm_{cap[0]}{cap[1]})')\n",
         "    print(f'[OK] [VRAM] {props.total_memory / 1024**3:.1f} GB')\n",
+        "    if cap[0] < 7:\n",
+        "        print('\\n' + '!' * 76)\n",
+        "        print(f'[CRITICAL ERROR] [INCOMPATIBLE ACCELERATOR] {props.name} (sm_{cap[0]}{cap[1]})')\n",
+        "        print('Kaggle Python 3.12 / PyTorch dropped support for CUDA Capability 6.0 (sm_60).')\n",
+        "        print('Tesla P100 is deprecated and incompatible with modern PyTorch builds.')\n",
+        "        print('')\n",
+        "        print('[ACTION REQUIRED] Switch Kaggle Accelerator to GPU T4 x2:')\n",
+        "        print('  1. In right-hand panel -> Session options -> Accelerator')\n",
+        "        print('  2. Select: GPU T4 x2 (Dual NVIDIA Tesla T4 - 30GB total VRAM)')\n",
+        "        print('  3. Re-run session')\n",
+        "        print('!' * 76 + '\\n')\n",
+        "        raise RuntimeError(f'Incompatible GPU: {props.name} (sm_{cap[0]}{cap[1]}). Please switch accelerator to GPU T4 x2.')\n",
         "    if props.total_memory / 1024**3 < 10.0:\n",
         "        print('[WARNING] Low VRAM detected. Suite will enable Survival Profiles automatically.')\n"
     ]
+
 
     secrets_source = [
         "try:\n",
@@ -1059,13 +1073,26 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "if not torch.cuda.is_available():\n",
         "    print('[WARNING] NO GPU DETECTED!')\n",
         "    print('[ACTION REQUIRED] Enable GPU Accelerator in notebook settings:')\n",
-        "    print('   -> Kaggle: Right Panel -> Session Options -> Accelerator -> GPU T4 x2 or P100')\n",
+        "    print('   -> Kaggle: Right Panel -> Session Options -> Accelerator -> GPU T4 x2 (Recommended)')\n",
         "    print('   -> Colab:  Runtime -> Change runtime type -> Hardware accelerator -> GPU')\n",
         "    print('   -> Continuing in CPU Fallback Mode for dry-run validation...')\n",
         "else:\n",
         "    props = torch.cuda.get_device_properties(0)\n",
-        "    print(f'[OK] [ACTIVE] {props.name}')\n",
+        "    cap = torch.cuda.get_device_capability(0)\n",
+        "    print(f'[OK] [ACTIVE] {props.name} (Compute Capability sm_{cap[0]}{cap[1]})')\n",
         "    print(f'[OK] [VRAM] {props.total_memory / 1024**3:.1f} GB')\n",
+        "    if cap[0] < 7:\n",
+        "        print('\\n' + '!' * 76)\n",
+        "        print(f'[CRITICAL ERROR] [INCOMPATIBLE ACCELERATOR] {props.name} (sm_{cap[0]}{cap[1]})')\n",
+        "        print('Kaggle Python 3.12 / PyTorch dropped support for CUDA Capability 6.0 (sm_60).')\n",
+        "        print('Tesla P100 is deprecated and incompatible with modern PyTorch builds.')\n",
+        "        print('')\n",
+        "        print('[ACTION REQUIRED] Switch Kaggle Accelerator to GPU T4 x2:')\n",
+        "        print('  1. In right-hand panel -> Session options -> Accelerator')\n",
+        "        print('  2. Select: GPU T4 x2 (Dual NVIDIA Tesla T4 - 30GB total VRAM)')\n",
+        "        print('  3. Re-run session')\n",
+        "        print('!' * 76 + '\\n')\n",
+        "        raise RuntimeError(f'Incompatible GPU: {props.name} (sm_{cap[0]}{cap[1]}). Please switch accelerator to GPU T4 x2.')\n",
         "    if props.total_memory / 1024**3 < 10.0:\n",
         "        print('[WARNING] Low VRAM detected. Suite will enable Survival Profiles automatically.')\n"
     ]
