@@ -9,13 +9,24 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
     absolute physical limit of the current GPU.
     """
     if model_info.get("dataset_type") == "forex" or "forex" in model_key.lower():
-        configured_batch = model_info.get("batch_size", 64)
-        if isinstance(configured_batch, str) and configured_batch.lower() == "auto":
-            final_batch = 128 if mode == 'val' else 64
-        else:
-            final_batch = int(configured_batch) if configured_batch is not None else 64
+        configured_batch = model_info.get("batch_size", "auto")
         gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'
         vram_gb = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) if torch.cuda.is_available() else 0.0
+        
+        if isinstance(configured_batch, int) and configured_batch > 0:
+            final_batch = configured_batch if mode == 'train' else configured_batch * 2
+        else:
+            if vram_gb >= 20.0:
+                final_batch = 1024 if mode == 'train' else 2048
+            elif vram_gb >= 14.0:
+                final_batch = 512 if mode == 'train' else 1024
+            elif vram_gb >= 7.0:
+                final_batch = 384 if mode == 'train' else 768
+            elif vram_gb >= 3.5:
+                final_batch = 256 if mode == 'train' else 512
+            else:
+                final_batch = 64 if mode == 'train' else 128
+
         symbols_str = " | ".join(pairs) if pairs else "ALL"
         fold_str = fold if fold else "MAIN"
         print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | Phase: {mode.capitalize()} | Batch: {final_batch} | Fold: {fold_str} | Symbols: {symbols_str}")

@@ -649,7 +649,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         try:
             import psutil
             ram_gb = psutil.virtual_memory().total / (1024**3)
-            num_workers = 2 if ram_gb >= 16.0 else 0
+            is_forex = (model_info.get("dataset_type") == "forex" or "forex" in args.model.lower())
+            if is_forex and ram_gb >= 15.0:
+                num_workers = min(4, cpu_count)
+            elif ram_gb >= 16.0:
+                num_workers = 2
+            else:
+                num_workers = 0
         except:
             num_workers = 0
     else:

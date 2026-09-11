@@ -383,6 +383,8 @@ class ForexPredictor(nn.Module):
         dropout: float = 0.1,
         tf_dropout: float = 0.15,
         in_features: int = FOREX_FEATURES_PER_BAR,
+        pairs: list | None = None,
+        **kwargs,
     ):
         super().__init__()
 
@@ -393,8 +395,11 @@ class ForexPredictor(nn.Module):
         self.d_model = d_model
         self.tf_dropout = tf_dropout
 
+        self.pairs = list(pairs) if pairs is not None else list(EXTENDED_PAIRS)
+        self.num_pairs = max(len(self.pairs), NUM_PAIRS)
+
         # Pair embedding: early projection for TCN input conditioning
-        self.pair_embed   = nn.Embedding(NUM_PAIRS, d_model)
+        self.pair_embed   = nn.Embedding(self.num_pairs, d_model)
         self.pair_project = nn.Linear(d_model, d_model)
 
         # Build one TCN encoder per active timeframe

@@ -302,41 +302,41 @@ class ForexDataset(Dataset):
                         if not os.path.isdir(tf_dir):
                             continue
 
-                        # Check for chunked shards (X_chunk*.npy)
-                        chunk_files = [f for f in os.listdir(tf_dir) if f.startswith("X_chunk") and f.endswith(".npy")]
-                        if chunk_files:
-                            chunk_indices = sorted([int(f.replace("X_chunk", "").replace(".npy", "")) for f in chunk_files])
-                            for c in chunk_indices:
-                                key = (pair, tf, yr_name, c)
-                                self._shard_paths[key] = (tf_dir, c)
-                                tf_group_key = (pair, tf, yr_name)
-                                if tf_group_key not in self._tf_map:
-                                    self._tf_map[tf_group_key] = []
-                                self._tf_map[tf_group_key].append(key)
+                        # Prioritize unified unchunked shard (X.npy) for seamless cross-timeframe alignment
+                        X_path = os.path.join(tf_dir, "X.npy")
+                        if os.path.exists(X_path):
+                            key = (pair, tf, yr_name, -1)
+                            self._shard_paths[key] = (tf_dir, -1)
+                            tf_group_key = (pair, tf, yr_name)
+                            if tf_group_key not in self._tf_map:
+                                self._tf_map[tf_group_key] = []
+                            self._tf_map[tf_group_key].append(key)
 
-                                X, _, _, _ = load_shard(tf_dir, chunk_idx=c, mmap_mode="r")
-                                if X is not None:
-                                    length = len(X)
-                                    del X
-                                    for row in range(length):
-                                        self._index.append((p_idx, tf, key, row))
+                            X, _, _, _ = load_shard(tf_dir, chunk_idx=None, mmap_mode="r")
+                            if X is not None:
+                                length = len(X)
+                                del X
+                                for row in range(length):
+                                    self._index.append((p_idx, tf, key, row))
                         else:
-                            # Single unchunked shard (X.npy)
-                            X_path = os.path.join(tf_dir, "X.npy")
-                            if os.path.exists(X_path):
-                                key = (pair, tf, yr_name, -1)
-                                self._shard_paths[key] = (tf_dir, -1)
-                                tf_group_key = (pair, tf, yr_name)
-                                if tf_group_key not in self._tf_map:
-                                    self._tf_map[tf_group_key] = []
-                                self._tf_map[tf_group_key].append(key)
+                            # Fallback to chunked shards (X_chunk*.npy)
+                            chunk_files = [f for f in os.listdir(tf_dir) if f.startswith("X_chunk") and f.endswith(".npy")]
+                            if chunk_files:
+                                chunk_indices = sorted([int(f.replace("X_chunk", "").replace(".npy", "")) for f in chunk_files])
+                                for c in chunk_indices:
+                                    key = (pair, tf, yr_name, c)
+                                    self._shard_paths[key] = (tf_dir, c)
+                                    tf_group_key = (pair, tf, yr_name)
+                                    if tf_group_key not in self._tf_map:
+                                        self._tf_map[tf_group_key] = []
+                                    self._tf_map[tf_group_key].append(key)
 
-                                X, _, _, _ = load_shard(tf_dir, chunk_idx=None, mmap_mode="r")
-                                if X is not None:
-                                    length = len(X)
-                                    del X
-                                    for row in range(length):
-                                        self._index.append((p_idx, tf, key, row))
+                                    X, _, _, _ = load_shard(tf_dir, chunk_idx=c, mmap_mode="r")
+                                    if X is not None:
+                                        length = len(X)
+                                        del X
+                                        for row in range(length):
+                                            self._index.append((p_idx, tf, key, row))
 
         else:
             # --- Legacy Fold-Based Manifold (folds/fold_N) ---
@@ -379,10 +379,10 @@ class ForexDataset(Dataset):
 
         self.all_samples = list(self._index)
 
-        # Governor fractional sampling (train only, chronological order preserved)
+        # Governor fractional sampling (train only, uniform chronological stride across all pairs/years)
         if self.is_train and self.sample_fraction < 1.0:
-            n = max(1, int(len(self._index) * self.sample_fraction))
-            self._index = self._index[:n]
+            stride = max(1, int(round(1.0 / max(1e-4, self.sample_fraction))))
+            self._index = self.all_samples[::stride]
 
         if len(self._index) == 0:
             print(
@@ -406,11 +406,15 @@ class ForexDataset(Dataset):
         if active_timeframes is not None and active_timeframes != self.active_timeframes:
             self.active_timeframes = active_timeframes
             rebuild = True
-        if fraction is not None and fraction != self.sample_fraction:
-            self.sample_fraction = fraction
-            rebuild = True
         if stress is not None:
             self.spread_stress_pips = stress
+
+        if fraction is not None and fraction != self.sample_fraction:
+            self.sample_fraction = fraction
+            if not rebuild and hasattr(self, 'all_samples') and self.all_samples:
+                stride = max(1, int(round(1.0 / max(1e-4, self.sample_fraction)))) if (self.is_train and self.sample_fraction < 1.0) else 1
+                self._index = self.all_samples[::stride]
+                return
 
         if rebuild:
             self._build_index()
@@ -427,6 +431,38 @@ class ForexDataset(Dataset):
             c_arg = chunk_idx if chunk_idx >= 0 else None
             self._shards[key] = load_shard(tf_dir, chunk_idx=c_arg, mmap_mode="r")
         return self._shards[key]
+
+    def _get_alignment_map(self, primary_key: tuple, other_key: tuple):
+        """Lazily computes or retrieves precalculated alignment row mapping between two shards."""
+        if getattr(self, '_alignment_cache', None) is None:
+            self._alignment_cache = {}
+        pair_key = (primary_key, other_key)
+        if pair_key in self._alignment_cache:
+            return self._alignment_cache[pair_key]
+
+        _, _, _, prim_ts = self._get_shard_data(primary_key)
+        other_X, _, _, other_ts = self._get_shard_data(other_key)
+
+        if other_X is None or len(other_X) == 0 or prim_ts is None or len(prim_ts) == 0:
+            self._alignment_cache[pair_key] = None
+            return None
+
+        if (
+            other_ts is not None and len(other_ts) > 1 and len(prim_ts) > 1 and
+            prim_ts[-1] > prim_ts[0] and other_ts[-1] > other_ts[0]
+        ):
+            # Vectorized alignment precalculated once per shard pair (2ms vs 35M searches)
+            aligned = np.searchsorted(other_ts, prim_ts, side='right') - 1
+            aligned = np.clip(aligned, 0, len(other_X) - 1).astype(np.int64)
+        else:
+            prim_tf = primary_key[1]
+            other_tf = other_key[1]
+            ratio = prim_tf / other_tf
+            rows = np.arange(len(prim_ts), dtype=np.float64)
+            aligned = np.clip((rows * ratio).astype(np.int64), 0, len(other_X) - 1)
+
+        self._alignment_cache[pair_key] = aligned
+        return aligned
 
     def __getitem__(self, index: int):
         """
@@ -448,20 +484,20 @@ class ForexDataset(Dataset):
         p_idx, tf, key, row = self._index[index]
         pair_name, _, yr_identifier, _ = key
 
-        X, y_dir, y_mag, timestamps = self._get_shard_data(key)
+        X, y_dir, y_mag, _ = self._get_shard_data(key)
 
         # Primary timeframe tensor with shape invariant guarantee
         target_len = TIMEFRAME_LOOKBACK.get(tf, 168)
-        raw_sample = np.array(X[row])
+        raw_sample = X[row]
         if raw_sample.shape[0] < target_len:
             pad = np.zeros((target_len - raw_sample.shape[0], raw_sample.shape[1]), dtype=raw_sample.dtype)
             raw_sample = np.concatenate([pad, raw_sample], axis=0)
         elif raw_sample.shape[0] > target_len:
             raw_sample = raw_sample[-target_len:]
 
-        tf_inputs = {tf: torch.from_numpy(raw_sample).float()}
+        tf_inputs = {tf: torch.from_numpy(np.array(raw_sample, copy=True)).float()}
 
-        # Cross-timeframe multi-scale alignment
+        # Cross-timeframe multi-scale alignment via O(1) precalculated map
         for other_tf in self.active_timeframes:
             if other_tf == tf:
                 continue
@@ -472,31 +508,26 @@ class ForexDataset(Dataset):
 
             if candidate_keys:
                 other_key = candidate_keys[0]
-                other_X, _, _, other_ts = self._get_shard_data(other_key)
+                other_X, _, _, _ = self._get_shard_data(other_key)
                 if other_X is None or len(other_X) == 0:
                     tf_inputs[other_tf] = torch.zeros(other_target_len, raw_sample.shape[-1])
                     continue
 
-                if (
-                    timestamps is not None and other_ts is not None and
-                    len(timestamps) > 1 and len(other_ts) > 1 and
-                    timestamps[-1] > timestamps[0] and other_ts[-1] > other_ts[0]
-                ):
-                    current_ts = int(timestamps[row])
-                    aligned_row = int(np.searchsorted(other_ts, current_ts, side='right')) - 1
-                    aligned_row = max(0, min(aligned_row, len(other_X) - 1))
+                alignment_map = self._get_alignment_map(key, other_key)
+                if alignment_map is not None and row < len(alignment_map):
+                    aligned_row = int(alignment_map[row])
                 else:
                     ratio = tf / other_tf
                     aligned_row = min(int(row * ratio), len(other_X) - 1)
 
-                other_sample = np.array(other_X[aligned_row])
+                other_sample = other_X[aligned_row]
                 if other_sample.shape[0] < other_target_len:
                     pad = np.zeros((other_target_len - other_sample.shape[0], other_sample.shape[1]), dtype=other_sample.dtype)
                     other_sample = np.concatenate([pad, other_sample], axis=0)
                 elif other_sample.shape[0] > other_target_len:
                     other_sample = other_sample[-other_target_len:]
 
-                tf_inputs[other_tf] = torch.from_numpy(other_sample).float()
+                tf_inputs[other_tf] = torch.from_numpy(np.array(other_sample, copy=True)).float()
             else:
                 tf_inputs[other_tf] = torch.zeros(other_target_len, raw_sample.shape[-1])
 

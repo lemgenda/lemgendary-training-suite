@@ -20,8 +20,6 @@ class SmartTrainingGovernor:
     
     @property
     def current_fraction(self):
-        if hasattr(self, 'task_type') and self.task_type == "forex":
-            return 1.0
         return getattr(self, '_current_fraction', 1.0)
         
     @current_fraction.setter
