@@ -1029,7 +1029,17 @@ class SmartTrainingGovernor:
             self.current_fraction = state.get("sample_fraction", self.current_fraction)
             raw_res = state.get("input_size", self.current_res)
             self.current_res = raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res
-            
+
+            # 2026 Resilience: Override legacy 100% fraction bug for Forex early epochs
+            if self.task_type == "forex" and self.epoch_count <= 2:
+                opt_cfg = self.model_info.get("optimization", {})
+                init_frac = opt_cfg.get("initial_fraction", 0.15)
+                saved_frac = state.get("sample_fraction", 1.0)
+                if saved_frac >= 0.99:
+                    if init_frac < 0.99:
+                        print(f" [RESILIENCY] Overriding legacy 100% fraction from checkpoint with configured curriculum initial fraction: {init_frac*100:.1f}%.")
+                        self.current_fraction = init_frac
+
             # --- 2026 Resilience: Dynamic Resolution Ladder Sync ---
             if self.current_res is not None and self.current_res not in self.res_ladder:
                 self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))

@@ -650,8 +650,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             import psutil
             ram_gb = psutil.virtual_memory().total / (1024**3)
             is_forex = (model_info.get("dataset_type") == "forex" or "forex" in args.model.lower())
-            if is_forex and ram_gb >= 15.0:
-                num_workers = min(4, cpu_count)
+            if is_forex:
+                num_workers = 0
             elif ram_gb >= 16.0:
                 num_workers = 2
             else:
@@ -1312,10 +1312,11 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         print(f" [RESILIENCY] Estimating Ghost Loader length: {ghost_loader_len}")
 
                     # 2. Update to current strategy
-                    train_ds.update_strategy(fraction=g_start_state['sample_fraction'], size=res_size)
+                    train_ds.update_strategy(fraction=governor.current_fraction, size=res_size)
 
-                    if batch_size != old_batch_size:
-                        print(f" [RESILIENCY] Batch Size Shift detected ({old_batch_size} -> {batch_size}). Synchronizing loader...")
+                    expected_len = max(1, len(train_ds) // max(1, batch_size))
+                    if batch_size != old_batch_size or len(train_loader) != expected_len:
+                        print(f" [RESILIENCY] Batch Size or Fraction Shift detected ({len(train_loader)} -> {expected_len}). Synchronizing loader...")
                         try:
                             train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                                                      num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
