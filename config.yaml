@@ -58,6 +58,10 @@ fleet:
   retry_attempts: 3
   model_hub_repo: "https://github.com/lemgenda/lemgendary-pretrained-models.git"
   failure_log: "fleet_failure_report.json"
+  google_drive_folder_id: "142G7B9ONfUkXAhVkPeN4NeJ3YXU0UmJX"
+  google_drive_folder_url: "https://drive.google.com/drive/folders/142G7B9ONfUkXAhVkPeN4NeJ3YXU0UmJX?usp=drive_link"
+  google_drive_sync: true
+  google_drive_token_file: ".GOOGLE_DRIVE"
 
 # --- Orchestration Paths ---
 paths:

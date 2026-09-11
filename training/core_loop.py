@@ -146,8 +146,20 @@ def cleanup_active_processes(*args):
     _active_processes.clear()
 
 atexit.register(cleanup_active_processes)
+_emergency_sync_handler = None
+
+def register_emergency_sync(handler):
+    global _emergency_sync_handler
+    _emergency_sync_handler = handler
+
 def graceful_exit(signum, frame):
     """Silent shutdown protocol for Ctrl+C / SIGTERM."""
+    if _emergency_sync_handler:
+        try:
+            print("\n[EMERGENCY] Preemption/Termination signal detected! Executing emergency checkpoint sync...")
+            _emergency_sync_handler()
+        except Exception as e:
+            print(f"[EMERGENCY] Emergency preemption sync failed: {e}")
     cleanup_active_processes()
     os._exit(0)
 
@@ -761,6 +773,25 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         if any(target in m_lower for target in search_targets):
                             possible_roots.append(os.path.join(owner_path, m_dir))
 
+            # Tier 1.6: Dynamic KaggleHub Model Registry Resolution (bypasses UI version pinning)
+            dl_path = None
+            try:
+                import kagglehub
+                k_user = config.get("kaggle_username", "lemtreursi")
+                k_slug = args.model.replace('_', '-')
+                if "nima-aesthetic" in k_slug:
+                    k_slug = k_slug.replace("nima-aesthetic", "nima-aesthetics")
+                slug_prefix = config.get("kaggle_slug_prefix", "lemgendary-")
+                slug_suffix = config.get("kaggle_slug_suffix", "-checkpoints")
+                k_handle = f"{k_user}/{slug_prefix}{k_slug}{slug_suffix}/pytorch/default"
+                print(f" -> [KAGGLEHUB] Probing latest model version from registry: {k_handle}...")
+                dl_path = kagglehub.model_download(k_handle)
+                if dl_path and os.path.exists(dl_path):
+                    print(f" -> [KAGGLEHUB] Dynamic latest model version resolved: {dl_path}")
+                    possible_roots.append(dl_path)
+            except Exception as kh_err:
+                print(f" -> [KAGGLEHUB] Registry probe notice: {kh_err}")
+
         # Tier 2: Surgical find only if Tier 1 yields too many or no results
         if not possible_roots:
             try:
@@ -771,8 +802,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             except Exception as e:
                 print(f"[REMEDY] Directory search failed for target: {e}")
 
-        # Priority: Process ALL possible roots to maximize recovery
-        possible_roots = sorted(list(set(possible_roots)), key=lambda x: x.count(os.sep), reverse=True)
+        # Priority: Process ALL possible roots to maximize recovery (prioritizing dynamic KaggleHub latest version)
+        possible_roots = sorted(list(set(possible_roots)), key=lambda x: (1 if dl_path and x == dl_path else 0, x.count(os.sep)), reverse=True)
 
         found_any = False
         for recovery_root in possible_roots:
@@ -791,7 +822,11 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             if pt_dir:
                 pt_default = os.path.join(recovery_root, pt_dir, "default")
                 if os.path.exists(pt_default):
-                    for version in os.listdir(pt_default):
+                    def _parse_v_num(v_str):
+                        digits = ''.join(c for c in v_str if c.isdigit())
+                        return int(digits) if digits else 0
+                    sorted_v = sorted(os.listdir(pt_default), key=_parse_v_num, reverse=True)
+                    for version in sorted_v:
                         metrics_search.append(os.path.join(pt_default, version, "metrics.csv"))
 
             metrics_search = [p for p in metrics_search if p]
@@ -822,11 +857,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 recovery_root
             ]
 
-            # Deep path support for Kaggle Models API
+            # Deep path support for Kaggle Models API (prioritizing latest version descending)
             if pt_dir:
                 pt_default = os.path.join(recovery_root, pt_dir, "default")
                 if os.path.exists(pt_default):
-                    for version in os.listdir(pt_default):
+                    def _parse_v_num_ckpt(v_str):
+                        digits = ''.join(c for c in v_str if c.isdigit())
+                        return int(digits) if digits else 0
+                    sorted_v = sorted(os.listdir(pt_default), key=_parse_v_num_ckpt, reverse=True)
+                    for version in sorted_v:
                         v_path = os.path.join(pt_default, version)
                         src_ckpt_dirs.append(os.path.join(v_path, "checkpoints"))
                         src_ckpt_dirs.append(v_path)
@@ -836,7 +875,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             for s_dir in src_ckpt_dirs:
                 if not os.path.exists(s_dir): continue
                 for f in os.listdir(s_dir):
-                    if f.endswith('.pth') and (args.model in f or reg_filename in f or "latest" in f or "best" in f or "progress" in f or "vault" in f):
+                    if f.endswith(('.pth', '.pt')) and (args.model in f or reg_filename in f or "latest" in f or "best" in f or "progress" in f or "vault" in f):
                         if any(bad in f.lower() for bad in ["obsolete", "backup", ".tmp", "temp"]):
                             continue
                         src_f = os.path.join(s_dir, f)
@@ -1715,6 +1754,21 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     # Cache validation VRAM audit to prevent redundant hardcoded mid-epoch checks
     last_val_audit_size = None
     last_val_audit_fraction = None
+
+    # --- 2026 Resilience: Kaggle Preemption Emergency Hook ---
+    def _kaggle_preemption_hook():
+        if getattr(args, 'env', '') != 'kaggle':
+            return
+        prog_path = os.path.join(config.get("checkpoint_dir", hub_ckpt_dir), f"{args.model}_progress.pth")
+        if os.path.exists(prog_path):
+            try:
+                from training.cloud_sync import trigger_cloud_sync
+                print(f" [EMERGENCY] Committing intra-epoch progress to Kaggle Model for {args.model}...")
+                trigger_cloud_sync(args.model, epoch, config, wait=True, is_mid_epoch=True)
+            except Exception as exc:
+                print(f" [EMERGENCY] Kaggle preemption sync attempt failed: {exc}")
+
+    register_emergency_sync(_kaggle_preemption_hook)
 
     # --- 2026 SOTA Dynamic Horizon (Infinite Target Enforcement) ---
     epoch = start_epoch

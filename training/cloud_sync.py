@@ -24,10 +24,11 @@ class CloudSyncManager:
     Nuclear-Hardened SOTA Synchronizer (v16.0) & LemGendary Cloud Link (v17.0).
     Handles atomic Git-LFS pushes, Kaggle artifact deployments, and Federated Gradient Averaging.
     """
-    def __init__(self, model_name, epoch, config):
+    def __init__(self, model_name, epoch, config, is_mid_epoch=False):
         self.model_name = model_name
         self.epoch = epoch
         self.config = config
+        self.is_mid_epoch = is_mid_epoch
         self.pat = os.environ.get("GITHUB_PAT", "")
         self.hub_user = config.get("hub_user", "lemgenda")
         self.hub_repo = "lemgendary-pretrained-models"
@@ -122,23 +123,47 @@ class CloudSyncManager:
         
         if is_kaggle:
             print(" [KAGGLER] Operating in Kaggle-Native mode. GitHub sync bypassed.")
-            self._sync_to_kaggle()
+            kaggle_success = self._sync_to_kaggle()
+            # 2026 Resilience: Push to Google Drive ONLY once an epoch has finished AND a new model version is confirmed on Kaggle
+            if not self.is_mid_epoch and kaggle_success:
+                print(f" [KAGGLER] Epoch {self.epoch} finished and new Kaggle model version confirmed. Synchronizing to Google Drive...")
+                self._sync_to_gdrive()
+            elif self.is_mid_epoch:
+                print(" [KAGGLER] Mid-epoch progress sync. Google Drive sync deferred until epoch completion.")
+            else:
+                print(" [KAGGLER] Skipping Google Drive sync because new Kaggle model version was not confirmed.")
         else:
             # Local/Custom environment: Use legacy hybrid sync
-            print(" [HYBRID] Operating in Hybrid mode. Syncing to GitHub and Kaggle.")
+            print(" [HYBRID] Operating in Hybrid mode. Syncing to GitHub, Kaggle, and Google Drive.")
             self._sync_to_github()
             self._sync_to_kaggle()
+            self._sync_to_gdrive()
 
-    def _sync_to_kaggle(self):
+    def _sync_to_gdrive(self):
+        """Programmatic Model & Checkpoint Sync to Google Drive."""
+        fleet_cfg = self.config.get("fleet", {}) if isinstance(self.config, dict) else {}
+        gdrive_enabled = fleet_cfg.get("google_drive_sync", True)
+        if not gdrive_enabled:
+            return
+
+        try:
+            from training.gdrive_cloud_manager import GDriveCloudManager  # pylint: disable=import-outside-toplevel
+            folder_id = fleet_cfg.get("google_drive_folder_id")
+            mgr = GDriveCloudManager(self.model_name, config=self.config, folder_id=folder_id)
+            mgr.sync()
+        except Exception as exc:
+            print(f" [GDRIVE] Synchronization notice: {exc}", file=sys.stderr)
+
+    def _sync_to_kaggle(self) -> bool:
         """Programmatic SOTA Checkpoint Sync to Kaggle Hub."""
         if not self.checkpoint_dir.exists():
-            return
+            return False
 
         # We only upload if there are actually checkpoint files to sync
         ckpts = list(self.checkpoint_dir.glob(f"{self.model_name}_*.pth"))
         if not ckpts:
             print(f" [KAGGLER] No checkpoints found for {self.model_name} in {self.checkpoint_dir}. Skipping.")
-            return
+            return False
 
         try:
             # Prepare handles to try in order (primary -> fallback without variant -> alternate user)
@@ -233,8 +258,10 @@ except Exception as e:
 
             if not success:
                 print(f" [KAGGLER] [WARNING] Could not sync to Kaggle Hub. Ensure model repository is created at https://www.kaggle.com/models.")
+            return success
         except Exception as e:
             print(f" [KAGGLER] Hub Sync failed: {e}")
+            return False
 
     def _sync_to_github(self):
         """Legacy Git-LFS Sync for Metrics and Documentation."""
@@ -291,10 +318,10 @@ except Exception as e:
 _sync_lock = threading.Lock()
 _active_sync_thread = None
 
-def trigger_cloud_sync(model_name, epoch, config, wait=False):
+def trigger_cloud_sync(model_name, epoch, config, wait=False, is_mid_epoch=False):
     """Entry point for training loop to trigger background or synchronous sync."""
     global _active_sync_thread
-    manager = CloudSyncManager(model_name, epoch, config)
+    manager = CloudSyncManager(model_name, epoch, config, is_mid_epoch=is_mid_epoch)
     
     if wait:
         with _sync_lock:

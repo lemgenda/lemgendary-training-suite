@@ -221,3 +221,47 @@ python export/mt5_signal.py --mode mql5_stub --out export/LemGendaryForexEA.mq5
 ```
 
 > [WARNING] **Live Trading Safety**: The model emits signals only. SL/TP enforcement and max drawdown kill-switch must be implemented in the MQL5 EA layer independently of the model.
+
+---
+
+## Google Drive Model Synchronization (Cloud Vault)
+
+The training suite natively synchronizes trained model checkpoints, metrics, and exported binaries to the centralized Google Drive root folder:
+
+- **Root Google Drive Folder ID**: `142G7B9ONfUkXAhVkPeN4NeJ3YXU0UmJX`
+- **Root Folder URL**: [Google Drive Folder](https://drive.google.com/drive/folders/142G7B9ONfUkXAhVkPeN4NeJ3YXU0UmJX?usp=drive_link)
+- **Destination Structure**: `142G7B9ONfUkXAhVkPeN4NeJ3YXU0UmJX / <model_key> / checkpoints / <model_key>_best.pth` and `<model_key> / metrics.csv`.
+
+### Standalone CLI Synchronization
+
+Synchronize individual models or the entire fleet directly to Google Drive:
+
+```powershell
+# Sync a specific model
+python sync_to_gdrive.py --model forex_predictor
+
+# Dry-run validation
+python sync_to_gdrive.py --model nima_aesthetic_mobile --dry-run
+
+# Sync all fleet models
+python sync_to_gdrive.py --all
+```
+
+### Authentication Precedence
+
+The Google Drive Cloud Manager automatically resolves credentials using the following hierarchy:
+
+1. `--token` parameter override
+2. Local token file: `lemgendary-training-suite/.GOOGLE_DRIVE`
+3. Environment variable: `GOOGLE_DRIVE`
+4. Kaggle Secrets: `GOOGLE_DRIVE` (in Kaggle notebooks)
+5. Google Colab Secrets / userdata: `GOOGLE_DRIVE` (in Colab notebooks)
+6. Google Colab FUSE mount (`/content/drive/MyDrive`)
+
+### Kaggle Lifecycle & Google Drive Sync Policy
+
+To maintain zero cloud manifold drift and strictly prioritize Kaggle Models as the active cloud source of truth, the suite enforces the following lifecycle rules in Kaggle environments:
+
+1. **Startup Discovery**: Checkpoints are loaded exclusively from attached Kaggle Models (`/kaggle/input/models/<owner>/<slug>/pytorch/default/`), automatically resolving the latest numerical version in descending order without pulling from GitHub or Google Drive.
+2. **Mid-Epoch Persistence & Preemption**: During training, intra-epoch progress is saved locally to `/kaggle/working/LemGendaryModels/<model>/checkpoints/`. If the session is interrupted or preempted (`SIGINT` or `SIGTERM`), an emergency hook pushes the progress checkpoint solely to Kaggle Models, deferring Google Drive synchronization.
+3. **Epoch Completion Gating**: The model is synchronized to Google Drive strictly after an epoch has fully completed AND `kagglehub.model_upload()` has successfully committed a new model version on Kaggle.
