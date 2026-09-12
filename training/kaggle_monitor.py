@@ -439,11 +439,14 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                             try:
                                 meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
                                 meta_data["enable_gpu"] = True
+                                if not meta_data.get("machine_shape"):
+                                    meta_data["machine_shape"] = "NvidiaTeslaT4"
                                 meta_file.write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
                             except Exception:
                                 pass
-                        print(f"[LAUNCH] Pushing kernel bundle to trigger execution on Kaggle GPU...")
-                        api.kernels_push(td)
+                        chosen_acc = meta_data.get("machine_shape", "NvidiaTeslaT4") if 'meta_data' in locals() else "NvidiaTeslaT4"
+                        print(f"[LAUNCH] Pushing kernel bundle to trigger execution on Kaggle GPU ({chosen_acc})...")
+                        api.kernels_push(td, acc=chosen_acc)
                         print(f"[SUCCESS] Kernel '{selected_slug}' pushed and queued on Kaggle GPU!")
                     except Exception as push_err:
                         print(f"[ERROR] Failed to launch kernel: {push_err}")
@@ -459,11 +462,11 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                 if m_choice.isdigit() and 1 <= int(m_choice) <= len(models):
                     target_model = models[int(m_choice) - 1]
                     from training.kaggle_cloud_manager import create_cloud_kernel_bundle, get_kernel_slug
-                    kernel_dir = create_cloud_kernel_bundle(target_model, username)
+                    kernel_dir = create_cloud_kernel_bundle(target_model, username, gpu="T4")
                     selected_slug = get_kernel_slug(target_model, username)
-                    print(f"[LAUNCH] Pushing bundle for '{target_model}' to Kaggle GPU ({selected_slug})...")
+                    print(f"[LAUNCH] Pushing bundle for '{target_model}' to Kaggle GPU (Dual T4: {selected_slug})...")
                     try:
-                        api.kernels_push(str(kernel_dir))
+                        api.kernels_push(str(kernel_dir), acc="NvidiaTeslaT4")
                         print(f"[SUCCESS] Kernel '{selected_slug}' pushed and queued on Kaggle GPU!")
                     except Exception as push_err:
                         print(f"[ERROR] Failed to push kernel: {push_err}")

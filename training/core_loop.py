@@ -99,19 +99,8 @@ from training.cloud_sync import trigger_cloud_sync
 try:
     import yaml
     import torch
-    # 2026: Enable PTX JIT execution and architecture targets for Tesla P100 (Pascal sm_60)
-    os.environ["CUDA_FORCE_PTX_JIT"] = "1"
-    os.environ["TORCH_CUDA_ARCH_LIST"] = "6.0;7.0;7.5;8.0;8.6;9.0"
-    if hasattr(torch, "cuda"):
-        if hasattr(torch.cuda, "_queued_calls") and isinstance(torch.cuda._queued_calls, list):
-            torch.cuda._queued_calls = [
-                _c for _c in torch.cuda._queued_calls
-                if getattr(_c[0], "__name__", "") not in ("_check_capability", "_check_cubins")
-            ]
-        if hasattr(torch.cuda, "_check_capability"):
-            torch.cuda._check_capability = lambda *args, **kwargs: None
-        if hasattr(torch.cuda, "_check_cubins"):
-            torch.cuda._check_cubins = lambda *args, **kwargs: None
+    # 2026: Prevent PyTorch virtual memory fragmentation
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     import torch.nn as nn
     import numpy as np
     from torch.utils.data import DataLoader
@@ -377,8 +366,34 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         cap = torch.cuda.get_device_capability(0)
         arch_list = getattr(torch.cuda, "get_arch_list", lambda: [])()
         has_native_sm = any(f"{cap[0]}.{cap[1]}" in a or f"sm_{cap[0]}{cap[1]}" in a for a in arch_list)
-        if cap[0] < 7:
-            print(f"[OK] [HARDWARE] Pascal sm_{cap[0]}{cap[1]} PTX JIT acceleration enabled for {gpu_name}.")
+        
+        # 2026 Hardware Sentinel: Real compute kernel verification probe
+        cuda_compatible = True
+        try:
+            _probe = torch.ones(1, device=device) + 1.0
+            torch.cuda.synchronize()
+            del _probe
+        except Exception as k_err:
+            if "no kernel image is available" in str(k_err) or "cudaErrorNoKernelImageForDevice" in str(k_err):
+                cuda_compatible = False
+
+        if not cuda_compatible or (cap[0] < 7 and not has_native_sm):
+            print("\n" + "=" * 80)
+            print(f"[CRITICAL ERROR] [HARDWARE SENTINEL] CUDA Device Kernel Incompatibility Detected!")
+            print(f" Accelerator: {gpu_name} (Compute Capability sm_{cap[0]}{cap[1]})")
+            print(f" Active PyTorch: {getattr(torch, '__version__', 'Unknown')} | CUDA {getattr(torch.version, 'cuda', 'Unknown')}")
+            print(f" Supported Architectures: {', '.join(arch_list) if arch_list else 'sm_70+'}")
+            print(f" Reason: This PyTorch binary lacks sm_{cap[0]}{cap[1]} kernels for {gpu_name}.")
+            print("-" * 80)
+            print(" REMEDIES:")
+            print(" 1. (RECOMMENDED) Switch Kaggle Accelerator to 'GPU T4 x2' (sm_75 Turing with Tensor Cores):")
+            print("    - Kaggle UI: Settings panel (right side) -> Accelerator -> GPU T4 x2")
+            print("    - Cloud Manager: Machine shape 'NvidiaTeslaT4' (Dual T4)")
+            print(" 2. To use Pascal P100, install a PyTorch build with sm_60 support (cu118):")
+            print("    pip install --force-reinstall torch==2.4.0+cu118 torchvision==0.19.0+cu118 --extra-index-url https://download.pytorch.org/whl/cu118")
+            print("=" * 80 + "\n", flush=True)
+            sys.exit(1)
+
         torch.backends.cudnn.benchmark = True
         print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]}) | CUDA {getattr(torch.version, 'cuda', 'Unknown')} Active")
     elif hasattr(torch, "mps") and torch.backends.mps.is_available():

@@ -41,16 +41,26 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
                 return 16
             return int(fallback_val) if fallback_val is not None else 16
 
-        # Pre-flight CUDA sanity check (detects hardware uncorrectable ECC error)
+        # Pre-flight CUDA sanity check (detects hardware uncorrectable ECC error and kernel image compatibility)
         try:
-            _test = torch.zeros(1, device=device)
+            _test = torch.ones(1, device=device) + 1.0
+            torch.cuda.synchronize()
             del _test
         except Exception as ecc_err:
-            if "ECC" in str(ecc_err) or "uncorrectable" in str(ecc_err).lower():
+            err_str = str(ecc_err)
+            if "ECC" in err_str or "uncorrectable" in err_str.lower():
                 print("\n[CRITICAL ERROR] [HARDWARE SENTINEL] Uncorrectable ECC error detected on GPU!")
                 print(" The accelerator memory is physically corrupted and locked by the NVIDIA driver.")
                 print(" RECOMMENDATION: Restart your Kaggle session to acquire a healthy GPU node.")
                 print(" Checkpoints remain intact; resume training with --model <model_name> on the new session.\n")
+                sys.exit(1)
+            if "no kernel image is available" in err_str or "cudaErrorNoKernelImageForDevice" in err_str:
+                gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'GPU'
+                print("\n" + "=" * 80)
+                print(f"[CRITICAL ERROR] [HARDWARE SENTINEL] No CUDA kernel image available for {gpu_name}!")
+                print(" The active PyTorch installation lacks CUDA kernels for this GPU architecture.")
+                print(" RECOMMENDATION: Switch Kaggle accelerator to 'GPU T4 x2' (sm_75 Turing) or install torch+cu118.")
+                print("=" * 80 + "\n")
                 sys.exit(1)
             raise ecc_err
 
@@ -256,6 +266,13 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             print(f"[SIGNAL] [MEMORY-SENTINEL] {gpu_name} ({vram_gb:.1f}GB) | {mode.capitalize()} @ {h}px | Batch: {final_batch} (Pixels: {(h*w*final_batch)/1e6:.1f}M) | Dataset Fraction: {sample_fraction*100:.1f}% (Eval Shard: {shard_str})")
         return final_batch
     except Exception as e:
+        err_msg = str(e)
+        if "no kernel image is available" in err_msg or "cudaErrorNoKernelImageForDevice" in err_msg:
+            print("\n" + "=" * 80)
+            print(f"[CRITICAL ERROR] [HARDWARE SENTINEL] Probe aborted: CUDA error: no kernel image is available for execution on the device.")
+            print(" The current PyTorch build does not support this GPU. Switch Kaggle accelerator to 'GPU T4 x2' or reinstall PyTorch with cu118.")
+            print("=" * 80 + "\n")
+            sys.exit(1)
         print(f"[WARNING] [MEMORY-SENTINEL] Probe critical failure: {e}. Defaulting to safe baseline.")
         return 1
 

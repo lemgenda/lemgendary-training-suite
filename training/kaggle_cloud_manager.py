@@ -91,6 +91,17 @@ def create_cloud_kernel_bundle(model_name: str, username: str, gpu: str = "T4") 
     slug = f"lemgendary-{model_name.replace('_', '-')}-training"
     title = f"LemGendary {model_name.replace('_', ' ').title()} Training"
 
+    gpu_shape_map = {
+        "T4": "NvidiaTeslaT4",
+        "TESLAT4": "NvidiaTeslaT4",
+        "DUALT4": "NvidiaTeslaT4",
+        "T4X2": "NvidiaTeslaT4",
+        "P100": "NvidiaTeslaP100",
+        "TESLAP100": "NvidiaTeslaP100",
+        "TPU": "Tpu1VmV38",
+    }
+    machine_shape = gpu_shape_map.get(str(gpu).upper().replace("-", "").replace("_", "").replace(" ", ""), "NvidiaTeslaT4")
+
     # kernel-metadata.json
     metadata = {
         "id": f"{username}/{slug}",
@@ -101,6 +112,7 @@ def create_cloud_kernel_bundle(model_name: str, username: str, gpu: str = "T4") 
         "is_private": "true",
         "enable_gpu": "true",
         "enable_internet": "true",
+        "machine_shape": machine_shape,
         "dataset_sources": [],
         "competition_sources": [],
         "kernel_sources": [],
@@ -117,8 +129,6 @@ import sys
 import subprocess
 
 # Prevent PyTorch virtual memory fragmentation
-os.environ["CUDA_FORCE_PTX_JIT"] = "1"
-os.environ["TORCH_CUDA_ARCH_LIST"] = "6.0;7.0;7.5;8.0;8.6;9.0"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 print("[OK] [CLOUD WORKER] Booting Kaggle High-VRAM GPU Environment...")
@@ -130,22 +140,27 @@ try:
         print(smi_out.stdout)
     if "ERR!" in smi_out.stdout or ("ECC" in smi_out.stdout and "Error" in smi_out.stdout):
         print("[WARNING] [HARDWARE SENTINEL] Warning: Potential ECC errors detected in nvidia-smi!")
+    
+    # Auto-remedy: If allocated on Tesla P100 (sm_60), verify if PyTorch has sm_60 kernels
     if "P100" in smi_out.stdout:
-        print("[OK] [HARDWARE] NVIDIA Tesla P100 (sm_60) detected.")
-        print("[OK] [HARDWARE] Pascal sm_60 PTX JIT acceleration enabled.")
+        print("[WARNING] [HARDWARE] NVIDIA Tesla P100 (Pascal sm_60) detected.")
+        import torch
+        arch_list = getattr(torch.cuda, "get_arch_list", lambda: [])()
+        has_sm60 = any("6.0" in a or "sm_60" in a for a in arch_list)
+        if not has_sm60:
+            print("[AUTO-REMEDY] Active PyTorch lacks sm_60 CUDA kernels for P100. Installing compatible PyTorch (cu118)...")
+            subprocess.run([
+                sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall",
+                "torch==2.4.0+cu118", "torchvision==0.19.0+cu118",
+                "--extra-index-url", "https://download.pytorch.org/whl/cu118"
+            ], check=True)
+            print("[OK] [AUTO-REMEDY] Compatible PyTorch (cu118 with sm_60) installed successfully.")
 except Exception as e:
-    print(f"[CLOUD WORKER] nvidia-smi check skipped: {{e}}")
+    print(f"[CLOUD WORKER] Hardware compatibility pre-check notice: {{e}}")
 
 # Verify Compute Capability compatibility
 try:
     import torch
-    _cu = getattr(torch, "cuda", None)
-    if _cu:
-        _q = getattr(_cu, "_queued_calls", None)
-        if isinstance(_q, list):
-            _cu._queued_calls = [_x for _x in _q if getattr(_x[0], "__name__", "") not in ("_check_capability", "_check_cubins")]
-        setattr(_cu, "_check_capability", lambda *a, **k: None)
-        setattr(_cu, "_check_cubins", lambda *a, **k: None)
     if torch.cuda.is_available():
         cap = torch.cuda.get_device_capability(0)
         gpu_name = torch.cuda.get_device_name(0)
@@ -192,9 +207,20 @@ def launch_kaggle_training(model_name: str, config: Optional[dict] = None, usern
     kernel_dir = create_cloud_kernel_bundle(model_name, user, gpu=gpu)
     slug = get_kernel_slug(model_name, user)
 
+    gpu_shape_map = {
+        "T4": "NvidiaTeslaT4",
+        "TESLAT4": "NvidiaTeslaT4",
+        "DUALT4": "NvidiaTeslaT4",
+        "T4X2": "NvidiaTeslaT4",
+        "P100": "NvidiaTeslaP100",
+        "TESLAP100": "NvidiaTeslaP100",
+        "TPU": "Tpu1VmV38",
+    }
+    machine_shape = gpu_shape_map.get(str(gpu).upper().replace("-", "").replace("_", "").replace(" ", ""), "NvidiaTeslaT4")
+
     print(f"\n[LAUNCH] [KAGGLE CLOUD] Deploying kernel bundle to Kaggle...")
     print(f" -> Kernel ID: {slug}")
-    print(f" -> Accelerator: Tesla GPU ({gpu})")
+    print(f" -> Accelerator: Tesla GPU ({gpu} -> {machine_shape})")
 
     try:
         import kaggle
@@ -202,9 +228,9 @@ def launch_kaggle_training(model_name: str, config: Optional[dict] = None, usern
         api = KaggleApi()
         api.authenticate()
         
-        # Push kernel
-        api.kernels_push(str(kernel_dir))
-        print(f"\n[SUCCESS] [KAGGLE CLOUD] Kernel successfully pushed and queued on Kaggle GPU!")
+        # Push kernel with explicit accelerator machine_shape
+        api.kernels_push(str(kernel_dir), acc=machine_shape)
+        print(f"\n[SUCCESS] [KAGGLE CLOUD] Kernel successfully pushed and queued on Kaggle GPU ({machine_shape})!")
         print(f" -> Monitor Live: python -m training.kaggle_cloud_manager --action monitor --model {model_name}")
         return True
     except Exception as e:
@@ -213,7 +239,7 @@ def launch_kaggle_training(model_name: str, config: Optional[dict] = None, usern
         # Fallback to CLI
         try:
             print("[INFO] Attempting CLI push fallback...")
-            res = subprocess.run(["kaggle", "kernels", "push", "-p", str(kernel_dir)], capture_output=True, text=True)
+            res = subprocess.run(["kaggle", "kernels", "push", "-p", str(kernel_dir), "--accelerator", machine_shape], capture_output=True, text=True)
             if res.returncode == 0:
                 print(f"[SUCCESS] CLI push successful: {res.stdout.strip()}")
                 return True
