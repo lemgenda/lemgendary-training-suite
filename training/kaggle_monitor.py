@@ -435,6 +435,7 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                     try:
                         api.kernels_pull(selected_slug, path=td, metadata=True)
                         meta_file = Path(td) / "kernel-metadata.json"
+                        meta_data = {}
                         if meta_file.exists():
                             try:
                                 meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
@@ -444,7 +445,7 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                                 meta_file.write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
                             except Exception:
                                 pass
-                        chosen_acc = meta_data.get("machine_shape", "NvidiaTeslaT4") if 'meta_data' in locals() else "NvidiaTeslaT4"
+                        chosen_acc = meta_data.get("machine_shape", "NvidiaTeslaT4") if meta_data else "NvidiaTeslaT4"
                         print(f"[LAUNCH] Pushing kernel bundle to trigger execution on Kaggle GPU ({chosen_acc})...")
                         api.kernels_push(td, acc=chosen_acc)
                         print(f"[SUCCESS] Kernel '{selected_slug}' pushed and queued on Kaggle GPU!")

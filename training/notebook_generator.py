@@ -6,7 +6,7 @@ import sys
 
 def generate_inference_notebook(model_key, export_dir, unified_models_registry=None, config=None):
     """
-    Generates a v16.2 Nuclear-Hardened Inference Notebook for Kaggle.
+    Generates a v16.2.9 Nuclear-Hardened Inference Notebook for Kaggle.
     """
     pascal_model_name = model_key.replace("_", " ").title().replace(" ", "")
     kebab_model_name = model_key.replace("_", "-")
@@ -554,7 +554,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "if os.path.exists(local_path):\n",
         "    print(f'[KAGGLE] Pushing finalized SOTA to {model_handle}...')\n",
         "    try:\n",
-        "        kagglehub.model_upload(model_handle, local_path, version_notes=f'v16.2 SOTA Finalized Sync: {model_key}')\n",
+        "        kagglehub.model_upload(model_handle, local_path, version_notes=f'v16.2.9 SOTA Finalized Sync: {model_key}')\n",
         "        print('[DONE] Deployment Complete.')\n",
         "        print('[GDRIVE] Synchronizing finalized production artifacts to Google Drive...')\n",
         "        try:\n",
@@ -681,7 +681,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             {
                 "cell_type": "markdown",
                 "source": [
-                    f"# LemGendary Master Execution: {pascal_model_name} (v16.2 Nuclear-Hardened)\n",
+                    f"# LemGendary Master Execution: {pascal_model_name} (v16.2.9 Nuclear-Hardened)\n",
                     "This unified notebook handles environment synchronization and automated cloud training.\n"
                 ],
                 "metadata": {}
@@ -1068,7 +1068,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
 
 def generate_colab_inference_notebook(model_key, export_dir, unified_models_registry=None, config=None):
     """
-    Generates a v16.2 Nuclear-Hardened Inference Notebook for Kaggle.
+    Generates a v16.2.9 Nuclear-Hardened Inference Notebook for Kaggle.
     """
     pascal_model_name = model_key.replace("_", " ").title().replace(" ", "")
     kebab_model_name = model_key.replace("_", "-")
@@ -1619,7 +1619,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "if os.path.exists(local_path):\n",
         "    print(f'[KAGGLE] Pushing finalized SOTA to {model_handle}...')\n",
         "    try:\n",
-        "        kagglehub.model_upload(model_handle, local_path, version_notes=f'v16.2 SOTA Finalized Sync: {model_key}')\n",
+        "        kagglehub.model_upload(model_handle, local_path, version_notes=f'v16.2.9 SOTA Finalized Sync: {model_key}')\n",
         "        print('[DONE] Deployment Complete.')\n",
         "    except Exception as e:\n",
         "        print(f'[ERROR] Deployment failed: {e}')\n",
@@ -1781,7 +1781,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
             {
                 "cell_type": "markdown",
                 "source": [
-                    f"# LemGendary Master Execution: {pascal_model_name} (v16.2 Nuclear-Hardened)\n",
+                    f"# LemGendary Master Execution: {pascal_model_name} (v16.2.9 Nuclear-Hardened)\n",
                     "This unified notebook handles environment synchronization and automated cloud training.\n"
                 ],
                 "metadata": {}
@@ -2189,7 +2189,7 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
 
 if __name__ == "__main__":
     import yaml
-    parser = argparse.ArgumentParser(description="LemGendary Notebook Orchestrator (v16.2 Nuclear)")
+    parser = argparse.ArgumentParser(description="LemGendary Notebook Orchestrator (v16.2.9 Nuclear)")
     parser.add_argument("--model", type=str, help="Generate notebooks for a specific model key.")
     parser.add_argument("--all", action="store_true", help="Regenerate the entire Notebook Matrix for all registry models.")
     parser.add_argument("--dir", type=str, help="Override export directory.")
