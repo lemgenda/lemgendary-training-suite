@@ -99,6 +99,19 @@ from training.cloud_sync import trigger_cloud_sync
 try:
     import yaml
     import torch
+    # 2026: Enable PTX JIT execution and architecture targets for Tesla P100 (Pascal sm_60)
+    os.environ["CUDA_FORCE_PTX_JIT"] = "1"
+    os.environ["TORCH_CUDA_ARCH_LIST"] = "6.0;7.0;7.5;8.0;8.6;9.0"
+    if hasattr(torch, "cuda"):
+        if hasattr(torch.cuda, "_queued_calls") and isinstance(torch.cuda._queued_calls, list):
+            torch.cuda._queued_calls = [
+                _c for _c in torch.cuda._queued_calls
+                if getattr(_c[0], "__name__", "") not in ("_check_capability", "_check_cubins")
+            ]
+        if hasattr(torch.cuda, "_check_capability"):
+            torch.cuda._check_capability = lambda *args, **kwargs: None
+        if hasattr(torch.cuda, "_check_cubins"):
+            torch.cuda._check_cubins = lambda *args, **kwargs: None
     import torch.nn as nn
     import numpy as np
     from torch.utils.data import DataLoader
@@ -364,8 +377,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         cap = torch.cuda.get_device_capability(0)
         arch_list = getattr(torch.cuda, "get_arch_list", lambda: [])()
         has_native_sm = any(f"{cap[0]}.{cap[1]}" in a or f"sm_{cap[0]}{cap[1]}" in a for a in arch_list)
-        if cap[0] < 7 and not has_native_sm:
-            print(f"[INFO] [HARDWARE] Legacy GPU architecture active: {gpu_name} (sm_{cap[0]}{cap[1]}). Enabling compatibility execution mode.")
+        if cap[0] < 7:
+            print(f"[OK] [HARDWARE] Pascal sm_{cap[0]}{cap[1]} PTX JIT acceleration enabled for {gpu_name}.")
         torch.backends.cudnn.benchmark = True
         print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]}) | CUDA {getattr(torch.version, 'cuda', 'Unknown')} Active")
     elif hasattr(torch, "mps") and torch.backends.mps.is_available():

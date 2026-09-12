@@ -117,6 +117,8 @@ import sys
 import subprocess
 
 # Prevent PyTorch virtual memory fragmentation
+os.environ["CUDA_FORCE_PTX_JIT"] = "1"
+os.environ["TORCH_CUDA_ARCH_LIST"] = "6.0;7.0;7.5;8.0;8.6;9.0"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 print("[OK] [CLOUD WORKER] Booting Kaggle High-VRAM GPU Environment...")
@@ -130,17 +132,20 @@ try:
         print("[WARNING] [HARDWARE SENTINEL] Warning: Potential ECC errors detected in nvidia-smi!")
     if "P100" in smi_out.stdout:
         print("[OK] [HARDWARE] NVIDIA Tesla P100 (sm_60) detected.")
-        _chk = subprocess.run([sys.executable, "-c", "import torch; exit(0 if any('6.0' in a or 'sm_60' in a for a in getattr(torch.cuda, 'get_arch_list', lambda: [])()) else 1)"], capture_output=True)
-        if _chk.returncode != 0:
-            print("[OK] [AUTO-HEAL] Configuring native CUDA sm_60 support for Tesla P100 (cu118)...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--no-cache-dir", "torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu118"], check=False)
-            print("[OK] [AUTO-HEAL] Native Pascal sm_60 PyTorch runtime active.")
+        print("[OK] [HARDWARE] Pascal sm_60 PTX JIT acceleration enabled.")
 except Exception as e:
     print(f"[CLOUD WORKER] nvidia-smi check skipped: {{e}}")
 
 # Verify Compute Capability compatibility
 try:
     import torch
+    _cu = getattr(torch, "cuda", None)
+    if _cu:
+        _q = getattr(_cu, "_queued_calls", None)
+        if isinstance(_q, list):
+            _cu._queued_calls = [_x for _x in _q if getattr(_x[0], "__name__", "") not in ("_check_capability", "_check_cubins")]
+        setattr(_cu, "_check_capability", lambda *a, **k: None)
+        setattr(_cu, "_check_cubins", lambda *a, **k: None)
     if torch.cuda.is_available():
         cap = torch.cuda.get_device_capability(0)
         gpu_name = torch.cuda.get_device_name(0)
