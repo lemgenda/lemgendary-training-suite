@@ -362,13 +362,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         device = torch.device("cuda")
         gpu_name = torch.cuda.get_device_name(0)
         cap = torch.cuda.get_device_capability(0)
-        if cap[0] < 6:
-            raise RuntimeError(f"Incompatible legacy GPU: {gpu_name} (sm_{cap[0]}{cap[1]}). Compute Capability >= 6.0 required.")
+        arch_list = getattr(torch.cuda, "get_arch_list", lambda: [])()
+        has_native_sm = any(f"{cap[0]}.{cap[1]}" in a or f"sm_{cap[0]}{cap[1]}" in a for a in arch_list)
+        if cap[0] < 7 and not has_native_sm:
+            raise RuntimeError(
+                f"Incompatible GPU: {gpu_name} (sm_{cap[0]}{cap[1]}). "
+                f"The installed PyTorch build ({torch.__version__}) requires CUDA Compute Capability >= 7.0 (sm_70+). "
+                f"Running on sm_{cap[0]}{cap[1]} will cause CUDA kernel launch failures. "
+                "Please select 'GPU T4 x2' as your accelerator."
+            )
         torch.backends.cudnn.benchmark = True
-        if cap[0] == 6:
-            print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]} Pascal Architecture) | 16GB HBM2 (732 GB/s) Active")
-        else:
-            print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]}) | CUDA {getattr(torch.version, 'cuda', 'Unknown')} Active")
+        print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]}) | CUDA {getattr(torch.version, 'cuda', 'Unknown')} Active")
     elif hasattr(torch, "mps") and torch.backends.mps.is_available():
         device = torch.device("mps")
         print(f"[LAUNCH] [HARDWARE] Apple Silicon (Metal) Acceleration Active")
