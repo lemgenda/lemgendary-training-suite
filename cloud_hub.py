@@ -20,7 +20,7 @@ class LemGendaryCloudHub:
 
     async def register(self, websocket):
         self.connected_nodes.add(websocket)
-        logging.info(f"Node connected. Total nodes: {len(self.connected_nodes)}")
+        logging.info("Node connected. Total nodes: %d", len(self.connected_nodes))
         # Send current global state
         await websocket.send(json.dumps({
             "type": "SYNC_STATE",
@@ -32,7 +32,7 @@ class LemGendaryCloudHub:
         self.connected_nodes.remove(websocket)
         if websocket in self.node_states:
             del self.node_states[websocket]
-        logging.info(f"Node disconnected. Total nodes: {len(self.connected_nodes)}")
+        logging.info("Node disconnected. Total nodes: %d", len(self.connected_nodes))
 
     async def handle_message(self, websocket, message):
         try:
@@ -41,15 +41,15 @@ class LemGendaryCloudHub:
 
             if msg_type == "NODE_HEARTBEAT":
                 self.node_states[websocket] = data.get("params", {})
-                logging.info(f"Heartbeat from node. Parameters: {data.get('params', {})}")
+                logging.info("Heartbeat from node. Parameters: %s", data.get("params", {}))
                 
             elif msg_type == "EPOCH_SYNC":
                 # A node finished an epoch and wants to sync
-                logging.info(f"Epoch sync received from node: {data.get('epoch')}")
+                logging.info("Epoch sync received from node: %s", data.get("epoch"))
                 self.global_epoch = max(self.global_epoch, data.get("epoch", 0))
                 
             elif msg_type == "LR_RECOIL":
-                logging.warning(f"Learning Rate Recoil broadcasted by a node! New LR: {data.get('lr')}")
+                logging.warning("Learning Rate Recoil broadcasted by a node! New LR: %s", data.get("lr"))
                 self.global_lr = data.get("lr")
                 # Broadcast recoil to all nodes
                 websockets.broadcast(self.connected_nodes, json.dumps({
@@ -60,7 +60,8 @@ class LemGendaryCloudHub:
             elif msg_type == "GRADIENT_PUSH":
                 # Simulated federated gradient accumulation bypass
                 self.accumulated_gradients += 1
-                logging.info(f"Federated Gradient chunk received. Total chunks: {self.accumulated_gradients}")
+                logging.info("Federated Gradient chunk received. Total chunks: %d", self.accumulated_gradients)
+
                 # Broadcast unified sync when we hit node quorum (or just 1 for simulation)
                 if self.accumulated_gradients >= max(1, len(self.connected_nodes)):
                     logging.info("Broadcasting unified average-sync gradient vector to all nodes.")

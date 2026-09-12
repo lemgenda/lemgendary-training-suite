@@ -35,21 +35,8 @@ import torch
 import torchvision.transforms as transforms
 import torch.nn.functional as F
 import torch.nn as nn
+from models.nima import SoftmaxWrapper
 
-class SoftmaxWrapper(nn.Module):
-    """
-    A lightweight PyTorch module wrapper to resolve Unpickling errors from legacy
-    exported checkpoints. This mirrors the `SoftmaxWrapper` structure defined in
-    the main export pipelines, ensuring `torch.load` can seamlessly instantiate
-    full model objects containing this wrapper.
-    """
-    def __init__(self, inner_model, temperature=1.0):
-        super().__init__()
-        self.inner_model = inner_model
-        self.temperature = temperature
-    def forward(self, x):
-        logits = self.inner_model(x)
-        return torch.nn.functional.softmax(logits / self.temperature, dim=1)
 
 class SimpleDataset(torch.utils.data.Dataset):
     """

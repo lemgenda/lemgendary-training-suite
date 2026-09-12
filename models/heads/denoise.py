@@ -1,14 +1,7 @@
-import torch.nn as nn
+"""Denoise output head."""
 
-class DenoiseHead(nn.Module):
-    def __init__(self):
-        super().__init__()
+from models.heads.base_head import BaseRestorationHead
 
-        self.net = nn.Sequential(
-            nn.Conv2d(64, 64, 3, 1, 1),
-            nn.ReLU(),
-            nn.Conv2d(64, 3, 3, 1, 1)
-        )
 
-    def forward(self, x):
-        return self.net(x)
+class DenoiseHead(BaseRestorationHead):
+    """Convolutional output head for image denoising tasks."""

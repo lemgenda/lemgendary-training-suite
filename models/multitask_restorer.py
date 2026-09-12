@@ -72,4 +72,3 @@ class MultiTaskRestorer(nn.Module):
             outputs.append(out * weights[:, i].view(-1, 1, 1, 1))
 
         return torch.stack(outputs).sum(dim=0).contiguous(), logits
-

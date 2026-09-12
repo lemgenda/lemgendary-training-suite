@@ -63,7 +63,6 @@ The master orchestration console for system bootstrapping and cloud sync.
 | **2. Single-Epoch Unit Test** | **Fleet Smoke Test** | Diagnostic 1-epoch execution across all registered models. |
 | **3. Kaggle Cloud Engine** | **Headless GPU Orchestration** | Submenu: **1. Train on Kaggle** (user selection from `.kaggle_users` or new user, notebook selection, launch GPU training, stream telemetry, auto-pull checkpoints and weights after each epoch); **2. Monitor Active Cloud Jobs** (monitor-only live log streaming, no pulling); **3. Pull & Save Checkpoints**; **4. Setup / Verify Credentials**. |
 
-
 ---
 
 ## Project Anatomy (Stateless Multi-Tenant)
@@ -313,5 +312,3 @@ python -m training.kaggle_monitor --action monitor
 # Direct CLI Stream for automated pipelines
 python -m training.kaggle_monitor --user lemtreursi --token KGAT_... --kernel lemgendizedmirnetexposuretraining
 ```
-
-

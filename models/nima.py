@@ -31,8 +31,9 @@ class NIMA_Model(nn.Module):
     Implements Autonomous Temperature Sharpening, Spatial Statistical Pooling, and Logit Clamping.
     """
     def __init__(self, backbone="mobilenet_v2", hidden_dim=None, pooling="avg"):
-        super(NIMA_Model, self).__init__()
+        super().__init__()
         self.backbone_name = backbone
+
         self.pooling_type = pooling
         
         if backbone == "efficientnet_v2_s":
@@ -104,7 +105,7 @@ class AuthenticityScorer(nn.Module):
     Supports standard GAP, Spatial Statistical Pooling (Mean + Std), and GeM.
     """
     def __init__(self, num_classes=2, pooling="avg"):
-        super(AuthenticityScorer, self).__init__()
+        super().__init__()
         self.pooling_type = pooling
         self.backbone = models.efficientnet_v2_s(weights=models.EfficientNet_V2_S_Weights.IMAGENET1K_V1)
         in_features = self.backbone.classifier[1].in_features
@@ -139,5 +140,3 @@ class UniversalClassifier(AuthenticityScorer):
     Inherits from AuthenticityScorer which already implements num_classes dynamic scaling
     and multi-pooling support.
     """
-    pass
-
