@@ -121,25 +121,42 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 print("[OK] [CLOUD WORKER] Booting Kaggle High-VRAM GPU Environment...")
 
-# Verify GPU and check for ECC errors
+# Hardware Sentinel: Detect and support Tesla P100 (sm_60 Pascal HBM2)
 try:
     smi_out = subprocess.run(["nvidia-smi"], capture_output=True, text=True)
     print(smi_out.stdout)
-    if "ERR!" in smi_out.stdout or "ECC" in smi_out.stdout and "Error" in smi_out.stdout:
+    if "ERR!" in smi_out.stdout or ("ECC" in smi_out.stdout and "Error" in smi_out.stdout):
         print("[WARNING] [HARDWARE SENTINEL] Warning: Potential ECC errors detected in nvidia-smi!")
+    if "P100" in smi_out.stdout:
+        print("[HARDWARE] [P100 WORKER] NVIDIA Tesla P100 (sm_60 Pascal HBM2) active.")
+        try:
+            import torch
+            archs = getattr(torch.cuda, "get_arch_list", lambda: [])()
+            if not any("6.0" in a or "sm_60" in a for a in archs):
+                print("[HARDWARE] [P100 WORKER] Installing PyTorch cu118 for native sm_60 Pascal acceleration...")
+                subprocess.check_call([
+                    sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir",
+                    "torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu118"
+                ])
+                print("[OK] [P100 WORKER] PyTorch cu118 ready.")
+        except Exception as p100_setup_err:
+            print(f"[WARNING] [P100 WORKER] cu118 setup notice: {{p100_setup_err}}")
 except Exception as e:
     print(f"[CLOUD WORKER] nvidia-smi check skipped: {{e}}")
 
-# Verify Compute Capability compatibility
+# Verify Compute Capability compatibility (>= 6.0 supported)
 try:
     import torch
     if torch.cuda.is_available():
         cap = torch.cuda.get_device_capability(0)
         gpu_name = torch.cuda.get_device_name(0)
-        if cap[0] < 7:
-            print(f"[CRITICAL ERROR] Incompatible GPU detected: {{gpu_name}} (sm_{{cap[0]}}{{cap[1]}}).")
-            print("Tesla P100 (sm_60) is not supported by Kaggle PyTorch. Please switch accelerator to GPU T4 x2.")
+        if cap[0] < 6:
+            print(f"[CRITICAL ERROR] Incompatible legacy GPU detected: {{gpu_name}} (sm_{{cap[0]}}{{cap[1]}}).")
             sys.exit(1)
+        if cap[0] == 6:
+            print(f"[CLOUD WORKER] [HARDWARE] NVIDIA {{gpu_name}} (sm_{{cap[0]}}{{cap[1]}} Pascal HBM2 732 GB/s) engaged.")
+        else:
+            print(f"[CLOUD WORKER] [HARDWARE] NVIDIA {{gpu_name}} (sm_{{cap[0]}}{{cap[1]}}) engaged.")
 except Exception as cap_err:
     print(f"[CLOUD WORKER] GPU capability verification notice: {{cap_err}}")
 

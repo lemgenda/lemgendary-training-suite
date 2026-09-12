@@ -362,16 +362,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         device = torch.device("cuda")
         gpu_name = torch.cuda.get_device_name(0)
         cap = torch.cuda.get_device_capability(0)
-        if cap[0] < 7:
-            print("\n" + "!" * 76)
-            print(f"[CRITICAL ERROR] [INCOMPATIBLE ACCELERATOR] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]})")
-            print("Modern PyTorch requires CUDA Compute Capability >= 7.0 (sm_70+).")
-            print("NVIDIA Tesla P100 (sm_60) has been deprecated and dropped in modern PyTorch builds.")
-            print("[ACTION REQUIRED] Switch Kaggle Accelerator to 'GPU T4 x2' in Session Options.")
-            print("!" * 76 + "\n")
-            raise RuntimeError(f"Incompatible GPU: {gpu_name} (sm_{cap[0]}{cap[1]}). Please switch Kaggle accelerator to 'GPU T4 x2'.")
+        if cap[0] < 6:
+            raise RuntimeError(f"Incompatible legacy GPU: {gpu_name} (sm_{cap[0]}{cap[1]}). Compute Capability >= 6.0 required.")
         torch.backends.cudnn.benchmark = True
-        print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]}) | CUDA {getattr(torch.version, 'cuda', 'Unknown')} Active")
+        if cap[0] == 6:
+            print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]} Pascal Architecture) | 16GB HBM2 (732 GB/s) Active")
+        else:
+            print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]}) | CUDA {getattr(torch.version, 'cuda', 'Unknown')} Active")
     elif hasattr(torch, "mps") and torch.backends.mps.is_available():
         device = torch.device("mps")
         print(f"[LAUNCH] [HARDWARE] Apple Silicon (Metal) Acceleration Active")
@@ -656,8 +653,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         try: torch.set_num_threads(max(1, cpu_count))
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'kaggle':
-        # On Kaggle, ALWAYS use 4 workers to prevent GPU starvation
-        num_workers = 4
+        # On Kaggle (2 vCPUs), limit workers to avoid CPU bottlenecking and thrashing
+        num_workers = min(2, cpu_count)
         try: torch.set_num_threads(max(1, cpu_count))
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'colab':
