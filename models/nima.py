@@ -30,7 +30,7 @@ class NIMA_Model(nn.Module):
     Nuclear-Hardened NIMA (Neural IMage Assessment).
     Implements Autonomous Temperature Sharpening, Spatial Statistical Pooling, and Logit Clamping.
     """
-    def __init__(self, backbone="mobilenet_v2", hidden_dim=None, pooling="avg"):
+    def __init__(self, backbone="mobilenet_v2", hidden_dim=None, pooling="avg", **kwargs):
         super().__init__()
         self.backbone_name = backbone
 
@@ -104,7 +104,7 @@ class AuthenticityScorer(nn.Module):
     SOTA Authenticity Scorer (AI vs Real) & Categorical Safety Engine.
     Supports standard GAP, Spatial Statistical Pooling (Mean + Std), and GeM.
     """
-    def __init__(self, num_classes=2, pooling="avg"):
+    def __init__(self, num_classes=2, pooling="avg", **kwargs):
         super().__init__()
         self.pooling_type = pooling
         self.backbone = models.efficientnet_v2_s(weights=models.EfficientNet_V2_S_Weights.IMAGENET1K_V1)

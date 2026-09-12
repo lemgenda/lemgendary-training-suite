@@ -87,7 +87,7 @@ class NAFBlock(nn.Module):
 
 class NAFNet(nn.Module):
     """Real NAFNet Architecture for Denoising/Deblurring"""
-    def __init__(self, in_ch=3, out_ch=3, width=32, middle_blk_num=1, enc_blk_nums=None, dec_blk_nums=None):
+    def __init__(self, in_ch=3, out_ch=3, width=32, middle_blk_num=1, enc_blk_nums=None, dec_blk_nums=None, **kwargs):
         super().__init__()
         if enc_blk_nums is None:
             enc_blk_nums = [1, 1, 1, 1]
@@ -209,7 +209,7 @@ class Block(nn.Module):
 
 class FFANet(nn.Module):
     """Real FFANet Architecture for Dehazing"""
-    def __init__(self, gps=3, blocks=3):
+    def __init__(self, gps=3, blocks=3, **kwargs):
         super().__init__()
         dim = 32
         self.conv1 = nn.Conv2d(3, dim, 3, padding=1, bias=True)
@@ -274,7 +274,7 @@ class YOLOv8AnchorBasedHead(nn.Module):
 
 class BranchedFFANet(nn.Module):
     """Multi-Task FFANet Architecture for Dehazing + Detection"""
-    def __init__(self, gps=3, blocks=3, num_classes=80):
+    def __init__(self, gps=3, blocks=3, num_classes=80, **kwargs):
         super().__init__()
         dim = 32
         self.conv1 = nn.Conv2d(3, dim, 3, padding=1, bias=True)
@@ -327,7 +327,7 @@ class CSFF(nn.Module):
 
 class MPRNet_Proxy(nn.Module):
     """Cross-Stage Progressive Network Proxy for Deraining"""
-    def __init__(self, in_c=3, out_c=3, channels=32):
+    def __init__(self, in_c=3, out_c=3, channels=32, **kwargs):
         super().__init__()
         self.stage1_enc = nn.Sequential(nn.Conv2d(in_c, channels, 3, 1, 1), nn.ReLU())
         self.stage1_dec = nn.Sequential(nn.Conv2d(channels, out_c, 3, 1, 1))
@@ -349,7 +349,7 @@ class MPRNet_Proxy(nn.Module):
 
 class MIRNet_Proxy(nn.Module):
     """Multi-Scale Residual Network Proxy for Low-Light/Exposure"""
-    def __init__(self, in_c=3, out_c=3, width=32):
+    def __init__(self, in_c=3, out_c=3, width=32, **kwargs):
         super().__init__()
         self.intro = nn.Conv2d(in_c, width, 3, 1, 1)
         self.branch1 = nn.Sequential(nn.Conv2d(width, width, 3, 1, 1), nn.ReLU())
@@ -385,7 +385,7 @@ class ResidualDenseBlock(nn.Module):
 
 class GenericRestorationModel(nn.Module):
     """Real High-Fidelity Residual Restoration Model."""
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
         self.intro = nn.Conv2d(3, 32, 3, padding=1)
         self.body = nn.Sequential(
@@ -401,7 +401,7 @@ class GenericRestorationModel(nn.Module):
 
 class UltraZoomModel(nn.Module):
     """Real Super-Resolution Model (ESPCN based)."""
-    def __init__(self, scale_factor=2):
+    def __init__(self, scale_factor=2, **kwargs):
         super().__init__()
         self.scale_factor = scale_factor
         self.intro = nn.Conv2d(3, 64, 5, padding=2)
@@ -418,7 +418,7 @@ class UltraZoomModel(nn.Module):
 
 class UniversalFilmRestorer(nn.Module):
     """Autoencoder-style film restorer using Residual Dense Blocks."""
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
         self.encoder = nn.Sequential(
             nn.Conv2d(3, 64, 3, padding=1),
@@ -453,7 +453,7 @@ class UPN_v2_Model(nn.Module):
       - theta ∈ [0, π]  — degradation orientation/angle
       - conf  ∈ [0, 1]  — confidence/severity
     """
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
         self.backbone = nn.Sequential(
             nn.Conv2d(3, 16, 3, stride=2, padding=1),

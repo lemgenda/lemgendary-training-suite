@@ -78,7 +78,7 @@ class CodeFormer(nn.Module):
     Real CodeFormer-Style Face Restoration Model.
     Uses a Deep Residual UNet for high-fidelity reconstruction.
     """
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
         self.unet = UNetBackbone(3, 3, 64)
         
@@ -91,7 +91,7 @@ class ParseNet(nn.Module):
     Real ParseNet Face Parsing Model.
     Outputs a segmentation map with 19 classes.
     """
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
         # 19 Classes for face parsing
         self.unet = UNetBackbone(3, 19, 32)

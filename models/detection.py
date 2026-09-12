@@ -7,7 +7,7 @@ class RetinaFace_MobileNet(nn.Module):
     Real RetinaFace structure with MobileNetV2 backbone.
     Outputs: [B, 4] Bboxes, [B, 1] Confidence, [B, 10] Landmarks.
     """
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
         # Use pretrained MobileNetV2 features
         self.backbone = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1).features

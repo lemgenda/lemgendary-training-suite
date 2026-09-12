@@ -26,7 +26,7 @@ class TaskClassifier(nn.Module):
         return logits
 
 class MultiTaskRestorer(nn.Module):
-    def __init__(self, num_tasks=11):
+    def __init__(self, num_tasks=11, **kwargs):
         super().__init__()
 
         self.encoder = SharedEncoder()

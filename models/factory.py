@@ -1,3 +1,4 @@
+import inspect
 import os
 import yaml
 import torch
@@ -106,6 +107,14 @@ def get_model(model_key, config=None):
 
     if model_class_name in _MODEL_REGISTRY:
         print(f" [FACTORY] Instantiating {model_class_name} for key: {model_key}")
-        return _MODEL_REGISTRY[model_class_name](**kwargs)
+        cls = _MODEL_REGISTRY[model_class_name]
+        kwargs = kwargs or {}
+        try:
+            sig = inspect.signature(cls.__init__)
+            has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+            filtered_kwargs = kwargs if has_var_kw else {k: v for k, v in kwargs.items() if k in sig.parameters}
+        except Exception:
+            filtered_kwargs = kwargs
+        return cls(**filtered_kwargs)
     
     raise ValueError(f" [FACTORY ERROR] Model architecture '{model_class_name}' not found or implemented.")
