@@ -134,7 +134,7 @@ try:
         print("[ACTION REQUIRED] Switch Kaggle accelerator from 'GPU P100' to 'GPU T4 x2'.")
         sys.exit(1)
 except Exception as e:
-    print(f"[CLOUD WORKER] nvidia-smi check skipped: {e}")
+    print(f"[CLOUD WORKER] nvidia-smi check skipped: {{e}}")
 
 # Verify Compute Capability compatibility (>= 7.0 supported on modern PyTorch)
 try:
@@ -143,15 +143,15 @@ try:
         cap = torch.cuda.get_device_capability(0)
         gpu_name = torch.cuda.get_device_name(0)
         archs = getattr(torch.cuda, "get_arch_list", lambda: [])()
-        has_native = any(f"{cap[0]}.{cap[1]}" in a or f"sm_{cap[0]}{cap[1]}" in a for a in archs)
+        has_native = any(f"{{cap[0]}}.{{cap[1]}}" in a or f"sm_{{cap[0]}}{{cap[1]}}" in a for a in archs)
         if cap[0] < 7 and not has_native:
-            print(f"[CRITICAL ERROR] Incompatible legacy GPU detected: {gpu_name} (sm_{cap[0]}{cap[1]}).")
-            print(f"[CRITICAL ERROR] PyTorch {torch.__version__} requires CUDA Compute Capability >= 7.0 (sm_70+).")
+            print(f"[CRITICAL ERROR] Incompatible legacy GPU detected: {{gpu_name}} (sm_{{cap[0]}}{{cap[1]}}).")
+            print(f"[CRITICAL ERROR] PyTorch {{torch.__version__}} requires CUDA Compute Capability >= 7.0 (sm_70+).")
             print("[ACTION REQUIRED] Switch Kaggle accelerator from 'GPU P100' to 'GPU T4 x2'.")
             sys.exit(1)
-        print(f"[CLOUD WORKER] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]}) engaged.")
+        print(f"[CLOUD WORKER] [HARDWARE] NVIDIA {{gpu_name}} (sm_{{cap[0]}}{{cap[1]}}) engaged.")
 except Exception as cap_err:
-    print(f"[CLOUD WORKER] GPU capability verification notice: {cap_err}")
+    print(f"[CLOUD WORKER] GPU capability verification notice: {{cap_err}}")
 
 
 # Clone/Sync LemGendary Training Suite
@@ -296,7 +296,7 @@ def main():
     parser.add_argument("--model", type=str, default="nima_technical", help="Model manifold name")
     parser.add_argument("--username", type=str, default=None, help="Kaggle Username override")
     parser.add_argument("--key", type=str, default=None, help="Kaggle API Key override")
-    parser.add_argument("--gpu", type=str, default="T4", choices=["T4", "P100"])
+    parser.add_argument("--gpu", type=str, default="T4", choices=["T4", "T4x2"], help="Kaggle GPU accelerator (T4 / T4x2)")
     parser.add_argument("--output_dir", type=str, default=None, help="Target destination for downloaded artifacts")
     args = parser.parse_args()
 
