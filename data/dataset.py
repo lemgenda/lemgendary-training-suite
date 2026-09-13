@@ -375,16 +375,41 @@ class MultiTaskDataset(Dataset):
         gdrive_id = model_info.get("google_drive_dataset_id")
         
         if self.env == 'colab':
+            # Priority 1: Check downloaded Kaggle dataset in /content/LemGendaryDatasets
+            colab_ds_root = "/content/LemGendaryDatasets"
+            cand = os.path.join(colab_ds_root, ds_name)
+            if os.path.exists(cand) and (os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')) or any(f.endswith('.parquet') or f.endswith('.csv') for f in os.listdir(cand))):
+                return cand
+            if hasattr(self, 'data_root') and os.path.exists(self.data_root):
+                cand = os.path.join(self.data_root, ds_name)
+                if os.path.exists(cand):
+                    return cand
+            # Check case-insensitive in colab_ds_root
+            if os.path.exists(colab_ds_root):
+                try:
+                    for item in os.listdir(colab_ds_root):
+                        if item.lower() == ds_name.lower():
+                            cand = os.path.join(colab_ds_root, item)
+                            if os.path.exists(cand):
+                                return cand
+                except Exception:
+                    pass
+            # Priority 2: Check Google Drive mount
+            drive_path = f"/content/drive/MyDrive/LemGendaryDatasets/{ds_name}"
+            if os.path.exists(drive_path):
+                return drive_path
             if gdrive_id:
-                drive_path = f"/content/drive/MyDrive/LemGendaryDatasets/{ds_name}"
                 if not os.path.exists(drive_path):
-                    print(f"\n[ERROR] Colab requires Google Drive dataset at {drive_path}")
-                    print(f"Please ensure dataset is uploaded and extracted in your Google Drive.")
+                    print(f"\n[ERROR] Colab requires dataset at {cand} or Google Drive at {drive_path}")
                     import sys; sys.exit(1)
                 return drive_path
-            else:
-                print("\n[ERROR] google_drive_dataset_id missing in unified_models_v2.yaml")
-                import sys; sys.exit(1)
+            # Priority 3: Fallback check anywhere in /content/LemGendaryDatasets
+            if os.path.exists(colab_ds_root):
+                cand = os.path.join(colab_ds_root, ds_name)
+                if os.path.exists(cand):
+                    return cand
+            print(f"\n[ERROR] Colab could not locate dataset '{ds_name}' in {colab_ds_root} or Google Drive.")
+            import sys; sys.exit(1)
                 
         elif self.env == 'kaggle':
             # Priority 1: Check symlinked data_root (/kaggle/working/LemGendaryDatasets)

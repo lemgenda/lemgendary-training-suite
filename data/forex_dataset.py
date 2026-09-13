@@ -193,6 +193,14 @@ class ForexDataset(Dataset):
             resolved_roots.append(os.path.abspath(shard_root))
 
         if env == 'colab':
+            colab_base = "/content/LemGendaryDatasets"
+            if os.path.exists(colab_base):
+                for d in os.listdir(colab_base):
+                    if "forex" in d.lower():
+                        cand_forex = os.path.join(colab_base, d, "forex")
+                        cand = cand_forex if os.path.isdir(cand_forex) else os.path.join(colab_base, d)
+                        if os.path.isdir(cand) and cand not in resolved_roots:
+                            resolved_roots.append(cand)
             base_drive = "/content/drive/MyDrive/LemGendaryDatasets"
             if os.path.exists(base_drive):
                 for d in os.listdir(base_drive):
@@ -202,7 +210,7 @@ class ForexDataset(Dataset):
                         if os.path.isdir(cand) and cand not in resolved_roots:
                             resolved_roots.append(cand)
             if not resolved_roots:
-                print(f"\n[ERROR] Colab requires Google Drive dataset packages at {base_drive}")
+                print(f"\n[ERROR] Colab requires dataset packages at {colab_base} or {base_drive}")
                 sys.exit(1)
 
         elif env == 'kaggle':

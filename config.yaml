@@ -1,3 +1,4 @@
+---
 # ==========================================================================
 # [LAUNCH] LemGendary Training Suite - NUCLEAR v16.0 CONFIGURATION
 # ==========================================================================
@@ -24,8 +25,8 @@ hardware:
   max_allowed_cloud_resolution: 512
   safety_headroom_multiplier: 0.75
   enable_expandable_segments: true
-  num_workers: auto # Dynamically managed by train.py: 0 on Windows (small RAM), 4 on Kaggle/Colab, cpu_count on Linux
-  val_num_workers: auto # Independent validation workers: 0 on Windows, 1-2 on Kaggle/Colab to prevent host RAM OOM
+  num_workers: auto  # Dynamically managed by train.py: 0 on Windows, 4 on Kaggle/Colab
+  val_num_workers: auto  # Independent validation workers: 0 on Windows, 1-2 on Kaggle/Colab
   pin_memory: true
   use_fp16: true
 
@@ -40,7 +41,7 @@ governor:
     maturity_soak: 5             # Mandatory epochs per rung (Universal)
     plateau_patience: 6          # Epochs to wait before next rung jump
 
-  emergency_breakout_threshold: 0.10 # 10% quality drop shatters the lock
+  emergency_breakout_threshold: 0.10  # 10% quality drop shatters the lock
   jolt_cooldown_epochs: 5
   sharpening_cooling_rate: 0.98
   min_softmax_temp: 0.1
@@ -51,9 +52,9 @@ governor:
 fleet:
   auto_sync: true
   kaggle_username: "lemtreursi"
-  kaggle_slug_prefix: "lemgendary-" # Default prefix for Kaggle Model slugs
-  kaggle_slug_suffix: "-checkpoints" # Standardized suffix for model checkpoints
-  force_kaggle_sync: false # Trigger Kaggle Model upload even on local machine
+  kaggle_slug_prefix: "lemgendary-"  # Default prefix for Kaggle Model slugs
+  kaggle_slug_suffix: "-checkpoints"  # Standardized suffix for model checkpoints
+  force_kaggle_sync: false  # Trigger Kaggle Model upload even on local machine
   inter_model_cooldown_seconds: 2
   retry_attempts: 3
   model_hub_repo: "https://github.com/lemgenda/lemgendary-pretrained-models.git"
@@ -72,7 +73,7 @@ paths:
 # --- Training Defaults ---
 defaults:
   img_size: auto
-  batch_size: auto # Dynamic Hardware Audit enabled (Iron-Clamp v22.0)
+  batch_size: auto  # Dynamic Hardware Audit enabled (Iron-Clamp v22.0)
   lr: 0.00025
   epochs: 300
   patience: 100
@@ -84,7 +85,7 @@ security:
 
 # --- Execution Matrix ---
 execution:
-  mode: "training" # choices: ["training", "single_epoch_test", "vetting"]
+  mode: "training"  # choices: ["training", "single_epoch_test", "vetting"]
   suffixes:
     training: "Large"
     single_epoch_test: "Large"

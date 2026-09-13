@@ -14,10 +14,14 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     # Derive the actual Kaggle dataset slug
     dataset_slug = f"lemgendary-{kebab_model_name}"
     if config:
-        for key, url in config.get("kaggle_dataset_urls", {}).items():
-            if pascal_model_name in key:
-                dataset_slug = url.split("/")[-1]
-                break
+        k_urls = config.get("kaggle_dataset_urls", {})
+        if isinstance(k_urls, dict):
+            for key, url in k_urls.items():
+                if pascal_model_name in key:
+                    dataset_slug = url.split("/")[-1]
+                    break
+        elif isinstance(k_urls, list) and k_urls:
+            dataset_slug = k_urls[0].split("/")[-1]
 
     model_info = unified_models_registry.get(model_key, {}) if unified_models_registry else {}
     ds_raw = model_info.get("datasets", []) or model_info.get("dataset", [])
@@ -839,6 +843,18 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                         # Silently skip on read-only filesystems (e.g., Kaggle attached datasets)
                         pass
 
+        # 3. Dedicated Kaggle Directory Synchronization
+        workspace_root = os.path.abspath(os.path.join(base_dir, ".."))
+        kaggle_dir = os.path.join(workspace_root, "kaggle_training")
+        os.makedirs(kaggle_dir, exist_ok=True)
+        kaggle_output_path = os.path.join(kaggle_dir, f"{model_key}_training.ipynb")
+        try:
+            with open(kaggle_output_path, "w", encoding='utf-8') as f:
+                f.write(json_str)
+            print(f"[OK] Synchronized Kaggle Training Notebook: {kaggle_output_path}")
+        except Exception as k_err:
+            pass
+
 
 
 def generate_usage_notebook(model_key, export_dir, unified_models_registry=None, config=None):
@@ -1080,10 +1096,14 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
     # Derive the actual Kaggle dataset slug
     dataset_slug = f"lemgendary-{kebab_model_name}"
     if config:
-        for key, url in config.get("kaggle_dataset_urls", {}).items():
-            if pascal_model_name in key:
-                dataset_slug = url.split("/")[-1]
-                break
+        k_urls = config.get("kaggle_dataset_urls", {})
+        if isinstance(k_urls, dict):
+            for key, url in k_urls.items():
+                if pascal_model_name in key:
+                    dataset_slug = url.split("/")[-1]
+                    break
+        elif isinstance(k_urls, list) and k_urls:
+            dataset_slug = k_urls[0].split("/")[-1]
 
     model_info = unified_models_registry.get(model_key, {}) if unified_models_registry else {}
     ds_raw = model_info.get("datasets", []) or model_info.get("dataset", [])
@@ -1095,6 +1115,22 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         ds_list = []
     is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
     colab_ds_keys_repr = repr([model_key.lower(), model_key.replace("_", "-"), model_key.replace("_", "")] + [d.lower() for d in ds_list] + (["forex"] if is_forex else []))
+
+    kaggle_ref = model_info.get("kaggle_ref", "")
+    if not kaggle_ref:
+        urls = model_info.get("kaggle_dataset_urls", [])
+        if urls:
+            kaggle_ref = urls[0]
+    if kaggle_ref.startswith("kaggle://"):
+        clean_kaggle_repo = kaggle_ref[len("kaggle://"):].strip()
+    elif "kaggle.com/datasets/" in kaggle_ref:
+        clean_kaggle_repo = kaggle_ref.split("kaggle.com/datasets/")[-1].strip().strip("/")
+    else:
+        clean_kaggle_repo = kaggle_ref.strip()
+
+    primary_manifold = ds_list[0] if ds_list else (f"LemGendized{pascal_model_name}Large" if not is_forex else "LemGendizedForexUniverseLarge")
+    if not clean_kaggle_repo:
+        clean_kaggle_repo = f"lemtreursi/{primary_manifold.lower()}"
 
     # --- Section Logic: v16.0 Nuclear Orchestration ---
 
@@ -1241,138 +1277,101 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "print('[OK] Google Drive mounted successfully. Datasets will be streamed directly from Drive.')\n"
     ]
     symlink_source = [
-        "import os\n",
+        "import os, subprocess, shutil, sys\n",
         f"model_key = '{model_key}'\n",
+        f"kaggle_repo = '{clean_kaggle_repo}'\n",
+        f"primary_manifold = '{primary_manifold}'\n",
         "target_dir = '/content/LemGendaryDatasets'\n",
         "os.makedirs(target_dir, exist_ok=True)\n",
+        "dest_path = os.path.join(target_dir, primary_manifold)\n",
         "\n",
-        "print(f'[DATA] Resolving manifolds for {model_key}...')\n",
-        "found = []\n",
-        f"keys = {colab_ds_keys_repr}\n",
+        "print(f'[DATA] Resolving dataset manifold for {model_key}...')\n",
+        "print(f'[DATA] Target manifold: {primary_manifold} | Kaggle source: {kaggle_repo}')\n",
         "\n",
-        "# 1. Multi-Dataset Annual Forex Assembly (2019-2026)\n",
-        f"if {is_forex} or any('forex' in k for k in keys):\n",
-        "    forex_composite_dir = os.path.join(target_dir, 'LemGendizedForexUniverseLarge')\n",
-        "    os.makedirs(forex_composite_dir, exist_ok=True)\n",
-        "    forex_years_found = {}\n",
-        "    search_roots = [d for d in ['/content/drive/MyDrive', '/content/drive/Shareddrives', '/content/drive/Shared with me', '/content'] if os.path.exists(d)]\n",
-        "    for s_root in search_roots:\n",
+        "is_ready = os.path.exists(dest_path) and (\n",
+        "    os.path.exists(os.path.join(dest_path, 'images')) or\n",
+        "    os.path.exists(os.path.join(dest_path, 'targets')) or\n",
+        "    any(f.endswith('.parquet') or f.endswith('.csv') or f.endswith('.json') for f in os.listdir(dest_path))\n",
+        ")\n",
+        "\n",
+        "if not is_ready:\n",
+        "    os.makedirs(dest_path, exist_ok=True)\n",
+        "    download_ok = False\n",
+        "    if kaggle_repo:\n",
         "        try:\n",
-        "            for root_dir, dirs, files in os.walk(s_root):\n",
-        "                for f in files:\n",
-        "                    if f.startswith('ForexUniverse20') and f.endswith('.parquet'):\n",
-        "                        cand = os.path.join(root_dir, f)\n",
-        "                        for y in range(2019, 2027):\n",
-        "                            if str(y) in f:\n",
-        "                                forex_years_found[f'ForexUniverse{y}.parquet'] = cand\n",
-        "                                break\n",
-        "                dirs[:] = [d for d in dirs if d.lower() not in ['models', 'checkpoints', 'weights', 'images', 'targets', 'labels', 'masks']]\n",
-        "                for d in dirs:\n",
-        "                    if (d.startswith('ForexUniverse20') or 'forexuniverse20' in d.lower()) and not d.endswith('.zip'):\n",
-        "                        cand = os.path.join(root_dir, d)\n",
-        "                        try:\n",
-        "                            subs = os.listdir(cand)\n",
-        "                            for sub in subs:\n",
-        "                                if sub.startswith('ForexUniverse20') and sub.endswith('.parquet'):\n",
-        "                                    for y in range(2019, 2027):\n",
-        "                                        if str(y) in sub:\n",
-        "                                            forex_years_found[f'ForexUniverse{y}.parquet'] = os.path.join(cand, sub)\n",
-        "                                            break\n",
-        "                            if any(p in subs for p in ['EURUSD', 'USDJPY', 'GBPUSD', 'AUDUSD', 'XAUUSD', 'category.txt', 'dataset_info.yaml', 'classes.txt']):\n",
-        "                                yr_clean = d\n",
-        "                                for y in range(2019, 2027):\n",
-        "                                    if str(y) in d:\n",
-        "                                        yr_clean = f'ForexUniverse{y}'\n",
-        "                                        break\n",
-        "                                if f'{yr_clean}.parquet' not in forex_years_found:\n",
-        "                                    forex_years_found[yr_clean] = cand\n",
-        "                        except OSError:\n",
-        "                            pass\n",
+        "            print(f'[KAGGLE CLI] Downloading {kaggle_repo} into {dest_path}...')\n",
+        "            res = subprocess.run(\n",
+        "                ['kaggle', 'datasets', 'download', '-d', kaggle_repo, '-p', dest_path, '--unzip'],\n",
+        "                capture_output=True, text=True\n",
+        "            )\n",
+        "            if res.returncode == 0:\n",
+        "                print(f'[OK] [KAGGLE CLI] Successfully downloaded and extracted {kaggle_repo}')\n",
+        "                download_ok = True\n",
+        "            else:\n",
+        "                print(f'[WARNING] Kaggle CLI download returned code {res.returncode}: {res.stderr.strip()[:200]}')\n",
         "        except Exception as e:\n",
-        "            print(f'[REMEDY] Forex manifold scan notice: {e}')\n",
+        "            print(f'[WARNING] Kaggle CLI download error: {e}')\n",
+        "        \n",
+        "        if not download_ok:\n",
+        "            try:\n",
+        "                print('[KAGGLEHUB] Attempting download via kagglehub...')\n",
+        "                subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'kagglehub'], check=False)\n",
+        "                import kagglehub\n",
+        "                hub_path = kagglehub.dataset_download(kaggle_repo)\n",
+        "                print(f'[OK] [KAGGLEHUB] Downloaded to {hub_path}')\n",
+        "                for item in os.listdir(hub_path):\n",
+        "                    s = os.path.join(hub_path, item)\n",
+        "                    d = os.path.join(dest_path, item)\n",
+        "                    if not os.path.exists(d):\n",
+        "                        try: os.symlink(s, d)\n",
+        "                        except Exception:\n",
+        "                            if os.path.isdir(s): shutil.copytree(s, d)\n",
+        "                            else: shutil.copy2(s, d)\n",
+        "                download_ok = True\n",
+        "            except Exception as e:\n",
+        "                print(f'[WARNING] kagglehub download error: {e}')\n",
         "    \n",
-        "    if forex_years_found:\n",
-        "        print(f'[FOREX] Assembling {len(forex_years_found)} annual manifolds into {forex_composite_dir}...')\n",
-        "        for yr_name, yr_path in sorted(forex_years_found.items()):\n",
-        "            c_link = os.path.join(forex_composite_dir, yr_name)\n",
-        "            if not os.path.exists(c_link):\n",
+        "    if not download_ok and os.path.exists('/content/drive/MyDrive'):\n",
+        "        print('[FALLBACK] Checking Google Drive for manifold...')\n",
+        "        drive_cands = [\n",
+        "            f'/content/drive/MyDrive/LemGendaryDatasets/{primary_manifold}',\n",
+        "            f'/content/drive/MyDrive/{primary_manifold}',\n",
+        "        ]\n",
+        "        for cand in drive_cands:\n",
+        "            if os.path.exists(cand):\n",
         "                try:\n",
-        "                    os.symlink(yr_path, c_link)\n",
-        "                    print(f'   -> [OK] [COMPOSITE] {yr_name} -> {yr_path}')\n",
-        "                except Exception as e:\n",
-        "                    print(f'[REMEDY] Symlink error for {yr_name}: {e}')\n",
-        "            flat_link = os.path.join(target_dir, yr_name)\n",
-        "            if not os.path.exists(flat_link):\n",
-        "                try:\n",
-        "                    os.symlink(yr_path, flat_link)\n",
+        "                    os.symlink(cand, dest_path)\n",
+        "                    print(f'[OK] Symlinked from Google Drive: {cand} -> {dest_path}')\n",
+        "                    download_ok = True\n",
+        "                    break\n",
         "                except Exception:\n",
         "                    pass\n",
-        "            meta_source_dir = os.path.dirname(yr_path) if os.path.isfile(yr_path) else yr_path\n",
-        "            for meta in ['dataset_info.yaml', 'category.txt', 'classes.txt', 'README.md']:\n",
-        "                m_src = os.path.join(meta_source_dir, meta)\n",
-        "                m_dst = os.path.join(forex_composite_dir, meta)\n",
-        "                if os.path.exists(m_src) and not os.path.exists(m_dst):\n",
-        "                    try:\n",
-        "                        os.symlink(m_src, m_dst)\n",
-        "                    except Exception:\n",
-        "                        pass\n",
+        "\n",
+        "if os.path.exists(dest_path):\n",
+        "    print(f'[OK] Manifold materialized at: {dest_path}')\n",
+        "    aliases = [primary_manifold.lower(), model_key.lower(), model_key.replace('_', '-'), model_key.replace('_', '')]\n",
+        f"    if {is_forex}:\n",
+        "        aliases.extend(['forex', 'lemgendizedforexuniverselarge'])\n",
+        "    for alias in set(aliases):\n",
+        "        a_path = os.path.join(target_dir, alias)\n",
+        "        if not os.path.exists(a_path):\n",
+        "            try: os.symlink(dest_path, a_path)\n",
+        "            except Exception: pass\n",
+        f"    if {is_forex}:\n",
+        "        forex_composite_dir = os.path.join(target_dir, 'LemGendizedForexUniverseLarge')\n",
+        "        os.makedirs(forex_composite_dir, exist_ok=True)\n",
+        "        for item in os.listdir(dest_path):\n",
+        "            if item.startswith('ForexUniverse20') and item.endswith('.parquet'):\n",
+        "                flat = os.path.join(target_dir, item)\n",
+        "                if not os.path.exists(flat):\n",
+        "                    try: os.symlink(os.path.join(dest_path, item), flat)\n",
+        "                    except Exception: pass\n",
         "        link_alias = os.path.join(target_dir, 'forex')\n",
         "        if not os.path.exists(link_alias):\n",
-        "            try:\n",
-        "                os.symlink(forex_composite_dir, link_alias)\n",
-        "            except Exception:\n",
-        "                pass\n",
-        "        print(f'[OK] [FOREX] Assembly complete: {len(forex_years_found)} annual manifolds operational for Walk-Forward Curriculum.')\n",
-        "\n",
-        "# 2. Restricted BFS Scanner (max depth 5, directories only) to bypass FUSE latency\n",
-        "if True:\n",
-        "    try:\n",
-        "        drives = [d for d in ['/content/drive/MyDrive', '/content/drive/Shareddrives', '/content/drive/Shared with me'] if os.path.exists(d)]\n",
-        "        if not drives: drives = ['/content/drive']\n",
-        "        queue = list(drives)\n",
-        "        depths = {d: 0 for d in drives}\n",
-        "        while queue:\n",
-        "            curr = queue.pop(0)\n",
-        "            depth = depths[curr]\n",
-        "            if depth > 5: continue\n",
-        "            for item in os.listdir(curr):\n",
-        "                path = os.path.join(curr, item)\n",
-        "                if os.path.isdir(path):\n",
-        "                    item_lower = item.lower()\n",
-        "                    # Prune models/checkpoints to prevent wasting time scanning weights\n",
-        "                    # 2026 Resilience: Aggressive FUSE Pruning - NEVER enter raw image/target dirs to prevent OOM stat storms\n",
-        "                    if item_lower in ['models', 'checkpoints', 'weights', 'images', 'targets', 'labels', 'masks', 'train', 'val', 'test', 'eval', 'lemgendarymodels']:\n",
-        "                        continue\n",
-        "                    depths[path] = depth + 1\n",
-        "                    queue.append(path)\n",
-        "                    \n",
-        "                    is_match = any(k in item_lower for k in keys) or 'lemgendary' in item_lower or 'datasets' in item_lower\n",
-        "                    if is_match:\n",
-        "                        def is_valid_ds(p):\n",
-        "                            try: return os.path.exists(os.path.join(p, 'images')) or os.path.exists(os.path.join(p, 'targets')) or any(f.endswith('.csv') or f.endswith('.json') or f.endswith('.parquet') for f in os.listdir(p))\n",
-        "                            except: return False\n",
-        "                        if is_valid_ds(path): found.append(path)\n",
-        "                        else:\n",
-        "                            try:\n",
-        "                                for sub in os.listdir(path):\n",
-        "                                    sub_cand = os.path.join(path, sub)\n",
-        "                                    if os.path.isdir(sub_cand) and is_valid_ds(sub_cand): found.append(sub_cand)\n",
-        "                            except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
-        "    except Exception:\n",
-        "        pass\n",
-        "\n",
-        "for d in sorted(list(set(found))):\n",
-        "    if os.path.isdir(d):\n",
-        "        bname = os.path.basename(d)\n",
-        "        links = [bname]\n",
-        "        if bname.lower() != bname: links.append(bname.lower())\n",
-        "        \n",
-        "        for link in links:\n",
-        "            link_name = os.path.join(target_dir, link)\n",
-        "            if not os.path.exists(link_name):\n",
-        "                try: os.symlink(d, link_name)\n",
-        "                except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
-        "                print(f'[OK] [LINKED] {link} -> {d}')\n"
+        "            try: os.symlink(dest_path, link_alias)\n",
+        "            except Exception: pass\n",
+        "else:\n",
+        "    print(f'[ERROR] Could not resolve dataset manifold for {model_key}!')\n"
     ]
 
     install_source = [
@@ -1851,7 +1850,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
             },
             {
                 "cell_type": "markdown",
-                "source": ["## 5. Multi-Path Data Resolution\n"],
+                "source": ["## 5. Kaggle Dataset Acquisition & Manifold Resolution\n"],
                 "metadata": {}
             },
             {
@@ -1962,6 +1961,18 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
                     except Exception as ds_err:
                         # Silently skip on read-only filesystems (e.g., Kaggle attached datasets)
                         pass
+
+        # 3. Dedicated Colab Directory Synchronization
+        workspace_root = os.path.abspath(os.path.join(base_dir, ".."))
+        colab_dir = os.path.join(workspace_root, "colab_training")
+        os.makedirs(colab_dir, exist_ok=True)
+        colab_output_path = os.path.join(colab_dir, f"{model_key}_colab_training.ipynb")
+        try:
+            with open(colab_output_path, "w", encoding='utf-8') as f:
+                f.write(json_str)
+            print(f"[OK] Synchronized Colab Training Notebook: {colab_output_path}")
+        except Exception as c_err:
+            pass
 
 
 
