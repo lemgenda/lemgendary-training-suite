@@ -844,8 +844,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                         pass
 
         # 3. Dedicated Kaggle Directory Synchronization
-        workspace_root = os.path.abspath(os.path.join(base_dir, ".."))
-        kaggle_dir = os.path.join(workspace_root, "kaggle_training")
+        kaggle_dir = os.path.join(base_dir, "kaggle_training")
         os.makedirs(kaggle_dir, exist_ok=True)
         kaggle_output_path = os.path.join(kaggle_dir, f"{model_key}_training.ipynb")
         try:
@@ -1963,8 +1962,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
                         pass
 
         # 3. Dedicated Colab Directory Synchronization
-        workspace_root = os.path.abspath(os.path.join(base_dir, ".."))
-        colab_dir = os.path.join(workspace_root, "colab_training")
+        colab_dir = os.path.join(base_dir, "colab_training")
         os.makedirs(colab_dir, exist_ok=True)
         colab_output_path = os.path.join(colab_dir, f"{model_key}_colab_training.ipynb")
         try:

@@ -19,6 +19,9 @@ kaggle.json
 .SATURN_PAT
 # Google API tokens
 .GOOGLE_DRIVE
+GoogleDriveCredentials.json
+*credentials*.json
+*Credentials*.json
 
 # ML Artifacts (Checkpoints are managed via Hub repository)
 *.pth
