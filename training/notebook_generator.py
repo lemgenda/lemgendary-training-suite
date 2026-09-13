@@ -843,16 +843,17 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                         # Silently skip on read-only filesystems (e.g., Kaggle attached datasets)
                         pass
 
-        # 3. Dedicated Kaggle Directory Synchronization
-        kaggle_dir = os.path.join(base_dir, "kaggle_training")
-        os.makedirs(kaggle_dir, exist_ok=True)
-        kaggle_output_path = os.path.join(kaggle_dir, f"{model_key}_training.ipynb")
-        try:
-            with open(kaggle_output_path, "w", encoding='utf-8') as f:
-                f.write(json_str)
-            print(f"[OK] Synchronized Kaggle Training Notebook: {kaggle_output_path}")
-        except Exception as k_err:
-            pass
+        # 3. Dedicated Kaggle Directory Synchronization (Project & Workspace Root)
+        workspace_root = os.path.abspath(os.path.join(base_dir, ".."))
+        for k_dir in [os.path.join(base_dir, "kaggle_training"), os.path.join(workspace_root, "kaggle_training")]:
+            os.makedirs(k_dir, exist_ok=True)
+            k_out = os.path.join(k_dir, f"{model_key}_training.ipynb")
+            try:
+                with open(k_out, "w", encoding='utf-8') as f:
+                    f.write(json_str)
+                print(f"[OK] Synchronized Kaggle Training Notebook: {k_out}")
+            except Exception as k_err:
+                pass
 
 
 
@@ -1961,16 +1962,17 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
                         # Silently skip on read-only filesystems (e.g., Kaggle attached datasets)
                         pass
 
-        # 3. Dedicated Colab Directory Synchronization
-        colab_dir = os.path.join(base_dir, "colab_training")
-        os.makedirs(colab_dir, exist_ok=True)
-        colab_output_path = os.path.join(colab_dir, f"{model_key}_colab_training.ipynb")
-        try:
-            with open(colab_output_path, "w", encoding='utf-8') as f:
-                f.write(json_str)
-            print(f"[OK] Synchronized Colab Training Notebook: {colab_output_path}")
-        except Exception as c_err:
-            pass
+        # 3. Dedicated Colab Directory Synchronization (Project & Workspace Root)
+        workspace_root = os.path.abspath(os.path.join(base_dir, ".."))
+        for c_dir in [os.path.join(base_dir, "colab_training"), os.path.join(workspace_root, "colab_training")]:
+            os.makedirs(c_dir, exist_ok=True)
+            c_out = os.path.join(c_dir, f"{model_key}_colab_training.ipynb")
+            try:
+                with open(c_out, "w", encoding='utf-8') as f:
+                    f.write(json_str)
+                print(f"[OK] Synchronized Colab Training Notebook: {c_out}")
+            except Exception as c_err:
+                pass
 
 
 
