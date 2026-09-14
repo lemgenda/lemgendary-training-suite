@@ -360,6 +360,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
     # --- Device Discovery (2026 Universal Acceleration Suite) ---
     print(" [TRACE] Initializing CUDA and Accelerator discovery...", flush=True)
+    cap = (0, 0)  # Default; overwritten by CUDA device discovery below if GPU is available
     if torch.cuda.is_available():
         device = torch.device("cuda")
         gpu_name = torch.cuda.get_device_name(0)
@@ -1724,10 +1725,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         criterion = ForexDualLoss().to(device)
     else:
         criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab, use_perc=use_lpips).to(device)
-    # 2026 Resilience: Enable AMP for architectures with Tensor Cores OR GTX 16-series (Turing)
-    # Turing GTX (1650/1660) supports FP16 for memory savings even without Tensor Cores.
+    # 2026 Resilience: Enable AMP for Turing+ architectures (sm_70+) with Tensor Cores.
+    # Pascal P100 (sm_60, cap[0] < 7) has no Tensor Cores; AMP on cu118 is numerically unstable at sm_60.
+    # GTX 16-series (Turing, sm_75) supports FP16 for memory savings even without full Tensor Cores.
     gpu_name = torch.cuda.get_device_name(0) if device.type == 'cuda' else ""
-    use_amp = any(k in gpu_name for k in ['RTX', 'Tesla', 'A100', 'H100', 'L4', 'GTX 16'])
+    _amp_cap = cap if device.type == 'cuda' else (0, 0)
+    use_amp = (
+        _amp_cap[0] >= 7  # Turing+ (sm_70+) minimum; excludes Pascal P100 (sm_60)
+        and any(k in gpu_name for k in ['RTX', 'Tesla', 'A100', 'H100', 'L4', 'GTX 16'])
+    )
     scaler = torch.amp.GradScaler('cuda', enabled=use_amp) # pyre-ignore
 
     # 2026 Resilience: Disable cuDNN Benchmark for High-Res Dynamic Manifolds
@@ -2910,8 +2916,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         ]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
 
-                # 2026 Acceleration: Accelerated validation inference under AMP (Tensor Cores enabled)
-                val_use_amp = (device.type == 'cuda' and not stab.get('force_fp32_val', False))
+                # 2026 Acceleration: Accelerated validation inference under AMP (Turing+ Tensor Cores only).
+                # Pascal P100 (sm_60, cap[0] < 7) is excluded: no Tensor Cores, AMP is unstable on cu118.
+                val_use_amp = (
+                    device.type == 'cuda'
+                    and cap[0] >= 7  # Turing+ (sm_70+) minimum; excludes Pascal P100 (sm_60)
+                    and not stab.get('force_fp32_val', False)
+                )
                 with torch.amp.autocast('cuda', enabled=val_use_amp):
                     if train_ds.task_type == "text_to_image":
                         if hasattr(model, "val_step"):

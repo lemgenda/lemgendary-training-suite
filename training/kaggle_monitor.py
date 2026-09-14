@@ -8,6 +8,22 @@ from pathlib import Path
 from typing import Optional, List, Dict, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor
 
+# --- Path Anchor Defense ---
+# Anchor the search path to the workspace root and script directory to ensure module discovery
+_script_dir = Path(__file__).resolve().parent
+_suite_dir = _script_dir.parent
+_workspace_root = _suite_dir.parent
+if str(_suite_dir) not in sys.path:
+    sys.path.insert(0, str(_suite_dir))
+if str(_workspace_root) not in sys.path:
+    sys.path.insert(0, str(_workspace_root))
+
+from training.kaggle_cloud_manager import (
+    create_cloud_kernel_bundle,
+    get_kernel_slug,
+    pull_kaggle_artifacts,
+)
+
 def find_kaggle_users_file(explicit_path: Optional[Path] = None) -> Optional[Path]:
     """
     Locates the .kaggle_users credentials registry file.
@@ -257,7 +273,6 @@ def stream_kernel_logs(
         if auto_pull and model_name and current_status == "COMPLETE":
             print(f"\n[SYNC] Performing artifact pull for completed run >> {model_name} <<...")
             try:
-                from training.kaggle_cloud_manager import pull_kaggle_artifacts
                 pull_kaggle_artifacts(model_name, username=username)
             except Exception as pull_err:
                 print(f"[WARN] Artifact pull notice: {pull_err}")
@@ -298,7 +313,6 @@ def stream_kernel_logs(
                             if epoch_signal:
                                 print(f"\n[{time.strftime('%H:%M:%S')}] [AUTO-PULL] New checkpoint detected. Syncing >> {model_name} <<...")
                                 try:
-                                    from training.kaggle_cloud_manager import pull_kaggle_artifacts
                                     pull_kaggle_artifacts(model_name, username=username)
                                 except Exception as pull_err:
                                     print(f"[WARN] Auto-pull notice: {pull_err}")
@@ -318,7 +332,6 @@ def stream_kernel_logs(
                 if auto_pull and model_name and status == "COMPLETE":
                     print(f"\n[SYNC] Training complete. Performing final artifact pull for >> {model_name} <<...")
                     try:
-                        from training.kaggle_cloud_manager import pull_kaggle_artifacts
                         pull_kaggle_artifacts(model_name, username=username)
                     except Exception as pull_err:
                         print(f"[WARN] Final artifact pull notice: {pull_err}")
@@ -439,13 +452,43 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                         if meta_file.exists():
                             try:
                                 meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
-                                meta_data["enable_gpu"] = True
-                                if not meta_data.get("machine_shape"):
+                                meta_data["enable_gpu"] = "true"
+                                meta_data["enable_internet"] = "true"
+                                if "is_private" not in meta_data:
+                                    meta_data["is_private"] = "true"
+                                raw_shape = str(meta_data.get("machine_shape", "")).strip()
+                                # Normalize legacy or non-specific shapes (like 'Gpu' or empty) to explicit accelerator
+                                if not raw_shape or raw_shape.lower() in ["gpu", "none", "cpu"]:
                                     meta_data["machine_shape"] = "NvidiaTeslaT4"
                                 meta_file.write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
-                            except Exception:
-                                pass
+                            except Exception as meta_err:
+                                print(f"[REMEDY] Metadata update notice: {meta_err}")
+
+                        # Harden notebook sentinel cells against premature sys.exit(1) on transient container initialization
+                        try:
+                            for nb_path in Path(td).glob("*.ipynb"):
+                                nb_text = nb_path.read_text(encoding="utf-8")
+                                nb_json = json.loads(nb_text)
+                                modified_nb = False
+                                for cell in nb_json.get("cells", []):
+                                    if cell.get("cell_type") == "code":
+                                        src = "".join(cell.get("source", []))
+                                        if "NO GPU DETECTED! Training aborted to preserve quota." in src and "sys.exit(1)" in src:
+                                            # Replace hard abort with non-fatal warning matching notebook_generator standard
+                                            src_mod = src.replace(
+                                                "    print('[ERROR] [CRITICAL] NO GPU DETECTED! Training aborted to preserve quota.')\n    sys.exit(1)",
+                                                "    print('[WARNING] NO GPU DETECTED!')\n    print('   -> Continuing in fallback execution mode...')"
+                                            )
+                                            cell["source"] = src_mod
+                                            modified_nb = True
+                                if modified_nb:
+                                    nb_path.write_text(json.dumps(nb_json, indent=2), encoding="utf-8")
+                        except Exception as nb_patch_err:
+                            print(f"[REMEDY] Notebook sentinel sync notice: {nb_patch_err}")
+
                         chosen_acc = meta_data.get("machine_shape", "NvidiaTeslaT4") if meta_data else "NvidiaTeslaT4"
+                        if str(chosen_acc).lower() in ["gpu", "none", "cpu"]:
+                            chosen_acc = "NvidiaTeslaT4"
                         print(f"[LAUNCH] Pushing kernel bundle to trigger execution on Kaggle GPU ({chosen_acc})...")
                         api.kernels_push(td, acc=chosen_acc)
                         print(f"[SUCCESS] Kernel '{selected_slug}' pushed and queued on Kaggle GPU!")
@@ -462,7 +505,6 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                 m_choice = input(f"Select model (1-{len(models)}): ").strip()
                 if m_choice.isdigit() and 1 <= int(m_choice) <= len(models):
                     target_model = models[int(m_choice) - 1]
-                    from training.kaggle_cloud_manager import create_cloud_kernel_bundle, get_kernel_slug
                     kernel_dir = create_cloud_kernel_bundle(target_model, username, gpu="T4")
                     selected_slug = get_kernel_slug(target_model, username)
                     print(f"[LAUNCH] Pushing bundle for '{target_model}' to Kaggle GPU (Dual T4: {selected_slug})...")

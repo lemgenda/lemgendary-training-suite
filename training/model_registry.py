@@ -118,7 +118,10 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
             del _dummy, _out
             torch.cuda.empty_cache()
         except Exception as e:
-            print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
+            _warmup_err = str(e)
+            if "no kernel image is available" in _warmup_err or "cudaErrorNoKernelImageForDevice" in _warmup_err:
+                raise  # Propagate to outer handler which calls sys.exit(1)
+            print(f"[REMEDY] Warmup pass notice (non-fatal): {e}")
 
         if device.type == 'cuda':
             torch.cuda.reset_peak_memory_stats(0)
