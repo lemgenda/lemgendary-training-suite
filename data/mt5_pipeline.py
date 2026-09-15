@@ -237,7 +237,7 @@ def disconnect_mt5():
 def generate_mock_bars(pair: str, timeframe_min: int, n_bars: int | None = None, start_date: str = "2019-01-01") -> pd.DataFrame:
     """Generate realistic synthetic OHLCV bars spanning 2019-01-01 to present for all 16 assets."""
     np.random.seed(abs(hash(pair + str(timeframe_min))) % (2**32 - 1))
-    
+
     price_map = {
         "EURUSD": 1.0850, "GBPUSD": 1.2700, "USDJPY": 155.00, "XAUUSD": 2400.00,
         "USDCAD": 1.3650, "USDCHF": 0.8950, "AUDUSD": 0.6650, "NZDUSD": 0.6100,
@@ -246,7 +246,7 @@ def generate_mock_bars(pair: str, timeframe_min: int, n_bars: int | None = None,
         "US500":  5500.0, "USTEC": 19500.0, "GER40": 18500.0
     }
     base_price = price_map.get(pair, 1.0000)
-    
+
     if any(x in pair for x in ["JPY", "XAG"]):
         pip_size = 0.01
     elif any(x in pair for x in ["XAU", "USOIL"]):
@@ -258,7 +258,7 @@ def generate_mock_bars(pair: str, timeframe_min: int, n_bars: int | None = None,
 
     dt_end = datetime.now(timezone.utc)
     freq = f"{timeframe_min}min" if timeframe_min < 1440 else "1D"
-    
+
     if n_bars is not None and n_bars > 0 and start_date is None:
         times = pd.date_range(end=dt_end, periods=n_bars, freq=freq)
     else:
@@ -270,17 +270,17 @@ def generate_mock_bars(pair: str, timeframe_min: int, n_bars: int | None = None,
     total_bars = len(times)
     returns = np.random.normal(loc=0.0, scale=0.001, size=total_bars)
     price_curve = base_price * np.exp(np.cumsum(returns))
-    
+
     spread = pip_size * np.random.uniform(1.0, 3.0, size=total_bars)
     highs = price_curve + np.abs(np.random.normal(0, pip_size * 5, size=total_bars)) + spread
     lows = price_curve - np.abs(np.random.normal(0, pip_size * 5, size=total_bars)) - spread
     opens = price_curve + np.random.uniform(-spread, spread, size=total_bars)
     closes = price_curve
-    
+
     highs = np.maximum(highs, np.maximum(opens, closes))
     lows = np.minimum(lows, np.minimum(opens, closes))
     volumes = np.random.randint(100, 5000, size=total_bars)
-    
+
     print(f" [MT5Pipeline] Synthesized {total_bars} bars for {pair} {timeframe_min}min (Spans {times[0].strftime('%Y-%m-%d')} -> {times[-1].strftime('%Y-%m-%d')})")
     return pd.DataFrame({
         "time": times,
@@ -376,7 +376,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     computed_ta = False
     try:
-        import pandas_ta as ta  # type: ignore
+        import pandas_ta_classic as ta
         df_ta = df.copy()
         df_ta.ta.rsi(length=14, append=True)
         df_ta.ta.macd(fast=12, slow=26, signal=9, append=True)
