@@ -36,7 +36,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
 
     # --- Section Logic: v16.0 Nuclear Orchestration ---
 
-    accel_str = "GPU T4 x2 (30GB total VRAM) [Recommended] or GPU P100 (16GB VRAM)"
+    accel_str = "GPU T4 x2 (30GB total VRAM) [Recommended]"
 
     hardware_sentinel_source = [
         "import os, sys, subprocess\n",
@@ -62,9 +62,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    if not _compat:\n",
         "        print(f'[CRITICAL ERROR] [HARDWARE] NVIDIA {_gpu_name} (sm_{_cap[0]}{_cap[1]}) has no kernel images in current PyTorch build!')\n",
         "        print('[ACTION REQUIRED] Switch Kaggle Accelerator to GPU T4 x2 in Notebook Settings (right panel).')\n",
-        "        _fix_index = 'https://download.pytorch.org/whl/cu118' if 'P100' in _gpu_name else 'https://download.pytorch.org/whl/cu121'\n",
-        "        _fix_pkgs = 'torch==2.4.0+cu118 torchvision==0.19.0+cu118' if 'P100' in _gpu_name else 'torch==2.5.1+cu121 torchvision==0.20.1+cu121'\n",
-        "        print(f'[AUTO-FIX] Alternatively run: !pip install --force-reinstall {_fix_pkgs} --extra-index-url {_fix_index}')\n",
+        "        print('[AUTO-FIX] Alternatively run: !pip install --force-reinstall torch==2.5.1+cu121 torchvision==0.20.1+cu121 --extra-index-url https://download.pytorch.org/whl/cu121')\n",
         "    else:\n",
         "        print(f'[OK] [HARDWARE] NVIDIA {_gpu_name} (sm_{_cap[0]}{_cap[1]}) validated & ready.')\n",
         "\n",
@@ -316,9 +314,8 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                print(f'[OK] [LINKED] {link} -> {d}')\n"
     ]
 
-    # 2026 v1.1 fixes applied here:
-    #   (a) `_is_p100_gpu = False` initialized before the branch (prevents NameError on ROCm/CPU hosts)
-    #   (b) Removed invalid `--no-warn-conflicts` pip flag (was aborting install with exit code 2)
+    # 2026 v1.1 fix applied here: removed invalid `--no-warn-conflicts` pip flag
+    # (was aborting install with exit code 2).
     install_source = [
         "import os, sys, subprocess, platform, shutil\n",
         "print('[ENV] Probing hardware accelerator...')\n",
@@ -326,20 +323,9 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "# Full hardware detection: CUDA > ROCm > DirectML > CPU\n",
         "torch_index = 'https://download.pytorch.org/whl/cpu'\n",
         "accel_type = 'cpu'\n",
-        "_is_p100_gpu = False  # 2026 v1.1: init before branch to prevent NameError on ROCm/CPU hosts\n",
         "if shutil.which('nvidia-smi'):\n",
-        "    try:\n",
-        "        _smi_name = subprocess.check_output(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'], text=True).strip()\n",
-        "        if 'P100' in _smi_name:\n",
-        "            _is_p100_gpu = True\n",
-        "    except Exception:\n",
-        "        pass\n",
-        "    if _is_p100_gpu:\n",
-        "        torch_index = 'https://download.pytorch.org/whl/cu118'\n",
-        "        accel_type = 'cuda_cu118_p100'\n",
-        "    else:\n",
-        "        torch_index = 'https://download.pytorch.org/whl/cu121'\n",
-        "        accel_type = 'cuda_cu121'\n",
+        "    torch_index = 'https://download.pytorch.org/whl/cu121'\n",
+        "    accel_type = 'cuda_cu121'\n",
         "elif shutil.which('rocm-smi'):\n",
         "    torch_index = 'https://download.pytorch.org/whl/rocm6.1'\n",
         "    accel_type = 'rocm6.1'\n",
@@ -379,22 +365,12 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "\n",
         "if req_path:\n",
         "    print(f'[ENV] Manifest: {req_path}')\n",
-        "    _p100_constraints = None\n",
-        "    if _is_p100_gpu:\n",
-        "        print('[ENV] Ensuring PyTorch sm_60 kernels for Tesla P100 (cu118)...')\n",
-        "        subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--force-reinstall', 'torch==2.4.0+cu118', 'torchvision==0.19.0+cu118', '--extra-index-url', 'https://download.pytorch.org/whl/cu118'], check=True)\n",
-        "        _p100_constraints = '/tmp/lemgendary_p100_constraints.txt'\n",
-        "        with open(_p100_constraints, 'w') as _cf:\n",
-        "            _cf.write('torch==2.4.0+cu118\\ntorchvision==0.19.0+cu118\\n')\n",
-        "        print('[ENV] P100 constraint file written. requirements.txt install will be pinned to cu118.')\n",
-        "    _constraint_args = ['--constraint', _p100_constraints] if _p100_constraints else []\n",
         "    # 2026 v1.1: '--no-warn-conflicts' is NOT a valid pip flag (removed).\n",
-        "    # pip's resolver prints conflict warnings by default; there is no suppression flag.\n",
         "    res = subprocess.run(\n",
         "        [sys.executable, '-m', 'pip', 'install', '-q',\n",
         "         '--extra-index-url', torch_index,\n",
         "         '--upgrade-strategy', 'only-if-needed',\n",
-        "         '-r', req_path] + _constraint_args,\n",
+        "         '-r', req_path],\n",
         "        capture_output=True, text=True)\n",
         "    if res.returncode == 0:\n",
         "        print('[OK] Environment Ready.')\n",
@@ -1142,9 +1118,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    if not _compat:\n",
         "        print(f'[CRITICAL ERROR] [HARDWARE] NVIDIA {_gpu_name} (sm_{_cap[0]}{_cap[1]}) has no kernel images in current PyTorch build!')\n",
         "        print('[ACTION REQUIRED] Switch Colab Runtime to T4 GPU (Runtime -> Change runtime type -> T4 GPU).')\n",
-        "        _fix_index = 'https://download.pytorch.org/whl/cu118' if 'P100' in _gpu_name else 'https://download.pytorch.org/whl/cu121'\n",
-        "        _fix_pkgs = 'torch==2.4.0+cu118 torchvision==0.19.0+cu118' if 'P100' in _gpu_name else 'torch==2.5.1+cu121 torchvision==0.20.1+cu121'\n",
-        "        print(f'[AUTO-FIX] Alternatively run: !pip install --force-reinstall {_fix_pkgs} --extra-index-url {_fix_index}')\n",
+        "        print('[AUTO-FIX] Alternatively run: !pip install --force-reinstall torch==2.5.1+cu121 torchvision==0.20.1+cu121 --extra-index-url https://download.pytorch.org/whl/cu121')\n",
         "    else:\n",
         "        print(f'[OK] [HARDWARE] NVIDIA {_gpu_name} (sm_{_cap[0]}{_cap[1]}) validated & ready.')\n",
         "\n",
@@ -1365,9 +1339,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    print(f'[ERROR] Could not resolve dataset manifold for {model_key}!')\n"
     ]
 
-    # 2026 v1.1 fixes applied here (same as Kaggle variant):
-    #   (a) `_is_p100_gpu = False` initialized before branch
-    #   (b) Removed invalid `--no-warn-conflicts` pip flag
+    # 2026 v1.1 fix: removed invalid `--no-warn-conflicts` pip flag.
     install_source = [
         "import os, sys, subprocess, platform, shutil\n",
         "print('[ENV] Probing hardware accelerator...')\n",
@@ -1375,20 +1347,9 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "# Full hardware detection: CUDA > ROCm > DirectML > CPU\n",
         "torch_index = 'https://download.pytorch.org/whl/cpu'\n",
         "accel_type = 'cpu'\n",
-        "_is_p100_gpu = False  # 2026 v1.1: init before branch to prevent NameError on ROCm/CPU hosts\n",
         "if shutil.which('nvidia-smi'):\n",
-        "    try:\n",
-        "        _smi_name = subprocess.check_output(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'], text=True).strip()\n",
-        "        if 'P100' in _smi_name:\n",
-        "            _is_p100_gpu = True\n",
-        "    except Exception:\n",
-        "        pass\n",
-        "    if _is_p100_gpu:\n",
-        "        torch_index = 'https://download.pytorch.org/whl/cu118'\n",
-        "        accel_type = 'cuda_cu118_p100'\n",
-        "    else:\n",
-        "        torch_index = 'https://download.pytorch.org/whl/cu121'\n",
-        "        accel_type = 'cuda_cu121'\n",
+        "    torch_index = 'https://download.pytorch.org/whl/cu121'\n",
+        "    accel_type = 'cuda_cu121'\n",
         "elif shutil.which('rocm-smi'):\n",
         "    torch_index = 'https://download.pytorch.org/whl/rocm6.1'\n",
         "    accel_type = 'rocm6.1'\n",
@@ -1424,21 +1385,12 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "\n",
         "if req_path:\n",
         "    print(f'[ENV] Manifest: {req_path}')\n",
-        "    _p100_constraints = None\n",
-        "    if _is_p100_gpu:\n",
-        "        print('[ENV] Ensuring PyTorch sm_60 kernels for Tesla P100 (cu118)...')\n",
-        "        subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--force-reinstall', 'torch==2.4.0+cu118', 'torchvision==0.19.0+cu118', '--extra-index-url', 'https://download.pytorch.org/whl/cu118'], check=True)\n",
-        "        _p100_constraints = '/tmp/lemgendary_p100_constraints.txt'\n",
-        "        with open(_p100_constraints, 'w') as _cf:\n",
-        "            _cf.write('torch==2.4.0+cu118\\ntorchvision==0.19.0+cu118\\n')\n",
-        "        print('[ENV] P100 constraint file written. requirements.txt install will be pinned to cu118.')\n",
-        "    _constraint_args = ['--constraint', _p100_constraints] if _p100_constraints else []\n",
         "    # 2026 v1.1: '--no-warn-conflicts' is NOT a valid pip flag (removed).\n",
         "    res = subprocess.run(\n",
         "        [sys.executable, '-m', 'pip', 'install', '-q',\n",
         "         '--extra-index-url', torch_index,\n",
         "         '--upgrade-strategy', 'only-if-needed',\n",
-        "         '-r', req_path] + _constraint_args,\n",
+        "         '-r', req_path],\n",
         "        capture_output=True, text=True)\n",
         "    if res.returncode == 0:\n",
         "        print('[OK] Environment Ready.')\n",
