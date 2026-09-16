@@ -459,6 +459,12 @@ def main():
     )
     args = parser.parse_args()
 
+    # 2026: Session-boundary sentinel. Kaggle resets CPU/GPU quota every 12h;
+    # we use process start as a proxy and snapshot mid-epoch progress at 11.5h.
+    _session_start_time = time.time()
+    _session_boundary_saved = False
+    _SESSION_BOUNDARY_HOURS = 11.5
+
     print(" [TRACE] Loading GITHUB PAT...", flush=True)
     load_pat()
 
@@ -886,8 +892,21 @@ def main():
 
     hub_model_dir = os.path.join(hub_root, args.model)
     hub_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
-    local_ckpt_dir = hub_ckpt_dir
     os.makedirs(hub_ckpt_dir, exist_ok=True)
+
+    # ─── 2026 Local-only progress scratch directory ─────────────────────────
+    # Transient intra-epoch `_progress.pth` snapshots live here, OUTSIDE the
+    # hub dir, so cloud_sync NEVER mistakes them for a model version. Only
+    # epoch-completion checkpoints (latest / best) ever land in hub_ckpt_dir.
+    if args.env == 'kaggle':
+        local_ckpt_dir = os.path.join("/kaggle/working/lemgendary_local_checkpoints", args.model)
+    elif args.env == 'colab':
+        local_ckpt_dir = os.path.join("/content/lemgendary_local_checkpoints", args.model)
+    else:
+        local_ckpt_dir = os.path.join(os.path.dirname(hub_ckpt_dir.rstrip(os.sep)), "_local_checkpoints", args.model)
+    os.makedirs(local_ckpt_dir, exist_ok=True)
+    print(f" [GUARD] [CHECKPOINT-POLICY] Hub (epoch-only): {hub_ckpt_dir}")
+    print(f" [GUARD] [CHECKPOINT-POLICY] Local scratch (progress-only): {local_ckpt_dir}")
 
     if args.env == 'kaggle':
         print(f"[SIGNAL] [KAGGLE] Initiating Checkpoint & Metric Recovery...")
@@ -1079,7 +1098,7 @@ def main():
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     latest_ckpt = os.path.join(checkpoint_dir, f"{args.model}_latest.pth")
-    progress_ckpt_path = os.path.join(checkpoint_dir, f"{args.model}_progress.pth")
+    progress_ckpt_path = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
     best_ckpt_path = os.path.join(checkpoint_dir, f"{args.model}_best.pth")
 
     candidates = []
@@ -1230,6 +1249,14 @@ def main():
                         os.remove(os.path.join(hub_ckpt_dir, f))
                     except Exception as e:
                         print(f" [WARNING] Failed to remove checkpoint artifact {f}: {e}")
+        # 2026: Also purge the local-only scratch dir so a clean run truly starts fresh.
+        if os.path.exists(local_ckpt_dir):
+            for f in os.listdir(local_ckpt_dir):
+                if f.endswith(".pth") or f.endswith(".json") or f.endswith(".processing"):
+                    try:
+                        os.remove(os.path.join(local_ckpt_dir, f))
+                    except Exception as e:
+                        print(f" [WARNING] Failed to remove local scratch artifact {f}: {e}")
         metrics_csv_candidate = os.path.join(hub_model_dir, "metrics.csv")
         if os.path.exists(metrics_csv_candidate):
             try:
@@ -1278,16 +1305,16 @@ def main():
     latest_hub = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
     best_hub = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
     progress_hub = os.path.join(hub_ckpt_dir, f"{args.model}_progress.pth")
-    progress_local = progress_hub
+    progress_local = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
 
-    for ckpt_path in [progress_hub, latest_hub, best_hub]:
+    for ckpt_path in [progress_hub, progress_local, latest_hub, best_hub]:
         proc_file = ckpt_path + ".processing"
         if os.path.exists(proc_file):
             print(f"[RESILIENCE] Clearing stale lock: {os.path.basename(proc_file)}")
             try: os.remove(proc_file)
             except Exception as e: print(f"[REMEDY] Failed to clear stale lock {proc_file}: {e}")
 
-    fallback_chain = [] if getattr(args, 'clean', False) else [progress_hub, latest_hub, best_hub]
+    fallback_chain = [] if getattr(args, 'clean', False) else [progress_local, progress_hub, latest_hub, best_hub]
     candidates = []
     hub_max_score = -1.0
     for ckpt in fallback_chain:
@@ -1812,12 +1839,17 @@ def main():
 
     effective_batch_size = batch_size
     global_step = 0
+    # 2026: FIXED save-interval policy. If the config does NOT pin a static
+    # value, we compute once per epoch from observed batch throughput:
+    #   - epoch < 30 min  -> single progress save at the 50% mark
+    #   - epoch >= 30 min -> progress save every 15 min (interval_pct = 900 / epoch_sec)
     _raw_interval = config.get("intra_epoch_checkpoint_pct", "auto")
     if isinstance(_raw_interval, (int, float)):
         interval_pct = float(_raw_interval)
-        print(f" [CONFIG] Static Save Interval Locked: {interval_pct*100:.1f}% (Horse Race Winner)")
+        print(f" [CONFIG] Static Save Interval Locked: {interval_pct*100:.1f}%")
     else:
         interval_pct = 0.0
+    _last_epoch_duration_sec = None
 
     in_recovery_mode = False
 
@@ -1825,16 +1857,40 @@ def main():
     last_val_audit_fraction = None
 
     def _kaggle_preemption_hook():
+        """
+        2026 Session-boundary preemption.
+
+        The Kaggle 12h CPU/GPU quota reset is the ONLY scenario where a mid-epoch
+        `_progress.pth` is promoted into the hub as a new model version. Outside
+        that window we keep progress strictly local so a routine kernel stop or
+        idle timeout does NOT spawn a spurious Kaggle Model version.
+        """
         if getattr(args, 'env', '') != 'kaggle':
             return
-        prog_path = os.path.join(config.get("checkpoint_dir", hub_ckpt_dir), f"{args.model}_progress.pth")
-        if os.path.exists(prog_path):
+        if not os.path.exists(progress_local):
+            print(f" [EMERGENCY] No local progress checkpoint found at {progress_local}. Skipping.")
+            return
+        elapsed_h = (time.time() - _session_start_time) / 3600.0
+        if elapsed_h < _SESSION_BOUNDARY_HOURS:
+            print(f" [EMERGENCY] Session at {elapsed_h:.2f}h — below {_SESSION_BOUNDARY_HOURS}h boundary. "
+                  f"Local progress preserved at {progress_local}. Skipping new Kaggle Model version.")
+            return
+        print(f" [EMERGENCY] Session at {elapsed_h:.2f}h — promoting mid-epoch progress to a new Kaggle Model version.")
+        hub_prog = os.path.join(hub_ckpt_dir, f"{args.model}_progress.pth")
+        try:
+            shutil.copy2(progress_local, hub_prog)
+            from training.cloud_sync import trigger_cloud_sync
+            trigger_cloud_sync(args.model, epoch, config, wait=True, is_mid_epoch=True)
+        except Exception as exc:
+            print(f" [EMERGENCY] Kaggle preemption sync attempt failed: {exc}")
+        finally:
+            # Never leave the progress snapshot in the hub dir — a future cloud_sync
+            # would otherwise re-upload it as yet another version.
             try:
-                from training.cloud_sync import trigger_cloud_sync
-                print(f" [EMERGENCY] Committing intra-epoch progress to Kaggle Model for {args.model}...")
-                trigger_cloud_sync(args.model, epoch, config, wait=True, is_mid_epoch=True)
-            except Exception as exc:
-                print(f" [EMERGENCY] Kaggle preemption sync attempt failed: {exc}")
+                if os.path.exists(hub_prog):
+                    os.remove(hub_prog)
+            except Exception:
+                pass
 
     register_emergency_sync(_kaggle_preemption_hook)
 
@@ -1866,6 +1922,7 @@ def main():
                 break
 
         last_intra_epoch_pct = -1.0
+        _epoch_wall_start = time.time()
 
         if train_sampler is not None:
             try:
@@ -1929,6 +1986,15 @@ def main():
         epoch_clamp = stab.get('logit_clamp', 20.0)
         epoch_batch = batch_size
         epoch_acc = accumulation_steps
+
+        # 2026: Reset per-epoch interval to the previous epoch's measured baseline
+        # so the first ~30 batches use a fixed cadence instead of an initial guess.
+        if _last_epoch_duration_sec is not None and config.get("intra_epoch_checkpoint_pct", "auto") == "auto":
+            if _last_epoch_duration_sec < 1800.0:
+                interval_pct = 0.5
+            else:
+                interval_pct = min(0.5, 900.0 / _last_epoch_duration_sec)
+            print(f" [RESILIENCY] Epoch interval locked from last epoch ({_last_epoch_duration_sec/60:.1f} min): {interval_pct*100:.1f}%")
 
         pbar = None
 
@@ -2155,7 +2221,8 @@ def main():
                                 pbar = None
                             current_iter = min(current_iter, len(train_loader))
 
-                            recovery_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+                            # 2026: OOM recovery writes to LOCAL scratch only.
+                            recovery_ckpt = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
 
                             governor.current_batch = batch_size
                             governor.current_acc = accumulation_steps
@@ -2638,18 +2705,34 @@ def main():
                             print(f" [WARN] Intra-epoch batch growth skipped: {_ibg_err}")
 
                     session_batches_processed += 1
-                    if session_batches_processed == 30 and config.get("intra_epoch_checkpoint_pct", "auto") == "auto":
-                        rate = pbar.format_dict.get('rate')
-                        avg_time = (1.0 / rate) if rate and rate > 0 else (pbar.format_dict['elapsed'] / session_batches_processed)
-                        new_interval = governor.get_dynamic_save_interval(avg_time, len(train_loader))
-                        if new_interval != interval_pct:
-                            interval_pct = new_interval
-                            if interval_pct > 0:
+
+                    # 2026: One-shot calibration of the FIXED save interval.
+                    # Not a moving target — computed once per epoch from throughput
+                    # and held constant for the rest of the epoch.
+                    if session_batches_processed == 30 and config.get("intra_epoch_checkpoint_pct", "auto") == "auto" and _last_epoch_duration_sec is None:
+                        rate = pbar.format_dict.get('rate') if pbar else None
+                        if rate and rate > 0:
+                            avg_time = 1.0 / rate
+                        elif pbar:
+                            avg_time = pbar.format_dict['elapsed'] / session_batches_processed
+                        else:
+                            avg_time = 0.0
+                        if avg_time > 0:
+                            est_epoch_sec = avg_time * len(train_loader)
+                            if est_epoch_sec < 1800.0:
+                                new_interval = 0.5
+                            else:
+                                new_interval = min(0.5, 900.0 / est_epoch_sec)
+                            if new_interval != interval_pct:
+                                interval_pct = new_interval
                                 current_pct = (i + 1) / len(train_loader) if len(train_loader) > 0 else 0.0
                                 last_intra_epoch_pct = round(math.floor(current_pct / interval_pct) * interval_pct, 2)
-                            est_mins = (interval_pct * len(train_loader) * avg_time) / 60
-                            msg = f" [RESILIENCY] Save Interval Recalibrated: {interval_pct*100:.1f}% (~{est_mins:.1f} min window)" if interval_pct > 0 else " [RESILIENCY] Save Interval Recalibrated: OFF (Epoch < 15 min)"
-                            (pbar.write if pbar else print)(msg)
+                                if interval_pct == 0.5:
+                                    msg = f" [RESILIENCY] Save Interval LOCKED: 50% (est. epoch {est_epoch_sec/60:.1f} min < 30 min)"
+                                else:
+                                    win_min = interval_pct * est_epoch_sec / 60
+                                    msg = f" [RESILIENCY] Save Interval LOCKED: {interval_pct*100:.1f}% (~{win_min:.1f} min window, est. epoch {est_epoch_sec/60:.1f} min)"
+                                (pbar.write if pbar else print)(msg)
 
                     new_lr = scheduler.get_last_lr()[0]
                     if new_lr < 5e-7: new_lr = 5e-7
@@ -2659,14 +2742,12 @@ def main():
                 if last_intra_epoch_pct < 0:
                     last_intra_epoch_pct = 0.0
 
-                if interval_pct > 0 and (current_pct >= last_intra_epoch_pct + interval_pct - 1e-4 or current_pct == 1.0):
-                    if current_pct == 1.0:
-                        last_intra_epoch_pct = 1.0
-                    else:
-                        last_intra_epoch_pct = current_pct
-
+                # 2026: Interval-gated progress write -> LOCAL SCRATCH ONLY.
+                # Never writes to hub_ckpt_dir, so cloud_sync can't see it.
+                if interval_pct > 0 and current_pct >= last_intra_epoch_pct + interval_pct - 1e-4:
+                    last_intra_epoch_pct = current_pct
                     last_intra_epoch_pct = round(last_intra_epoch_pct, 2)
-                    prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+                    prog_ckpt = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
 
                     governor.current_batch = batch_size
                     governor.current_acc = accumulation_steps
@@ -2691,11 +2772,57 @@ def main():
                     }, prog_ckpt)
                     tier_str = f"{current_pct*100:.0f}%"
 
-                    pbar.write(f" [RESILIENCY] PROGRESS COMMITTED: {tier_str} (Batch {i+1})")
+                    pbar.write(f" [RESILIENCY] LOCAL PROGRESS COMMITTED: {tier_str} (Batch {i+1})")
+
+                # 2026: Session-boundary sentinel. Once per epoch, when elapsed
+                # time crosses 11.5h on Kaggle, snapshot to the hub and create a
+                # new model version. This is the ONLY mid-epoch path that writes
+                # to the hub dir.
+                if (
+                    args.env == 'kaggle'
+                    and not _session_boundary_saved
+                    and (i + 1) % 200 == 0
+                ):
+                    elapsed_h = (time.time() - _session_start_time) / 3600.0
+                    if elapsed_h >= _SESSION_BOUNDARY_HOURS:
+                        print(f" [EMERGENCY] [SESSION BOUNDARY] {elapsed_h:.2f}h elapsed — snapshotting mid-epoch progress as new Kaggle Model version.")
+                        try:
+                            # Make sure the local snapshot is fresh before promoting.
+                            governor.current_batch = batch_size
+                            governor.current_acc = accumulation_steps
+                            safe_torch_save({
+                                'epoch': epoch,
+                                'iteration': i,
+                                'loader_len': len(train_loader),
+                                'model_state': _sd(),
+                                'optimizer_state': optimizer.state_dict(),
+                                'scheduler_state': scheduler.state_dict(),
+                                'governor_state': governor.get_state(),
+                                'best_val_loss': best_val_loss,
+                                'best_quality_score': best_quality_score,
+                                'epochs_no_improve': epochs_no_improve,
+                                'regression_epochs': regression_epochs,
+                                'sota_achieved': sota_baseline_achieved,
+                                'avg_train_loss': (train_loss / (i + 1)) if (i + 1) > 0 else 0.0
+                            }, progress_local)
+                            hub_prog = os.path.join(hub_ckpt_dir, f"{args.model}_progress.pth")
+                            shutil.copy2(progress_local, hub_prog)
+                            try:
+                                trigger_cloud_sync(args.model, epoch, config, wait=True, is_mid_epoch=True)
+                                print(f" [EMERGENCY] [SESSION BOUNDARY] Mid-epoch version committed.")
+                            finally:
+                                if os.path.exists(hub_prog):
+                                    try: os.remove(hub_prog)
+                                    except Exception: pass
+                            _session_boundary_saved = True
+                        except Exception as _sb_err:
+                            print(f" [EMERGENCY] [SESSION BOUNDARY] Snapshot failed: {_sb_err}")
 
         avg_train_loss = train_loss / len(train_loader)
 
-        prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+        # 2026: End-of-train progress snapshot -> LOCAL SCRATCH ONLY.
+        # A killed validation phase resumes cleanly without creating a hub version.
+        prog_ckpt = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
         safe_torch_save({
             'epoch': epoch,
             'iteration': len(train_loader),
@@ -2713,6 +2840,12 @@ def main():
             'sota_achieved': sota_baseline_achieved,
             'metric_vaults': metric_vaults
         }, prog_ckpt)
+
+        # 2026: Record this epoch's wall duration for the next epoch's interval lock.
+        try:
+            _last_epoch_duration_sec = max(1.0, time.time() - _epoch_wall_start)
+        except Exception:
+            _last_epoch_duration_sec = None
 
         if current_iter < len(train_loader):
             print(f" [WARNING] [WARNING] Manifold Leak Detected! Epoch processed {current_iter}/{len(train_loader)} batches before termination.")
@@ -2763,22 +2896,25 @@ def main():
                 _base_vgg = LearnedPerceptualImagePatchSimilarity(net_type='vgg').eval().to(device)
                 loss_fn_vgg = _base_vgg
 
+            # 2026: Val recovery now reads the LOCAL scratch snapshot first.
             if val_resume_iteration > 0:
-                ckpt = torch.load(os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth"), map_location='cpu', weights_only=False)
-                val_loss = ckpt.get('val_loss', 0.0)
-                all_preds = ckpt.get('val_preds', [])
-                all_targets = ckpt.get('val_targets', [])
-                mse_sum = ckpt.get('mse_sum', 0.0)
-                ssim_sum = ckpt.get('ssim_sum', 0.0)
-                lpips_sum = ckpt.get('lpips_sum', 0.0)
-                total_samples = ckpt.get('total_samples', 0)
-                total_pixels = ckpt.get('total_pixels', 0)
-                avg_train_loss = ckpt.get('avg_train_loss', 0.0)
-                if fid_metric is not None and 'fid_state' in ckpt:
-                    fid_metric.load_state_dict(ckpt['fid_state'])
+                _val_probe = progress_local if os.path.exists(progress_local) else progress_hub
+                if os.path.exists(_val_probe):
+                    ckpt = torch.load(_val_probe, map_location='cpu', weights_only=False)
+                    val_loss = ckpt.get('val_loss', 0.0)
+                    all_preds = ckpt.get('val_preds', [])
+                    all_targets = ckpt.get('val_targets', [])
+                    mse_sum = ckpt.get('mse_sum', 0.0)
+                    ssim_sum = ckpt.get('ssim_sum', 0.0)
+                    lpips_sum = ckpt.get('lpips_sum', 0.0)
+                    total_samples = ckpt.get('total_samples', 0)
+                    total_pixels = ckpt.get('total_pixels', 0)
+                    avg_train_loss = ckpt.get('avg_train_loss', 0.0)
+                    if fid_metric is not None and 'fid_state' in ckpt:
+                        fid_metric.load_state_dict(ckpt['fid_state'])
 
-                train_loss = avg_train_loss * len(train_loader)
-                print(f" [RESILIENCY] Validation state RESTORED. Resuming from iteration {val_resume_iteration}.")
+                    train_loss = avg_train_loss * len(train_loader)
+                    print(f" [RESILIENCY] Validation state RESTORED. Resuming from iteration {val_resume_iteration}.")
 
             if isinstance(_raw_interval, (int, float)):
                 val_interval_pct = float(_raw_interval)
@@ -3029,22 +3165,34 @@ def main():
                     total_pixels += len(p_chunk) * 3 * _current_h * _current_w
 
                 val_session_batches += 1
-                if val_session_batches == 30 and config.get("intra_epoch_checkpoint_pct", "auto") == "auto":
+                # 2026: Val-side interval save -> LOCAL SCRATCH ONLY.
+                # Not a version-creating event.
+                if val_session_batches == 30 and config.get("intra_epoch_checkpoint_pct", "auto") == "auto" and val_interval_pct == 0.0:
                     rate = val_pbar.format_dict.get('rate')
-                    avg_time = (1.0 / rate) if rate and rate > 0 else (val_pbar.format_dict['elapsed'] / val_session_batches)
-                    new_val_interval = governor.get_dynamic_save_interval(avg_time, shard_limit)
-                    if new_val_interval != val_interval_pct:
+                    if rate and rate > 0:
+                        avg_time = 1.0 / rate
+                    else:
+                        avg_time = val_pbar.format_dict['elapsed'] / val_session_batches
+                    if avg_time > 0:
+                        est_val_sec = avg_time * shard_limit
+                        if est_val_sec < 1800.0:
+                            new_val_interval = 0.5
+                        else:
+                            new_val_interval = min(0.5, 900.0 / est_val_sec)
                         val_interval_pct = new_val_interval
                         if val_interval_pct > 0:
                             current_pct = (v_idx + 1) / shard_limit if shard_limit > 0 else 0.0
                             last_val_pct = round(math.floor(current_pct / val_interval_pct) * val_interval_pct, 2)
-                            est_mins = (val_interval_pct * shard_limit * avg_time) / 60
-                            val_pbar.write(f" [RESILIENCY] Val Save Interval: {val_interval_pct*100:.1f}% (~{est_mins:.0f} min window)")
+                            if val_interval_pct == 0.5:
+                                val_pbar.write(f" [RESILIENCY] Val Save Interval LOCKED: 50% (est. {est_val_sec/60:.1f} min)")
+                            else:
+                                est_mins = val_interval_pct * est_val_sec / 60
+                                val_pbar.write(f" [RESILIENCY] Val Save Interval LOCKED: {val_interval_pct*100:.1f}% (~{est_mins:.1f} min window)")
 
                 current_pct = (v_idx + 1) / shard_limit
-                if val_interval_pct > 0 and (current_pct >= last_val_pct + val_interval_pct - 1e-4 or current_pct == 1.0):
+                if val_interval_pct > 0 and current_pct >= last_val_pct + val_interval_pct - 1e-4:
                     last_val_pct = current_pct
-                    prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
+                    prog_ckpt = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
                     torch.save({
                         'epoch': epoch,
                         'iteration': len(train_loader),
@@ -3073,7 +3221,7 @@ def main():
                         'val_interval_pct': val_interval_pct
                     }, f"{prog_ckpt}.tmp")
                     safe_replace(f"{prog_ckpt}.tmp", prog_ckpt)
-                    val_pbar.write(f" [RESILIENCY] VAL PROGRESS COMMITTED: {current_pct*100:.0f}% (Iter {v_idx+1})")
+                    val_pbar.write(f" [RESILIENCY] LOCAL VAL PROGRESS COMMITTED: {current_pct*100:.0f}% (Iter {v_idx+1})")
                     gc.collect()
 
                 if train_ds.task_type == "parameter_prediction":
@@ -3681,6 +3829,9 @@ def main():
             'sota_achieved': sota_baseline_achieved
         }
 
+        # 2026: End-of-epoch is the ONLY automatic hub-version trigger.
+        # Transient intra-epoch snapshots never land in the hub directory,
+        # so cloud_sync will always see a clean, complete epoch.
         progress_ckpt_path = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
         if os.path.exists(progress_ckpt_path):
             for attempt in range(3):
@@ -3894,7 +4045,6 @@ def main():
 
         if args.env == 'kaggle' and not skip_hub_push:
             try:
-                from training.cloud_sync import trigger_cloud_sync
                 trigger_cloud_sync(args.model, epoch + 1, config)
             except Exception as e:
                 print(f"[WARNING] [CLOUD SYNC] Critical background sync failure: {e}", file=sys.stderr)
@@ -3940,11 +4090,7 @@ def main():
                         os.makedirs(target_hub_ckpt_dir, exist_ok=True)
                         shutil.copy2(latest_ckpt_src, latest_ckpt_dst)
 
-                    progress_ckpt_src = os.path.join(hub_ckpt_dir, f"{args.model}_progress.pth")
-                    progress_ckpt_dst = os.path.join(target_hub_ckpt_dir, f"{args.model}_progress.pth")
-                    if os.path.exists(progress_ckpt_src) and os.path.abspath(progress_ckpt_src) != os.path.abspath(progress_ckpt_dst):
-                        os.makedirs(target_hub_ckpt_dir, exist_ok=True)
-                        shutil.copy2(progress_ckpt_src, progress_ckpt_dst)
+                    # 2026: Explicitly do NOT mirror `_progress.pth` to the hub repo.
 
                     hub_metrics_dst = os.path.join(target_hub_model_dir, "metrics.csv")
                     if os.path.exists(metrics_csv_path) and os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_dst):
@@ -4467,6 +4613,8 @@ if __name__ == "__main__":
                 absolute_epochs_no_improve = frame.f_locals.get("absolute_epochs_no_improve", 0)
                 regression_epochs = frame.f_locals.get("regression_epochs", 0)
                 sota_baseline_achieved = frame.f_locals.get("sota_baseline_achieved", False)
+                # 2026: This MUST resolve to local_ckpt_dir so the abort snapshot
+                # never lands in the hub and never spawns a Kaggle Model version.
                 progress_local = frame.f_locals.get("progress_local") or frame.f_locals.get("progress_hub")
                 avg_train_loss = frame.f_locals.get("avg_train_loss", 0.0)
                 _sd_frame = frame.f_locals.get("_sd")
@@ -4490,7 +4638,7 @@ if __name__ == "__main__":
                         'avg_train_loss': avg_train_loss
                     }
                     torch.save(ckpt_state, progress_local)
-                    print(f"[OK] Gracefully saved mid-epoch progress checkpoint: {progress_local}")
+                    print(f"[OK] Gracefully saved mid-epoch progress checkpoint (LOCAL): {progress_local}")
         except Exception as save_err:
             print(f" [WARNING] Failed to save progress on manual abort: {save_err}")
         cleanup_active_processes()

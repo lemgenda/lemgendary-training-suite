@@ -3,6 +3,67 @@ import json
 import base64
 import argparse
 import sys
+from pathlib import Path
+
+
+# ─── Runtime environment SSOT (Phase 1.7) ────────────────────────────────────
+# Values are loaded from lem-gendary-env-manager/requirements/runtime_env.yaml at
+# notebook-generation time and embedded as literal Python source into each
+# generated notebook's first cell. Kaggle/Colab do not have access to the
+# env-manager repo, so the values must travel inside the notebook.
+
+_RUNTIME_ENV_FALLBACK: dict[str, str] = {
+    "PYTHONUTF8": "1",
+    "PYTHONUNBUFFERED": "1",
+    "PYTHONIOENCODING": "utf-8",
+    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+    "CUDA_FORCE_PTX_JIT": "1",
+    "TORCH_CUDA_ARCH_LIST": "6.0;7.0;7.5;8.0;8.6;9.0",
+}
+
+
+def _load_runtime_env() -> dict[str, str]:
+    """Read runtime_env.yaml from env-manager if present, else return defaults."""
+    yaml_path = (
+        Path(__file__).parent.parent.parent
+        / "lemgendary-env-manager"
+        / "requirements"
+        / "runtime_env.yaml"
+    )
+    if not yaml_path.exists():
+        return dict(_RUNTIME_ENV_FALLBACK)
+
+    try:
+        raw = yaml_path.read_text(encoding="utf-8")
+    except OSError:
+        return dict(_RUNTIME_ENV_FALLBACK)
+
+    try:
+        import yaml
+        from yaml import YAMLError
+    except ImportError:
+        return dict(_RUNTIME_ENV_FALLBACK)
+
+    try:
+        data = yaml.safe_load(raw) or {}
+    except YAMLError:
+        return dict(_RUNTIME_ENV_FALLBACK)
+
+    result: dict[str, str] = {}
+    for name, spec in (data.get("variables") or {}).items():
+        if isinstance(spec, dict) and "value" in spec:
+            result[str(name)] = str(spec["value"])
+
+    return result if result else dict(_RUNTIME_ENV_FALLBACK)
+
+
+def _build_env_var_lines(env_vars: dict[str, str]) -> list[str]:
+    """Return Python source lines that assign each env var, sorted by name."""
+    lines: list[str] = []
+    for name in sorted(env_vars.keys()):
+        value = env_vars[name].replace("\\", "\\\\").replace("'", "\\'")
+        lines.append(f"os.environ['{name}'] = '{value}'\n")
+    return lines
 
 
 def generate_inference_notebook(model_key, export_dir, unified_models_registry=None, config=None):
@@ -36,10 +97,13 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
 
     accel_str = "GPU T4 x2 (30GB total VRAM) [Recommended]"
 
+    _runtime_env = _load_runtime_env()
+    _env_var_lines = _build_env_var_lines(_runtime_env)
+
     hardware_sentinel_source = [
         "import os, sys, subprocess\n",
-        "# Prevent PyTorch virtual memory fragmentation\n",
-        "os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'\n",
+        "# Runtime environment (LemGendary env-manager SSOT)\n",
+    ] + _env_var_lines + [
         "print('[OK] [SENTINEL] Auditing Hardware Manifold...')\n",
         f"print('[OK] [RECOMMENDED ACCELERATOR] Kaggle: {accel_str}')\n",
         "\n",
@@ -88,7 +152,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    _m = __import__(_b64.b64decode(_k).decode())\n",
         "    _c = getattr(_m, 'UserS' + 'ecrets' + 'Client')()\n",
         "    import os as _os, json as _json\n",
-        "    # 2026: Restore PAT mounting & Kaggle Key mounting for authenticated hub sync\n",
         "    g_pat = None\n",
         "    s_pat = None\n",
         "    k_key = None\n",
@@ -178,7 +241,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    if reset.returncode != 0:\n",
         "        print(f'[WARNING] git reset failed: {reset.stderr.strip()}')\n",
         "\n",
-        "# Clone LemGendary Environment Manager for centralized manifests\n",
         "env_mgr_url = 'https://github.com/lemgenda/lemgendary-env-manager.git'\n",
         "env_mgr_path = '/kaggle/working/lemgendary-env-manager'\n",
         "if pat:\n",
@@ -196,7 +258,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    subprocess.run(['git', 'pull'], cwd=env_mgr_path, env=env, capture_output=True)\n"
     ]
 
-    # 2026 v3.0: Kaggle symlink_source — recursive manifold discovery.
     symlink_source = [
         "import os, re\n",
         f"model_key = '{model_key}'\n",
@@ -207,7 +268,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "found = []\n",
         f"keys = {ds_keys_repr}\n",
         "\n",
-        "# 1. Multi-Dataset Annual Forex Assembly (2019-2026)\n",
         f"if {is_forex} or any('forex' in k for k in keys):\n",
         "    forex_composite_dir = os.path.join(target_dir, 'LemGendizedForexUniverseLarge')\n",
         "    os.makedirs(forex_composite_dir, exist_ok=True)\n",
@@ -281,7 +341,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        print(f'[OK] [FOREX] Assembly complete: {len(forex_years_found)} annual manifolds operational for Walk-Forward Curriculum.')\n",
         "        found.append(forex_composite_dir)\n",
         "\n",
-        "# 2. Universal deep scanner — walks legacy AND modern Kaggle layouts\n",
         "def _scan_kaggle_inputs(root='/kaggle/input', max_depth=6):\n",
         "    if not os.path.isdir(root):\n",
         "        return []\n",
@@ -342,7 +401,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            _walk(top_path, depth=0)\n",
         "    return results\n",
         "\n",
-        "# 3. Link EVERY discovered manifold with rich aliases.\n",
         "if os.path.exists('/kaggle/input'):\n",
         "    attached = _scan_kaggle_inputs()\n",
         "    if attached:\n",
@@ -372,7 +430,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                    print(f'   -> [WARN] Symlink failed for {alias}: {e}')\n",
         "            found.append(cand)\n",
         "\n",
-        "# 4. Hard abort ONLY if nothing was discoverable.\n",
         "if not found:\n",
         "    raise RuntimeError(\n",
         "        f'[ABORT] Nothing attached in /kaggle/input for {model_key}. '\n",
@@ -1041,9 +1098,13 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
 
     no_download = bool(config.get("notebook_no_download", False)) if config else False
 
+    _runtime_env = _load_runtime_env()
+    _env_var_lines = _build_env_var_lines(_runtime_env)
+
     hardware_sentinel_source = [
         "import os, sys, subprocess\n",
-        "os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'\n",
+        "# Runtime environment (LemGendary env-manager SSOT)\n",
+    ] + _env_var_lines + [
         "print('[OK] [SENTINEL] Auditing Hardware Manifold...')\n",
         "print('[OK] [RECOMMENDED ACCELERATOR] Google Colab: T4 GPU (or A100/L4 with Pro)')\n",
         "\n",
@@ -1206,7 +1267,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "print('[OK] Google Drive mounted successfully. Datasets will be streamed directly from Drive.')\n"
     ]
 
-    # 2026 v3.0: Colab symlink_source — recursive scanner + Drive fallback.
     symlink_source = [
         "import os, subprocess, shutil, sys, re\n",
         f"model_key = '{model_key}'\n",

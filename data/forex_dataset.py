@@ -1,5 +1,5 @@
 """
-LemGendary ForexDataset v2.3
+LemGendary ForexDataset v3.0
 ==============================
 PyTorch Dataset class supporting both year-based Walk-Forward manifolds
 (ForexUniverse2019..2026) and legacy fold-sharded manifolds, with
@@ -7,25 +7,33 @@ chunked .npy loading, cross-timeframe alignment, and Governor integration.
 
 Integrates with MultiTaskDataset pattern via task_type = "forex".
 
-v2.3 Changes:
-  - ParquetRowGroupCache now decodes row groups to per-row numpy arrays
-    at cache-fill time. On a cache hit, get_row_features becomes a ~3 us
-    numpy slice instead of a ~5 ms pyarrow scalar extraction. Under the
-    RowGroupAwareSampler this is the single biggest remaining win on the
-    loader hot path (~30% total batch-time reduction at batch 256).
+v3.0 Changes:
+  - ParquetRowGroupCache replaced with a memmap-backed flat feature cache.
+    On first construction, every row group is decoded once and written to a
+    single .flat file plus per-row offset/shape tables. Subsequent opens
+    mmap those files, so get_row_features(i) is a pure numpy slice — no
+    pyarrow decode, no decompression, no LRU eviction, no per-row copies.
+    First-run build cost is a few minutes; every subsequent run opens in
+    milliseconds.
+  - __getitem__ now uses torch.from_numpy on the memmap slice instead of
+    torch.tensor(), eliminating a per-row float32 copy (×6 TFs per sample).
+
+v2.3 Changes (retained in spirit):
+  - Decoded row groups are per-row numpy arrays, detached from pyarrow
+    chunked-array machinery. v3.0 pushes this one step further by persisting
+    the decoded layout to disk.
 
 v2.2 Changes (retained):
   - Exposes _parquet_meta[year]['rg_of_row'] so RowGroupAwareSampler can
     shuffle at the row-group level (raises LRU hit rate from ~2% to ~99%).
 
 v2.1 Changes (retained):
-  - Larger ParquetRowGroupCache (4 -> 12).
   - O(1) aligned-row lookup via precomputed alignment maps.
-  - Eliminated double-copy: torch.tensor() instead of from_numpy(np.array(...copy=True))
-  - Persistent cross-timeframe alignment cache shared across workers where possible.
+  - Eliminated double-copy on the legacy .npy path.
 """
 
 import os
+import json
 from typing import Literal
 import numpy as np
 import torch
@@ -76,85 +84,129 @@ PAIR_PIP_SCALE = {
 
 class ParquetRowGroupCache:  # pylint: disable=too-few-public-methods
     """
-    Process-safe LRU cache for Parquet row groups.
+    Memmap-backed feature cache for a single year's ForexUniverse parquet.
 
-    v2.3: Row groups are decoded to per-row numpy arrays at cache-fill time,
-    not on every access. Under the RowGroupAwareSampler this turns a cache
-    hit from a ~5 ms pyarrow scalar extraction into a ~3 microsecond numpy
-    slice — the single biggest remaining win on the loader hot path.
+    On first construction, decodes every row group once and writes:
+        <stem>.v<N>.features.flat    -- concatenated float32 payload
+        <stem>.v<N>.offsets.npy      -- int64 start offsets, length N+1
+        <stem>.v<N>.shapes.npy       -- int32 (seq_len, n_features) per row
+        <stem>.v<N>.meta.json        -- source parquet size + mtime for validity
 
-    Note on memory: each cached row group holds ~5000 decoded rows. Row
-    sizes vary by timeframe (the feature width is fixed but seq_len varies
-    from 90 to 512). Worst case ~5000 * 512 * 14 * 4 bytes ≈ 140 MB per
-    group. With 12 groups that's ~1.7 GB peak. On Kaggle (30 GB) this is
-    negligible; on a 4 GB local machine, consider lowering max_cached_groups
-    to 4.
+    Subsequent opens mmap those files. get_row_features(i) becomes a
+    ~100ns numpy slice. Cache is invalidated automatically when the source
+    parquet's size or mtime changes, or when CACHE_VERSION is bumped.
+
+    Disk cost: approximately 1.2–1.5× the source parquet file size.
+    RAM cost: page cache only; the OS reclaims cold pages under pressure.
     """
-    def __init__(self, parquet_path: str, max_cached_groups: int = 12):
+    CACHE_VERSION = 1
+
+    def __init__(self, parquet_path: str, cache_dir: str | None = None):
         import pyarrow.parquet as pq
         self.parquet_path = parquet_path
-        self.max_cached = max_cached_groups
+        if cache_dir is None:
+            cache_dir = os.path.join(os.path.dirname(parquet_path), "_forex_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        stem = os.path.splitext(os.path.basename(parquet_path))[0]
+        base = os.path.join(cache_dir, f"{stem}.v{self.CACHE_VERSION}")
+        self._base = base
+        self._flat_path    = base + ".features.flat"
+        self._offsets_path = base + ".offsets.npy"
+        self._shapes_path  = base + ".shapes.npy"
+        self._meta_path    = base + ".meta.json"
+
+        if not self._cache_valid():
+            self._build_cache(parquet_path)
+            self._write_meta()
+
+        self.row_offsets = np.load(self._offsets_path, mmap_mode="r")
+        self.row_shapes  = np.load(self._shapes_path,  mmap_mode="r")
+        total_floats = int(self.row_offsets[-1])
+        self.flat = np.memmap(self._flat_path, dtype=np.float32, mode="r", shape=(total_floats,))
+
         self.pf = pq.ParquetFile(parquet_path)
         self.num_row_groups = self.pf.num_row_groups
         self.metadata = self.pf.metadata
-        self._cache = {}
-        self._lru_order = []
-
         self.rg_starts = []
         curr = 0
         for i in range(self.num_row_groups):
             self.rg_starts.append(curr)
             curr += self.metadata.row_group(i).num_rows
         self.total_rows = curr
-
-    def _decode_row_group(self, rg_idx: int):
-        """
-        Decode a full row group into a list of numpy arrays, one per row.
-
-        Runs once per cache miss. Each row is a fresh contiguous numpy
-        buffer, fully detached from the pyarrow chunked-array machinery.
-        That means subsequent reads are pure numpy slicing (nanoseconds),
-        not Arrow scalar extraction (milliseconds).
-        """
-        rg_tbl = self.pf.read_row_group(
-            rg_idx, columns=['features', 'seq_len', 'n_features']
+        assert self.total_rows == len(self.row_shapes), (
+            f"[CACHE] row count mismatch: parquet={self.total_rows} cache={len(self.row_shapes)}"
         )
-        feats = rg_tbl['features'].combine_chunks()
-        seq_lens = rg_tbl['seq_len'].to_numpy()
-        n_feats = rg_tbl['n_features'].to_numpy()
-        num_rows = len(seq_lens)
 
-        decoded = []
-        append = decoded.append
-        for i in range(num_rows):
-            buf = feats[i].as_buffer()
-            arr = np.frombuffer(buf, dtype=np.float32).reshape(
-                int(seq_lens[i]), int(n_feats[i])
-            )
-            # np.ascontiguousarray detaches the ndarray from the pyarrow
-            # buffer, so the parent Arrow buffer can be gc'd after this
-            # function returns.
-            append(np.ascontiguousarray(arr))
-        return decoded
+    def _cache_valid(self) -> bool:
+        if not (os.path.exists(self._flat_path)
+                and os.path.exists(self._offsets_path)
+                and os.path.exists(self._shapes_path)
+                and os.path.exists(self._meta_path)):
+            return False
+        try:
+            st = os.stat(self.parquet_path)
+            with open(self._meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            if meta.get("version") != self.CACHE_VERSION:
+                return False
+            if meta.get("src_size") != st.st_size:
+                return False
+            if int(meta.get("src_mtime", 0)) != int(st.st_mtime):
+                return False
+            return True
+        except Exception:
+            return False
+
+    def _write_meta(self):
+        st = os.stat(self.parquet_path)
+        with open(self._meta_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "version": self.CACHE_VERSION,
+                "src_size": st.st_size,
+                "src_mtime": int(st.st_mtime),
+                "src_path": os.path.abspath(self.parquet_path),
+            }, f)
+
+    def _build_cache(self, parquet_path: str):
+        import pyarrow.parquet as pq
+        print(f" [CACHE] Building memmap cache for {os.path.basename(parquet_path)} (one-time)...")
+        pf = pq.ParquetFile(parquet_path)
+        num_rgs = pf.num_row_groups
+
+        tmp_flat    = self._flat_path + ".tmp"
+        tmp_offsets = self._offsets_path + ".tmp.npy"
+        tmp_shapes  = self._shapes_path  + ".tmp.npy"
+
+        cursor = 0
+        offsets = [0]
+        shapes = []
+
+        with open(tmp_flat, "wb") as fout:
+            for rg_idx in range(num_rgs):
+                rg_tbl = pf.read_row_group(rg_idx, columns=["features", "seq_len", "n_features"])
+                feats    = rg_tbl["features"].combine_chunks()
+                seq_lens = rg_tbl["seq_len"].to_numpy()
+                n_feats  = rg_tbl["n_features"].to_numpy()
+                for i in range(len(seq_lens)):
+                    arr = np.frombuffer(feats[i].as_buffer(), dtype=np.float32)
+                    fout.write(arr.tobytes())
+                    cursor += arr.size
+                    offsets.append(cursor)
+                    shapes.append((int(seq_lens[i]), int(n_feats[i])))
+
+        os.replace(tmp_flat, self._flat_path)
+        np.save(tmp_offsets, np.asarray(offsets, dtype=np.int64))
+        os.replace(tmp_offsets, self._offsets_path)
+        np.save(tmp_shapes, np.asarray(shapes, dtype=np.int32))
+        os.replace(tmp_shapes, self._shapes_path)
+
+        print(f" [CACHE] Done: {len(shapes)} rows, {cursor} floats ({cursor * 4 / 1e9:.2f} GB).")
 
     def get_row_features(self, global_row_idx: int) -> np.ndarray:
-        import bisect
-        rg_idx = bisect.bisect_right(self.rg_starts, global_row_idx) - 1
-        rg_offset = global_row_idx - self.rg_starts[rg_idx]
-
-        cached = self._cache.get(rg_idx)
-        if cached is None:
-            cached = self._decode_row_group(rg_idx)
-            self._cache[rg_idx] = cached
-            self._lru_order.append(rg_idx)
-            if len(self._lru_order) > self.max_cached:
-                evict = self._lru_order.pop(0)
-                self._cache.pop(evict, None)
-        else:
-            self._lru_order.remove(rg_idx)
-            self._lru_order.append(rg_idx)
-
-        return cached[rg_offset]
+        o1 = int(self.row_offsets[global_row_idx])
+        o2 = int(self.row_offsets[global_row_idx + 1])
+        s  = self.row_shapes[global_row_idx]
+        return self.flat[o1:o2].reshape(int(s[0]), int(s[1]))
 
 
 def load_shard(
@@ -197,15 +249,6 @@ class ForexDataset(Dataset):
     Loads windowed OHLCV + indicator samples from pre-built .npy shards.
     Supports year-based Walk-Forward folds (2019..2026), Governor-aligned
     fractional sampling, and multi-scale timeframe expansion.
-
-    Args:
-        shard_root:         Root directory containing shards.
-        pairs:              List of currency pair symbols to include.
-        active_timeframes:  List of active timeframe rungs (minutes).
-        is_train:           True for training split, False for validation.
-        sample_fraction:    Fraction of training samples to use (Governor managed).
-        fold:               Walk-forward fold index (1..6).
-        spread_stress_pips: Dynamic spread friction in pips.
     """
 
     task_type = "forex"
@@ -334,15 +377,15 @@ class ForexDataset(Dataset):
         self._parquet_meta = {}
         self._parquet_tf_rows = {}
         self._parquet_tf_ts = {}
-        # 2026 v2.1: precomputed alignment maps keyed by (pair, primary_tf, other_tf, year)
         self._parquet_alignment_cache = {}
+        self._alignment_cache = {}
+        self._shards = {}
 
         self._build_index()
 
     def _resolve_pair_dir(self, parent_dir: str, pair: str) -> str | None:
         """Resolves pair directory handling symbol aliases (e.g. NAS100 <-> USTEC)."""
         candidates = [pair, ALIAS_PAIRS.get(pair, pair)]
-        # Also check reverse alias
         for k, v in ALIAS_PAIRS.items():
             if v == pair and k not in candidates:
                 candidates.append(k)
@@ -359,8 +402,6 @@ class ForexDataset(Dataset):
         self._index = []
         self._tf_map = {}
 
-        # 1. Detect if any attached root has year-based structure (ForexUniverseYYYY.parquet or ForexUniverseYYYY/)
-        # Supports single unified folder or multiple distinct dataset roots (e.g. multi-dataset mounts on Kaggle)
         year_parquet_map = {}
         year_dirs_map = {}
         for root in self.shard_roots:
@@ -382,7 +423,6 @@ class ForexDataset(Dataset):
             except OSError:
                 continue
 
-        # In Kaggle environment, scan /kaggle/input
         if os.path.exists('/kaggle/input') and (len(year_parquet_map) + len(year_dirs_map)) < 8:
             try:
                 for root_dir, dirs, files in os.walk('/kaggle/input'):
@@ -404,8 +444,6 @@ class ForexDataset(Dataset):
                 pass
 
         if year_parquet_map or year_dirs_map:
-            # --- Year-Based Walk-Forward Manifold ---
-            # Fold k: Train = [2019..2019+k], Val = [2019+k+1]
             fold_idx = max(1, min(6, self.fold))
             if self.is_train:
                 target_years = [f"ForexUniverse{yr}" for yr in range(2019, 2019 + fold_idx + 1)]
@@ -418,12 +456,6 @@ class ForexDataset(Dataset):
                     cache = ParquetRowGroupCache(p_path)
                     self._parquet_caches[yr_name] = cache
 
-                    # ─────────────────────────────────────────────────────────────
-                    # 2026 v2.2: Build global_row -> row_group map for the
-                    # RowGroupAwareSampler. Row group size is ~5000 and there are
-                    # ~500-700 groups per year, so random row access yields
-                    # ~1.7% LRU hit rate. Row-group-level shuffle raises it to ~99%.
-                    # ─────────────────────────────────────────────────────────────
                     rg_of_row = np.empty(cache.total_rows, dtype=np.int32)
                     for rg_idx in range(cache.num_row_groups):
                         rg_start = cache.rg_starts[rg_idx]
@@ -530,7 +562,6 @@ class ForexDataset(Dataset):
                                                 self._index.append((p_idx, tf, key, row))
 
         else:
-            # --- Legacy Fold-Based Manifold (folds/fold_N) ---
             for pair in self.pairs:
                 p_idx = PAIR_INDEX.get(pair, 0)
                 pair_root = None
@@ -570,7 +601,6 @@ class ForexDataset(Dataset):
 
         self.all_samples = list(self._index)
 
-        # Governor fractional sampling (train only, uniform chronological stride across all pairs/years)
         if self.is_train and self.sample_fraction < 1.0:
             stride = max(1, round(1.0 / max(1e-4, self.sample_fraction)))
             self._index = self.all_samples[::stride]
@@ -615,8 +645,6 @@ class ForexDataset(Dataset):
 
     def _get_shard_data(self, key: tuple):
         """Lazily retrieves or loads shard arrays for a specific key."""
-        if getattr(self, '_shards', None) is None:
-            self._shards = {}
         if key not in self._shards:
             tf_dir, chunk_idx = self._shard_paths[key]
             c_arg = chunk_idx if chunk_idx >= 0 else None
@@ -625,8 +653,6 @@ class ForexDataset(Dataset):
 
     def _get_alignment_map(self, primary_key: tuple, other_key: tuple):
         """Lazily computes or retrieves precalculated alignment row mapping between two shards."""
-        if getattr(self, '_alignment_cache', None) is None:
-            self._alignment_cache = {}
         pair_key = (primary_key, other_key)
         if pair_key in self._alignment_cache:
             return self._alignment_cache[pair_key]
@@ -642,7 +668,6 @@ class ForexDataset(Dataset):
             other_ts is not None and len(other_ts) > 1 and len(prim_ts) > 1 and
             prim_ts[-1] > prim_ts[0] and other_ts[-1] > other_ts[0]
         ):
-            # Vectorized alignment precalculated once per shard pair (2ms vs 35M searches)
             aligned = np.searchsorted(other_ts, prim_ts, side='right') - 1
             aligned = np.clip(aligned, 0, len(other_X) - 1).astype(np.int64)
         else:
@@ -656,13 +681,6 @@ class ForexDataset(Dataset):
         return aligned
 
     def _get_parquet_alignment(self, pair_name: str, primary_tf: int, other_tf: int, yr_name: str):
-        """
-        2026 v2.1: Precompute the full primary-tf -> other-tf aligned-row map ONCE per
-        (pair, primary_tf, other_tf, year) tuple. Replaces an O(log N) searchsorted
-        on every __getitem__ call with an O(1) array lookup.
-
-        Returns (other_rows_array, mapped_primary_idx -> other_row) or None on failure.
-        """
         align_key = (pair_name, primary_tf, other_tf, yr_name)
         if align_key in self._parquet_alignment_cache:
             return self._parquet_alignment_cache[align_key]
@@ -679,22 +697,34 @@ class ForexDataset(Dataset):
             self._parquet_alignment_cache[align_key] = None
             return None
 
-        # Fully vectorized one-time alignment
         mapped = np.searchsorted(other_ts, prim_ts, side="right") - 1
         mapped = np.clip(mapped, 0, len(other_rows) - 1).astype(np.int64)
         result = (other_rows, mapped)
         self._parquet_alignment_cache[align_key] = result
         return result
 
+    @staticmethod
+    def _fit_window(raw_sample: np.ndarray, target_len: int) -> np.ndarray:
+        """
+        Left-pad or right-crop a window to target_len along the time axis.
+        Returns a numpy array (potentially a view when no padding is needed).
+        """
+        cur = raw_sample.shape[0]
+        if cur < target_len:
+            pad = np.zeros((target_len - cur, raw_sample.shape[1]), dtype=raw_sample.dtype)
+            return np.concatenate([pad, raw_sample], axis=0)
+        if cur > target_len:
+            return raw_sample[-target_len:]
+        return raw_sample
+
     def __getitem__(self, index: int):
         """
         Returns:
-            tf_inputs: Dict[int -> Tensor[seq_len, features]] -- one entry per active TF
+            tf_inputs: Dict[int -> Tensor[seq_len, features]]
             labels:    Dict with 'direction' (long) and 'magnitude' (float32 [2])
             pair_idx:  Long tensor (scalar)
         """
         if len(self._index) == 0:
-            # Dummy batch fallback to prevent dataloader crash on empty discovery
             tf_inputs = {tf: torch.zeros(TIMEFRAME_LOOKBACK.get(tf, 168), 14) for tf in self.active_timeframes}
             return (
                 tf_inputs,
@@ -711,58 +741,51 @@ class ForexDataset(Dataset):
             meta = self._parquet_meta[yr_name]
             cache = self._parquet_caches[yr_name]
             pair_name = str(meta["pair"][row])
-            current_ts = meta["timestamp"][row]
 
             target_len = TIMEFRAME_LOOKBACK.get(tf, 168)
-            raw_sample = cache.get_row_features(row)
-            if raw_sample.shape[0] < target_len:
-                pad = np.zeros((target_len - raw_sample.shape[0], raw_sample.shape[1]), dtype=raw_sample.dtype)
-                raw_sample = np.concatenate([pad, raw_sample], axis=0)
-            elif raw_sample.shape[0] > target_len:
-                raw_sample = raw_sample[-target_len:]
+            raw_sample = self._fit_window(cache.get_row_features(row), target_len)
 
-            # 2026 v2.1: Single-copy tensor materialization (was: double-copy)
-            tf_inputs = {tf: torch.tensor(raw_sample, dtype=torch.float32)}
+            # 2026 v3.0: memmap slice aliased into a torch tensor (zero-copy).
+            # PyTorch's default collate stacks into fresh storage before the
+            # batch crosses the worker boundary, so the memmap view is
+            # short-lived. Falls back to a defensive copy if the slice is not
+            # already contiguous float32.
+            if raw_sample.dtype == np.float32 and raw_sample.flags["C_CONTIGUOUS"]:
+                primary_tensor = torch.from_numpy(raw_sample)
+            else:
+                primary_tensor = torch.from_numpy(np.ascontiguousarray(raw_sample, dtype=np.float32))
+            tf_inputs = {tf: primary_tensor}
 
-            # Cross-timeframe alignment via O(1) precomputed alignment map
+            n_features = raw_sample.shape[1]
+
             for other_tf in self.active_timeframes:
                 if other_tf == tf:
                     continue
                 other_target_len = TIMEFRAME_LOOKBACK.get(other_tf, 168)
                 align = self._get_parquet_alignment(pair_name, tf, other_tf, yr_name)
                 if align is None:
-                    tf_inputs[other_tf] = torch.zeros(other_target_len, raw_sample.shape[-1])
+                    tf_inputs[other_tf] = torch.zeros(other_target_len, n_features)
                     continue
 
                 other_rows, mapped = align
-                # `row` here is the GLOBAL row index into the year's parquet.
-                # `mapped[row]` gives the other_tf row aligned by timestamp.
-                # BUT: `mapped` was built over the *filtered* primary_tf rows
-                # stored in self._parquet_tf_rows[(pair, primary_tf, yr)], not over
-                # the full global row range. So we must translate `row` -> its
-                # position inside the primary_tf filtered array first.
-                primary_key = (pair_name, tf, yr_name)
-                prim_rows = self._parquet_tf_rows.get(primary_key)
+                prim_rows = self._parquet_tf_rows.get((pair_name, tf, yr_name))
                 if prim_rows is None or len(prim_rows) == 0:
-                    tf_inputs[other_tf] = torch.zeros(other_target_len, raw_sample.shape[-1])
+                    tf_inputs[other_tf] = torch.zeros(other_target_len, n_features)
                     continue
 
-                # Locate `row` inside prim_rows (they are sorted by construction)
                 import bisect as _bisect
                 pos = _bisect.bisect_left(prim_rows, row)
                 if pos >= len(prim_rows) or int(prim_rows[pos]) != int(row):
-                    # Rare: row not in the filtered map (shouldn't happen for active TF)
-                    tf_inputs[other_tf] = torch.zeros(other_target_len, raw_sample.shape[-1])
+                    tf_inputs[other_tf] = torch.zeros(other_target_len, n_features)
                     continue
 
                 aligned_row = int(other_rows[int(mapped[pos])])
-                other_sample = cache.get_row_features(aligned_row)
-                if other_sample.shape[0] < other_target_len:
-                    pad = np.zeros((other_target_len - other_sample.shape[0], other_sample.shape[1]), dtype=other_sample.dtype)
-                    other_sample = np.concatenate([pad, other_sample], axis=0)
-                elif other_sample.shape[0] > other_target_len:
-                    other_sample = other_sample[-other_target_len:]
-                tf_inputs[other_tf] = torch.tensor(other_sample, dtype=torch.float32)
+                other_sample = self._fit_window(cache.get_row_features(aligned_row), other_target_len)
+
+                if other_sample.dtype == np.float32 and other_sample.flags["C_CONTIGUOUS"]:
+                    tf_inputs[other_tf] = torch.from_numpy(other_sample)
+                else:
+                    tf_inputs[other_tf] = torch.from_numpy(np.ascontiguousarray(other_sample, dtype=np.float32))
 
             scale = PAIR_PIP_SCALE.get(pair_name, 1.0)
             mag_tp = float(meta["tp_pips"][row]) / scale
@@ -787,19 +810,16 @@ class ForexDataset(Dataset):
 
         X, y_dir, y_mag, _ = self._get_shard_data(key)
 
-        # Primary timeframe tensor with shape invariant guarantee
         target_len = TIMEFRAME_LOOKBACK.get(tf, 168)
-        raw_sample = X[row]
-        if raw_sample.shape[0] < target_len:
-            pad = np.zeros((target_len - raw_sample.shape[0], raw_sample.shape[1]), dtype=raw_sample.dtype)
-            raw_sample = np.concatenate([pad, raw_sample], axis=0)
-        elif raw_sample.shape[0] > target_len:
-            raw_sample = raw_sample[-target_len:]
+        raw_sample = self._fit_window(np.asarray(X[row]), target_len)
 
-        # 2026 v2.1: Single-copy tensor materialization
-        tf_inputs = {tf: torch.tensor(raw_sample, dtype=torch.float32)}
+        if raw_sample.dtype == np.float32 and raw_sample.flags["C_CONTIGUOUS"]:
+            tf_inputs = {tf: torch.from_numpy(raw_sample)}
+        else:
+            tf_inputs = {tf: torch.from_numpy(np.ascontiguousarray(raw_sample, dtype=np.float32))}
 
-        # Cross-timeframe multi-scale alignment via O(1) precalculated map
+        n_features = raw_sample.shape[1]
+
         for other_tf in self.active_timeframes:
             if other_tf == tf:
                 continue
@@ -812,7 +832,7 @@ class ForexDataset(Dataset):
                 other_key = candidate_keys[0]
                 other_X, _, _, _ = self._get_shard_data(other_key)
                 if other_X is None or len(other_X) == 0:
-                    tf_inputs[other_tf] = torch.zeros(other_target_len, raw_sample.shape[-1])
+                    tf_inputs[other_tf] = torch.zeros(other_target_len, n_features)
                     continue
 
                 alignment_map = self._get_alignment_map(key, other_key)
@@ -822,18 +842,14 @@ class ForexDataset(Dataset):
                     ratio = tf / other_tf
                     aligned_row = min(int(row * ratio), len(other_X) - 1)
 
-                other_sample = other_X[aligned_row]
-                if other_sample.shape[0] < other_target_len:
-                    pad = np.zeros((other_target_len - other_sample.shape[0], other_sample.shape[1]), dtype=other_sample.dtype)
-                    other_sample = np.concatenate([pad, other_sample], axis=0)
-                elif other_sample.shape[0] > other_target_len:
-                    other_sample = other_sample[-other_target_len:]
-
-                tf_inputs[other_tf] = torch.tensor(other_sample, dtype=torch.float32)
+                other_sample = self._fit_window(np.asarray(other_X[aligned_row]), other_target_len)
+                if other_sample.dtype == np.float32 and other_sample.flags["C_CONTIGUOUS"]:
+                    tf_inputs[other_tf] = torch.from_numpy(other_sample)
+                else:
+                    tf_inputs[other_tf] = torch.from_numpy(np.ascontiguousarray(other_sample, dtype=np.float32))
             else:
-                tf_inputs[other_tf] = torch.zeros(other_target_len, raw_sample.shape[-1])
+                tf_inputs[other_tf] = torch.zeros(other_target_len, n_features)
 
-        # Magnitude scaling (Normalized Pip Units)
         scale = PAIR_PIP_SCALE.get(pair_name, 1.0)
         mag_tp = float(y_mag[row, 0]) / scale
         mag_sl = float(y_mag[row, 1]) / scale
