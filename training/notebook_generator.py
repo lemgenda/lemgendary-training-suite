@@ -7,30 +7,46 @@ from pathlib import Path
 
 
 # ─── Runtime environment SSOT (Phase 1.7) ────────────────────────────────────
-# Values are loaded from lem-gendary-env-manager/requirements/runtime_env.yaml at
-# notebook-generation time and embedded as literal Python source into each
+# Values are loaded from lemgendary-env-manager/requirements/runtime_env.yaml
+# at notebook-generation time and embedded as literal Python source into each
 # generated notebook's first cell. Kaggle/Colab do not have access to the
 # env-manager repo, so the values must travel inside the notebook.
+#
+# IMPORTANT: only runtime-safe variables belong here. Build-time CUDA knobs
+# (CUDA_FORCE_PTX_JIT, TORCH_CUDA_ARCH_LIST, CUDA_CACHE_*) force JIT
+# compilation of every CUDA kernel at import time and blow out the compute
+# cache — that is what filled the Kaggle disk during `import torch`.
 
 _RUNTIME_ENV_FALLBACK: dict[str, str] = {
     "PYTHONUTF8": "1",
     "PYTHONUNBUFFERED": "1",
     "PYTHONIOENCODING": "utf-8",
     "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-    "CUDA_FORCE_PTX_JIT": "1",
-    "TORCH_CUDA_ARCH_LIST": "6.0;7.0;7.5;8.0;8.6;9.0",
+}
+
+# Vars that must never be injected at runtime.
+_BLOCKED_RUNTIME_ENV: set[str] = {
+    "CUDA_FORCE_PTX_JIT",
+    "TORCH_CUDA_ARCH_LIST",
+    "CUDA_CACHE_PATH",
+    "CUDA_CACHE_MAXSIZE",
 }
 
 
 def _load_runtime_env() -> dict[str, str]:
-    """Read runtime_env.yaml from env-manager if present, else return defaults."""
-    yaml_path = (
-        Path(__file__).parent.parent.parent
-        / "lemgendary-env-manager"
-        / "requirements"
-        / "runtime_env.yaml"
-    )
-    if not yaml_path.exists():
+    """Read runtime_env.yaml from env-manager if present, else return defaults.
+
+    Tries several candidate paths so this works regardless of how deeply the
+    generator is nested relative to the env-manager repo.
+    """
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parent.parent / "lemgendary-env-manager" / "requirements" / "runtime_env.yaml",
+        here.parent.parent.parent / "lemgendary-env-manager" / "requirements" / "runtime_env.yaml",
+        here.parent.parent.parent.parent / "lemgendary-env-manager" / "requirements" / "runtime_env.yaml",
+    ]
+    yaml_path = next((p for p in candidates if p.exists()), None)
+    if yaml_path is None:
         return dict(_RUNTIME_ENV_FALLBACK)
 
     try:
@@ -53,6 +69,13 @@ def _load_runtime_env() -> dict[str, str]:
     for name, spec in (data.get("variables") or {}).items():
         if isinstance(spec, dict) and "value" in spec:
             result[str(name)] = str(spec["value"])
+
+    # Never inject build-time-only vars at runtime — they force JIT compilation
+    # of every CUDA kernel and blow out the compute cache.
+    result = {k: v for k, v in result.items() if k not in _BLOCKED_RUNTIME_ENV}
+
+    # Guarantee the alloc-conf setting even if the yaml omits it.
+    result.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     return result if result else dict(_RUNTIME_ENV_FALLBACK)
 
