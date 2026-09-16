@@ -10,7 +10,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     """
     pascal_model_name = model_key.replace("_", " ").title().replace(" ", "")
     kebab_model_name = model_key.replace("_", "-")
-    
+
     # Derive the actual Kaggle dataset slug
     dataset_slug = f"lemgendary-{kebab_model_name}"
     if config:
@@ -35,7 +35,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     ds_keys_repr = repr([model_key.lower(), model_key.replace("_", "-"), model_key.replace("_", "")] + [d.lower() for d in ds_list] + (["forex"] if is_forex else []))
 
     # --- Section Logic: v16.0 Nuclear Orchestration ---
-    
+
     accel_str = "GPU T4 x2 (30GB total VRAM) [Recommended] or GPU P100 (16GB VRAM)"
 
     hardware_sentinel_source = [
@@ -133,14 +133,20 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    print(f'[ERROR] Secret mounting failed: {e}')\n"
     ]
 
+    # 2026 v1.1: URL-encode PAT before injecting into clone URL.
+    # Fixes malformed clone URLs when fine-grained GitHub tokens contain '+', '/', or '='.
     clone_source = [
         "import os, subprocess, shutil\n",
+        "from urllib.parse import quote as _url_quote\n",
         "repo_url = 'https://github.com/lemgenda/lemgendary-training-suite.git'\n",
         "suite_path = '/kaggle/working/lemgendary-training-suite'\n",
         "pat = os.environ.get('SUITE_PAT', os.environ.get('GITHUB_PAT', ''))\n",
         "if pat:\n",
-        "    # Use x-access-token for more reliable auth with fine-grained tokens\n",
-        "    auth_url = repo_url.replace('https://', f'https://x-access-token:{pat}@')\n",
+        "    # 2026 v1.1: URL-encode the PAT before injecting it into the clone URL.\n",
+        "    # GitHub PATs are usually [A-Za-z0-9_-], but fine-grained tokens can\n",
+        "    # occasionally contain '+' or '/' which break the URL.\n",
+        "    _safe_pat = _url_quote(pat, safe='')\n",
+        "    auth_url = repo_url.replace('https://', f'https://x-access-token:{_safe_pat}@')\n",
         "    print(f'[AUTH] Using {\"SUITE_PAT\" if os.environ.get(\"SUITE_PAT\") else \"GITHUB_PAT\"} for cloning...')\n",
         "else:\n",
         "    print('[WARNING] No PAT found in environment. Attempting public clone (will fail for private repos)...')\n",
@@ -152,7 +158,8 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "\n",
         "if not os.path.exists(suite_path):\n",
         "    print('[SUITE] Initializing LemGendary Training Suite...')\n",
-        "    res = subprocess.run(['git', 'clone', auth_url, suite_path], capture_output=True, text=True, env=env)\n",
+        "    # 2026 v1.1: --depth 1 keeps the initial clone fast on Kaggle.\n",
+        "    res = subprocess.run(['git', 'clone', '--depth', '1', auth_url, suite_path], capture_output=True, text=True, env=env)\n",
         "    if res.returncode == 0: \n",
         "        print('[OK] Suite cloned.')\n",
         "    else: \n",
@@ -163,13 +170,16 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "else:\n",
         "    print('[OK] Suite resident. Syncing origin and pulling latest...')\n",
         "    subprocess.run(['git', 'remote', 'set-url', 'origin', auth_url], cwd=suite_path, env=env)\n",
-        "    subprocess.run(['git', 'fetch', 'origin'], cwd=suite_path, env=env)\n",
+        "    subprocess.run(['git', 'fetch', '--depth', '1', 'origin'], cwd=suite_path, env=env)\n",
         "    subprocess.run(['git', 'reset', '--hard', 'origin/main'], cwd=suite_path, env=env)\n",
         "\n",
         "# Clone LemGendary Environment Manager for centralized manifests\n",
         "env_mgr_url = 'https://github.com/lemgenda/lemgendary-env-manager.git'\n",
         "env_mgr_path = '/kaggle/working/lemgendary-env-manager'\n",
-        "env_mgr_auth = env_mgr_url.replace('https://', f'https://x-access-token:{pat}@') if pat else env_mgr_url\n",
+        "if pat:\n",
+        "    env_mgr_auth = env_mgr_url.replace('https://', f'https://x-access-token:{_url_quote(pat, safe=\"\")}@')\n",
+        "else:\n",
+        "    env_mgr_auth = env_mgr_url\n",
         "if not os.path.exists(env_mgr_path):\n",
         "    subprocess.run(['git', 'clone', '--depth', '1', env_mgr_auth, env_mgr_path], capture_output=True, text=True, env=env)\n",
         "else:\n",
@@ -272,8 +282,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                path = os.path.join(curr, item)\n",
         "                if os.path.isdir(path):\n",
         "                    item_lower = item.lower()\n",
-        "                    # Prune models/checkpoints to prevent wasting time scanning weights\n",
-        "                    # 2026 Resilience: Aggressive FUSE Pruning - NEVER enter raw image/target dirs to prevent OOM stat storms\n",
         "                    if item_lower in ['models', 'checkpoints', 'weights']:\n",
         "                        continue\n",
         "                    depths[path] = depth + 1\n",
@@ -308,6 +316,9 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                print(f'[OK] [LINKED] {link} -> {d}')\n"
     ]
 
+    # 2026 v1.1 fixes applied here:
+    #   (a) `_is_p100_gpu = False` initialized before the branch (prevents NameError on ROCm/CPU hosts)
+    #   (b) Removed invalid `--no-warn-conflicts` pip flag (was aborting install with exit code 2)
     install_source = [
         "import os, sys, subprocess, platform, shutil\n",
         "print('[ENV] Probing hardware accelerator...')\n",
@@ -315,8 +326,8 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "# Full hardware detection: CUDA > ROCm > DirectML > CPU\n",
         "torch_index = 'https://download.pytorch.org/whl/cpu'\n",
         "accel_type = 'cpu'\n",
+        "_is_p100_gpu = False  # 2026 v1.1: init before branch to prevent NameError on ROCm/CPU hosts\n",
         "if shutil.which('nvidia-smi'):\n",
-        "    _is_p100_gpu = False\n",
         "    try:\n",
         "        _smi_name = subprocess.check_output(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'], text=True).strip()\n",
         "        if 'P100' in _smi_name:\n",
@@ -377,10 +388,11 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            _cf.write('torch==2.4.0+cu118\\ntorchvision==0.19.0+cu118\\n')\n",
         "        print('[ENV] P100 constraint file written. requirements.txt install will be pinned to cu118.')\n",
         "    _constraint_args = ['--constraint', _p100_constraints] if _p100_constraints else []\n",
+        "    # 2026 v1.1: '--no-warn-conflicts' is NOT a valid pip flag (removed).\n",
+        "    # pip's resolver prints conflict warnings by default; there is no suppression flag.\n",
         "    res = subprocess.run(\n",
         "        [sys.executable, '-m', 'pip', 'install', '-q',\n",
         "         '--extra-index-url', torch_index,\n",
-        "         '--no-warn-conflicts',\n",
         "         '--upgrade-strategy', 'only-if-needed',\n",
         "         '-r', req_path] + _constraint_args,\n",
         "        capture_output=True, text=True)\n",
@@ -439,13 +451,11 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                path = os.path.join(curr, item)\n",
         "                if os.path.isdir(path):\n",
         "                    item_lower = item.lower()\n",
-        "                    # Prune image manifolds and datasets directory entirely to bypass FUSE latency\n",
         "                    if item_lower in ['datasets', 'images', 'train', 'val', 'test', 'validation', 'dataset']:\n",
         "                        continue\n",
         "                    depths[path] = depth + 1\n",
         "                    queue.append(path)\n",
         "                    \n",
-        "                    # If this is checkpoints folder or matches name, list .pth files\n",
         "                    if 'checkpoints' in item_lower or 'models' in item_lower or 'weights' in item_lower or model_key.replace('_', '') in item_lower.replace('_', ''):\n",
         "                        try:\n",
         "                            for f in os.listdir(path):\n",
@@ -465,7 +475,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            shutil.copy2(src, dst)\n",
         "            print(f'   -> [OK] Recovered {fname}')\n",
         "\n",
-        "    # 2026 Resilience: Recover Metrics Audit Trail using BFS scanner\n",
         "    src_met = None\n",
         "    if os.path.exists('/kaggle/input'):\n",
         "        try:\n",
@@ -479,7 +488,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                    path = os.path.join(curr, item)\n",
         "                    if os.path.isdir(path):\n",
         "                        item_lower = item.lower()\n",
-        "                        # Prune image subdirectories to avoid deep lag\n",
         "                        if item_lower in ['images', 'train', 'val', 'test']:\n",
         "                            continue\n",
         "                        depths[path] = depth + 1\n",
@@ -551,11 +559,11 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     k_username = config.get("kaggle_username", "lemtreursi") if config else "lemtreursi"
     slug_prefix = config.get("kaggle_slug_prefix", "lemgendary-") if config else "lemgendary-"
     slug_suffix = config.get("kaggle_slug_suffix", "-checkpoints") if config else "-checkpoints"
-    
+
     k_slug = model_key.replace('_', '-')
     if "nima-aesthetic" in k_slug:
         k_slug = k_slug.replace("nima-aesthetic", "nima-aesthetics")
-    
+
     k_handle = f"{k_username}/{slug_prefix}{k_slug}{slug_suffix}/pytorch/default"
 
     push_source = [
@@ -617,7 +625,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "\n",
         "if os.path.exists('/kaggle/input'):\n",
         "    try:\n",
-        "        # Fast BFS Directory Search up to depth 7 to locate checkpoint folders\n",
         "        queue = ['/kaggle/input']\n",
         "        depths = {'/kaggle/input': 0}\n",
         "        while queue:\n",
@@ -628,13 +635,11 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "                path = os.path.join(curr, item)\n",
         "                if os.path.isdir(path):\n",
         "                    item_lower = item.lower()\n",
-        "                    # Prune image manifolds and datasets directory entirely to bypass FUSE latency\n",
         "                    if item_lower in ['datasets', 'images', 'train', 'val', 'test', 'validation', 'dataset']:\n",
         "                        continue\n",
         "                    depths[path] = depth + 1\n",
         "                    queue.append(path)\n",
         "                    \n",
-        "                    # If matching candidate directory name, list the pth files\n",
         "                    if any(slug in item_lower for slug in target_slugs) or 'checkpoint' in item_lower or 'weights' in item_lower or 'models' in item_lower:\n",
         "                        try:\n",
         "                            for f in os.listdir(path):\n",
@@ -667,7 +672,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    \n",
         "    metrics_found = False\n",
         "    for src in found_ckpts:\n",
-        "        # Look for metrics.csv in parent or grandparent of the checkpoint\n",
         "        for d in [os.path.dirname(os.path.dirname(src)), os.path.dirname(src)]:\n",
         "            m_path = os.path.join(d, 'metrics.csv')\n",
         "            if os.path.exists(m_path):\n",
@@ -778,12 +782,12 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     }
 
     output_path = os.path.join(export_dir, f"{model_key}_training.ipynb")
-    
+
     # --- 2026 Resilience: Dual-Export & Manifold Synchronization ---
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     datasets_hub_root = os.path.abspath(os.path.join(base_dir, "../LemGendaryDatasets"))
-    
+
     # 1. Primary Model Export (Verified JSON)
     os.makedirs(export_dir, exist_ok=True)
     try:
@@ -814,18 +818,17 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             target_candidates = list(ds_list)
             if model_key not in target_candidates:
                 target_candidates.append(model_key)
-            
+
         synced_dirs = set()
         for target_folder in target_candidates:
             if not target_folder:
                 continue
-            # Handle PascalCase and snake_case correctly without destructive title()
             clean_name = target_folder
             if "_" in clean_name or "-" in clean_name:
                 pascal_name = "".join(part.capitalize() for part in clean_name.replace("-", "_").split("_"))
             else:
                 pascal_name = clean_name
-                
+
             possible_manifold_folders = [
                 target_folder,
                 f"{target_folder}Large",
@@ -834,7 +837,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                 f"LemGendized{target_folder}Large",
                 f"LemGendized{target_folder}"
             ]
-            
+
             for m_folder in possible_manifold_folders:
                 ds_dir = os.path.join(datasets_hub_root, m_folder)
                 if os.path.exists(ds_dir) and ds_dir not in synced_dirs:
@@ -844,8 +847,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                         with open(ds_output_path, "w", encoding='utf-8') as f:
                             f.write(json_str)
                         print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
-                    except Exception as ds_err:
-                        # Silently skip on read-only filesystems (e.g., Kaggle attached datasets)
+                    except Exception:
                         pass
 
         # 3. Dedicated Kaggle Directory Synchronization (Workspace Root)
@@ -857,7 +859,7 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             with open(k_out, "w", encoding='utf-8') as f:
                 f.write(json_str)
             print(f"[OK] Synchronized Kaggle Training Notebook: {k_out}")
-        except Exception as k_err:
+        except Exception:
             pass
 
 
@@ -869,19 +871,18 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
     model_info = {}
     if unified_models_registry:
         model_info = unified_models_registry.get(model_key, {})
-    
+
     model_filename = model_info.get("filename", model_key)
     pascal_model_name = model_key.replace("_", " ").title().replace(" ", "")
-    
-    # Resolve Resolution
+
     size_raw = model_info.get("input_size", [3, 256, 256])
     if isinstance(size_raw, list):
         if len(size_raw) == 3: h, w = size_raw[1], size_raw[2]
         else: h, w = size_raw[0], size_raw[1]
     else: h, w = size_raw, size_raw
-    
+
     is_forex = "forex" in model_key.lower()
-    
+
     if is_forex:
         pth_source = [
             "import base64\n",
@@ -890,7 +891,6 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             "    torch = __import__(base64.b64decode(t_key).decode())\n",
             "    import numpy as np\n",
             "\n",
-            "    # 1. Load Standalone SOTA Model (Architecture + Weights)\n",
             "    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
             f"    model_path = '{pascal_model_name}.pt'\n",
             "    model = torch.load(model_path, map_location=device)\n",
@@ -898,7 +898,6 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             "        model = torch.nn.DataParallel(model)\n",
             "    model.eval()\n",
             "\n",
-            "    # 2. Prepare Multi-Timeframe Sequence Input [B, 168, 14]\n",
             "    input_dict = {tf: torch.randn(1, 168, 14, device=device) for tf in [1, 5, 15, 60, 240, 1440]}\n",
             "\n",
             "    with torch.no_grad():\n",
@@ -914,14 +913,11 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "\n",
-            "    # 1. Initialize High-Precision Session (FP32)\n",
             f"    onnx_path = '{pascal_model_name}_FP32.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
-            "    # 2. Prepare Multi-Timeframe Inputs\n",
             "    inputs = {f'tf_{tf}': np.random.randn(1, 168, 14).astype(np.float32) for tf in [1, 5, 15, 60, 240, 1440]}\n",
             "\n",
-            "    # 3. Inference\n",
             "    output = session.run(None, inputs)\n",
             "    print(f'Prediction Raw: {output}')\n",
             "except Exception as e: print(f'ORT Load Info: {e}')\n"
@@ -932,14 +928,11 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "\n",
-            "    # 1. Initialize Production Session (FP16 Embedded)\n",
             f"    onnx_path = '{pascal_model_name}.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
-            "    # 2. Prepare Multi-Timeframe Inputs (FP16)\n",
             "    inputs = {f'tf_{tf}': np.random.randn(1, 168, 14).astype(np.float16) for tf in [1, 5, 15, 60, 240, 1440]}\n",
             "\n",
-            "    # 3. Inference\n",
             "    output = session.run(None, inputs)\n",
             "    print(f'Production Signal: {output}')\n",
             "except Exception as e: print(f'ORT Load Info: {e}')\n"
@@ -953,7 +946,6 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             "    from PIL import Image\n",
             "    import numpy as np\n",
             "\n",
-            "    # 1. Load Standalone SOTA Model (Architecture + Weights)\n",
             "    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
             f"    model_path = '{pascal_model_name}.pt'\n",
             "    model = torch.load(model_path, map_location=device)\n",
@@ -961,11 +953,9 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             "        model = torch.nn.DataParallel(model)\n",
             "    model.eval()\n",
             "\n",
-            "    # 2. Prepare Input\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
             "    input_tensor = torch.from_numpy(np.array(img)).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0\n",
             "    \n",
-            "    # 3. Standard Normalization\n",
             "    mean = torch.tensor([0.485, 0.456, 0.406]).to(device).view(1, 3, 1, 1)\n",
             "    std = torch.tensor([0.229, 0.224, 0.225]).to(device).view(1, 3, 1, 1)\n",
             "    input_tensor = (input_tensor - mean) / std\n",
@@ -975,7 +965,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             "    print(f'Prediction Raw: {output.cpu().numpy()}')\n",
             "except Exception as e: print(f'Stealth Load Info: {e}')\n"
         ]
-        
+
         onnx_fp32_source = [
             "import base64, numpy as np\n",
             "try:\n",
@@ -983,21 +973,18 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "    from PIL import Image\n",
             "\n",
-            "    # 1. Initialize High-Precision Session (FP32)\n",
             f"    onnx_path = '{pascal_model_name}_FP32.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
-            "    # 2. Prepare Input\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
             "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]\n",
             "    input_data = input_data.transpose(2, 0, 1)[np.newaxis, :]\n",
             "\n",
-            "    # 3. Inference\n",
             "    output = session.run(None, {'input': input_data})[0]\n",
             "    print(f'Prediction Raw: {output}')\n",
             "except Exception as e: print(f'ORT Load Info: {e}')\n"
         ]
-        
+
         onnx_fp16_source = [
             "import base64, numpy as np\n",
             "try:\n",
@@ -1005,21 +992,18 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "    from PIL import Image\n",
             "\n",
-            "    # 1. Initialize Production Session (FP16 Embedded)\n",
             f"    onnx_path = '{pascal_model_name}.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
-            "    # 2. Prepare Input\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
             "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]\n",
             "    input_data = input_data.transpose(2, 0, 1)[np.newaxis, :]\n",
             "\n",
-            "    # 3. Inference\n",
             "    output = session.run(None, {'input': input_data})[0]\n",
             "    print(f'Prediction Raw: {output}')\n",
             "except Exception as e: print(f'ORT Load Info: {e}')\n"
         ]
-    
+
     notebook_content = {
         "metadata": {
             "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
@@ -1078,8 +1062,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
         ]
     }
     output_path = os.path.join(export_dir, f"{model_key}-usage.ipynb")
-    
-    # --- 2026 Resilience: Export Hardening ---
+
     try:
         json_str = json.dumps(notebook_content, indent=4)
         json.loads(json_str) # Hard Validation
@@ -1097,8 +1080,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
     """
     pascal_model_name = model_key.replace("_", " ").title().replace(" ", "")
     kebab_model_name = model_key.replace("_", "-")
-    
-    # Derive the actual Kaggle dataset slug
+
     dataset_slug = f"lemgendary-{kebab_model_name}"
     if config:
         k_urls = config.get("kaggle_dataset_urls", {})
@@ -1137,11 +1119,8 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
     if not clean_kaggle_repo:
         clean_kaggle_repo = f"lemtreursi/{primary_manifold.lower()}"
 
-    # --- Section Logic: v16.0 Nuclear Orchestration ---
-
     hardware_sentinel_source = [
         "import os, sys, subprocess\n",
-        "# Prevent PyTorch virtual memory fragmentation\n",
         "os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'\n",
         "print('[OK] [SENTINEL] Auditing Hardware Manifold...')\n",
         "print('[OK] [RECOMMENDED ACCELERATOR] Google Colab: T4 GPU (or A100/L4 with Pro)')\n",
@@ -1232,18 +1211,21 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    print(f'[ERROR] Secret mounting failed: {e}')\n"
     ]
 
+    # 2026 v1.1: URL-encode PAT before injecting into clone URL.
     clone_source = [
         "import os, subprocess, shutil\n",
+        "from urllib.parse import quote as _url_quote\n",
         "repo_url = 'https://github.com/lemgenda/lemgendary-training-suite.git'\n",
         "suite_path = '/content/lemgendary-training-suite'\n",
         "pat = os.environ.get('SUITE_PAT', os.environ.get('GITHUB_PAT', ''))\n",
         "if pat:\n",
-        "    # Use x-access-token for more reliable auth with fine-grained tokens\n",
-        "    auth_url = repo_url.replace('https://', f'https://x-access-token:{pat}@')\n",
+        "    # 2026 v1.1: URL-encode the PAT before injecting it into the clone URL.\n",
+        "    _safe_pat = _url_quote(pat, safe='')\n",
+        "    auth_url = repo_url.replace('https://', f'https://x-access-token:{_safe_pat}@')\n",
         "    print(f'[AUTH] Using {\"SUITE_PAT\" if os.environ.get(\"SUITE_PAT\") else \"GITHUB_PAT\"} for cloning...')\n",
         "else:\n",
         "    print('[WARNING] No PAT found in environment. Attempting public clone (will fail for private repos)...')\n",
-        "    print('[ACTION REQUIRED] If clone fails, add SUITE_PAT or GITHUB_PAT to Kaggle Add-ons -> Secrets.')\n",
+        "    print('[ACTION REQUIRED] If clone fails, add SUITE_PAT or GITHUB_PAT to Colab Secrets.')\n",
         "    auth_url = repo_url\n",
         "\n",
         "env = os.environ.copy()\n",
@@ -1251,7 +1233,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "\n",
         "if not os.path.exists(suite_path):\n",
         "    print('[SUITE] Initializing LemGendary Training Suite...')\n",
-        "    res = subprocess.run(['git', 'clone', auth_url, suite_path], capture_output=True, text=True, env=env)\n",
+        "    res = subprocess.run(['git', 'clone', '--depth', '1', auth_url, suite_path], capture_output=True, text=True, env=env)\n",
         "    if res.returncode == 0: \n",
         "        print('[OK] Suite cloned.')\n",
         "    else: \n",
@@ -1262,13 +1244,16 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "else:\n",
         "    print('[OK] Suite resident. Syncing origin and pulling latest...')\n",
         "    subprocess.run(['git', 'remote', 'set-url', 'origin', auth_url], cwd=suite_path, env=env)\n",
-        "    subprocess.run(['git', 'fetch', 'origin'], cwd=suite_path, env=env)\n",
+        "    subprocess.run(['git', 'fetch', '--depth', '1', 'origin'], cwd=suite_path, env=env)\n",
         "    subprocess.run(['git', 'reset', '--hard', 'origin/main'], cwd=suite_path, env=env)\n",
         "\n",
         "# Clone LemGendary Environment Manager for centralized manifests\n",
         "env_mgr_url = 'https://github.com/lemgenda/lemgendary-env-manager.git'\n",
         "env_mgr_path = '/content/lemgendary-env-manager'\n",
-        "env_mgr_auth = env_mgr_url.replace('https://', f'https://x-access-token:{pat}@') if pat else env_mgr_url\n",
+        "if pat:\n",
+        "    env_mgr_auth = env_mgr_url.replace('https://', f'https://x-access-token:{_url_quote(pat, safe=\"\")}@')\n",
+        "else:\n",
+        "    env_mgr_auth = env_mgr_url\n",
         "if not os.path.exists(env_mgr_path):\n",
         "    subprocess.run(['git', 'clone', '--depth', '1', env_mgr_auth, env_mgr_path], capture_output=True, text=True, env=env)\n",
         "else:\n",
@@ -1380,6 +1365,9 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    print(f'[ERROR] Could not resolve dataset manifold for {model_key}!')\n"
     ]
 
+    # 2026 v1.1 fixes applied here (same as Kaggle variant):
+    #   (a) `_is_p100_gpu = False` initialized before branch
+    #   (b) Removed invalid `--no-warn-conflicts` pip flag
     install_source = [
         "import os, sys, subprocess, platform, shutil\n",
         "print('[ENV] Probing hardware accelerator...')\n",
@@ -1387,8 +1375,8 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "# Full hardware detection: CUDA > ROCm > DirectML > CPU\n",
         "torch_index = 'https://download.pytorch.org/whl/cpu'\n",
         "accel_type = 'cpu'\n",
+        "_is_p100_gpu = False  # 2026 v1.1: init before branch to prevent NameError on ROCm/CPU hosts\n",
         "if shutil.which('nvidia-smi'):\n",
-        "    _is_p100_gpu = False\n",
         "    try:\n",
         "        _smi_name = subprocess.check_output(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'], text=True).strip()\n",
         "        if 'P100' in _smi_name:\n",
@@ -1445,10 +1433,10 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "            _cf.write('torch==2.4.0+cu118\\ntorchvision==0.19.0+cu118\\n')\n",
         "        print('[ENV] P100 constraint file written. requirements.txt install will be pinned to cu118.')\n",
         "    _constraint_args = ['--constraint', _p100_constraints] if _p100_constraints else []\n",
+        "    # 2026 v1.1: '--no-warn-conflicts' is NOT a valid pip flag (removed).\n",
         "    res = subprocess.run(\n",
         "        [sys.executable, '-m', 'pip', 'install', '-q',\n",
         "         '--extra-index-url', torch_index,\n",
-        "         '--no-warn-conflicts',\n",
         "         '--upgrade-strategy', 'only-if-needed',\n",
         "         '-r', req_path] + _constraint_args,\n",
         "        capture_output=True, text=True)\n",
@@ -1493,7 +1481,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "os.makedirs(ckpt_hub_dir, exist_ok=True)\n",
         "device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
         "\n",
-        "# 2026 NUCLEAR: Prioritize Kaggle Inputs and recover to Hub using BFS scanner (max depth 6, directories only)\n",
         "input_ckpts = []\n",
         "if os.path.exists('/content/drive/MyDrive'):\n",
         "    try:\n",
@@ -1507,13 +1494,11 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                path = os.path.join(curr, item)\n",
         "                if os.path.isdir(path):\n",
         "                    item_lower = item.lower()\n",
-        "                    # Prune image manifolds and datasets directory entirely to bypass FUSE latency\n",
         "                    if item_lower in ['datasets', 'images', 'train', 'val', 'test', 'validation', 'dataset']:\n",
         "                        continue\n",
         "                    depths[path] = depth + 1\n",
         "                    queue.append(path)\n",
         "                    \n",
-        "                    # If this is checkpoints folder or matches name, list .pth files\n",
         "                    if 'checkpoints' in item_lower or 'models' in item_lower or 'weights' in item_lower or model_key.replace('_', '') in item_lower.replace('_', ''):\n",
         "                        try:\n",
         "                            for f in os.listdir(path):\n",
@@ -1533,7 +1518,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "            shutil.copy2(src, dst)\n",
         "            print(f'   -> [OK] Recovered {fname}')\n",
         "\n",
-        "    # 2026 Resilience: Recover Metrics Audit Trail using BFS scanner\n",
         "    src_met = None\n",
         "    if os.path.exists('/content/drive/MyDrive'):\n",
         "        try:\n",
@@ -1547,7 +1531,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                    path = os.path.join(curr, item)\n",
         "                    if os.path.isdir(path):\n",
         "                        item_lower = item.lower()\n",
-        "                        # Prune image subdirectories to avoid deep lag\n",
         "                        if item_lower in ['images', 'train', 'val', 'test']:\n",
         "                            continue\n",
         "                        depths[path] = depth + 1\n",
@@ -1622,11 +1605,11 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
     k_username = config.get("kaggle_username", "lemtreursi") if config else "lemtreursi"
     slug_prefix = config.get("kaggle_slug_prefix", "lemgendary-") if config else "lemgendary-"
     slug_suffix = config.get("kaggle_slug_suffix", "-checkpoints") if config else "-checkpoints"
-    
+
     k_slug = model_key.replace('_', '-')
     if "nima-aesthetic" in k_slug:
         k_slug = k_slug.replace("nima-aesthetic", "nima-aesthetics")
-    
+
     k_handle = f"{k_username}/{slug_prefix}{k_slug}{slug_suffix}/pytorch/default"
 
     push_source = [
@@ -1678,7 +1661,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "found_ckpts = []\n",
         "if os.path.exists('/content/drive/MyDrive'):\n",
         "    try:\n",
-        "        # Fast BFS Directory Search up to depth 7 to locate checkpoint folders\n",
         "        queue = ['/content/drive/MyDrive']\n",
         "        depths = {'/content/drive/MyDrive': 0}\n",
         "        while queue:\n",
@@ -1689,13 +1671,11 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                path = os.path.join(curr, item)\n",
         "                if os.path.isdir(path):\n",
         "                    item_lower = item.lower()\n",
-        "                    # Prune image manifolds and datasets directory entirely to bypass FUSE latency\n",
         "                    if item_lower in ['datasets', 'images', 'train', 'val', 'test', 'validation', 'dataset']:\n",
         "                        continue\n",
         "                    depths[path] = depth + 1\n",
         "                    queue.append(path)\n",
         "                    \n",
-        "                    # If matching candidate directory name, list the pth files\n",
         "                    if any(slug in item_lower for slug in target_slugs) or 'checkpoint' in item_lower or 'weights' in item_lower or 'models' in item_lower:\n",
         "                        try:\n",
         "                            for f in os.listdir(path):\n",
@@ -1728,7 +1708,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    \n",
         "    metrics_found = False\n",
         "    for src in found_ckpts:\n",
-        "        # Look for metrics.csv in parent or grandparent of the checkpoint\n",
         "        for d in [os.path.dirname(os.path.dirname(src)), os.path.dirname(src)]:\n",
         "            m_path = os.path.join(d, 'metrics.csv')\n",
         "            if os.path.exists(m_path):\n",
@@ -1740,6 +1719,9 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "        if metrics_found: break\n",
         "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs manifold.')\n"
     ]
+
+    # 2026 v1.1: Guard `found_ckpts` with a NameError-safe lookup — the
+    # previous cell may have been skipped, in which case the symbol is undefined.
     continuous_sync_source = [
         "import os, time, shutil, threading\n",
         f"model_key = '{model_key}'\n",
@@ -1747,9 +1729,16 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "model_hub_dir = os.path.join(hub_root, model_key)\n",
         "ckpt_hub_dir = os.path.join(model_hub_dir, 'checkpoints')\n",
         "\n",
+        "# 2026 v1.1: The previous cell may have been skipped or failed before\n",
+        "# populating `found_ckpts`. Guard with a NameError-safe lookup.\n",
+        "try:\n",
+        "    _found = found_ckpts\n",
+        "except NameError:\n",
+        "    _found = []\n",
+        "\n",
         "drive_target_dir = None\n",
-        "if found_ckpts:\n",
-        "    drive_target_dir = os.path.dirname(found_ckpts[0])\n",
+        "if _found:\n",
+        "    drive_target_dir = os.path.dirname(_found[0])\n",
         "elif os.path.exists('/content/drive/MyDrive'):\n",
         "    base_drive_root = '/content/drive/MyDrive/LemGendaryModels'\n",
         "    drive_target_dir = os.path.join(base_drive_root, model_key, 'checkpoints')\n",
@@ -1766,12 +1755,10 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                src = os.path.join(ckpt_hub_dir, f)\n",
         "                if os.path.isfile(src):\n",
         "                    dst = os.path.join(drive_target_dir, f)\n",
-        "                    # Copy if newer or doesn't exist\n",
         "                    if not os.path.exists(dst) or os.path.getmtime(src) > os.path.getmtime(dst):\n",
         "                        tmp_dst = dst + '.tmp'\n",
         "                        shutil.copy2(src, tmp_dst)\n",
         "                        os.rename(tmp_dst, dst)\n",
-        "            # Sync metrics.csv\n",
         "            m_src = os.path.join(model_hub_dir, 'metrics.csv')\n",
         "            if os.path.exists(m_src):\n",
         "                m_dst = os.path.join(os.path.dirname(drive_target_dir), 'metrics.csv')\n",
@@ -1779,7 +1766,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                    shutil.copy2(m_src, m_dst)\n",
         "        except Exception as e:\n",
         "            pass\n",
-        "        time.sleep(30) # Sync every 30 seconds\n",
+        "        time.sleep(30)\n",
         "\n",
         "if drive_target_dir:\n",
         "    t = threading.Thread(target=drive_sync_worker, daemon=True)\n",
@@ -1904,13 +1891,10 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
     }
 
     output_path = os.path.join(export_dir, f"{model_key}_colab_training.ipynb")
-    
-    # --- 2026 Resilience: Dual-Export & Manifold Synchronization ---
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     datasets_hub_root = os.path.abspath(os.path.join(base_dir, "../LemGendaryDatasets"))
-    
-    # 1. Primary Model Export (Verified JSON)
+
     os.makedirs(export_dir, exist_ok=True)
     try:
         json_str = json.dumps(notebook_content, indent=4)
@@ -1923,7 +1907,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         print("[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings.")
         return
 
-    # 2. Dataset Manifold Synchronization
     if unified_models_registry:
         m_info = unified_models_registry.get(model_key, {})
         ds_raw = m_info.get("datasets", []) or m_info.get("dataset", [])
@@ -1940,18 +1923,17 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
             target_candidates = list(ds_list)
             if model_key not in target_candidates:
                 target_candidates.append(model_key)
-            
+
         synced_dirs = set()
         for target_folder in target_candidates:
             if not target_folder:
                 continue
-            # Handle PascalCase and snake_case correctly without destructive title()
             clean_name = target_folder
             if "_" in clean_name or "-" in clean_name:
                 pascal_name = "".join(part.capitalize() for part in clean_name.replace("-", "_").split("_"))
             else:
                 pascal_name = clean_name
-                
+
             possible_manifold_folders = [
                 target_folder,
                 f"{target_folder}Large",
@@ -1960,7 +1942,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
                 f"LemGendized{target_folder}Large",
                 f"LemGendized{target_folder}"
             ]
-            
+
             for m_folder in possible_manifold_folders:
                 ds_dir = os.path.join(datasets_hub_root, m_folder)
                 if os.path.exists(ds_dir) and ds_dir not in synced_dirs:
@@ -1970,11 +1952,9 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
                         with open(ds_output_path, "w", encoding='utf-8') as f:
                             f.write(json_str)
                         print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
-                    except Exception as ds_err:
-                        # Silently skip on read-only filesystems (e.g., Kaggle attached datasets)
+                    except Exception:
                         pass
 
-        # 3. Dedicated Colab Directory Synchronization (Workspace Root)
         workspace_root = os.path.abspath(os.path.join(base_dir, ".."))
         colab_dir = os.path.join(workspace_root, "colab_training")
         os.makedirs(colab_dir, exist_ok=True)
@@ -1983,7 +1963,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
             with open(c_out, "w", encoding='utf-8') as f:
                 f.write(json_str)
             print(f"[OK] Synchronized Colab Training Notebook: {c_out}")
-        except Exception as c_err:
+        except Exception:
             pass
 
 
@@ -1995,19 +1975,18 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
     model_info = {}
     if unified_models_registry:
         model_info = unified_models_registry.get(model_key, {})
-    
+
     model_filename = model_info.get("filename", model_key)
     pascal_model_name = model_key.replace("_", " ").title().replace(" ", "")
-    
-    # Resolve Resolution
+
     size_raw = model_info.get("input_size", [3, 256, 256])
     if isinstance(size_raw, list):
         if len(size_raw) == 3: h, w = size_raw[1], size_raw[2]
         else: h, w = size_raw[0], size_raw[1]
     else: h, w = size_raw, size_raw
-    
+
     is_forex = "forex" in model_key.lower()
-    
+
     if is_forex:
         pth_source = [
             "import base64\n",
@@ -2016,7 +1995,6 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
             "    torch = __import__(base64.b64decode(t_key).decode())\n",
             "    import numpy as np\n",
             "\n",
-            "    # 1. Load Standalone SOTA Model (Architecture + Weights)\n",
             "    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
             f"    model_path = '{pascal_model_name}.pt'\n",
             "    model = torch.load(model_path, map_location=device)\n",
@@ -2024,7 +2002,6 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
             "        model = torch.nn.DataParallel(model)\n",
             "    model.eval()\n",
             "\n",
-            "    # 2. Prepare Multi-Timeframe Sequence Input [B, 168, 14]\n",
             "    input_dict = {tf: torch.randn(1, 168, 14, device=device) for tf in [1, 5, 15, 60, 240, 1440]}\n",
             "\n",
             "    with torch.no_grad():\n",
@@ -2040,14 +2017,11 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "\n",
-            "    # 1. Initialize High-Precision Session (FP32)\n",
             f"    onnx_path = '{pascal_model_name}_FP32.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
-            "    # 2. Prepare Multi-Timeframe Inputs\n",
             "    inputs = {f'tf_{tf}': np.random.randn(1, 168, 14).astype(np.float32) for tf in [1, 5, 15, 60, 240, 1440]}\n",
             "\n",
-            "    # 3. Inference\n",
             "    output = session.run(None, inputs)\n",
             "    print(f'Prediction Raw: {output}')\n",
             "except Exception as e: print(f'ORT Load Info: {e}')\n"
@@ -2058,14 +2032,11 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "\n",
-            "    # 1. Initialize Production Session (FP16 Embedded)\n",
             f"    onnx_path = '{pascal_model_name}.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
-            "    # 2. Prepare Multi-Timeframe Inputs (FP16)\n",
             "    inputs = {f'tf_{tf}': np.random.randn(1, 168, 14).astype(np.float16) for tf in [1, 5, 15, 60, 240, 1440]}\n",
             "\n",
-            "    # 3. Inference\n",
             "    output = session.run(None, inputs)\n",
             "    print(f'Production Signal: {output}')\n",
             "except Exception as e: print(f'ORT Load Info: {e}')\n"
@@ -2079,7 +2050,6 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
             "    from PIL import Image\n",
             "    import numpy as np\n",
             "\n",
-            "    # 1. Load Standalone SOTA Model (Architecture + Weights)\n",
             "    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
             f"    model_path = '{pascal_model_name}.pt'\n",
             "    model = torch.load(model_path, map_location=device)\n",
@@ -2087,11 +2057,9 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
             "        model = torch.nn.DataParallel(model)\n",
             "    model.eval()\n",
             "\n",
-            "    # 2. Prepare Input\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
             "    input_tensor = torch.from_numpy(np.array(img)).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0\n",
             "    \n",
-            "    # 3. Standard Normalization\n",
             "    mean = torch.tensor([0.485, 0.456, 0.406]).to(device).view(1, 3, 1, 1)\n",
             "    std = torch.tensor([0.229, 0.224, 0.225]).to(device).view(1, 3, 1, 1)\n",
             "    input_tensor = (input_tensor - mean) / std\n",
@@ -2101,7 +2069,7 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
             "    print(f'Prediction Raw: {output.cpu().numpy()}')\n",
             "except Exception as e: print(f'Stealth Load Info: {e}')\n"
         ]
-        
+
         onnx_fp32_source = [
             "import base64, numpy as np\n",
             "try:\n",
@@ -2109,21 +2077,18 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "    from PIL import Image\n",
             "\n",
-            "    # 1. Initialize High-Precision Session (FP32)\n",
             f"    onnx_path = '{pascal_model_name}_FP32.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
-            "    # 2. Prepare Input\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
             "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]\n",
             "    input_data = input_data.transpose(2, 0, 1)[np.newaxis, :]\n",
             "\n",
-            "    # 3. Inference\n",
             "    output = session.run(None, {'input': input_data})[0]\n",
             "    print(f'Prediction Raw: {output}')\n",
             "except Exception as e: print(f'ORT Load Info: {e}')\n"
         ]
-        
+
         onnx_fp16_source = [
             "import base64, numpy as np\n",
             "try:\n",
@@ -2131,21 +2096,18 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "    from PIL import Image\n",
             "\n",
-            "    # 1. Initialize Production Session (FP16 Embedded)\n",
             f"    onnx_path = '{pascal_model_name}.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
-            "    # 2. Prepare Input\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
             "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]\n",
             "    input_data = input_data.transpose(2, 0, 1)[np.newaxis, :]\n",
             "\n",
-            "    # 3. Inference\n",
             "    output = session.run(None, {'input': input_data})[0]\n",
             "    print(f'Prediction Raw: {output}')\n",
             "except Exception as e: print(f'ORT Load Info: {e}')\n"
         ]
-    
+
     notebook_content = {
         "metadata": {
             "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
@@ -2204,8 +2166,7 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
         ]
     }
     output_path = os.path.join(export_dir, f"{model_key}-colab-usage.ipynb")
-    
-    # --- 2026 Resilience: Export Hardening ---
+
     try:
         json_str = json.dumps(notebook_content, indent=4)
         json.loads(json_str) # Hard Validation
@@ -2228,10 +2189,10 @@ if __name__ == "__main__":
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config_path = os.path.join(base_dir, "config.yaml")
-    
+
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    
+
     registry_path = os.path.join(base_dir, config.get("unified_models", "unified_models_v2.yaml"))
     with open(registry_path, "r") as f:
         registry = yaml.safe_load(f)
