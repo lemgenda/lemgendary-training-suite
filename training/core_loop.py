@@ -1,21 +1,14 @@
 # 2026: Environment Linter Sync
 import os
-import time
 import sys
-# 2026 Resilience: Force GPU 0 to prevent multi-GPU context initialization hangs under virtualized environments (Kaggle T4 x2)
-# Removed to allow Multi-GPU DataParallel
-# if "CUDA_VISIBLE_DEVICES" not in os.environ:
-#     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-# Disable OpenCV's OpenCL driver binding to prevent GPU driver deadlocks with PyTorch CUDA context initialization
+import time
 os.environ["OPENCV_OPENCL_DEVICE"] = "DISABLED"
 if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ and sys.platform != "win32":
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import gc
 
-# --- 2026 Resilience: Child Process Interrupt Handler ---
 import multiprocessing
 import signal
-import sys
 
 
 def silent_worker_excepthook(exc_type, exc_value, exc_traceback):
@@ -28,7 +21,6 @@ if multiprocessing.current_process().name != 'MainProcess':
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     sys.excepthook = silent_worker_excepthook
 
-# --- 2026: kagglesdk Dependency Hardening (ImportError Patch) ---
 try:
     import kagglesdk.kaggle_env as ke
     if not hasattr(ke, 'get_web_endpoint'):
@@ -120,6 +112,7 @@ except ImportError as e:
 
 from training.model_registry import audit_hardware_vram, find_paths_pruned, load_state_dict_robust
 from training.sota_rollback import safe_torch_save, load_scheduler_state_stretched, safe_replace
+from training.parallel import build_parallel_strategy
 
 _active_processes = []
 
@@ -169,13 +162,6 @@ from data.dataset import MultiTaskDataset
 from data.data_utils import download_and_extract_dataset
 from models.factory import get_model
 
-# 2026 v2.2: Row-group-aware sampler for Parquet-backed forex dataset.
-# Raises LRU hit rate from ~2% to ~99% by shuffling at the row-group level.
-#
-# The fallback is a *duck-typed mirror* of the real class so Pyright's union
-# of (real | stub) still satisfies torch.utils.data.Sampler and exposes the
-# same public surface. The stub raises only when actually iterated, so the
-# existing `train_sampler is not None` guards prevent it from ever running.
 try:
     from data.forex_sampler import RowGroupAwareSampler
 except ImportError:
@@ -183,7 +169,7 @@ except ImportError:
 
     class RowGroupAwareSampler(_TorchSampler):  # type: ignore[no-redef]
         """Type-compatible stub. Raises at iteration time if the real module is missing."""
-        _group_keys: list = []
+        _group_keys: list
 
         def __init__(self, dataset=None, shuffle: bool = True, seed: int = 42):
             self.dataset = dataset
@@ -220,9 +206,7 @@ def load_pat():
 
 
 def git_hub_sync(repo_path, remote_url, message):
-    """
-    2026 Resilience: Robust synchronization for external repositories.
-    """
+    """2026 Resilience: Robust synchronization for external repositories."""
     try:
         pat = os.environ.get('GITHUB_PAT')
 
@@ -289,9 +273,7 @@ from training.losses import CombinedLoss
 
 
 def compute_ssim_gpu(img1, img2, window_size=11, sigma=1.5, data_range=1.0):
-    """
-    2026 Acceleration: GPU-accelerated vectorized Structural Similarity Index (SSIM).
-    """
+    """2026 Acceleration: GPU-accelerated vectorized Structural Similarity Index (SSIM)."""
     channel = img1.size(1)
 
     coords = torch.arange(window_size, dtype=torch.float32, device=img1.device) - (window_size - 1) / 2.0
@@ -317,6 +299,129 @@ def compute_ssim_gpu(img1, img2, window_size=11, sigma=1.5, data_range=1.0):
 
     ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
     return ssim_map.mean(dim=[-3, -2, -1]).sum().item()
+
+
+def _run_training_forward(
+    *,
+    model,
+    train_ds,
+    inputs,
+    targets,
+    tasks,
+    task_idx,
+    criterion,
+    model_info,
+    stab,
+    use_fp16,
+    accumulation_steps,
+    sentinel_stresses,
+):
+    """
+    2026 v2.4: Execute one training forward pass in an isolated stack frame.
+
+    Rationale
+    ---------
+    Python has function-level scoping. When the training loop's OOM handler
+    assigns `preds = None` / `loss = None` to help the garbage collector,
+    Pyright widens those names to `Tensor | dict | None` for the rest of
+    `main()` — including the validation loop ~300 lines downstream, where
+    `.detach()` on `preds` then fails static type checking.
+
+    Extracting the forward into this helper keeps the local `preds` and
+    `loss` names confined to a nested frame. On OOM the frame is popped by
+    the interpreter, its tensors are released by reference counting, and
+    `main()` never sees a `None`-typed `preds` in the first place.
+
+    No manual nulling, no `del` guards, no type widening. Structure does
+    the work.
+
+    Returns
+    -------
+    (loss, preds)
+        loss  — accumulation-scaled Tensor for backward().
+        preds — whatever the model produced (Tensor, dict, or tuple); only
+                used by NaN / corruption guards upstream.
+
+    Raises
+    ------
+    RuntimeError
+        Propagates from the model forward, the loss computation, or the
+        AMP autocast context. The caller catches OOM and non-finite here.
+    """
+    with torch.amp.autocast('cuda', enabled=use_fp16):
+        if train_ds.task_type == "text_to_image":
+            loss_fn_name = model_info.get("loss_fn", "diffusion_loss")
+            if hasattr(model, "train_step"):
+                loss_dict = model.train_step(inputs)
+                loss = loss_dict["loss"] / accumulation_steps
+                preds = loss_dict.get("preds")
+            elif loss_fn_name == "flow_matching":
+                latents = model.vae.encode(inputs["pixel_values"]).latent_dist.sample() * 0.18215
+                noise = torch.randn_like(latents)
+                timesteps = torch.rand((latents.shape[0],), device=latents.device)
+                sigmas = timesteps.view(-1, 1, 1, 1)
+                z_t = (1 - sigmas) * latents + sigmas * noise
+                velocity = noise - latents
+                model_pred = model.transformer(z_t, timesteps, inputs["prompt_embeds"])
+                loss = F.mse_loss(model_pred.float(), velocity.float(), reduction="mean") / accumulation_steps
+                preds = model_pred
+            else:
+                latents = model.vae.encode(inputs["pixel_values"]).latent_dist.sample() * model.vae.config.scaling_factor
+                noise = torch.randn_like(latents)
+                timesteps = torch.randint(
+                    0, model.noise_scheduler.config.num_train_timesteps,
+                    (latents.shape[0],), device=latents.device,
+                )
+                noisy_latents = model.noise_scheduler.add_noise(latents, noise, timesteps)
+                model_pred = model.unet(noisy_latents, timesteps, inputs["prompt_embeds"]).sample
+                loss = F.mse_loss(model_pred.float(), noise.float(), reduction="mean") / accumulation_steps
+                preds = model_pred
+
+        elif train_ds.task_type == "image_to_text":
+            outputs = model(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
+                pixel_values=inputs.get("pixel_values"),
+                labels=inputs.get("labels"),
+            )
+            loss = outputs.loss / accumulation_steps
+            preds = outputs.logits
+
+        elif getattr(train_ds, "task_type", "") == "forex":
+            _pair_dev = next(iter(inputs.values())).device if isinstance(inputs, dict) else inputs.device
+            pair_idx = tasks.to(_pair_dev, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
+            preds = model(inputs, pair_idx=pair_idx)
+            if isinstance(preds, dict):
+                preds = {
+                    k: (v.float() if isinstance(v, torch.Tensor) and v.is_floating_point() else v)
+                    for k, v in preds.items()
+                }
+            elif isinstance(preds, torch.Tensor) and preds.is_floating_point():
+                preds = preds.float()
+            loss = criterion(preds, targets) / accumulation_steps
+
+        else:
+            preds = model(inputs)
+            sentinel = stab.get('numerical_sentinel')
+            if sentinel and len(sentinel) == 2:
+                s_min, s_max = float(sentinel[0]), float(sentinel[1])
+                current_clamp = stab.get('logit_clamp', s_max)
+                min_v = max(s_min, -current_clamp)
+                max_v = min(s_max, current_clamp)
+
+                if isinstance(preds, (tuple, list)):
+                    p_p = preds[0].contiguous()
+                    pressure_mask = (p_p < min_v * 0.9) | (p_p > max_v * 0.9)
+                    sentinel_stresses.append(pressure_mask.float().mean().item())
+                    preds = (torch.clamp(p_p, min=min_v, max=max_v), *preds[1:])
+                else:
+                    preds = preds.contiguous()
+                    pressure_mask = (preds < min_v * 0.9) | (preds > max_v * 0.9)
+                    sentinel_stresses.append(pressure_mask.float().mean().item())
+                    preds = torch.clamp(preds, min=min_v, max=max_v)
+            loss = criterion(preds, targets, task_idx) / accumulation_steps
+
+    return loss, preds
 
 
 def main():
@@ -346,6 +451,12 @@ def main():
     parser.add_argument("--val_num_workers", type=int, default=None, help="Force a specific number of validation workers")
     parser.add_argument("--enable-batch-growth", action="store_true",
                         help="Allow intra-epoch physical batch growth when VRAM headroom exceeds 40 percent.")
+    parser.add_argument(
+        "--parallel",
+        choices=["auto", "single", "dp", "ddp"],
+        default="auto",
+        help="Parallel strategy. 'auto' picks based on device count and model type.",
+    )
     args = parser.parse_args()
 
     print(" [TRACE] Loading GITHUB PAT...", flush=True)
@@ -538,13 +649,33 @@ def main():
         except Exception as e:
             print(f" [WARN] channels_last conversion failed: {e}")
 
-    if device.type == 'cuda' and torch.cuda.device_count() > 1:
-        if is_forex_task:
-            print("[LAUNCH] [SINGLE-GPU] DataParallel SUPPRESSED for forex (dict-scatter overhead).")
-        else:
-            print(f"[LAUNCH] [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
-            model = torch.nn.DataParallel(model)
+    # ─── Parallel strategy resolution ─────────────────────────────────────
+    _strategy_config = {"task_type": model_info.get("dataset_type", "image")}
+    strategy = build_parallel_strategy(
+        args.parallel,
+        model,
+        device,
+        model_key=args.model,
+        config=_strategy_config,
+    )
+    model = strategy.setup()
+    print(f"[LAUNCH] [PARALLEL] Strategy='{strategy.name}' world_size={strategy.world_size}")
 
+    # ─── Checkpoint shims (every save/load site goes through the strategy) ─
+    def _sd() -> dict:
+        return strategy.state_dict_for_save()
+
+    def _load_sd(state_dict: dict, *, strict: bool = False) -> None:
+        load_state_dict_robust(
+            strategy.raw_model,
+            strategy.normalize_state_dict(state_dict),
+            strict=strict,
+        )
+
+    def _raw() -> nn.Module:
+        return strategy.raw_model
+
+    # --- 2026 Hyperparameter Priority Engine ---
     epochs = args.epochs or model_info.get("epochs") or config.get("defaults", {}).get("epochs", 50)
     lr = args.lr or model_info.get("learning_rate") or config.get("defaults", {}).get("lr", 1e-4)
 
@@ -966,11 +1097,9 @@ def main():
         _host_ram_gb = 16.0
     use_persistent = active_workers > 0 and _host_ram_gb >= 16.0
 
-    # 2026 v2.2: Forex uses RowGroupAwareSampler to raise Parquet LRU hit rate
-    # from ~2% to ~99%. Other tasks keep shuffle=True.
     is_forex_dataset = getattr(train_ds, 'task_type', '') == 'forex'
     train_sampler = None
-    if is_forex_dataset and RowGroupAwareSampler is not None:
+    if is_forex_dataset:
         train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
         print(f" [SPEED] [PARQUET-SAMPLER] RowGroupAwareSampler active: {len(train_sampler._group_keys)} locality groups.")
         train_loader = DataLoader(
@@ -1211,7 +1340,7 @@ def main():
             print(f"Resuming training from {loc_label} checkpoint: {attempt_ckpt}")
             ckpt = torch.load(attempt_ckpt, map_location=device, weights_only=False)
             if 'model_state' in ckpt:
-                load_state_dict_robust(model, ckpt['model_state'], strict=False)
+                _load_sd(ckpt['model_state'], strict=False)
                 for param in model.parameters():
                     param.data = param.data.contiguous()
                 for buf in model.buffers():
@@ -1383,7 +1512,7 @@ def main():
                 if ckpt.get('sota_achieved', False):
                     sota_baseline_achieved = True
             else:
-                load_state_dict_robust(model, ckpt, strict=False)
+                _load_sd(ckpt, strict=False)
                 for param in model.parameters():
                     param.data = param.data.contiguous()
                 for buf in model.buffers():
@@ -1464,10 +1593,10 @@ def main():
             if probe_srcc < -0.50:
                 print(f"[WARNING] [POLARITY] Negative manifold detected. Resetting head to clear 'Inverse Memory'...")
                 target_layers = []
-                if hasattr(model, 'classifier'):
-                    target_layers = [layer for layer in model.classifier if isinstance(layer, nn.Linear)]
-                elif hasattr(model, 'head'):
-                    target_layers = [model.head]
+                if hasattr(_raw(), 'classifier'):
+                    target_layers = [layer for layer in _raw().classifier if isinstance(layer, nn.Linear)]
+                elif hasattr(_raw(), 'head'):
+                    target_layers = [_raw().head]
 
                 for layer in target_layers:
                     nn.init.xavier_uniform_(layer.weight)
@@ -1709,7 +1838,6 @@ def main():
 
     register_emergency_sync(_kaggle_preemption_hook)
 
-    # [SPEED] Explicit worker disposal. DataLoader workers accumulate across rebuilds.
     def _dispose_loader(loader):
         if loader is None:
             return
@@ -1724,7 +1852,7 @@ def main():
         except Exception:
             pass
 
-    # --- 2026 SOTA Dynamic Horizon ---
+           # --- 2026 SOTA Dynamic Horizon ---
     epoch = start_epoch
     while True:
         if epoch >= epochs:
@@ -1739,9 +1867,6 @@ def main():
 
         last_intra_epoch_pct = -1.0
 
-        # 2026 v2.2: Reseed the Parquet sampler so shuffling differs per epoch.
-        # RowGroupAwareSampler shuffles at the row-group level; without a per-epoch
-        # seed, every epoch replays the same traversal order.
         if train_sampler is not None:
             try:
                 train_sampler.set_epoch(epoch)
@@ -1838,7 +1963,6 @@ def main():
                         drop_last=True,
                     )
 
-            # Initialize iter_obj unconditionally so pyright sees it as always assigned.
             iter_obj = enumerate(train_loader)
             if current_iter > 0:
                 try:
@@ -1931,40 +2055,27 @@ def main():
 
                 inputs, targets, tasks = batch
 
-                if train_ds.task_type in ["text_to_image", "image_to_text"]:
-                    inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-                    targets, task_idx = None, None
-                elif getattr(train_ds, "task_type", "") == "forex":
-                    if isinstance(inputs, dict):
-                        inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-                    elif isinstance(inputs, torch.Tensor):
-                        inputs = inputs.to(device, non_blocking=True)
+                # Parallel strategy owns batch movement
+                inputs, targets, tasks = strategy.prepare_batch(inputs, targets, tasks)
 
-                    if isinstance(targets, dict):
-                        targets = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in targets.items()}
-                    elif isinstance(targets, torch.Tensor):
-                        targets = targets.to(device, non_blocking=True)
-                    task_idx = None
+                if device.type == 'cuda' and is_conv_net and isinstance(inputs, torch.Tensor) and inputs.dim() == 4:
+                    inputs = inputs.contiguous(memory_format=torch.channels_last)
+
+                if getattr(train_ds, "task_type", "") == "restoration" and isinstance(tasks, torch.Tensor):
+                    task_names = [
+                        "denoise", "deblur", "derain",
+                        "dehaze_indoor", "dehaze_outdoor",
+                        "lowlight", "exposure", "superres",
+                        "vintage", "face_restorer", "face_parser"
+                    ]
+                    _task_dev = inputs.device if isinstance(inputs, torch.Tensor) else device
+                    task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(_task_dev, non_blocking=True)
                 else:
-                    inputs = inputs.to(device, non_blocking=True)
-                    if device.type == 'cuda' and is_conv_net and isinstance(inputs, torch.Tensor) and inputs.dim() == 4:
-                        inputs = inputs.contiguous(memory_format=torch.channels_last)
-                    if isinstance(targets, dict):
-                        targets = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in targets.items()}
-                    else:
-                        targets = targets.to(device, non_blocking=True)
-                    if not torch.isfinite(inputs).all():
-                        if pbar: pbar.write(f" [RESILIENCE] Non-finite values detected in input batch! Skipping...")
-                        continue
                     task_idx = None
-                    if train_ds.task_type == "restoration":
-                        task_names = [
-                            "denoise", "deblur", "derain",
-                            "dehaze_indoor", "dehaze_outdoor",
-                            "lowlight", "exposure", "superres",
-                            "vintage", "face_restorer", "face_parser"
-                        ]
-                        task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
+
+                if isinstance(inputs, torch.Tensor) and not torch.isfinite(inputs).all():
+                    if pbar: pbar.write(f" [RESILIENCE] Non-finite values detected in input batch! Skipping...")
+                    continue
 
                 use_fp16 = str(device) == 'cuda'
                 if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "codeformer", "nima", "forex"]):
@@ -1972,78 +2083,38 @@ def main():
                 if getattr(train_ds, "task_type", "") == "forex":
                     use_fp16 = False
 
+                # Isolated forward pass — its local `preds` and `loss` cannot leak
+                # into this function's type environment. See the helper's docstring.
                 try:
-                    with torch.amp.autocast('cuda', enabled=use_fp16):
-                        if train_ds.task_type == "text_to_image":
-                            loss_fn_name = model_info.get("loss_fn", "diffusion_loss")
-                            if hasattr(model, "train_step"):
-                                loss_dict = model.train_step(inputs)
-                                loss = loss_dict["loss"] / accumulation_steps
-                                preds, targets = loss_dict.get("preds"), loss_dict.get("targets")
-                            elif loss_fn_name == "flow_matching":
-                                latents = model.vae.encode(inputs["pixel_values"]).latent_dist.sample() * 0.18215
-                                noise = torch.randn_like(latents)
-                                timesteps = torch.rand((latents.shape[0],), device=device)
-                                sigmas = timesteps.view(-1, 1, 1, 1)
-                                z_t = (1 - sigmas) * latents + sigmas * noise
-                                velocity = noise - latents
-                                model_pred = model.transformer(z_t, timesteps, inputs["prompt_embeds"])
-                                loss = F.mse_loss(model_pred.float(), velocity.float(), reduction="mean") / accumulation_steps
-                                preds, targets = model_pred, velocity
-                            else:
-                                latents = model.vae.encode(inputs["pixel_values"]).latent_dist.sample() * model.vae.config.scaling_factor
-                                noise = torch.randn_like(latents)
-                                timesteps = torch.randint(0, model.noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=device)
-                                noisy_latents = model.noise_scheduler.add_noise(latents, noise, timesteps)
-                                model_pred = model.unet(noisy_latents, timesteps, inputs["prompt_embeds"]).sample
-                                loss = F.mse_loss(model_pred.float(), noise.float(), reduction="mean") / accumulation_steps
-                                preds, targets = model_pred, noise
-
-                        elif train_ds.task_type == "image_to_text":
-                            outputs = model(input_ids=inputs["input_ids"], attention_mask=inputs.get("attention_mask"), pixel_values=inputs.get("pixel_values"), labels=inputs.get("labels"))
-                            loss = outputs.loss / accumulation_steps
-                            preds, targets = outputs.logits, inputs.get("labels")
-
-                        elif getattr(train_ds, "task_type", "") == "forex":
-                            pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
-                            preds = model(inputs, pair_idx=pair_idx)
-                            if isinstance(preds, dict):
-                                preds = {k: (v.float() if isinstance(v, torch.Tensor) and v.is_floating_point() else v)
-                                         for k, v in preds.items()}
-                            elif isinstance(preds, torch.Tensor) and preds.is_floating_point():
-                                preds = preds.float()
-                            loss = criterion(preds, targets) / accumulation_steps
-                        else:
-                            preds = model(inputs)
-                            sentinel = stab.get('numerical_sentinel')
-                            if sentinel and len(sentinel) == 2:
-                                s_min, s_max = float(sentinel[0]), float(sentinel[1])
-                                current_clamp = stab.get('logit_clamp', s_max)
-                                min_v = max(s_min, -current_clamp)
-                                max_v = min(s_max, current_clamp)
-
-                                if isinstance(preds, (tuple, list)):
-                                    p_p = preds[0].contiguous()
-                                    stress_mask = (p_p < min_v) | (p_p > max_v)
-                                    pressure_mask = (p_p < min_v * 0.9) | (p_p > max_v * 0.9)
-                                    sentinel_stresses.append(pressure_mask.float().mean().item())
-                                    preds = (torch.clamp(p_p, min=min_v, max=max_v), *preds[1:])
-                                else:
-                                    preds = preds.contiguous()
-                                    stress_mask = (preds < min_v) | (preds > max_v)
-                                    pressure_mask = (preds < min_v * 0.9) | (preds > max_v * 0.9)
-                                    sentinel_stresses.append(pressure_mask.float().mean().item())
-                                    preds = torch.clamp(preds, min=min_v, max=max_v)
-                            loss = criterion(preds, targets, task_idx) / accumulation_steps
+                    loss, preds = _run_training_forward(
+                        model=model,
+                        train_ds=train_ds,
+                        inputs=inputs,
+                        targets=targets,
+                        tasks=tasks,
+                        task_idx=task_idx,
+                        criterion=criterion,
+                        model_info=model_info,
+                        stab=stab,
+                        use_fp16=use_fp16,
+                        accumulation_steps=accumulation_steps,
+                        sentinel_stresses=sentinel_stresses,
+                    )
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
                         print(f" [OOM SENTINEL] VRAM overflow detected! Attempting emergency batch-accumulation trade...")
 
+                        # Free the input tensors still held in this frame. The failed
+                        # forward's `preds`/`loss` lived in the helper's frame, which
+                        # was popped when the exception propagated — nothing to null
+                        # here, and no type widening.
                         inputs = targets = batch = None
-                        preds = loss = None
+                        tasks = task_idx = None
 
-                        if torch.cuda.is_available(): torch.cuda.empty_cache()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
                         gc.collect()
+
                         if batch_size > 1:
                             old_bs = batch_size
                             batch_size = max(1, batch_size // 2)
@@ -2076,8 +2147,6 @@ def main():
                                 )
 
                             current_iter = int(i * (old_bs / batch_size))
-                            # Close the current progress bar before breaking so the
-                            # outer while-loop can build a fresh one on the same line.
                             if pbar is not None:
                                 try:
                                     pbar.close()
@@ -2095,7 +2164,7 @@ def main():
                                 'epoch': epoch,
                                 'iteration': current_iter,
                                 'loader_len': len(train_loader),
-                                'model_state': model.state_dict(),
+                                'model_state': _sd(),
                                 'optimizer_state': optimizer.state_dict(),
                                 'scheduler_state': scheduler.state_dict(),
                                 'governor_state': governor.get_state(),
@@ -2203,7 +2272,7 @@ def main():
                         best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                         if os.path.exists(best_ckpt_path):
                             ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
-                            load_state_dict_robust(model, ckpt['model_state'])
+                            _load_sd(ckpt['model_state'])
 
                             for param in model.parameters():
                                 param.data = param.data.contiguous()
@@ -2330,7 +2399,7 @@ def main():
                         best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                         if os.path.exists(best_ckpt_path):
                             ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
-                            load_state_dict_robust(model, ckpt['model_state'])
+                            _load_sd(ckpt['model_state'])
 
                             for param in model.parameters():
                                 param.data = param.data.contiguous()
@@ -2499,8 +2568,6 @@ def main():
                                     )
                                 torch.cuda.empty_cache()
                                 gc.collect()
-                                # Close the progress bar before breaking so the outer
-                                # while-loop rebuilds it cleanly on the same line.
                                 if pbar is not None:
                                     try:
                                         pbar.close()
@@ -2512,13 +2579,6 @@ def main():
                         except Exception:
                             pass
 
-                    # --- 2026 v15.7: INTRA-EPOCH BATCH GROWTH (opt-in via --enable-batch-growth) ---
-                    # The end-of-epoch growth check fires too late for huge epochs
-                    # (MIRNet: 10+ hours/epoch). We sample VRAM every 500 optimizer
-                    # steps and grow as soon as headroom allows. Verified safe
-                    # because the pre-emptive sentinel above will halve it back if
-                    # VRAM gets tight. Opt-in because the worker respawn churn
-                    # disrupts the progress bar for negligible gain on many models.
                     if (not args.batch_size
                             and getattr(args, 'enable_batch_growth', False)
                             and device.type == 'cuda'
@@ -2566,8 +2626,6 @@ def main():
                                     )
                                 torch.cuda.empty_cache()
                                 gc.collect()
-                                # Close the progress bar before breaking so the outer
-                                # while-loop rebuilds it cleanly on the same line.
                                 if pbar is not None:
                                     try:
                                         pbar.close()
@@ -2617,7 +2675,7 @@ def main():
                         'epoch': epoch,
                         'iteration': i,
                         'loader_len': len(train_loader),
-                        'model_state': model.state_dict(),
+                        'model_state': _sd(),
                         'optimizer_state': optimizer.state_dict(),
                         'scheduler_state': scheduler.state_dict(),
                         'governor_state': governor.get_state(),
@@ -2643,7 +2701,7 @@ def main():
             'iteration': len(train_loader),
             'val_iteration': val_resume_iteration,
             'val_loader_len': len(val_loader),
-            'model_state': model.state_dict(),
+            'model_state': _sd(),
             'optimizer_state': optimizer.state_dict(),
             'scheduler_state': scheduler.state_dict(),
             'governor_state': governor.get_state(),
@@ -2673,7 +2731,6 @@ def main():
         all_preds = []
         all_targets = []
 
-        # Pyright cannot prove `iter_obj` is bound on this path; rebind to None.
         iter_obj = None
         gc.collect()
         with torch.no_grad():
@@ -2842,37 +2899,23 @@ def main():
 
                 inputs, targets, tasks = batch
 
-                if train_ds.task_type in ["text_to_image", "image_to_text"]:
-                    inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-                    targets, task_idx = None, None
-                elif getattr(train_ds, "task_type", "") == "forex":
-                    if isinstance(inputs, dict):
-                        inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-                    elif isinstance(inputs, torch.Tensor):
-                        inputs = inputs.to(device, non_blocking=True)
+                # Parallel strategy owns batch movement
+                inputs, targets, tasks = strategy.prepare_batch(inputs, targets, tasks)
 
-                    if isinstance(targets, dict):
-                        targets = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in targets.items()}
-                    elif isinstance(targets, torch.Tensor):
-                        targets = targets.to(device, non_blocking=True)
-                    task_idx = None
+                if device.type == 'cuda' and is_conv_net and isinstance(inputs, torch.Tensor) and inputs.dim() == 4:
+                    inputs = inputs.contiguous(memory_format=torch.channels_last)
+
+                if getattr(train_ds, "task_type", "") == "restoration" and isinstance(tasks, torch.Tensor):
+                    task_names = [
+                        "denoise", "deblur", "derain",
+                        "dehaze_indoor", "dehaze_outdoor",
+                        "lowlight", "exposure", "superres",
+                        "vintage", "face_restorer", "face_parser"
+                    ]
+                    _task_dev = inputs.device if isinstance(inputs, torch.Tensor) else device
+                    task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(_task_dev, non_blocking=True)
                 else:
-                    inputs = inputs.to(device, non_blocking=True)
-                    if device.type == 'cuda' and is_conv_net and isinstance(inputs, torch.Tensor) and inputs.dim() == 4:
-                        inputs = inputs.contiguous(memory_format=torch.channels_last)
-                    if isinstance(targets, dict):
-                        targets = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in targets.items()}
-                    else:
-                        targets = targets.to(device, non_blocking=True)
                     task_idx = None
-                    if train_ds.task_type == "restoration":
-                        task_names = [
-                            "denoise", "deblur", "derain",
-                            "dehaze_indoor", "dehaze_outdoor",
-                            "lowlight", "exposure", "superres",
-                            "vintage", "face_restorer", "face_parser"
-                        ]
-                        task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
 
                 val_use_amp = (
                     device.type == 'cuda'
@@ -2901,7 +2944,8 @@ def main():
                         preds, targets = outputs.logits, inputs.get("labels")
 
                     elif getattr(train_ds, "task_type", "") == "forex":
-                        pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
+                        _pair_dev = next(iter(inputs.values())).device if isinstance(inputs, dict) else inputs.device
+                        pair_idx = tasks.to(_pair_dev, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
                         preds = model(inputs, pair_idx=pair_idx)
                         if isinstance(preds, dict):
                             preds = {k: (v.float() if isinstance(v, torch.Tensor) and v.is_floating_point() else v)
@@ -3016,7 +3060,7 @@ def main():
                         'total_pixels': total_pixels,
                         'avg_train_loss': avg_train_loss,
                         'fid_state': fid_metric.state_dict() if fid_metric is not None else None,
-                        'model_state': model.state_dict(),
+                        'model_state': _sd(),
                         'optimizer_state': optimizer.state_dict(),
                         'scheduler_state': scheduler.state_dict(),
                         'governor_state': governor.get_state(),
@@ -3079,8 +3123,8 @@ def main():
                     if "nima_authenticity" not in args.model and t_std >= 0.15 and (srcc < -0.25 or plcc < -0.20):
                         print(f"\n[WARNING] [POLARITY] Manifold inversion detected (SRCC: {srcc:.4f} | PLCC: {plcc:.4f}). Triggering Emergency Head Reset...")
                         target_layers = []
-                        if hasattr(model, 'classifier'): target_layers = [l for l in model.classifier if isinstance(l, nn.Linear)]
-                        elif hasattr(model, 'head'): target_layers = [model.head]
+                        if hasattr(_raw(), 'classifier'): target_layers = [l for l in _raw().classifier if isinstance(l, nn.Linear)]
+                        elif hasattr(_raw(), 'head'): target_layers = [_raw().head]
                         for layer in target_layers:
                             torch.nn.init.xavier_uniform_(layer.weight)
                             torch.nn.init.zeros_(layer.bias)
@@ -3274,7 +3318,7 @@ def main():
                 if is_new_best:
                     metric_vaults[m_key] = m_val
                     vault_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_vault_{m_key}.pth")
-                    torch.save(model.state_dict(), vault_ckpt)
+                    torch.save(_sd(), vault_ckpt)
 
             if singularity_collapse:
                 print(f" [NUCLEAR] Metric Singularity detected! Manifold collapsed.")
@@ -3403,7 +3447,7 @@ def main():
                     for k in vault_states[0].keys():
                         avg_state[k] = torch.stack([state[k].float() for state in vault_states]).mean(dim=0).to(vault_states[0][k].dtype)
 
-                    model.load_state_dict(avg_state)
+                    _load_sd(avg_state)
                     print(f" [MS-SWA] Successfully merged {len(vault_states)} top metric checkpoints into active model.")
 
             stress_changed = new_params.get('stress', 0.0) != getattr(train_ds, 'stress', 0.0)
@@ -3485,7 +3529,6 @@ def main():
                 _workers = num_workers
                 _gov_persistent = _workers > 0 and _host_ram_gb >= 16.0
                 if train_sampler is not None:
-                    # Dataset fraction/resolution may have changed -> rebuild sampler
                     train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
                     train_loader = DataLoader(
                         train_ds,
@@ -3592,11 +3635,11 @@ def main():
                 governor.trigger_mini_swa = False
                 print(f" [MINI-SWA PULSE] Engaging Plateau Weight Averaging...")
                 try:
-                    pre_swa_backup = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+                    pre_swa_backup = {k: v.cpu().clone() for k, v in _raw().state_dict().items()}
 
                     if 'swa_model' in locals() and hasattr(swa_model, 'update_parameters'):
                         swa_model.update_parameters(model)
-                        load_state_dict_robust(model, swa_model.module.state_dict() if hasattr(swa_model, 'module') else swa_model.state_dict())
+                        _load_sd(swa_model.module.state_dict() if hasattr(swa_model, 'module') else swa_model.state_dict())
 
                         model.train()
                         print(f" [MINI-SWA PULSE] Executing 20-batch BatchNorm re-estimation pass (update_bn)...")
@@ -3608,7 +3651,7 @@ def main():
                         model.eval()
 
                         if current_quality_score < governor.prev_quality:
-                            load_state_dict_robust(model, pre_swa_backup)
+                            _load_sd(pre_swa_backup)
                             print(f" [SAFETY GUARD] [MINI-SWA] Post-SWA quality score degraded ({current_quality_score:.4f} < {governor.prev_quality:.4f}). Rolled back to pre-SWA checkpoint!")
                         else:
                             print(f" [SUCCESS] [MINI-SWA] Weight averaging pulse completed successfully! Quality: {current_quality_score:.4f}")
@@ -3626,7 +3669,7 @@ def main():
             'epoch': epoch,
             'iteration': len(train_loader),
             'loader_len': len(train_loader),
-            'model_state': model.state_dict(),
+            'model_state': _sd(),
             'optimizer_state': optimizer.state_dict(),
             'scheduler_state': scheduler.state_dict(),
             'governor_state': governor.get_state(),
@@ -3688,7 +3731,7 @@ def main():
                         loaded_ckpt = torch.load(target_ckpt, map_location=device, weights_only=False)
                         if not isinstance(loaded_ckpt, dict):
                             raise ValueError("Loaded checkpoint is not a dictionary")
-                        load_state_dict_robust(model, loaded_ckpt['model_state'])
+                        _load_sd(loaded_ckpt['model_state'])
                         rollback_success = True
                     except Exception as e:
                         print(f" [WARNING] [REGRESSION GUARD] Failed to load checkpoint {target_ckpt} (Corrupted/LFS Pointer): {e}")
@@ -3837,7 +3880,7 @@ def main():
 
                     try:
                         metrics_to_report = best_metrics if best_quality_score > -1.0 else {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
-                        trigger_sota_export(args, model, device, config, unified_models_registry, epoch, metrics_to_report, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root, skip_sync=True)
+                        trigger_sota_export(args, _raw(), device, config, unified_models_registry, epoch, metrics_to_report, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root, skip_sync=True)
                     except Exception as e_exp:
                         print(f" [WARNING] [REAL-TIME EXPORT] Failed to generate production artifacts: {e_exp}", file=sys.stderr)
 
@@ -4178,7 +4221,6 @@ def main():
             print(f" -> SOTA Cooldown Epochs remaining: {sota_countdown}")
             sota_countdown -= 1
 
-        # --- 2026 v15.6: DYNAMIC BATCH GROWTH (end of epoch, opt-in) ---
         if device.type == 'cuda' and not args.batch_size and getattr(args, 'enable_batch_growth', False) and not in_recovery_mode:
             try:
                 _free_b, _total_b = torch.cuda.mem_get_info(0)
@@ -4228,6 +4270,12 @@ def main():
         val_resume_iteration = 0
         current_iter = 0
         epoch += 1
+
+    # --- 2026 Resilience: Parallel strategy cleanup ---
+    try:
+        strategy.cleanup()
+    except Exception as _cleanup_err:
+        print(f" [WARN] Strategy cleanup failed: {_cleanup_err}")
 
     # --- 2026: Universal Post-Training Target Audit & Interactive Guidance ---
     if not sota_baseline_achieved:
@@ -4291,7 +4339,7 @@ def main():
                 ssim_exp = best_metrics_exp.get('ssim', 0.0)
                 lpips_exp = best_metrics_exp.get('lpips', 0.0)
                 fid_exp = best_metrics_exp.get('fid', 0.0)
-                trigger_sota_export(args, model, device, config, unified_models_registry, epoch, best_metrics_exp, best_qs_exp, plcc_exp, srcc_exp, psnr_exp, ssim_exp, lpips_exp, fid_exp, export_dir, hub_model_dir, project_root)
+                trigger_sota_export(args, _raw(), device, config, unified_models_registry, epoch, best_metrics_exp, best_qs_exp, plcc_exp, srcc_exp, psnr_exp, ssim_exp, lpips_exp, fid_exp, export_dir, hub_model_dir, project_root)
             else:
                 print(f"\n [EXIT] Exiting training. Best checkpoint preserved at {args.model}_best.pth.")
         else:
@@ -4421,13 +4469,14 @@ if __name__ == "__main__":
                 sota_baseline_achieved = frame.f_locals.get("sota_baseline_achieved", False)
                 progress_local = frame.f_locals.get("progress_local") or frame.f_locals.get("progress_hub")
                 avg_train_loss = frame.f_locals.get("avg_train_loss", 0.0)
+                _sd_frame = frame.f_locals.get("_sd")
 
                 if model and progress_local:
                     ckpt_state = {
                         'epoch': epoch,
                         'iteration': current_iter,
                         'loader_len': len(train_loader) if train_loader else 0,
-                        'model_state': model.state_dict(),
+                        'model_state': _sd_frame() if callable(_sd_frame) else model.state_dict(),
                         'optimizer_state': optimizer.state_dict() if optimizer else None,
                         'scheduler_state': scheduler.state_dict() if scheduler else None,
                         'governor_state': governor.get_state() if governor else None,
