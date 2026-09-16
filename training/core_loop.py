@@ -539,8 +539,11 @@ def main():
             print(f" [WARN] channels_last conversion failed: {e}")
 
     if device.type == 'cuda' and torch.cuda.device_count() > 1:
-        print(f"[LAUNCH] [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
-        model = torch.nn.DataParallel(model)
+        if is_forex_task:
+            print("[LAUNCH] [SINGLE-GPU] DataParallel SUPPRESSED for forex (dict-scatter overhead).")
+        else:
+            print(f"[LAUNCH] [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
+            model = torch.nn.DataParallel(model)
 
     epochs = args.epochs or model_info.get("epochs") or config.get("defaults", {}).get("epochs", 50)
     lr = args.lr or model_info.get("learning_rate") or config.get("defaults", {}).get("lr", 1e-4)
