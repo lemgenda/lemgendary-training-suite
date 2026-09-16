@@ -4,28 +4,39 @@ import sys
 
 def audit_hardware_vram(model_key, model_info, config, device, model, res_override=None, mode='train', sample_fraction=1.0, fold=None, pairs=None):
     """
-    2026 Memory-Sentinel: Atomic Hardware Probe (v17.0 Nuclear).
+    2026 Memory-Sentinel: Atomic Hardware Probe (v17.1 Nuclear).
     Performs a real-world VRAM test at the specified resolution to find the
     absolute physical limit of the current GPU.
+
+    v17.1: DataParallel-friendly per-device batch sizing for Forex.
     """
     if model_info.get("dataset_type") == "forex" or "forex" in model_key.lower():
         configured_batch = model_info.get("batch_size", "auto")
         gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'
         vram_gb = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) if torch.cuda.is_available() else 0.0
-        
+
         if isinstance(configured_batch, int) and configured_batch > 0:
             final_batch = configured_batch if mode == 'train' else configured_batch * 2
         else:
+            # 2026 Resilience: DataParallel-friendly per-device batch sizing.
+            # Time-series models gain nothing from >128 per-device batch on T4-class GPUs,
+            # and DP gather/scatter overhead grows linearly with total batch size.
+            gpu_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
             if vram_gb >= 20.0:
-                final_batch = 1024 if mode == 'train' else 2048
+                per_device = 256
             elif vram_gb >= 14.0:
-                final_batch = 512 if mode == 'train' else 1024
+                per_device = 128
             elif vram_gb >= 7.0:
-                final_batch = 384 if mode == 'train' else 768
+                per_device = 64
             elif vram_gb >= 3.5:
-                final_batch = 256 if mode == 'train' else 512
+                per_device = 32
             else:
-                final_batch = 64 if mode == 'train' else 128
+                per_device = 16
+
+            # On multi-GPU DataParallel, the DataLoader yields the TOTAL batch.
+            final_batch = per_device * gpu_count if gpu_count > 1 else per_device
+            if mode == 'val':
+                final_batch *= 2
 
         symbols_str = " | ".join(pairs) if pairs else "ALL"
         fold_str = fold if fold else "MAIN"
@@ -179,7 +190,7 @@ def audit_hardware_vram(model_key, model_info, config, device, model, res_overri
 
         pixel_cap = int(max_pixels / (h * w))
         system_cap = 256 if mode == 'val' else 128
-        
+
         # 2026 Resilience: System RAM Safeguard against Dataloader Bloat
         sys_ram_gb = 64.0
         is_kaggle = False

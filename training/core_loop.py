@@ -104,7 +104,7 @@ try:
     import torch.nn as nn
     import numpy as np
     from torch.utils.data import DataLoader
-    from tqdm import tqdm
+    from tqdm import tqdm  # type: ignore[import-untyped]
     from torch.optim.swa_utils import AveragedModel, SWALR, update_bn # 2026 SOTA: Smooth Generalization
     from training.optimization_engine import SmartTrainingGovernor
 except ImportError as e:
@@ -283,33 +283,33 @@ def compute_ssim_gpu(img1, img2, window_size=11, sigma=1.5, data_range=1.0):
     Returns the sum of SSIM across the batch.
     """
     channel = img1.size(1)
-    
+
     # 1D Gaussian kernel
     coords = torch.arange(window_size, dtype=torch.float32, device=img1.device) - (window_size - 1) / 2.0
     gauss = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
     gauss = (gauss / gauss.sum()).unsqueeze(1)
-    
+
     # 2D Gaussian kernel
     kernel_2d = gauss.mm(gauss.t()).unsqueeze(0).unsqueeze(0)
     kernel = kernel_2d.expand(channel, 1, window_size, window_size).contiguous()
-    
+
     # Constants
     C1 = (0.01 * data_range) ** 2
     C2 = (0.03 * data_range) ** 2
-    
+
     # Means
     mu1 = torch.nn.functional.conv2d(img1, kernel, padding=window_size // 2, groups=channel)
     mu2 = torch.nn.functional.conv2d(img2, kernel, padding=window_size // 2, groups=channel)
-    
+
     mu1_sq = mu1.pow(2)
     mu2_sq = mu2.pow(2)
     mu1_mu2 = mu1 * mu2
-    
+
     # Variances and Covariances
     sigma1_sq = torch.nn.functional.conv2d(img1 * img1, kernel, padding=window_size // 2, groups=channel) - mu1_sq
     sigma2_sq = torch.nn.functional.conv2d(img2 * img2, kernel, padding=window_size // 2, groups=channel) - mu2_sq
     sigma12 = torch.nn.functional.conv2d(img1 * img2, kernel, padding=window_size // 2, groups=channel) - mu1_mu2
-    
+
     # SSIM Map
     ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
     return ssim_map.mean(dim=[-3, -2, -1]).sum().item()
@@ -367,7 +367,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         cap = torch.cuda.get_device_capability(0)
         arch_list = getattr(torch.cuda, "get_arch_list", lambda: [])()
         has_native_sm = any(f"{cap[0]}.{cap[1]}" in a or f"sm_{cap[0]}{cap[1]}" in a for a in arch_list)
-        
+
         # 2026 Hardware Sentinel: Real compute kernel verification probe
         cuda_compatible = True
         try:
@@ -665,7 +665,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         active_tfs = args.timeframes if getattr(args, 'timeframes', None) else model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
         train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction, fold=args.fold, pairs=args.pairs, active_timeframes=active_tfs)
         val_ds = ForexDataset(shard_root=shard_root, is_train=False, fold=args.fold, pairs=args.pairs, active_timeframes=active_tfs)
-        
+
         # 2026: Explicit Curriculum Telemetry
         active_pairs = len(args.pairs) if args.pairs else len(train_ds.pairs)
         print(f" [SIGNAL] [CURRICULUM] Walk-Forward Fold: {args.fold if args.fold else 'MAIN'} | Active Pairs: {active_pairs} | Active TFs: {active_tfs}")
@@ -675,15 +675,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
     # 2026 Resilience: Dynamic Worker & Thread Topology Management
     cpu_count = os.cpu_count() or 2
-    
+
     if getattr(args, 'num_workers', None) is not None:
         num_workers = args.num_workers
         try: torch.set_num_threads(max(1, cpu_count))
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'kaggle':
-        # On Kaggle (2 vCPUs), limit workers to avoid CPU bottlenecking and thrashing
-        num_workers = min(2, cpu_count)
-        try: torch.set_num_threads(max(1, cpu_count))
+        # 2026 Resilience: Kaggle T4x2 = 4 vCPUs. Use 3 workers + 1 main process.
+        # CRITICAL: Pin torch to 1 intra-op thread. Otherwise it fights the DataLoader
+        # workers for the same 4 vCPUs, causing CPU thrash and 0% GPU utilization.
+        num_workers = min(3, max(1, cpu_count - 1))
+        try: torch.set_num_threads(1)
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'colab':
         # Colab (T4) reports 2 vCPUs, but we want 4 workers to optimize I/O
@@ -742,7 +744,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         if v_workers > 0:
             val_res = getattr(v_ds, "size", (256, 256))
             val_h = val_res[0] if isinstance(val_res, (list, tuple)) else val_res
-            kwargs['prefetch_factor'] = 1 if (is_constrained or (isinstance(val_h, int) and val_h >= 512)) else 2
+            # 2026 Resilience: Prefetch depth 4 for standard workloads, 2 for constrained/high-res
+            kwargs['prefetch_factor'] = 2 if (is_constrained or (isinstance(val_h, int) and val_h >= 512)) else 4
         return DataLoader(v_ds, **kwargs)
     # --- 2026 Resilience: Empty Dataset Guard ---
     if len(train_ds) == 0:
@@ -991,13 +994,27 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     has_resume_candidate = len(candidates) > 0
     active_workers = num_workers
 
-    # 2026 Resilience: Kaggle OOM Guard
-    # Persistent workers hold massive GPU IPC cache; we explicitly disable them on constrained platforms
+    # 2026 Resilience: Persistent workers save 2-5s/epoch in respawn cost.
+    # Only disable when system RAM is genuinely tight (<16GB); Kaggle T4x2 has 30GB.
     is_constrained_env = args.env == 'kaggle' or (device.type == 'cuda' and torch.cuda.get_device_properties(0).total_memory < 15e9)
-    use_persistent = active_workers > 0 and not is_constrained_env
+    try:
+        import psutil as _ps
+        _host_ram_gb = _ps.virtual_memory().total / (1024 ** 3)
+    except Exception:
+        _host_ram_gb = 16.0
+    use_persistent = active_workers > 0 and _host_ram_gb >= 16.0
 
     # --- 2026: Mission Data Infrastructure (v6.0) ---
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, persistent_workers=use_persistent, pin_memory=True if device.type=='cuda' else False)
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=active_workers,
+        persistent_workers=use_persistent,
+        pin_memory=True if device.type == 'cuda' else False,
+        prefetch_factor=4 if active_workers > 0 else None,
+        drop_last=True,
+    )
 
     if is_heavy_manifold:
         print(" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
@@ -1132,7 +1149,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     best_metrics = {
         "plcc": 0.0, "srcc": 0.0, "psnr": 0.0, "ssim": 0.0, "lpips": 0.05, "fid": 50.0
     }
-    
+
     # --- 2026: MS-SWA Per-Metric Checkpoint Vault ---
     metric_vaults = {}
 
@@ -1391,8 +1408,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     if batch_size != old_batch_size or len(train_loader) != expected_len:
                         print(f" [RESILIENCY] Batch Size or Fraction Shift detected ({len(train_loader)} -> {expected_len}). Synchronizing loader...")
                         try:
-                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
-                                                     num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+                            train_loader = DataLoader(
+                                train_ds,
+                                batch_size=batch_size,
+                                shuffle=True,
+                                num_workers=num_workers,
+                                pin_memory=True if device.type == 'cuda' else False,
+                                prefetch_factor=4 if num_workers > 0 else None,
+                                drop_last=True,
+                            )
                         except Exception as e:
                             print(f" [WARNING] [RESILIENCY] Loader synchronization failed: {e}. Falling back to default.")
 
@@ -1710,12 +1734,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     # Only load the heavy Perceptual Engine (LPIPS) if explicitly requested OR if we have > 6GB VRAM.
     # This prevents the "Manifold Collapse" hang on 4GB GTX cards.
     use_lpips = "lpips" in str(model_info.get("loss_fn", "")).lower()
-    
-    # 2026 Resilience: Force disable LPIPS during training to save massive VRAM, 
-    # unless strictly required by a specialized pipeline. 
+
+    # 2026 Resilience: Force disable LPIPS during training to save massive VRAM,
+    # unless strictly required by a specialized pipeline.
     # This restores the 4-hour ETA from Epoch 34 where LPIPS was only used during validation.
-    use_lpips = False 
-    
+    use_lpips = False
+
     vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 0
     if vram_gb < 5.0 and "nafnet" in args.model.lower():
         use_lpips = False
@@ -1736,11 +1760,18 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     )
     scaler = torch.amp.GradScaler('cuda', enabled=use_amp) # pyre-ignore
 
-    # 2026 Resilience: Disable cuDNN Benchmark for High-Res Dynamic Manifolds
-    # This prevents the CUDNN_STATUS_BAD_PARAM_STREAM_MISMATCH error on Windows Turing GPUs.
+    # 2026 Resilience: cuDNN Benchmark policy.
+    # Forex inputs have *fixed* tensor shapes per timeframe, so cuDNN benchmark
+    # is a free 5-15% speedup with zero risk. Restoration models use dynamic
+    # resolution ladders, so benchmark stays off to avoid stream mismatch.
     if device.type == 'cuda':
-        torch.backends.cudnn.benchmark = False
-        print(" [GUARD] [cuDNN] Benchmark disabled for stream stability.")
+        _is_forex_task = ("forex" in args.model.lower()) or (getattr(train_ds, "task_type", "") == "forex")
+        if _is_forex_task:
+            torch.backends.cudnn.benchmark = True
+            print(" [GUARD] [cuDNN] Benchmark ENABLED (stable Forex input shapes).")
+        else:
+            torch.backends.cudnn.benchmark = False
+            print(" [GUARD] [cuDNN] Benchmark disabled for stream stability.")
 
 
     # Initialize metrics for export stability (Avoids NameErrors on skip)
@@ -1762,7 +1793,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     if sota_targets:
         # Prune obsolete metrics from the legacy vaults so they stop tracking
         metric_vaults = {k: v for k, v in metric_vaults.items() if k in sota_targets}
-        
+
         # Self-clean legacy vault files from disk (fixes Kaggle mounting old bloated datasets)
         import glob
         for f in glob.glob(os.path.join(config.get("checkpoint_dir", ""), f"{args.model}_vault_*.pth")):
@@ -1919,8 +1950,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             # v18.5: Hardened Shield check to prevent transition if in recovery or on 4GB hardware
             if train_loader.num_workers == 0 and current_iter == 0 and num_workers > 0 and not (in_recovery_mode and vram_gb < 6.0):
                 print(f" [MISSION CONTROL] Transitioning to Parallel Data Pipeline ({num_workers} workers)...")
-                is_constrained_env = args.env == 'kaggle' or vram_gb < 15.0
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                _hot_swap_persistent = num_workers > 0 and _host_ram_gb >= 16.0
+                train_loader = DataLoader(
+                    train_ds,
+                    batch_size=batch_size,
+                    shuffle=True,
+                    num_workers=num_workers,
+                    persistent_workers=_hot_swap_persistent,
+                    pin_memory=True if device.type == 'cuda' else False,
+                    prefetch_factor=4 if num_workers > 0 else None,
+                    drop_last=True,
+                )
 
             iter_obj = enumerate(train_loader)
             if current_iter > 0:
@@ -1942,7 +1982,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 # v17.2: Also skip if we are in OOM Recovery Mode on low-end hardware
                 if num_workers > 0 and train_loader.num_workers == 0 and not (in_recovery_mode and vram_gb < 6.0):
                     print(f" [MISSION CONTROL] Fast-forward complete. Engaging Parallel Pipeline ({num_workers} workers)...")
-                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                    _hot_swap_persistent = num_workers > 0 and _host_ram_gb >= 16.0
+                    train_loader = DataLoader(
+                        train_ds,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=num_workers,
+                        persistent_workers=_hot_swap_persistent,
+                        pin_memory=True if device.type == 'cuda' else False,
+                        prefetch_factor=4 if num_workers > 0 else None,
+                        drop_last=True,
+                    )
                     iter_obj = enumerate(train_loader)
                     # We must align the new loader's iterator (deterministic due to seeds)
                     for i, _ in iter_obj:
@@ -2125,8 +2175,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             # --- 2026 Resilience: DataLoader Re-Initialization ---
                             # v17.5: Enforce Shield to prevent worker deadlocks on low-VRAM hardware
                             _workers = num_workers
-                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
-                                                     num_workers=_workers, pin_memory=True if device.type=='cuda' else False)
+                            train_loader = DataLoader(
+                                train_ds,
+                                batch_size=batch_size,
+                                shuffle=True,
+                                num_workers=_workers,
+                                pin_memory=True if device.type == 'cuda' else False,
+                                prefetch_factor=4 if _workers > 0 else None,
+                                drop_last=True,
+                            )
 
                             # Update iterator position to maintain absolute manifold parity (v6.1.7)
                             current_iter = int(i * (old_bs / batch_size))
@@ -2686,7 +2743,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         all_preds = []
         all_targets = []
         # sentinel_stresses moved to epoch start to capture training instability
-        
+
         # --- 2026: Worker Lifecycle Graceful Shutdown ---
         # Explicitly reap persistent worker processes to prevent System RAM hoarding during validation.
         if 'iter_obj' in locals():
@@ -3092,7 +3149,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     param_mae_counts += p_cpu.shape[0]
 
                 # --- 2026 Resilience: Iteration VRAM Purge ---
-                # 2026: Removed per-batch empty_cache() and gc.collect(). They caused massive OS memory 
+                # 2026: Removed per-batch empty_cache() and gc.collect(). They caused massive OS memory
                 # fragmentation (crashing Kaggle via System RAM OOM) and destroyed validation speed.
                 del preds, loss, inputs, targets, task_idx
 
@@ -3367,14 +3424,14 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     continue
                 is_higher_better = m_key not in ['lpips', 'fid', 'mae', 'max_drawdown', 'tp_mae', 'sl_mae']
                 current_best_score = metric_vaults.get(m_key, None)
-                
+
                 is_new_best = False
                 if current_best_score is None:
                     is_new_best = True
                 else:
                     if is_higher_better and m_val > current_best_score: is_new_best = True
                     elif not is_higher_better and m_val < current_best_score: is_new_best = True
-                    
+
                 if is_new_best:
                     metric_vaults[m_key] = m_val
                     vault_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_vault_{m_key}.pth")
@@ -3455,7 +3512,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
             'lpips': lpips_val, 'fid': fid, 'dir_acc': dir_acc, 'tp_mae': tp_mae
         }
-        
+
         f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, early_stop_triggered, smart_msg = governor.audit_epoch(
             current_quality=locals().get('current_quality_score', 0.0),
             best_quality=best_quality_score,
@@ -3496,19 +3553,19 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 metric_opts_applied = []
                 if 'softmax_temp' in new_params or t_changed:
                     criterion.stab['softmax_temp'] = new_params['softmax_temp']
-                
-                for k, stab_k in [('soft_spearman_weight', 'soft_spearman_weight'), 
-                                  ('lpips_weight', 'lpips_weight'), 
-                                  ('mag_weight', 'mag_weight'), 
-                                  ('dir_weight', 'dir_weight'), 
-                                  ('emd_weight', 'emd_weight'), 
-                                  ('ssim_weight', 'ssim_weight'), 
-                                  ('huber_delta', 'huber_delta'), 
+
+                for k, stab_k in [('soft_spearman_weight', 'soft_spearman_weight'),
+                                  ('lpips_weight', 'lpips_weight'),
+                                  ('mag_weight', 'mag_weight'),
+                                  ('dir_weight', 'dir_weight'),
+                                  ('emd_weight', 'emd_weight'),
+                                  ('ssim_weight', 'ssim_weight'),
+                                  ('huber_delta', 'huber_delta'),
                                   ('conf_gate_str', 'conf_gate_strength')]:
                     if k in new_params:
                         criterion.stab[stab_k] = new_params[k]
                         metric_opts_applied.append(f"{k}={new_params[k]:.4f}")
-                
+
                 if metric_opts_applied:
                     print(f" [GOVERNOR] [OPTIMIZATION] Applying metric-specific optimizations: {', '.join(metric_opts_applied)}")
 
@@ -3522,12 +3579,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     vault_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_vault_{m_key}.pth")
                     if os.path.exists(vault_ckpt):
                         vault_states.append(torch.load(vault_ckpt, map_location='cpu'))
-                
+
                 if len(vault_states) > 1:
                     avg_state = {}
                     for k in vault_states[0].keys():
                         avg_state[k] = torch.stack([state[k].float() for state in vault_states]).mean(dim=0).to(vault_states[0][k].dtype)
-                    
+
                     model.load_state_dict(avg_state)
                     print(f" [MS-SWA] Successfully merged {len(vault_states)} top metric checkpoints into active model.")
 
@@ -3618,7 +3675,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                 # v17.5: Enforce Shield during inter-epoch resolution jumps
                 _workers = num_workers
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                _gov_persistent = _workers > 0 and _host_ram_gb >= 16.0
+                train_loader = DataLoader(
+                    train_ds,
+                    batch_size=batch_size,
+                    shuffle=True,
+                    num_workers=_workers,
+                    persistent_workers=_gov_persistent,
+                    pin_memory=True if device.type == 'cuda' else False,
+                    prefetch_factor=4 if _workers > 0 else None,
+                    drop_last=True,
+                )
                 _vw = min(val_num_workers, 2)
                 val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
 
@@ -3720,7 +3787,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 try:
                     # 1. Store Safety CPU Backup
                     pre_swa_backup = {k: v.cpu().clone() for k, v in model.state_dict().items()}
-                    
+
                     # 2. Update model with averaged parameters if available
                     if 'swa_model' in locals() and hasattr(swa_model, 'update_parameters'):
                         swa_model.update_parameters(model)
@@ -3815,13 +3882,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                 local_best_path = os.path.join(checkpoint_dir, f"{args.model}_best.pth")
                 target_ckpt = None
-                
+
                 # Check for valid checkpoints (LFS pointers are tiny text files, usually < 10KB. Valid weights are > 1MB)
                 if os.path.exists(best_ckpt_path) and os.path.getsize(best_ckpt_path) > 1024 * 1024:
                     target_ckpt = best_ckpt_path
                 elif os.path.exists(local_best_path) and os.path.getsize(local_best_path) > 1024 * 1024:
                     target_ckpt = local_best_path
-                    
+
                 loaded_ckpt = None
                 rollback_success = False
                 if target_ckpt:
@@ -4006,7 +4073,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             if not skip_hub_push:
                 # 1. Save state (Latest always, Best on improvement)
                 safe_torch_save(ckpt_state, latest_hub_path)
-                
+
                 # Delete progress checkpoint since latest is successfully generated
                 if os.path.exists(progress_local):
                     try:
@@ -4216,7 +4283,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 train_ds.update_strategy(fraction=next_frac)
 
                 _workers = num_workers
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                _sota_persistent = _workers > 0 and _host_ram_gb >= 16.0
+                train_loader = DataLoader(
+                    train_ds,
+                    batch_size=batch_size,
+                    shuffle=True,
+                    num_workers=_workers,
+                    persistent_workers=_sota_persistent,
+                    pin_memory=True if device.type == 'cuda' else False,
+                    prefetch_factor=4 if _workers > 0 else None,
+                    drop_last=True,
+                )
                 _vw = min(val_num_workers, 2)
                 val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
                 if device.type == 'cuda': torch.cuda.empty_cache()
@@ -4327,7 +4404,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         torch.cuda.empty_cache()
 
                     _workers = num_workers
-                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                    _sota_persistent2 = _workers > 0 and _host_ram_gb >= 16.0
+                    train_loader = DataLoader(
+                        train_ds,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=_workers,
+                        persistent_workers=_sota_persistent2,
+                        pin_memory=True if device.type == 'cuda' else False,
+                        prefetch_factor=4 if _workers > 0 else None,
+                        drop_last=True,
+                    )
                     _vw = min(val_num_workers, 2)
                     val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
                     if device.type == 'cuda': torch.cuda.empty_cache()
@@ -4484,7 +4571,7 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
         # 4. Notebook Generation
         try:
             from training.notebook_generator import (
-                generate_inference_notebook, 
+                generate_inference_notebook,
                 generate_usage_notebook,
                 generate_colab_inference_notebook,
                 generate_colab_usage_notebook
@@ -4515,7 +4602,7 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
                             print(f" [KAGGLER] Artifact mirrored to root: /kaggle/working/{exp_f}")
                         except Exception as e:
                             print(f"[REMEDY] Failed to mirror artifact {exp_f}: {e}")
-                            
+
         # 7. Final Kaggle Cloud Sync
         # Ensure that ONNX, README, and Notebooks generated after the epoch loop are actually pushed to the Kaggle Model.
         if args.env == 'kaggle' and not skip_sync:

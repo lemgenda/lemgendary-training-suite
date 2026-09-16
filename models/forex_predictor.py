@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# [LemGendary Forex Suite v1.0 - SYNC_ID: FOREX_01]
+# [LemGendary Forex Suite v1.1 - SYNC_ID: FOREX_02]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -69,11 +69,34 @@ PAIR_PIP_SCALE = {
     "NAS100": 40.0, "USTEC": 40.0
 }
 
+# 2026 v1.1: Single source of truth for magnitude ceiling.
+# Must equal ForexDualLoss.max_pips (100.0) so no gradient signal is silently discarded
+# during training. The pipeline normalizes pip targets into the ~[10, 100] NPU range,
+# so 100 pips is the correct physical ceiling for both the head and the loss.
+MAX_PIPS_CEILING = 100.0
+
+
+def _select_valid_n_heads(d_model: int, n_tf: int, preferred: int) -> int:
+    """
+    2026 v1.1 Fix: nn.MultiheadAttention requires embed_dim % num_heads == 0.
+    Picks the largest preferred divisor of d_model that is <= n_tf.
+    Falls back to 1 (always valid) if nothing else fits.
+    """
+    candidates = [preferred, 8, 6, 4, 3, 2, 1]
+    for h in candidates:
+        if h <= n_tf and d_model % h == 0:
+            return h
+    return 1
+
 
 class ForexDualLoss(nn.Module):
     """
     Combined Direction (Classification) + Magnitude (Pip Regression) Loss
     with Anti-Hold Entropy Regularization.
+
+    NOTE (v1.1): The canonical ForexDualLoss used at training time lives in
+    `training/losses.py`. This local copy is retained for module self-containment
+    and mirrors the same max_pips ceiling (MAX_PIPS_CEILING = 100.0) as MagnitudeHead.
     """
     def __init__(self, mag_weight: float = 0.5, entropy_weight: float = 0.05):
         super().__init__()
@@ -86,7 +109,7 @@ class ForexDualLoss(nn.Module):
     def forward(self, preds: dict, targets: dict) -> torch.Tensor:
         dir_logits = preds["direction"]
         mag_preds = preds["magnitude"]
-        
+
         dir_targets = targets["direction"].to(dir_logits.device)
         mag_targets = targets["magnitude"].to(mag_preds.device)
 
@@ -174,11 +197,11 @@ class TimeframeEncoder(nn.Module):
     Supports optional pair embedding injection for pair-specific local pattern learning.
 
     Args:
-        seq_len:     Lookback window length (number of bars).
-        in_features: Number of input features per bar (default: FOREX_FEATURES_PER_BAR).
-        d_model:     Output embedding dimension.
-        n_layers:    Number of CausalConv1D layers.
-        dropout:     Dropout probability.
+        seq_len:      Lookback window length (number of bars).
+        in_features:  Number of input features per bar (default: FOREX_FEATURES_PER_BAR).
+        d_model:      Output embedding dimension.
+        n_layers:     Number of CausalConv1D layers.
+        dropout:      Dropout probability.
         pair_d_model: Dimension of pair embedding to inject as input bias (0 = disabled).
     """
     def __init__(
@@ -244,7 +267,7 @@ class CrossTimeframeAttention(nn.Module):
 
     Args:
         d_model:    Embedding dimension per timeframe.
-        n_heads:    Number of attention heads.
+        n_heads:    Number of attention heads (must divide d_model evenly).
         dropout:    Dropout probability.
         tf_dropout: Timeframe dropout probability during training.
     """
@@ -309,8 +332,8 @@ class DirectionHead(nn.Module):
 class MagnitudeHead(nn.Module):
     """
     Dual regression head predicting expected TP and SL distances in pips.
-    Outputs are constrained positive via Softplus and clamped to a maximum of 200 pips
-    to prevent runaway pip predictions that destabilize the Huber loss gradient signal.
+    Outputs are constrained positive via Softplus and clamped to MAX_PIPS_CEILING
+    (100 pips, matching ForexDualLoss) to keep gradient magnitudes bounded.
 
     Args:
         in_features: Fused manifold width.
@@ -327,7 +350,8 @@ class MagnitudeHead(nn.Module):
         self.tp_head = nn.Linear(hidden_dim, 1)   # Take-Profit pips
         self.sl_head = nn.Linear(hidden_dim, 1)   # Stop-Loss pips
         self.act     = nn.Softplus()               # Ensures positive pip outputs
-        self.max_pips = 200.0                      # Hard cap to prevent exploding predictions
+        # 2026 v1.1: Sourced from the module-level constant for loss-head parity
+        self.max_pips = MAX_PIPS_CEILING
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -355,7 +379,7 @@ class ForexPredictor(nn.Module):
         4. Currency pair embedding fused into the final manifold
         5. Dual output heads:
            - DirectionHead:  3-class logits [Down, Sideways, Up]
-           - MagnitudeHead:  [TP pips, SL pips] clamped to 200 pip max
+           - MagnitudeHead:  [TP pips, SL pips] clamped to MAX_PIPS_CEILING (100)
 
     Design constraints:
         - Fully stateless (no hidden LSTM state) -> safe for ONNX + MT5 EA
@@ -363,15 +387,28 @@ class ForexPredictor(nn.Module):
         - ONNX-compatible (no custom ops)
         - Active timeframes are controlled by the Governor's seq_len rung
 
+    v1.1 Fixes:
+        - pair_idx=None no longer crashes (safe zero-index fallback via _safe_pair_idx).
+        - cross_attn uses _select_valid_n_heads() so d_model % n_heads == 0 is guaranteed
+          even when the curriculum lands on 5 timeframes.
+        - expand_timeframe() warm-starts cross_attn via load_state_dict and partially
+          copies the old fused_project input weights into the wider replacement.
+        - expand_timeframe() preserves pair_d_model conditioning on the new branch.
+        - MagnitudeHead.max_pips is synchronized with ForexDualLoss.max_pips (100).
+        - pair_idx is clamped to [0, num_pairs-1] to prevent nn.Embedding IndexError.
+
     Args:
         active_timeframes: List of active timeframe rungs (minutes).
                            Curriculum: start with [1], expand to all 6.
         d_model:           Embedding dimension per timeframe branch.
-        n_heads:           Number of cross-timeframe attention heads.
+        n_heads:           Preferred number of cross-timeframe attention heads.
+                           Clamped to the largest divisor of d_model that is <= n_tf.
         n_layers:          Number of CausalConv1D layers per encoder.
         head_hidden:       Hidden dim for both output heads.
         dropout:           Global dropout rate.
+        tf_dropout:        Timeframe dropout rate for cross-attention.
         in_features:       Features per bar (default: FOREX_FEATURES_PER_BAR = 14).
+        pairs:             Optional subset of pairs for pair-embedding sizing.
     """
     def __init__(
         self,
@@ -391,9 +428,13 @@ class ForexPredictor(nn.Module):
         if active_timeframes is None:
             active_timeframes = [1, 5, 15, 60, 240, 1440]
 
-        self.active_timeframes = active_timeframes
+        self.active_timeframes = list(active_timeframes)
         self.d_model = d_model
         self.tf_dropout = tf_dropout
+        self.in_features = in_features
+        self.n_layers = n_layers
+        self.dropout = dropout
+        self.head_hidden = head_hidden
 
         self.pairs = list(pairs) if pairs is not None else list(EXTENDED_PAIRS)
         self.num_pairs = max(len(self.pairs), NUM_PAIRS)
@@ -413,16 +454,19 @@ class ForexPredictor(nn.Module):
                 dropout      = dropout,
                 pair_d_model = d_model,
             )
-            for tf in active_timeframes
+            for tf in self.active_timeframes
         })
 
-        n_tf = len(active_timeframes)
+        n_tf = len(self.active_timeframes)
+
+        # 2026 v1.1 Fix: guarantee d_model % n_heads == 0 for nn.MultiheadAttention
+        valid_n_heads = _select_valid_n_heads(d_model, n_tf, preferred=n_heads)
 
         # Cross-timeframe attention fuses multiple timeframe embeddings
         self.cross_attn = CrossTimeframeAttention(
-            d_model = d_model,
-            n_heads = min(n_heads, n_tf),   # Can't exceed n_tf heads
-            dropout = dropout,
+            d_model    = d_model,
+            n_heads    = valid_n_heads,
+            dropout    = dropout,
             tf_dropout = tf_dropout,
         )
 
@@ -443,7 +487,7 @@ class ForexPredictor(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        """Kaiming init for linear layers, Xavier for embeddings."""
+        """Kaiming init for linear/conv layers, Xavier for embeddings."""
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
@@ -455,22 +499,52 @@ class ForexPredictor(nn.Module):
                     nn.init.zeros_(m.bias)
         nn.init.xavier_uniform_(self.pair_embed.weight)
 
+    def _safe_pair_idx(
+        self,
+        pair_idx: torch.Tensor | None,
+        batch_size: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """
+        2026 v1.1: Accept None, scalars, or tensors. Always returns a [B] long tensor
+        of valid embedding indices in [0, num_pairs-1].
+        """
+        if pair_idx is None:
+            return torch.zeros(batch_size, dtype=torch.long, device=device)
+        if not isinstance(pair_idx, torch.Tensor):
+            pair_idx = torch.as_tensor(pair_idx, dtype=torch.long, device=device)
+        pair_idx = pair_idx.to(device=device, dtype=torch.long)
+        if pair_idx.dim() == 0:
+            pair_idx = pair_idx.unsqueeze(0).expand(batch_size)
+        # Clamp to safe range for nn.Embedding
+        pair_idx = pair_idx.clamp(min=0, max=self.num_pairs - 1)
+        return pair_idx
+
     def forward(
         self,
         tf_inputs: dict,
-        pair_idx:  torch.Tensor,
+        pair_idx:  torch.Tensor | None = None,
     ) -> dict:
         """
         Args:
             tf_inputs: Dict mapping timeframe (int) -> tensor [B, seq_len, features]
                        Only active timeframes need to be present.
-            pair_idx:  Long tensor [B] -- currency pair index (see PAIR_INDEX).
+            pair_idx:  Optional Long tensor [B] -- currency pair index (see PAIR_INDEX).
+                       Falls back to zeros if None.
 
         Returns:
             Dict with:
                 'direction_logits': [B, 3]  -- raw logits for CE loss / argmax
                 'magnitude':        [B, 2]  -- (tp_pips, sl_pips)
         """
+        # Infer batch size from any provided timeframe tensor
+        first_val = next(iter(tf_inputs.values()))
+        batch_size = first_val.shape[0]
+        device = first_val.device
+
+        # 2026 v1.1 Fix: None-safe pair_idx handling
+        pair_idx = self._safe_pair_idx(pair_idx, batch_size, device)
+
         # Pair embedding: used both for TCN input conditioning and final manifold fusion
         pair_emb_raw = self.pair_embed(pair_idx)        # [B, d_model]
         pair_emb     = self.pair_project(pair_emb_raw)  # [B, d_model]
@@ -478,15 +552,20 @@ class ForexPredictor(nn.Module):
         # Encode each active timeframe with pair-conditioned TCN
         tf_feats = []
         for tf in self.active_timeframes:
-            val = tf_inputs.get(tf) if tf in tf_inputs else tf_inputs.get(str(tf))
-            if val is None:
-                val = next(iter(tf_inputs.values()))
             encoder_key = str(tf)
-            if encoder_key in self.encoders:
-                tf_feats.append(self.encoders[encoder_key](val, pair_emb))
-            else:
-                first_enc = next(iter(self.encoders.values()))
-                tf_feats.append(first_enc(val, pair_emb))
+            val = tf_inputs.get(tf, tf_inputs.get(encoder_key))
+
+            if val is None or encoder_key not in self.encoders:
+                # 2026 v1.1 Fix: Fail loudly instead of silently duplicating features.
+                # A silent duplication here would corrupt the training signal by
+                # presenting two slots with the same underlying tensor.
+                raise KeyError(
+                    f"[ForexPredictor] Missing timeframe {tf} in batch or encoder. "
+                    f"Provided input keys: {list(tf_inputs.keys())}, "
+                    f"Encoder keys: {list(self.encoders.keys())}"
+                )
+
+            tf_feats.append(self.encoders[encoder_key](val, pair_emb))
 
         # Stack -> [B, n_tf, d_model] -> cross-timeframe attention -> [B, n_tf * d_model]
         tf_stack = torch.stack(tf_feats, dim=1)
@@ -510,44 +589,89 @@ class ForexPredictor(nn.Module):
         Governor hook: add a new timeframe branch without rebuilding the entire model.
         Called by the Governor when advancing to the next curriculum rung.
 
+        2026 v1.1: Warm-starts cross_attn (via load_state_dict) and copies the
+        old fused_project input weights into the new (wider) fused_project so
+        prior learning is preserved across the curriculum jump.
+
         Args:
-            new_tf: Timeframe in minutes to add (must be in TIMEFRAME_RUNGS).
+            new_tf: Timeframe in minutes to add (must be in TIMEFRAME_LOOKBACK).
         """
         if new_tf in self.active_timeframes:
             return
         if new_tf not in TIMEFRAME_LOOKBACK:
-            raise ValueError(f"[ForexPredictor] Unknown timeframe: {new_tf}. Valid: {list(TIMEFRAME_LOOKBACK.keys())}")
+            raise ValueError(
+                f"[ForexPredictor] Unknown timeframe: {new_tf}. "
+                f"Valid: {list(TIMEFRAME_LOOKBACK.keys())}"
+            )
 
         key = str(new_tf)
-        # Add new encoder branch (inherits same d_model / n_layers)
+
+        # 2026 v1.1 Fix: inherit pair_d_model from an existing encoder so the
+        # new branch stays pair-conditioned like its siblings.
         ref_encoder = next(iter(self.encoders.values()))
-        n_layers    = len(ref_encoder.tcn)
+        ref_pair_d_model = getattr(ref_encoder, 'pair_d_model', self.d_model)
+
         self.encoders[key] = TimeframeEncoder(
-            seq_len     = TIMEFRAME_LOOKBACK[new_tf],
-            in_features = ref_encoder.tcn[0].conv.in_channels
-                          if hasattr(ref_encoder.tcn[0].conv, 'in_channels') else FOREX_FEATURES_PER_BAR,
-            d_model     = self.d_model,
-            n_layers    = n_layers,
+            seq_len      = TIMEFRAME_LOOKBACK[new_tf],
+            in_features  = self.in_features,
+            d_model      = self.d_model,
+            n_layers     = self.n_layers,
+            dropout      = self.dropout,
+            pair_d_model = ref_pair_d_model,
         )
         self.active_timeframes.append(new_tf)
 
-        # Rebuild cross-attention and projection heads to match new n_tf
+        # ── Rebuild cross-attention with warm-start ──────────────────────────
+        old_cross_attn = self.cross_attn
+        old_cross_state = {k: v.clone() for k, v in old_cross_attn.state_dict().items()}
+
         n_tf = len(self.active_timeframes)
-        # Ensure n_heads divides d_model evenly
-        valid_heads = [h for h in [8, 4, 2, 1] if self.d_model % h == 0 and h <= n_tf]
-        n_heads = valid_heads[0] if valid_heads else 1
+        # 2026 v1.1 Fix: use the divisibility helper (was relying on nn.MultiheadAttention
+        # to raise an obscure AssertionError on non-divisible configs).
+        valid_n_heads = _select_valid_n_heads(self.d_model, n_tf, preferred=old_cross_attn.attn.num_heads)
+
         self.cross_attn = CrossTimeframeAttention(
-            d_model = self.d_model,
-            n_heads = n_heads,
-            tf_dropout = getattr(self, 'tf_dropout', 0.15),
+            d_model    = self.d_model,
+            n_heads    = valid_n_heads,
+            tf_dropout = self.tf_dropout,
         )
+
+        # 2026 v1.1 Warm-Start: MultiheadAttention's in_proj / out_proj / LayerNorm
+        # weights are independent of n_tf, so they load cleanly. strict=False lets
+        # any structurally-incompatible keys fall back to fresh init.
+        try:
+            self.cross_attn.load_state_dict(old_cross_state, strict=False)
+            print(f" [ForexPredictor] cross_attn warm-started (heads={valid_n_heads}, n_tf={n_tf}).")
+        except Exception as e:
+            print(f" [ForexPredictor] cross_attn warm-start skipped: {e}")
+
+        # ── Rebuild fused_project with partial warm-start ────────────────────
+        old_proj = self.fused_project
+        old_first_linear = old_proj[0]
+        old_in_dim = old_first_linear.in_features
+        hidden = old_first_linear.out_features
+
         fused_dim = n_tf * self.d_model + self.d_model
-        old_proj  = self.fused_project
-        hidden    = old_proj[0].out_features
-        self.fused_project = nn.Sequential(
+        new_proj = nn.Sequential(
             nn.Linear(fused_dim, hidden),
             nn.GELU(),
             nn.Dropout(old_proj[2].p),
             nn.LayerNorm(hidden),
         )
+
+        # 2026 v1.1: Copy the old input-block weights into the new (wider) linear.
+        # The fused_tf layout is [n_tf * d_model, pair_emb(d_model)], so the old
+        # timeframe block + the pair embedding block occupy the FIRST old_in_dim
+        # rows. The new d_model rows at the tail belong to the new timeframe and
+        # keep their Kaiming initialization.
+        with torch.no_grad():
+            new_proj[0].weight[:old_in_dim] = old_first_linear.weight
+            new_proj[0].bias.copy_(old_first_linear.bias)
+            # LayerNorm at the tail is shape-invariant (hidden-dim); copy directly
+            if hasattr(old_proj[3], 'weight') and old_proj[3].weight.shape == new_proj[3].weight.shape:
+                new_proj[3].weight.copy_(old_proj[3].weight)
+                new_proj[3].bias.copy_(old_proj[3].bias)
+        self.fused_project = new_proj
+
         print(f" [ForexPredictor] Expanded to {n_tf} timeframes. Added: {new_tf}min rung.")
+        print(f" [ForexPredictor] fused_project warm-started: old_in_dim={old_in_dim} -> new_in_dim={fused_dim}.")
