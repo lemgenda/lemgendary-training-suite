@@ -378,6 +378,18 @@ class ForexDataset(Dataset):
                     cache = ParquetRowGroupCache(p_path)
                     self._parquet_caches[yr_name] = cache
 
+                    # 2026 v2.2: Build global_row -> row_group map for the
+                    # RowGroupAwareSampler. Row group size is ~5000 and there are
+                    # ~500-700 groups per year, so random row access yields
+                    # ~1.7% LRU hit rate. Row-group-level shuffle raises it to ~99%.
+                    rg_of_row = np.empty(cache.total_rows, dtype=np.int32)
+                    for rg_idx in range(cache.num_row_groups):
+                        rg_start = cache.rg_starts[rg_idx]
+                        rg_end = (cache.rg_starts[rg_idx + 1]
+                                  if rg_idx + 1 < cache.num_row_groups
+                                  else cache.total_rows)
+                        rg_of_row[rg_start:rg_end] = rg_idx
+
                     import pyarrow.parquet as pq
                     meta_tbl = pq.read_table(
                         p_path,
@@ -401,6 +413,7 @@ class ForexDataset(Dataset):
                         "sl_pips": sl_arr,
                         "seq_len": seqlen_arr,
                         "n_features": nfeat_arr,
+                        "rg_of_row": rg_of_row,
                     }
 
                     pair_set = set(self.pairs)

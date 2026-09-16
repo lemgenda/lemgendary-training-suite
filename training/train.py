@@ -3,7 +3,7 @@
 import sys
 import os
 
-if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
+if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ and sys.platform != "win32":
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # --- Hyper-Verbose Path Defense (2026 Specialization) ---

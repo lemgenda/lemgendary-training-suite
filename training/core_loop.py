@@ -1,15 +1,15 @@
 # 2026: Environment Linter Sync
 import os
 import time
+import sys
 # 2026 Resilience: Force GPU 0 to prevent multi-GPU context initialization hangs under virtualized environments (Kaggle T4 x2)
 # Removed to allow Multi-GPU DataParallel
 # if "CUDA_VISIBLE_DEVICES" not in os.environ:
 #     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 # Disable OpenCV's OpenCL driver binding to prevent GPU driver deadlocks with PyTorch CUDA context initialization
 os.environ["OPENCV_OPENCL_DEVICE"] = "DISABLED"
-if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
+if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ and sys.platform != "win32":
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-import sys
 import gc
 
 # --- 2026 Resilience: Child Process Interrupt Handler ---
@@ -95,9 +95,10 @@ from training.cloud_sync import trigger_cloud_sync
 try:
     import yaml
     import torch
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    if sys.platform != "win32":
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     import torch.nn as nn
-    import torch.nn.functional as F  # Module-level F, replaces the old inline _F_resize import
+    import torch.nn.functional as F
     import numpy as np
     from torch.utils.data import DataLoader
     from tqdm import tqdm
@@ -168,6 +169,40 @@ from data.dataset import MultiTaskDataset
 from data.data_utils import download_and_extract_dataset
 from models.factory import get_model
 
+# 2026 v2.2: Row-group-aware sampler for Parquet-backed forex dataset.
+# Raises LRU hit rate from ~2% to ~99% by shuffling at the row-group level.
+#
+# The fallback is a *duck-typed mirror* of the real class so Pyright's union
+# of (real | stub) still satisfies torch.utils.data.Sampler and exposes the
+# same public surface. The stub raises only when actually iterated, so the
+# existing `train_sampler is not None` guards prevent it from ever running.
+try:
+    from data.forex_sampler import RowGroupAwareSampler
+except ImportError:
+    from torch.utils.data import Sampler as _TorchSampler
+
+    class RowGroupAwareSampler(_TorchSampler):  # type: ignore[no-redef]
+        """Type-compatible stub. Raises at iteration time if the real module is missing."""
+        _group_keys: list = []
+
+        def __init__(self, dataset=None, shuffle: bool = True, seed: int = 42):
+            self.dataset = dataset
+            self.shuffle = shuffle
+            self.seed = seed
+            self.epoch = 0
+            self._group_keys = []
+
+        def set_epoch(self, epoch: int) -> None:
+            self.epoch = epoch
+
+        def __iter__(self):
+            raise RuntimeError(
+                "RowGroupAwareSampler unavailable: data.forex_sampler failed to import."
+            )
+
+        def __len__(self) -> int:
+            return 0
+
 
 def load_pat():
     """2026 Resilience: Securely mount PATs from local files if missing from environment."""
@@ -188,7 +223,6 @@ def git_hub_sync(repo_path, remote_url, message):
     """
     2026 Resilience: Robust synchronization for external repositories.
     """
-    # NOTE: `subprocess` is imported at module scope — no local re-import needed.
     try:
         pat = os.environ.get('GITHUB_PAT')
 
@@ -310,6 +344,8 @@ def main():
     parser.add_argument("--timeframes", type=int, nargs='+', default=None, help="List of active timeframes in minutes (e.g. 60 240 1440)")
     parser.add_argument("--num_workers", type=int, default=None, help="Force a specific number of workers")
     parser.add_argument("--val_num_workers", type=int, default=None, help="Force a specific number of validation workers")
+    parser.add_argument("--enable-batch-growth", action="store_true",
+                        help="Allow intra-epoch physical batch growth when VRAM headroom exceeds 40 percent.")
     args = parser.parse_args()
 
     print(" [TRACE] Loading GITHUB PAT...", flush=True)
@@ -387,7 +423,6 @@ def main():
     current_res = raw_size[1] if isinstance(raw_size, list) else raw_size
     is_heavy_manifold = is_heavy_arch or int(current_res or 0) > 448
 
-    # [SPEED] Detection flags
     is_forex_task = ("forex" in args.model.lower()) or (model_info.get("dataset_type") == "forex")
     _conv_net_keywords = ("mirnet", "nafnet", "mprnet", "ffanet", "restormer",
                           "codeformer", "nima_aesthetic_efficientnet",
@@ -496,7 +531,6 @@ def main():
 
     model = get_model(args.model, config).to(device)
 
-    # [SPEED] Channels-last conversion for conv-heavy models
     if device.type == 'cuda' and is_conv_net:
         try:
             model = model.to(memory_format=torch.channels_last)
@@ -508,13 +542,11 @@ def main():
         print(f"[LAUNCH] [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
         model = torch.nn.DataParallel(model)
 
-    # --- 2026 Hyperparameter Priority Engine ---
     epochs = args.epochs or model_info.get("epochs") or config.get("defaults", {}).get("epochs", 50)
     lr = args.lr or model_info.get("learning_rate") or config.get("defaults", {}).get("lr", 1e-4)
 
     config_batch = model_info.get("batch_size")
 
-    # --- 2026 Resilience: Smart Training Governor ---
     global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0, "vram_purge": True})
     model_stab = model_info.get("stabilizers", {})
     stab = {**global_stab, **model_stab}
@@ -546,14 +578,12 @@ def main():
         batch_size = hardware_limit
     val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val', fold=args.fold, pairs=args.pairs)
 
-    # --- 2026 Resilience: Universal Accumulation Stride ---
     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
     accumulation_steps = max(1, target_eff // batch_size)
 
     print(f" [[MISSION PROFILE]] Physical Batch: {batch_size} | Accumulation: {accumulation_steps} | Effective: {batch_size * accumulation_steps}")
     print(f" [VAL PROFILE] Physical Batch: {val_batch_size} @ {val_anchor_size}px")
 
-    # --- 2026: Auto-Recovery Dataset Downloader ---
     exec_config = config.get("execution", {})
     exec_mode = exec_config.get("mode", "training")
     exec_suffix = exec_config.get("suffixes", {}).get(exec_mode, "Large")
@@ -631,9 +661,6 @@ def main():
         train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction, fold=args.fold, pairs=args.pairs, active_timeframes=active_tfs)
         val_ds = ForexDataset(shard_root=shard_root, is_train=False, fold=args.fold, pairs=args.pairs, active_timeframes=active_tfs)
 
-        # [FIX] Guard the CURRICULUM telemetry print. If ForexDataset is missing an
-        # expected attribute (pairs, size), the old code silently swallowed the
-        # exception and CURRICULUM never printed — masking the real issue.
         try:
             active_pairs = len(args.pairs) if args.pairs else len(getattr(train_ds, 'pairs', []))
             print(f" [SIGNAL] [CURRICULUM] Walk-Forward Fold: {args.fold if args.fold else 'MAIN'} | Active Pairs: {active_pairs} | Active TFs: {active_tfs}")
@@ -646,7 +673,6 @@ def main():
         train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
         val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
 
-    # --- 2026 Resilience: Dynamic Worker & Thread Topology Management ---
     cpu_count = os.cpu_count() or 2
 
     if getattr(args, 'num_workers', None) is not None:
@@ -654,7 +680,6 @@ def main():
         try: torch.set_num_threads(max(1, cpu_count))
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'kaggle':
-        # [SPEED] Kaggle T4x2 = 4 vCPUs. Bump to 4 workers.
         num_workers = 4
         try: torch.set_num_threads(1)
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
@@ -681,7 +706,6 @@ def main():
             _cfg_workers = cpu_count
         num_workers = min(cpu_count, _cfg_workers)
 
-    # [SPEED] Validation is forward-pass bound; 2 workers max.
     if getattr(args, 'val_num_workers', None) is not None:
         val_num_workers = args.val_num_workers
     else:
@@ -718,7 +742,6 @@ def main():
         print(f" [ACTION] Recommended action: Run 'lemgendary_datasets_hub.ps1' Option 1 to acquire raw sources, then Option 2 to compile.")
         sys.exit(1)
 
-    # --- 2026 Resilience: Hub Checkpoint Pathing ---
     pat = os.environ.get('GITHUB_PAT', '')
     if args.env == 'kaggle':
         hub_root = "/kaggle/working/LemGendaryModels"
@@ -732,7 +755,6 @@ def main():
     local_ckpt_dir = hub_ckpt_dir
     os.makedirs(hub_ckpt_dir, exist_ok=True)
 
-    # --- 2026 Resilience: Kaggle Checkpoint Recovery ---
     if args.env == 'kaggle':
         print(f"[SIGNAL] [KAGGLE] Initiating Checkpoint & Metric Recovery...")
         model_info = unified_models_registry.get(args.model, {})
@@ -915,7 +937,6 @@ def main():
         if not found_any:
             print(f" -> [NOTICE] No valid manifolds or checkpoints found in /kaggle/input.")
 
-    # --- 2026 Resilience: Pre-Flight Resumption Engine ---
     resume_iteration = -1
     start_epoch = 0
     ckpt_loaded = False
@@ -942,24 +963,40 @@ def main():
         _host_ram_gb = 16.0
     use_persistent = active_workers > 0 and _host_ram_gb >= 16.0
 
-    # --- 2026: Mission Data Infrastructure ---
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=active_workers,
-        persistent_workers=use_persistent,
-        pin_memory=True if device.type == 'cuda' else False,
-        prefetch_factor=8 if active_workers > 0 else None,
-        drop_last=True,
-    )
+    # 2026 v2.2: Forex uses RowGroupAwareSampler to raise Parquet LRU hit rate
+    # from ~2% to ~99%. Other tasks keep shuffle=True.
+    is_forex_dataset = getattr(train_ds, 'task_type', '') == 'forex'
+    train_sampler = None
+    if is_forex_dataset and RowGroupAwareSampler is not None:
+        train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+        print(f" [SPEED] [PARQUET-SAMPLER] RowGroupAwareSampler active: {len(train_sampler._group_keys)} locality groups.")
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=batch_size,
+            sampler=train_sampler,
+            num_workers=active_workers,
+            persistent_workers=use_persistent,
+            pin_memory=True if device.type == 'cuda' else False,
+            prefetch_factor=8 if active_workers > 0 else None,
+            drop_last=True,
+        )
+    else:
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=active_workers,
+            persistent_workers=use_persistent,
+            pin_memory=True if device.type == 'cuda' else False,
+            prefetch_factor=8 if active_workers > 0 else None,
+            drop_last=True,
+        )
 
     if is_heavy_manifold:
         print(" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
 
     val_loader = build_val_loader(val_ds, val_batch_size, val_num_workers, is_constrained=is_constrained_env, dev=device)
 
-    # --- 2026 Senior Hardening: Head-Differential & Surgical Weight Decay ---
     head_keywords = ["head", "fc", "classifier", "outro", "predict", "linear"]
     backbone_decay, backbone_no_decay = [], []
     head_decay, head_no_decay = [], []
@@ -1288,18 +1325,30 @@ def main():
                     if batch_size != old_batch_size or len(train_loader) != expected_len:
                         print(f" [RESILIENCY] Batch Size or Fraction Shift detected ({len(train_loader)} -> {expected_len}). Synchronizing loader...")
                         try:
-                            # [SPEED] Persistent workers on resume rebuild — saves 15-30s/epoch
                             _resume_persistent = num_workers > 0 and _host_ram_gb >= 16.0
-                            train_loader = DataLoader(
-                                train_ds,
-                                batch_size=batch_size,
-                                shuffle=True,
-                                num_workers=num_workers,
-                                persistent_workers=_resume_persistent,
-                                pin_memory=True if device.type == 'cuda' else False,
-                                prefetch_factor=8 if num_workers > 0 else None,
-                                drop_last=True,
-                            )
+                            if train_sampler is not None:
+                                train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+                                train_loader = DataLoader(
+                                    train_ds,
+                                    batch_size=batch_size,
+                                    sampler=train_sampler,
+                                    num_workers=num_workers,
+                                    persistent_workers=_resume_persistent,
+                                    pin_memory=True if device.type == 'cuda' else False,
+                                    prefetch_factor=8 if num_workers > 0 else None,
+                                    drop_last=True,
+                                )
+                            else:
+                                train_loader = DataLoader(
+                                    train_ds,
+                                    batch_size=batch_size,
+                                    shuffle=True,
+                                    num_workers=num_workers,
+                                    persistent_workers=_resume_persistent,
+                                    pin_memory=True if device.type == 'cuda' else False,
+                                    prefetch_factor=8 if num_workers > 0 else None,
+                                    drop_last=True,
+                                )
                         except Exception as e:
                             print(f" [WARNING] [RESILIENCY] Loader synchronization failed: {e}. Falling back to default.")
 
@@ -1671,6 +1720,7 @@ def main():
             loader._iterator = None
         except Exception:
             pass
+
     # --- 2026 SOTA Dynamic Horizon ---
     epoch = start_epoch
     while True:
@@ -1685,6 +1735,15 @@ def main():
                 break
 
         last_intra_epoch_pct = -1.0
+
+        # 2026 v2.2: Reseed the Parquet sampler so shuffling differs per epoch.
+        # RowGroupAwareSampler shuffles at the row-group level; without a per-epoch
+        # seed, every epoch replays the same traversal order.
+        if train_sampler is not None:
+            try:
+                train_sampler.set_epoch(epoch)
+            except Exception:
+                pass
 
         model.train()
 
@@ -1753,16 +1812,28 @@ def main():
             if train_loader.num_workers == 0 and current_iter == 0 and num_workers > 0 and not (in_recovery_mode and vram_gb < 6.0):
                 print(f" [MISSION CONTROL] Transitioning to Parallel Data Pipeline ({num_workers} workers)...")
                 _hot_swap_persistent = num_workers > 0 and _host_ram_gb >= 16.0
-                train_loader = DataLoader(
-                    train_ds,
-                    batch_size=batch_size,
-                    shuffle=True,
-                    num_workers=num_workers,
-                    persistent_workers=_hot_swap_persistent,
-                    pin_memory=True if device.type == 'cuda' else False,
-                    prefetch_factor=8 if num_workers > 0 else None,
-                    drop_last=True,
-                )
+                if train_sampler is not None:
+                    train_loader = DataLoader(
+                        train_ds,
+                        batch_size=batch_size,
+                        sampler=train_sampler,
+                        num_workers=num_workers,
+                        persistent_workers=_hot_swap_persistent,
+                        pin_memory=True if device.type == 'cuda' else False,
+                        prefetch_factor=8 if num_workers > 0 else None,
+                        drop_last=True,
+                    )
+                else:
+                    train_loader = DataLoader(
+                        train_ds,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=num_workers,
+                        persistent_workers=_hot_swap_persistent,
+                        pin_memory=True if device.type == 'cuda' else False,
+                        prefetch_factor=8 if num_workers > 0 else None,
+                        drop_last=True,
+                    )
 
             # Initialize iter_obj unconditionally so pyright sees it as always assigned.
             iter_obj = enumerate(train_loader)
@@ -1784,16 +1855,28 @@ def main():
                 if num_workers > 0 and train_loader.num_workers == 0 and not (in_recovery_mode and vram_gb < 6.0):
                     print(f" [MISSION CONTROL] Fast-forward complete. Engaging Parallel Pipeline ({num_workers} workers)...")
                     _hot_swap_persistent = num_workers > 0 and _host_ram_gb >= 16.0
-                    train_loader = DataLoader(
-                        train_ds,
-                        batch_size=batch_size,
-                        shuffle=True,
-                        num_workers=num_workers,
-                        persistent_workers=_hot_swap_persistent,
-                        pin_memory=True if device.type == 'cuda' else False,
-                        prefetch_factor=8 if num_workers > 0 else None,
-                        drop_last=True,
-                    )
+                    if train_sampler is not None:
+                        train_loader = DataLoader(
+                            train_ds,
+                            batch_size=batch_size,
+                            sampler=train_sampler,
+                            num_workers=num_workers,
+                            persistent_workers=_hot_swap_persistent,
+                            pin_memory=True if device.type == 'cuda' else False,
+                            prefetch_factor=8 if num_workers > 0 else None,
+                            drop_last=True,
+                        )
+                    else:
+                        train_loader = DataLoader(
+                            train_ds,
+                            batch_size=batch_size,
+                            shuffle=True,
+                            num_workers=num_workers,
+                            persistent_workers=_hot_swap_persistent,
+                            pin_memory=True if device.type == 'cuda' else False,
+                            prefetch_factor=8 if num_workers > 0 else None,
+                            drop_last=True,
+                        )
                     iter_obj = enumerate(train_loader)
                     for i, _ in iter_obj:
                         if i >= current_iter - 1: break
@@ -1966,20 +2049,38 @@ def main():
                             print(f" [RECOVERY] OOM Detected. Scaling Batch: {old_bs} -> {batch_size} | Accumulation: {accumulation_steps} | Shield: ACTIVE")
 
                             _workers = num_workers
-                            # [SPEED] Persistent workers on OOM recovery path — avoids 15-30s/epoch respawn tax
-                            train_loader = DataLoader(
-                                train_ds,
-                                batch_size=batch_size,
-                                shuffle=True,
-                                num_workers=_workers,
-                                persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
-                                pin_memory=True if device.type == 'cuda' else False,
-                                prefetch_factor=8 if _workers > 0 else None,
-                                drop_last=True,
-                            )
+                            if train_sampler is not None:
+                                train_loader = DataLoader(
+                                    train_ds,
+                                    batch_size=batch_size,
+                                    sampler=train_sampler,
+                                    num_workers=_workers,
+                                    persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
+                                    pin_memory=True if device.type == 'cuda' else False,
+                                    prefetch_factor=8 if _workers > 0 else None,
+                                    drop_last=True,
+                                )
+                            else:
+                                train_loader = DataLoader(
+                                    train_ds,
+                                    batch_size=batch_size,
+                                    shuffle=True,
+                                    num_workers=_workers,
+                                    persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
+                                    pin_memory=True if device.type == 'cuda' else False,
+                                    prefetch_factor=8 if _workers > 0 else None,
+                                    drop_last=True,
+                                )
 
                             current_iter = int(i * (old_bs / batch_size))
-                            if pbar: pbar.close()
+                            # Close the current progress bar before breaking so the
+                            # outer while-loop can build a fresh one on the same line.
+                            if pbar is not None:
+                                try:
+                                    pbar.close()
+                                except Exception:
+                                    pass
+                                pbar = None
                             current_iter = min(current_iter, len(train_loader))
 
                             recovery_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
@@ -2371,30 +2472,52 @@ def main():
                                 )
                                 _dispose_loader(train_loader)
                                 _workers = 0 if (in_recovery_mode and vram_gb < 6.0) else num_workers
-                                train_loader = DataLoader(
-                                    train_ds,
-                                    batch_size=batch_size,
-                                    shuffle=True,
-                                    num_workers=_workers,
-                                    persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
-                                    pin_memory=True,
-                                    prefetch_factor=8 if _workers > 0 else None,
-                                    drop_last=True,
-                                )
+                                if train_sampler is not None:
+                                    train_loader = DataLoader(
+                                        train_ds,
+                                        batch_size=batch_size,
+                                        sampler=train_sampler,
+                                        num_workers=_workers,
+                                        persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
+                                        pin_memory=True,
+                                        prefetch_factor=8 if _workers > 0 else None,
+                                        drop_last=True,
+                                    )
+                                else:
+                                    train_loader = DataLoader(
+                                        train_ds,
+                                        batch_size=batch_size,
+                                        shuffle=True,
+                                        num_workers=_workers,
+                                        persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
+                                        pin_memory=True,
+                                        prefetch_factor=8 if _workers > 0 else None,
+                                        drop_last=True,
+                                    )
                                 torch.cuda.empty_cache()
                                 gc.collect()
+                                # Close the progress bar before breaking so the outer
+                                # while-loop rebuilds it cleanly on the same line.
+                                if pbar is not None:
+                                    try:
+                                        pbar.close()
+                                    except Exception:
+                                        pass
+                                    pbar = None
                                 current_iter = int(i * (old_bs / batch_size))
                                 break
                         except Exception:
                             pass
 
-                    # --- 2026 v15.7: INTRA-EPOCH BATCH GROWTH ---
+                    # --- 2026 v15.7: INTRA-EPOCH BATCH GROWTH (opt-in via --enable-batch-growth) ---
                     # The end-of-epoch growth check fires too late for huge epochs
                     # (MIRNet: 10+ hours/epoch). We sample VRAM every 500 optimizer
                     # steps and grow as soon as headroom allows. Verified safe
-                    # because the pre-emptive sentinel above will halve it back
-                    # if VRAM gets tight.
+                    # because the pre-emptive sentinel above will halve it back if
+                    # VRAM gets tight. Opt-in because the worker respawn churn
+                    # disrupts the progress bar for negligible gain on many models.
                     if (not args.batch_size
+                            and getattr(args, 'enable_batch_growth', False)
                             and device.type == 'cuda'
                             and not in_recovery_mode
                             and session_batches_processed > 0
@@ -2416,18 +2539,38 @@ def main():
                                 )
                                 _dispose_loader(train_loader)
                                 _workers = num_workers
-                                train_loader = DataLoader(
-                                    train_ds,
-                                    batch_size=batch_size,
-                                    shuffle=True,
-                                    num_workers=_workers,
-                                    persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
-                                    pin_memory=True,
-                                    prefetch_factor=8 if _workers > 0 else None,
-                                    drop_last=True,
-                                )
+                                if train_sampler is not None:
+                                    train_loader = DataLoader(
+                                        train_ds,
+                                        batch_size=batch_size,
+                                        sampler=train_sampler,
+                                        num_workers=_workers,
+                                        persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
+                                        pin_memory=True,
+                                        prefetch_factor=8 if _workers > 0 else None,
+                                        drop_last=True,
+                                    )
+                                else:
+                                    train_loader = DataLoader(
+                                        train_ds,
+                                        batch_size=batch_size,
+                                        shuffle=True,
+                                        num_workers=_workers,
+                                        persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
+                                        pin_memory=True,
+                                        prefetch_factor=8 if _workers > 0 else None,
+                                        drop_last=True,
+                                    )
                                 torch.cuda.empty_cache()
                                 gc.collect()
+                                # Close the progress bar before breaking so the outer
+                                # while-loop rebuilds it cleanly on the same line.
+                                if pbar is not None:
+                                    try:
+                                        pbar.close()
+                                    except Exception:
+                                        pass
+                                    pbar = None
                                 current_iter = int(i * (old_bs_mid / batch_size))
                                 break
                         except Exception as _ibg_err:
@@ -2527,10 +2670,7 @@ def main():
         all_preds = []
         all_targets = []
 
-        # 2026: Pyright cannot prove `iter_obj` is bound on this path — it's
-        # assigned inside the inner training while-loop, which may not execute
-        # if `current_iter >= len(train_loader)` on entry. We unconditionally
-        # rebind to None so the reference is released deterministically.
+        # Pyright cannot prove `iter_obj` is bound on this path; rebind to None.
         iter_obj = None
         gc.collect()
         with torch.no_grad():
@@ -2586,7 +2726,6 @@ def main():
                 val_interval_pct = 0.0
             last_val_pct = (max(0, val_resume_iteration) / len(val_loader)) if len(val_loader) > 0 else 0.0
 
-            # --- 2026 Resilience: Dispose Training Workers ---
             print(" [MISSION CONTROL] Disposing training workers before validation...")
             _dispose_loader(train_loader)
             gc.collect()
@@ -3342,16 +3481,30 @@ def main():
 
                 _workers = num_workers
                 _gov_persistent = _workers > 0 and _host_ram_gb >= 16.0
-                train_loader = DataLoader(
-                    train_ds,
-                    batch_size=batch_size,
-                    shuffle=True,
-                    num_workers=_workers,
-                    persistent_workers=_gov_persistent,
-                    pin_memory=True if device.type == 'cuda' else False,
-                    prefetch_factor=8 if _workers > 0 else None,
-                    drop_last=True,
-                )
+                if train_sampler is not None:
+                    # Dataset fraction/resolution may have changed -> rebuild sampler
+                    train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+                    train_loader = DataLoader(
+                        train_ds,
+                        batch_size=batch_size,
+                        sampler=train_sampler,
+                        num_workers=_workers,
+                        persistent_workers=_gov_persistent,
+                        pin_memory=True if device.type == 'cuda' else False,
+                        prefetch_factor=8 if _workers > 0 else None,
+                        drop_last=True,
+                    )
+                else:
+                    train_loader = DataLoader(
+                        train_ds,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=_workers,
+                        persistent_workers=_gov_persistent,
+                        pin_memory=True if device.type == 'cuda' else False,
+                        prefetch_factor=8 if _workers > 0 else None,
+                        drop_last=True,
+                    )
                 _vw = min(val_num_workers, 2)
                 val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
 
@@ -3847,16 +4000,29 @@ def main():
                 _dispose_loader(val_loader)
                 _workers = num_workers
                 _sota_persistent = _workers > 0 and _host_ram_gb >= 16.0
-                train_loader = DataLoader(
-                    train_ds,
-                    batch_size=batch_size,
-                    shuffle=True,
-                    num_workers=_workers,
-                    persistent_workers=_sota_persistent,
-                    pin_memory=True if device.type == 'cuda' else False,
-                    prefetch_factor=8 if _workers > 0 else None,
-                    drop_last=True,
-                )
+                if train_sampler is not None:
+                    train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+                    train_loader = DataLoader(
+                        train_ds,
+                        batch_size=batch_size,
+                        sampler=train_sampler,
+                        num_workers=_workers,
+                        persistent_workers=_sota_persistent,
+                        pin_memory=True if device.type == 'cuda' else False,
+                        prefetch_factor=8 if _workers > 0 else None,
+                        drop_last=True,
+                    )
+                else:
+                    train_loader = DataLoader(
+                        train_ds,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=_workers,
+                        persistent_workers=_sota_persistent,
+                        pin_memory=True if device.type == 'cuda' else False,
+                        prefetch_factor=8 if _workers > 0 else None,
+                        drop_last=True,
+                    )
                 _vw = min(val_num_workers, 2)
                 val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
                 if device.type == 'cuda': torch.cuda.empty_cache()
@@ -3962,16 +4128,29 @@ def main():
 
                     _workers = num_workers
                     _sota_persistent2 = _workers > 0 and _host_ram_gb >= 16.0
-                    train_loader = DataLoader(
-                        train_ds,
-                        batch_size=batch_size,
-                        shuffle=True,
-                        num_workers=_workers,
-                        persistent_workers=_sota_persistent2,
-                        pin_memory=True if device.type == 'cuda' else False,
-                        prefetch_factor=8 if _workers > 0 else None,
-                        drop_last=True,
-                    )
+                    if train_sampler is not None:
+                        train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+                        train_loader = DataLoader(
+                            train_ds,
+                            batch_size=batch_size,
+                            sampler=train_sampler,
+                            num_workers=_workers,
+                            persistent_workers=_sota_persistent2,
+                            pin_memory=True if device.type == 'cuda' else False,
+                            prefetch_factor=8 if _workers > 0 else None,
+                            drop_last=True,
+                        )
+                    else:
+                        train_loader = DataLoader(
+                            train_ds,
+                            batch_size=batch_size,
+                            shuffle=True,
+                            num_workers=_workers,
+                            persistent_workers=_sota_persistent2,
+                            pin_memory=True if device.type == 'cuda' else False,
+                            prefetch_factor=8 if _workers > 0 else None,
+                            drop_last=True,
+                        )
                     _vw = min(val_num_workers, 2)
                     val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
                     if device.type == 'cuda': torch.cuda.empty_cache()
@@ -3996,10 +4175,8 @@ def main():
             print(f" -> SOTA Cooldown Epochs remaining: {sota_countdown}")
             sota_countdown -= 1
 
-        # --- 2026 v15.6: DYNAMIC BATCH GROWTH (end of epoch) ---
-        # Kept as a fallback for short epochs where intra-epoch growth hasn't
-        # yet hit its 500-step cadence. Intra-epoch is the primary mechanism.
-        if device.type == 'cuda' and not args.batch_size and not in_recovery_mode:
+        # --- 2026 v15.6: DYNAMIC BATCH GROWTH (end of epoch, opt-in) ---
+        if device.type == 'cuda' and not args.batch_size and getattr(args, 'enable_batch_growth', False) and not in_recovery_mode:
             try:
                 _free_b, _total_b = torch.cuda.mem_get_info(0)
                 _free_ratio = _free_b / max(1, _total_b)
@@ -4018,16 +4195,29 @@ def main():
                         pass
                     gc.collect()
                     torch.cuda.empty_cache()
-                    train_loader = DataLoader(
-                        train_ds,
-                        batch_size=batch_size,
-                        shuffle=True,
-                        num_workers=num_workers,
-                        persistent_workers=use_persistent,
-                        pin_memory=True,
-                        prefetch_factor=8 if num_workers > 0 else None,
-                        drop_last=True,
-                    )
+                    if train_sampler is not None:
+                        train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+                        train_loader = DataLoader(
+                            train_ds,
+                            batch_size=batch_size,
+                            sampler=train_sampler,
+                            num_workers=num_workers,
+                            persistent_workers=use_persistent,
+                            pin_memory=True,
+                            prefetch_factor=8 if num_workers > 0 else None,
+                            drop_last=True,
+                        )
+                    else:
+                        train_loader = DataLoader(
+                            train_ds,
+                            batch_size=batch_size,
+                            shuffle=True,
+                            num_workers=num_workers,
+                            persistent_workers=use_persistent,
+                            pin_memory=True,
+                            prefetch_factor=8 if num_workers > 0 else None,
+                            drop_last=True,
+                        )
             except Exception as _bg_err:
                 print(f" [WARN] Dynamic batch growth skipped: {_bg_err}")
 

@@ -108,7 +108,7 @@ forex_predictor:
     min_delta: 0.002
     swa_start_pct: 0.7
   val_resolution: null
-  kaggle_accelerator: P100
+  kaggle_accelerator: T4
 nima_aesthetic_mobile:
   name: LemGendary NIMA Aesthetic Scorer (Mobile)
   class_name: NIMA_Model
@@ -173,7 +173,7 @@ nima_aesthetic_mobile:
     min_delta: 0.001
     swa_start_pct: 0.65
   val_resolution: 224
-  kaggle_accelerator: P100
+  kaggle_accelerator: T4
 nima_aesthetic_efficientnet:
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
   class_name: NIMA_Model
@@ -238,7 +238,7 @@ nima_aesthetic_efficientnet:
     min_delta: 0.001
     swa_start_pct: 0.65
   val_resolution: 384
-  kaggle_accelerator: P100
+  kaggle_accelerator: T4
 nima_aesthetic_pro:
   name: LemGendary NIMA Aesthetic Scorer (Pro ViT)
   class_name: NIMA_Model
@@ -369,7 +369,7 @@ nima_technical:
     min_delta: 0.0005
     swa_start_pct: 0.75
   val_resolution: 512
-  kaggle_accelerator: P100
+  kaggle_accelerator: T4
 nima_authenticity:
   name: LemGendary Authenticity Scorer (AI vs Human)
   class_name: NIMA_Model
@@ -418,7 +418,7 @@ nima_authenticity:
     target_effective_batch: 24
     plateau_priority: data
   val_resolution: 768
-  kaggle_accelerator: P100
+  kaggle_accelerator: T4
 upn_v2:
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2
@@ -467,7 +467,7 @@ upn_v2:
   kaggle_dataset_urls:
   - https://www.kaggle.com/datasets/lemtreursi/lemgendizedupnv2large
   val_resolution: 256
-  kaggle_accelerator: P100
+  kaggle_accelerator: T4
   architecture_type: UPN_v2 (MobileNet-Lite Parameter Regressor)
   kwargs:
     backbone: mobilenet_lite
@@ -961,7 +961,7 @@ yolov8n:
     map50: 0.54
     map50_95: 0.39
   val_resolution: 640
-  kaggle_accelerator: P100
+  kaggle_accelerator: T4
   architecture_type: YOLOv8n (CSPDarknet53 + PANet)
   kwargs:
     backbone: cspdarknet
@@ -1085,7 +1085,7 @@ universal_nsfw_classification:
     res_ladder:
     - 224
   val_resolution: 224
-  kaggle_accelerator: P100
+  kaggle_accelerator: T4
   kwargs:
     backbone: efficientnet_v2_s
 retinaface:
@@ -1129,4 +1129,4 @@ retinaface:
   architecture_type: RetinaFace (MobileNetV1-0.25 FPN Backbone)
   kwargs:
     backbone: mobilenet_0.25
-  kaggle_accelerator: P100
+  kaggle_accelerator: T4
