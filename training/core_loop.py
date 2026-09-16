@@ -104,7 +104,7 @@ try:
     import torch.nn as nn
     import numpy as np
     from torch.utils.data import DataLoader
-    from tqdm import tqdm  # type: ignore[import-untyped]
+    from tqdm import tqdm
     from torch.optim.swa_utils import AveragedModel, SWALR, update_bn # 2026 SOTA: Smooth Generalization
     from training.optimization_engine import SmartTrainingGovernor
 except ImportError as e:
@@ -421,8 +421,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     current_res = raw_size[1] if isinstance(raw_size, list) else raw_size
     is_heavy_manifold = is_heavy_arch or int(current_res or 0) > 448
 
-    # [FIX-1] Detect forex task early so we can disable DataParallel / AMP / cudnn.benchmark below.
-    is_forex_task = ("forex" in args.model.lower()) or (model_info.get("dataset_type") == "forex")
 
     # Load model
     if "yolo" in args.model.lower():
@@ -529,18 +527,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         return
 
     model = get_model(args.model, config).to(device)
-
-    # [FIX-1] DataParallel is incompatible with the forex model's dict-input + pair_idx kwarg pattern.
-    # The scatter logic silently produces mismatched shards that only fault during the backward
-    # cuDNN pass, surfacing as an "illegal memory access". Skip DP for forex entirely.
     if device.type == 'cuda' and torch.cuda.device_count() > 1:
-        if is_forex_task:
-            print(f"[LAUNCH] [SINGLE-GPU] DataParallel SUPPRESSED for forex task (dict-input + pair_idx incompatibility). Using GPU 0 only.")
-        else:
-            print(f"[LAUNCH] [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
-            model = torch.nn.DataParallel(model)
-    elif device.type == 'cuda':
-        print(f"[LAUNCH] [SINGLE-GPU] Detected {torch.cuda.device_count()} CUDA device(s).")
+        print(f"[LAUNCH] [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
+        model = torch.nn.DataParallel(model)
 
     # --- 2026 Hyperparameter Priority Engine (Memory-Sentinel) ---
     epochs = args.epochs or model_info.get("epochs") or config.get("defaults", {}).get("epochs", 50)
@@ -615,9 +604,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
     # --- 2026: Auto-Recovery Dataset Downloader (v16.2 Nuclear) ---
     if args.env != 'kaggle':
-        is_forex_task_local = (model_info.get("dataset_type") == "forex" or "forex" in args.model.lower())
+        is_forex_task = (model_info.get("dataset_type") == "forex" or "forex" in args.model.lower())
         forex_has_local = False
-        if is_forex_task_local:
+        if is_forex_task:
             base_ds_dir = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets"))
             for cand in ["LemGendizedForexUniverseLarge"] + list(ds_reqs):
                 p = os.path.normpath(os.path.join(base_ds_dir, cand))
@@ -692,11 +681,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         try: torch.set_num_threads(max(1, cpu_count))
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'kaggle':
-        # 2026 Resilience: Kaggle T4x2 = 4 vCPUs. Use 3 workers + 1 main process.
-        # CRITICAL: Pin torch to 1 intra-op thread. Otherwise it fights the DataLoader
-        # workers for the same 4 vCPUs, causing CPU thrash and 0% GPU utilization.
-        num_workers = min(3, max(1, cpu_count - 1))
-        try: torch.set_num_threads(1)
+        # On Kaggle (2 vCPUs), limit workers to avoid CPU bottlenecking and thrashing
+        num_workers = min(2, cpu_count)
+        try: torch.set_num_threads(max(1, cpu_count))
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'colab':
         # Colab (T4) reports 2 vCPUs, but we want 4 workers to optimize I/O
@@ -755,8 +742,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         if v_workers > 0:
             val_res = getattr(v_ds, "size", (256, 256))
             val_h = val_res[0] if isinstance(val_res, (list, tuple)) else val_res
-            # 2026 Resilience: Prefetch depth 4 for standard workloads, 2 for constrained/high-res
-            kwargs['prefetch_factor'] = 2 if (is_constrained or (isinstance(val_h, int) and val_h >= 512)) else 4
+            kwargs['prefetch_factor'] = 1 if (is_constrained or (isinstance(val_h, int) and val_h >= 512)) else 2
         return DataLoader(v_ds, **kwargs)
     # --- 2026 Resilience: Empty Dataset Guard ---
     if len(train_ds) == 0:
@@ -1005,27 +991,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     has_resume_candidate = len(candidates) > 0
     active_workers = num_workers
 
-    # 2026 Resilience: Persistent workers save 2-5s/epoch in respawn cost.
-    # Only disable when system RAM is genuinely tight (<16GB); Kaggle T4x2 has 30GB.
+    # 2026 Resilience: Kaggle OOM Guard
+    # Persistent workers hold massive GPU IPC cache; we explicitly disable them on constrained platforms
     is_constrained_env = args.env == 'kaggle' or (device.type == 'cuda' and torch.cuda.get_device_properties(0).total_memory < 15e9)
-    try:
-        import psutil as _ps
-        _host_ram_gb = _ps.virtual_memory().total / (1024 ** 3)
-    except Exception:
-        _host_ram_gb = 16.0
-    use_persistent = active_workers > 0 and _host_ram_gb >= 16.0
+    use_persistent = active_workers > 0 and not is_constrained_env
 
     # --- 2026: Mission Data Infrastructure (v6.0) ---
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=active_workers,
-        persistent_workers=use_persistent,
-        pin_memory=True if device.type == 'cuda' else False,
-        prefetch_factor=4 if active_workers > 0 else None,
-        drop_last=True,
-    )
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, persistent_workers=use_persistent, pin_memory=True if device.type=='cuda' else False)
 
     if is_heavy_manifold:
         print(" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
@@ -1419,15 +1391,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     if batch_size != old_batch_size or len(train_loader) != expected_len:
                         print(f" [RESILIENCY] Batch Size or Fraction Shift detected ({len(train_loader)} -> {expected_len}). Synchronizing loader...")
                         try:
-                            train_loader = DataLoader(
-                                train_ds,
-                                batch_size=batch_size,
-                                shuffle=True,
-                                num_workers=num_workers,
-                                pin_memory=True if device.type == 'cuda' else False,
-                                prefetch_factor=4 if num_workers > 0 else None,
-                                drop_last=True,
-                            )
+                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+                                                     num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
                         except Exception as e:
                             print(f" [WARNING] [RESILIENCY] Loader synchronization failed: {e}. Falling back to default.")
 
@@ -1760,42 +1725,22 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         criterion = ForexDualLoss().to(device)
     else:
         criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab, use_perc=use_lpips).to(device)
-
     # 2026 Resilience: Enable AMP for Turing+ architectures (sm_70+) with Tensor Cores.
     # Pascal P100 (sm_60, cap[0] < 7) has no Tensor Cores; AMP on cu118 is numerically unstable at sm_60.
     # GTX 16-series (Turing, sm_75) supports FP16 for memory savings even without full Tensor Cores.
     gpu_name = torch.cuda.get_device_name(0) if device.type == 'cuda' else ""
     _amp_cap = cap if device.type == 'cuda' else (0, 0)
-
-    # [FIX-3] Forex logits/magnitudes routinely exceed FP16 dynamic range (max ~65504).
-    # Autocast silently produces inf/nan in the backward cuDNN path, which surfaces as an
-    # "illegal memory access" during scaler.scale(loss).backward(). Force FP32 for forex.
-    _is_forex_task = ("forex" in args.model.lower()) or (getattr(train_ds, "task_type", "") == "forex")
     use_amp = (
         _amp_cap[0] >= 7  # Turing+ (sm_70+) minimum; excludes Pascal P100 (sm_60)
-        and not _is_forex_task  # [FIX-3] forex forces full FP32
         and any(k in gpu_name for k in ['RTX', 'Tesla', 'A100', 'H100', 'L4', 'GTX 16'])
     )
     scaler = torch.amp.GradScaler('cuda', enabled=use_amp) # pyre-ignore
-    if _is_forex_task and use_amp is False:
-        print(" [GUARD] [AMP] Autocast/GradScaler DISABLED for forex task (FP16 overflow risk).")
 
-    # 2026 Resilience: cuDNN Benchmark policy.
-    # [FIX-2] cuDNN benchmark on multi-GPU DataParallel is documented to produce illegal-memory-access
-    # when the two GPUs independently select different backward algorithms. Force determinism whenever
-    # more than one CUDA device is visible.
+    # 2026 Resilience: Disable cuDNN Benchmark for High-Res Dynamic Manifolds
+    # This prevents the CUDNN_STATUS_BAD_PARAM_STREAM_MISMATCH error on Windows Turing GPUs.
     if device.type == 'cuda':
-        multi_gpu = torch.cuda.device_count() > 1
-        if multi_gpu:
-            torch.backends.cudnn.benchmark = False
-            torch.backends.cudnn.deterministic = True
-            print(f" [GUARD] [cuDNN] Benchmark DISABLED + deterministic=True ({torch.cuda.device_count()} GPUs visible).")
-        elif _is_forex_task:
-            torch.backends.cudnn.benchmark = True
-            print(" [GUARD] [cuDNN] Benchmark ENABLED (single-GPU, stable Forex input shapes).")
-        else:
-            torch.backends.cudnn.benchmark = False
-            print(" [GUARD] [cuDNN] Benchmark disabled for stream stability.")
+        torch.backends.cudnn.benchmark = False
+        print(" [GUARD] [cuDNN] Benchmark disabled for stream stability.")
 
 
     # Initialize metrics for export stability (Avoids NameErrors on skip)
@@ -1974,17 +1919,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             # v18.5: Hardened Shield check to prevent transition if in recovery or on 4GB hardware
             if train_loader.num_workers == 0 and current_iter == 0 and num_workers > 0 and not (in_recovery_mode and vram_gb < 6.0):
                 print(f" [MISSION CONTROL] Transitioning to Parallel Data Pipeline ({num_workers} workers)...")
-                _hot_swap_persistent = num_workers > 0 and _host_ram_gb >= 16.0
-                train_loader = DataLoader(
-                    train_ds,
-                    batch_size=batch_size,
-                    shuffle=True,
-                    num_workers=num_workers,
-                    persistent_workers=_hot_swap_persistent,
-                    pin_memory=True if device.type == 'cuda' else False,
-                    prefetch_factor=4 if num_workers > 0 else None,
-                    drop_last=True,
-                )
+                is_constrained_env = args.env == 'kaggle' or vram_gb < 15.0
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
 
             iter_obj = enumerate(train_loader)
             if current_iter > 0:
@@ -2006,17 +1942,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 # v17.2: Also skip if we are in OOM Recovery Mode on low-end hardware
                 if num_workers > 0 and train_loader.num_workers == 0 and not (in_recovery_mode and vram_gb < 6.0):
                     print(f" [MISSION CONTROL] Fast-forward complete. Engaging Parallel Pipeline ({num_workers} workers)...")
-                    _hot_swap_persistent = num_workers > 0 and _host_ram_gb >= 16.0
-                    train_loader = DataLoader(
-                        train_ds,
-                        batch_size=batch_size,
-                        shuffle=True,
-                        num_workers=num_workers,
-                        persistent_workers=_hot_swap_persistent,
-                        pin_memory=True if device.type == 'cuda' else False,
-                        prefetch_factor=4 if num_workers > 0 else None,
-                        drop_last=True,
-                    )
+                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
                     iter_obj = enumerate(train_loader)
                     # We must align the new loader's iterator (deterministic due to seeds)
                     for i, _ in iter_obj:
@@ -2108,12 +2034,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
                     # parameter_prediction: No task_idx needed (single regression head)
 
-                # [FIX-4] Forex tasks MUST run in FP32. Their magnitudes routinely exceed FP16
-                # dynamic range and will silently poison the cuDNN backward graph.
                 use_fp16 = str(device) == 'cuda'
-                if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "codeformer", "nima", "forex"]):
-                    use_fp16 = False
-                if getattr(train_ds, "task_type", "") == "forex":
+                if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "codeformer", "nima"]):
                     use_fp16 = False
 
                 try:
@@ -2155,16 +2077,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         elif getattr(train_ds, "task_type", "") == "forex":
                             pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
                             preds = model(inputs, pair_idx=pair_idx)
-                            # [FIX-5] Defensive FP32 cast before loss — belt-and-suspenders for FP16 overflow
+                            # [FIX-5-v2] Cast ONLY the model outputs to FP32. Targets must retain their
+                            # original dtype: 'direction' is Long (class indices for cross_entropy),
+                            # 'magnitude' is Float. Blindly casting targets to float broke the direction
+                            # loss with "nll_loss_forward_no_reduce... not implemented for 'Float'".
                             if isinstance(preds, dict):
-                                preds_f = {k: (v.float() if isinstance(v, torch.Tensor) else v) for k, v in preds.items()}
-                            else:
-                                preds_f = preds.float() if isinstance(preds, torch.Tensor) else preds
-                            if isinstance(targets, dict):
-                                targets_f = {k: (v.float() if isinstance(v, torch.Tensor) else v) for k, v in targets.items()}
-                            else:
-                                targets_f = targets.float() if isinstance(targets, torch.Tensor) else targets
-                            loss = criterion(preds_f, targets_f) / accumulation_steps
+                                preds = {k: (v.float() if isinstance(v, torch.Tensor) and v.is_floating_point() else v)
+                                         for k, v in preds.items()}
+                            elif isinstance(preds, torch.Tensor) and preds.is_floating_point():
+                                preds = preds.float()
+                            # Pass targets through untouched.
+                            loss = criterion(preds, targets) / accumulation_steps
                         else:
                             preds = model(inputs)
                             sentinel = stab.get('numerical_sentinel')
@@ -2212,15 +2135,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             # --- 2026 Resilience: DataLoader Re-Initialization ---
                             # v17.5: Enforce Shield to prevent worker deadlocks on low-VRAM hardware
                             _workers = num_workers
-                            train_loader = DataLoader(
-                                train_ds,
-                                batch_size=batch_size,
-                                shuffle=True,
-                                num_workers=_workers,
-                                pin_memory=True if device.type == 'cuda' else False,
-                                prefetch_factor=4 if _workers > 0 else None,
-                                drop_last=True,
-                            )
+                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+                                                     num_workers=_workers, pin_memory=True if device.type=='cuda' else False)
 
                             # Update iterator position to maintain absolute manifold parity (v6.1.7)
                             current_iter = int(i * (old_bs / batch_size))
@@ -3011,12 +2927,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
 
                 # 2026 Acceleration: Accelerated validation inference under AMP (Turing+ Tensor Cores only).
-                # [FIX-4b] Forex tasks are excluded from AMP here as well to prevent the same FP16
-                # overflow that would trigger an illegal memory access during backward.
+                # Pascal P100 (sm_60, cap[0] < 7) is excluded: no Tensor Cores, AMP is unstable on cu118.
                 val_use_amp = (
                     device.type == 'cuda'
-                    and cap[0] >= 7
-                    and not _is_forex_task
+                    and cap[0] >= 7  # Turing+ (sm_70+) minimum; excludes Pascal P100 (sm_60)
                     and not stab.get('force_fp32_val', False)
                 )
                 with torch.amp.autocast('cuda', enabled=val_use_amp):
@@ -3042,16 +2956,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     elif getattr(train_ds, "task_type", "") == "forex":
                         pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
                         preds = model(inputs, pair_idx=pair_idx)
-                        # [FIX-5b] Defensive FP32 cast for validation parity
+                        # [FIX-5b-v2] Cast ONLY outputs to FP32; preserve target dtypes.
                         if isinstance(preds, dict):
-                            preds_f = {k: (v.float() if isinstance(v, torch.Tensor) else v) for k, v in preds.items()}
-                        else:
-                            preds_f = preds.float() if isinstance(preds, torch.Tensor) else preds
-                        if isinstance(targets, dict):
-                            targets_f = {k: (v.float() if isinstance(v, torch.Tensor) else v) for k, v in targets.items()}
-                        else:
-                            targets_f = targets.float() if isinstance(targets, torch.Tensor) else targets
-                        loss = criterion(preds_f, targets_f)
+                            preds = {k: (v.float() if isinstance(v, torch.Tensor) and v.is_floating_point() else v)
+                                     for k, v in preds.items()}
+                        elif isinstance(preds, torch.Tensor) and preds.is_floating_point():
+                            preds = preds.float()
+                        loss = criterion(preds, targets)
                     else:
                         preds = model(inputs)
                         # --- 2026: Numerical Sentinel (Validation Parity Guard) ---
@@ -3723,17 +3634,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                 # v17.5: Enforce Shield during inter-epoch resolution jumps
                 _workers = num_workers
-                _gov_persistent = _workers > 0 and _host_ram_gb >= 16.0
-                train_loader = DataLoader(
-                    train_ds,
-                    batch_size=batch_size,
-                    shuffle=True,
-                    num_workers=_workers,
-                    persistent_workers=_gov_persistent,
-                    pin_memory=True if device.type == 'cuda' else False,
-                    prefetch_factor=4 if _workers > 0 else None,
-                    drop_last=True,
-                )
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
                 _vw = min(val_num_workers, 2)
                 val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
 
@@ -3984,11 +3885,11 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     # to spike back up (Velocity Bomb), shattering the converged manifold.
                     # The LR cooling curve must reflect the *total epochs trained*, not the state of the weights.
                     # if 'scheduler_state' in loaded_ckpt:
-                    # try:
-                    # load_scheduler_state_stretched(scheduler, loaded_ckpt['scheduler_state'], total_steps)
-                    # print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
-                    # except Exception as sched_err:
-                    # print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
+                    #     try:
+                    #         load_scheduler_state_stretched(scheduler, loaded_ckpt['scheduler_state'], total_steps)
+                    #         print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
+                    #     except Exception as sched_err:
+                    #         print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
 
                     # Notify Governor to perform a Tactical Retreat (Recoil) on the restored state
                     recoil_msg = governor.recoil()
@@ -4331,17 +4232,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 train_ds.update_strategy(fraction=next_frac)
 
                 _workers = num_workers
-                _sota_persistent = _workers > 0 and _host_ram_gb >= 16.0
-                train_loader = DataLoader(
-                    train_ds,
-                    batch_size=batch_size,
-                    shuffle=True,
-                    num_workers=_workers,
-                    persistent_workers=_sota_persistent,
-                    pin_memory=True if device.type == 'cuda' else False,
-                    prefetch_factor=4 if _workers > 0 else None,
-                    drop_last=True,
-                )
+                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
                 _vw = min(val_num_workers, 2)
                 val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
                 if device.type == 'cuda': torch.cuda.empty_cache()
@@ -4452,17 +4343,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         torch.cuda.empty_cache()
 
                     _workers = num_workers
-                    _sota_persistent2 = _workers > 0 and _host_ram_gb >= 16.0
-                    train_loader = DataLoader(
-                        train_ds,
-                        batch_size=batch_size,
-                        shuffle=True,
-                        num_workers=_workers,
-                        persistent_workers=_sota_persistent2,
-                        pin_memory=True if device.type == 'cuda' else False,
-                        prefetch_factor=4 if _workers > 0 else None,
-                        drop_last=True,
-                    )
+                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
                     _vw = min(val_num_workers, 2)
                     val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
                     if device.type == 'cuda': torch.cuda.empty_cache()
