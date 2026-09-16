@@ -13,14 +13,13 @@ import sys
 import gc
 
 # --- 2026 Resilience: Child Process Interrupt Handler ---
-# Prevent spawned DataLoader workers from spewing tracebacks and crashing the parent abruptly
 import multiprocessing
 import signal
 import sys
 
 def silent_worker_excepthook(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, (KeyboardInterrupt, EOFError, BrokenPipeError, ConnectionResetError)):
-        return # Silently ignore pipe breakages on manual abort
+        return
     sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
 if multiprocessing.current_process().name != 'MainProcess':
@@ -40,9 +39,8 @@ try:
 except ImportError:
     pass
 if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(line_buffering=True, write_through=True)  # pyright: ignore[reportAttributeAccessIssue]
+    sys.stdout.reconfigure(line_buffering=True, write_through=True)
 
-# 2026 Resilience: Force TTY for tqdm under Colab/Kaggle subprocess execution
 class ForceTTY:
     def __init__(self, stream):
         self.stream = stream
@@ -67,13 +65,11 @@ import shutil
 import gc
 import math
 import torch.version
-# --- Hyper-Verbose Path Defense (2026 Specialization) ---
-# Anchor the search path to the script's own folder to bypass "Ghost Python" hijacking.
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 workspace_root = os.path.dirname(script_dir)
 venv_site_pkgs = os.path.normpath(os.path.join(workspace_root, ".venv", "Lib", "site-packages"))
 
-# Anchor both the workspace and venv site-packages BEFORE any domestic imports
 if workspace_root not in sys.path:
     sys.path.insert(0, workspace_root)
 if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
@@ -81,13 +77,9 @@ if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
 
 from datetime import datetime
 from training.telemetry import TelemetryEngine, METRIC_DIRECTIONS
-# --- 2026 Hardware Acceleration & Stability Patch ---
-# Increase recursion limit for exceptionally deep architectures (NIMA/Restorers)
+
 sys.setrecursionlimit(2000)
 
-# Removed noisy warning suppressions per rigorous engineering standards
-
-# 2026: Nuclear Silence (Hard-kill diffusers/transformers noise)
 os.environ["DIFFUSERS_VERBOSITY"] = "error"
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 import logging
@@ -99,13 +91,13 @@ from training.cloud_sync import trigger_cloud_sync
 try:
     import yaml
     import torch
-    # 2026: Prevent PyTorch virtual memory fragmentation
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     import torch.nn as nn
+    import torch.nn.functional as F  # Module-level F, replaces the old inline _F_resize import
     import numpy as np
     from torch.utils.data import DataLoader
     from tqdm import tqdm
-    from torch.optim.swa_utils import AveragedModel, SWALR, update_bn # 2026 SOTA: Smooth Generalization
+    from torch.optim.swa_utils import AveragedModel, SWALR, update_bn
     from training.optimization_engine import SmartTrainingGovernor
 except ImportError as e:
     print(f"\n--- LemGendary Crash Diagnostics ---")
@@ -121,15 +113,10 @@ except ImportError as e:
     print(" [!] Fix: Run the 'lemgendary_hub.ps1' script and select Option 1.")
     sys.exit(1)
 
-# --- 2026 Resilience: Disk Space Sentinel (v1.0) ---
 from training.model_registry import audit_hardware_vram, find_paths_pruned, load_state_dict_robust
 from training.sota_rollback import safe_torch_save, load_scheduler_state_stretched, safe_replace
-# (Workspace root correctly anchored in boot sequence above)
 
-# --- 2026 Process Janitor Hooks ---
 _active_processes = []
-
-# --- 2026 Emergency Debug Injection removed for cleaner console ---
 
 def cleanup_active_processes(*args):
     """Indestructible cleanup of all LemGendary project child-processes."""
@@ -137,7 +124,7 @@ def cleanup_active_processes(*args):
         return
     print(f"\n[CLEAN] [JANITOR] Terminating {_active_processes.__len__()} active LemGendary sub-processes...")
     for p in _active_processes:
-        if p.poll() is None: # Still running
+        if p.poll() is None:
             try:
                 if os.name == 'nt':
                     subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True)
@@ -172,16 +159,11 @@ from data.dataset import MultiTaskDataset
 from data.data_utils import download_and_extract_dataset
 from models.factory import get_model
 
-# --- 2026: SOTA Metric Registry & Polarity Definitions ---
-# higher_better: True (Higher is Better), False (Lower is Better)
-
-# Standard Weights for Quality Score calculation (Multiplier applied to normalized 0.0-1.0 range)
 
 def load_pat():
     """2026 Resilience: Securely mount PATs from local files if missing from environment."""
     for pat_name, file_name in [('GITHUB_PAT', '.GITHUB_PAT'), ('SUITE_PAT', '.SUITE_PAT')]:
         if not os.environ.get(pat_name):
-            # Check current dir and parent (workspace root)
             for path in [file_name, os.path.join('..', file_name)]:
                 if os.path.exists(path):
                     try:
@@ -192,18 +174,15 @@ def load_pat():
                     except Exception as e:
                         print(f"[REMEDY] Could not read secret {pat_name} from {path}: {e}")
 
+
 def git_hub_sync(repo_path, remote_url, message):
     """
     2026 Resilience: Robust synchronization for external repositories.
-    Handles initialization, remotes, and pushes with rebase recovery.
-    Uses GITHUB_PAT for headless authentication on Kaggle.
     """
+    # NOTE: `subprocess` is imported at module scope — no local re-import needed.
     try:
-        import subprocess
-        # 2026 Resilience: Credential Injection
         pat = os.environ.get('GITHUB_PAT')
 
-        # --- 2026 NPP: Git Lock Buster ---
         lock_file = os.path.join(repo_path, ".git", "index.lock")
         if os.path.exists(lock_file):
             try:
@@ -212,7 +191,6 @@ def git_hub_sync(repo_path, remote_url, message):
             except Exception as e:
                 print(f"[REMEDY] Failed to remove stale Git lock in {os.path.basename(repo_path)}: {e}")
 
-        # If remote_url is 'origin', we must resolve the physical URL from git config
         if remote_url == "origin":
             try:
                 res = subprocess.run(["git", "remote", "get-url", "origin"], cwd=repo_path, capture_output=True, text=True, timeout=10)
@@ -221,34 +199,27 @@ def git_hub_sync(repo_path, remote_url, message):
             except Exception as e:
                 print(f"[REMEDY] git remote get-url origin failed: {e}")
 
-        # 2026 Resilience: Always ensure the local 'origin' points to the desired authenticated URL
         if pat and "github.com" in remote_url and "@" not in remote_url:
             authenticated_url = remote_url.replace("https://", f"https://{pat}@")
         else:
             authenticated_url = remote_url
 
-        # Hard-reset origin to the authenticated URL
         subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=10)
-        # If set-url fails (remote doesn't exist), try adding it
         subprocess.run(["git", "remote", "add", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=10)
 
-        # 2026 Resilience: Force local identity and disable credential manager to prevent interactive prompts
         subprocess.run(["git", "config", "user.email", "lemgendary@ai.com"], cwd=repo_path, capture_output=True, timeout=10)
         subprocess.run(["git", "config", "user.name", "lemgenda"], cwd=repo_path, capture_output=True, timeout=10)
         subprocess.run(["git", "config", "credential.helper", ""], cwd=repo_path, capture_output=True, timeout=10)
         subprocess.run(["git", "config", "pull.rebase", "true"], cwd=repo_path, capture_output=True, timeout=10)
 
-        # 1. Check if it's a git repo
         if not os.path.exists(os.path.join(repo_path, ".git")):
             print(f" [LAUNCH] [CLOUD SYNC] Initializing new repository at {repo_path}...")
             subprocess.run(["git", "init"], cwd=repo_path, capture_output=True, timeout=30)
             subprocess.run(["git", "remote", "add", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=30)
             subprocess.run(["git", "checkout", "-b", "main"], cwd=repo_path, capture_output=True, timeout=30)
         elif pat and remote_url != "origin":
-             # Update remote to include PAT for existing hub repos
-             subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=30)
+            subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=repo_path, capture_output=True, timeout=30)
 
-        # 2. Sync
         print(f" [SIGNAL] [CLOUD SYNC] Staging changes in {os.path.basename(repo_path)}...")
         subprocess.run(["git", "add", "."], cwd=repo_path, capture_output=True, timeout=60)
         status = subprocess.run(["git", "status", "--porcelain"], cwd=repo_path, capture_output=True, text=True, timeout=30)
@@ -261,14 +232,12 @@ def git_hub_sync(repo_path, remote_url, message):
                 print(f" [SUCCESS] [CLOUD SYNC] '{os.path.basename(repo_path)}' synchronized successfully.")
             else:
                 print(f" [SIGNAL] [CLOUD SYNC] Push failed. Attempting rebase recovery (Allowing unrelated histories)...")
-                # If push fails, attempt a non-destructive rebase (Production Manifold Protection)
-                # 2026 Resilience: -X ours is essential to keep our newly trained weights during rebase
                 subprocess.run(["git", "pull", "origin", "main", "--rebase", "-X", "ours", "--allow-unrelated-histories"], cwd=repo_path, capture_output=True, timeout=120)
                 subprocess.run(["git", "push", "origin", "main"], cwd=repo_path, capture_output=True, timeout=120)
                 print(f" [SUCCESS] [CLOUD SYNC] '{os.path.basename(repo_path)}' synchronized after rebase.")
         else:
             print(f" [SIGNAL] [CLOUD SYNC] No changes detected in {os.path.basename(repo_path)}.")
-    except subprocess.TimeoutExpired:  # type: ignore
+    except subprocess.TimeoutExpired:
         print(f" [WARNING] [CLOUD SYNC] Sync TIMEOUT for {repo_path}. GitHub might be unreachable or credentials requested.")
     except Exception as e:
         print(f" [WARNING] [CLOUD SYNC] Hub Sync failed for {repo_path}: {e}")
@@ -279,46 +248,37 @@ from training.losses import CombinedLoss
 def compute_ssim_gpu(img1, img2, window_size=11, sigma=1.5, data_range=1.0):
     """
     2026 Acceleration: GPU-accelerated vectorized Structural Similarity Index (SSIM).
-    Operates directly on [B, C, H, W] tensors on CUDA/device in < 1ms, eliminating CPU bottlenecks.
-    Returns the sum of SSIM across the batch.
     """
     channel = img1.size(1)
 
-    # 1D Gaussian kernel
     coords = torch.arange(window_size, dtype=torch.float32, device=img1.device) - (window_size - 1) / 2.0
     gauss = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
     gauss = (gauss / gauss.sum()).unsqueeze(1)
 
-    # 2D Gaussian kernel
     kernel_2d = gauss.mm(gauss.t()).unsqueeze(0).unsqueeze(0)
     kernel = kernel_2d.expand(channel, 1, window_size, window_size).contiguous()
 
-    # Constants
     C1 = (0.01 * data_range) ** 2
     C2 = (0.03 * data_range) ** 2
 
-    # Means
-    mu1 = torch.nn.functional.conv2d(img1, kernel, padding=window_size // 2, groups=channel)
-    mu2 = torch.nn.functional.conv2d(img2, kernel, padding=window_size // 2, groups=channel)
+    mu1 = F.conv2d(img1, kernel, padding=window_size // 2, groups=channel)
+    mu2 = F.conv2d(img2, kernel, padding=window_size // 2, groups=channel)
 
     mu1_sq = mu1.pow(2)
     mu2_sq = mu2.pow(2)
     mu1_mu2 = mu1 * mu2
 
-    # Variances and Covariances
-    sigma1_sq = torch.nn.functional.conv2d(img1 * img1, kernel, padding=window_size // 2, groups=channel) - mu1_sq
-    sigma2_sq = torch.nn.functional.conv2d(img2 * img2, kernel, padding=window_size // 2, groups=channel) - mu2_sq
-    sigma12 = torch.nn.functional.conv2d(img1 * img2, kernel, padding=window_size // 2, groups=channel) - mu1_mu2
+    sigma1_sq = F.conv2d(img1 * img1, kernel, padding=window_size // 2, groups=channel) - mu1_sq
+    sigma2_sq = F.conv2d(img2 * img2, kernel, padding=window_size // 2, groups=channel) - mu2_sq
+    sigma12 = F.conv2d(img1 * img2, kernel, padding=window_size // 2, groups=channel) - mu1_mu2
 
-    # SSIM Map
     ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
     return ssim_map.mean(dim=[-3, -2, -1]).sum().item()
 
 
-def main(): # pyright: ignore[reportGeneralTypeIssues]
+def main():
     print("[BOOT] LemGendary Training Suite initiating...", flush=True)
     print(" [TRACE] Entering main()...", flush=True)
-    # 2026 Resilience: Force UTF-8 encoding for Windows terminals to support emojis
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
 
@@ -344,11 +304,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     args = parser.parse_args()
 
     print(" [TRACE] Loading GITHUB PAT...", flush=True)
-    # 2026 Resilience: Securely mount PATs for automated Hub Sync
     load_pat()
 
     print(" [TRACE] Loading config.yaml...", flush=True)
-    # Load config structures explicitly securely
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config_path = os.path.join(project_root, "config.yaml")
     with open(config_path, 'r') as f:
@@ -358,9 +316,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     unified_models_path = os.path.join(project_root, config["unified_models"])
     with open(unified_models_path, 'r') as f: unified_models_registry = yaml.safe_load(f)
 
-    # --- Device Discovery (2026 Universal Acceleration Suite) ---
+    # --- Device Discovery ---
     print(" [TRACE] Initializing CUDA and Accelerator discovery...", flush=True)
-    cap = (0, 0)  # Default; overwritten by CUDA device discovery below if GPU is available
+    cap = (0, 0)
     if torch.cuda.is_available():
         device = torch.device("cuda")
         gpu_name = torch.cuda.get_device_name(0)
@@ -368,7 +326,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         arch_list = getattr(torch.cuda, "get_arch_list", lambda: [])()
         has_native_sm = any(f"{cap[0]}.{cap[1]}" in a or f"sm_{cap[0]}{cap[1]}" in a for a in arch_list)
 
-        # 2026 Hardware Sentinel: Real compute kernel verification probe
         cuda_compatible = True
         try:
             _probe = torch.ones(1, device=device) + 1.0
@@ -410,7 +367,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         device = torch.device("cpu")
         print(f"[WARNING] [HARDWARE] No Accelerator Found. Defaulting to CPU (Slow).")
 
-    # 2026 Resilience: Global Hardware Discovery
     vram_gb = 0
     if device.type == 'cuda':
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
@@ -421,21 +377,26 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     current_res = raw_size[1] if isinstance(raw_size, list) else raw_size
     is_heavy_manifold = is_heavy_arch or int(current_res or 0) > 448
 
+    # [SPEED] Detection flags
+    is_forex_task = ("forex" in args.model.lower()) or (model_info.get("dataset_type") == "forex")
+    _conv_net_keywords = ("mirnet", "nafnet", "mprnet", "ffanet", "restormer",
+                          "codeformer", "nima_aesthetic_efficientnet",
+                          "nima_aesthetic_pro", "retinexnet", "zero_dce",
+                          "hinet", "scunet")
+    is_conv_net = any(k in args.model.lower() for k in _conv_net_keywords)
 
     # Load model
     if "yolo" in args.model.lower():
-        from data.yolo_config_gen import generate_yolo_yaml # pyre-ignore
+        from data.yolo_config_gen import generate_yolo_yaml
 
         yaml_path = generate_yolo_yaml(config, args.model, unified_models_registry)
 
-        from ultralytics import YOLO # pyre-ignore
+        from ultralytics import YOLO
         model_info = unified_models_registry.get(args.model, {})
 
-        # Dynamic base architecture inference
         default_pt = "yolov8n.pt" if "yolov8" in args.model.lower() else "yolov8n.pt"
         model_pt = model_info.get("checkpoint", default_pt)
 
-        # Fallback to pretrained base architecture if local checkpoint not physically present yet
         if not os.path.exists(model_pt):
             print(f"Warning: Custom local weights '{model_pt}' not found. Defaulting to base architecture '{default_pt}' for initialization.")
             model_pt = default_pt
@@ -449,10 +410,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
         print(f"Starting Ultralytics YOLO Training for {args.model}...")
 
-        # --- NEW: CUSTOM YOLO EXCELLENT QUALITY EARLY STOPPING CALLBACK ---
         def on_fit_epoch_end(trainer):
             metrics = trainer.metrics
-            # Bounding box mAP
             map50 = metrics.get('metrics/mAP50(B)', 0)
             map50_95 = metrics.get('metrics/mAP50-95(B)', 0)
 
@@ -469,7 +428,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         print(f"\n[INFO] [Zero-Latency Pre-Fetch] Triggering parallel background data streams natively for next workflow phase!")
                         base_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "prefetch_worker.py"), args.prefetch_datasets, os.path.join(os.path.dirname(__file__), "..", "data", "datasets")]
                         if os.name == 'nt':
-                            subprocess.Popen(base_cmd, creationflags=0x08000000) # CREATE_NO_WINDOW
+                            subprocess.Popen(base_cmd, creationflags=0x08000000)
                         else:
                             subprocess.Popen(base_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -499,10 +458,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             model_filename = unified_models_registry.get(args.model, {}).get("filename", args.model)
             base_name = f"LemGendary{model_filename}"
             print(f"Exporting YOLO FP32 ONNX as {base_name}_FP32.onnx...")
-            fp32_path = model.export(format="onnx", half=False) # pyre-ignore
+            fp32_path = model.export(format="onnx", half=False)
             if fp32_path: shutil.copy(fp32_path, os.path.join(export_dir, f"{base_name}_FP32.onnx"))
             print(f"Exporting YOLO FP16 ONNX as {base_name}.onnx...")
-            fp16_path = model.export(format="onnx", half=True) # pyre-ignore
+            fp16_path = model.export(format="onnx", half=True)
             if fp16_path: shutil.copy(fp16_path, os.path.join(export_dir, f"{base_name}.onnx"))
 
             if hasattr(model, 'trainer') and hasattr(model.trainer, 'save_dir'):
@@ -510,8 +469,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 if os.path.exists(yolo_results_csv):
                     shutil.copy(yolo_results_csv, os.path.join(export_dir, "metrics.csv"))
 
-            # Invokes the centralized dynamic logic MD generation explicitly natively
-            from training.doc_generator import build_model_readme # pyre-ignore
+            from training.doc_generator import build_model_readme
             readme_text = build_model_readme(args.model, unified_models_registry, epochs, metrics={})
             with open(os.path.join(export_dir, "README.md"), "w") as f:
                 f.write(readme_text)
@@ -527,17 +485,24 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         return
 
     model = get_model(args.model, config).to(device)
+
+    # [SPEED] Channels-last conversion for conv-heavy models
+    if device.type == 'cuda' and is_conv_net:
+        try:
+            model = model.to(memory_format=torch.channels_last)
+            print(" [SPEED] [channels_last] Model converted for conv throughput gain.")
+        except Exception as e:
+            print(f" [WARN] channels_last conversion failed: {e}")
+
     if device.type == 'cuda' and torch.cuda.device_count() > 1:
         print(f"[LAUNCH] [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
         model = torch.nn.DataParallel(model)
 
-    # --- 2026 Hyperparameter Priority Engine (Memory-Sentinel) ---
+    # --- 2026 Hyperparameter Priority Engine ---
     epochs = args.epochs or model_info.get("epochs") or config.get("defaults", {}).get("epochs", 50)
     lr = args.lr or model_info.get("learning_rate") or config.get("defaults", {}).get("lr", 1e-4)
 
-    # Priority: CLI > Model_Config (if not 'auto') > Memory-Sentinel > Global_Config
     config_batch = model_info.get("batch_size")
-
 
     # --- 2026 Resilience: Smart Training Governor ---
     global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0, "vram_purge": True})
@@ -560,10 +525,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     if max_local_res and vram_gb_init < 4.5 and val_anchor_size is not None and val_anchor_size > max_local_res:
         val_anchor_size = max_local_res
 
-
-    # --- 2026 Resilience: Pre-Emptive Memory-Sentinel ---
-    # We use the Governor's current resolution (which may have been restored from checkpoint)
-    # to ensure the initial batch audit is physically accurate for the current manifold.
     hardware_limit = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=sample_fraction, fold=args.fold, pairs=args.pairs)
     if args.batch_size:
         batch_size = args.batch_size
@@ -575,38 +536,33 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         batch_size = hardware_limit
     val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val', fold=args.fold, pairs=args.pairs)
 
-    # --- 2026 Resilience: Universal Accumulation Stride (v12.0) ---
+    # --- 2026 Resilience: Universal Accumulation Stride ---
     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
     accumulation_steps = max(1, target_eff // batch_size)
 
     print(f" [[MISSION PROFILE]] Physical Batch: {batch_size} | Accumulation: {accumulation_steps} | Effective: {batch_size * accumulation_steps}")
     print(f" [VAL PROFILE] Physical Batch: {val_batch_size} @ {val_anchor_size}px")
 
-    # --- 2026: Auto-Recovery Dataset Downloader (Option 2) ---
-    # Dynamic execution suffix parsing
+    # --- 2026: Auto-Recovery Dataset Downloader ---
     exec_config = config.get("execution", {})
     exec_mode = exec_config.get("mode", "training")
     exec_suffix = exec_config.get("suffixes", {}).get(exec_mode, "Large")
 
     ds_reqs = model_info.get("datasets", [])
     if isinstance(ds_reqs, str): ds_reqs = [ds_reqs]
-    # Dynamically append suffix (KaggleReady on Kaggle, exec_suffix otherwise)
     final_suffix = exec_suffix if args.env != 'kaggle' else "KaggleReady"
     ds_reqs = [f"{ds}{final_suffix}" if not ds.endswith(final_suffix) else ds for ds in ds_reqs]
-    # 2026 Resilience: Map to the modern 'paths' structure in config.yaml
     p_paths = config.get("paths", {})
     data_dir = p_paths.get("datasets_root", config.get("datasets_dir", "data/datasets"))
     if args.env == 'kaggle':
-        # 2026 Kaggle Resilience: Force absolute path next to the repo to prevent "Ghost Subdir" resolution issues.
         data_dir = "/kaggle/working/LemGendaryDatasets"
     elif not os.path.isabs(data_dir):
         data_dir = os.path.normpath(os.path.join(project_root, data_dir))
 
-    # --- 2026: Auto-Recovery Dataset Downloader (v16.2 Nuclear) ---
     if args.env != 'kaggle':
-        is_forex_task = (model_info.get("dataset_type") == "forex" or "forex" in args.model.lower())
+        is_forex_task_local = (model_info.get("dataset_type") == "forex" or "forex" in args.model.lower())
         forex_has_local = False
-        if is_forex_task:
+        if is_forex_task_local:
             base_ds_dir = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets"))
             for cand in ["LemGendizedForexUniverseLarge"] + list(ds_reqs):
                 p = os.path.normpath(os.path.join(base_ds_dir, cand))
@@ -619,7 +575,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 ds_path = os.path.join(data_dir, ds)
                 if not os.path.exists(ds_path):
                     print(f" [SEARCH] [DATA] Required manifold '{ds}' missing locally.")
-                    # Attempt to download from Kaggle
                     success = download_and_extract_dataset(ds, data_dir, config)
                     if not success:
                         print(f" [WARNING] [DATA] Auto-acquisition failed for {ds}. Manual intervention may be required.")
@@ -666,14 +621,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction, fold=args.fold, pairs=args.pairs, active_timeframes=active_tfs)
         val_ds = ForexDataset(shard_root=shard_root, is_train=False, fold=args.fold, pairs=args.pairs, active_timeframes=active_tfs)
 
-        # 2026: Explicit Curriculum Telemetry
         active_pairs = len(args.pairs) if args.pairs else len(train_ds.pairs)
         print(f" [SIGNAL] [CURRICULUM] Walk-Forward Fold: {args.fold if args.fold else 'MAIN'} | Active Pairs: {active_pairs} | Active TFs: {active_tfs}")
     else:
         train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
         val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
 
-    # 2026 Resilience: Dynamic Worker & Thread Topology Management
+    # --- 2026 Resilience: Dynamic Worker & Thread Topology Management ---
     cpu_count = os.cpu_count() or 2
 
     if getattr(args, 'num_workers', None) is not None:
@@ -681,17 +635,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         try: torch.set_num_threads(max(1, cpu_count))
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'kaggle':
-        # On Kaggle (2 vCPUs), limit workers to avoid CPU bottlenecking and thrashing
-        num_workers = min(2, cpu_count)
-        try: torch.set_num_threads(max(1, cpu_count))
+        # [SPEED] Kaggle T4x2 = 4 vCPUs. Bump to 4 workers.
+        num_workers = 4
+        try: torch.set_num_threads(1)
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif args.env == 'colab':
-        # Colab (T4) reports 2 vCPUs, but we want 4 workers to optimize I/O
         num_workers = 4
         try: torch.set_num_threads(max(1, cpu_count))
         except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
     elif sys.platform == "win32":
-        # Windows multiprocessing guard: protect against PageFile Error 1455
         try:
             import psutil
             ram_gb = psutil.virtual_memory().total / (1024**3)
@@ -705,15 +657,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         except:
             num_workers = 0
     else:
-        # Generic Linux / Cloud server
         _cfg_workers = config.get("hardware", {}).get("num_workers", 4)
         if not isinstance(_cfg_workers, int):
-            _cfg_workers = cpu_count  # 'auto' or any non-int falls back to cpu_count
+            _cfg_workers = cpu_count
         num_workers = min(cpu_count, _cfg_workers)
 
-    # 2026 Resilience: Independent Validation Worker Topology
-    # Training needs higher workers for online augmentation; validation is forward-pass bound
-    # and excess workers cause massive host RAM bloat (especially at 512px+ in Kaggle).
+    # [SPEED] Validation is forward-pass bound; 2 workers max.
     if getattr(args, 'val_num_workers', None) is not None:
         val_num_workers = args.val_num_workers
     else:
@@ -721,9 +670,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         if isinstance(_cfg_val_workers, int):
             val_num_workers = _cfg_val_workers
         elif args.env in ['kaggle', 'colab']:
-            # Kaggle/Colab have tight 13-30GB RAM limits. Cap validation workers to 2 (or 1 if high-res anchor).
-            val_anchor = model_info.get("val_resolution", 256)
-            val_num_workers = 1 if (isinstance(val_anchor, int) and val_anchor >= 512) else 2
+            val_num_workers = 2
         elif sys.platform == "win32":
             val_num_workers = 0
         else:
@@ -742,9 +689,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         if v_workers > 0:
             val_res = getattr(v_ds, "size", (256, 256))
             val_h = val_res[0] if isinstance(val_res, (list, tuple)) else val_res
-            kwargs['prefetch_factor'] = 1 if (is_constrained or (isinstance(val_h, int) and val_h >= 512)) else 2
+            kwargs['prefetch_factor'] = 4 if (is_constrained or (isinstance(val_h, int) and val_h >= 512)) else 6
         return DataLoader(v_ds, **kwargs)
-    # --- 2026 Resilience: Empty Dataset Guard ---
+
     if len(train_ds) == 0:
         print(f"\n[ERROR] [CRITICAL ERROR] Training dataset for '{args.model}' has ZERO samples.")
         print("[REMEDY] Check your dataset path and ensure images are correctly formatted and accessible.")
@@ -752,13 +699,11 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         print(f" [ACTION] Recommended action: Run 'lemgendary_datasets_hub.ps1' Option 1 to acquire raw sources, then Option 2 to compile.")
         sys.exit(1)
 
-    # --- 2026 Resilience: Hub Checkpoint Pathing (v13.0) ---
-    # We prioritize the Hub repo for 'latest' and 'best' checkpoints to reduce suite size.
+    # --- 2026 Resilience: Hub Checkpoint Pathing ---
     pat = os.environ.get('GITHUB_PAT', '')
     if args.env == 'kaggle':
         hub_root = "/kaggle/working/LemGendaryModels"
     else:
-        # Anchor to project root via config paths if available
         p_paths = config.get("paths", {})
         export_root_raw = p_paths.get("export_root", "../LemGendaryModels")
         hub_root = os.path.normpath(os.path.join(project_root, export_root_raw))
@@ -768,10 +713,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     local_ckpt_dir = hub_ckpt_dir
     os.makedirs(hub_ckpt_dir, exist_ok=True)
 
-    # --- 2026 Resilience: Kaggle Checkpoint Recovery (Task 12.1) ---
+    # --- 2026 Resilience: Kaggle Checkpoint Recovery ---
     if args.env == 'kaggle':
         print(f"[SIGNAL] [KAGGLE] Initiating Checkpoint & Metric Recovery...")
-        # 2026: Fast-Probe Discovery (Tiered)
         model_info = unified_models_registry.get(args.model, {})
         reg_filename = model_info.get("filename", "")
         search_targets = {
@@ -785,18 +729,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
         possible_roots = []
 
-        # Tier 0: Local Session Recovery (Interactive Kaggle sessions)
         if os.path.exists(project_root):
             possible_roots.append(project_root)
 
         if os.path.exists('/kaggle/input'):
-            # Tier 1: Instant Top-Level Filter
             for d in os.listdir('/kaggle/input'):
                 d_lower = d.lower().replace("-", "_")
                 if any(target in d_lower for target in search_targets):
                     possible_roots.append(os.path.join('/kaggle/input', d))
 
-            # Tier 1.5: Kaggle Models API Mounts (/kaggle/input/models/<owner>/<model>)
             k_models = '/kaggle/input/models'
             if os.path.exists(k_models):
                 for owner in os.listdir(k_models):
@@ -807,7 +748,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         if any(target in m_lower for target in search_targets):
                             possible_roots.append(os.path.join(owner_path, m_dir))
 
-            # Tier 1.6: Dynamic KaggleHub Model Registry Resolution (bypasses UI version pinning)
             dl_path = None
             try:
                 import kagglehub
@@ -826,7 +766,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             except Exception as kh_err:
                 print(f" -> [KAGGLEHUB] Registry probe notice: {kh_err}")
 
-        # Tier 2: Surgical find only if Tier 1 yields too many or no results
         if not possible_roots:
             try:
                 for target in search_targets:
@@ -836,22 +775,19 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             except Exception as e:
                 print(f"[REMEDY] Directory search failed for target: {e}")
 
-        # Priority: Process ALL possible roots to maximize recovery (prioritizing dynamic KaggleHub latest version)
         possible_roots = sorted(list(set(possible_roots)), key=lambda x: (1 if dl_path and x == dl_path else 0, x.count(os.sep)), reverse=True)
 
         found_any = False
         for recovery_root in possible_roots:
             print(f" -> [PROBING] Manifold: {recovery_root}")
 
-            # Recovery 1: metrics.csv
             metrics_search = [
                 os.path.join(recovery_root, "metrics.csv"),
                 os.path.join(recovery_root, args.model, "metrics.csv"),
                 os.path.join(recovery_root, reg_filename, "metrics.csv") if reg_filename else None,
-                os.path.join(recovery_root, "models", args.model, "metrics.csv") # Legacy support
+                os.path.join(recovery_root, "models", args.model, "metrics.csv")
             ]
 
-            # Deep path support for Kaggle Models API
             pt_dir = next((d for d in (os.listdir(recovery_root) if os.path.exists(recovery_root) else []) if d.lower() == "pytorch"), None)
             if pt_dir:
                 pt_default = os.path.join(recovery_root, pt_dir, "default")
@@ -883,7 +819,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 except Exception as e:
                     print(f"[REMEDY] Failed to recover metrics.csv: {e}")
 
-            # Recovery 2: Checkpoints
             src_ckpt_dirs = [
                 os.path.join(recovery_root, "checkpoints"),
                 os.path.join(recovery_root, args.model, "checkpoints"),
@@ -891,7 +826,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 recovery_root
             ]
 
-            # Deep path support for Kaggle Models API (prioritizing latest version descending)
             if pt_dir:
                 pt_default = os.path.join(recovery_root, pt_dir, "default")
                 if os.path.exists(pt_default):
@@ -913,12 +847,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         if any(bad in f.lower() for bad in ["obsolete", "backup", ".tmp", "temp"]):
                             continue
                         src_f = os.path.join(s_dir, f)
-                        # Standardize name for resumption engine
                         target_f = f
                         if "latest" in f: target_f = f"{args.model}_latest.pth"
                         elif "best" in f: target_f = f"{args.model}_best.pth"
                         elif "progress" in f: target_f = f"{args.model}_progress.pth"
-                        # For vault files, keep original naming convention (they use m_key suffix)
 
                         dst_f = os.path.join(hub_ckpt_dir, target_f)
                         dst_local = os.path.join(local_ckpt_dir, target_f)
@@ -933,22 +865,18 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             except Exception as e:
                                 print(f"[REMEDY] Failed to recover checkpoint {src_f}: {e}")
 
-            # Deep recursive backup for orphaned .pth files
             try:
-                # 2026 Resilience: Exhaustive search for all .pth files in the manifold
                 res = find_paths_pruned(recovery_root, "*.pth", max_depth=8, is_dir=False)
                 for src_f in res:
                     if src_f and os.path.exists(src_f):
                         f = os.path.basename(src_f)
                         if any(bad in f.lower() for bad in ["obsolete", "backup", ".tmp", "temp"]):
                             continue
-                        # Ensure the file belongs to our model or is a generic latest/best/progress/vault
                         if args.model in f or reg_filename in f or "latest" in f or "best" in f or "progress" in f or "vault" in f:
                             target_f = f
                             if "latest" in f: target_f = f"{args.model}_latest.pth"
                             elif "best" in f: target_f = f"{args.model}_best.pth"
                             elif "progress" in f: target_f = f"{args.model}_progress.pth"
-                            # Vault files don't need translation
 
                             dst_f = os.path.join(hub_ckpt_dir, target_f)
                             dst_local = os.path.join(local_ckpt_dir, target_f)
@@ -965,13 +893,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             except Exception as outer_e:
                 print(f"[REMEDY] Broad exception in checkpoint deep recovery: {outer_e}")
 
-
         if not found_any:
             print(f" -> [NOTICE] No valid manifolds or checkpoints found in /kaggle/input.")
 
-
     # --- 2026 Resilience: Pre-Flight Resumption Engine ---
-    # We must initialize all continuity variables before they are used in the data infrastructure.
     resume_iteration = -1
     start_epoch = 0
     ckpt_loaded = False
@@ -987,24 +912,35 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     if os.path.exists(latest_ckpt): candidates.append((os.path.getmtime(latest_ckpt), latest_ckpt))
     if os.path.exists(progress_ckpt_path): candidates.append((os.path.getmtime(progress_ckpt_path), progress_ckpt_path))
 
-    # 2026 Resilience: Adaptive Worker Strategy
     has_resume_candidate = len(candidates) > 0
     active_workers = num_workers
 
-    # 2026 Resilience: Kaggle OOM Guard
-    # Persistent workers hold massive GPU IPC cache; we explicitly disable them on constrained platforms
     is_constrained_env = args.env == 'kaggle' or (device.type == 'cuda' and torch.cuda.get_device_properties(0).total_memory < 15e9)
-    use_persistent = active_workers > 0 and not is_constrained_env
+    try:
+        import psutil as _ps
+        _host_ram_gb = _ps.virtual_memory().total / (1024 ** 3)
+    except Exception:
+        _host_ram_gb = 16.0
+    use_persistent = active_workers > 0 and _host_ram_gb >= 16.0
 
-    # --- 2026: Mission Data Infrastructure (v6.0) ---
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=active_workers, persistent_workers=use_persistent, pin_memory=True if device.type=='cuda' else False)
+    # --- 2026: Mission Data Infrastructure ---
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=active_workers,
+        persistent_workers=use_persistent,
+        pin_memory=True if device.type == 'cuda' else False,
+        prefetch_factor=8 if active_workers > 0 else None,
+        drop_last=True,
+    )
 
     if is_heavy_manifold:
         print(" [SIGNAL] [DATA-SENTINEL] Heavy Manifold detected. Proceeding with configured validation workers.")
 
     val_loader = build_val_loader(val_ds, val_batch_size, val_num_workers, is_constrained=is_constrained_env, dev=device)
-    # --- 2026 Senior Hardening: Head-Differential & Surgical Weight Decay (Task 4.3) ---
-    # Separate parameters into Backbone vs Output Head and Decayed vs Non-Decayed groups.
+
+    # --- 2026 Senior Hardening: Head-Differential & Surgical Weight Decay ---
     head_keywords = ["head", "fc", "classifier", "outro", "predict", "linear"]
     backbone_decay, backbone_no_decay = [], []
     head_decay, head_no_decay = [], []
@@ -1021,7 +957,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             if is_no_decay: backbone_no_decay.append(param)
             else: backbone_decay.append(param)
 
-    # If no separate head was identified, fall back to unified backbone groups cleanly
     if len(head_decay) == 0 and len(head_no_decay) == 0:
         optim_groups = [
             {'params': backbone_decay, 'weight_decay': 5e-4, 'group_name': 'backbone_decay'},
@@ -1049,12 +984,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         if os.path.exists(os.path.join(hub_root, ".git")):
             print(f"[SYNC] [HUB SYNC] Synchronizing Hub repo for stateless resume...")
             subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], cwd=hub_root, capture_output=True)
-            # Sparse checkout has been disabled by user request
-            # Pull latest to ensure we have the absolute SOTA and Latest state without smudging EVERYTHING
             env = os.environ.copy()
             env["GIT_LFS_SKIP_SMUDGE"] = "1"
             subprocess.run(["git", "pull", "--rebase", "-X", "theirs", "origin", "main"], cwd=hub_root, env=env, capture_output=True)
-            # 2026 Resilience: Ensure binary weights are smudged surgically
             subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
             if not getattr(args, 'clean', False):
                 print(f"[PACKAGE] [LFS] Syncing surgical manifold for {args.model}...")
@@ -1063,8 +995,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 print(f"[PACKAGE] [LFS] Fresh start requested (--clean). Bypassing LFS checkpoint pull for {args.model}.")
         else:
             print(f"[LAUNCH] [HUB SYNC] Initializing Hub at {hub_root}...")
-            # 2026: On Kaggle, skip cloning if LFS is likely to fail or if user wants lean manifold.
-            # We prioritize recovery from Kaggle Inputs.
             if args.env == 'kaggle':
                 print("[WARNING] [HUB SYNC] Kaggle detected. Bypassing massive Git clone to avoid LFS quota limits.")
                 os.makedirs(hub_ckpt_dir, exist_ok=True)
@@ -1079,11 +1009,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     env["GIT_LFS_SKIP_SMUDGE"] = "1"
                     res = subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", authenticated_url, hub_root], env=env, capture_output=True, text=True)
                     if res.returncode == 0:
-                        # Sparse checkout disabled
                         print('[SUCCESS] [HUB SYNC] Hub structure initialized (Stateless).')
                         subprocess.run(["git", "lfs", "install"], cwd=hub_root, capture_output=True)
                         if not getattr(args, 'clean', False):
-                            # Surgical LFS Pull: Only pull the checkpoints for the current model
                             print(f"[PACKAGE] [LFS] Hydrating surgical manifold for {args.model}...")
                             subprocess.run(["git", "lfs", "pull", "--include", f"{args.model}/checkpoints/*.pth"], cwd=hub_root, capture_output=True)
                         else:
@@ -1099,10 +1027,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     except Exception as e:
         print(f"[WARNING] [HUB SYNC] Hub synchronization critical failure: {e}")
 
-    # --- 2026 Structural Shift: Resume Logic (Metadata Protection Phase) ---
-    # We load weights and optimizer state BEFORE the scheduler is born.
-    # This ensures OneCycleLR injects its keys into the final, active optimizer state.
-    # 2026 Resilience: export_dir must be anchored to hub_model_dir for consistency.
     export_dir = hub_model_dir
     os.makedirs(export_dir, exist_ok=True)
 
@@ -1128,30 +1052,24 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     best_val_loss = float('inf')
     best_quality_score = -1.0
 
-    # --- 2026: SOTA Metric Persistence Buffer ---
     best_metrics = {
         "plcc": 0.0, "srcc": 0.0, "psnr": 0.0, "ssim": 0.0, "lpips": 0.05, "fid": 50.0
     }
 
-    # --- 2026: MS-SWA Per-Metric Checkpoint Vault ---
     metric_vaults = {}
 
-    # --- 2026: Global Historical Best Guardrail ---
-    # We probe the 'best.pth' artifact to establish a high-water mark for the entire project.
-    # This prevents regression epochs in a new session from overwriting a previous SOTA peak.
     best_ckpt_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
     if not getattr(args, 'clean', False) and os.path.exists(best_ckpt_path):
         try:
-            best_ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False) # pyre-ignore
+            best_ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
             if 'best_val_loss' in best_ckpt:
                 best_val_loss = best_ckpt['best_val_loss']
             if 'best_quality_score' in best_ckpt:
                 best_quality_score = best_ckpt.get('best_quality_score', -1.0)
-            best_metrics = best_ckpt.get('best_metrics', best_ckpt.get('metrics', {})) # Resilient key fallback
+            best_metrics = best_ckpt.get('best_metrics', best_ckpt.get('metrics', {}))
             metric_vaults = best_ckpt.get('metric_vaults', {})
             sota_baseline_achieved = best_ckpt.get('sota_achieved', False)
             print(f" [OK] [GLOBAL GUARDRAIL] Historical SOTA baseline DETECTED (Score: {best_quality_score:.4f})")
-            # Sanitizer: Ensure no historical 'inf' values survive the reload
             for k, v in best_metrics.items():
                 if not np.isfinite(v):
                     best_metrics[k] = 0.05 if k == 'lpips' else 50.0 if k == 'fid' else 0.0
@@ -1164,19 +1082,16 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     sota_baseline_achieved = False
     sota_countdown = 1
     resume_iteration = -1
-    regression_epochs = 0 # 2026 Resilience: Regression Guardrail Counter
+    regression_epochs = 0
     prev_quality_score = 0.0
     val_resume_iteration = 0
-    restored_avg_train_loss = None # 2026: Carry-over for resume reporting
+    restored_avg_train_loss = None
 
-    # Priority: 1. Hub Progress 2. Hub Latest 3. Hub Best
     latest_hub = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
     best_hub = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
     progress_hub = os.path.join(hub_ckpt_dir, f"{args.model}_progress.pth")
     progress_local = progress_hub
 
-    # --- 2026 Resilience: Stale Lock Clearance (Task 13.1) ---
-    # If a previous run crashed, clear the .processing locks to allow resume.
     for ckpt_path in [progress_hub, latest_hub, best_hub]:
         proc_file = ckpt_path + ".processing"
         if os.path.exists(proc_file):
@@ -1185,26 +1100,20 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             except Exception as e: print(f"[REMEDY] Failed to clear stale lock {proc_file}: {e}")
 
     fallback_chain = [] if getattr(args, 'clean', False) else [progress_hub, latest_hub, best_hub]
-    # Priority Candidate Selection (v15.0):
-    # We probe metadata to find the ABSOLUTE highest epoch/iteration across all locations.
     candidates = []
     hub_max_score = -1.0
     for ckpt in fallback_chain:
         if os.path.exists(ckpt):
             try:
-                # 2026 Resilience: Fast-probe metadata without loading full state_dict
-                meta = torch.load(ckpt, map_location='cpu', weights_only=False) # Metadata check
+                meta = torch.load(ckpt, map_location='cpu', weights_only=False)
                 epoch = meta.get('epoch', 0)
                 iteration = meta.get('iteration', 0)
                 loader_len = meta.get('loader_len', 10000)
                 val_iteration = meta.get('val_iteration', 0)
 
-                # Continuous Progress Score:
-                # - latest.pth / best.pth are saved at the END of epoch -> score = epoch + 1.0
-                # - progress.pth is saved DURING epoch at iteration -> score = epoch + (iteration / loader_len)
                 if "_latest.pth" in ckpt or "_best.pth" in ckpt:
                     effective_progress = float(epoch) + 1.0
-                else: # progress.pth
+                else:
                     if val_iteration > 0:
                         iter_fraction = 0.99
                     elif loader_len > 0 and iteration > 0:
@@ -1220,12 +1129,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             except:
                 candidates.append((0.0, os.path.getmtime(ckpt), ckpt))
 
-    # --- 2026 Resilience: Poisoned Progress Purge ---
-    # If a local progress file is found but it is significantly behind the Hub (e.g. Kaggle crash artifact from an old epoch),
-    # we purge it to prevent the "Epoch 1 Resume" trap.
     if hub_max_score > 0.0:
         for i, (score, mtime, ckpt) in enumerate(candidates):
-            if "checkpoints" in ckpt and "LemGendaryModels" not in ckpt: # Local checkpoint
+            if "checkpoints" in ckpt and "LemGendaryModels" not in ckpt:
                 if score < (hub_max_score - 0.01):
                     print(f" [FIRE] [RESILIENCE] Purging stale local progress (Progress Score {score:.4f}) in favor of Hub SOTA ({hub_max_score:.4f}).")
                     try:
@@ -1233,20 +1139,18 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         os.rename(ckpt, backup_path)
                     except Exception as e:
                         print(f"[REMEDY] Failed to rename stale local progress: {e}")
-                    # Remove from candidates
                     candidates[i] = (-1.0, 0, ckpt)
 
     ckpt_loaded = False
     loaded_ckpt_path = None
-    # Sort by Epoch (Descending), then MTime (Descending)
     candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
     for epoch_val, _, attempt_ckpt in candidates:
-        if epoch_val < 0: continue # Skip purged candidates
+        if epoch_val < 0: continue
         try:
             loc_label = "HUB" if "LemGendaryModels" in attempt_ckpt else "LOCAL"
             print(f"Resuming training from {loc_label} checkpoint: {attempt_ckpt}")
-            ckpt = torch.load(attempt_ckpt, map_location=device, weights_only=False) # pyre-ignore
+            ckpt = torch.load(attempt_ckpt, map_location=device, weights_only=False)
             if 'model_state' in ckpt:
                 load_state_dict_robust(model, ckpt['model_state'], strict=False)
                 for param in model.parameters():
@@ -1260,17 +1164,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 if 'optimizer_state' in ckpt:
                     try:
                         optimizer.load_state_dict(ckpt['optimizer_state'])
-                        # 2026 Resilience: Checkpoints are loaded with map_location='cpu'.
-                        # Optimizer state tensors (exp_avg, exp_avg_sq) must be moved to
-                        # the training device to match model parameters, or AdamW will crash.
                         if device.type != 'cpu':
                             for opt_state in optimizer.state.values():
                                 for k, v in opt_state.items():
                                     if isinstance(v, torch.Tensor) and k != 'step':
                                         opt_state[k] = v.to(device)
 
-                        # 2026 Resilience: Validate Optimizer State Shapes
-                        # PyTorch load_state_dict blindly loads mismatched exp_avg shapes if parameter counts match exactly.
                         for group in optimizer.param_groups:
                             for p in group['params']:
                                 if p in optimizer.state:
@@ -1283,8 +1182,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         optimizer.state.clear()
                 if 'epoch' in ckpt:
                     start_epoch = ckpt['epoch']
-                    # 2026 Resilience: If we resume from 'latest', we start the NEXT epoch.
-                    # If we resume from 'progress', we restart the SAME epoch and fast-forward iterations.
                     if "_latest.pth" in attempt_ckpt or "_best.pth" in attempt_ckpt:
                         start_epoch += 1
                         resume_iteration = 0
@@ -1295,9 +1192,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 if 'best_val_loss' in ckpt: best_val_loss = ckpt['best_val_loss']
                 if 'best_quality_score' in ckpt: best_quality_score = ckpt['best_quality_score']
                 if 'best_metrics' in ckpt:
-                    # 2026 Resilience: Only overwrite best_metrics from checkpoint if they contain
-                    # real data. Zeroed metrics from a non-best epoch must not overwrite the
-                    # Global Guardrail values loaded from best.pth.
                     ckpt_bm = ckpt['best_metrics']
                     has_real_data = any(v != 0.0 for k, v in ckpt_bm.items() if k not in ('lpips', 'fid'))
                     if has_real_data:
@@ -1315,7 +1209,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     val_resume_iteration = ckpt['val_iteration']
                     print(f"[INFO] [RESILIENCY] Intra-validation progress detected. Resume Val Iter: {val_resume_iteration}")
 
-                # Proportional Scaling for Validation (v11.1)
                 source_val_loader_len = ckpt.get('val_loader_len')
                 if val_resume_iteration > 0 and source_val_loader_len:
                     val_pct = val_resume_iteration / source_val_loader_len
@@ -1327,7 +1220,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     governor.load_state(ckpt['governor_state'])
                     g_start_state = governor.get_state()
 
-                    # 2026 Resilience: Restore Save Cadence
                     if 'last_intra_epoch_pct' in ckpt:
                         last_intra_epoch_pct = ckpt['last_intra_epoch_pct']
                     if 'interval_pct' in ckpt:
@@ -1335,16 +1227,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     if 'val_interval_pct' in ckpt:
                         val_interval_pct = ckpt['val_interval_pct']
 
-                    # Restore Recovery Shield State
                     if 'in_recovery_mode' in ckpt:
                         in_recovery_mode = ckpt['in_recovery_mode']
                         if in_recovery_mode: print(" [RESILIENCY] Serial Recovery Shield RESTORED (Active).")
 
-                    # 2026 Resilience: Post-Restoration VRAM Re-Audit
-                    # Only recalculate batch size if it was set to 'auto' in the registry.
                     res_size = g_start_state['input_size']
 
-                    # 2026 Guardrail: Clamp restored resolution against new YAML config constraints
                     res_ladder = model_info.get("optimization", {}).get("res_ladder", [res_size])
                     max_allowed_res = res_ladder[-1] if res_ladder else res_size
                     if res_size is not None and max_allowed_res is not None and res_size > max_allowed_res:
@@ -1357,10 +1245,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     if (config_batch == "auto" or config_batch is None) and not args.batch_size:
                         batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=res_size, mode='train', sample_fraction=g_start_state.get('sample_fraction', 1.0), fold=args.fold, pairs=args.pairs)
 
-                    # 2026 Resilience: Recalculate accumulation to maintain target effective batch.
-                    # The governor state stores the accumulation from the PREVIOUS session's batch size.
-                    # If the VRAM re-probe changed batch_size, we must recalculate to avoid
-                    # inflating or deflating the effective batch (e.g. 6×12=72 instead of target 24).
                     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
                     accumulation_steps = max(1, target_eff // batch_size)
                     governor_acc = g_start_state.get('accumulation_steps', 1)
@@ -1368,10 +1252,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         print(f" [RESILIENCY] Accumulation recalculated for batch shift: {governor_acc} -> {accumulation_steps} (Effective: {batch_size * accumulation_steps})")
                     governor.current_acc = accumulation_steps
 
-                    # 2026 Resilience: Proportional Iteration Scaling (The "Slide-Rule" Fix)
-                    # If the loader length changes (due to Batch Size or Fraction shifts), we must
-                    # scale the iteration to prevent skipping the whole epoch or starting from 0.
-                    # 2026 SOTA: We now prioritize 'loader_len' saved in the checkpoint for absolute parity.
                     source_batch = g_start_state.get('batch_size', batch_size)
                     source_fraction = g_start_state.get('sample_fraction', 1.0)
                     source_loader_len = ckpt.get('loader_len')
@@ -1380,19 +1260,24 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         ghost_loader_len = source_loader_len
                         print(f" [RESILIENCY] Using verified checkpoint loader length: {ghost_loader_len}")
                     else:
-                        # Fallback for legacy checkpoints (Ghost Loader Estimation)
                         ghost_loader_len = int((len(train_ds.all_samples) * source_fraction) / max(1, source_batch))
                         print(f" [RESILIENCY] Estimating Ghost Loader length: {ghost_loader_len}")
 
-                    # 2. Update to current strategy
                     train_ds.update_strategy(fraction=governor.current_fraction, size=res_size)
 
                     expected_len = max(1, len(train_ds) // max(1, batch_size))
                     if batch_size != old_batch_size or len(train_loader) != expected_len:
                         print(f" [RESILIENCY] Batch Size or Fraction Shift detected ({len(train_loader)} -> {expected_len}). Synchronizing loader...")
                         try:
-                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
-                                                     num_workers=num_workers, pin_memory=True if device.type=='cuda' else False)
+                            train_loader = DataLoader(
+                                train_ds,
+                                batch_size=batch_size,
+                                shuffle=True,
+                                num_workers=num_workers,
+                                pin_memory=True if device.type == 'cuda' else False,
+                                prefetch_factor=8 if num_workers > 0 else None,
+                                drop_last=True,
+                            )
                         except Exception as e:
                             print(f" [WARNING] [RESILIENCY] Loader synchronization failed: {e}. Falling back to default.")
 
@@ -1401,19 +1286,14 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     if resume_iteration > 0 and ghost_loader_len > 0:
                         raw_pct = resume_iteration / ghost_loader_len
 
-                        # 2026 Resilience: Terminal Progress Guard (The "Anti-Rush" Patch)
-                        # If a _progress.pth is effectively finished (>= 99.9%), we only advance the epoch
-                        # if the validation phase is ALSO finished or not present.
                         if raw_pct >= 0.999 and "_progress.pth" in attempt_ckpt and val_resume_iteration <= 0:
                             print(f" [INFO] [RESILIENCY] Training complete for current epoch. Transitioning to Validation Phase.")
                             resume_iteration = new_loader_len
                             pct = 1.0
                         elif raw_pct >= 0.999 and "_progress.pth" in attempt_ckpt:
-                            # If we have val progress, we must stay in this epoch to finish it.
                             pct = 1.0
                             resume_iteration = new_loader_len
                         else:
-                            # 2026 Resilience: Clamp to prevent index overflow
                             pct = min(0.999, raw_pct)
                             resume_iteration = int(pct * new_loader_len)
 
@@ -1422,7 +1302,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         print(f" - Source/Ghost Length: {ghost_loader_len} | New Length: {new_loader_len}")
                         print(f" - Scaled Progress: {pct*100:.1f}% -> Iteration {resume_iteration}/{new_loader_len}")
 
-                    # 2026: val_ds is NOT updated here it must remain anchored at 384px!
                     if model_info.get("dataset_type") == "forex" or "forex" in args.model.lower():
                         print(f" [RESILIENCY] Smart Governor state RESTORED. Walk-Forward Re-Audited | Batch: {batch_size}")
                     else:
@@ -1456,7 +1335,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         start_absolute_epochs_no_improve = 0
 
     if ckpt_loaded and start_epoch > 0:
-        # Align start_epoch with metrics.csv if it exists
         metrics_csv_path = os.path.join(export_dir, "metrics.csv")
         last_csv_epoch = None
         if os.path.exists(metrics_csv_path):
@@ -1477,23 +1355,20 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         print(f"[OK] [CONTINUITY] Successfully resumed from epoch {start_epoch+1}.")
     else:
         print(f"[LAUNCH] [FRESH START] Initializing training from epoch {start_epoch+1}.")
-    # --- 2026: Polarity Governor (Resilience v3.3) ---
-    # Perform a surgical 10-batch 'Probe' of validation correlation to detect inverse heads.
-    # This prevents hours of wasted training on inverted manifolds.
+
     if train_ds.task_type == "quality":
         print(f"[INFO] [CALIBRATION] Manifold Aligned: Bin 0=Worst(1.0) | Bin 9=Best(10.0)")
         print(f"[INFO] [POLARITY] Auditing manifold sign (Quick Probe)...")
         model.eval()
         probe_preds, probe_tgtes = [], []
-        # 2026: Synchronized manfold audit. weights 10..1 match the user's 'inverted' dataset files.
         weights = torch.arange(1, 11).float().to(device)
         val_loader_probe = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
         with torch.no_grad():
             for j, (p_img, p_tgt, _) in enumerate(val_loader_probe):
-                if j >= 10: break # Must evaluate at least 10 batches for statistical significance
+                if j >= 10: break
                 p_img, p_tgt = p_img.to(device), p_tgt.to(device)
                 p_out = model(p_img)
-                p_soft = torch.nn.functional.softmax(p_out / config.get('stabilizers', {}).get('softmax_temp', 0.1), dim=-1)
+                p_soft = F.softmax(p_out / config.get('stabilizers', {}).get('softmax_temp', 0.1), dim=-1)
                 probe_preds.append((p_soft * weights).sum(dim=-1).cpu())
                 probe_tgtes.append((p_tgt * weights).sum(dim=-1).cpu() / torch.clamp(p_tgt.sum(dim=-1).cpu(), min=1e-6))
         del val_loader_probe
@@ -1503,9 +1378,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             p_res = torch.cat(probe_preds).numpy()
             t_res = torch.cat(probe_tgtes).numpy()
             try:
-                # 2026 Guard: spearmanr is undefined if either array is constant (std=0).
-                # This happens on resume when the model hasn't warmed up yet (all outputs identical).
-                # Return 0.0 instead of letting scipy raise a ConstantInputWarning.
                 if np.ptp(p_res) == 0.0 or np.ptp(t_res) == 0.0:
                     probe_srcc = 0.0
                 else:
@@ -1526,7 +1398,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 for layer in target_layers:
                     nn.init.xavier_uniform_(layer.weight)
                     nn.init.zeros_(layer.bias)
-                    # Purge optimizer momentum for the reset parameters to prevent regression ghosting
                     if layer.weight in optimizer.state: del optimizer.state[layer.weight]
                     if layer.bias in optimizer.state: del optimizer.state[layer.bias]
 
@@ -1545,19 +1416,16 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         pass
         model.train()
 
-    # --- 2026 Continuity Protocol (SOTA Sentry) ---
-    # Manifold Health Audit: Revoke SOTA status if the physical manifold has regressed
     if 'probe_srcc' in locals() and sota_baseline_achieved:
         _probe = locals().get('probe_srcc', 0.0)
         targets = model_info.get("sota_targets", {})
         target_srcc = targets.get("srcc", 0.90)
-        if _probe < (target_srcc - 0.05): # Tightened tolerance to 0.05 for SOTA integrity
+        if _probe < (target_srcc - 0.05):
             print(f"[WARNING] [SOTA SENTRY] Manifold Health Audit: FAILED.")
             print(f"[WARNING] [SOTA SENTRY] Probe SRCC ({_probe:.4f}) is below mission target ({target_srcc:.4f}).")
             print(f"[INFO] [RECONSTRUCTION] Revoking SOTA status. Launching deep-manifold recovery...")
             sota_baseline_achieved = False
 
-    # Ensure the mission doesn't stall if targets haven't been met.
     if not sota_baseline_achieved and start_epoch >= (epochs - 1):
         if args.epochs == 1:
             print("[INFO] [DIAGNOSTIC] Running strict 1-Epoch Unit Test pass.")
@@ -1569,30 +1437,22 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     elif sota_baseline_achieved:
         print(f"\n[OK] [SOTA RECOVERY] SOTA Targets consistently verified by current manifold.")
         print(f" -> Entering Stochastic Re-convergence phase (Final 5 epochs)...")
-        # Instead of skipping, we do a short refinement phase if already at SOTA
         if start_epoch >= epochs:
             start_epoch = max(0, epochs - 5)
         else:
-            # If not yet at the end, just continue training normally
             pass
-        # We try to extract record metrics for the final README
         plcc = best_quality_score if best_quality_score > 0 else 0.95
-        srcc = 0.90 # Best guess for doc generation if not fully loaded
-        epoch = start_epoch - 1 # For doc generator compatibility
+        srcc = 0.90
+        epoch = start_epoch - 1
 
-    # 2026: High-Velocity Dynamic Scheduler (OneCycleLR) - Refined for SOTA Breach
-    # Total steps must now be calculated using optimizer steps (len/accumulation)
     total_steps = epochs * (len(train_loader) // accumulation_steps)
     if (len(train_loader) % accumulation_steps) != 0:
-        total_steps += epochs # Buffer for remainder batches
+        total_steps += epochs
 
-    # Ensure warmup is fast enough to hit escape velocity (Max 1-5 epochs)
     warmup_epochs = max(1, min(5, int(epochs * 0.05)))
     dynamic_pct_start = warmup_epochs / max(1, epochs)
-    # Prevent ZeroDivisionError in OneCycleLR (pct_start must be strictly < 1.0)
     dynamic_pct_start = min(0.99, dynamic_pct_start) if epochs > 1 else 0.3
 
-    # 2026 SOTA: Stochastic Weight Averaging (SWA) Shadow initialization
     opt_config = model_info.get("optimization", {})
     swa_start_pct = opt_config.get("swa_start_pct", 0.75)
     max_lr_mult = opt_config.get("max_lr_multiplier", 1.2)
@@ -1604,12 +1464,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
     swa_model = AveragedModel(model)
     swa_scheduler = SWALR(optimizer, swa_lr=lr * 0.1)
-    swa_start = int(epochs * swa_start_pct) # Start SWA based on mission profile
+    swa_start = int(epochs * swa_start_pct)
 
-    # Reload scheduler state only if compatible (Resiliency Phase)
-    # 2026: Continuity Guard - Only sync if start_epoch is > 0 (resuming)
     if ckpt_loaded and loaded_ckpt_path and os.path.exists(loaded_ckpt_path) and start_epoch > 0:
-        ckpt = torch.load(loaded_ckpt_path, map_location=device, weights_only=False) # pyre-ignore
+        ckpt = torch.load(loaded_ckpt_path, map_location=device, weights_only=False)
         if getattr(args, 'reset_scheduler', False):
             steps_per_epoch = len(train_loader) // accumulation_steps
             if steps_per_epoch == 0: steps_per_epoch = 1
@@ -1617,21 +1475,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             expected_step = max(0, min(total_steps - 1, expected_step))
             scheduler.last_epoch = expected_step
             scheduler._step_count = expected_step + 1
-            # Sync optimizer learning rates with the stretched step to prevent Velocity Bomb/stagnation
             for param_group, lr_val in zip(optimizer.param_groups, scheduler.get_lr()):
                 param_group['lr'] = lr_val
             if hasattr(scheduler, '_last_lr'):
-                scheduler._last_lr = [p['lr'] for p in optimizer.param_groups]
+                setattr(scheduler, '_last_lr', [p['lr'] for p in optimizer.param_groups])
             print(f" [MISSION SHIELD] Scheduler reset requested. Resumed fresh curve at step: {expected_step} of {total_steps}.")
         elif 'scheduler_state' in ckpt:
             try:
-                # 2026 Resilience: Scheduler Mission Hard-Reset
                 state_dict = ckpt['scheduler_state']
-
                 steps_per_epoch = len(train_loader) // accumulation_steps
                 if steps_per_epoch == 0: steps_per_epoch = 1
                 expected_step = (start_epoch * steps_per_epoch) + max(0, resume_iteration // accumulation_steps)
-
                 load_scheduler_state_stretched(scheduler, state_dict, total_steps, expected_step=expected_step)
                 print(" [RESILIENCY] Scheduler manifold successfully synchronized.")
             except Exception as e:
@@ -1646,11 +1500,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     expected_steps_total = max(0, min(total_steps - 1, expected_steps_total))
                     scheduler.last_epoch = expected_steps_total
                     scheduler._step_count = expected_steps_total + 1
-                    # Sync optimizer learning rates with the stretched step to prevent Velocity Bomb/stagnation
                     for param_group, lr_val in zip(optimizer.param_groups, scheduler.get_lr()):
                         param_group['lr'] = lr_val
                     if hasattr(scheduler, '_last_lr'):
-                        scheduler._last_lr = [p['lr'] for p in optimizer.param_groups]
+                        setattr(scheduler, '_last_lr', [p['lr'] for p in optimizer.param_groups])
                     print(f" [MISSION SHIELD] Scheduler protected after sync failure. Resumed at step: {expected_steps_total} of {total_steps}.")
                 except Exception as inner_e:
                     print(f" [WARNING] Failed to instantiate OneCycleLR: {inner_e}")
@@ -1667,9 +1520,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             regression_epochs = ckpt.get('regression_epochs', 0)
             print(" [SOTA 2.0] Model architecture shift detected. Starting fresh LR cycle from Epoch 1.")
 
-    # --- 2026: Polarity Manifold Anchor (v4.0) ---
-    # We freeze the backbone for the entire first epoch to force the Head to match the 1..10 ground truth.
-    # 2026 Resilience: Only apply to 'quality' tasks (NIMA). Restoration models (NAFNet) must remain unfrozen.
     thermal_steps_left = 0
     if start_epoch == 0 and train_ds.task_type == "quality":
         print(" [POLARITY ANCHOR] Freezing backbone for Epoch 1 to establish positive manifold...")
@@ -1681,39 +1531,26 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             else:
                 param.requires_grad = False
 
-        # 2026 Safety: If no head was detected, unfreeze everything to prevent grad_fn failure.
         if trainable_params == 0:
             print(" [WARNING] [POLARITY ANCHOR] No specialized head detected. Reverting to full-unfreeze.")
             for param in model.parameters(): param.requires_grad = True
         else:
             thermal_steps_left = len(train_loader)
 
-
-    # --- 2026: Hyper-Dynamic Stabilizer Injection ---
     global_stab = config.get("stabilizers", {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0})
     model_stab = model_info.get("stabilizers", {})
-    # Hierarchy: Unified Model Registry > Global Config > Hardcoded Safety Fallback
     stab = {**global_stab, **model_stab}
 
-    # 2026 Resilience: Force synchronization with Governor's thermal state if resuming
     if start_epoch > 0:
         g_state = governor.get_state()
         if 'softmax_temp' in g_state:
-            # Apply thermal floor for quality tasks and forex during sync
             floor = 0.75 if getattr(train_ds, "task_type", "") == "forex" else (0.4 if train_ds.task_type == "quality" else 0.1)
             stab['softmax_temp'] = max(floor, g_state['softmax_temp'])
         if 'logit_clamp' in g_state: stab['logit_clamp'] = g_state['logit_clamp']
 
     print(f" [STABILIZER] Active Parameters: Temp={stab['softmax_temp']} | Eps={stab['emd_epsilon']} | Clamp={stab['logit_clamp']}")
 
-    # --- 2026 Resilience: Surgical Loss Logic ---
-    # Only load the heavy Perceptual Engine (LPIPS) if explicitly requested OR if we have > 6GB VRAM.
-    # This prevents the "Manifold Collapse" hang on 4GB GTX cards.
     use_lpips = "lpips" in str(model_info.get("loss_fn", "")).lower()
-
-    # 2026 Resilience: Force disable LPIPS during training to save massive VRAM,
-    # unless strictly required by a specialized pipeline.
-    # This restores the 4-hour ETA from Epoch 34 where LPIPS was only used during validation.
     use_lpips = False
 
     vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 0
@@ -1725,45 +1562,39 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         criterion = ForexDualLoss().to(device)
     else:
         criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab, use_perc=use_lpips).to(device)
-    # 2026 Resilience: Enable AMP for Turing+ architectures (sm_70+) with Tensor Cores.
-    # Pascal P100 (sm_60, cap[0] < 7) has no Tensor Cores; AMP on cu118 is numerically unstable at sm_60.
-    # GTX 16-series (Turing, sm_75) supports FP16 for memory savings even without full Tensor Cores.
+
     gpu_name = torch.cuda.get_device_name(0) if device.type == 'cuda' else ""
     _amp_cap = cap if device.type == 'cuda' else (0, 0)
+
+    _is_forex_task = ("forex" in args.model.lower()) or (getattr(train_ds, "task_type", "") == "forex")
     use_amp = (
-        _amp_cap[0] >= 7  # Turing+ (sm_70+) minimum; excludes Pascal P100 (sm_60)
+        _amp_cap[0] >= 7
+        and not _is_forex_task
         and any(k in gpu_name for k in ['RTX', 'Tesla', 'A100', 'H100', 'L4', 'GTX 16'])
     )
-    scaler = torch.amp.GradScaler('cuda', enabled=use_amp) # pyre-ignore
+    scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
+    if _is_forex_task and use_amp is False:
+        print(" [GUARD] [AMP] Autocast/GradScaler DISABLED for forex task (FP16 overflow risk).")
 
-    # 2026 Resilience: Disable cuDNN Benchmark for High-Res Dynamic Manifolds
-    # This prevents the CUDNN_STATUS_BAD_PARAM_STREAM_MISMATCH error on Windows Turing GPUs.
     if device.type == 'cuda':
         torch.backends.cudnn.benchmark = False
-        print(" [GUARD] [cuDNN] Benchmark disabled for stream stability.")
+        torch.backends.cudnn.deterministic = True
+        print(" [GUARD] [cuDNN] Benchmark DISABLED + deterministic=True (safe for Kaggle dual-GPU).")
 
-
-    # Initialize metrics for export stability (Avoids NameErrors on skip)
     plcc, srcc, psnr, ssim_val, lpips_val, fid, map50, map50_95 = 0.0, 0.0, 0.0, 0.0, 0.05, 50.0, 0.0, 0.0
     mae, miou, map_medium, map_hard, accuracy_vqa = 0.0, 0.0, 0.0, 0.0, 0.0
     dir_acc, win_rate, profit_factor, sharpe_ratio, sortino_ratio, max_drawdown, tp_mae, sl_mae = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-    dir_entropy = float('inf')  # Initialized to max entropy; decreases as model confidence improves
+    dir_entropy = float('inf')
     epoch = start_epoch
 
-
-    # --- 2026: SOTA Sentry Configuration ---
-    # 2026 Resilience: Map to 'defaults -> patience' in config.yaml (Standard: 250)
     patience = config.get("defaults", {}).get("patience", 250)
-    # Recover non-improving epoch count from checkpoint to prevent reset-on-resume
     epochs_no_improve = start_epochs_no_improve
     absolute_epochs_no_improve = start_absolute_epochs_no_improve
 
     sota_targets = model_info.get("sota_targets", {})
     if sota_targets:
-        # Prune obsolete metrics from the legacy vaults so they stop tracking
         metric_vaults = {k: v for k, v in metric_vaults.items() if k in sota_targets}
 
-        # Self-clean legacy vault files from disk (fixes Kaggle mounting old bloated datasets)
         import glob
         for f in glob.glob(os.path.join(config.get("checkpoint_dir", ""), f"{args.model}_vault_*.pth")):
             m_key = os.path.basename(f).split('_vault_')[-1].replace('.pth', '')
@@ -1773,28 +1604,23 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 except Exception as e: print(f"[REMEDY] Failed to delete obsolete legacy vault checkpoint {f}: {e}")
     metrics_csv_path = os.path.join(export_dir, "metrics.csv")
 
-    # 2026 Telemetry Engine Integration
     telemetry_engine = TelemetryEngine(export_dir, task_type=model_info.get("dataset_type", "image"))
     telemetry_engine.validate_and_initialize_csv()
 
     effective_batch_size = batch_size
-    # accumulation_steps is established pre-emptively during initialization.
-    global_step = 0 # Absolute step tracking across the entire mission
-    # 2026: SOTA Persistence Constants
+    global_step = 0
     _raw_interval = config.get("intra_epoch_checkpoint_pct", "auto")
     if isinstance(_raw_interval, (int, float)):
         interval_pct = float(_raw_interval)
         print(f" [CONFIG] Static Save Interval Locked: {interval_pct*100:.1f}% (Horse Race Winner)")
     else:
-        interval_pct = 0.0 # To be calibrated by Governor
+        interval_pct = 0.0
 
-    in_recovery_mode = False # 2026 Resilience: OOM Shield (v17.2)
+    in_recovery_mode = False
 
-    # Cache validation VRAM audit to prevent redundant hardcoded mid-epoch checks
     last_val_audit_size = None
     last_val_audit_fraction = None
 
-    # --- 2026 Resilience: Kaggle Preemption Emergency Hook ---
     def _kaggle_preemption_hook():
         if getattr(args, 'env', '') != 'kaggle':
             return
@@ -1809,7 +1635,22 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
     register_emergency_sync(_kaggle_preemption_hook)
 
-    # --- 2026 SOTA Dynamic Horizon (Infinite Target Enforcement) ---
+    # [SPEED] Explicit worker disposal. DataLoader workers accumulate across rebuilds.
+    def _dispose_loader(loader):
+        if loader is None:
+            return
+        try:
+            it = getattr(loader, '_iterator', None)
+            if it is not None and hasattr(it, '_shutdown_workers'):
+                it._shutdown_workers()
+        except Exception:
+            pass
+        try:
+            loader._iterator = None
+        except Exception:
+            pass
+
+    # --- 2026 SOTA Dynamic Horizon ---
     epoch = start_epoch
     while True:
         if epoch >= epochs:
@@ -1822,17 +1663,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             else:
                 break
 
-        last_intra_epoch_pct = -1.0 # --- 2026 Resilience: Persistence Tracker (v6.1.12) ---
-        # 2026: SOTA Stabilization and Thermal Sharding
-        # Physical batch constraints are now established pre-emptively during initialization.
-        # This ensures the scheduler math (total_steps) matches the execution stride.
+        last_intra_epoch_pct = -1.0
 
-        # NOTE: Legacy Epoch 5 backbone-freeze removed.
-        # Refer to Polarity Anchor (v4.0) for epoch-1 stabilization logic.
+        model.train()
 
-        model.train() # pyre-ignore
-
-        # --- 2026 Resilience: Parity & Device Alignment Guard ---
         try:
             first_param = next(model.parameters(), None)
             if first_param is not None and first_param.device != device:
@@ -1840,36 +1674,26 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         except Exception:
             pass
 
-        # --- 2026 Dynamic Validation Parity (v19.0 High-Res Lock) ---
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
         max_local_res = config.get("hardware", {}).get("max_allowed_local_resolution", 640)
         hardware_ceiling = max_local_res if vram_gb < 4.5 else 1024
 
-        # Priority: Model Config > Hardware Ceiling
         val_anchor_size = model_info.get("val_resolution", hardware_ceiling)
         if vram_gb < 4.5 and val_anchor_size is not None and val_anchor_size > hardware_ceiling:
             val_anchor_size = hardware_ceiling
 
-        # --- 2026 SOTA GUARD: Resolution-Aware Patience Reset (v19.1) ---
-        # If the validation manifold has shifted resolution, the previous SOTA best metrics
-        # are no longer comparable. We reset the patience timer to allow the model to master the new rung.
         if 'last_val_anchor' in locals() and locals().get('last_val_anchor') != val_anchor_size:
             print(f" [SOTA GUARD] Validation Manifold Shift detected ({locals().get('last_val_anchor')} -> {val_anchor_size}). Resetting patience timer.")
             epochs_no_improve = 0
-
-            # --- 2026 NPP: Governor Memory Purge (v19.2) ---
-            # Sync the Governor's internal memory to the new resolution floor
             governor.reset_best()
 
         last_val_anchor = val_anchor_size
 
         val_batch_size = model_info.get("val_batch_size") or audit_hardware_vram(args.model, model_info, config, device, model, res_override=val_anchor_size, mode='val', sample_fraction=val_ds.sample_fraction, fold=args.fold, pairs=args.pairs)
 
-        # Sync dataset strategy and re-init loader
         val_ds.update_strategy(size=val_anchor_size)
         val_loader = build_val_loader(val_ds, val_batch_size, val_num_workers, is_constrained=is_constrained_env, dev=device)
 
-        # 2026 Resilience: Seed train_loss from checkpoint if resuming mid-epoch or after training
         train_loss = 0
         if epoch == start_epoch and restored_avg_train_loss is not None:
             train_loss = restored_avg_train_loss * len(train_loader)
@@ -1878,22 +1702,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         consecutive_singularities = 0
         consecutive_stress_events = 0
         consecutive_loss_spikes = 0
-        # 2026: DataLoader Determinism Guard (Zero Data Leakage Resume)
-        # Seeds the random samplers uniquely per-epoch but deterministically,
-        # so fast-forwarding doesn't skip or duplicate unseen images upon restart.
         import random; random.seed(42 + epoch)
         np.random.seed(42 + epoch)
         torch.manual_seed(42 + epoch)
         if torch.cuda.is_available(): torch.cuda.manual_seed_all(42 + epoch)
 
-        sentinel_stresses = [] # --- 2026 Resilience: Global Stress Tracking (v5.7) ---
+        sentinel_stresses = []
 
-        # --- 2026 Telemetry: Epoch State Anchor ---
-        # Capture variables BEFORE governor audit modifies them for the *next* epoch
         epoch_lr = scheduler.get_last_lr()[0] if hasattr(scheduler, 'get_last_lr') else optimizer.param_groups[0]['lr']
 
-        # --- 2026 Resilience: Prevent Accumulation Starvation ---
-        # Cap the accumulation steps at the total dataset size so optimizer.step() is guaranteed to fire
         target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
         accumulation_steps = max(1, target_eff // batch_size)
         accumulation_steps = min(max(1, len(train_loader)), accumulation_steps)
@@ -1905,30 +1722,38 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         epoch_batch = batch_size
         epoch_acc = accumulation_steps
 
-        pbar = None # Will be initialized after resonance sync
+        pbar = None
 
-        # --- 2026 Resilience: Dynamic Iterator Bridge ---
-        # Allows the OOM Sentinel to hot-swap the loader and resume mid-epoch
-        # Allows the OOM Sentinel to hot-swap the loader and resume mid-epoch
         current_iter = 0
         if epoch == start_epoch and resume_iteration > 0:
             current_iter = resume_iteration
 
         while current_iter < len(train_loader):
-            # 2026: We check if we need to hot-swap from serial to parallel workers
-            # v18.5: Hardened Shield check to prevent transition if in recovery or on 4GB hardware
             if train_loader.num_workers == 0 and current_iter == 0 and num_workers > 0 and not (in_recovery_mode and vram_gb < 6.0):
                 print(f" [MISSION CONTROL] Transitioning to Parallel Data Pipeline ({num_workers} workers)...")
-                is_constrained_env = args.env == 'kaggle' or vram_gb < 15.0
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                _hot_swap_persistent = num_workers > 0 and _host_ram_gb >= 16.0
+                train_loader = DataLoader(
+                    train_ds,
+                    batch_size=batch_size,
+                    shuffle=True,
+                    num_workers=num_workers,
+                    persistent_workers=_hot_swap_persistent,
+                    pin_memory=True if device.type == 'cuda' else False,
+                    prefetch_factor=8 if num_workers > 0 else None,
+                    drop_last=True,
+                )
 
+            # Initialize iter_obj unconditionally so pyright sees it as always assigned.
             iter_obj = enumerate(train_loader)
             if current_iter > 0:
-                # 2026 Resilience: Engage Fast-Skip Sync to bypass I/O overhead
-                if hasattr(train_ds, 'sync_mode') and hasattr(train_ds.sync_mode, 'value'):
-                    train_ds.sync_mode.value = True
-                else:
-                    train_ds.sync_mode = True  # type: ignore
+                # setattr for sync_mode — ForexDataset doesn't declare the attribute
+                try:
+                    if hasattr(train_ds, 'sync_mode') and hasattr(train_ds.sync_mode, 'value'):
+                        train_ds.sync_mode.value = True
+                    else:
+                        setattr(train_ds, 'sync_mode', True)
+                except Exception:
+                    pass
 
                 with tqdm(total=current_iter, desc=" [RESILIENCY] Fast-forwarding", unit="batch", leave=False, colour="cyan", file=ForceTTY(sys.stderr), dynamic_ncols=True, mininterval=2.0) as skip_pbar:
                     for i, _ in iter_obj:
@@ -1936,15 +1761,20 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         if i >= current_iter - 1:
                             break
 
-                # --- WORKER HOT-SWAP ---
-                # Now that we've reached the target batch, we swap to the full worker count
-                # 2026 Resilience: Skip hot-swap if we are already in serial mode or num_workers is 0
-                # v17.2: Also skip if we are in OOM Recovery Mode on low-end hardware
                 if num_workers > 0 and train_loader.num_workers == 0 and not (in_recovery_mode and vram_gb < 6.0):
                     print(f" [MISSION CONTROL] Fast-forward complete. Engaging Parallel Pipeline ({num_workers} workers)...")
-                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, persistent_workers=(num_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                    _hot_swap_persistent = num_workers > 0 and _host_ram_gb >= 16.0
+                    train_loader = DataLoader(
+                        train_ds,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=num_workers,
+                        persistent_workers=_hot_swap_persistent,
+                        pin_memory=True if device.type == 'cuda' else False,
+                        prefetch_factor=8 if num_workers > 0 else None,
+                        drop_last=True,
+                    )
                     iter_obj = enumerate(train_loader)
-                    # We must align the new loader's iterator (deterministic due to seeds)
                     for i, _ in iter_obj:
                         if i >= current_iter - 1: break
                 else:
@@ -1953,21 +1783,21 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     else:
                         print(f" [MISSION CONTROL] Fast-forward complete. Continuing in Serial Mode.")
 
-                if hasattr(train_ds, 'sync_mode') and hasattr(train_ds.sync_mode, 'value'):
-                    train_ds.sync_mode.value = False
-                else:
-                    train_ds.sync_mode = False  # type: ignore
+                # setattr for sync_mode disable
+                try:
+                    if hasattr(train_ds, 'sync_mode') and hasattr(train_ds.sync_mode, 'value'):
+                        train_ds.sync_mode.value = False
+                    else:
+                        setattr(train_ds, 'sync_mode', False)
+                except Exception:
+                    pass
 
-                # 2026 Resilience: Soft-Start Guard (Manifold Seating)
-                # We dampen momentum slightly to prevent 'shock' NaNs on re-entry
                 print(f" [GUARD] [RESILIENCE] Engaging Soft-Start Guard (Momentum Dampened for 100 iterations)")
                 for state in optimizer.state.values():
                     for k, v in state.items():
                         if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
-                            v.mul_(0.85) # 15% dampening for smooth entry
+                            v.mul_(0.85)
 
-            # --- 2026 Resilience: Adaptive Resume Boundary ---
-            # If batch size changed, the resume iteration might exceed the new total.
             current_iter = min(current_iter, len(train_loader))
 
             desc_mode = "[Train RECOVERY]" if getattr(globals(), 'in_recovery_mode', False) or locals().get('in_recovery_mode', False) else "[Train]"
@@ -1981,25 +1811,21 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 file=ForceTTY(sys.stderr),
                 mininterval=2.0
             )
-            # Sync intra-epoch save threshold to resume point
             last_intra_epoch_pct = (current_iter / len(train_loader)) if len(train_loader) > 0 else 0.0
             if interval_pct > 0:
                 last_intra_epoch_pct = round(math.floor(last_intra_epoch_pct / interval_pct) * interval_pct, 2)
             pbar.set_postfix({"loss": "..."}, refresh=False)
 
-            optimizer.zero_grad() # Initial zero
+            optimizer.zero_grad()
 
             session_batches_processed = 0
             for i, batch in iter_obj:
-                # --- 2026: Global Index Alignment ---
                 current_iter = i + 1
                 if pbar.n < pbar.total:
                     pbar.update(1)
 
-                # --- 2026 Resilience: Universal Batch Unpacking ---
                 inputs, targets, tasks = batch
 
-                # --- 2026 Generative Data Processing ---
                 if train_ds.task_type in ["text_to_image", "image_to_text"]:
                     inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
                     targets, task_idx = None, None
@@ -2016,6 +1842,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     task_idx = None
                 else:
                     inputs = inputs.to(device, non_blocking=True)
+                    if device.type == 'cuda' and is_conv_net and isinstance(inputs, torch.Tensor) and inputs.dim() == 4:
+                        inputs = inputs.contiguous(memory_format=torch.channels_last)
                     if isinstance(targets, dict):
                         targets = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in targets.items()}
                     else:
@@ -2032,14 +1860,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             "vintage", "face_restorer", "face_parser"
                         ]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
-                    # parameter_prediction: No task_idx needed (single regression head)
 
                 use_fp16 = str(device) == 'cuda'
-                if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "codeformer", "nima"]):
+                if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "codeformer", "nima", "forex"]):
+                    use_fp16 = False
+                if getattr(train_ds, "task_type", "") == "forex":
                     use_fp16 = False
 
                 try:
-                    with torch.amp.autocast('cuda', enabled=use_fp16): # pyre-ignore
+                    with torch.amp.autocast('cuda', enabled=use_fp16):
                         if train_ds.task_type == "text_to_image":
                             loss_fn_name = model_info.get("loss_fn", "diffusion_loss")
                             if hasattr(model, "train_step"):
@@ -2047,26 +1876,22 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                 loss = loss_dict["loss"] / accumulation_steps
                                 preds, targets = loss_dict.get("preds"), loss_dict.get("targets")
                             elif loss_fn_name == "flow_matching":
-                                # 2026: SOTA Flow Matching Objective (Flux Architecture)
                                 latents = model.vae.encode(inputs["pixel_values"]).latent_dist.sample() * 0.18215
                                 noise = torch.randn_like(latents)
-                                # Velocity-based sampling
                                 timesteps = torch.rand((latents.shape[0],), device=device)
                                 sigmas = timesteps.view(-1, 1, 1, 1)
                                 z_t = (1 - sigmas) * latents + sigmas * noise
-                                # Prediction targets are the velocity (noise - latent)
                                 velocity = noise - latents
                                 model_pred = model.transformer(z_t, timesteps, inputs["prompt_embeds"])
-                                loss = torch.nn.functional.mse_loss(model_pred.float(), velocity.float(), reduction="mean") / accumulation_steps
+                                loss = F.mse_loss(model_pred.float(), velocity.float(), reduction="mean") / accumulation_steps
                                 preds, targets = model_pred, velocity
                             else:
-                                # Standard Diffusion Objective (SDXL Architecture)
                                 latents = model.vae.encode(inputs["pixel_values"]).latent_dist.sample() * model.vae.config.scaling_factor
                                 noise = torch.randn_like(latents)
                                 timesteps = torch.randint(0, model.noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=device)
                                 noisy_latents = model.noise_scheduler.add_noise(latents, noise, timesteps)
                                 model_pred = model.unet(noisy_latents, timesteps, inputs["prompt_embeds"]).sample
-                                loss = torch.nn.functional.mse_loss(model_pred.float(), noise.float(), reduction="mean") / accumulation_steps
+                                loss = F.mse_loss(model_pred.float(), noise.float(), reduction="mean") / accumulation_steps
                                 preds, targets = model_pred, noise
 
                         elif train_ds.task_type == "image_to_text":
@@ -2077,23 +1902,16 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         elif getattr(train_ds, "task_type", "") == "forex":
                             pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
                             preds = model(inputs, pair_idx=pair_idx)
-                            # [FIX-5-v2] Cast ONLY the model outputs to FP32. Targets must retain their
-                            # original dtype: 'direction' is Long (class indices for cross_entropy),
-                            # 'magnitude' is Float. Blindly casting targets to float broke the direction
-                            # loss with "nll_loss_forward_no_reduce... not implemented for 'Float'".
                             if isinstance(preds, dict):
                                 preds = {k: (v.float() if isinstance(v, torch.Tensor) and v.is_floating_point() else v)
                                          for k, v in preds.items()}
                             elif isinstance(preds, torch.Tensor) and preds.is_floating_point():
                                 preds = preds.float()
-                            # Pass targets through untouched.
                             loss = criterion(preds, targets) / accumulation_steps
                         else:
                             preds = model(inputs)
                             sentinel = stab.get('numerical_sentinel')
                             if sentinel and len(sentinel) == 2:
-                                # 2026 Resilience: Sync Sentinel with Active Logit Clamp
-                                # If the manifold is restricted, we must check stress against 10, not 15.
                                 s_min, s_max = float(sentinel[0]), float(sentinel[1])
                                 current_clamp = stab.get('logit_clamp', s_max)
                                 min_v = max(s_min, -current_clamp)
@@ -2111,13 +1929,11 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                     pressure_mask = (preds < min_v * 0.9) | (preds > max_v * 0.9)
                                     sentinel_stresses.append(pressure_mask.float().mean().item())
                                     preds = torch.clamp(preds, min=min_v, max=max_v)
-                            loss = criterion(preds, targets, task_idx) / accumulation_steps # pyre-ignore
+                            loss = criterion(preds, targets, task_idx) / accumulation_steps
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
                         print(f" [OOM SENTINEL] VRAM overflow detected! Attempting emergency batch-accumulation trade...")
 
-                        # 2026 Resilience: Aggressively purge local computational graphs and tensors
-                        # to physically free VRAM before invoking the empty_cache kernel.
                         inputs = targets = batch = None
                         preds = loss = None
 
@@ -2125,37 +1941,35 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         gc.collect()
                         if batch_size > 1:
                             old_bs = batch_size
-                            # [RE-ENABLED] 2026: Automated Batch Scaling for Kaggle Stability
                             batch_size = max(1, batch_size // 2)
-                            # effective_batch_size = old_bs * accumulation_steps (implied)
                             accumulation_steps = accumulation_steps * 2
-                            in_recovery_mode = True # Activate Serial Shield
+                            in_recovery_mode = True
                             print(f" [RECOVERY] OOM Detected. Scaling Batch: {old_bs} -> {batch_size} | Accumulation: {accumulation_steps} | Shield: ACTIVE")
 
-                            # --- 2026 Resilience: DataLoader Re-Initialization ---
-                            # v17.5: Enforce Shield to prevent worker deadlocks on low-VRAM hardware
                             _workers = num_workers
-                            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
-                                                     num_workers=_workers, pin_memory=True if device.type=='cuda' else False)
+                            train_loader = DataLoader(
+                                train_ds,
+                                batch_size=batch_size,
+                                shuffle=True,
+                                num_workers=_workers,
+                                pin_memory=True if device.type == 'cuda' else False,
+                                prefetch_factor=8 if _workers > 0 else None,
+                                drop_last=True,
+                            )
 
-                            # Update iterator position to maintain absolute manifold parity (v6.1.7)
                             current_iter = int(i * (old_bs / batch_size))
-                            if pbar: pbar.close() # Clean up zombie bar before re-initialization
-                            # 2026: Clamped Recovery Bar (Handled by outer loop)
+                            if pbar: pbar.close()
                             current_iter = min(current_iter, len(train_loader))
 
-                            # --- 2026 Resilience: Emergency Recovery Save (v6.1.10) ---
-                            # Immediately lock in the new hardware profile and position
                             recovery_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
 
-                            # 2026: Synchronize Governor before save to ensure metadata parity
                             governor.current_batch = batch_size
                             governor.current_acc = accumulation_steps
 
                             safe_torch_save({
                                 'epoch': epoch,
                                 'iteration': current_iter,
-                                'loader_len': len(train_loader), # Save actual length for correct resume scaling
+                                'loader_len': len(train_loader),
                                 'model_state': model.state_dict(),
                                 'optimizer_state': optimizer.state_dict(),
                                 'scheduler_state': scheduler.state_dict(),
@@ -2171,7 +1985,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             iter_resync_triggered = True
                             break
                         else:
-                            # --- 2026 Resilience: Resolution Scaling (Last Stand) ---
                             ds_size = train_ds.size[0] if getattr(train_ds, 'size', None) else 0
                             if ds_size > 256:
                                 old_res = ds_size
@@ -2193,12 +2006,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         print("================================================================================\n")
                         sys.exit(1)
 
-
-                # --- 2026: Success Point ---
                 is_corrupt = False
 
-
-                # Detecting "Dead Gradients" that have been masked to 0.0 by the Singularity Shield
                 if loss.item() == 0.0 and train_ds.task_type not in ["quality", "face_detection", "detection"]:
                     consecutive_singularities += 1
                     pbar.write(f" [WARNING] Numerical Singularity detected (Batch {i+1}). Loss is perfectly 0.0. Head might be collapsed.")
@@ -2212,19 +2021,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             except Exception as e:
                                 print(f"[REMEDY] Failed to rename latest ckpt: {e}")
 
-                        # Force a deep rollback to best.pth
                         is_corrupt = True
-                        consecutive_nans = 10 # Force Thermal Shield
+                        consecutive_nans = 10
                         consecutive_singularities = 0
 
-                        # 2026: Deep-State Momentum Flush
-                        # If we are stuck in a singularity loop, we purge the optimizer buffers
-                        # to remove any "Ghost Momentum" that might be forcing the weights into the abyss.
                         optimizer.state.clear()
                         print(f" [PURGE] Deep-State Momentum Flush complete. Gradient history erased.")
 
-                        # 2026 Resilience: Poisoned Region Skip
-                        # Skip the next 50 batches physically using iter_obj to clear the mathematical singularity region
                         resume_iteration = i + 50
                         print(f" [RESILIENCE] Skipping poisoned region: Iterations {i} to {resume_iteration}")
                         for _i, _batch in iter_obj:
@@ -2236,7 +2039,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 else:
                     consecutive_singularities = 0
 
-                # --- 2026 Resilience: Deep-State NaN Shield & Weight/Buffer Corruption Guard ---
                 if torch.isnan(loss) or is_corrupt:
                     if torch.isnan(loss):
                         print(f" [RESILIENCE] NaN detected in iteration {i}! Skipping corrupt batch...")
@@ -2244,17 +2046,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     optimizer.zero_grad()
                     deep_state_corrupt = False
 
-                    # Triple-Audit NaN Shield (Weights/Buffers/Optimizer)
-                    # 1. Audit Parameters (Weights)
                     for param in model.parameters():
                         if not torch.isfinite(param).all():
                             deep_state_corrupt = True; break
-                    # 2. Audit Buffers (Batch Norm Running Stats)
                     if not deep_state_corrupt:
                         for buf in model.buffers():
                             if not torch.isfinite(buf).all():
                                 deep_state_corrupt = True; break
-                    # 3. Audit Optimizer State (Momentum/Variance buffers)
                     if not deep_state_corrupt:
                         for state in optimizer.state.values():
                             for k, v in state.items():
@@ -2271,7 +2069,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                         if consecutive_nans >= 3:
                             print(f" [THERMAL] NaN Loop detected. Re-freezing backbone for 2500 iterations...")
-                            # Freeze backbone
                             for name, param in model.named_parameters():
                                 if "head" not in name and "classifier" not in name:
                                     param.requires_grad = False
@@ -2288,7 +2085,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             for buf in model.buffers():
                                 buf.data = buf.data.contiguous()
 
-                            # 2026: Surgical Buffer Audit (The Ghost-Buster)
                             sanitized_count = 0
                             for buf in model.buffers():
                                 if not torch.isfinite(buf).all():
@@ -2311,8 +2107,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                     print(f" [WARNING] [RESILIENCY] Optimizer state rejected ({opt_err}). Purging corrupted momentum buffers.")
                                     optimizer.state.clear()
 
-                            # 2026: SOTA Governor Sync (Recoil Integration)
-                            # Notify Governor to perform a Tactical Retreat (Recoil) and log failure
                             recoil_msg = governor.recoil()
                             if recoil_msg: print(recoil_msg)
 
@@ -2321,7 +2115,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             if "val_resolution" not in model_info:
                                 val_ds.update_strategy(size=g_state['input_size'])
 
-                            # 2026: SOTA Scheduler Sync
                             if 'scheduler_state' in ckpt:
                                 try:
                                     steps_per_epoch = max(1, len(train_loader) // accumulation_steps)
@@ -2331,7 +2124,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                 except Exception as sched_err:
                                     print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
 
-                            # Halve the learning rate to 'seat' the model back into the stable manifold with safety floor
                             survivor_floor = 1e-5
                             new_lr = max(survivor_floor, optimizer.param_groups[0]['lr'] * 0.5)
 
@@ -2342,18 +2134,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                 if 'min_lr' in param_group: param_group['min_lr'] = max(survivor_floor, param_group['min_lr'] * 0.5)
 
                             if hasattr(scheduler, 'base_lrs'):
-                                scheduler.base_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs]
+                                setattr(scheduler, 'base_lrs', [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs])
                             if hasattr(scheduler, 'max_lrs'):
-                                scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
+                                setattr(scheduler, 'max_lrs', [max(survivor_floor, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])])
                             if hasattr(scheduler, '_last_lr'):
-                                scheduler._last_lr = [new_lr] * len(optimizer.param_groups)
+                                setattr(scheduler, '_last_lr', [new_lr] * len(optimizer.param_groups))
 
-                            # 2026 Resilience: Momentum Decay instead of Clear
-                        # We only clear the state if it actually contains NaNs.
-                        # Otherwise, wiping momentum causes a "Panic Spike" on the next batch.
-                            # 2026 Resilience: Momentum Decay instead of Clear
-                            # We only clear the state if it actually contains NaNs.
-                            # Otherwise, wiping momentum causes a "Panic Spike" on the next batch.
                             momentum_corrupt = False
                             for state in optimizer.state.values():
                                 for k, v in state.items():
@@ -2365,32 +2151,28 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                 print(f" [PURGE] Corrupted optimizer momentum detected. Hard-resetting optimizer state.")
                                 optimizer.state.clear()
                             else:
-                                # Momentum Cooling: Dampen the momentum to seat the model gently
                                 for state in optimizer.state.values():
                                     for k, v in state.items():
                                         if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
                                             v.mul_(0.9)
                                 print(f" [COOLING] Momentum dampened by 10% to stabilize manifold entry.")
 
-                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
+                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda')
                             print(f" [RECOVERY] Successfully rolled back to historical SOTA baseline with fresh Scaler.")
                         else:
                             print(f" [RECOVERY] No 'best.pth' found natively. Engaging purely mathematical stabilization without LR penalty.")
-                            # Purge corrupted stats dynamically
                             for buf in model.buffers():
                                 if not torch.isfinite(buf).all():
                                     buf.data.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
                             optimizer.state.clear()
-                            # Removed LR halving here. Freshly wiped heads MUST retain their learning rate to physically escape the inverse manifold!
-                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
+                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda')
                             print(f" [COOLING] Deep-states purged manually. Scaler reset. Gracefully resuming.")
                     else:
-                        consecutive_nans = 0 # Batch was skip-stabilized
+                        consecutive_nans = 0
 
                     pbar.set_postfix({"loss": "RECOVERING", "retry": consecutive_nans}, refresh=False)
                     continue
 
-                # --- 2026: Thermal Reset ---
                 if thermal_steps_left > 0:
                     thermal_steps_left -= 1
                     if thermal_steps_left == 0:
@@ -2398,24 +2180,18 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         for param in model.parameters():
                             param.requires_grad = True
 
-                consecutive_nans = 0 # Reset upon successful forward pass
+                consecutive_nans = 0
                 consecutive_loss_spikes = 0
 
-                # --- 2026 Resilience: Surgical Sentinel Insertion (Pre-Backward) ---
                 current_loss_val = loss.item() * accumulation_steps
 
-                # 2026 NPP: Absolute Energy Floor
-                # If average loss is microscopic (e.g. 0.001), a "spike" to 0.03 is technically 30x higher but physically harmless.
-                # We enforce an absolute floor to prevent false-positive recoils on difficult patches.
                 if train_ds.task_type == "quality":
                     absolute_floor = 0.40 * accumulation_steps
                 elif getattr(train_ds, "task_type", "") == "forex" or "forex" in args.model.lower():
-                    # 2026 Resilience: Forex predictions scale to 10^14 magnitudes un-normalized.
                     absolute_floor = 1e16 * accumulation_steps
                 else:
                     absolute_floor = 0.05 * accumulation_steps
 
-                # 2026 Sentinel Bypass: Forex task has dynamic high-variance losses; rely on NAN guard instead.
                 is_forex = getattr(train_ds, "task_type", "") == "forex" or "forex" in args.model.lower()
                 if not is_forex and train_ds.task_type != "quality" and i > 50 and current_loss_val > (train_loss / i) * 15.0 and current_loss_val > absolute_floor:
                     consecutive_loss_spikes += 1
@@ -2431,10 +2207,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             ckpt = torch.load(best_ckpt_path, map_location=device, weights_only=False)
                             load_state_dict_robust(model, ckpt['model_state'])
 
-                            # 2026 Resilience: Force absolute contiguous memory alignment for every parameter
-                            # and buffer after loading. DataParallel will replicate these exact memory
-                            # strides to other GPUs. If weights are loaded non-contiguous, CuDNN
-                            # ConvTranspose2d throws 'CUDA error: misaligned address' on replicas.
                             for param in model.parameters():
                                 param.data = param.data.contiguous()
                             for buf in model.buffers():
@@ -2470,7 +2242,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             if "val_resolution" not in model_info:
                                 val_ds.update_strategy(size=g_state['input_size'])
 
-                            # 2026: SOTA Scheduler Sync
                             if 'scheduler_state' in ckpt:
                                 try:
                                     steps_per_epoch = max(1, len(train_loader) // accumulation_steps)
@@ -2480,7 +2251,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                 except Exception as sched_err:
                                     print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
 
-                            # Halve the learning rate to 'seat' the model back into the stable manifold with safety floor
                             survivor_floor = 1e-5
                             new_lr = max(survivor_floor, optimizer.param_groups[0]['lr'] * 0.5)
 
@@ -2491,18 +2261,18 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                 if 'min_lr' in param_group: param_group['min_lr'] = max(survivor_floor, param_group['min_lr'] * 0.5)
 
                             if hasattr(scheduler, 'base_lrs'):
-                                scheduler.base_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs]
+                                setattr(scheduler, 'base_lrs', [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs])
                             if hasattr(scheduler, 'max_lrs'):
-                                scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
+                                setattr(scheduler, 'max_lrs', [max(survivor_floor, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])])
                             if hasattr(scheduler, '_last_lr'):
-                                scheduler._last_lr = [new_lr] * len(optimizer.param_groups)
+                                setattr(scheduler, '_last_lr', [new_lr] * len(optimizer.param_groups))
 
                             for state in optimizer.state.values():
                                 for k, v in state.items():
                                     if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
                                         v.mul_(0.9)
 
-                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
+                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda')
                             print(f" [RECOVERY] Successfully rolled back to historical SOTA baseline with fresh Scaler.")
                         else:
                             print(f" [RECOVERY] No 'best.pth' found natively. Engaging purely mathematical stabilization without LR penalty.")
@@ -2510,12 +2280,11 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                 if not torch.isfinite(buf).all():
                                     buf.data.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
                             optimizer.state.clear()
-                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda') # pyre-ignore
+                            scaler = torch.amp.GradScaler('cuda', enabled=device.type=='cuda')
                         consecutive_loss_spikes = 0
 
-                    continue # Bypass corrupted backward pass to prevent cuDNN crash
+                    continue
 
-                # --- Numerical Integrity Guard ---
                 if not torch.isfinite(loss):
                     print(f" [WARNING] [SENTINEL] Infinite loss detected. Bypassing batch to preserve weights.")
                     governor.recoil()
@@ -2524,46 +2293,33 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                 if isinstance(loss, torch.Tensor): scaler.scale(loss).backward()
 
-                # Step only after accumulating enough gradients
-                # Cleaned legacy execution path.
-                train_loss += loss.item() * accumulation_steps # Audit physical loss
+                train_loss += loss.item() * accumulation_steps
                 pbar.set_postfix({"loss": f"{loss.item() * accumulation_steps:.4f}"}, refresh=False)
 
-                # Step only after accumulating enough gradients
                 if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_loader):
-                    # --- 2026: SOTA Gradient Clipping & Sentinel Injection (v1.0) ---
                     scaler.unscale_(optimizer)
                     total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
 
-                    # 2026 Resilience: Gradient Sentinel Injection (Noise-Filtered)
-                    # Task-Specific Threshold: NIMA (EMD) naturally has spikier gradients.
-                    # Hardened v20.0: Set to realistic backbone levels and require sustained stress.
                     stress_threshold = 150.0 if train_ds.task_type == "quality" else 100.0
                     if total_norm > stress_threshold:
                         consecutive_stress_events += 1
-                        # Only recoil if stress is sustained over 25 consecutive batches
                         if consecutive_stress_events >= 25:
                             recoil_msg = governor.recoil()
-                            # 2026: Log Dampening - Only print every 50 consecutive events to reduce 'Noise'
                             if consecutive_stress_events % 50 == 25:
                                 print(f" [WARNING] [SENTINEL] Sustained Gradient Stress (Norm: {total_norm:.2f}). NPP Recoil active (x{consecutive_stress_events}).")
                                 if recoil_msg: print(recoil_msg)
                     else:
                         consecutive_stress_events = 0
 
-                    # (Moved to pre-backward sentinel)
-
                     scale_before = scaler.get_scale()
                     scaler.step(optimizer)
                     scaler.update()
                     optimizer.zero_grad()
 
-                    # Natively prevent 'lr_scheduler before optimizer' UserWarning during AMP nan-skips
                     skip_lr_sched = (scale_before > scaler.get_scale())
                     if not skip_lr_sched:
                         current_lr = scheduler.get_last_lr()[0]
                         if hasattr(scheduler, 'total_steps') and scheduler.last_epoch >= scheduler.total_steps - 1:
-                            # Prevent OneCycleLR from exceeding total_steps
                             pass
                         else:
                             try:
@@ -2574,23 +2330,45 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                 else:
                                     raise sched_err
 
-                    # --- 2026 Resilience: Velocity Floor (v3.2) ---
-                    # We enforce a hard floor of 5e-7 to prevent the scheduler from decaying
-                    # into numerical silence during the tail of the OneCycle curve.
                     for param_group in optimizer.param_groups:
                         if param_group['lr'] < 5e-7:
                             param_group['lr'] = 5e-7
 
-                    # [DISABLED] 2026 Resilience: Intra-Epoch VRAM Sentinel (Hardened v10.1.8)
-                    # if i % 5 == 0 and device.type == 'cuda':
-                    # free_mem, _ = torch.cuda.mem_get_info(0)
-                    # ...
+                    if device.type == 'cuda' and (i % 8 == 0):
+                        try:
+                            _free_b, _total_b = torch.cuda.mem_get_info(0)
+                            _free_ratio = _free_b / max(1, _total_b)
+                            if _free_ratio < 0.12 and batch_size > 1 and not in_recovery_mode:
+                                old_bs = batch_size
+                                batch_size = max(1, batch_size // 2)
+                                accumulation_steps = accumulation_steps * 2
+                                in_recovery_mode = True
+                                (pbar.write if pbar else print)(
+                                    f" [SENTINEL] VRAM guard: free {_free_ratio*100:.1f}% "
+                                    f"({(_total_b-_free_b)/1024**3:.1f}/{_total_b/1024**3:.1f} GB). "
+                                    f"Halving batch {old_bs} -> {batch_size}."
+                                )
+                                _dispose_loader(train_loader)
+                                _workers = 0 if (in_recovery_mode and vram_gb < 6.0) else num_workers
+                                train_loader = DataLoader(
+                                    train_ds,
+                                    batch_size=batch_size,
+                                    shuffle=True,
+                                    num_workers=_workers,
+                                    persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
+                                    pin_memory=True,
+                                    prefetch_factor=8 if _workers > 0 else None,
+                                    drop_last=True,
+                                )
+                                torch.cuda.empty_cache()
+                                gc.collect()
+                                current_iter = int(i * (old_bs / batch_size))
+                                break
+                        except Exception:
+                            pass
 
-                    # --- 2026: Dynamic Training Checkpoint Frequency ---
-                    # Only calibrate if config is set to "auto"
                     session_batches_processed += 1
                     if session_batches_processed == 30 and config.get("intra_epoch_checkpoint_pct", "auto") == "auto":
-                        # 2026: Use Smoothed Rate (it/s) to avoid warm-up skew
                         rate = pbar.format_dict.get('rate')
                         avg_time = (1.0 / rate) if rate and rate > 0 else (pbar.format_dict['elapsed'] / session_batches_processed)
                         new_interval = governor.get_dynamic_save_interval(avg_time, len(train_loader))
@@ -2606,9 +2384,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     new_lr = scheduler.get_last_lr()[0]
                     if new_lr < 5e-7: new_lr = 5e-7
 
-                # Threshold-based saving ensures persistence is never skipped due to batch-jumps.
                 current_pct = (i + 1) / len(train_loader)
-
 
                 if last_intra_epoch_pct < 0:
                     last_intra_epoch_pct = 0.0
@@ -2619,12 +2395,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     else:
                         last_intra_epoch_pct = current_pct
 
-                    # Clamp to prevent floating point drift
                     last_intra_epoch_pct = round(last_intra_epoch_pct, 2)
                     prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
-                    temp_prog_ckpt = f"{prog_ckpt}.tmp"
 
-                    # 2026: Ensure Governor is synced with current session variables before save
                     governor.current_batch = batch_size
                     governor.current_acc = accumulation_steps
 
@@ -2650,13 +2423,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                     pbar.write(f" [RESILIENCY] PROGRESS COMMITTED: {tier_str} (Batch {i+1})")
 
-
-
         avg_train_loss = train_loss / len(train_loader)
 
-        # --- 2026 Resilience: Training-to-Validation Handover ---
-        # Commit training results to progress file immediately so if validation crashes,
-        # we don't have to re-run the training phase.
         prog_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth")
         safe_torch_save({
             'epoch': epoch,
@@ -2676,12 +2444,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             'metric_vaults': metric_vaults
         }, prog_ckpt)
 
-        # --- 2026: Manifold Leak Guard ---
         if current_iter < len(train_loader):
             print(f" [WARNING] [WARNING] Manifold Leak Detected! Epoch processed {current_iter}/{len(train_loader)} batches before termination.")
 
-        # --- 2026: SOTA Telemetry Capture (v10.1.2) ---
-        # Capture the training velocity BEFORE closing the progress bar to ensure metadata remains accessible.
         train_speed = 0.0
         if pbar is not None:
             try:
@@ -2691,26 +2456,23 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 pass
 
         # Validation Loop
-        model.eval() # pyre-ignore
+        model.eval()
         val_loss = 0
         all_preds = []
         all_targets = []
-        # sentinel_stresses moved to epoch start to capture training instability
 
-        # --- 2026: Worker Lifecycle Graceful Shutdown ---
-        # Explicitly reap persistent worker processes to prevent System RAM hoarding during validation.
-        if 'iter_obj' in locals():
-            del iter_obj # type: ignore
-            gc.collect()
+       # 2026: Pyright cannot prove `iter_obj` is bound on this path — it's
+        # assigned inside the inner training while-loop, which may not execute
+        # if `current_iter >= len(train_loader)` on entry. We unconditionally
+        # rebind to None so the reference is released deterministically.
+        iter_obj = None
+        gc.collect()
         with torch.no_grad():
-            # --- 2026: VRAM Defibrillation Pulse ---
-            # Purge training memory caches before high-res validation inference.
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
             gc.collect()
             if stab.get('vram_purge'): print(" [MEM] VRAM Defibrillation Pulse triggered.")
 
-            # --- 2026: Incremental Canonical Eval (RAM Protection v5.0) ---
             CANONICAL_EVAL_SIZE = 384
             mse_sum, ssim_sum, lpips_sum = 0.0, 0.0, 0.0
             param_mae_sums = [0.0, 0.0, 0.0]
@@ -2720,11 +2482,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             sota_targets = model_info.get("sota_targets", {})
 
             if train_ds.task_type == "parameter_prediction":
-                # 2026: MAE tracking for parameter regression (no PSNR/SSIM/LPIPS needed)
                 output_names = model_info.get('output_names', ['deg', 'theta', 'conf'])
 
             elif train_ds.task_type in ["restoration", "enhancement", "face"]:
-                import torch.nn.functional as _F_resize
                 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
                 try:
                     from torchmetrics.image.fid import FrechetInceptionDistance
@@ -2734,11 +2494,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     print(f"[WARNING] [RESILIENCE] FID Engine init failed ({e}).")
                     FrechetInceptionDistance = None
 
-                # Initialize LPIPS directly. Do not suppress warnings or catch exceptions silently.
                 _base_vgg = LearnedPerceptualImagePatchSimilarity(net_type='vgg').eval().to(device)
                 loss_fn_vgg = _base_vgg
 
-            # --- 2026 Resilience: Validation State Recovery (v10.1.4) ---
             if val_resume_iteration > 0:
                 ckpt = torch.load(os.path.join(config["checkpoint_dir"], f"{args.model}_progress.pth"), map_location='cpu', weights_only=False)
                 val_loss = ckpt.get('val_loss', 0.0)
@@ -2753,8 +2511,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 if fid_metric is not None and 'fid_state' in ckpt:
                     fid_metric.load_state_dict(ckpt['fid_state'])
 
-                # --- 2026 Resilience: Parity Guard ---
-                # Ensure the global train_loss variable is seeded to prevent zero-fills in CSV
                 train_loss = avg_train_loss * len(train_loader)
                 print(f" [RESILIENCY] Validation state RESTORED. Resuming from iteration {val_resume_iteration}.")
 
@@ -2765,26 +2521,16 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             last_val_pct = (max(0, val_resume_iteration) / len(val_loader)) if len(val_loader) > 0 else 0.0
 
             # --- 2026 Resilience: Dispose Training Workers ---
-            # Explicitly shut down and dispose training workers before engaging new workers for validation
-            if hasattr(train_loader, '_iterator') and getattr(train_loader, '_iterator', None) is not None:
-                print(" [MISSION CONTROL] Disposing training workers to free memory for validation...")
-                try:
-                    loader_iter = getattr(train_loader, '_iterator', None)
-                    if loader_iter is not None and hasattr(loader_iter, '_shutdown_workers'):
-                        loader_iter._shutdown_workers()
-                except Exception:
-                    pass
-                train_loader._iterator = None
-                gc.collect()
+            print(" [MISSION CONTROL] Disposing training workers before validation...")
+            _dispose_loader(train_loader)
+            gc.collect()
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
 
-            # --- 2026 Resilience: Validation VRAM Sentinel (v10.1.5-PROACTIVE) ---
-            # Increased threshold to 750MB to ensure zero paging during high-res evaluation.
             if device.type == 'cuda':
                 free_mem, _ = torch.cuda.mem_get_info(0)
                 unused_reserved = torch.cuda.memory_reserved(0) - torch.cuda.memory_allocated(0)
                 free_mem = free_mem + unused_reserved
-                # 2026 Resilience: Critical Manifold Override (v11.2)
-                # If we are on 4GB hardware, we ignore "user preference" to prevent a hard system crash.
                 if free_mem < (400 * 1024 * 1024) and val_batch_size > 1:
                     is_critical = (vram_gb < 4.5)
                     action_str = "FORCED" if is_critical else "SKIPPED (Per User Preference)"
@@ -2794,7 +2540,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         val_batch_size = max(1, val_batch_size // 2)
                         val_loader = build_val_loader(val_ds, val_batch_size, val_num_workers, is_constrained=is_constrained_env, dev=device)
 
-            # --- 2026: Dynamic Validation Anchor (v19.0 High-Res Lock) ---
             vram_gb_current = torch.cuda.get_device_properties(0).total_memory / (1024**3) if device.type == 'cuda' else 8.0
             max_local_res_current = config.get("hardware", {}).get("max_allowed_local_resolution", 640)
             hardware_ceiling_current = max_local_res_current if vram_gb_current < 4.5 else 1024
@@ -2805,25 +2550,19 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             if hasattr(val_ds, "update_strategy") and val_anchor_size is not None:
                 val_ds.update_strategy(size=val_anchor_size)
 
-            # --- 2026: Mid-Epoch Validation VRAM Audit ---
-            # Recalculate validation batch size only if resolution or dataset fraction changed dynamically
             if getattr(train_ds, "task_type", "") != "forex" and config_batch == "auto" and (model_info.get("val_batch_size") == "auto" or "val_batch_size" not in model_info):
                 if getattr(val_ds, "size", None) != last_val_audit_size or getattr(val_ds, "sample_fraction", 1.0) != last_val_audit_fraction:
-                    # 2026 Resilience: Must use val_ds.size to prevent paging if validation is anchored higher than training
                     temp_info = {**model_info, "input_size": val_ds.size}
                     val_batch_size = audit_hardware_vram(args.model, temp_info, config, device, model, mode='val', sample_fraction=val_ds.sample_fraction, fold=args.fold, pairs=args.pairs)
                     last_val_audit_size = val_ds.size
                     last_val_audit_fraction = val_ds.sample_fraction
                     if pbar: pbar.write(f" [SIGNAL] [MEMORY-SENTINEL] Validation Manifold Re-Audited. Batch: {val_batch_size} @ {val_anchor_size}px")
-                    # Re-initialize DataLoader if batch size changed
                     val_loader = build_val_loader(val_ds, val_batch_size, val_num_workers, is_constrained=is_constrained_env, dev=device)
 
             if getattr(train_ds, "task_type", "") == "forex":
                 val_batch_size = batch_size
                 val_loader = build_val_loader(val_ds, val_batch_size, val_num_workers, is_constrained=is_constrained_env, dev=device)
 
-            # 2026 Validation Sharding & Resolution Sync
-            # Auto-expand validation set to 100% during Refinement Phase or when training fraction >= threshold (at max res)
             is_refinement = False
             is_high_fidelity = False
             try:
@@ -2853,14 +2592,16 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             if len(val_loader) > 0:
                 val_resume_iteration = int(last_val_pct * len(val_loader))
 
-            # 2026: Standardized Validation Telemetry. sys.stderr routes directly to PowerShell without buffering.
             val_iterator = enumerate(val_loader)
             if val_resume_iteration > 0:
-                # Engage Val-Skip Sync
-                if hasattr(val_ds, 'sync_mode') and hasattr(val_ds.sync_mode, 'value'):
-                    val_ds.sync_mode.value = True
-                else:
-                    val_ds.sync_mode = True  # type: ignore
+                # setattr for val_ds.sync_mode
+                try:
+                    if hasattr(val_ds, 'sync_mode') and hasattr(val_ds.sync_mode, 'value'):
+                        val_ds.sync_mode.value = True
+                    else:
+                        setattr(val_ds, 'sync_mode', True)
+                except Exception:
+                    pass
 
                 with tqdm(total=val_resume_iteration, desc=" [RESILIENCY] Fast-forwarding Val", unit="it", leave=False, colour="cyan", file=ForceTTY(sys.stderr), dynamic_ncols=True, mininterval=2.0) as skip_val_pbar:
                     for v_idx, _ in val_iterator:
@@ -2868,12 +2609,14 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             skip_val_pbar.update(1)
                         if v_idx >= val_resume_iteration - 1:
                             break
-                if hasattr(val_ds, 'sync_mode') and hasattr(val_ds.sync_mode, 'value'):
-                    val_ds.sync_mode.value = False
-                else:
-                    val_ds.sync_mode = False  # type: ignore
+                try:
+                    if hasattr(val_ds, 'sync_mode') and hasattr(val_ds.sync_mode, 'value'):
+                        val_ds.sync_mode.value = False
+                    else:
+                        setattr(val_ds, 'sync_mode', False)
+                except Exception:
+                    pass
 
-            # --- 2026 Resilience: Adaptive Val Boundary ---
             val_resume_iteration = min(val_resume_iteration, shard_limit)
             last_val_pct = (max(0, val_resume_iteration) / shard_limit) if shard_limit > 0 else 0.0
             if val_interval_pct > 0:
@@ -2882,20 +2625,16 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             val_pbar = tqdm(total=shard_limit, initial=val_resume_iteration, desc=f"Epoch {epoch+1}/{epochs} [Val]", unit="it", leave=True, file=ForceTTY(sys.stderr), dynamic_ncols=True, mininterval=2.0)
             val_session_batches = 0
             for v_idx, batch in val_iterator:
-                # --- 2026: Global Index Alignment ---
                 current_val_iter = v_idx + 1
                 if val_pbar.n < val_pbar.total:
                     val_pbar.update(1)
 
-                # --- 2026 Validation Sharding ---
                 if current_val_iter > shard_limit:
                     val_pbar.write(f" [SHARDING] Validation Shard complete ({shard_limit} batches). Fast-forwarding to next epoch.")
                     break
 
-                # --- 2026 Resilience: Universal Batch Unpacking ---
                 inputs, targets, tasks = batch
 
-                # --- 2026 Generative Validation Processing ---
                 if train_ds.task_type in ["text_to_image", "image_to_text"]:
                     inputs = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
                     targets, task_idx = None, None
@@ -2912,6 +2651,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     task_idx = None
                 else:
                     inputs = inputs.to(device, non_blocking=True)
+                    if device.type == 'cuda' and is_conv_net and isinstance(inputs, torch.Tensor) and inputs.dim() == 4:
+                        inputs = inputs.contiguous(memory_format=torch.channels_last)
                     if isinstance(targets, dict):
                         targets = {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in targets.items()}
                     else:
@@ -2926,11 +2667,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         ]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
 
-                # 2026 Acceleration: Accelerated validation inference under AMP (Turing+ Tensor Cores only).
-                # Pascal P100 (sm_60, cap[0] < 7) is excluded: no Tensor Cores, AMP is unstable on cu118.
                 val_use_amp = (
                     device.type == 'cuda'
-                    and cap[0] >= 7  # Turing+ (sm_70+) minimum; excludes Pascal P100 (sm_60)
+                    and cap[0] >= 7
+                    and not _is_forex_task
                     and not stab.get('force_fp32_val', False)
                 )
                 with torch.amp.autocast('cuda', enabled=val_use_amp):
@@ -2945,7 +2685,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             timesteps = torch.randint(0, model.noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=device)
                             noisy_latents = model.noise_scheduler.add_noise(latents, noise, timesteps)
                             model_pred = model.unet(noisy_latents, timesteps, inputs["prompt_embeds"]).sample
-                            loss = torch.nn.functional.mse_loss(model_pred.float(), noise.float(), reduction="mean")
+                            loss = F.mse_loss(model_pred.float(), noise.float(), reduction="mean")
                             preds, targets = model_pred, noise
 
                     elif train_ds.task_type == "image_to_text":
@@ -2956,7 +2696,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     elif getattr(train_ds, "task_type", "") == "forex":
                         pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
                         preds = model(inputs, pair_idx=pair_idx)
-                        # [FIX-5b-v2] Cast ONLY outputs to FP32; preserve target dtypes.
                         if isinstance(preds, dict):
                             preds = {k: (v.float() if isinstance(v, torch.Tensor) and v.is_floating_point() else v)
                                      for k, v in preds.items()}
@@ -2965,7 +2704,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         loss = criterion(preds, targets)
                     else:
                         preds = model(inputs)
-                        # --- 2026: Numerical Sentinel (Validation Parity Guard) ---
                         sentinel = stab.get('numerical_sentinel')
                         if sentinel and len(sentinel) == 2:
                             min_v, max_v = float(sentinel[0]), float(sentinel[1])
@@ -2977,7 +2715,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                 preds = preds.contiguous()
                                 sentinel_stresses.append(((preds < min_v) | (preds > max_v)).float().mean().item())
                                 preds = torch.clamp(preds, min=min_v, max=max_v)
-                        loss = criterion(preds, targets, task_idx) # pyre-ignore
+                        loss = criterion(preds, targets, task_idx)
 
                 preds_chk = preds["direction_logits"] if isinstance(preds, dict) else preds
                 if torch.isnan(loss) or (isinstance(preds_chk, torch.Tensor) and torch.isnan(preds_chk).any()):
@@ -2997,39 +2735,33 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     all_preds.append({"dir": p_dir, "mag": p_mag})
                     all_targets.append({"dir": t_dir, "mag": t_mag})
                 elif train_ds.task_type in ["restoration", "enhancement", "face"]:
-                    # --- 2026: STREAMING METRICS (Zero-RAM Leak & Zero-Copy GPU Acceleration) ---
                     img_pred = preds[0] if isinstance(preds, (tuple, list)) else preds
-                    # Keep entirely in GPU VRAM without CPU roundtrip copies
                     p_chunk = img_pred.detach().clamp(0, 1)
                     t_chunk = targets.detach().clamp(0, 1)
 
                     _current_h, _current_w = p_chunk.shape[-2], p_chunk.shape[-1]
                     if _current_h < CANONICAL_EVAL_SIZE or _current_w < CANONICAL_EVAL_SIZE:
                         _scale_args = dict(size=(CANONICAL_EVAL_SIZE, CANONICAL_EVAL_SIZE), mode='bicubic', align_corners=False)
-                        p_chunk = _F_resize.interpolate(p_chunk, **_scale_args)  # type: ignore
-                        t_chunk = _F_resize.interpolate(t_chunk, **_scale_args)  # type: ignore
+                        p_chunk = F.interpolate(p_chunk, **_scale_args)
+                        t_chunk = F.interpolate(t_chunk, **_scale_args)
                         _current_h, _current_w = CANONICAL_EVAL_SIZE, CANONICAL_EVAL_SIZE
 
                     _mse_chunk = torch.sum((p_chunk - t_chunk) ** 2).item()
                     mse_sum += _mse_chunk
 
-                    # GPU-accelerated vectorized SSIM (100x faster than single-threaded CPU skimage)
                     ssim_sum += compute_ssim_gpu(p_chunk, t_chunk, data_range=1.0)
 
-                    # Dynamic batch chunking: safely scaled for Multi-GPU VRAM limits during LPIPS
                     gpu_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
                     eval_chunk_size = (16 if vram_gb >= 12.0 else (8 if vram_gb >= 8.0 else 4)) * gpu_count
 
                     if loss_fn_vgg:
                         lpips_val_local = 0.0
-                        # LPIPS is extremely VRAM hungry, use a smaller sub-chunk
                         lpips_chunk = max(1, eval_chunk_size // 2)
                         with torch.no_grad():
                             for c_idx in range(0, len(p_chunk), lpips_chunk):
                                 p_sub = p_chunk[c_idx:c_idx+lpips_chunk] * 2 - 1
                                 t_sub = t_chunk[c_idx:c_idx+lpips_chunk] * 2 - 1
                                 lpips_val_local += loss_fn_vgg(p_sub, t_sub).sum().item()
-                                # Prevent torchmetrics from indefinitely accumulating state memory
                                 loss_fn_vgg.reset()
                         lpips_sum += lpips_val_local
 
@@ -3045,11 +2777,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     total_samples += len(p_chunk)
                     total_pixels += len(p_chunk) * 3 * _current_h * _current_w
 
-                # --- 2026: Dynamic Validation Checkpoint Frequency ---
-                # Only calibrate if config is set to "auto"
                 val_session_batches += 1
                 if val_session_batches == 30 and config.get("intra_epoch_checkpoint_pct", "auto") == "auto":
-                    # 2026: Use Smoothed Rate (it/s) to avoid warm-up skew
                     rate = val_pbar.format_dict.get('rate')
                     avg_time = (1.0 / rate) if rate and rate > 0 else (val_pbar.format_dict['elapsed'] / val_session_batches)
                     new_val_interval = governor.get_dynamic_save_interval(avg_time, shard_limit)
@@ -3096,32 +2825,22 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     val_pbar.write(f" [RESILIENCY] VAL PROGRESS COMMITTED: {current_pct*100:.0f}% (Iter {v_idx+1})")
                     gc.collect()
 
-                # Progress commitments and state cleanup moved outside loop for manifold stability
-
                 if train_ds.task_type == "parameter_prediction":
-                    # 2026: Streaming MAE for parameter regression
                     p_cpu = preds.detach().cpu()
                     t_cpu = targets.detach().cpu()
                     abs_err = torch.abs(p_cpu - t_cpu)
                     for p_idx in range(min(3, abs_err.shape[-1])):
-                        param_mae_sums[p_idx] += abs_err[:, p_idx].sum().item()  # type: ignore
+                        param_mae_sums[p_idx] += abs_err[:, p_idx].sum().item()
                     param_mae_counts += p_cpu.shape[0]
 
-                # --- 2026 Resilience: Iteration VRAM Purge ---
-                # 2026: Removed per-batch empty_cache() and gc.collect(). They caused massive OS memory
-                # fragmentation (crashing Kaggle via System RAM OOM) and destroyed validation speed.
                 del preds, loss, inputs, targets, task_idx
 
         avg_val_loss = val_loss / max(1, val_session_batches)
         avg_sentinel_stress = float(np.mean(sentinel_stresses)) if sentinel_stresses else 0.0
 
-        # Calculate Universal Validation Metrics
         metrics_str = ""
         plcc = srcc = psnr = ssim_val = lpips_val = fid = map50 = map50_95 = rank_margin = accuracy = 0.0
         t_std = None
-        # Set baseline for non-negative metrics
-        # --- 2026: Incremental Canonical Eval (RAM Protection v5.0) ---
-        # We process metrics in manageable chunks to avoid System RAM OOM on large datasets.
         CANONICAL_EVAL_SIZE = 384
         current_quality_score = 0.0
         curr_metrics = {}
@@ -3129,7 +2848,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         try:
             if train_ds.task_type == "quality" and len(all_preds) > 0:
                 import scipy.stats  # type: ignore[import-untyped]
-                import torch.nn.functional as F
                 p = torch.cat(all_preds)
                 t = torch.cat(all_targets)
                 if p.shape[-1] == 10:
@@ -3143,9 +2861,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     srcc, _ = scipy.stats.spearmanr(p_mean, t_mean)
                     rank_margin = float(np.mean(np.abs(p_mean - t_mean)))
 
-                    # 2026 Resilience: Binned Accuracy for Authenticity Distribution
                     if "nima_authenticity" in args.model:
-                        # Threshold at 5.5 (Midpoint of 1-10 NIMA scale)
                         p_bin = (p_mean >= 5.5).astype(np.float32)
                         t_bin = (t_mean >= 5.5).astype(np.float32)
                         accuracy = float(np.mean(p_bin == t_bin))
@@ -3153,12 +2869,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     else:
                         metrics_str = f" | PLCC: {plcc:.4f} | SRCC: {srcc:.4f} | RM: {rank_margin:.4f}"
 
-                    # 2026 Resilience: Post-Validation Polarity Audit (v4.5)
-                    # If the epoch ends with negative correlation, we trigger a Head Reset immediately
-                    # to prevent wasting subsequent epochs on an inverted manifold.
-                    # 2026 Hardening: Stricter PLCC trigger (-0.02) to prevent entropy loops.
-                    # 2026 Low-Variance Guard: Skip reset if model is nima_authenticity or target distribution is narrow (std < 0.15).
-                    # Relaxed trigger thresholds (SRCC < -0.25, PLCC < -0.20) for normal tasks to tolerate minor noise.
                     if "nima_authenticity" not in args.model and t_std >= 0.15 and (srcc < -0.25 or plcc < -0.20):
                         print(f"\n[WARNING] [POLARITY] Manifold inversion detected (SRCC: {srcc:.4f} | PLCC: {plcc:.4f}). Triggering Emergency Head Reset...")
                         target_layers = []
@@ -3168,22 +2878,20 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             torch.nn.init.xavier_uniform_(layer.weight)
                             torch.nn.init.zeros_(layer.bias)
 
-                        # 2026 Resilience: Force Thermal Lockdown and LR Cooling
                         governor.current_temp = 0.5
                         governor.lr_multiplier = 0.5
                         for param_group in optimizer.param_groups:
                             param_group['lr'] *= 0.5
                         if hasattr(scheduler, 'base_lrs'):
-                            scheduler.base_lrs = [max(1e-7, l * 0.5) for l in scheduler.base_lrs]
+                            setattr(scheduler, 'base_lrs', [max(1e-7, l * 0.5) for l in scheduler.base_lrs])
                         if hasattr(scheduler, 'max_lrs'):
-                            scheduler.max_lrs = [max(1e-7, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
+                            setattr(scheduler, 'max_lrs', [max(1e-7, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])])
                         if hasattr(scheduler, '_last_lr'):
-                            scheduler._last_lr = [max(1e-7, l * 0.5) for l in scheduler._last_lr]
+                            setattr(scheduler, '_last_lr', [max(1e-7, l * 0.5) for l in scheduler._last_lr])
 
-                        optimizer.state.clear() # Flush momentum to seat the new head
+                        optimizer.state.clear()
                         sota_baseline_achieved = False
             elif train_ds.task_type == "parameter_prediction" and param_mae_counts > 0:
-                # 2026: Parameter Prediction MAE Reporting
                 output_names = model_info.get('output_names', ['deg', 'theta', 'conf'])
                 mae_per_param = [s / max(1, param_mae_counts) for s in param_mae_sums]
                 overall_mae = sum(mae_per_param) / len(mae_per_param)
@@ -3191,8 +2899,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 mae_details = " | ".join([f"{output_names[i]}_MAE: {mae_per_param[i]:.4f}" for i in range(len(output_names))])
                 metrics_str = f" | Overall_MAE: {overall_mae:.4f} | {mae_details} | Stress: {avg_sentinel_stress*100:.2f}%"
 
-                # Map MAE to PSNR slot for CSV compatibility (negative MAE as quality signal)
-                psnr = -overall_mae # Lower MAE = better (negative so higher = better in CSV)
+                psnr = -overall_mae
 
             elif getattr(train_ds, "task_type", "") == "forex" and len(all_preds) > 0:
                 p_dirs = torch.cat([x["dir"] for x in all_preds], dim=0)
@@ -3204,9 +2911,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 dir_acc = float((pred_classes == t_dirs).float().mean().item()) * 100.0
                 accuracy = dir_acc / 100.0
 
-                # Directional confidence entropy: mean Shannon entropy of direction probabilities
-                # High entropy -> model is uncertain (all classes equally likely)
-                # Low entropy  -> model is confident in its prediction
                 with torch.no_grad():
                     probs_all   = torch.softmax(p_dirs.float(), dim=-1)
                     log_probs   = torch.log(probs_all + 1e-8)
@@ -3220,13 +2924,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 sl_mae = float(torch.abs(p_mags[:, 1] - t_mags[:, 1]).mean().item())
                 mae = tp_mae
 
-                # Quantitative Simulated Trade Performance
-                # FOREX_ACCOUNT_SIZE_PIPS represents a notional 10,000-pip account (approx $10 per pip on 1 lot)
-                # This anchor makes MaxDD a proper account-percentage measure aligned with the 9.5% SOTA target.
                 FOREX_ACCOUNT_SIZE_PIPS = 10000.0
                 if non_hold_mask.sum() > 0:
-                    # Real market returns are dictated by the actual target magnitudes, not model predictions.
-                    # This prevents the simulator from artificially inflating returns (and Sharpe/Sortino) when the model predicts massive TPs.
                     act_tps = t_mags[non_hold_mask, 0].numpy()
                     act_sls = t_mags[non_hold_mask, 1].numpy()
                     wins = win_mask.numpy()
@@ -3245,7 +2944,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                     equity_curve = np.cumsum(trade_returns)
                     running_max  = np.maximum.accumulate(equity_curve + FOREX_ACCOUNT_SIZE_PIPS)
-                    # Account-percentage drawdown: drawdown / peak_account_value * 100
                     drawdowns    = (running_max - (equity_curve + FOREX_ACCOUNT_SIZE_PIPS)) / running_max * 100.0
                     max_drawdown = float(np.max(drawdowns)) if len(drawdowns) > 0 else 0.0
                 else:
@@ -3262,7 +2960,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 preds_class = torch.argmax(p, dim=1)
                 accuracy = (preds_class == t).float().mean().item()
 
-                # 2026 Diagnostics: Print ground truth distribution to detect label-drift
                 unique, counts = torch.unique(t, return_counts=True)
                 dist_str = ", ".join([f"Class {u.item()}: {c.item()}" for u, c in zip(unique, counts)])
                 val_pbar.write(f" [SIGNAL] [DATA AUDIT] Ground Truth Distribution: {dist_str}")
@@ -3279,9 +2976,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 metrics_str = f" | VQA_Acc: {accuracy_vqa:.4f}"
 
             elif train_ds.task_type in ["detection", "yolo"] and len(all_preds) > 0:
-                # YOLO predictions are expected to be list of dicts for torchmetrics
-                # If they are just raw tensors, we convert them.
-                # Assuming all_preds and all_targets are already lists of COCO-format dicts from dataloader.
                 map_med, map_hard = telemetry_engine.calculate_map(all_preds, all_targets)
                 map_medium = map_med
                 map_hard = map_hard
@@ -3304,8 +2998,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         except Exception as e:
             metrics_str = f" | Metrics Error: {e}"
 
-        # --- 2026: Resonance Sync (Hardware Telemetry v1.1) ---
-        # train_speed is now captured pre-closure above.
         val_speed = 0.0
         if 'val_pbar' in locals() and val_pbar is not None:
             try:
@@ -3315,15 +3007,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 print(f"[REMEDY] Failed to close validation progress bar: {e}")
 
         # --- 2026 Resilience: Deterministic Validation Worker Disposal ---
-        # Explicitly terminate validation workers and free shared memory queues before training
-        if hasattr(val_loader, '_iterator') and getattr(val_loader, '_iterator', None) is not None:
-            try:
-                val_iter = getattr(val_loader, '_iterator', None)
-                if val_iter is not None and hasattr(val_iter, '_shutdown_workers'):
-                    val_iter._shutdown_workers()
-            except Exception:
-                pass
-            val_loader._iterator = None
+        _dispose_loader(val_loader)
         if 'val_iterator' in locals():
             del val_iterator
         if 'all_preds' in locals() and isinstance(all_preds, list):
@@ -3344,16 +3028,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         print(f"{'='*80}\n", file=sys.stderr)
         sys.stderr.flush()
 
-        # 2026: SOTA Hyperparameter management is now handled by the Smart Governor below.
-
-        # --- 2026: SOTA Weight Averaging Phase ---
         if epoch >= swa_start:
             swa_model.update_parameters(model)
 
-        # --- 2026: Autonomous Cloud Synchronization (v16.2 Nuclear) ---
-        # Trigger background sync to Kaggle Hub at the epoch boundary.
-        # This persists the latest SOTA, metrics.csv, and logs.
-        # --- 2026: Universal SOTA-Priority Quality Assessment ---
         is_best = False
         is_improving = False
         force_rollback = False
@@ -3361,8 +3038,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         sota_targets = model_info.get("sota_targets", {})
 
         if sota_targets:
-            # Dynamic Quality Score: Weighted average of all SOTA targets
-            # Metric mapping ensures higher is always better for the final scalar.
             curr_metrics = {
                 'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
                 'lpips': lpips_val, 'fid': fid, 'map50': map50, 'map50_95': map50_95,
@@ -3376,7 +3051,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             }
             current_quality_score, singularity_collapse = telemetry_engine.compute_quality_score(curr_metrics, sota_targets, train_ds.task_type)
 
-            # --- 2026: MS-SWA Per-Metric Checkpoint Vault Update ---
             for m_key in sota_targets.keys():
                 m_val = curr_metrics.get(m_key)
                 if m_val is None:
@@ -3404,37 +3078,25 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 is_best = False
                 force_rollback = True
 
-            # --- 2026 Resilience: Meaningful Improvement Delta (Hardened v4.2) ---
-            # For high-resolution restoration, we need 0.5% improvement to reset the plateau clock.
-            # v4.2: Scale threshold by resolution — at 768px+ quality scores are tightly converged
-            # and a flat 0.5% bar (~2.5pts on a 509-point score) is unreachable for real gains.
             if train_ds.task_type in ("quality", "forex"):
                 stagnation_threshold = governor.min_delta
             else:
                 res = getattr(governor, 'current_res', None)
                 res = res if res is not None else 512
-                # Proportionally reduce threshold at higher resolutions (0.5% at 512, ~0.1% at 768+)
                 stagnation_threshold = max(0.001, 0.005 * (512.0 / max(res, 512)))
             loss_improves = avg_val_loss < (best_val_loss * (1.0 - stagnation_threshold))
-            # v4.2: Any genuine absolute quality improvement saves the best checkpoint.
-            # The stagnation_threshold only gates whether the plateau clock resets (is_improving).
             quality_any_gain = current_quality_score > best_quality_score
             quality_improves = current_quality_score > (best_quality_score * (1.0 + stagnation_threshold))
             is_improving = loss_improves or quality_improves
 
-            # --- 2026 Resilience: Independent Baseline Tracking ---
-            # We MUST update best_val_loss independently of quality gains. Otherwise, if Epoch 1 hits a
-            # quality milestone, best_val_loss remains float('inf'). Then a terrible Epoch 2 with dropping quality
-            # will erroneously trigger 'loss_improves' because its loss is < inf, overwriting the SOTA weights!
             if loss_improves:
                 best_val_loss = avg_val_loss
 
-            # --- 2026 SOTA GUARD: Quality Regression Mutex ---
             if quality_any_gain:
                 prev_best = best_quality_score
                 best_quality_score = current_quality_score
                 is_best = True
-                is_improving = quality_improves  # Only reset plateau clock if above stagnation threshold
+                is_improving = quality_improves
                 best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid, "accuracy": accuracy}
                 if quality_improves:
                     (pbar.write if pbar else print)(f" -> [SOTA GUARD] Record Quality Milestone: {best_quality_score:.4f} (Previous: {prev_best:.4f}).")
@@ -3450,11 +3112,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid, "accuracy": accuracy}
                     (pbar.write if pbar else print)(f" -> [SOTA GUARD] Loss Improved ({avg_val_loss:.6f}). Exporting SOTA weights.")
             else:
-                # 2026: Horizontal Stagnation Detected.
-                # We do NOT reset is_improving, which allows the Governor to trigger a Jolt.
                 pass
         else:
-            # Fallback for models without specialized targets
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 is_best = True
@@ -3462,11 +3121,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 best_metrics = {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid, "accuracy": accuracy}
                 print(f" -> [FALLBACK] New Best Loss: {avg_val_loss:.6f}.")
 
-        # --- 2026: SOTA Smart Optimization Audit (v6.1.17) ---
-        # Capture the state used DURING the current epoch before the Governor mutates it
         current_epoch_governor_state = governor.get_state()
 
-        # Moved BEFORE CSV write and Checkpoint creation to ensure total manifold parity.
         metrics_dict = {
             'plcc': plcc, 'srcc': srcc, 'psnr': psnr, 'ssim': ssim_val,
             'lpips': lpips_val, 'fid': fid, 'dir_acc': dir_acc, 'tp_mae': tp_mae
@@ -3505,7 +3161,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             print(smart_msg)
             new_params = governor.get_state()
 
-            # --- 2026: Synchronize Dynamic Governor Stabilizers with Criterion ---
             if hasattr(criterion, 'stab') and isinstance(criterion.stab, dict):
                 if 'rank_weight' in new_params: criterion.stab['rank_weight'] = new_params['rank_weight']
                 if 'rank_margin' in new_params: criterion.stab['rank_margin'] = new_params['rank_margin']
@@ -3528,12 +3183,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 if metric_opts_applied:
                     print(f" [GOVERNOR] [OPTIMIZATION] Applying metric-specific optimizations: {', '.join(metric_opts_applied)}")
 
-            # --- 2026: MS-SWA Merge Trigger Logic ---
             if getattr(governor, 'trigger_mini_swa', False):
                 governor.trigger_mini_swa = False
                 print(" [MS-SWA] Triggering Metric-Specific Stochastic Weight Averaging...")
                 vault_states = []
-                # Retrieve available vaults for core metrics
                 for m_key in ['plcc', 'srcc', 'psnr', 'ssim', 'dir_acc', 'tp_mae', 'win_rate', 'accuracy']:
                     vault_ckpt = os.path.join(config["checkpoint_dir"], f"{args.model}_vault_{m_key}.pth")
                     if os.path.exists(vault_ckpt):
@@ -3547,22 +3200,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     model.load_state_dict(avg_state)
                     print(f" [MS-SWA] Successfully merged {len(vault_states)} top metric checkpoints into active model.")
 
-            # --- 2026 Resilience: Dynamic Stress Protocol ---
             stress_changed = new_params.get('stress', 0.0) != getattr(train_ds, 'stress', 0.0)
 
-            # --- 2026: Shield Telemetry (v6.1.35) ---
             if new_params.get('stabilization_epochs', 0) > 0:
                 print(f"[GUARD] [STABILIZATION SHIELD] Manifold Locked for {new_params['stabilization_epochs']} more epochs.")
 
-            # --- 2026 Resilience: Inter-Epoch Adaptive Batch Strategy (v17.0) ---
-            # Recalculate batch sizes at the epoch boundary to maximize efficiency.
             if r_changed:
                 gc.collect()
                 if device.type == 'cuda':
                     torch.cuda.empty_cache()
                     torch.cuda.ipc_collect()
 
-                # Controlled pre-jump dry-run probe to prevent Kaggle OOM / ECC hardware faults
                 prev_raw_res = getattr(train_ds, 'input_size', getattr(governor, 'current_res', 256))
                 prev_res = prev_raw_res[0] if isinstance(prev_raw_res, (list, tuple)) else prev_raw_res
                 if device.type == 'cuda':
@@ -3595,11 +3243,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 if r_changed or config_batch == "auto" or config_batch is None:
                     batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=governor.current_res, mode='train', sample_fraction=new_params['sample_fraction'], fold=args.fold, pairs=args.pairs)
 
-                    # Validation resolution might be anchored
                     v_res = model_info.get("val_resolution", governor.current_res)
                     val_batch_size = audit_hardware_vram(args.model, model_info, config, device, model, res_override=v_res, mode='val', sample_fraction=val_ds.sample_fraction, fold=args.fold, pairs=args.pairs)
 
-                    # Recalculate accumulation to maintain Effective Batch
                     target_eff = model_info.get("optimization", {}).get("target_effective_batch", 24)
                     accumulation_steps = max(1, target_eff // batch_size)
 
@@ -3608,8 +3254,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
             if f_changed or r_changed or b_changed or stress_changed:
                 if b_changed and (config_batch != "auto" and config_batch is not None and not args.batch_size):
-                     # If we didn't re-audit (e.g. manual batch set in config but resolution jumped)
-                     # we use the Governor's suggestion, but this path is now secondary.
                      batch_size = new_params['batch_size']
                      accumulation_steps = new_params['accumulation_steps']
 
@@ -3618,11 +3262,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     size=new_params['input_size'] if r_changed else None,
                     stress=new_params.get('stress', 0.0)
                 )
-                # 2026: Validation perfectly mirrors the Training Resolution UNLESS anchored
                 if "val_resolution" not in model_info:
                     val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
 
-                # Explicitly clean up old DataLoader workers to prevent RAM / GPU pinned memory leak
+                # [SPEED] Dispose workers before rebuilding
+                _dispose_loader(train_loader)
+                _dispose_loader(val_loader)
                 try:
                     del train_loader
                     del val_loader
@@ -3632,13 +3277,21 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 if device.type == 'cuda':
                     torch.cuda.empty_cache()
 
-                # v17.5: Enforce Shield during inter-epoch resolution jumps
                 _workers = num_workers
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                _gov_persistent = _workers > 0 and _host_ram_gb >= 16.0
+                train_loader = DataLoader(
+                    train_ds,
+                    batch_size=batch_size,
+                    shuffle=True,
+                    num_workers=_workers,
+                    persistent_workers=_gov_persistent,
+                    pin_memory=True if device.type == 'cuda' else False,
+                    prefetch_factor=8 if _workers > 0 else None,
+                    drop_last=True,
+                )
                 _vw = min(val_num_workers, 2)
                 val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
 
-                # 2026 Senior Hardening: VRAM De-fragmentation (Task 4.2)
                 if device.type == 'cuda':
                     torch.cuda.empty_cache()
                     print(f" [GUARD] [SENIOR] VRAM De-fragmentation pulse (empty_cache) triggered for {governor.current_res}px jump.")
@@ -3647,7 +3300,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 mult_backbone = new_params['lr_multiplier']
                 mult_head = new_params.get('head_lr_multiplier', mult_backbone)
 
-                # --- 2026 Resilience: Absolute LR Floor (v16.1) ---
                 absolute_lr_floor = 1e-5
 
                 for group_idx, param_group in enumerate(optimizer.param_groups):
@@ -3660,34 +3312,27 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     if 'min_lr' in param_group: param_group['min_lr'] = max(absolute_lr_floor, param_group['min_lr'] * m)
 
                 if hasattr(scheduler, 'base_lrs'):
-                    scheduler.base_lrs = [max(absolute_lr_floor, l * mult_backbone) for l in scheduler.base_lrs]
+                    setattr(scheduler, 'base_lrs', [max(absolute_lr_floor, l * mult_backbone) for l in scheduler.base_lrs])
                 if hasattr(scheduler, 'max_lrs'):
-                    scheduler.max_lrs = [max(absolute_lr_floor, l * mult_backbone) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
+                    setattr(scheduler, 'max_lrs', [max(absolute_lr_floor, l * mult_backbone) for l in getattr(scheduler, 'max_lrs', [])])
                 if hasattr(scheduler, '_last_lr'):
-                    scheduler._last_lr = [p['lr'] for p in optimizer.param_groups]
+                    setattr(scheduler, '_last_lr', [p['lr'] for p in optimizer.param_groups])
 
-                # 2026 Senior Hardening: Momentum Dampening (Task 4.1)
                 for state in optimizer.state.values():
                     for k, v in state.items():
                         if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
-                            v.mul_(0.8) # 20% dampening for smooth transition
+                            v.mul_(0.8)
                 print(f"[VELOCITY SYNC] Learning Rate scaled (Head: {mult_head}x | Backbone: {mult_backbone}x) | Momentum Dampened (20%).")
 
-            # --- 2026: Mission Defibrillation (v6.2.0) ---
-            # If a High-Energy Jolt occurs or Resolution Changes, the current scheduler curve
-            # is likely out of sync with the new manifold. We re-calculate steps and re-initialize.
-            # Moved out of lr_changed block so it triggers on resolution jumps even if LR is stable.
             mult = new_params['lr_multiplier'] if lr_changed else 1.0
             if (mult > 2.0 or r_changed or f_changed) and isinstance(scheduler, torch.optim.lr_scheduler.OneCycleLR):
                 print(f"[SYNC] [MISSION DEFIBRILLATION] Re-calculating steps for {governor.current_res}px Manifold.")
                 steps_per_epoch = len(train_loader) // accumulation_steps
                 if steps_per_epoch == 0: steps_per_epoch = 1
 
-                # Recalculate remaining steps in the mission
-                # --- 2026 Resilience: Seamless Curve Stretching ---
                 old_total = scheduler.total_steps
                 old_last = scheduler.last_epoch
-                old_max_lrs = scheduler.max_lrs if hasattr(scheduler, 'max_lrs') else [p['lr'] * 1.2 for p in optimizer.param_groups]
+                old_max_lrs = getattr(scheduler, 'max_lrs', [p['lr'] * 1.2 for p in optimizer.param_groups])
 
                 remaining_epochs = epochs - epoch
                 new_total_steps = (epoch * steps_per_epoch) + (remaining_epochs * steps_per_epoch)
@@ -3697,15 +3342,13 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     pct_start=dynamic_pct_start, anneal_strategy='cos'
                 )
 
-                # Scale the step counter to the exact same percentage of the new curve
                 ratio = new_total_steps / max(1, old_total)
                 scheduler.last_epoch = int(old_last * ratio)
                 scheduler._step_count = scheduler.last_epoch + 1
-                # Sync optimizer learning rates with the stretched step to prevent Velocity Bomb/stagnation
                 for param_group, lr_val in zip(optimizer.param_groups, scheduler.get_lr()):
                     param_group['lr'] = lr_val
                 if hasattr(scheduler, '_last_lr'):
-                    scheduler._last_lr = [p['lr'] for p in optimizer.param_groups]
+                    setattr(scheduler, '_last_lr', [p['lr'] for p in optimizer.param_groups])
                 print(f" [MISSION SHIELD] Scheduler manifold SEAMLESSLY STRETCHED. Step counter: {scheduler.last_epoch} of {new_total_steps}.")
 
             if t_changed or c_changed:
@@ -3721,28 +3364,21 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             model_info['stabilizers']['softmax_temp'] = new_params['softmax_temp']
             model_info['stabilizers']['logit_clamp'] = new_params['logit_clamp']
 
-            # --- 2026: SOTA Plateau Timer Reset ---
-            # If the Governor structurally changed the manifold via Data or Resolution,
-            # or broke a plateau with a Jolt, we must reset the patience timer so it doesn't infinite loop.
             if f_changed or r_changed or (lr_changed and new_params.get('lr_multiplier', 1.0) > 1.0):
                 epochs_no_improve = 0
             if r_changed:
                 print(f" [GUARD] Resolution changed. Resetting SOTA baseline to accommodate new spatial manifold.")
 
-            # --- 2026 Mini-SWA Plateau Recovery Pulse (Safety Measure 3) ---
             if getattr(governor, 'trigger_mini_swa', False):
                 governor.trigger_mini_swa = False
                 print(f" [MINI-SWA PULSE] Engaging Plateau Weight Averaging...")
                 try:
-                    # 1. Store Safety CPU Backup
                     pre_swa_backup = {k: v.cpu().clone() for k, v in model.state_dict().items()}
 
-                    # 2. Update model with averaged parameters if available
                     if 'swa_model' in locals() and hasattr(swa_model, 'update_parameters'):
                         swa_model.update_parameters(model)
                         load_state_dict_robust(model, swa_model.module.state_dict() if hasattr(swa_model, 'module') else swa_model.state_dict())
 
-                        # 3. Mandatory 20-batch update_bn pass over training data to re-sync BatchNorm/LayerNorm
                         model.train()
                         print(f" [MINI-SWA PULSE] Executing 20-batch BatchNorm re-estimation pass (update_bn)...")
                         with torch.no_grad():
@@ -3752,7 +3388,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                                     model(b_inputs.to(device, non_blocking=True))
                         model.eval()
 
-                        # 4. Check if SWA degraded quality -> Trigger Automatic Rollback
                         if current_quality_score < governor.prev_quality:
                             load_state_dict_robust(model, pre_swa_backup)
                             print(f" [SAFETY GUARD] [MINI-SWA] Post-SWA quality score degraded ({current_quality_score:.4f} < {governor.prev_quality:.4f}). Rolled back to pre-SWA checkpoint!")
@@ -3765,19 +3400,14 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             print(f" [EARLY STOPPING] Dynamic Early Stopping Triggered by Governor. Fold complete.")
             break
 
-        # 2026 Resilience: best_metrics is preserved from the last SOTA/best update block to prevent metric corruption.
-
-
-        # Finalize Checkpoint State (Capturing latest Metric Shift)
-        # 2026: Ensure Governor is synced with current session variables before save
         governor.current_batch = batch_size
         governor.current_acc = accumulation_steps
 
         ckpt_state = {
             'epoch': epoch,
-            'iteration': len(train_loader), # Mark epoch as finished for absolute parity
+            'iteration': len(train_loader),
             'loader_len': len(train_loader),
-            'model_state': model.state_dict(), # pyre-ignore
+            'model_state': model.state_dict(),
             'optimizer_state': optimizer.state_dict(),
             'scheduler_state': scheduler.state_dict(),
             'governor_state': governor.get_state(),
@@ -3789,19 +3419,15 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             'sota_achieved': sota_baseline_achieved
         }
 
-        # Reset intra-epoch progress file now that the epoch is safely committed
         progress_ckpt_path = os.path.join(local_ckpt_dir, f"{args.model}_progress.pth")
         if os.path.exists(progress_ckpt_path):
             for attempt in range(3):
                 try:
                     os.remove(progress_ckpt_path)
-                    # Silent purge
                     break
                 except:
                     time.sleep(1)
 
-        # --- 2026: SOTA Regression Guardrail (Resilience v3.1 Hardened) ---
-        # 2026 NPP: Configurable thresholds for regression logic.
         opt_cfg = model_info.get("optimization", {})
         default_drift = 0.95 if train_ds.task_type == "quality" else 0.985
         default_limit = 5 if train_ds.task_type == "quality" else 3
@@ -3812,7 +3438,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             regression_limit = governor.get_active_regression_limit(regression_limit)
         absolute_patience = opt_cfg.get("absolute_patience", 15)
 
-        # 2026 Absolute Anti-Loop Guard (Dead Man's Switch)
         if absolute_epochs_no_improve >= absolute_patience:
             print(f" [NUCLEAR] Absolute Plateau Reached ({absolute_epochs_no_improve} epochs). Force-Triggering SOTA Rollback.")
             force_rollback = True
@@ -3832,7 +3457,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 local_best_path = os.path.join(checkpoint_dir, f"{args.model}_best.pth")
                 target_ckpt = None
 
-                # Check for valid checkpoints (LFS pointers are tiny text files, usually < 10KB. Valid weights are > 1MB)
                 if os.path.exists(best_ckpt_path) and os.path.getsize(best_ckpt_path) > 1024 * 1024:
                     target_ckpt = best_ckpt_path
                 elif os.path.exists(local_best_path) and os.path.getsize(local_best_path) > 1024 * 1024:
@@ -3873,25 +3497,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             print(f" [WARNING] [RESILIENCY] Optimizer state rejected ({opt_err}). Purging corrupted momentum buffers.")
                             optimizer.state.clear()
 
-                    # --- 2026: SOTA Governor Sync (Restoration -> Safety Pullback) ---
-                    # We restore the state FIRST, then apply the Recoil safety on top of it.
-                    # We pass preserve_curriculum=True to prevent resetting the resolution and dataset fraction.
                     if 'governor_state' in loaded_ckpt:
                         governor.load_state(loaded_ckpt['governor_state'], preserve_curriculum=True)
 
-                    # 2026: SOTA Scheduler Sync [DISABLED: Velocity Bomb Fix]
-                    # We INTENTIONALLY skip rolling back the scheduler state chronologically.
-                    # Reverting the scheduler to an older phase of the curve causes the Learning Rate
-                    # to spike back up (Velocity Bomb), shattering the converged manifold.
-                    # The LR cooling curve must reflect the *total epochs trained*, not the state of the weights.
-                    # if 'scheduler_state' in loaded_ckpt:
-                    #     try:
-                    #         load_scheduler_state_stretched(scheduler, loaded_ckpt['scheduler_state'], total_steps)
-                    #         print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
-                    #     except Exception as sched_err:
-                    #         print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
-
-                    # Notify Governor to perform a Tactical Retreat (Recoil) on the restored state
                     recoil_msg = governor.recoil()
                     if recoil_msg: print(recoil_msg)
 
@@ -3907,11 +3515,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     else:
                         print(f"[SYNC] [GOVERNOR SYNC] Retained Dataset Fraction at {g_state['sample_fraction']*100:.0f}% | Val sync to {val_res_sync}px | Temp Cooled to {g_state['softmax_temp']}")
 
-                    # Force 50% LR cooling to 'seat' the model back into the stable manifold
-                    # --- 2026: SOTA Velocity Shield (v3.1) ---
-                    # We prevent the LR from dropping below a fixed Survivor Floor
-                    # to prevent the model from 'freezing' in a sub-optimal manifold.
-                    survivor_floor = 1e-7 # Lowered from 1e-5 to prevent Velocity Bomb during high-decay rollbacks
+                    survivor_floor = 1e-7
                     new_lr = max(survivor_floor, optimizer.param_groups[0]['lr'] * 0.5)
 
                     for param_group in optimizer.param_groups:
@@ -3921,27 +3525,20 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         if 'min_lr' in param_group: param_group['min_lr'] = max(survivor_floor, param_group['min_lr'] * 0.5)
 
                     if hasattr(scheduler, 'base_lrs'):
-                        scheduler.base_lrs = [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs]
+                        setattr(scheduler, 'base_lrs', [max(survivor_floor, l * 0.5) for l in scheduler.base_lrs])
                     if hasattr(scheduler, 'max_lrs'):
-                        scheduler.max_lrs = [max(survivor_floor, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])]  # type: ignore
+                        setattr(scheduler, 'max_lrs', [max(survivor_floor, l * 0.5) for l in getattr(scheduler, 'max_lrs', [])])
 
-                    # 2026 Resilience: Force scheduler state synchronization
-                    # This ensures get_last_lr() and internal counters are aligned after the rollback
                     if hasattr(scheduler, '_last_lr'):
-                        scheduler._last_lr = [new_lr] * len(optimizer.param_groups)
+                        setattr(scheduler, '_last_lr', [new_lr] * len(optimizer.param_groups))
 
-                    # Sync governor learning rate multiplier to persist the cooling across restarts
                     governor.lr_multiplier = max(survivor_floor / (lr if lr > 0 else 1e-5), governor.lr_multiplier * 0.5)
 
-                    # Momentum Cooling
                     for state in optimizer.state.values():
                         for k, v in state.items():
                             if isinstance(v, torch.Tensor) and k in ['exp_avg', 'exp_avg_sq']:
-                                v.mul_(0.5) # 2026 SOTA: Aggressive dampening for regression recovery
+                                v.mul_(0.5)
 
-                    # --- 2026: SOTA Resilience (Physical Purge) ---
-                    # To prevent the suite from 'accidentally' resuming from the drifted state after a crash,
-                    # we physically purge the poisoned latest and progress checkpoints.
                     latest_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
                     for doomed in [latest_hub_path, progress_ckpt_path]:
                         if os.path.exists(doomed):
@@ -3953,13 +3550,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                     print(f"[SUCCESS] [GUARD] SOTA Rollback successful. LR cooled to {optimizer.param_groups[0]['lr']:.8f} | Momentum dampened.")
                     regression_epochs = 0
-                    epochs_no_improve = 0 # Reset patience since we are essentially retrying a new manifold
+                    epochs_no_improve = 0
         else:
             regression_epochs = 0
 
-        # --- 2026: SOTA Telemetry Sync (Resilience v3.1) ---
-        # We record the CSV using the exact governor state that was used DURING this epoch's training.
-        # This guarantees that the CSV metrics and hyperparameters perfectly align on the same row.
         num_pairs = len(args.pairs) if getattr(args, 'pairs', None) else (len(train_ds.pairs) if train_ds and hasattr(train_ds, 'pairs') else 1)
         telemetry_engine.write_epoch_row(
             epoch=epoch,
@@ -3976,7 +3570,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         )
 
         prev_quality_score = current_quality_score
-        # --- 2026 Resilience: Model Hub Sync (v6.2.0) ---
         if is_improving:
             epochs_no_improve = 0
             regression_epochs = 0
@@ -3986,33 +3579,23 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             absolute_epochs_no_improve += 1
             print(f" -> No improvement for {epochs_no_improve} epoch(s). Absolute: {absolute_epochs_no_improve}")
 
-            # --- 2026: Dynamic Walk-Forward Early Stopping ---
-            # If patience is exceeded and the learning rate has bottomed out, terminate the fold natively.
             if getattr(train_ds, "task_type", "") == "forex" and epochs_no_improve >= governor.plateau_patience:
-                # OneCycleLR typically bottoms out around min_lr. governor.lr_multiplier also decays.
                 if epoch_lr <= 1e-5 or governor.lr_multiplier <= 0.05:
                     print(f"\n[EARLY STOPPING] Patience of {governor.plateau_patience} epochs exceeded. Learning rate bottomed out. Terminating fold natively.")
                     break
 
-        # --- 2026 Resilience: Hub Mirroring & Sync (v13.0 Stateless) ---
-        # Latest and Best are now stored DIRECTLY in the Hub repository to keep Suite repo clean.
         skip_hub_push = False
         try:
             latest_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
             best_hub_path = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
 
-            # 2026 Resilience: Hub Protection Lock (v15.5)
-            # We MUST ensure we don't overwrite a SOTA Hub state with a stale/failed session state.
             if os.path.exists(latest_hub_path):
                 try:
-                    # We use weights_only=False to read metadata keys correctly
                     hub_ckpt = torch.load(latest_hub_path, map_location='cpu', weights_only=False)
                     hub_epoch = hub_ckpt.get('epoch', -1)
                     if hub_epoch > epoch:
                         print(f" [GUARD] [HUB LOCK] Hub has a HIGHER epoch ({hub_epoch+1}) than local session ({epoch+1}).", file=sys.stderr)
                         print(f" [GUARD] [HUB LOCK] Skipping Hub push for this epoch to prevent clobbering. Continuing training...", file=sys.stderr)
-                        # We still update local progress, but skip the Hub push.
-                        # Refresh governor_state from live governor to capture any in-epoch fraction expansion.
                         ckpt_state['governor_state'] = governor.get_state()
                         safe_torch_save(ckpt_state, progress_local)
                         skip_hub_push = True
@@ -4020,10 +3603,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     print(f" [WARNING] [HUB LOCK] Failed to audit Hub parity: {e}. Proceeding with caution...", file=sys.stderr)
 
             if not skip_hub_push:
-                # 1. Save state (Latest always, Best on improvement)
                 safe_torch_save(ckpt_state, latest_hub_path)
 
-                # Delete progress checkpoint since latest is successfully generated
                 if os.path.exists(progress_local):
                     try:
                         os.remove(progress_local)
@@ -4035,31 +3616,20 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         shutil.copy2(latest_hub_path, best_hub_path)
                     print(f"[HUB SYNC] New SOTA archived to Hub.", file=sys.stderr)
 
-                    # --- 2026: Real-Time SOTA Export (v17.2 Hardening) ---
-                    # We trigger the full export suite (ONNX + Notebooks) on every new BEST
-                    # so the Hub is always ready for production deployment.
                     try:
                         metrics_to_report = best_metrics if best_quality_score > -1.0 else {"plcc": plcc, "srcc": srcc, "psnr": psnr, "ssim": ssim_val, "lpips": lpips_val, "fid": fid}
                         trigger_sota_export(args, model, device, config, unified_models_registry, epoch, metrics_to_report, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root, skip_sync=True)
                     except Exception as e_exp:
                         print(f" [WARNING] [REAL-TIME EXPORT] Failed to generate production artifacts: {e_exp}", file=sys.stderr)
 
-                # 2. Sync Metrics Audit Trail
                 if os.path.exists(metrics_csv_path):
                     hub_metrics_path = os.path.join(hub_model_dir, "metrics.csv")
-                    # 2026 Resilience: Avoid shutil.SameFileError if export_dir is already in the Hub
                     if os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_path):
                         shutil.copy2(metrics_csv_path, hub_metrics_path)
 
-            # 2026: Legacy Git Sync purged.
-            # 2026 Resilience: Synchronization is now handled by CloudSyncManager (v16.2)
-            # which manages the atomic push cycle via background threads.
         except Exception as e:
             print(f"[WARNING] [HUB SYNC] Model Hub Mirroring critical failure: {e}")
 
-        # --- 2026: SOTA Cloud Synchronization Phase ---
-        # We trigger the background sync at the VERY end of the loop,
-        # ensuring all local files (metrics.csv, checkpoints) are closed and flushed.
         if args.env == 'kaggle' and not skip_hub_push:
             try:
                 from training.cloud_sync import trigger_cloud_sync
@@ -4067,12 +3637,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
             except Exception as e:
                 print(f"[WARNING] [CLOUD SYNC] Critical background sync failure: {e}", file=sys.stderr)
 
-        # 2026 Resilience: Legacy Persistence and Auto-Sync purged.
-
-
-# --- Automated Cloud Hub Deployment ---
-        # 2026 Resilience: Disable Git-based sync on Kaggle to prevent I/O contention and rebase rollbacks.
-        # We rely on the hardened trigger_cloud_sync (Kaggle Hub) for persistence.
         if args.auto_sync and args.env != 'kaggle':
             try:
                 hub_user = args.hub_user or config.get("hub_user", "lemgenda")
@@ -4081,12 +3645,10 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 pat = os.environ.get('GITHUB_PAT') or os.environ.get('HUB_PAT', '') or os.environ.get('ACCESS_TOKEN_RECOVERY', '')
 
                 if hub_url:
-                    # 2026 Resilience: Inject PAT into clone URL for private hubs and authenticated LFS
                     auth_hub_url = hub_url
                     if pat:
                         auth_hub_url = hub_url.replace("https://github.com", f"https://{pat}@github.com")
 
-                    # Resolve Hub Root
                     target_hub_root = "/kaggle/working/LemGendaryModels" if args.env == 'kaggle' else os.path.join(os.getcwd(), "hub")
                     target_hub_model_dir = os.path.join(target_hub_root, args.model)
                     target_hub_ckpt_dir = os.path.join(target_hub_model_dir, "checkpoints")
@@ -4094,7 +3656,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     if not os.path.exists(os.path.join(target_hub_root, ".git")):
                         print(f"[LAUNCH] [HUB SYNC] Initializing Hub at {target_hub_root}...", file=sys.stderr)
                         os.makedirs(target_hub_root, exist_ok=True)
-                        # 2026 Resilience: Skip Smudge on initial clone to bypass LFS quota/bandwidth issues
                         clone_env = os.environ.copy()
                         clone_env["GIT_LFS_SKIP_SMUDGE"] = "1"
                         clone_env["GIT_TERMINAL_PROMPT"] = "0"
@@ -4105,41 +3666,35 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                             subprocess.run(["git", "init"], cwd=target_hub_root, capture_output=True)
                             subprocess.run(["git", "remote", "add", "origin", auth_hub_url], cwd=target_hub_root, capture_output=True)
 
-                    # 1. Sync Best Checkpoint (Primary SOTA Artifact)
                     best_ckpt_src = os.path.join(hub_ckpt_dir, f"{args.model}_best.pth")
                     best_ckpt_dst = os.path.join(target_hub_ckpt_dir, f"{args.model}_best.pth")
                     if os.path.exists(best_ckpt_src) and os.path.abspath(best_ckpt_src) != os.path.abspath(best_ckpt_dst):
                         os.makedirs(target_hub_ckpt_dir, exist_ok=True)
                         shutil.copy2(best_ckpt_src, best_ckpt_dst)
 
-                    # 2. Sync Latest Checkpoint (Resumption Anchor)
                     latest_ckpt_src = os.path.join(hub_ckpt_dir, f"{args.model}_latest.pth")
                     latest_ckpt_dst = os.path.join(target_hub_ckpt_dir, f"{args.model}_latest.pth")
                     if os.path.exists(latest_ckpt_src) and os.path.abspath(latest_ckpt_src) != os.path.abspath(latest_ckpt_dst):
                         os.makedirs(target_hub_ckpt_dir, exist_ok=True)
                         shutil.copy2(latest_ckpt_src, latest_ckpt_dst)
 
-                    # 2.5. Sync Progress Checkpoint (Intra-Epoch Resumption Anchor)
                     progress_ckpt_src = os.path.join(hub_ckpt_dir, f"{args.model}_progress.pth")
                     progress_ckpt_dst = os.path.join(target_hub_ckpt_dir, f"{args.model}_progress.pth")
                     if os.path.exists(progress_ckpt_src) and os.path.abspath(progress_ckpt_src) != os.path.abspath(progress_ckpt_dst):
                         os.makedirs(target_hub_ckpt_dir, exist_ok=True)
                         shutil.copy2(progress_ckpt_src, progress_ckpt_dst)
 
-                    # 3. Sync Metrics (Audit Trail)
                     hub_metrics_dst = os.path.join(target_hub_model_dir, "metrics.csv")
                     if os.path.exists(metrics_csv_path) and os.path.abspath(metrics_csv_path) != os.path.abspath(hub_metrics_dst):
                         os.makedirs(target_hub_model_dir, exist_ok=True)
                         shutil.copy2(metrics_csv_path, hub_metrics_dst)
 
-                    # 3.5 Generate Dynamic Hub README
                     try:
                         from training.hub_readme_generator import generate_hub_readme
                         generate_hub_readme(project_root)
                     except Exception as e:
                         print(f" [WARNING] Failed to generate hub README: {e}")
 
-                    # 4. Global Push (Models Only)
                     commit_msg = f"Update new best weights and metrics for {args.model} from {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     git_hub_sync(target_hub_root, auth_hub_url, commit_msg)
 
@@ -4156,15 +3711,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 print(f"\n[Early Stopping] Model structurally converged. Halting training to prevent overfitting.")
                 break
 
-        # Aggressive memory cleanup for low-VRAM 4GB cards (GTX 1650)
         if torch.cuda.is_available(): torch.cuda.empty_cache()
 
-        # --- CUSTOM SOTA QUALITY EARLY STOPPING ---
         breached = False
         msg = ""
 
         if sota_targets:
-            # Check if ALL targets defined in config are met
             all_met = True
             met_details = []
 
@@ -4194,24 +3746,22 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 breached = True
                 msg = f"Configured SOTA Targets Met ({', '.join(met_details)})"
         else:
-            # Fallback legacy targets if registry is empty
             if train_ds.task_type == "quality" and plcc > 0.95 and srcc > 0.90:
                 breached = True
                 msg = "Legacy SOTA NIMA Baseline (PLCC > 0.95, SRCC > 0.90)"
 
-        # --- 2026: Ladder-Aware SOTA Guard (v18.0) ---
         is_max_res = False
         try:
             if hasattr(governor, 'res_ladder') and governor.res_ladder and getattr(governor, 'current_res', None) is not None:
                 is_max_res = governor.current_res >= max(governor.res_ladder)
             else:
-                is_max_res = True # Default to true if no ladder exists
+                is_max_res = True
         except: is_max_res = True
 
         if breached and not sota_baseline_achieved:
             if governor.current_fraction < 0.99:
                 next_frac = min(1.0, governor.current_fraction + getattr(governor, 'fraction_increment', 0.2))
-                if next_frac >= 0.99: next_frac = 1.0 # Snap to 100%
+                if next_frac >= 0.99: next_frac = 1.0
 
                 if getattr(train_ds, "task_type", "") == "forex" or "forex" in args.model.lower():
                     print(f"\n -> [SOTA GUARD] Progressive SOTA verification triggered.")
@@ -4219,7 +3769,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     print(f"\n -> [SOTA GUARD] SOTA targets met at {governor.current_res}px but on a data subset ({governor.current_fraction*100:.0f}%).")
                     print(f" -> [SOTA GUARD] Expanding dataset fraction to {next_frac*100:.0f}% to progressively verify SOTA without memorization.")
 
-                # Expand data fraction in governor and dataset
                 governor.current_fraction = next_frac
 
                 if not args.batch_size:
@@ -4231,17 +3780,24 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
                 train_ds.update_strategy(fraction=next_frac)
 
+                _dispose_loader(train_loader)
+                _dispose_loader(val_loader)
                 _workers = num_workers
-                train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                _sota_persistent = _workers > 0 and _host_ram_gb >= 16.0
+                train_loader = DataLoader(
+                    train_ds,
+                    batch_size=batch_size,
+                    shuffle=True,
+                    num_workers=_workers,
+                    persistent_workers=_sota_persistent,
+                    pin_memory=True if device.type == 'cuda' else False,
+                    prefetch_factor=8 if _workers > 0 else None,
+                    drop_last=True,
+                )
                 _vw = min(val_num_workers, 2)
                 val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
                 if device.type == 'cuda': torch.cuda.empty_cache()
 
-                # --- 2026: SOTA Fraction Persistence Fix ---
-                # The fraction expansion fires AFTER _latest.pth and _best.pth are written this epoch.
-                # Without this patch, the saved checkpoints always contain the PRE-expansion fraction,
-                # so any crash or session expiry causes an invisible rollback (e.g. 90% -> 75%).
-                # We flush the updated governor state back into ckpt_state and overwrite both files.
                 governor.current_batch = batch_size
                 governor.current_acc = accumulation_steps
                 ckpt_state['governor_state'] = governor.get_state()
@@ -4257,7 +3813,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 except Exception as frac_persist_err:
                     print(f" [WARNING] [SOTA GUARD] Failed to persist expanded fraction to checkpoint: {frac_persist_err}")
             elif not is_max_res:
-                # 2026: Governor Audit (Now returns 8 values including early_stop)
                 f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, early_stop_triggered, smart_msg = governor.audit_epoch(
                     current_quality=locals().get('current_quality_score', 0.0),
                     best_quality=best_quality_score,
@@ -4266,8 +3821,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     force_jump=True
                 )
 
-                # --- 2026: SOTA-Sync (v18.2) ---
-                # We must immediately apply these changes to the loaders before the next epoch starts
                 if early_stop_triggered:
                     sota_targets_local = model_info.get("sota_targets", {})
                     if sota_targets_local and not locals().get("sota_baseline_achieved", False):
@@ -4333,6 +3886,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     if "val_resolution" not in model_info:
                         val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
 
+                    _dispose_loader(train_loader)
+                    _dispose_loader(val_loader)
                     try:
                         del train_loader
                         del val_loader
@@ -4343,7 +3898,17 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         torch.cuda.empty_cache()
 
                     _workers = num_workers
-                    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=_workers, persistent_workers=(_workers > 0 and not is_constrained_env), pin_memory=True if device.type=='cuda' else False)
+                    _sota_persistent2 = _workers > 0 and _host_ram_gb >= 16.0
+                    train_loader = DataLoader(
+                        train_ds,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=_workers,
+                        persistent_workers=_sota_persistent2,
+                        pin_memory=True if device.type == 'cuda' else False,
+                        prefetch_factor=8 if _workers > 0 else None,
+                        drop_last=True,
+                    )
                     _vw = min(val_num_workers, 2)
                     val_loader = build_val_loader(val_ds, val_batch_size, _vw, is_constrained=is_constrained_env, dev=device)
                     if device.type == 'cuda': torch.cuda.empty_cache()
@@ -4356,7 +3921,7 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 print(f"\n[Zero-Latency Pre-Fetch] Triggering parallel background data streams natively for next workflow phase!")
                 base_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "prefetch_worker.py"), args.prefetch_datasets, os.path.join(os.path.dirname(__file__), "..", "data", "datasets")]
                 if os.name == 'nt':
-                    p = subprocess.Popen(base_cmd, creationflags=0x08000000) # CREATE_NO_WINDOW
+                    p = subprocess.Popen(base_cmd, creationflags=0x08000000)
                 else:
                     p = subprocess.Popen(base_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 _active_processes.append(p)
@@ -4366,9 +3931,41 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                 print("\n[Task Complete] SOTA Reinforcement Epoch successfully burned! Terminating training loop to compile SOTA ONNX matrices instantly!")
                 break
             print(f" -> SOTA Cooldown Epochs remaining: {sota_countdown}")
-            sota_countdown -= 1 # pyre-ignore
+            sota_countdown -= 1
 
-        # Reset intra-epoch skip/resume counters
+        # --- 2026 v15.6: DYNAMIC BATCH GROWTH ---
+        if device.type == 'cuda' and not args.batch_size and not in_recovery_mode:
+            try:
+                _free_b, _total_b = torch.cuda.mem_get_info(0)
+                _free_ratio = _free_b / max(1, _total_b)
+                _new_bs, _new_acc = governor.suggest_batch_growth(
+                    batch_size, accumulation_steps, target_eff, _free_ratio
+                )
+                if _new_bs > batch_size:
+                    print(f" [SPEED] [DYNAMIC-BATCH] Growing physical batch: {batch_size} -> {_new_bs} (free VRAM {_free_ratio*100:.0f}%, acc {accumulation_steps} -> {_new_acc})")
+                    batch_size = _new_bs
+                    accumulation_steps = _new_acc
+                    _dispose_loader(train_loader)
+                    _dispose_loader(val_loader)
+                    try:
+                        del train_loader, val_loader
+                    except Exception:
+                        pass
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    train_loader = DataLoader(
+                        train_ds,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=num_workers,
+                        persistent_workers=use_persistent,
+                        pin_memory=True,
+                        prefetch_factor=8 if num_workers > 0 else None,
+                        drop_last=True,
+                    )
+            except Exception as _bg_err:
+                print(f" [WARN] Dynamic batch growth skipped: {_bg_err}")
+
         resume_iteration = 0
         val_resume_iteration = 0
         current_iter = 0
@@ -4385,7 +3982,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         if 'best_val_loss' in locals() and best_val_loss < float('inf'):
             print(f" Best Validation Loss: {best_val_loss:.6f}")
 
-        # SOTA Target Benchmark Audit
         sota_targets = model_info.get("sota_targets", {})
         if sota_targets and 'best_metrics' in locals() and best_metrics:
             print("\n SOTA Target Benchmark Audit:")
@@ -4447,7 +4043,6 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 def trigger_sota_export(args, model, device, config, unified_models_registry, epoch, best_metrics, best_quality_score, plcc, srcc, psnr, ssim_val, lpips_val, fid, export_dir, hub_model_dir, project_root, skip_sync=False):
     """
     Standardized 2026 SOTA Export Suite.
-    Handles ONNX conversion, PyTorch Unity synthesis, documentation, and Hub mirroring.
     """
     import shutil
     try:
@@ -4462,18 +4057,13 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
         else:
             h, w = None, None
 
-        # --- 2026 SOTA Universal Export Suite Synchronization ---
         python_exe = sys.executable
         export_script_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "export")
 
-        # 1. Standardized ONNX Matrix
         print(f"[EXPORT] Triggering Universal ONNX Matrix Synthesis...")
         onnx_script = os.path.join(export_script_dir, "export_onnx_model.py")
-        # 2026: Pass explicit checkpoint path to avoid 'Epoch 0' ghosting
         best_ckpt_path = os.path.join(hub_model_dir, "checkpoints", f"{args.model}_best.pth")
 
-        # --- 2026 Resilience: Memory Purge Pre-Export ---
-        # Free up VRAM so the heavy ONNX exporter doesn't OOM on 4GB GPUs
         try:
             model.cpu()
             gc.collect()
@@ -4483,12 +4073,10 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
 
         subprocess.call([python_exe, onnx_script, "--model", args.model, "--checkpoint", best_ckpt_path, "--yes"])
 
-        # 2. Standardized PyTorch Standalone
         print(f"[EXPORT] Triggering Standalone PyTorch Unity Synthesis...")
         torch_script = os.path.join(export_script_dir, "export_torch_model.py")
         subprocess.call([sys.executable, torch_script, "--model", args.model, "--checkpoint", best_ckpt_path, "--yes"])
 
-        # 3. README Documentation
         try:
             from training.doc_generator import build_model_readme
             readme_text = build_model_readme(args.model, unified_models_registry, epoch+1, best_metrics)
@@ -4497,7 +4085,6 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
         except Exception as doc_err:
             print(f" [WARNING] [DOC GENERATION] Failed to build model README: {doc_err}")
 
-        # 4. Notebook Generation
         try:
             from training.notebook_generator import (
                 generate_inference_notebook,
@@ -4512,13 +4099,11 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
         except Exception as nb_err:
             print(f" [WARNING] [NOTEBOOK GENERATION] Failed to generate notebooks: {nb_err}")
 
-        # 5. Hub Synchronization
         if os.path.abspath(export_dir) != os.path.abspath(hub_model_dir):
             os.makedirs(hub_model_dir, exist_ok=True)
             shutil.copytree(export_dir, hub_model_dir, dirs_exist_ok=True)
             print(f"[SUCCESS] [SUCCESS] {args.model} production binaries and documentation synced to Hub.")
 
-        # 6. Kaggle UI Root Mirroring (Instant 1-click download in Output panel)
         is_kaggle = args.env == 'kaggle' or os.environ.get('KAGGLE_WORKING_DIR') or os.environ.get('KAGGLE_KERNEL_RUN_TYPE')
         if is_kaggle and os.path.exists('/kaggle/working'):
             for exp_f in os.listdir(export_dir):
@@ -4532,8 +4117,6 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
                         except Exception as e:
                             print(f"[REMEDY] Failed to mirror artifact {exp_f}: {e}")
 
-        # 7. Final Kaggle Cloud Sync
-        # Ensure that ONNX, README, and Notebooks generated after the epoch loop are actually pushed to the Kaggle Model.
         if args.env == 'kaggle' and not skip_sync:
             try:
                 from training.cloud_sync import trigger_cloud_sync
@@ -4546,7 +4129,6 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
     except Exception as e:
         print(f"[WARNING] [EXPORT FAILURE] {e}")
     finally:
-        # 2026 Resilience: Unconditionally restore model and DataParallel parameters to target device
         if model is not None and device is not None:
             try:
                 model.to(device)
@@ -4555,14 +4137,12 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
 
 if __name__ == "__main__":
     try:
-        main() # pyre-ignore
+        main()
     except KeyboardInterrupt:
         print("\n\n[INTERRUPT] Manual abort detected. Saving current state to progress.pth...")
         try:
-            # We locate the active variables inside main() using sys._getframe()
             import sys
             frame = sys._getframe(1)
-            # Find main frame
             while frame and frame.f_code.co_name != "main":
                 frame = frame.f_back
             if frame:

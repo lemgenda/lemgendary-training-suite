@@ -4,6 +4,7 @@ import base64
 import argparse
 import sys
 
+
 def generate_inference_notebook(model_key, export_dir, unified_models_registry=None, config=None):
     """
     Generates a v16.2.9 Nuclear-Hardened Inference Notebook for Kaggle.
@@ -11,7 +12,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
     pascal_model_name = model_key.replace("_", " ").title().replace(" ", "")
     kebab_model_name = model_key.replace("_", "-")
 
-    # Derive the actual Kaggle dataset slug
     dataset_slug = f"lemgendary-{kebab_model_name}"
     if config:
         k_urls = config.get("kaggle_dataset_urls", {})
@@ -33,8 +33,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         ds_list = []
     is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
     ds_keys_repr = repr([model_key.lower(), model_key.replace("_", "-"), model_key.replace("_", "")] + [d.lower() for d in ds_list] + (["forex"] if is_forex else []))
-
-    # --- Section Logic: v16.0 Nuclear Orchestration ---
 
     accel_str = "GPU T4 x2 (30GB total VRAM) [Recommended]"
 
@@ -83,7 +81,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "        print('[WARNING] Low VRAM detected. Suite will enable Survival Profiles automatically.')\n"
     ]
 
-
     secrets_source = [
         "try:\n",
         "    import base64 as _b64\n",
@@ -131,8 +128,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    print(f'[ERROR] Secret mounting failed: {e}')\n"
     ]
 
-    # 2026 v1.1: URL-encode PAT before injecting into clone URL.
-    # Fixes malformed clone URLs when fine-grained GitHub tokens contain '+', '/', or '='.
     clone_source = [
         "import os, subprocess, shutil\n",
         "from urllib.parse import quote as _url_quote\n",
@@ -140,9 +135,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "suite_path = '/kaggle/working/lemgendary-training-suite'\n",
         "pat = os.environ.get('SUITE_PAT', os.environ.get('GITHUB_PAT', ''))\n",
         "if pat:\n",
-        "    # 2026 v1.1: URL-encode the PAT before injecting it into the clone URL.\n",
-        "    # GitHub PATs are usually [A-Za-z0-9_-], but fine-grained tokens can\n",
-        "    # occasionally contain '+' or '/' which break the URL.\n",
         "    _safe_pat = _url_quote(pat, safe='')\n",
         "    auth_url = repo_url.replace('https://', f'https://x-access-token:{_safe_pat}@')\n",
         "    print(f'[AUTH] Using {\"SUITE_PAT\" if os.environ.get(\"SUITE_PAT\") else \"GITHUB_PAT\"} for cloning...')\n",
@@ -156,7 +148,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "\n",
         "if not os.path.exists(suite_path):\n",
         "    print('[SUITE] Initializing LemGendary Training Suite...')\n",
-        "    # 2026 v1.1: --depth 1 keeps the initial clone fast on Kaggle.\n",
         "    res = subprocess.run(['git', 'clone', '--depth', '1', auth_url, suite_path], capture_output=True, text=True, env=env)\n",
         "    if res.returncode == 0: \n",
         "        print('[OK] Suite cloned.')\n",
@@ -184,11 +175,9 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "    subprocess.run(['git', 'pull'], cwd=env_mgr_path, env=env, capture_output=True)\n"
     ]
 
-    # 2026 v2.0: Kaggle `symlink_source` NEVER downloads a dataset.
-    # If a manifold is not found in /kaggle/input, a clear error is raised
-    # instructing the user to attach the dataset via the Kaggle sidebar.
+    # 2026 v3.0: Kaggle symlink_source — recursive manifold discovery.
     symlink_source = [
-        "import os\n",
+        "import os, re\n",
         f"model_key = '{model_key}'\n",
         "target_dir = '/kaggle/working/LemGendaryDatasets'\n",
         "os.makedirs(target_dir, exist_ok=True)\n",
@@ -196,11 +185,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "print(f'[DATA] Resolving manifolds for {model_key}...')\n",
         "found = []\n",
         f"keys = {ds_keys_repr}\n",
-        "\n",
-        "# ── 2026 v2.0: Kaggle never downloads datasets — attached data only ──\n",
-        "# The Kaggle session mounts attached datasets at /kaggle/input/<slug>/.\n",
-        "# We enumerate everything there and symlink into /kaggle/working/.\n",
-        "# No download fallback exists in this variant by design.\n",
         "\n",
         "# 1. Multi-Dataset Annual Forex Assembly (2019-2026)\n",
         f"if {is_forex} or any('forex' in k for k in keys):\n",
@@ -274,41 +258,70 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            except Exception:\n",
         "                pass\n",
         "        print(f'[OK] [FOREX] Assembly complete: {len(forex_years_found)} annual manifolds operational for Walk-Forward Curriculum.')\n",
+        "        found.append(forex_composite_dir)\n",
         "\n",
-        "# 2. Attached-manifold scanner — enumerates /kaggle/input/<slug>/ and\n",
-        "#    /kaggle/input/<slug>/<Manifold>/ without ever triggering a download.\n",
-        "def _scan_kaggle_inputs(root='/kaggle/input'):\n",
+        "# 2. Universal deep scanner — walks legacy AND modern Kaggle layouts\n",
+        "def _scan_kaggle_inputs(root='/kaggle/input', max_depth=6):\n",
         "    if not os.path.isdir(root):\n",
         "        return []\n",
         "    results = []\n",
-        "    for slug in os.listdir(root):\n",
-        "        slug_path = os.path.join(root, slug)\n",
-        "        if not os.path.isdir(slug_path):\n",
-        "            continue\n",
-        "        candidates = []\n",
+        "    seen = set()\n",
+        "    _MANIFOLD_SUBDIRS = {'images', 'targets', 'masks', 'forex', 'train', 'val', 'test', 'splits'}\n",
+        "    _MANIFOLD_META = {'dataset_info.yaml', 'category.txt', 'classes.txt', 'README.md'}\n",
+        "    def _looks_like_manifold(p):\n",
+        "        if not os.path.isdir(p):\n",
+        "            return False\n",
         "        try:\n",
-        "            for inner in os.listdir(slug_path):\n",
-        "                inner_path = os.path.join(slug_path, inner)\n",
-        "                if os.path.isdir(inner_path):\n",
-        "                    candidates.append(inner_path)\n",
+        "            names = os.listdir(p)\n",
         "        except OSError:\n",
-        "            pass\n",
-        "        candidates.append(slug_path)\n",
-        "        for cand in candidates:\n",
-        "            try:\n",
-        "                valid = (\n",
-        "                    os.path.isdir(os.path.join(cand, 'images'))\n",
-        "                    or os.path.isdir(os.path.join(cand, 'targets'))\n",
-        "                    or os.path.isdir(os.path.join(cand, 'masks'))\n",
-        "                    or os.path.isdir(os.path.join(cand, 'forex'))\n",
-        "                    or any(f.endswith('.parquet') for f in os.listdir(cand))\n",
-        "                )\n",
-        "            except OSError:\n",
-        "                continue\n",
-        "            if valid:\n",
-        "                results.append(cand)\n",
+        "            return False\n",
+        "        if any(f.endswith('.parquet') for f in names):\n",
+        "            return True\n",
+        "        if any(f in names for f in _MANIFOLD_META):\n",
+        "            return True\n",
+        "        for n in names:\n",
+        "            full = os.path.join(p, n)\n",
+        "            if os.path.isdir(full) and n.lower() in _MANIFOLD_SUBDIRS:\n",
+        "                return True\n",
+        "        return False\n",
+        "    def _walk(start, depth=0):\n",
+        "        if depth > max_depth or not os.path.isdir(start):\n",
+        "            return\n",
+        "        if _looks_like_manifold(start):\n",
+        "            real = os.path.realpath(start)\n",
+        "            if real not in seen:\n",
+        "                seen.add(real)\n",
+        "                results.append(start)\n",
+        "            return\n",
+        "        try:\n",
+        "            children = os.listdir(start)\n",
+        "        except OSError:\n",
+        "            return\n",
+        "        for child in children:\n",
+        "            _walk(os.path.join(start, child), depth + 1)\n",
+        "    for top in os.listdir(root):\n",
+        "        top_path = os.path.join(root, top)\n",
+        "        if not os.path.isdir(top_path):\n",
+        "            continue\n",
+        "        if top == 'datasets':\n",
+        "            try: owners = os.listdir(top_path)\n",
+        "            except OSError: continue\n",
+        "            for owner in owners:\n",
+        "                owner_path = os.path.join(top_path, owner)\n",
+        "                if not os.path.isdir(owner_path): continue\n",
+        "                try: slugs = os.listdir(owner_path)\n",
+        "                except OSError: continue\n",
+        "                for slug in slugs:\n",
+        "                    slug_path = os.path.join(owner_path, slug)\n",
+        "                    if os.path.isdir(slug_path):\n",
+        "                        _walk(slug_path, depth=0)\n",
+        "        elif top == 'models':\n",
+        "            continue\n",
+        "        else:\n",
+        "            _walk(top_path, depth=0)\n",
         "    return results\n",
         "\n",
+        "# 3. Link EVERY discovered manifold with rich aliases.\n",
         "if os.path.exists('/kaggle/input'):\n",
         "    attached = _scan_kaggle_inputs()\n",
         "    if attached:\n",
@@ -317,37 +330,42 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "            print(f'   -> {cand}')\n",
         "        for cand in attached:\n",
         "            bname = os.path.basename(cand)\n",
-        "            for alias in {bname, bname.lower()}:\n",
+        "            aliases = {bname, bname.lower()}\n",
+        "            stripped = re.sub(r'^LemGendized', '', bname, flags=re.IGNORECASE)\n",
+        "            if stripped != bname:\n",
+        "                aliases.add(stripped)\n",
+        "                aliases.add(stripped.lower())\n",
+        "                for suf in ('Large', 'Medium', 'Small'):\n",
+        "                    if stripped.endswith(suf):\n",
+        "                        stem = stripped[:-len(suf)]\n",
+        "                        aliases.add(stem)\n",
+        "                        aliases.add(stem.lower())\n",
+        "            for alias in aliases:\n",
+        "                if not alias: continue\n",
         "                link_name = os.path.join(target_dir, alias)\n",
-        "                if not os.path.exists(link_name):\n",
-        "                    try:\n",
-        "                        os.symlink(cand, link_name)\n",
-        "                        print(f'   -> [OK] [LINKED] {alias} -> {cand}')\n",
-        "                        found.append(cand)\n",
-        "                    except OSError as e:\n",
-        "                        print(f'   -> [WARN] Symlink failed for {alias}: {e}')\n",
+        "                if os.path.exists(link_name): continue\n",
+        "                try:\n",
+        "                    os.symlink(cand, link_name)\n",
+        "                    print(f'   -> [OK] [LINKED] {alias} -> {cand}')\n",
+        "                except OSError as e:\n",
+        "                    print(f'   -> [WARN] Symlink failed for {alias}: {e}')\n",
+        "            found.append(cand)\n",
         "\n",
-        "# 3. Hard error if no attached manifold matches the expected keys.\n",
-        "#    The Kaggle variant NEVER downloads — this is the terminal branch.\n",
+        "# 4. Hard abort ONLY if nothing was discoverable.\n",
         "if not found:\n",
-        "    expected = [k for k in keys if 'forex' not in k.lower()][:3]\n",
         "    raise RuntimeError(\n",
-        "        f'[ABORT] No attached dataset found in /kaggle/input for {model_key}. '\n",
-        "        f'Expected one of: {expected}. '\n",
+        "        f'[ABORT] Nothing attached in /kaggle/input for {model_key}. '\n",
         "        f'Attach the dataset via the Kaggle sidebar (Add Input -> Your Datasets) '\n",
-        "        f'and re-run from the top. The Kaggle notebook never downloads datasets.'\n",
+        "        f'and re-run from the top.'\n",
         "    )\n",
         "\n",
         "print(f'[OK] [DATA] {len(found)} manifold symlink(s) ready in {target_dir}.')\n"
     ]
 
-    # 2026 v1.1 fix applied here: removed invalid `--no-warn-conflicts` pip flag
-    # (was aborting install with exit code 2).
     install_source = [
         "import os, sys, subprocess, platform, shutil\n",
         "print('[ENV] Probing hardware accelerator...')\n",
         "\n",
-        "# Full hardware detection: CUDA > ROCm > DirectML > CPU\n",
         "torch_index = 'https://download.pytorch.org/whl/cpu'\n",
         "accel_type = 'cpu'\n",
         "if shutil.which('nvidia-smi'):\n",
@@ -381,7 +399,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "print(f'[ENV] Accelerator: {accel_type}')\n",
         "print(f'[ENV] PyTorch index: {torch_index}')\n",
         "\n",
-        "# Prefer centralized manifest from env-manager; fall back to cloned suite\n",
         "req_candidates = [\n",
         "    '/kaggle/working/lemgendary-env-manager/requirements/requirements-training.txt',\n",
         "    '/kaggle/working/lemgendary-env-manager/requirements/lemgendary-training-suite.requirements.txt',\n",
@@ -392,7 +409,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "\n",
         "if req_path:\n",
         "    print(f'[ENV] Manifest: {req_path}')\n",
-        "    # 2026 v1.1: '--no-warn-conflicts' is NOT a valid pip flag (removed).\n",
         "    res = subprocess.run(\n",
         "        [sys.executable, '-m', 'pip', 'install', '-q',\n",
         "         '--extra-index-url', torch_index,\n",
@@ -440,7 +456,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "os.makedirs(ckpt_hub_dir, exist_ok=True)\n",
         "device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
         "\n",
-        "# 2026 NUCLEAR: Prioritize Kaggle Inputs and recover to Hub using BFS scanner (max depth 6, directories only)\n",
         "input_ckpts = []\n",
         "if os.path.exists('/kaggle/input'):\n",
         "    try:\n",
@@ -530,7 +545,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "os.chdir(active_suite_dir)\n",
         "print(f'[OK] [SUITE] Active working directory set to: {os.getcwd()}')\n",
         "\n",
-        "# [JANITOR] Clean up any pre-existing zombie training processes to free the GPU\n",
         "try:\n",
         "    current_pid = os.getpid()\n",
         "    ps_out = subprocess.check_output(['ps', '-ef'], text=True)\n",
@@ -687,9 +701,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs manifold.')\n"
     ]
 
-
-
-
     notebook_content = {
         "metadata": {
             "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
@@ -698,104 +709,34 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         "nbformat_minor": 4,
         "nbformat": 4,
         "cells": [
-            {
-                "cell_type": "markdown",
-                "source": [
-                    f"# LemGendary Master Execution: {pascal_model_name} (v16.2.9 Nuclear-Hardened)\n",
-                    "This unified notebook handles environment synchronization and automated cloud training.\n"
-                ],
-                "metadata": {}
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 1. Hardware Sentinel\n", "Ensure the manifold has the required hardware acceleration.\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": hardware_sentinel_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 2. Cloud Auth & Secrets\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": secrets_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 3. Environment Synchronization\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": clone_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "code",
-                "source": install_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 4. SOTA Hub Synchronization (Pull)\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": hub_prep_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 5. Multi-Path Data Resolution\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": symlink_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 6. Checkpoint & Metric Recovery\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": checkpoint_recovery_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 7. Nuclear Training Matrix\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": training_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            }
+            {"cell_type": "markdown", "source": [f"# LemGendary Master Execution: {pascal_model_name} (v16.2.9 Nuclear-Hardened)\n", "This unified notebook handles environment synchronization and automated cloud training.\n"], "metadata": {}},
+            {"cell_type": "markdown", "source": ["## 1. Hardware Sentinel\n", "Ensure the manifold has the required hardware acceleration.\n"], "metadata": {}},
+            {"cell_type": "code", "source": hardware_sentinel_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 2. Cloud Auth & Secrets\n"], "metadata": {}},
+            {"cell_type": "code", "source": secrets_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 3. Environment Synchronization\n"], "metadata": {}},
+            {"cell_type": "code", "source": clone_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "code", "source": install_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 4. SOTA Hub Synchronization (Pull)\n"], "metadata": {}},
+            {"cell_type": "code", "source": hub_prep_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 5. Multi-Path Data Resolution\n"], "metadata": {}},
+            {"cell_type": "code", "source": symlink_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 6. Checkpoint & Metric Recovery\n"], "metadata": {}},
+            {"cell_type": "code", "source": checkpoint_recovery_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 7. Nuclear Training Matrix\n"], "metadata": {}},
+            {"cell_type": "code", "source": training_source, "metadata": {}, "outputs": [], "execution_count": None}
         ]
     }
 
     output_path = os.path.join(export_dir, f"{model_key}_training.ipynb")
 
-    # --- 2026 Resilience: Dual-Export & Manifold Synchronization ---
-
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     datasets_hub_root = os.path.abspath(os.path.join(base_dir, "../LemGendaryDatasets"))
 
-    # 1. Primary Model Export (Verified JSON)
     os.makedirs(export_dir, exist_ok=True)
     try:
         json_str = json.dumps(notebook_content, indent=4)
-        json.loads(json_str) # Hard Validation
+        json.loads(json_str)
         with open(output_path, "w", encoding='utf-8') as f:
             f.write(json_str)
         print(f"[OK] Generated Training Notebook: {output_path}")
@@ -804,7 +745,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
         print("[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings.")
         return
 
-    # 2. Dataset Manifold Synchronization
     if unified_models_registry:
         m_info = unified_models_registry.get(model_key, {})
         ds_raw = m_info.get("datasets", []) or m_info.get("dataset", [])
@@ -853,7 +793,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
                     except Exception:
                         pass
 
-        # 3. Dedicated Kaggle Directory Synchronization (Workspace Root)
         workspace_root = os.path.abspath(os.path.join(base_dir, ".."))
         kaggle_dir = os.path.join(workspace_root, "kaggle_training")
         os.makedirs(kaggle_dir, exist_ok=True)
@@ -864,7 +803,6 @@ def generate_inference_notebook(model_key, export_dir, unified_models_registry=N
             print(f"[OK] Synchronized Kaggle Training Notebook: {k_out}")
         except Exception:
             pass
-
 
 
 def generate_usage_notebook(model_key, export_dir, unified_models_registry=None, config=None):
@@ -968,7 +906,6 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             "    print(f'Prediction Raw: {output.cpu().numpy()}')\n",
             "except Exception as e: print(f'Stealth Load Info: {e}')\n"
         ]
-
         onnx_fp32_source = [
             "import base64, numpy as np\n",
             "try:\n",
@@ -987,7 +924,6 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
             "    print(f'Prediction Raw: {output}')\n",
             "except Exception as e: print(f'ORT Load Info: {e}')\n"
         ]
-
         onnx_fp16_source = [
             "import base64, numpy as np\n",
             "try:\n",
@@ -1015,60 +951,20 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
         "nbformat_minor": 4,
         "nbformat": 4,
         "cells": [
-            {
-                "cell_type": "markdown",
-                "source": [
-                    f"# LemGendary SOTA Usage: {pascal_model_name}\n",
-                    "Implementation guide for production-grade model integration.\n"
-                ],
-                "metadata": {}
-            },
-            {
-                "cell_type": "markdown",
-                "source": [
-                    "## 1. PyTorch Standalone (FP32)\n",
-                    "Best for local research, further training, or high-fidelity Python backends. This format includes the full architecture definition.\n"
-                ],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": pth_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": [
-                    "## 2. ONNX Matrix (FP32 + External Weights)\n",
-                    "Optimized for desktop deployment where precision is critical. Uses a decoupled `.data` file for stability.\n"
-                ],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": onnx_fp32_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": [
-                    "## 3. ONNX Production (FP16 Embedded)\n",
-                    "Production-ready standalone matrix. Optimized for WebGPU, mobile, and low-latency edge inference.\n"
-                ],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": onnx_fp16_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            }
+            {"cell_type": "markdown", "source": [f"# LemGendary SOTA Usage: {pascal_model_name}\n", "Implementation guide for production-grade model integration.\n"], "metadata": {}},
+            {"cell_type": "markdown", "source": ["## 1. PyTorch Standalone (FP32)\n", "Best for local research, further training, or high-fidelity Python backends. This format includes the full architecture definition.\n"], "metadata": {}},
+            {"cell_type": "code", "source": pth_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 2. ONNX Matrix (FP32 + External Weights)\n", "Optimized for desktop deployment where precision is critical. Uses a decoupled `.data` file for stability.\n"], "metadata": {}},
+            {"cell_type": "code", "source": onnx_fp32_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 3. ONNX Production (FP16 Embedded)\n", "Production-ready standalone matrix. Optimized for WebGPU, mobile, and low-latency edge inference.\n"], "metadata": {}},
+            {"cell_type": "code", "source": onnx_fp16_source, "metadata": {}, "outputs": [], "execution_count": None}
         ]
     }
     output_path = os.path.join(export_dir, f"{model_key}-usage.ipynb")
 
     try:
         json_str = json.dumps(notebook_content, indent=4)
-        json.loads(json_str) # Hard Validation
+        json.loads(json_str)
         with open(output_path, "w", encoding='utf-8') as f:
             f.write(json_str)
         print(f"[OK] Generated Usage Notebook: {output_path}")
@@ -1079,7 +975,7 @@ def generate_usage_notebook(model_key, export_dir, unified_models_registry=None,
 
 def generate_colab_inference_notebook(model_key, export_dir, unified_models_registry=None, config=None):
     """
-    Generates a v16.2.9 Nuclear-Hardened Inference Notebook for Kaggle.
+    Generates a v16.2.9 Nuclear-Hardened Inference Notebook for Colab.
     """
     pascal_model_name = model_key.replace("_", " ").title().replace(" ", "")
     kebab_model_name = model_key.replace("_", "-")
@@ -1122,7 +1018,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
     if not clean_kaggle_repo:
         clean_kaggle_repo = f"lemtreursi/{primary_manifold.lower()}"
 
-    # 2026 v2.0: Global config flag to prevent ANY download on Colab
     no_download = bool(config.get("notebook_no_download", False)) if config else False
 
     hardware_sentinel_source = [
@@ -1215,7 +1110,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    print(f'[ERROR] Secret mounting failed: {e}')\n"
     ]
 
-    # 2026 v1.1: URL-encode PAT before injecting into clone URL.
     clone_source = [
         "import os, subprocess, shutil\n",
         "from urllib.parse import quote as _url_quote\n",
@@ -1223,7 +1117,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "suite_path = '/content/lemgendary-training-suite'\n",
         "pat = os.environ.get('SUITE_PAT', os.environ.get('GITHUB_PAT', ''))\n",
         "if pat:\n",
-        "    # 2026 v1.1: URL-encode the PAT before injecting it into the clone URL.\n",
         "    _safe_pat = _url_quote(pat, safe='')\n",
         "    auth_url = repo_url.replace('https://', f'https://x-access-token:{_safe_pat}@')\n",
         "    print(f'[AUTH] Using {\"SUITE_PAT\" if os.environ.get(\"SUITE_PAT\") else \"GITHUB_PAT\"} for cloning...')\n",
@@ -1244,14 +1137,13 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "        print(f'[ERROR] Clone failed: {res.stderr.strip()}')\n",
         "        print('[REMEDY] If a 403/401 occurs, ensure your SUITE_PAT or GITHUB_PAT has repo read permissions.')\n",
         "        if '403' in res.stderr or '401' in res.stderr or 'terminal prompts disabled' in res.stderr:\n",
-        "            print('[ACTION REQUIRED] Add SUITE_PAT or GITHUB_PAT to Kaggle Add-ons -> Secrets with GitHub read permissions.')\n",
+        "            print('[ACTION REQUIRED] Add SUITE_PAT or GITHUB_PAT to Colab Secrets with GitHub read permissions.')\n",
         "else:\n",
         "    print('[OK] Suite resident. Syncing origin and pulling latest...')\n",
         "    subprocess.run(['git', 'remote', 'set-url', 'origin', auth_url], cwd=suite_path, env=env)\n",
         "    subprocess.run(['git', 'fetch', '--depth', '1', 'origin'], cwd=suite_path, env=env)\n",
         "    subprocess.run(['git', 'reset', '--hard', 'origin/main'], cwd=suite_path, env=env)\n",
         "\n",
-        "# Clone LemGendary Environment Manager for centralized manifests\n",
         "env_mgr_url = 'https://github.com/lemgenda/lemgendary-env-manager.git'\n",
         "env_mgr_path = '/content/lemgendary-env-manager'\n",
         "if pat:\n",
@@ -1272,11 +1164,9 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "print('[OK] Google Drive mounted successfully. Datasets will be streamed directly from Drive.')\n"
     ]
 
-    # 2026 v2.0: Prefer /kaggle/input and /content/drive over network download.
-    # If a Colab notebook is executed inside a Kaggle session, the attached
-    # dataset is scanned first and the download branch is never reached.
+    # 2026 v3.0: Colab symlink_source — recursive scanner + Drive fallback.
     symlink_source = [
-        "import os, subprocess, shutil, sys\n",
+        "import os, subprocess, shutil, sys, re\n",
         f"model_key = '{model_key}'\n",
         f"kaggle_repo = '{clean_kaggle_repo}'\n",
         f"primary_manifold = '{primary_manifold}'\n",
@@ -1287,53 +1177,88 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "print(f'[DATA] Resolving dataset manifold for {model_key}...')\n",
         "print(f'[DATA] Target manifold: {primary_manifold} | Kaggle source: {kaggle_repo}')\n",
         "\n",
-        "# ── 2026 v2.0: Priority scan — /kaggle/input BEFORE any download ──\n",
-        "# When a Colab notebook is run inside a Kaggle session, attached\n",
-        "# datasets are mounted at /kaggle/input/<slug>/. Scanning first\n",
-        "# prevents a fully redundant network download of multi-GB data.\n",
-        "def _scan_kaggle_inputs(root='/kaggle/input'):\n",
+        "def _scan_kaggle_inputs(root='/kaggle/input', max_depth=6):\n",
         "    if not os.path.isdir(root):\n",
-        "        return {}\n",
-        "    found_map = {}\n",
-        "    for slug in os.listdir(root):\n",
-        "        slug_path = os.path.join(root, slug)\n",
-        "        if not os.path.isdir(slug_path):\n",
-        "            continue\n",
-        "        candidates = []\n",
+        "        return []\n",
+        "    results = []\n",
+        "    seen = set()\n",
+        "    _MANIFOLD_SUBDIRS = {'images', 'targets', 'masks', 'forex', 'train', 'val', 'test', 'splits'}\n",
+        "    _MANIFOLD_META = {'dataset_info.yaml', 'category.txt', 'classes.txt', 'README.md'}\n",
+        "    def _looks_like_manifold(p):\n",
+        "        if not os.path.isdir(p):\n",
+        "            return False\n",
         "        try:\n",
-        "            for inner in os.listdir(slug_path):\n",
-        "                inner_path = os.path.join(slug_path, inner)\n",
-        "                if os.path.isdir(inner_path):\n",
-        "                    candidates.append(inner_path)\n",
+        "            names = os.listdir(p)\n",
         "        except OSError:\n",
-        "            pass\n",
-        "        candidates.append(slug_path)\n",
-        "        for cand in candidates:\n",
-        "            try:\n",
-        "                valid = (\n",
-        "                    os.path.isdir(os.path.join(cand, 'images'))\n",
-        "                    or os.path.isdir(os.path.join(cand, 'targets'))\n",
-        "                    or os.path.isdir(os.path.join(cand, 'masks'))\n",
-        "                    or os.path.isdir(os.path.join(cand, 'forex'))\n",
-        "                    or any(f.endswith('.parquet') for f in os.listdir(cand))\n",
-        "                )\n",
-        "            except OSError:\n",
-        "                continue\n",
-        "            if valid:\n",
-        "                bname = os.path.basename(cand)\n",
-        "                found_map.setdefault(bname, cand)\n",
-        "                found_map.setdefault(bname.lower(), cand)\n",
-        "    return found_map\n",
+        "            return False\n",
+        "        if any(f.endswith('.parquet') for f in names):\n",
+        "            return True\n",
+        "        if any(f in names for f in _MANIFOLD_META):\n",
+        "            return True\n",
+        "        for n in names:\n",
+        "            full = os.path.join(p, n)\n",
+        "            if os.path.isdir(full) and n.lower() in _MANIFOLD_SUBDIRS:\n",
+        "                return True\n",
+        "        return False\n",
+        "    def _walk(start, depth=0):\n",
+        "        if depth > max_depth or not os.path.isdir(start):\n",
+        "            return\n",
+        "        if _looks_like_manifold(start):\n",
+        "            real = os.path.realpath(start)\n",
+        "            if real not in seen:\n",
+        "                seen.add(real)\n",
+        "                results.append(start)\n",
+        "            return\n",
+        "        try:\n",
+        "            children = os.listdir(start)\n",
+        "        except OSError:\n",
+        "            return\n",
+        "        for child in children:\n",
+        "            _walk(os.path.join(start, child), depth + 1)\n",
+        "    for top in os.listdir(root):\n",
+        "        top_path = os.path.join(root, top)\n",
+        "        if not os.path.isdir(top_path):\n",
+        "            continue\n",
+        "        if top == 'datasets':\n",
+        "            try: owners = os.listdir(top_path)\n",
+        "            except OSError: continue\n",
+        "            for owner in owners:\n",
+        "                owner_path = os.path.join(top_path, owner)\n",
+        "                if not os.path.isdir(owner_path): continue\n",
+        "                try: slugs = os.listdir(owner_path)\n",
+        "                except OSError: continue\n",
+        "                for slug in slugs:\n",
+        "                    slug_path = os.path.join(owner_path, slug)\n",
+        "                    if os.path.isdir(slug_path):\n",
+        "                        _walk(slug_path, depth=0)\n",
+        "        elif top == 'models':\n",
+        "            continue\n",
+        "        else:\n",
+        "            _walk(top_path, depth=0)\n",
+        "    return results\n",
         "\n",
         "_kaggle_inputs = _scan_kaggle_inputs()\n",
         "if _kaggle_inputs:\n",
-        "    print(f'[PRE-FLIGHT] Discovered {len(_kaggle_inputs) // 2} attached manifold(s) in /kaggle/input.')\n",
-        "    for alias, src in _kaggle_inputs.items():\n",
-        "        dst = os.path.join(target_dir, alias)\n",
-        "        if not os.path.exists(dst):\n",
+        "    print(f'[PRE-FLIGHT] Discovered {len(_kaggle_inputs)} attached manifold(s) in /kaggle/input.')\n",
+        "    for cand in _kaggle_inputs:\n",
+        "        bname = os.path.basename(cand)\n",
+        "        aliases = {bname, bname.lower()}\n",
+        "        stripped = re.sub(r'^LemGendized', '', bname, flags=re.IGNORECASE)\n",
+        "        if stripped != bname:\n",
+        "            aliases.add(stripped)\n",
+        "            aliases.add(stripped.lower())\n",
+        "            for suf in ('Large', 'Medium', 'Small'):\n",
+        "                if stripped.endswith(suf):\n",
+        "                    stem = stripped[:-len(suf)]\n",
+        "                    aliases.add(stem)\n",
+        "                    aliases.add(stem.lower())\n",
+        "        for alias in aliases:\n",
+        "            if not alias: continue\n",
+        "            dst = os.path.join(target_dir, alias)\n",
+        "            if os.path.exists(dst): continue\n",
         "            try:\n",
-        "                os.symlink(src, dst)\n",
-        "                print(f'   -> [OK] [PRE-FLIGHT] {alias} -> {src}')\n",
+        "                os.symlink(cand, dst)\n",
+        "                print(f'   -> [OK] [PRE-FLIGHT] {alias} -> {cand}')\n",
         "            except OSError as e:\n",
         "                print(f'   -> [WARN] Symlink skipped for {alias}: {e}')\n",
         "\n",
@@ -1349,8 +1274,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "if not is_ready:\n",
         "    os.makedirs(dest_path, exist_ok=True)\n",
         "    download_ok = False\n",
-        "    # 2026 v2.0: If running inside Kaggle, /kaggle/input was scanned above.\n",
-        "    # If running inside Colab, /content/drive is preferred over network.\n",
         f"    _no_download = {no_download}\n",
         "    if os.path.exists('/content/drive/MyDrive'):\n",
         "        print('[FALLBACK] Checking Google Drive for manifold...')\n",
@@ -1437,12 +1360,10 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    print(f'[ERROR] Could not resolve dataset manifold for {model_key}!')\n"
     ]
 
-    # 2026 v1.1 fix: removed invalid `--no-warn-conflicts` pip flag.
     install_source = [
         "import os, sys, subprocess, platform, shutil\n",
         "print('[ENV] Probing hardware accelerator...')\n",
         "\n",
-        "# Full hardware detection: CUDA > ROCm > DirectML > CPU\n",
         "torch_index = 'https://download.pytorch.org/whl/cpu'\n",
         "accel_type = 'cpu'\n",
         "if shutil.which('nvidia-smi'):\n",
@@ -1472,7 +1393,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "print(f'[ENV] Accelerator: {accel_type}')\n",
         "print(f'[ENV] PyTorch index: {torch_index}')\n",
         "\n",
-        "# Prefer centralized manifest from env-manager; fall back to cloned suite\n",
         "req_candidates = [\n",
         "    '/content/lemgendary-env-manager/requirements/requirements-training.txt',\n",
         "    '/content/lemgendary-env-manager/requirements/lemgendary-training-suite.requirements.txt',\n",
@@ -1483,7 +1403,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "\n",
         "if req_path:\n",
         "    print(f'[ENV] Manifest: {req_path}')\n",
-        "    # 2026 v1.1: '--no-warn-conflicts' is NOT a valid pip flag (removed).\n",
         "    res = subprocess.run(\n",
         "        [sys.executable, '-m', 'pip', 'install', '-q',\n",
         "         '--extra-index-url', torch_index,\n",
@@ -1506,8 +1425,8 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "else:\n",
         "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
         "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the repository.\")\n",
-        "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
-        "    print('[ACTION REQUIRED] Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
+        "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Colab Secrets.')\n",
+        "    print('[ACTION REQUIRED] Fix: Go to Colab Secrets and add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
     ]
 
     hub_prep_source = [
@@ -1560,7 +1479,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "        pass\n",
         "\n",
         "if input_ckpts:\n",
-        "    print(f'[RECOVERY] Hydrating hub from Kaggle Inputs...')\n",
+        "    print(f'[RECOVERY] Hydrating hub from Google Drive...')\n",
         "    for src in input_ckpts:\n",
         "        fname = os.path.basename(src)\n",
         "        dst = os.path.join(ckpt_hub_dir, fname)\n",
@@ -1620,7 +1539,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "os.chdir(active_suite_dir)\n",
         "print(f'[OK] [SUITE] Active working directory set to: {os.getcwd()}')\n",
         "\n",
-        "# [JANITOR] Clean up any pre-existing zombie training processes to free the GPU\n",
         "try:\n",
         "    current_pid = os.getpid()\n",
         "    ps_out = subprocess.check_output(['ps', '-ef'], text=True)\n",
@@ -1738,7 +1656,7 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "\n",
         "found_ckpts = sorted(list(set(found_ckpts)))\n",
         "if found_ckpts:\n",
-        "    print(f'   -> [FOUND] {len(found_ckpts)} binaries in Kaggle Manifold.')\n",
+        "    print(f'   -> [FOUND] {len(found_ckpts)} binaries in Google Drive.')\n",
         "    for src in found_ckpts:\n",
         "        if f'/{model_key}/' not in src.replace('\\\\', '/') and f'{model_key}' not in os.path.basename(src):\n",
         "            continue\n",
@@ -1767,11 +1685,9 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "                    metrics_found = True; break\n",
         "                except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
         "        if metrics_found: break\n",
-        "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs manifold.')\n"
+        "else: print('   -> [SKIP] No existing checkpoints found in Google Drive manifold.')\n"
     ]
 
-    # 2026 v1.1: Guard `found_ckpts` with a NameError-safe lookup — the
-    # previous cell may have been skipped, in which case the symbol is undefined.
     continuous_sync_source = [
         "import os, time, shutil, threading\n",
         f"model_key = '{model_key}'\n",
@@ -1779,8 +1695,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "model_hub_dir = os.path.join(hub_root, model_key)\n",
         "ckpt_hub_dir = os.path.join(model_hub_dir, 'checkpoints')\n",
         "\n",
-        "# 2026 v1.1: The previous cell may have been skipped or failed before\n",
-        "# populating `found_ckpts`. Guard with a NameError-safe lookup.\n",
         "try:\n",
         "    _found = found_ckpts\n",
         "except NameError:\n",
@@ -1825,7 +1739,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "    print('[WARNING] No Google Drive checkpoint directory found. Background sync disabled.')\n"
     ]
 
-
     notebook_content = {
         "metadata": {
             "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
@@ -1834,109 +1747,26 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
         "nbformat_minor": 4,
         "nbformat": 4,
         "cells": [
-            {
-                "cell_type": "markdown",
-                "source": [
-                    f"# LemGendary Master Execution: {pascal_model_name} (v16.2.9 Nuclear-Hardened)\n",
-                    "This unified notebook handles environment synchronization and automated cloud training.\n"
-                ],
-                "metadata": {}
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 1. Hardware Sentinel\n", "Ensure the manifold has the required hardware acceleration.\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": hardware_sentinel_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 2. Cloud Auth & Secrets\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": secrets_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 3. Environment Synchronization\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": clone_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "code",
-                "source": install_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 4. SOTA Hub Synchronization (Pull)\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": hub_prep_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 4.5 Google Drive Mount\n", "Mount Google Drive FUSE for streaming datasets directly.\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": fuse_mount_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 5. Kaggle Dataset Acquisition & Manifold Resolution\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": symlink_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 6. Checkpoint & Metric Recovery\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": checkpoint_recovery_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 7. Continuous Drive Synchronization\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": continuous_sync_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": ["## 8. Nuclear Training Matrix\n"],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": training_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            }
+            {"cell_type": "markdown", "source": [f"# LemGendary Master Execution: {pascal_model_name} (v16.2.9 Nuclear-Hardened Colab Edition)\n", "This unified notebook handles environment synchronization and automated cloud training.\n"], "metadata": {}},
+            {"cell_type": "markdown", "source": ["## 1. Hardware Sentinel\n", "Ensure the manifold has the required hardware acceleration.\n"], "metadata": {}},
+            {"cell_type": "code", "source": hardware_sentinel_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 2. Cloud Auth & Secrets\n"], "metadata": {}},
+            {"cell_type": "code", "source": secrets_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 3. Environment Synchronization\n"], "metadata": {}},
+            {"cell_type": "code", "source": clone_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "code", "source": install_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 4. SOTA Hub Synchronization (Pull)\n"], "metadata": {}},
+            {"cell_type": "code", "source": hub_prep_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 4.5 Google Drive Mount\n", "Mount Google Drive FUSE for streaming datasets directly.\n"], "metadata": {}},
+            {"cell_type": "code", "source": fuse_mount_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 5. Kaggle Dataset Acquisition & Manifold Resolution\n"], "metadata": {}},
+            {"cell_type": "code", "source": symlink_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 6. Checkpoint & Metric Recovery\n"], "metadata": {}},
+            {"cell_type": "code", "source": checkpoint_recovery_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 7. Continuous Drive Synchronization\n"], "metadata": {}},
+            {"cell_type": "code", "source": continuous_sync_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 8. Nuclear Training Matrix\n"], "metadata": {}},
+            {"cell_type": "code", "source": training_source, "metadata": {}, "outputs": [], "execution_count": None}
         ]
     }
 
@@ -1948,10 +1778,10 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
     os.makedirs(export_dir, exist_ok=True)
     try:
         json_str = json.dumps(notebook_content, indent=4)
-        json.loads(json_str) # Hard Validation
+        json.loads(json_str)
         with open(output_path, "w", encoding='utf-8') as f:
             f.write(json_str)
-        print(f"[OK] Generated Training Notebook: {output_path}")
+        print(f"[OK] Generated Colab Training Notebook: {output_path}")
     except Exception as e:
         print(f"[ERROR] JSON Validation failed for {model_key}: {e}")
         print("[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings.")
@@ -2015,7 +1845,6 @@ def generate_colab_inference_notebook(model_key, export_dir, unified_models_regi
             print(f"[OK] Synchronized Colab Training Notebook: {c_out}")
         except Exception:
             pass
-
 
 
 def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry=None, config=None):
@@ -2119,7 +1948,6 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
             "    print(f'Prediction Raw: {output.cpu().numpy()}')\n",
             "except Exception as e: print(f'Stealth Load Info: {e}')\n"
         ]
-
         onnx_fp32_source = [
             "import base64, numpy as np\n",
             "try:\n",
@@ -2138,7 +1966,6 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
             "    print(f'Prediction Raw: {output}')\n",
             "except Exception as e: print(f'ORT Load Info: {e}')\n"
         ]
-
         onnx_fp16_source = [
             "import base64, numpy as np\n",
             "try:\n",
@@ -2166,67 +1993,26 @@ def generate_colab_usage_notebook(model_key, export_dir, unified_models_registry
         "nbformat_minor": 4,
         "nbformat": 4,
         "cells": [
-            {
-                "cell_type": "markdown",
-                "source": [
-                    f"# LemGendary SOTA Usage: {pascal_model_name}\n",
-                    "Implementation guide for production-grade model integration.\n"
-                ],
-                "metadata": {}
-            },
-            {
-                "cell_type": "markdown",
-                "source": [
-                    "## 1. PyTorch Standalone (FP32)\n",
-                    "Best for local research, further training, or high-fidelity Python backends. This format includes the full architecture definition.\n"
-                ],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": pth_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": [
-                    "## 2. ONNX Matrix (FP32 + External Weights)\n",
-                    "Optimized for desktop deployment where precision is critical. Uses a decoupled `.data` file for stability.\n"
-                ],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": onnx_fp32_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            },
-            {
-                "cell_type": "markdown",
-                "source": [
-                    "## 3. ONNX Production (FP16 Embedded)\n",
-                    "Production-ready standalone matrix. Optimized for WebGPU, mobile, and low-latency edge inference.\n"
-                ],
-                "metadata": {}
-            },
-            {
-                "cell_type": "code",
-                "source": onnx_fp16_source,
-                "metadata": {}, "outputs": [], "execution_count": None
-            }
+            {"cell_type": "markdown", "source": [f"# LemGendary SOTA Usage: {pascal_model_name}\n", "Implementation guide for production-grade model integration.\n"], "metadata": {}},
+            {"cell_type": "markdown", "source": ["## 1. PyTorch Standalone (FP32)\n", "Best for local research, further training, or high-fidelity Python backends. This format includes the full architecture definition.\n"], "metadata": {}},
+            {"cell_type": "code", "source": pth_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 2. ONNX Matrix (FP32 + External Weights)\n", "Optimized for desktop deployment where precision is critical. Uses a decoupled `.data` file for stability.\n"], "metadata": {}},
+            {"cell_type": "code", "source": onnx_fp32_source, "metadata": {}, "outputs": [], "execution_count": None},
+            {"cell_type": "markdown", "source": ["## 3. ONNX Production (FP16 Embedded)\n", "Production-ready standalone matrix. Optimized for WebGPU, mobile, and low-latency edge inference.\n"], "metadata": {}},
+            {"cell_type": "code", "source": onnx_fp16_source, "metadata": {}, "outputs": [], "execution_count": None}
         ]
     }
     output_path = os.path.join(export_dir, f"{model_key}-colab-usage.ipynb")
 
     try:
         json_str = json.dumps(notebook_content, indent=4)
-        json.loads(json_str) # Hard Validation
+        json.loads(json_str)
         with open(output_path, "w", encoding='utf-8') as f:
             f.write(json_str)
-        print(f"[OK] Generated Usage Notebook: {output_path}")
+        print(f"[OK] Generated Colab Usage Notebook: {output_path}")
     except Exception as e:
-        print(f"[ERROR] JSON Validation failed for {model_key} usage: {e}")
+        print(f"[ERROR] JSON Validation failed for {model_key} colab usage: {e}")
         print("[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings.")
-
 
 
 if __name__ == "__main__":

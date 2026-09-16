@@ -37,7 +37,7 @@ def main():
     print("  LEMGENDARY FOREX WALK-FORWARD CURRICULUM ORCHESTRATOR")
     print("  Executing Walk-Forward Matrix across 16-Symbol Universe (Folds 1 -> 6)")
     print("================================================================================\n")
-    
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     train_script = os.path.join(script_dir, "train.py")
     project_root = os.path.dirname(script_dir)
@@ -131,7 +131,7 @@ def main():
                     print(f" - {os.path.basename(os.path.dirname(m))}: {count} folds")
                 print("\n[REQUIRED ACTION] Please ensure all mounted manifolds have the exact same number of folds.")
                 sys.exit(1)
-            
+
     ckpt_dir = os.path.abspath(os.path.join(project_root, "..", "LemGendaryModels", MODEL_KEY, "checkpoints"))
     os.makedirs(ckpt_dir, exist_ok=True)
 
@@ -182,7 +182,7 @@ def main():
         legacy_fold_key = f"phase4_fold{fold}"
         archive_ckpt = os.path.join(ckpt_dir, f"{MODEL_KEY}_fold{fold}.pth")
         legacy_archive_ckpt = os.path.join(ckpt_dir, f"{MODEL_KEY}_phase4_fold{fold}.pth")
-        
+
         # Check if fold is already complete
         is_completed = (
             state.get(fold_key, {}).get("completed", False)
@@ -199,15 +199,19 @@ def main():
             continue
 
         current_epoch = get_latest_epoch(MODEL_KEY, project_root)
-        
+
         if fold_key not in state:
             target_epoch = current_epoch + max_epochs_per_fold
             state[fold_key] = {"completed": False, "target": target_epoch, "start": current_epoch}
             with open(state_file, "w", encoding="utf-8") as f:
                 json.dump(state, f, indent=2)
         else:
-            fold_start = state[fold_key].get("start", current_epoch)
-            target_epoch = fold_start + max_epochs_per_fold
+            # [FIX] If the fold crashed mid-run, extend target from CURRENT epoch (not the
+            # original start) so a restart doesn't undershoot the intended budget.
+            if not state[fold_key].get("completed", False):
+                target_epoch = current_epoch + max_epochs_per_fold
+            else:
+                target_epoch = state[fold_key].get("target", current_epoch + max_epochs_per_fold)
             state[fold_key]["target"] = target_epoch
             with open(state_file, "w", encoding="utf-8") as f:
                 json.dump(state, f, indent=2)
@@ -216,48 +220,48 @@ def main():
         print(f"--- Launching Walk-Forward Fold {fold}/{NUM_FOLDS} ---")
         print(f" [ORCHESTRATOR] Current Epoch: {current_epoch} | Max Target Epoch: {target_epoch}")
         print(f"================================================================================\n")
-        
+
         cmd = [
             sys.executable, train_script,
             "--model", MODEL_KEY,
             "--epochs", str(target_epoch),
             "--fold", str(fold)
         ]
-        
+
         if getattr(args, 'timeframes', None):
             cmd.append("--timeframes")
             cmd.extend([str(t) for t in args.timeframes])
 
         if getattr(args, 'clean', False) and fold == active_folds[0]:
             cmd.append("--clean")
-        
+
         env_type = "kaggle" if os.path.exists("/kaggle") else ("colab" if os.path.exists("/content") else "local")
         if env_type in ["kaggle", "colab"]:
             cmd.extend(["--env", env_type, "--auto_sync"])
-        
+
         print(f" [EXEC] {' '.join(cmd)}")
-        
+
         try:
             res = subprocess.run(cmd, check=False)
             if res.returncode != 0:
                 print(f"\n [ERROR] Training crashed during Fold {fold}. Exiting curriculum.")
                 sys.exit(1)
-            
+
             completed_epoch = get_latest_epoch(MODEL_KEY, project_root)
             print(f" [ORCHESTRATOR] Fold {fold} completed at Epoch {completed_epoch}.")
-            
+
             state[fold_key]["completed"] = True
             state[fold_key]["finished_at"] = completed_epoch
             with open(state_file, "w", encoding="utf-8") as f:
                 json.dump(state, f, indent=2)
-            
+
         except KeyboardInterrupt:
             print("\n [INTERRUPT] Caught KeyboardInterrupt. Exiting curriculum orchestrator safely.")
             sys.exit(0)
         except Exception as e:
             print(f"\n [ERROR] Subprocess failed: {e}")
             sys.exit(1)
-                
+
         # Copy checkpoint state at the end of the fold for historical preservation
         latest_ckpt = os.path.join(ckpt_dir, f"{MODEL_KEY}_latest.pth")
         if os.path.exists(latest_ckpt):
@@ -266,7 +270,7 @@ def main():
                 print(f" [ARCHIVE] Preserved state: {archive_ckpt}")
             except Exception as e:
                 print(f" [WARNING] Failed to archive checkpoint: {e}")
-                
+
         time.sleep(2)
 
     print("\n================================================================================")
