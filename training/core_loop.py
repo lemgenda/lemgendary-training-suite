@@ -421,6 +421,8 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
     current_res = raw_size[1] if isinstance(raw_size, list) else raw_size
     is_heavy_manifold = is_heavy_arch or int(current_res or 0) > 448
 
+    # [FIX-1] Detect forex task early so we can disable DataParallel / AMP / cudnn.benchmark below.
+    is_forex_task = ("forex" in args.model.lower()) or (model_info.get("dataset_type") == "forex")
 
     # Load model
     if "yolo" in args.model.lower():
@@ -527,9 +529,18 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         return
 
     model = get_model(args.model, config).to(device)
+
+    # [FIX-1] DataParallel is incompatible with the forex model's dict-input + pair_idx kwarg pattern.
+    # The scatter logic silently produces mismatched shards that only fault during the backward
+    # cuDNN pass, surfacing as an "illegal memory access". Skip DP for forex entirely.
     if device.type == 'cuda' and torch.cuda.device_count() > 1:
-        print(f"[LAUNCH] [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
-        model = torch.nn.DataParallel(model)
+        if is_forex_task:
+            print(f"[LAUNCH] [SINGLE-GPU] DataParallel SUPPRESSED for forex task (dict-input + pair_idx incompatibility). Using GPU 0 only.")
+        else:
+            print(f"[LAUNCH] [MULTI-GPU] Activating DataParallel across {torch.cuda.device_count()} GPUs!")
+            model = torch.nn.DataParallel(model)
+    elif device.type == 'cuda':
+        print(f"[LAUNCH] [SINGLE-GPU] Detected {torch.cuda.device_count()} CUDA device(s).")
 
     # --- 2026 Hyperparameter Priority Engine (Memory-Sentinel) ---
     epochs = args.epochs or model_info.get("epochs") or config.get("defaults", {}).get("epochs", 50)
@@ -604,9 +615,9 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
 
     # --- 2026: Auto-Recovery Dataset Downloader (v16.2 Nuclear) ---
     if args.env != 'kaggle':
-        is_forex_task = (model_info.get("dataset_type") == "forex" or "forex" in args.model.lower())
+        is_forex_task_local = (model_info.get("dataset_type") == "forex" or "forex" in args.model.lower())
         forex_has_local = False
-        if is_forex_task:
+        if is_forex_task_local:
             base_ds_dir = os.path.normpath(os.path.join(project_root, "..", "LemGendaryDatasets"))
             for cand in ["LemGendizedForexUniverseLarge"] + list(ds_reqs):
                 p = os.path.normpath(os.path.join(base_ds_dir, cand))
@@ -1749,26 +1760,39 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
         criterion = ForexDualLoss().to(device)
     else:
         criterion = CombinedLoss(task_type=train_ds.task_type, stabilizers=stab, use_perc=use_lpips).to(device)
+
     # 2026 Resilience: Enable AMP for Turing+ architectures (sm_70+) with Tensor Cores.
     # Pascal P100 (sm_60, cap[0] < 7) has no Tensor Cores; AMP on cu118 is numerically unstable at sm_60.
     # GTX 16-series (Turing, sm_75) supports FP16 for memory savings even without full Tensor Cores.
     gpu_name = torch.cuda.get_device_name(0) if device.type == 'cuda' else ""
     _amp_cap = cap if device.type == 'cuda' else (0, 0)
+
+    # [FIX-3] Forex logits/magnitudes routinely exceed FP16 dynamic range (max ~65504).
+    # Autocast silently produces inf/nan in the backward cuDNN path, which surfaces as an
+    # "illegal memory access" during scaler.scale(loss).backward(). Force FP32 for forex.
+    _is_forex_task = ("forex" in args.model.lower()) or (getattr(train_ds, "task_type", "") == "forex")
     use_amp = (
         _amp_cap[0] >= 7  # Turing+ (sm_70+) minimum; excludes Pascal P100 (sm_60)
+        and not _is_forex_task  # [FIX-3] forex forces full FP32
         and any(k in gpu_name for k in ['RTX', 'Tesla', 'A100', 'H100', 'L4', 'GTX 16'])
     )
     scaler = torch.amp.GradScaler('cuda', enabled=use_amp) # pyre-ignore
+    if _is_forex_task and use_amp is False:
+        print(" [GUARD] [AMP] Autocast/GradScaler DISABLED for forex task (FP16 overflow risk).")
 
     # 2026 Resilience: cuDNN Benchmark policy.
-    # Forex inputs have *fixed* tensor shapes per timeframe, so cuDNN benchmark
-    # is a free 5-15% speedup with zero risk. Restoration models use dynamic
-    # resolution ladders, so benchmark stays off to avoid stream mismatch.
+    # [FIX-2] cuDNN benchmark on multi-GPU DataParallel is documented to produce illegal-memory-access
+    # when the two GPUs independently select different backward algorithms. Force determinism whenever
+    # more than one CUDA device is visible.
     if device.type == 'cuda':
-        _is_forex_task = ("forex" in args.model.lower()) or (getattr(train_ds, "task_type", "") == "forex")
-        if _is_forex_task:
+        multi_gpu = torch.cuda.device_count() > 1
+        if multi_gpu:
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
+            print(f" [GUARD] [cuDNN] Benchmark DISABLED + deterministic=True ({torch.cuda.device_count()} GPUs visible).")
+        elif _is_forex_task:
             torch.backends.cudnn.benchmark = True
-            print(" [GUARD] [cuDNN] Benchmark ENABLED (stable Forex input shapes).")
+            print(" [GUARD] [cuDNN] Benchmark ENABLED (single-GPU, stable Forex input shapes).")
         else:
             torch.backends.cudnn.benchmark = False
             print(" [GUARD] [cuDNN] Benchmark disabled for stream stability.")
@@ -2084,8 +2108,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
                     # parameter_prediction: No task_idx needed (single regression head)
 
+                # [FIX-4] Forex tasks MUST run in FP32. Their magnitudes routinely exceed FP16
+                # dynamic range and will silently poison the cuDNN backward graph.
                 use_fp16 = str(device) == 'cuda'
-                if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "codeformer", "nima"]):
+                if any(arch in args.model.lower() for arch in ["nafnet", "mprnet", "codeformer", "nima", "forex"]):
+                    use_fp16 = False
+                if getattr(train_ds, "task_type", "") == "forex":
                     use_fp16 = False
 
                 try:
@@ -2127,7 +2155,16 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         elif getattr(train_ds, "task_type", "") == "forex":
                             pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
                             preds = model(inputs, pair_idx=pair_idx)
-                            loss = criterion(preds, targets) / accumulation_steps
+                            # [FIX-5] Defensive FP32 cast before loss — belt-and-suspenders for FP16 overflow
+                            if isinstance(preds, dict):
+                                preds_f = {k: (v.float() if isinstance(v, torch.Tensor) else v) for k, v in preds.items()}
+                            else:
+                                preds_f = preds.float() if isinstance(preds, torch.Tensor) else preds
+                            if isinstance(targets, dict):
+                                targets_f = {k: (v.float() if isinstance(v, torch.Tensor) else v) for k, v in targets.items()}
+                            else:
+                                targets_f = targets.float() if isinstance(targets, torch.Tensor) else targets
+                            loss = criterion(preds_f, targets_f) / accumulation_steps
                         else:
                             preds = model(inputs)
                             sentinel = stab.get('numerical_sentinel')
@@ -2974,10 +3011,12 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                         task_idx = torch.tensor([task_names.index(str(t)) if str(t) in task_names else 0 for t in tasks]).to(device, non_blocking=True)
 
                 # 2026 Acceleration: Accelerated validation inference under AMP (Turing+ Tensor Cores only).
-                # Pascal P100 (sm_60, cap[0] < 7) is excluded: no Tensor Cores, AMP is unstable on cu118.
+                # [FIX-4b] Forex tasks are excluded from AMP here as well to prevent the same FP16
+                # overflow that would trigger an illegal memory access during backward.
                 val_use_amp = (
                     device.type == 'cuda'
-                    and cap[0] >= 7  # Turing+ (sm_70+) minimum; excludes Pascal P100 (sm_60)
+                    and cap[0] >= 7
+                    and not _is_forex_task
                     and not stab.get('force_fp32_val', False)
                 )
                 with torch.amp.autocast('cuda', enabled=val_use_amp):
@@ -3003,7 +3042,16 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     elif getattr(train_ds, "task_type", "") == "forex":
                         pair_idx = tasks.to(device, non_blocking=True) if isinstance(tasks, torch.Tensor) else None
                         preds = model(inputs, pair_idx=pair_idx)
-                        loss = criterion(preds, targets)
+                        # [FIX-5b] Defensive FP32 cast for validation parity
+                        if isinstance(preds, dict):
+                            preds_f = {k: (v.float() if isinstance(v, torch.Tensor) else v) for k, v in preds.items()}
+                        else:
+                            preds_f = preds.float() if isinstance(preds, torch.Tensor) else preds
+                        if isinstance(targets, dict):
+                            targets_f = {k: (v.float() if isinstance(v, torch.Tensor) else v) for k, v in targets.items()}
+                        else:
+                            targets_f = targets.float() if isinstance(targets, torch.Tensor) else targets
+                        loss = criterion(preds_f, targets_f)
                     else:
                         preds = model(inputs)
                         # --- 2026: Numerical Sentinel (Validation Parity Guard) ---
@@ -3936,11 +3984,11 @@ def main(): # pyright: ignore[reportGeneralTypeIssues]
                     # to spike back up (Velocity Bomb), shattering the converged manifold.
                     # The LR cooling curve must reflect the *total epochs trained*, not the state of the weights.
                     # if 'scheduler_state' in loaded_ckpt:
-                    #     try:
-                    #         load_scheduler_state_stretched(scheduler, loaded_ckpt['scheduler_state'], total_steps)
-                    #         print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
-                    #     except Exception as sched_err:
-                    #         print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
+                    # try:
+                    # load_scheduler_state_stretched(scheduler, loaded_ckpt['scheduler_state'], total_steps)
+                    # print(" [RESILIENCY] Scheduler state successfully rolled back to SOTA baseline.")
+                    # except Exception as sched_err:
+                    # print(f" [WARNING] Failed to load scheduler state dict ({sched_err}).")
 
                     # Notify Governor to perform a Tactical Retreat (Recoil) on the restored state
                     recoil_msg = governor.recoil()
