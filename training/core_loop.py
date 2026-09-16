@@ -17,10 +17,12 @@ import multiprocessing
 import signal
 import sys
 
+
 def silent_worker_excepthook(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, (KeyboardInterrupt, EOFError, BrokenPipeError, ConnectionResetError)):
         return
     sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
 
 if multiprocessing.current_process().name != 'MainProcess':
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -41,6 +43,7 @@ except ImportError:
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True, write_through=True)
 
+
 class ForceTTY:
     def __init__(self, stream):
         self.stream = stream
@@ -52,6 +55,7 @@ class ForceTTY:
         return True
     def __getattr__(self, attr):
         return getattr(self.stream, attr)
+
 
 sys.stdout = ForceTTY(sys.stdout)
 sys.stderr = ForceTTY(sys.stderr)
@@ -118,6 +122,7 @@ from training.sota_rollback import safe_torch_save, load_scheduler_state_stretch
 
 _active_processes = []
 
+
 def cleanup_active_processes(*args):
     """Indestructible cleanup of all LemGendary project child-processes."""
     if not _active_processes:
@@ -134,12 +139,15 @@ def cleanup_active_processes(*args):
                 print(f"[REMEDY] Failed to terminate subprocess {p.pid}: {e}")
     _active_processes.clear()
 
+
 atexit.register(cleanup_active_processes)
 _emergency_sync_handler = None
+
 
 def register_emergency_sync(handler):
     global _emergency_sync_handler
     _emergency_sync_handler = handler
+
 
 def graceful_exit(signum, frame):
     """Silent shutdown protocol for Ctrl+C / SIGTERM."""
@@ -151,6 +159,7 @@ def graceful_exit(signum, frame):
             print(f"[EMERGENCY] Emergency preemption sync failed: {e}")
     cleanup_active_processes()
     os._exit(0)
+
 
 signal.signal(signal.SIGINT, graceful_exit)
 signal.signal(signal.SIGTERM, graceful_exit)
@@ -314,7 +323,8 @@ def main():
 
     print(" [TRACE] Loading unified models yaml...", flush=True)
     unified_models_path = os.path.join(project_root, config["unified_models"])
-    with open(unified_models_path, 'r') as f: unified_models_registry = yaml.safe_load(f)
+    with open(unified_models_path, 'r') as f:
+        unified_models_registry = yaml.safe_load(f)
 
     # --- Device Discovery ---
     print(" [TRACE] Initializing CUDA and Accelerator discovery...", flush=True)
@@ -621,8 +631,17 @@ def main():
         train_ds = ForexDataset(shard_root=shard_root, is_train=True, sample_fraction=sample_fraction, fold=args.fold, pairs=args.pairs, active_timeframes=active_tfs)
         val_ds = ForexDataset(shard_root=shard_root, is_train=False, fold=args.fold, pairs=args.pairs, active_timeframes=active_tfs)
 
-        active_pairs = len(args.pairs) if args.pairs else len(train_ds.pairs)
-        print(f" [SIGNAL] [CURRICULUM] Walk-Forward Fold: {args.fold if args.fold else 'MAIN'} | Active Pairs: {active_pairs} | Active TFs: {active_tfs}")
+        # [FIX] Guard the CURRICULUM telemetry print. If ForexDataset is missing an
+        # expected attribute (pairs, size), the old code silently swallowed the
+        # exception and CURRICULUM never printed — masking the real issue.
+        try:
+            active_pairs = len(args.pairs) if args.pairs else len(getattr(train_ds, 'pairs', []))
+            print(f" [SIGNAL] [CURRICULUM] Walk-Forward Fold: {args.fold if args.fold else 'MAIN'} | Active Pairs: {active_pairs} | Active TFs: {active_tfs}")
+            print(f" [SIGNAL] [CURRICULUM] Sample count: Train={len(train_ds)} | Val={len(val_ds)}")
+        except Exception as _cur_err:
+            print(f" [WARN] Curriculum telemetry failed: {_cur_err}")
+            import traceback
+            traceback.print_exc()
     else:
         train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
         val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
@@ -1269,11 +1288,14 @@ def main():
                     if batch_size != old_batch_size or len(train_loader) != expected_len:
                         print(f" [RESILIENCY] Batch Size or Fraction Shift detected ({len(train_loader)} -> {expected_len}). Synchronizing loader...")
                         try:
+                            # [SPEED] Persistent workers on resume rebuild — saves 15-30s/epoch
+                            _resume_persistent = num_workers > 0 and _host_ram_gb >= 16.0
                             train_loader = DataLoader(
                                 train_ds,
                                 batch_size=batch_size,
                                 shuffle=True,
                                 num_workers=num_workers,
+                                persistent_workers=_resume_persistent,
                                 pin_memory=True if device.type == 'cuda' else False,
                                 prefetch_factor=8 if num_workers > 0 else None,
                                 drop_last=True,
@@ -1649,7 +1671,6 @@ def main():
             loader._iterator = None
         except Exception:
             pass
-
     # --- 2026 SOTA Dynamic Horizon ---
     epoch = start_epoch
     while True:
@@ -1746,7 +1767,6 @@ def main():
             # Initialize iter_obj unconditionally so pyright sees it as always assigned.
             iter_obj = enumerate(train_loader)
             if current_iter > 0:
-                # setattr for sync_mode — ForexDataset doesn't declare the attribute
                 try:
                     if hasattr(train_ds, 'sync_mode') and hasattr(train_ds.sync_mode, 'value'):
                         train_ds.sync_mode.value = True
@@ -1783,7 +1803,6 @@ def main():
                     else:
                         print(f" [MISSION CONTROL] Fast-forward complete. Continuing in Serial Mode.")
 
-                # setattr for sync_mode disable
                 try:
                     if hasattr(train_ds, 'sync_mode') and hasattr(train_ds.sync_mode, 'value'):
                         train_ds.sync_mode.value = False
@@ -1947,11 +1966,13 @@ def main():
                             print(f" [RECOVERY] OOM Detected. Scaling Batch: {old_bs} -> {batch_size} | Accumulation: {accumulation_steps} | Shield: ACTIVE")
 
                             _workers = num_workers
+                            # [SPEED] Persistent workers on OOM recovery path — avoids 15-30s/epoch respawn tax
                             train_loader = DataLoader(
                                 train_ds,
                                 batch_size=batch_size,
                                 shuffle=True,
                                 num_workers=_workers,
+                                persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
                                 pin_memory=True if device.type == 'cuda' else False,
                                 prefetch_factor=8 if _workers > 0 else None,
                                 drop_last=True,
@@ -2367,6 +2388,51 @@ def main():
                         except Exception:
                             pass
 
+                    # --- 2026 v15.7: INTRA-EPOCH BATCH GROWTH ---
+                    # The end-of-epoch growth check fires too late for huge epochs
+                    # (MIRNet: 10+ hours/epoch). We sample VRAM every 500 optimizer
+                    # steps and grow as soon as headroom allows. Verified safe
+                    # because the pre-emptive sentinel above will halve it back
+                    # if VRAM gets tight.
+                    if (not args.batch_size
+                            and device.type == 'cuda'
+                            and not in_recovery_mode
+                            and session_batches_processed > 0
+                            and session_batches_processed % 500 == 0):
+                        try:
+                            _free_b, _total_b = torch.cuda.mem_get_info(0)
+                            _free_ratio = _free_b / max(1, _total_b)
+                            _new_bs, _new_acc = governor.suggest_batch_growth(
+                                batch_size, accumulation_steps, target_eff, _free_ratio
+                            )
+                            if _new_bs > batch_size:
+                                old_bs_mid = batch_size
+                                batch_size = _new_bs
+                                accumulation_steps = _new_acc
+                                (pbar.write if pbar else print)(
+                                    f" [SPEED] [INTRA-EPOCH-BATCH] Growing physical batch: "
+                                    f"{old_bs_mid} -> {batch_size} (free VRAM {_free_ratio*100:.0f}%, "
+                                    f"acc {accumulation_steps})"
+                                )
+                                _dispose_loader(train_loader)
+                                _workers = num_workers
+                                train_loader = DataLoader(
+                                    train_ds,
+                                    batch_size=batch_size,
+                                    shuffle=True,
+                                    num_workers=_workers,
+                                    persistent_workers=_workers > 0 and _host_ram_gb >= 16.0,
+                                    pin_memory=True,
+                                    prefetch_factor=8 if _workers > 0 else None,
+                                    drop_last=True,
+                                )
+                                torch.cuda.empty_cache()
+                                gc.collect()
+                                current_iter = int(i * (old_bs_mid / batch_size))
+                                break
+                        except Exception as _ibg_err:
+                            print(f" [WARN] Intra-epoch batch growth skipped: {_ibg_err}")
+
                     session_batches_processed += 1
                     if session_batches_processed == 30 and config.get("intra_epoch_checkpoint_pct", "auto") == "auto":
                         rate = pbar.format_dict.get('rate')
@@ -2461,7 +2527,7 @@ def main():
         all_preds = []
         all_targets = []
 
-       # 2026: Pyright cannot prove `iter_obj` is bound on this path — it's
+        # 2026: Pyright cannot prove `iter_obj` is bound on this path — it's
         # assigned inside the inner training while-loop, which may not execute
         # if `current_iter >= len(train_loader)` on entry. We unconditionally
         # rebind to None so the reference is released deterministically.
@@ -2594,7 +2660,6 @@ def main():
 
             val_iterator = enumerate(val_loader)
             if val_resume_iteration > 0:
-                # setattr for val_ds.sync_mode
                 try:
                     if hasattr(val_ds, 'sync_mode') and hasattr(val_ds.sync_mode, 'value'):
                         val_ds.sync_mode.value = True
@@ -3006,7 +3071,6 @@ def main():
             except Exception as e:
                 print(f"[REMEDY] Failed to close validation progress bar: {e}")
 
-        # --- 2026 Resilience: Deterministic Validation Worker Disposal ---
         _dispose_loader(val_loader)
         if 'val_iterator' in locals():
             del val_iterator
@@ -3265,7 +3329,6 @@ def main():
                 if "val_resolution" not in model_info:
                     val_ds.update_strategy(size=new_params['input_size'] if r_changed else None)
 
-                # [SPEED] Dispose workers before rebuilding
                 _dispose_loader(train_loader)
                 _dispose_loader(val_loader)
                 try:
@@ -3933,7 +3996,9 @@ def main():
             print(f" -> SOTA Cooldown Epochs remaining: {sota_countdown}")
             sota_countdown -= 1
 
-        # --- 2026 v15.6: DYNAMIC BATCH GROWTH ---
+        # --- 2026 v15.6: DYNAMIC BATCH GROWTH (end of epoch) ---
+        # Kept as a fallback for short epochs where intra-epoch growth hasn't
+        # yet hit its 500-step cadence. Intra-epoch is the primary mechanism.
         if device.type == 'cuda' and not args.batch_size and not in_recovery_mode:
             try:
                 _free_b, _total_b = torch.cuda.mem_get_info(0)
@@ -4134,6 +4199,7 @@ def trigger_sota_export(args, model, device, config, unified_models_registry, ep
                 model.to(device)
             except Exception as dev_err:
                 print(f"[WARNING] Failed to restore model to {device}: {dev_err}")
+
 
 if __name__ == "__main__":
     try:
