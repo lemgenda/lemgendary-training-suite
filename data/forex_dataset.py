@@ -105,6 +105,8 @@ class ParquetRowGroupCache:  # pylint: disable=too-few-public-methods
         import pyarrow.parquet as pq
         self.parquet_path = parquet_path
         if cache_dir is None:
+            cache_dir = os.environ.get("FOREX_CACHE_DIR")
+        if cache_dir is None:
             cache_dir = os.path.join(os.path.dirname(parquet_path), "_forex_cache")
         os.makedirs(cache_dir, exist_ok=True)
         stem = os.path.splitext(os.path.basename(parquet_path))[0]
