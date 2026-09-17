@@ -221,10 +221,9 @@ def main():
         print(f" [ORCHESTRATOR] Current Epoch: {current_epoch} | Max Target Epoch: {target_epoch}")
         print(f"================================================================================\n")
 
-        # 2026 v3.0: --enable-batch-growth lets the governor raise physical batch
-        # toward VRAM ceiling (up to ~512 on T4 x2). ForexDataset v3.0 uses a
-        # memmap feature cache; workers=0 lets the main process slice the mmap
-        # directly, avoiding IPC and page-cache thrash between workers.
+        # 2026: --enable-batch-growth lets the governor raise physical batch
+        # toward VRAM ceiling. Workers default to the env-based count (4 for
+        # Kaggle) — the LRU row-group cache needs them to keep the GPU fed.
         cmd = [
             sys.executable, train_script,
             "--model", MODEL_KEY,
@@ -232,9 +231,6 @@ def main():
             "--fold", str(fold),
             "--enable-batch-growth",
         ]
-
-        if MODEL_KEY == "forex_predictor":
-            cmd.extend(["--num_workers", "0", "--val_num_workers", "0"])
 
         if getattr(args, 'timeframes', None):
             cmd.append("--timeframes")
