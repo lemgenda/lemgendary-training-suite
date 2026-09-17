@@ -13,7 +13,9 @@ from PIL import Image, ImageFile, ImageFilter  # pyre-ignore
 Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
 import json
 import shutil
+from typing import Any
 from torch.utils.data import Dataset  # pyre-ignore
+
 
 import io
 
@@ -151,6 +153,70 @@ def synthesize_degradation(target_img):
         arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
         degraded = Image.fromarray(arr)
     return degraded
+
+
+_HAS_DEGRADE_CORE = False
+CoreDynamicDegrader: Any = None
+core_parse_profile: Any = None
+
+try:
+    import sys
+    _ds_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "lemgendary-datasets"))
+    if os.path.exists(_ds_path) and _ds_path not in sys.path:
+        sys.path.insert(0, _ds_path)
+    from degrade import DynamicDegrader as _Degrader, parse_profile as _Parser  # type: ignore[import-not-found]
+    CoreDynamicDegrader = _Degrader
+    core_parse_profile = _Parser
+    _HAS_DEGRADE_CORE = True
+except (ImportError, ModuleNotFoundError):
+    _HAS_DEGRADE_CORE = False
+
+
+
+class DynamicOnTheFlyDegrader:
+    """
+    On-The-Fly Degradation Engine for Training (Phase 6).
+    Applies configurable synthetic degradation to clean target images in memory,
+    delegating directly to the modular lemgendary-datasets degrade engine to eliminate duplication.
+    """
+    def __init__(self, mode="motion-blur+iso-noise", intensity="medium"):
+        self.mode = mode
+        self.intensity = intensity
+        if _HAS_DEGRADE_CORE:
+            prof = core_parse_profile(mode, intensity=str(intensity))
+            self._core_degrader = CoreDynamicDegrader(prof)
+        else:
+            self._core_degrader = None
+
+    def __call__(self, img_tensor, sample_seed=None):
+        """
+        Args:
+            img_tensor: torch.Tensor [C, H, W] in [0, 1]
+            sample_seed: optional integer seed for reproducibility
+        Returns:
+            degraded_tensor: torch.Tensor [C, H, W]
+            params_dict: dict of applied degradation parameters
+        """
+        if self._core_degrader is not None:
+            # img_tensor is [C, H, W] float32 in [0, 1] -> convert to HWC numpy
+            img_hwc = img_tensor.permute(1, 2, 0).cpu().numpy()
+            deg_arr, meta = self._core_degrader.degrade_array(img_hwc, sample_seed=sample_seed)
+            deg_tensor = torch.from_numpy(deg_arr).permute(2, 0, 1).float()
+            return deg_tensor, meta
+
+        # Fallback if standalone
+        deg = random.uniform(0.1, 0.9)
+        theta = random.uniform(0.0, math.pi)
+        conf = random.uniform(0.1, 0.8)
+        degraded = apply_synthetic_degradation(img_tensor, deg=deg, theta=theta, conf=conf)
+        params = {
+            "mode": self.mode,
+            "deg_intensity": round(deg, 4),
+            "theta_blend": round(theta, 4),
+            "noise_conf": round(conf, 4),
+        }
+        return degraded, params
+
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1152]
 
