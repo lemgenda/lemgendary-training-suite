@@ -1,5 +1,5 @@
 """
-LemGendary ForexDataset v3.0
+LemGendary ForexDataset v3.1
 ==============================
 PyTorch Dataset class supporting both year-based Walk-Forward manifolds
 (ForexUniverse2019..2026) and legacy fold-sharded manifolds, with
@@ -7,21 +7,16 @@ chunked .npy loading, cross-timeframe alignment, and Governor integration.
 
 Integrates with MultiTaskDataset pattern via task_type = "forex".
 
-v3.0 Changes:
-  - ParquetRowGroupCache replaced with a memmap-backed flat feature cache.
-    On first construction, every row group is decoded once and written to a
-    single .flat file plus per-row offset/shape tables. Subsequent opens
-    mmap those files, so get_row_features(i) is a pure numpy slice — no
-    pyarrow decode, no decompression, no LRU eviction, no per-row copies.
-    First-run build cost is a few minutes; every subsequent run opens in
-    milliseconds.
-  - __getitem__ now uses torch.from_numpy on the memmap slice instead of
-    torch.tensor(), eliminating a per-row float32 copy (×6 TFs per sample).
+v3.1 Changes:
+  - Reverted the memmap feature cache (v3.0) back to the process-safe LRU
+    row-group cache (v2.3). The memmap cache needs ~40 GB for fold 1's
+    two-year training set, which does not fit in Kaggle's 20 GB disk or
+    14 GB /dev/shm. The LRU cache peaks at ~1.7 GB RAM and works everywhere.
 
-v2.3 Changes (retained in spirit):
-  - Decoded row groups are per-row numpy arrays, detached from pyarrow
-    chunked-array machinery. v3.0 pushes this one step further by persisting
-    the decoded layout to disk.
+v2.3 Changes (retained):
+  - ParquetRowGroupCache decodes row groups to per-row numpy arrays at
+    cache-fill time. On a cache hit, get_row_features becomes a numpy slice
+    instead of a pyarrow scalar extraction.
 
 v2.2 Changes (retained):
   - Exposes _parquet_meta[year]['rg_of_row'] so RowGroupAwareSampler can
@@ -33,7 +28,6 @@ v2.1 Changes (retained):
 """
 
 import os
-import json
 from typing import Literal
 import numpy as np
 import torch
@@ -84,131 +78,79 @@ PAIR_PIP_SCALE = {
 
 class ParquetRowGroupCache:  # pylint: disable=too-few-public-methods
     """
-    Memmap-backed feature cache for a single year's ForexUniverse parquet.
+    Process-safe LRU cache for Parquet row groups.
 
-    On first construction, decodes every row group once and writes:
-        <stem>.v<N>.features.flat    -- concatenated float32 payload
-        <stem>.v<N>.offsets.npy      -- int64 start offsets, length N+1
-        <stem>.v<N>.shapes.npy       -- int32 (seq_len, n_features) per row
-        <stem>.v<N>.meta.json        -- source parquet size + mtime for validity
+    Row groups are decoded to per-row numpy arrays at cache-fill time, not
+    on every access. Under the RowGroupAwareSampler this turns a cache hit
+    from a ~5 ms pyarrow scalar extraction into a ~3 microsecond numpy
+    slice.
 
-    Subsequent opens mmap those files. get_row_features(i) becomes a
-    ~100ns numpy slice. Cache is invalidated automatically when the source
-    parquet's size or mtime changes, or when CACHE_VERSION is bumped.
-
-    Disk cost: approximately 1.2–1.5× the source parquet file size.
-    RAM cost: page cache only; the OS reclaims cold pages under pressure.
+    Memory: each cached row group holds ~5000 decoded rows. Row sizes vary
+    by timeframe (feature width is fixed at 14, seq_len varies 90..512).
+    Worst case ~5000 * 512 * 14 * 4 bytes ≈ 140 MB per group. With 12
+    groups that's ~1.7 GB peak. On Kaggle (30 GB RAM) this is negligible;
+    on a 4 GB local machine, consider lowering max_cached_groups to 4.
     """
-    CACHE_VERSION = 1
-
-    def __init__(self, parquet_path: str, cache_dir: str | None = None):
+    def __init__(self, parquet_path: str, max_cached_groups: int = 12):
         import pyarrow.parquet as pq
         self.parquet_path = parquet_path
-        if cache_dir is None:
-            cache_dir = os.environ.get("FOREX_CACHE_DIR")
-        if cache_dir is None:
-            cache_dir = os.path.join(os.path.dirname(parquet_path), "_forex_cache")
-        os.makedirs(cache_dir, exist_ok=True)
-        stem = os.path.splitext(os.path.basename(parquet_path))[0]
-        base = os.path.join(cache_dir, f"{stem}.v{self.CACHE_VERSION}")
-        self._base = base
-        self._flat_path    = base + ".features.flat"
-        self._offsets_path = base + ".offsets.npy"
-        self._shapes_path  = base + ".shapes.npy"
-        self._meta_path    = base + ".meta.json"
-
-        if not self._cache_valid():
-            self._build_cache(parquet_path)
-            self._write_meta()
-
-        self.row_offsets = np.load(self._offsets_path, mmap_mode="r")
-        self.row_shapes  = np.load(self._shapes_path,  mmap_mode="r")
-        total_floats = int(self.row_offsets[-1])
-        self.flat = np.memmap(self._flat_path, dtype=np.float32, mode="r", shape=(total_floats,))
-
+        self.max_cached = max_cached_groups
         self.pf = pq.ParquetFile(parquet_path)
         self.num_row_groups = self.pf.num_row_groups
         self.metadata = self.pf.metadata
+        self._cache = {}
+        self._lru_order = []
+
         self.rg_starts = []
         curr = 0
         for i in range(self.num_row_groups):
             self.rg_starts.append(curr)
             curr += self.metadata.row_group(i).num_rows
         self.total_rows = curr
-        assert self.total_rows == len(self.row_shapes), (
-            f"[CACHE] row count mismatch: parquet={self.total_rows} cache={len(self.row_shapes)}"
+
+    def _decode_row_group(self, rg_idx: int):
+        """
+        Decode a full row group into a list of numpy arrays, one per row.
+        Runs once per cache miss. Each row is a fresh contiguous numpy
+        buffer, detached from the pyarrow chunked-array machinery, so
+        subsequent reads are pure numpy slicing.
+        """
+        rg_tbl = self.pf.read_row_group(
+            rg_idx, columns=['features', 'seq_len', 'n_features']
         )
+        feats = rg_tbl['features'].combine_chunks()
+        seq_lens = rg_tbl['seq_len'].to_numpy()
+        n_feats = rg_tbl['n_features'].to_numpy()
+        num_rows = len(seq_lens)
 
-    def _cache_valid(self) -> bool:
-        if not (os.path.exists(self._flat_path)
-                and os.path.exists(self._offsets_path)
-                and os.path.exists(self._shapes_path)
-                and os.path.exists(self._meta_path)):
-            return False
-        try:
-            st = os.stat(self.parquet_path)
-            with open(self._meta_path, "r", encoding="utf-8") as f:
-                meta = json.load(f)
-            if meta.get("version") != self.CACHE_VERSION:
-                return False
-            if meta.get("src_size") != st.st_size:
-                return False
-            if int(meta.get("src_mtime", 0)) != int(st.st_mtime):
-                return False
-            return True
-        except Exception:
-            return False
-
-    def _write_meta(self):
-        st = os.stat(self.parquet_path)
-        with open(self._meta_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "version": self.CACHE_VERSION,
-                "src_size": st.st_size,
-                "src_mtime": int(st.st_mtime),
-                "src_path": os.path.abspath(self.parquet_path),
-            }, f)
-
-    def _build_cache(self, parquet_path: str):
-        import pyarrow.parquet as pq
-        print(f" [CACHE] Building memmap cache for {os.path.basename(parquet_path)} (one-time)...")
-        pf = pq.ParquetFile(parquet_path)
-        num_rgs = pf.num_row_groups
-
-        tmp_flat    = self._flat_path + ".tmp"
-        tmp_offsets = self._offsets_path + ".tmp.npy"
-        tmp_shapes  = self._shapes_path  + ".tmp.npy"
-
-        cursor = 0
-        offsets = [0]
-        shapes = []
-
-        with open(tmp_flat, "wb") as fout:
-            for rg_idx in range(num_rgs):
-                rg_tbl = pf.read_row_group(rg_idx, columns=["features", "seq_len", "n_features"])
-                feats    = rg_tbl["features"].combine_chunks()
-                seq_lens = rg_tbl["seq_len"].to_numpy()
-                n_feats  = rg_tbl["n_features"].to_numpy()
-                for i in range(len(seq_lens)):
-                    arr = np.frombuffer(feats[i].as_buffer(), dtype=np.float32)
-                    fout.write(arr.tobytes())
-                    cursor += arr.size
-                    offsets.append(cursor)
-                    shapes.append((int(seq_lens[i]), int(n_feats[i])))
-
-        os.replace(tmp_flat, self._flat_path)
-        np.save(tmp_offsets, np.asarray(offsets, dtype=np.int64))
-        os.replace(tmp_offsets, self._offsets_path)
-        np.save(tmp_shapes, np.asarray(shapes, dtype=np.int32))
-        os.replace(tmp_shapes, self._shapes_path)
-
-        print(f" [CACHE] Done: {len(shapes)} rows, {cursor} floats ({cursor * 4 / 1e9:.2f} GB).")
+        decoded = []
+        append = decoded.append
+        for i in range(num_rows):
+            buf = feats[i].as_buffer()
+            arr = np.frombuffer(buf, dtype=np.float32).reshape(
+                int(seq_lens[i]), int(n_feats[i])
+            )
+            append(np.ascontiguousarray(arr))
+        return decoded
 
     def get_row_features(self, global_row_idx: int) -> np.ndarray:
-        o1 = int(self.row_offsets[global_row_idx])
-        o2 = int(self.row_offsets[global_row_idx + 1])
-        s  = self.row_shapes[global_row_idx]
-        return self.flat[o1:o2].reshape(int(s[0]), int(s[1]))
+        import bisect
+        rg_idx = bisect.bisect_right(self.rg_starts, global_row_idx) - 1
+        rg_offset = global_row_idx - self.rg_starts[rg_idx]
+
+        cached = self._cache.get(rg_idx)
+        if cached is None:
+            cached = self._decode_row_group(rg_idx)
+            self._cache[rg_idx] = cached
+            self._lru_order.append(rg_idx)
+            if len(self._lru_order) > self.max_cached:
+                evict = self._lru_order.pop(0)
+                self._cache.pop(evict, None)
+        else:
+            self._lru_order.remove(rg_idx)
+            self._lru_order.append(rg_idx)
+
+        return cached[rg_offset]
 
 
 def load_shard(
@@ -747,11 +689,7 @@ class ForexDataset(Dataset):
             target_len = TIMEFRAME_LOOKBACK.get(tf, 168)
             raw_sample = self._fit_window(cache.get_row_features(row), target_len)
 
-            # 2026 v3.0: memmap slice aliased into a torch tensor (zero-copy).
-            # PyTorch's default collate stacks into fresh storage before the
-            # batch crosses the worker boundary, so the memmap view is
-            # short-lived. Falls back to a defensive copy if the slice is not
-            # already contiguous float32.
+            # Single-copy tensor materialization.
             if raw_sample.dtype == np.float32 and raw_sample.flags["C_CONTIGUOUS"]:
                 primary_tensor = torch.from_numpy(raw_sample)
             else:

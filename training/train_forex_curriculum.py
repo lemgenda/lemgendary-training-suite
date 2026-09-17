@@ -286,6 +286,4 @@ def main():
     print("================================================================================")
 
 if __name__ == "__main__":
-    if os.path.exists("/kaggle"):
-        os.environ["FOREX_CACHE_DIR"] = "/dev/shm/forex_cache"
     main()
