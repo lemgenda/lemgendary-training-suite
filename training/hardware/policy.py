@@ -21,6 +21,9 @@ class HardwarePolicyResult:
     scaler: Any | None
 
 
+ExecutionPolicy = HardwarePolicyResult
+
+
 def apply_hardware_policy(
     model_key: str,
     model_info: dict[str, Any],

@@ -184,3 +184,14 @@ class GitHubSyncManager:
             "has_pat": bool(self.pat),
             "hub_repo": f"{self.hub_user}/{self.hub_repo}",
         }
+
+
+def git_hub_sync(
+    repo_path: Path | str,
+    remote_url: str = "origin",
+    message: str = "Automated model checkpoint update",
+) -> bool:
+    """Synchronize repository path to GitHub model hub."""
+    mgr = GitHubSyncManager(hub_root=Path(repo_path))
+    return mgr.sync(model_name="checkpoint", epoch=1, src_dir=Path(repo_path))
+
