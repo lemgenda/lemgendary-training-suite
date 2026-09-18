@@ -104,6 +104,14 @@ except ImportError as e:
 from training.model_registry import audit_hardware_vram, find_paths_pruned, load_state_dict_robust
 from training.sota_rollback import safe_torch_save, load_scheduler_state_stretched, safe_replace
 from training.parallel import build_parallel_strategy
+from training.data import (
+    ManifoldResolver,
+    build_train_loader,
+    build_val_loader as canonical_build_val_loader,
+    compute_worker_topology,
+    dispose_loader,
+    rebuild_train_loader,
+)
 
 _active_processes = _ACTIVE_PROCESSES
 
@@ -713,67 +721,30 @@ def main():
         train_ds = MultiTaskDataset(config, model_key=args.model, is_train=True, env=args.env, sample_fraction=sample_fraction)
         val_ds = MultiTaskDataset(config, model_key=args.model, is_train=False, env=args.env)
 
-    cpu_count = os.cpu_count() or 2
-
-    if getattr(args, 'num_workers', None) is not None:
-        num_workers = args.num_workers
-        try: torch.set_num_threads(max(1, cpu_count))
-        except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
-    elif args.env == 'kaggle':
-        num_workers = 4
-        try: torch.set_num_threads(1)
-        except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
-    elif args.env == 'colab':
-        num_workers = 4
-        try: torch.set_num_threads(max(1, cpu_count))
-        except Exception as e: print(f"[REMEDY] Failed to set num threads: {e}")
-    elif sys.platform == "win32":
-        try:
-            import psutil
-            ram_gb = psutil.virtual_memory().total / (1024**3)
-            is_forex = (model_info.get("dataset_type") == "forex" or "forex" in args.model.lower())
-            if is_forex:
-                num_workers = 0
-            elif ram_gb >= 16.0:
-                num_workers = 2
-            else:
-                num_workers = 0
-        except:
-            num_workers = 0
-    else:
-        _cfg_workers = config.get("hardware", {}).get("num_workers", 4)
-        if not isinstance(_cfg_workers, int):
-            _cfg_workers = cpu_count
-        num_workers = min(cpu_count, _cfg_workers)
-
-    if getattr(args, 'val_num_workers', None) is not None:
-        val_num_workers = args.val_num_workers
-    else:
-        _cfg_val_workers = config.get("hardware", {}).get("val_num_workers", "auto")
-        if isinstance(_cfg_val_workers, int):
-            val_num_workers = _cfg_val_workers
-        elif args.env in ['kaggle', 'colab']:
-            val_num_workers = 2
-        elif sys.platform == "win32":
-            val_num_workers = 0
-        else:
-            val_num_workers = min(2, num_workers)
+    is_forex = (model_info.get("dataset_type") == "forex" or "forex" in args.model.lower())
+    worker_topology = compute_worker_topology(
+        env=args.env,
+        device=device,
+        is_forex=is_forex,
+        user_num_workers=getattr(args, "num_workers", None),
+        user_val_workers=getattr(args, "val_num_workers", None),
+        config=config,
+    )
+    num_workers = worker_topology.num_workers
+    val_num_workers = worker_topology.val_num_workers
 
     print(f" [DATA] Initializing Parallel Manifold (Train Workers: {num_workers} | Val Workers: {val_num_workers})...")
 
     def build_val_loader(v_ds, v_batch, v_workers, is_constrained=False, dev=device):
-        kwargs = {
-            'batch_size': v_batch,
-            'shuffle': False,
-            'num_workers': v_workers,
-            'persistent_workers': False,
-            'pin_memory': True if dev.type == 'cuda' else False
-        }
-        if v_workers > 0:
-            val_res = getattr(v_ds, "size", (256, 256))
-            val_h = val_res[0] if isinstance(val_res, (list, tuple)) else val_res
-            kwargs['prefetch_factor'] = 4 if (is_constrained or (isinstance(val_h, int) and val_h >= 512)) else 6
-        return DataLoader(v_ds, **kwargs)
+        return canonical_build_val_loader(
+            dataset=v_ds,
+            batch_size=v_batch,
+            num_workers=v_workers,
+            device=dev,
+            env=args.env,
+            is_constrained=is_constrained,
+            config=config,
+        )
 
     if len(train_ds) == 0:
         print(f"\n[ERROR] [CRITICAL ERROR] Training dataset for '{args.model}' has ZERO samples.")
@@ -1021,26 +992,33 @@ def main():
     if is_forex_dataset:
         train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
         print(f" [SPEED] [PARQUET-SAMPLER] RowGroupAwareSampler active: {len(train_sampler._group_keys)} locality groups.")
-        train_loader = DataLoader(
-            train_ds,
+        train_loader = build_train_loader(
+            dataset=train_ds,
             batch_size=batch_size,
             sampler=train_sampler,
+            shuffle=False,
             num_workers=active_workers,
             persistent_workers=use_persistent,
-            pin_memory=True if device.type == 'cuda' else False,
+            pin_memory=True if device.type == "cuda" else False,
             prefetch_factor=8 if active_workers > 0 else None,
             drop_last=True,
+            device=device,
+            env=args.env,
+            config=config,
         )
     else:
-        train_loader = DataLoader(
-            train_ds,
+        train_loader = build_train_loader(
+            dataset=train_ds,
             batch_size=batch_size,
             shuffle=True,
             num_workers=active_workers,
             persistent_workers=use_persistent,
-            pin_memory=True if device.type == 'cuda' else False,
+            pin_memory=True if device.type == "cuda" else False,
             prefetch_factor=8 if active_workers > 0 else None,
             drop_last=True,
+            device=device,
+            env=args.env,
+            config=config,
         )
 
     if is_heavy_manifold:
@@ -1387,27 +1365,21 @@ def main():
                             _resume_persistent = num_workers > 0 and _host_ram_gb >= 16.0
                             if train_sampler is not None:
                                 train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
-                                train_loader = DataLoader(
-                                    train_ds,
-                                    batch_size=batch_size,
-                                    sampler=train_sampler,
-                                    num_workers=num_workers,
-                                    persistent_workers=_resume_persistent,
-                                    pin_memory=True if device.type == 'cuda' else False,
-                                    prefetch_factor=8 if num_workers > 0 else None,
-                                    drop_last=True,
-                                )
-                            else:
-                                train_loader = DataLoader(
-                                    train_ds,
-                                    batch_size=batch_size,
-                                    shuffle=True,
-                                    num_workers=num_workers,
-                                    persistent_workers=_resume_persistent,
-                                    pin_memory=True if device.type == 'cuda' else False,
-                                    prefetch_factor=8 if num_workers > 0 else None,
-                                    drop_last=True,
-                                )
+                            train_loader = rebuild_train_loader(
+                                train_loader,
+                                dataset=train_ds,
+                                batch_size=batch_size,
+                                sampler=train_sampler,
+                                shuffle=(train_sampler is None),
+                                num_workers=num_workers,
+                                persistent_workers=_resume_persistent,
+                                pin_memory=True if device.type == "cuda" else False,
+                                prefetch_factor=8 if num_workers > 0 else None,
+                                drop_last=True,
+                                device=device,
+                                env=args.env,
+                                config=config,
+                            )
                         except Exception as e:
                             print(f" [WARNING] [RESILIENCY] Loader synchronization failed: {e}. Falling back to default.")
 
@@ -1906,28 +1878,21 @@ def main():
             if train_loader.num_workers == 0 and current_iter == 0 and num_workers > 0 and not (in_recovery_mode and vram_gb < 6.0):
                 print(f" [MISSION CONTROL] Transitioning to Parallel Data Pipeline ({num_workers} workers)...")
                 _hot_swap_persistent = num_workers > 0 and _host_ram_gb >= 16.0
-                if train_sampler is not None:
-                    train_loader = DataLoader(
-                        train_ds,
-                        batch_size=batch_size,
-                        sampler=train_sampler,
-                        num_workers=num_workers,
-                        persistent_workers=_hot_swap_persistent,
-                        pin_memory=True if device.type == 'cuda' else False,
-                        prefetch_factor=8 if num_workers > 0 else None,
-                        drop_last=True,
-                    )
-                else:
-                    train_loader = DataLoader(
-                        train_ds,
-                        batch_size=batch_size,
-                        shuffle=True,
-                        num_workers=num_workers,
-                        persistent_workers=_hot_swap_persistent,
-                        pin_memory=True if device.type == 'cuda' else False,
-                        prefetch_factor=8 if num_workers > 0 else None,
-                        drop_last=True,
-                    )
+                train_loader = rebuild_train_loader(
+                    train_loader,
+                    dataset=train_ds,
+                    batch_size=batch_size,
+                    sampler=train_sampler,
+                    shuffle=(train_sampler is None),
+                    num_workers=num_workers,
+                    persistent_workers=_hot_swap_persistent,
+                    pin_memory=True if device.type == "cuda" else False,
+                    prefetch_factor=8 if num_workers > 0 else None,
+                    drop_last=True,
+                    device=device,
+                    env=args.env,
+                    config=config,
+                )
 
             iter_obj = enumerate(train_loader)
             if current_iter > 0:
@@ -1948,28 +1913,21 @@ def main():
                 if num_workers > 0 and train_loader.num_workers == 0 and not (in_recovery_mode and vram_gb < 6.0):
                     print(f" [MISSION CONTROL] Fast-forward complete. Engaging Parallel Pipeline ({num_workers} workers)...")
                     _hot_swap_persistent = num_workers > 0 and _host_ram_gb >= 16.0
-                    if train_sampler is not None:
-                        train_loader = DataLoader(
-                            train_ds,
-                            batch_size=batch_size,
-                            sampler=train_sampler,
-                            num_workers=num_workers,
-                            persistent_workers=_hot_swap_persistent,
-                            pin_memory=True if device.type == 'cuda' else False,
-                            prefetch_factor=8 if num_workers > 0 else None,
-                            drop_last=True,
-                        )
-                    else:
-                        train_loader = DataLoader(
-                            train_ds,
-                            batch_size=batch_size,
-                            shuffle=True,
-                            num_workers=num_workers,
-                            persistent_workers=_hot_swap_persistent,
-                            pin_memory=True if device.type == 'cuda' else False,
-                            prefetch_factor=8 if num_workers > 0 else None,
-                            drop_last=True,
-                        )
+                    train_loader = rebuild_train_loader(
+                        train_loader,
+                        dataset=train_ds,
+                        batch_size=batch_size,
+                        sampler=train_sampler,
+                        shuffle=(train_sampler is None),
+                        num_workers=num_workers,
+                        persistent_workers=_hot_swap_persistent,
+                        pin_memory=True if device.type == "cuda" else False,
+                        prefetch_factor=8 if num_workers > 0 else None,
+                        drop_last=True,
+                        device=device,
+                        env=args.env,
+                        config=config,
+                    )
                     iter_obj = enumerate(train_loader)
                     for i, _ in iter_obj:
                         if i >= current_iter - 1: break

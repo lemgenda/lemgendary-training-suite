@@ -18,204 +18,13 @@ from torch.utils.data import Dataset  # pyre-ignore
 
 
 import io
-
-class JpegCompressionGuard:
-    def __init__(self, probability=1.0):
-        self.probability = probability
-
-    def __call__(self, img):
-        if random.random() < self.probability:
-            quality = random.randint(65, 95)
-            buffer = io.BytesIO()
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            img.save(buffer, format='JPEG', quality=quality)
-            buffer.seek(0)
-            return Image.open(buffer)
-        return img
-
-
-
-def apply_synthetic_degradation(img_tensor, deg, theta, conf):
-    """
-    Apply synthetic degradation to a clean image tensor.
-    
-    Degradation pipeline (controlled by deg/theta/conf):
-      - deg  ∈ [0, 1]: Controls overall degradation intensity
-      - theta ∈ [0, π]: Controls degradation orientation/type blend
-      - conf ∈ [0, 1]: Controls degradation confidence/sharpness
-    
-    Returns degraded image tensor (same shape as input).
-    """
-    # Convert to numpy HWC for OpenCV operations
-    img_np = img_tensor.permute(1, 2, 0).numpy().copy()  # [H, W, 3] float32 [0, 1]
-    h, w = img_np.shape[:2]
-    
-    # --- Degradation 1: Gaussian Blur (controlled by deg) ---
-    blur_sigma = deg * 4.0 + 0.1  # [0.1, 4.1]
-    ksize = int(blur_sigma * 3) * 2 + 1  # Ensure odd kernel size
-    ksize = max(3, min(ksize, 31))  # Clamp to valid range
-    img_np = cv2.GaussianBlur(img_np, (ksize, ksize), blur_sigma)
-    
-    # --- Degradation 2: Additive Gaussian Noise (controlled by conf) ---
-    noise_sigma = conf * 0.08  # [0, 0.08] standard deviation
-    if noise_sigma > 0.001:
-        noise = np.random.randn(*img_np.shape).astype(np.float32) * noise_sigma
-        img_np = img_np + noise
-    
-    # --- Degradation 3: JPEG Compression (controlled by theta) ---
-    # theta [0, π] maps to quality [95, 15] — higher theta = more compression
-    jpeg_quality = int(95 - (theta / math.pi) * 80)  # [95, 15]
-    jpeg_quality = max(10, min(jpeg_quality, 95))
-    # Simulate JPEG by encoding/decoding in memory
-    img_uint8 = np.clip(img_np * 255, 0, 255).astype(np.uint8)
-    _, enc = cv2.imencode('.jpg', img_uint8, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
-    img_uint8 = cv2.imdecode(enc, cv2.IMREAD_COLOR)
-    if img_uint8 is None:
-        return img_tensor
-    # cv2 uses BGR, but our input was RGB — imencode/imdecode preserves channel order for numpy
-    img_np = img_uint8.astype(np.float32) / 255.0
-    
-    # --- Degradation 4: Downscale + Upscale (controlled by deg * conf) ---
-    scale_factor = max(0.25, 1.0 - deg * conf * 0.75)  # [0.25, 1.0]
-    if scale_factor < 0.95:
-        small_h, small_w = max(8, int(h * scale_factor)), max(8, int(w * scale_factor))
-        img_np = cv2.resize(img_np, (small_w, small_h), interpolation=cv2.INTER_AREA)
-        img_np = cv2.resize(img_np, (w, h), interpolation=cv2.INTER_LINEAR)
-    
-    # Clamp and convert back to tensor
-    img_np = np.clip(img_np, 0.0, 1.0)
-    return torch.from_numpy(img_np).permute(2, 0, 1).float()
-
-def apply_film_degradation(img_tensor):
-    """
-    Synthesizes vintage film degradation (sepia/grayscale, grain, blur, scratches).
-    """
-    img_np = img_tensor.permute(1, 2, 0).numpy()
-    
-    # 1. Sepia/Grayscale (80% chance)
-    if np.random.rand() < 0.8:
-        gray = np.dot(img_np[..., :3], [0.2989, 0.5870, 0.1140])
-        gray = np.stack([gray, gray, gray], axis=-1)
-        if np.random.rand() < 0.5: # Sepia tint
-            sepia = np.zeros_like(img_np)
-            sepia[..., 0] = gray[..., 0] * 1.07
-            sepia[..., 1] = gray[..., 1] * 0.74
-            sepia[..., 2] = gray[..., 2] * 0.43
-            img_np = sepia
-        else:
-            img_np = gray
-
-    # 2. Film Grain (Gaussian Noise)
-    noise_level = np.random.uniform(0.02, 0.15)
-    noise = np.random.normal(0, noise_level, img_np.shape)
-    img_np = img_np + noise
-
-    # 3. Defocus Blur
-    if np.random.rand() < 0.7:
-        blur_radius = np.random.uniform(0.5, 2.0)
-        img_np = cv2.GaussianBlur(img_np, (0, 0), blur_radius)
-
-    # 4. Scratches (Vertical/Diagonal lines)
-    if np.random.rand() < 0.6:
-        h, w = img_np.shape[:2]
-        num_scratches = np.random.randint(1, 5)
-        for _ in range(num_scratches):
-            x1 = np.random.randint(0, w)
-            y1 = 0
-            x2 = x1 + np.random.randint(-20, 20)
-            y2 = h
-            color = np.random.choice([0.0, 1.0]) # Black or white scratch
-            thickness = np.random.randint(1, 3)
-            cv2.line(img_np, (x1, y1), (x2, y2), (color, color, color), thickness)
-            
-    img_np = np.clip(img_np, 0.0, 1.0)
-    return torch.from_numpy(img_np).permute(2, 0, 1).float()
-
-def synthesize_degradation(target_img):
-    """Synthesize degradation (blur, noise, JPEG compression, median filtering)."""
-    degraded = target_img.copy()
-    r = random.random()
-    if r < 0.25:
-        degraded = degraded.filter(ImageFilter.GaussianBlur(radius=random.uniform(1.0, 3.0)))
-    elif r < 0.50:
-        degraded = degraded.filter(ImageFilter.MedianFilter(size=random.choice([3, 5])))
-    elif r < 0.75:
-        buf = io.BytesIO()
-        if degraded.mode != "RGB":
-            degraded = degraded.convert("RGB")
-        degraded.save(buf, format="JPEG", quality=random.randint(20, 60))
-        buf.seek(0)
-        degraded = Image.open(buf)
-    else:
-        arr = np.array(degraded, dtype=np.float32)
-        noise = np.random.normal(0, random.uniform(5.0, 20.0), arr.shape)
-        arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
-        degraded = Image.fromarray(arr)
-    return degraded
-
-
-_HAS_DEGRADE_CORE = False
-CoreDynamicDegrader: Any = None
-core_parse_profile: Any = None
-
-try:
-    import sys
-    _ds_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "lemgendary-datasets"))
-    if os.path.exists(_ds_path) and _ds_path not in sys.path:
-        sys.path.append(_ds_path)
-    from degrade import DynamicDegrader as _Degrader, parse_profile as _Parser
-    CoreDynamicDegrader = _Degrader
-    core_parse_profile = _Parser
-    _HAS_DEGRADE_CORE = True
-except (ImportError, ModuleNotFoundError):
-    _HAS_DEGRADE_CORE = False
-
-
-
-class DynamicOnTheFlyDegrader:
-    """
-    On-The-Fly Degradation Engine for Training (Phase 6).
-    Applies configurable synthetic degradation to clean target images in memory,
-    delegating directly to the modular lemgendary-datasets degrade engine to eliminate duplication.
-    """
-    def __init__(self, mode="motion-blur+iso-noise", intensity="medium"):
-        self.mode = mode
-        self.intensity = intensity
-        if _HAS_DEGRADE_CORE:
-            prof = core_parse_profile(mode, intensity=str(intensity))
-            self._core_degrader = CoreDynamicDegrader(prof)
-        else:
-            self._core_degrader = None
-
-    def __call__(self, img_tensor, sample_seed=None):
-        """
-        Args:
-            img_tensor: torch.Tensor [C, H, W] in [0, 1]
-            sample_seed: optional integer seed for reproducibility
-        Returns:
-            degraded_tensor: torch.Tensor [C, H, W]
-            params_dict: dict of applied degradation parameters
-        """
-        if self._core_degrader is not None:
-            # img_tensor is [C, H, W] float32 in [0, 1] -> convert to HWC numpy
-            img_hwc = img_tensor.permute(1, 2, 0).cpu().numpy()
-            deg_arr, meta = self._core_degrader.degrade_array(img_hwc, sample_seed=sample_seed)
-            deg_tensor = torch.from_numpy(deg_arr).permute(2, 0, 1).float()
-            return deg_tensor, meta
-
-        # Fallback if standalone
-        deg = random.uniform(0.1, 0.9)
-        theta = random.uniform(0.0, math.pi)
-        conf = random.uniform(0.1, 0.8)
-        degraded = apply_synthetic_degradation(img_tensor, deg=deg, theta=theta, conf=conf)
-        params = {
-            "mode": self.mode,
-            "deg_intensity": round(deg, 4),
-            "theta_blend": round(theta, 4),
-            "noise_conf": round(conf, 4),
-        }
-        return degraded, params
+from training.data.degrade import (
+    DynamicOnTheFlyDegrader,
+    JpegCompressionGuard,
+    apply_film_degradation,
+    apply_synthetic_degradation,
+    synthesize_degradation,
+)
 
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1152]
@@ -437,6 +246,12 @@ class MultiTaskDataset(Dataset):
             ])
 
     def get_dataset_path(self, ds_name):
+        from training.data.manifold import ManifoldResolver
+        resolver = ManifoldResolver(env=self.env, config=self.config)
+        resolved = resolver.resolve_manifold(ds_name)
+        if resolved is not None:
+            return str(resolved)
+
         model_info = self.unified_models.get(self.model_key, {})
         gdrive_id = model_info.get("google_drive_dataset_id")
         
