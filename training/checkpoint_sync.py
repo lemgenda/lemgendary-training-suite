@@ -1,41 +1,58 @@
-import os
-import shutil
+"""Checkpoint synchronization CLI utility."""
+
+from __future__ import annotations
+
 import argparse
+import logging
+import os
+from pathlib import Path
+import shutil
 
-def main():
-    parser = argparse.ArgumentParser(description="LemGendary Checkpoint Sync v1.0")
-    parser.add_argument("--model", type=str, required=True)
-    parser.add_argument("--target", type=str, default="/kaggle/working/export")
-    args = parser.parse_args()
+from training.utils.paths import get_project_root
 
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    # 2026: Auto-resolve model name for persistence structure
-    model_name_formatted = f"Lemgendary_{args.model.replace('_', ' ').title().replace(' ', '_')}_Checkpoints"
-    persistence_root = os.path.join(args.target, model_name_formatted)
-    os.makedirs(persistence_root, exist_ok=True)
-    
-    hub_model_dir = os.path.normpath(os.path.join(project_root, "..", "LemGendaryModels", args.model))
+logger = logging.getLogger("lemtrain.checkpoint_sync")
+
+
+def sync_checkpoints(model_name: str, target_dir: str = "/kaggle/working/export") -> None:
+    """Synchronize metrics and checkpoints into export persistence directory."""
+    project_root = get_project_root()
+    formatted_name = f"Lemgendary_{model_name.replace('_', ' ').title().replace(' ', '_')}_Checkpoints"
+    persistence_root = Path(target_dir) / formatted_name
+    persistence_root.mkdir(parents=True, exist_ok=True)
+
+    hub_model_dir = (project_root.parent / "LemGendaryModels" / model_name).resolve()
 
     # 1. Sync metrics.csv
-    src_metrics = os.path.join(hub_model_dir, "metrics.csv")
-    if not os.path.exists(src_metrics):
-        src_metrics = os.path.join(project_root, "metrics.csv")
-    if os.path.exists(src_metrics):
-        shutil.copy2(src_metrics, os.path.join(persistence_root, "metrics.csv"))
-        print(f"[OK] Synced metrics.csv -> {persistence_root}")
+    src_metrics = hub_model_dir / "metrics.csv"
+    if not src_metrics.exists():
+        src_metrics = project_root / "metrics.csv"
+    if src_metrics.exists():
+        shutil.copy2(src_metrics, persistence_root / "metrics.csv")
+        logger.info("Synced metrics.csv -> %s", persistence_root)
 
     # 2. Sync Checkpoints
-    src_ckpt_dir = os.path.join(hub_model_dir, "checkpoints")
-    if not os.path.exists(src_ckpt_dir):
-        src_ckpt_dir = os.path.join(project_root, "checkpoints")
-    dst_ckpt_dir = os.path.join(persistence_root, "checkpoints")
-    os.makedirs(dst_ckpt_dir, exist_ok=True)
-    
-    if os.path.exists(src_ckpt_dir):
-        for f in os.listdir(src_ckpt_dir):
-            if f.endswith('.pth') and (args.model in f or len(os.listdir(src_ckpt_dir)) <= 10):
-                shutil.copy2(os.path.join(src_ckpt_dir, f), os.path.join(dst_ckpt_dir, f))
-                print(f"[OK] Synced {f} -> {dst_ckpt_dir}")
+    src_ckpt_dir = hub_model_dir / "checkpoints"
+    if not src_ckpt_dir.exists():
+        src_ckpt_dir = project_root / "checkpoints"
+    dst_ckpt_dir = persistence_root / "checkpoints"
+    dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    if src_ckpt_dir.exists():
+        for f in src_ckpt_dir.iterdir():
+            if f.suffix == ".pth" and (model_name in f.name or len(list(src_ckpt_dir.glob("*.pth"))) <= 10):
+                shutil.copy2(f, dst_ckpt_dir / f.name)
+                logger.info("Synced %s -> %s", f.name, dst_ckpt_dir)
+
+
+def main() -> None:
+    """CLI entrypoint for checkpoint synchronization."""
+    parser = argparse.ArgumentParser(description="LemGendary Checkpoint Sync")
+    parser.add_argument("--model", type=str, required=True, help="Model name identifier")
+    parser.add_argument("--target", type=str, default="/kaggle/working/export", help="Destination export directory")
+    args = parser.parse_args()
+
+    sync_checkpoints(args.model, args.target)
+
 
 if __name__ == "__main__":
     main()
