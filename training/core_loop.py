@@ -112,6 +112,16 @@ from training.data import (
     dispose_loader,
     rebuild_train_loader,
 )
+from training.checkpoint import (
+    CheckpointRecoveryEngine,
+    MetricVault,
+    ResumeState,
+    parse_resume_state,
+    safe_atomic_save,
+    safe_load_checkpoint,
+    scale_resume_progress,
+    stretch_scheduler_runway,
+)
 
 _active_processes = _ACTIVE_PROCESSES
 
