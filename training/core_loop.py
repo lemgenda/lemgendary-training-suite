@@ -422,59 +422,17 @@ def main():
         unified_models_registry = yaml.safe_load(f)
 
     # --- Device Discovery ---
-    print(" [TRACE] Initializing CUDA and Accelerator discovery...", flush=True)
-    cap = (0, 0)
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        gpu_name = torch.cuda.get_device_name(0)
-        cap = torch.cuda.get_device_capability(0)
-        arch_list = getattr(torch.cuda, "get_arch_list", lambda: [])()
-        has_native_sm = any(f"{cap[0]}.{cap[1]}" in a or f"sm_{cap[0]}{cap[1]}" in a for a in arch_list)
+    from training.hardware.discovery import discover_device
+    from training.hardware.policy import apply_hardware_policy
 
-        cuda_compatible = True
-        try:
-            _probe = torch.ones(1, device=device) + 1.0
-            torch.cuda.synchronize()
-            del _probe
-        except Exception as k_err:
-            if "no kernel image is available" in str(k_err) or "cudaErrorNoKernelImageForDevice" in str(k_err):
-                cuda_compatible = False
-
-        if not cuda_compatible or (cap[0] < 7 and not has_native_sm):
-            print("\n" + "=" * 80)
-            print(f"[CRITICAL ERROR] [HARDWARE SENTINEL] CUDA Device Kernel Incompatibility Detected!")
-            print(f" Accelerator: {gpu_name} (Compute Capability sm_{cap[0]}{cap[1]})")
-            print(f" Active PyTorch: {getattr(torch, '__version__', 'Unknown')} | CUDA {getattr(torch.version, 'cuda', 'Unknown')}")
-            print(f" Supported Architectures: {', '.join(arch_list) if arch_list else 'sm_70+'}")
-            print(f" Reason: This PyTorch binary lacks sm_{cap[0]}{cap[1]} kernels for {gpu_name}.")
-            print("-" * 80)
-            print(" REMEDIES:")
-            print(" 1. (RECOMMENDED) Switch Kaggle Accelerator to 'GPU T4 x2' (sm_75 Turing with Tensor Cores):")
-            print("    - Kaggle UI: Settings panel (right side) -> Accelerator -> GPU T4 x2")
-            print("    - Cloud Manager: Machine shape 'NvidiaTeslaT4' (Dual T4)")
-            print(" 2. To use Pascal P100, install a PyTorch build with sm_60 support (cu118):")
-            print("    pip install --force-reinstall torch==2.4.0+cu118 torchvision==0.19.0+cu118 --extra-index-url https://download.pytorch.org/whl/cu118")
-            print("=" * 80 + "\n", flush=True)
-            sys.exit(1)
-
+    device_info = discover_device()
+    device = device_info.device
+    vram_gb = device_info.total_vram_gb
+    cap = device_info.capability
+    gpu_name = device_info.device_names[0] if device_info.device_names else str(device)
+    if device_info.is_cuda:
         torch.backends.cudnn.benchmark = True
-        print(f"[LAUNCH] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]}) | CUDA {getattr(torch.version, 'cuda', 'Unknown')} Active")
-    elif hasattr(torch, "mps") and torch.backends.mps.is_available():
-        device = torch.device("mps")
-        print(f"[LAUNCH] [HARDWARE] Apple Silicon (Metal) Acceleration Active")
-    elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        device = torch.device("xpu")
-        print(f"[LAUNCH] [HARDWARE] Intel ARC / XPU Acceleration Active")
-    elif hasattr(torch, "dml") and torch.dml.is_available():
-        device = torch.device("dml")
-        print(f"[LAUNCH] [HARDWARE] Microsoft DirectML (AMD/Intel) Active")
-    else:
-        device = torch.device("cpu")
-        print(f"[WARNING] [HARDWARE] No Accelerator Found. Defaulting to CPU (Slow).")
 
-    vram_gb = 0
-    if device.type == 'cuda':
-        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
 
     model_info = unified_models_registry.get(args.model, {})
     is_heavy_arch = any(x in args.model.lower() for x in ["nafnet", "mirnet", "ffanet", "mprnet"])
