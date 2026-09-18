@@ -1,0 +1,14 @@
+{
+  "index": 7,
+  "filename": "sample_007.png",
+  "aesthetic_score": 6.9,
+  "class_id": 1,
+  "boxes": [
+    [
+      0.1,
+      0.1,
+      0.4,
+      0.4
+    ]
+  ]
+}

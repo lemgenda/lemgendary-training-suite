@@ -163,8 +163,8 @@ try:
     import sys
     _ds_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "lemgendary-datasets"))
     if os.path.exists(_ds_path) and _ds_path not in sys.path:
-        sys.path.insert(0, _ds_path)
-    from degrade import DynamicDegrader as _Degrader, parse_profile as _Parser  # type: ignore[import-not-found]
+        sys.path.append(_ds_path)
+    from degrade import DynamicDegrader as _Degrader, parse_profile as _Parser
     CoreDynamicDegrader = _Degrader
     core_parse_profile = _Parser
     _HAS_DEGRADE_CORE = True

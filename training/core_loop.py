@@ -10,16 +10,27 @@ import gc
 import multiprocessing
 import signal
 
+from training.utils.paths import get_project_root, get_workspace_root, bootstrap_sys_path
+from training.utils.logging import ForceTTY, install_force_tty
+from training.utils.interrupt import (
+    silent_worker_excepthook,
+    cleanup_active_processes,
+    graceful_exit,
+    install_signal_handlers,
+    register_active_process,
+    register_emergency_sync,
+    _ACTIVE_PROCESSES,
+)
 
-def silent_worker_excepthook(exc_type, exc_value, exc_traceback):
-    if issubclass(exc_type, (KeyboardInterrupt, EOFError, BrokenPipeError, ConnectionResetError)):
-        return
-    sys.__excepthook__(exc_type, exc_value, exc_traceback)
-
+bootstrap_sys_path()
+install_force_tty()
 
 if multiprocessing.current_process().name != 'MainProcess':
+
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     sys.excepthook = silent_worker_excepthook
+else:
+    install_signal_handlers()
 
 try:
     import kagglesdk.kaggle_env as ke
@@ -32,25 +43,10 @@ try:
         ke.get_web_endpoint = get_web_endpoint
 except ImportError:
     pass
+
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True, write_through=True)
 
-
-class ForceTTY:
-    def __init__(self, stream):
-        self.stream = stream
-    def write(self, data):
-        return self.stream.write(data)
-    def flush(self):
-        return self.stream.flush()
-    def isatty(self):
-        return True
-    def __getattr__(self, attr):
-        return getattr(self.stream, attr)
-
-
-sys.stdout = ForceTTY(sys.stdout)
-sys.stderr = ForceTTY(sys.stderr)
 import argparse
 import warnings
 import atexit
@@ -62,14 +58,9 @@ import gc
 import math
 import torch.version
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-workspace_root = os.path.dirname(script_dir)
+workspace_root = str(get_project_root())
 venv_site_pkgs = os.path.normpath(os.path.join(workspace_root, ".venv", "Lib", "site-packages"))
 
-if workspace_root not in sys.path:
-    sys.path.insert(0, workspace_root)
-if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
-    sys.path.insert(0, venv_site_pkgs)
 
 from datetime import datetime
 from training.telemetry import TelemetryEngine, METRIC_DIRECTIONS
@@ -114,49 +105,8 @@ from training.model_registry import audit_hardware_vram, find_paths_pruned, load
 from training.sota_rollback import safe_torch_save, load_scheduler_state_stretched, safe_replace
 from training.parallel import build_parallel_strategy
 
-_active_processes = []
+_active_processes = _ACTIVE_PROCESSES
 
-
-def cleanup_active_processes(*args):
-    """Indestructible cleanup of all LemGendary project child-processes."""
-    if not _active_processes:
-        return
-    print(f"\n[CLEAN] [JANITOR] Terminating {_active_processes.__len__()} active LemGendary sub-processes...")
-    for p in _active_processes:
-        if p.poll() is None:
-            try:
-                if os.name == 'nt':
-                    subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True)
-                else:
-                    p.terminate()
-            except Exception as e:
-                print(f"[REMEDY] Failed to terminate subprocess {p.pid}: {e}")
-    _active_processes.clear()
-
-
-atexit.register(cleanup_active_processes)
-_emergency_sync_handler = None
-
-
-def register_emergency_sync(handler):
-    global _emergency_sync_handler
-    _emergency_sync_handler = handler
-
-
-def graceful_exit(signum, frame):
-    """Silent shutdown protocol for Ctrl+C / SIGTERM."""
-    if _emergency_sync_handler:
-        try:
-            print("\n[EMERGENCY] Preemption/Termination signal detected! Executing emergency checkpoint sync...")
-            _emergency_sync_handler()
-        except Exception as e:
-            print(f"[EMERGENCY] Emergency preemption sync failed: {e}")
-    cleanup_active_processes()
-    os._exit(0)
-
-
-signal.signal(signal.SIGINT, graceful_exit)
-signal.signal(signal.SIGTERM, graceful_exit)
 
 from data.dataset import MultiTaskDataset
 from data.data_utils import download_and_extract_dataset
@@ -190,19 +140,11 @@ except ImportError:
             return 0
 
 
-def load_pat():
-    """2026 Resilience: Securely mount PATs from local files if missing from environment."""
-    for pat_name, file_name in [('GITHUB_PAT', '.GITHUB_PAT'), ('SUITE_PAT', '.SUITE_PAT')]:
-        if not os.environ.get(pat_name):
-            for path in [file_name, os.path.join('..', file_name)]:
-                if os.path.exists(path):
-                    try:
-                        with open(path, 'r') as f:
-                            val = f.read().strip()
-                            if val:
-                                os.environ[pat_name] = val
-                    except Exception as e:
-                        print(f"[REMEDY] Could not read secret {pat_name} from {path}: {e}")
+from training.config.secrets import load_secrets, get_secret
+
+load_secrets()
+load_pat = load_secrets
+
 
 
 def git_hub_sync(repo_path, remote_url, message):

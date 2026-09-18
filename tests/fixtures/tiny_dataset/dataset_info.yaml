@@ -1,0 +1,13 @@
+---
+name: tiny_dataset
+version: "1.0"
+format: directory
+container:
+  primary: directory
+total_samples: 8
+splits:
+  train: 8
+tasks:
+  - restoration
+  - quality
+  - detection
