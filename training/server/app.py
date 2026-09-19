@@ -89,10 +89,23 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
         server_state.clear_pid()
         logger.info("Daemon terminated cleanly.")
 
+    openapi_tags = [
+        {"name": "health", "description": "Daemon health, uptime, and accelerator status."},
+        {"name": "config", "description": "Configuration and canonical training presets."},
+        {"name": "jobs", "description": "Persistent asynchronous job queue and log streaming."},
+        {"name": "models", "description": "Model registry, parameters, and architecture audit."},
+        {"name": "training", "description": "In-process training, evaluation, and export job dispatch."},
+        {"name": "datasets", "description": "Compiled datasets and manifold exploration."},
+        {"name": "env", "description": "Hardware telemetry and host resources."},
+        {"name": "gui", "description": "Desktop GUI dashboard aggregation and quick-dispatch endpoints."},
+        {"name": "ws", "description": "Real-time WebSocket telemetry and event feeds."},
+    ]
+
     application = FastAPI(
         title="LemGendary Model Training Suite Sidecar API",
         version="2026.11.0",
         description="Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
+        openapi_tags=openapi_tags,
         lifespan=lifespan,
     )
 

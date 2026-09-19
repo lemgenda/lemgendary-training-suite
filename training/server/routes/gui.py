@@ -21,6 +21,10 @@ class QuickTrainRequest(BaseModel):
     model_key: str = Field(..., description="Target model key")
     preset: str = Field("quick-sota", description="Preset name from presets.yaml")
     clean: bool = Field(False, description="Wipe checkpoints and start fresh")
+    epochs: int | None = Field(None, description="Optional override for training epochs")
+    batch_size: int | None = Field(None, description="Optional override for batch size")
+    learning_rate: float | None = Field(None, description="Optional override for learning rate")
+    env: str = Field("local", description="Execution environment ('local', 'kaggle', 'colab')")
 
 
 def _get_root(request: Request) -> Path:
@@ -74,6 +78,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
     for model_key, info in registry.items():
         model_ckpts = ckpts_by_model.get(model_key, [])
         best_ckpt = next((c for c in model_ckpts if c["is_best"]), None)
+        latest_ckpt = max(model_ckpts, key=lambda c: c.get("epoch") or 0) if model_ckpts else None
 
         results.append({
             "model_key": model_key,
@@ -83,6 +88,8 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             "checkpoints_count": len(model_ckpts),
             "has_best_checkpoint": best_ckpt is not None,
             "best_checkpoint_size_mb": best_ckpt["size_mb"] if best_ckpt else None,
+            "best_checkpoint_epoch": best_ckpt["epoch"] if best_ckpt else None,
+            "latest_checkpoint_epoch": latest_ckpt["epoch"] if latest_ckpt else None,
             "resolution": info.get("resolution"),
         })
 
@@ -102,11 +109,17 @@ def quick_train(payload: QuickTrainRequest, request: Request) -> dict[str, Any]:
     params: dict[str, Any] = {
         "model": payload.model_key,
         "preset": payload.preset,
-        "epochs": preset_cfg.get("epochs"),
-        "batch_size": preset_cfg.get("batch_size"),
-        "learning_rate": preset_cfg.get("learning_rate"),
+        "epochs": payload.epochs if payload.epochs is not None else preset_cfg.get("epochs"),
+        "batch_size": payload.batch_size if payload.batch_size is not None else preset_cfg.get("batch_size"),
+        "learning_rate": payload.learning_rate if payload.learning_rate is not None else preset_cfg.get("learning_rate"),
         "clean": payload.clean,
-        "env": "local",
+        "env": payload.env,
     }
     job_id = manager.submit_job(job_type="train", model_key=payload.model_key, params=params)
-    return {"job_id": job_id, "status": "pending", "preset": payload.preset}
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "preset": payload.preset,
+        "params": params,
+    }
+

@@ -188,13 +188,13 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
 
     # Parallel strategy wrapping
     parallel_strategy = build_parallel_strategy(
-        strategy_name=args.parallel,
-        model_name=model_key,
+        name=args.parallel,
         model=raw_model,
         device=device_info.device,
-        device_ids=[0] if device_info.is_cuda else None,
+        model_key=model_key,
+        config=config,
     )
-    model = parallel_strategy.model
+    model = parallel_strategy.setup()
 
     # 4. Total epochs resolution
     epochs_val = args.epochs or model_info.get("epochs") or config.get("training", {}).get("default_epochs", 100)
@@ -210,24 +210,59 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     )
 
     # 6. Criterion
-    criterion = CombinedLoss(model_info=model_info, device=device_info.device)
+    task_type = model_info.get("task_type", "restoration")
+    criterion = CombinedLoss(task_type=task_type)
 
     # 7. Data Loaders
     batch_size = args.batch_size or model_info.get("batch_size", 16)
+    if task_type == "forex":
+        from data.forex_dataset import ForexDataset
+        train_ds = ForexDataset(config, is_train=True, env=args.env)
+        try:
+            val_ds = ForexDataset(config, is_train=False, env=args.env)
+        except Exception:
+            val_ds = None
+    else:
+        from data.dataset import MultiTaskDataset
+        train_ds = MultiTaskDataset(
+            config,
+            model_key=model_key,
+            is_train=True,
+            env=args.env,
+            sample_fraction=1.0,
+        )
+        try:
+            val_ds = MultiTaskDataset(
+                config,
+                model_key=model_key,
+                is_train=False,
+                env=args.env,
+                sample_fraction=1.0,
+            )
+        except Exception:
+            val_ds = None
+
     train_loader = build_train_loader(
-        model_name=model_key,
-        model_info=model_info,
+        dataset=train_ds,
         batch_size=batch_size,
         num_workers=args.num_workers,
+        device=device_info.device,
+        env=args.env,
+        config=config,
     )
-    try:
-        val_loader = canonical_build_val_loader(
-            model_name=model_key,
-            model_info=model_info,
-            batch_size=batch_size,
-            num_workers=args.val_num_workers or args.num_workers,
-        )
-    except Exception:
+    if val_ds is not None:
+        try:
+            val_loader = canonical_build_val_loader(
+                dataset=val_ds,
+                batch_size=batch_size,
+                num_workers=args.val_num_workers or args.num_workers,
+                device=device_info.device,
+                env=args.env,
+                config=config,
+            )
+        except Exception:
+            val_loader = None
+    else:
         val_loader = None
 
     # 8. Sentinels & Governance

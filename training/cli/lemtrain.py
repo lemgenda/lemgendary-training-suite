@@ -428,3 +428,20 @@ def server_status(
         except Exception as e:
             typer.echo(f"  Health probe failed: {e}")
 
+
+@server_app.command("openapi")
+def server_openapi(
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="File path to save openapi.json. If omitted, prints to stdout."),
+) -> None:
+    """Export the OpenAPI 3.1 schema specification of the sidecar daemon."""
+    from training.server.app import app as application
+
+    schema = application.openapi()
+    content = json.dumps(schema, indent=2) + "\n"
+    if output:
+        out_path = Path(output).resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(content, encoding="utf-8")
+        typer.echo(f"[SUCCESS] Exported OpenAPI specification to {out_path}")
+    else:
+        typer.echo(content)

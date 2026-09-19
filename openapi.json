@@ -1,0 +1,1106 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LemGendary Model Training Suite Sidecar API",
+    "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
+    "version": "2026.11.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Get Health",
+        "description": "Return health status, daemon version, and hardware accelerator profile.",
+        "operationId": "get_health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Health Api Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config": {
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Get Config",
+        "description": "Retrieve suite configuration manifest.",
+        "operationId": "get_config_api_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Config Api Config Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/presets": {
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Get Presets",
+        "description": "List all canonical training presets.",
+        "operationId": "get_presets_api_presets_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Presets Api Presets Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/presets/{preset_name}": {
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Get Preset",
+        "description": "Retrieve configuration for a specific preset.",
+        "operationId": "get_preset_api_presets__preset_name__get",
+        "parameters": [
+          {
+            "name": "preset_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Preset Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Preset Api Presets  Preset Name  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "List Jobs",
+        "description": "List persistent jobs from SQLite database.",
+        "operationId": "list_jobs_api_jobs_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by status ('pending', 'running', 'completed', 'failed', 'cancelled')",
+              "title": "Status"
+            },
+            "description": "Filter by status ('pending', 'running', 'completed', 'failed', 'cancelled')"
+          },
+          {
+            "name": "model_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by target model key",
+              "title": "Model Key"
+            },
+            "description": "Filter by target model key"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response List Jobs Api Jobs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job",
+        "description": "Retrieve detailed state and metrics of a job.",
+        "operationId": "get_job_api_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Job Api Jobs  Job Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/cancel": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Cancel Job",
+        "description": "Cancel an active or pending background job.",
+        "operationId": "cancel_job_api_jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Cancel Job Api Jobs  Job Id  Cancel Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/logs": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job Logs",
+        "description": "Read buffered log output from disk.",
+        "operationId": "get_job_logs_api_jobs__job_id__logs_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "tail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 200,
+              "title": "Tail"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Job Logs Api Jobs  Job Id  Logs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "List Models",
+        "description": "List all registered model architectures.",
+        "operationId": "list_models_api_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response List Models Api Models Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/{model_key}": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Get Model Info",
+        "description": "Retrieve full configuration and metadata for a model.",
+        "operationId": "get_model_info_api_models__model_key__get",
+        "parameters": [
+          {
+            "name": "model_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Model Info Api Models  Model Key  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/{model_key}/audit": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Audit Model",
+        "description": "Audit parameter counts, layer breakdown, and memory footprint of model.",
+        "operationId": "audit_model_api_models__model_key__audit_get",
+        "parameters": [
+          {
+            "name": "model_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Audit Model Api Models  Model Key  Audit Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/train": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Enqueue Training",
+        "description": "Enqueue background training job.",
+        "operationId": "enqueue_training_api_training_train_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Enqueue Training Api Training Train Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/evaluate": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Enqueue Evaluation",
+        "description": "Enqueue background evaluation job.",
+        "operationId": "enqueue_evaluation_api_training_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Enqueue Evaluation Api Training Evaluate Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/export": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Enqueue Export",
+        "description": "Enqueue background export job.",
+        "operationId": "enqueue_export_api_training_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Enqueue Export Api Training Export Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/datasets": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "List Datasets",
+        "description": "List datasets defined across the repository and manifests.",
+        "operationId": "list_datasets_api_datasets_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response List Datasets Api Datasets Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/env/telemetry": {
+      "get": {
+        "tags": [
+          "env"
+        ],
+        "summary": "Get Env Telemetry",
+        "description": "Retrieve host system hardware telemetry, memory headroom, and disk capacity.",
+        "operationId": "get_env_telemetry_api_env_telemetry_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Env Telemetry Api Env Telemetry Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gui/state": {
+      "get": {
+        "tags": [
+          "gui"
+        ],
+        "summary": "Get Gui State",
+        "description": "Retrieve unified state snapshot for Desktop GUI dashboard.",
+        "operationId": "get_gui_state_api_gui_state_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Gui State Api Gui State Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gui/models/with-stats": {
+      "get": {
+        "tags": [
+          "gui"
+        ],
+        "summary": "Get Models With Stats",
+        "description": "Retrieve model architectures paired with checkpoint existence and size.",
+        "operationId": "get_models_with_stats_api_gui_models_with_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Get Models With Stats Api Gui Models With Stats Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gui/quick-train": {
+      "post": {
+        "tags": [
+          "gui"
+        ],
+        "summary": "Quick Train",
+        "description": "Dispatch fast one-click training job using a named preset.",
+        "operationId": "quick_train_api_gui_quick_train_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuickTrainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Quick Train Api Gui Quick Train Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "EvalRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Target model key"
+          },
+          "checkpoint_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Path",
+            "description": "Path to checkpoint (.pth)"
+          },
+          "batch_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Size",
+            "description": "Evaluation batch size"
+          },
+          "env": {
+            "type": "string",
+            "title": "Env",
+            "description": "Environment",
+            "default": "local"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "EvalRequest",
+        "description": "Payload for submitting evaluation job."
+      },
+      "ExportRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Target model key"
+          },
+          "checkpoint_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Path",
+            "description": "Path to checkpoint"
+          },
+          "output_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Dir",
+            "description": "Export output directory"
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targets",
+            "description": "Subset of export targets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "ExportRequest",
+        "description": "Payload for submitting export job."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "QuickTrainRequest": {
+        "properties": {
+          "model_key": {
+            "type": "string",
+            "title": "Model Key",
+            "description": "Target model key"
+          },
+          "preset": {
+            "type": "string",
+            "title": "Preset",
+            "description": "Preset name from presets.yaml",
+            "default": "quick-sota"
+          },
+          "clean": {
+            "type": "boolean",
+            "title": "Clean",
+            "description": "Wipe checkpoints and start fresh",
+            "default": false
+          },
+          "epochs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epochs",
+            "description": "Optional override for training epochs"
+          },
+          "batch_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Size",
+            "description": "Optional override for batch size"
+          },
+          "learning_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learning Rate",
+            "description": "Optional override for learning rate"
+          },
+          "env": {
+            "type": "string",
+            "title": "Env",
+            "description": "Execution environment ('local', 'kaggle', 'colab')",
+            "default": "local"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_key"
+        ],
+        "title": "QuickTrainRequest",
+        "description": "Payload for quick train trigger."
+      },
+      "TrainRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Target model key"
+          },
+          "epochs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epochs",
+            "description": "Total epochs override"
+          },
+          "batch_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Size",
+            "description": "Batch size override"
+          },
+          "lr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lr",
+            "description": "Learning rate override"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset",
+            "description": "Preset configuration name"
+          },
+          "env": {
+            "type": "string",
+            "title": "Env",
+            "description": "Target environment ('local', 'kaggle', 'colab')",
+            "default": "local"
+          },
+          "clean": {
+            "type": "boolean",
+            "title": "Clean",
+            "description": "Wipe local checkpoints and start fresh",
+            "default": false
+          },
+          "auto_sync": {
+            "type": "boolean",
+            "title": "Auto Sync",
+            "description": "Auto sync checkpoints to cloud",
+            "default": false
+          },
+          "parallel": {
+            "type": "string",
+            "title": "Parallel",
+            "description": "Parallel strategy ('auto', 'single', 'dp', 'ddp')",
+            "default": "auto"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "TrainRequest",
+        "description": "Payload for submitting training job."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Daemon health, uptime, and accelerator status."
+    },
+    {
+      "name": "config",
+      "description": "Configuration and canonical training presets."
+    },
+    {
+      "name": "jobs",
+      "description": "Persistent asynchronous job queue and log streaming."
+    },
+    {
+      "name": "models",
+      "description": "Model registry, parameters, and architecture audit."
+    },
+    {
+      "name": "training",
+      "description": "In-process training, evaluation, and export job dispatch."
+    },
+    {
+      "name": "datasets",
+      "description": "Compiled datasets and manifold exploration."
+    },
+    {
+      "name": "env",
+      "description": "Hardware telemetry and host resources."
+    },
+    {
+      "name": "gui",
+      "description": "Desktop GUI dashboard aggregation and quick-dispatch endpoints."
+    },
+    {
+      "name": "ws",
+      "description": "Real-time WebSocket telemetry and event feeds."
+    }
+  ]
+}
