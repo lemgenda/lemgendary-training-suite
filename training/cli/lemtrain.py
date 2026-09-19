@@ -7,11 +7,17 @@ operations directly in-process via training.services, or delegates to local side
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import socket
+import subprocess
+import sys
 from typing import Any, List, Optional
+import urllib.error
+import urllib.request
 import typer
 
+from training.server.state import ServerState
 from training.services.audit_service import AuditService
 from training.services.checkpoint_service import CheckpointService
 from training.services.eval_service import EvaluationService
@@ -30,11 +36,13 @@ checkpoints_app = typer.Typer(name="checkpoints", help="Checkpoint management an
 presets_app = typer.Typer(name="presets", help="Preset profile exploration and management.")
 audit_app = typer.Typer(name="audit", help="System resources, model topology, and judicial audits.")
 sync_app = typer.Typer(name="sync", help="Cloud storage synchronization and provider telemetry.")
+server_app = typer.Typer(name="server", help="FastAPI sidecar daemon process management.")
 
 app.add_typer(checkpoints_app, name="checkpoints")
 app.add_typer(presets_app, name="presets")
 app.add_typer(audit_app, name="audit")
 app.add_typer(sync_app, name="sync")
+app.add_typer(server_app, name="server")
 
 SIDECAR_PORT = 8200
 
@@ -84,11 +92,10 @@ def train(
         parallel=parallel,
     )
 
-    typer.echo(f"[SUCCESS] Training complete for '{summary.model_name}'.")
-    typer.echo(f"Total Epochs Completed: {summary.total_epochs_completed}")
-    typer.echo(f"Final Validation Loss: {summary.final_val_loss:.6f}")
-    typer.echo(f"Best Metric Value: {summary.best_metric_value:.6f}")
-    typer.echo(f"Total Elapsed Time: {summary.total_elapsed_seconds:.2f}s")
+    typer.echo(f"[SUCCESS] Training complete for '{summary.model_name}' (status={summary.status}).")
+    typer.echo(f"Final Epoch Completed: {summary.final_epoch}")
+    typer.echo(f"Total Elapsed Time: {summary.total_time:.2f}s")
+    typer.echo(f"Best Metrics: {summary.best_metrics}")
 
 
 @app.command("eval")
@@ -335,3 +342,89 @@ def sync_run(
         typer.echo(f"[SUCCESS] Cloud sync complete: {res.get('message', '')}")
     else:
         typer.echo(f"[ERROR] Cloud sync failed: {res.get('message', '')}")
+
+
+@server_app.command("start")
+def server_start(
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind address"),
+    port: int = typer.Option(8200, "--port", "-p", help="Server port"),
+    daemon: bool = typer.Option(False, "--daemon", "-d", help="Run detached in background"),
+) -> None:
+    """Start the FastAPI sidecar daemon."""
+    if is_sidecar_online(port):
+        typer.echo(f"[INFO] Server is already running on http://{host}:{port}")
+        return
+
+    if daemon:
+        typer.echo(f"[START] Launching LemGendary Sidecar Daemon on http://{host}:{port} (daemon mode)...")
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "training.server.app:app", "--host", host, "--port", str(port)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        state = ServerState()
+        state.write_pid(proc.pid)
+        token = state.get_or_create_token()
+        typer.echo(f"[SUCCESS] Server daemon launched with PID {proc.pid}.")
+        typer.echo(f"  Endpoint: http://{host}:{port}/api/health")
+        typer.echo(f"  Interactive Docs: http://{host}:{port}/docs")
+        typer.echo(f"  Auth Token: {token}")
+    else:
+        typer.echo(f"[START] Starting LemGendary Sidecar Daemon on http://{host}:{port} (foreground)...")
+        import uvicorn
+        uvicorn.run("training.server.app:app", host=host, port=port)
+
+
+@server_app.command("stop")
+def server_stop() -> None:
+    """Stop running sidecar daemon process."""
+    state = ServerState()
+    pid = state.read_pid()
+    if not pid:
+        typer.echo("No active server PID file found.")
+        return
+
+    try:
+        import psutil
+        if psutil.pid_exists(pid):
+            p = psutil.Process(pid)
+            p.terminate()
+            typer.echo(f"[SUCCESS] Terminated server process with PID {pid}.")
+        else:
+            typer.echo(f"Process {pid} is no longer running.")
+    except Exception as e:
+        typer.echo(f"[ERROR] Could not terminate process {pid}: {e}")
+    finally:
+        state.clear_pid()
+
+
+@server_app.command("status")
+def server_status(
+    port: int = typer.Option(8200, "--port", "-p", help="Target port to probe"),
+) -> None:
+    """Check sidecar daemon status and health endpoint."""
+    state = ServerState()
+    pid = state.read_pid()
+    online = is_sidecar_online(port)
+
+    typer.echo("LemGendary Sidecar Daemon Telemetry:")
+    typer.echo(f"  Port: {port}")
+    typer.echo(f"  Listening: {'ONLINE' if online else 'OFFLINE'}")
+    typer.echo(f"  PID: {pid if pid else 'None'}")
+    typer.echo(f"  Token File: {state.token_path}")
+    typer.echo(f"  SQLite DB: {state.db_path}")
+
+    if online:
+        try:
+            url = f"http://127.0.0.1:{port}/api/health"
+            req = urllib.request.Request(url, headers={"User-Agent": "LemTrain-CLI"})
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                typer.echo("  Health Response:")
+                typer.echo(f"    Service: {data.get('service')}")
+                typer.echo(f"    Version: {data.get('version')}")
+                typer.echo(f"    Device: {data.get('device', {}).get('name')}")
+        except Exception as e:
+            typer.echo(f"  Health probe failed: {e}")
+

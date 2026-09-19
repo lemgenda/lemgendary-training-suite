@@ -54,3 +54,4 @@ typings/
 .coverage
 htmlcov/
 *.tmp
+.lemtrain_server/
