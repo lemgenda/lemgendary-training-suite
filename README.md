@@ -2,7 +2,7 @@
 
 > Industrial-standard training, evaluation, export, and telemetry orchestration suite for Vision, Restoration, and Financial Time-Series deep learning models.
 >
-> **Function reference and architecture details:** [Whitepaper (PAPER_TRAINING_SUITE.md)](./lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md) · [Roadmap (training_suite_refactoring_roadmap.md)](./lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+> **Architecture details and technical whitepapers:** [Master Training Suite Guide (PAPER_TRAINING_SUITE.md)](../lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md) · [Master CLI Manual (MANUAL_CLI.md)](../lemgendary-docs/MD-Papers/MANUAL_CLI.md) · [Master API Manual (MANUAL_API.md)](../lemgendary-docs/MD-Papers/MANUAL_API.md) · [Documentation Hub](https://lemgenda.github.io/ai-training-whitepapers/index.html)
 
 ---
 
@@ -42,158 +42,40 @@ Completed the comprehensive 2026 architectural refactoring and modernization roa
 
 ---
 
-## Getting Started
-
-### 1. Canonical CLI (`lemtrain` / `python cli.py`)
-
-The primary command-line interface for local training, evaluation, compilation, and cloud synchronization:
-
-```bash
-# Display global help and command groups
-python cli.py --help
-
-# In-process training run using a canonical preset
-python cli.py train mirnet_exposure --preset quick-sota --epochs 10
-
-# Deterministic validation under torch.no_grad()
-python cli.py eval mirnet_exposure --checkpoint checkpoints/mirnet_exposure/best.pth
-
-# Multi-target model compilation (FP32 ONNX, FP16 ONNX, PyTorch standalone, WebGPU)
-python cli.py export mirnet_exposure
-
-# Kaggle and Google Colab training notebook generation
-python cli.py notebooks mirnet_exposure --platform all
-
-# Inspect and prune checkpoints
-python cli.py checkpoints list mirnet_exposure
-python cli.py checkpoints prune mirnet_exposure --keep 3
-
-# View and inspect canonical presets
-python cli.py presets list
-python cli.py presets show quick-sota
-
-# System resource and model architecture audit
-python cli.py audit system
-python cli.py audit model mirnet_exposure
-
-# Cloud checkpoint synchronization
-python cli.py sync run mirnet_exposure --target gdrive --epoch 5
-```
-
-### 2. Sidecar Daemon Control
-
-The training suite includes a background FastAPI service for headless automation and desktop GUI integration:
-
-```bash
-# Start sidecar daemon in background on port 8200
-python cli.py server start --daemon
-
-# Check daemon health and active hardware sensors
-python cli.py server status
-
-# Export OpenAPI 3.1 specification contract
-python cli.py server openapi --output openapi.json
-
-# Stop running daemon process
-python cli.py server stop
-```
-
-### 3. Master Models Hub Console
-
-The interactive PowerShell terminal console for rapid system bootstrapping, fleet smoke testing, and headless Kaggle cloud orchestration:
-
-```powershell
-./lemgendary_models_hub.ps1
-```
-
----
-
-## Canonical Presets Specification
-
-The training suite standardizes training execution across CLI, API, and Desktop GUI through profiles defined in `presets.yaml`:
-
-| Preset | Precision | Batch Size | Learning Rate | Optimizer | Scheduler | Epochs | Curriculum | SOTA Tracking | Sentinel |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `quick-sota` | `amp_fp16` | 64 | 0.001 | `adamw` | Cosine Warm Restarts | 50 | Yes | Yes | Yes |
-| `debug-tiny` | `fp32` | 4 | 0.0001 | `adam` | Constant | 2 | No | No | No |
-| `walk-forward` | `amp_fp16` | 512 | 0.0005 | `adamw` | Plateau | 100 | Yes | Yes | Yes |
-| `restoration-ultra` | `amp_fp16` | 16 | 0.0002 | `adamw` | Cosine | 80 | Yes | Yes | Yes |
-| `detection-yolo` | `amp_fp16` | 32 | 0.001 | `sgd` | Linear | 100 | No | Yes | Yes |
-
----
-
-## Sidecar API Architecture (`127.0.0.1:8200`)
-
-The FastAPI sidecar daemon coordinates background training, evaluations, exports, and real-time telemetry:
-
-- **State Root**: `.lemtrain_server/` (local tokens, process PID, SQLite database, per-job log files).
-- **Persistence**: SQLite database (`jobs.db`) configured with `PRAGMA journal_mode=WAL;` and `PRAGMA synchronous=NORMAL;`.
-- **Authentication**: Local security token in `.lemtrain_server/token` validated via `Authorization: Bearer <token>` or `X-LemTrain-Token` header.
-- **REST Endpoints**:
-  - `GET /api/health` — Daemon uptime, version, and GPU accelerator profile.
-  - `GET /api/config` & `GET /api/presets` — Suite configuration and canonical training presets.
-  - `GET /api/jobs`, `GET /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`, `GET /api/jobs/{id}/logs` — Asynchronous job lifecycle.
-  - `GET /api/models`, `GET /api/models/{key}`, `GET /api/models/{key}/audit` — Model parameter topologies and architecture audits.
-  - `POST /api/training/train`, `/evaluate`, `/export` — In-process job dispatch.
-  - `GET /api/datasets` — Discovered compiled manifolds and datasets.
-  - `GET /api/env/telemetry` — Host hardware metrics (CPU, RAM, GPU, VRAM, Disk).
-  - `GET /api/gui/state`, `GET /api/gui/models/with-stats`, `POST /api/gui/quick-train` — Desktop GUI aggregation and quick dispatch.
-- **WebSocket Streaming**:
-  - `/api/ws/jobs/{job_id}/logs` — Line-by-line live log streaming for specific jobs.
-  - `/api/ws/logs` — Global daemon event broadcast stream.
-- **Interactive Documentation**: Swagger UI at `http://127.0.0.1:8200/docs` and OpenAPI JSON at `http://127.0.0.1:8200/openapi.json`.
-
----
-
-## Project Structure
+## Output Topology
 
 ```text
-lemgendary-training-suite/
-|-- cli.py                         # Canonical root CLI entrypoint
-|-- lemgendary_models_hub.ps1      # Interactive PowerShell terminal orchestrator
-|-- config.yaml                    # Global paths and runtime environment manifest
-|-- unified_models_v2.yaml         # Master model architecture registry
-|-- presets.yaml                   # Canonical training preset definitions
-|-- openapi.json                   # Frozen OpenAPI 3.1 specification contract
-|-- pyproject.toml                 # Package manifest and build metadata
-|-- requirements.txt               # Pinned Python package dependencies
-|-- pyrightconfig.json             # Strict static type checker configuration
-|-- README.md                      # Architecture documentation and changelog
-|-- models.md                      # Registered model descriptions and specifications
-|
-|-- training/                      # Core training suite package
-|   |-- checkpoint/                # Atomic checkpointing, Kaggle BFS recovery, resume stretching
-|   |-- cli/                       # Canonical Typer CLI command definitions
-|   |-- cloud/                     # Multi-provider cloud sync (GitHub, Kaggle, Google Drive)
-|   |-- config/                    # Structured secrets and environment configurations
-|   |-- data/                      # Manifold resolver, worker topologies, container readers
-|   |-- export/                    # ONNX (FP32/FP16), PyTorch standalone, WebGPU, MT5 exporters
-|   |-- governance/                # Metrics registry, curriculum ladders, thermal cooling, SOTA tracker
-|   |-- hardware/                  # Device discovery, execution policies, SentinelGuard
-|   |-- notebooks/                 # Modular notebook cell generators and platform builders
-|   |-- parallel/                  # Multi-GPU DataParallel and DistributedDataParallel strategies
-|   |-- server/                    # FastAPI sidecar daemon, SQLite WAL queue, REST/WS routes
-|   |-- services/                  # In-process S.O.L.I.D. services layer
-|   |-- training/                  # Modular multi-epoch engine, AMP context, optimizer factories
-|   `-- utils/                     # Paths auto-discovery, logging wrappers, subprocess runner
-|
-|-- models/                        # Deep learning architecture definitions and factory
-|-- data/                          # Dataset containers and multi-task datasets
-|-- export/                        # Export utilities and legacy shims
-|-- tools/                         # Relocated auxiliary scripts and diagnostic tools
-`-- tests/                         # Test suite
-    |-- smoke/                     # Entrypoint smoke tests
-    `-- unit/                      # 114 passing unit tests across all subsystems
+checkpoints/                                       # Model weights (.gitignore protected)
+|-- <model_key>/
+|   |-- best.pth                                   # SOTA metric checkpoint
+|   |-- progress.pth                               # Intra-epoch recovery checkpoint
+|   `-- history.csv                                # Training validation metric trajectory
+export/                                            # Model compilation artifacts
+|-- <model_key>_fp32.onnx                          # FP32 ONNX inference graph
+|-- <model_key>_fp16.onnx                          # FP16 half-precision ONNX
+|-- <model_key>_webgpu.onnx                        # Fixed-shape WebGPU Opset 17 graph
+`-- <model_key>_standalone.pt                      # Standalone PyTorch artifact
+.lemtrain_server/                                  # Sidecar daemon state root (.gitignore)
+|-- jobs.db                                        # SQLite persistent job queue (WAL mode)
+|-- token                                          # Master local authentication token
+|-- server.pid                                     # Daemon process identifier
+`-- logs/<job_id>.log                              # Buffered job execution logs
 ```
 
 ---
 
-## Ecosystem Quality & Compliance Standards
+## Project Ecosystem
 
-The LemGendary Model Training Suite adheres strictly to ecosystem governance standards:
+| # | Project | Folder | Description |
+| :--- | :--- | :--- | :--- |
+| 1 | LemGendary Environment Manager | `.\lemgendary-env-manager\` | Ecosystem CLI (`lem-env`), virtual environment lifecycle, multi-gate validation |
+| 2 | LemGendary Dataset Compiler Suite | `.\lemgendary-datasets\` | Manifold compiler, container format transcoders, dataset sidecar daemon on port 8100 |
+| 3 | LemGendary Model Training Suite | `.\lemgendary-training-suite\` | Universal model training, SOTA governance, Typer CLI (`lemtrain`), sidecar daemon on port 8200 |
+| 4 | LemGendary AI Studio GUI | `.\lemgendary-ai-studio-gui\` | Tauri v2 Desktop GUI interface consuming sidecar REST and WebSocket endpoints |
+| 5 | LemGendary AI Documentation Hub | `.\lemgendary-docs\` | Comprehensive research whitepapers, architecture specifications, API and CLI manuals |
+| 6 | LemGendary Compiled Manifolds | `.\LemGendaryDatasets\` | Physical dataset manifolds, shards, Parquet tables, and dataset manifests |
+| 7 | LemGendary Trained Models | `.\LemGendaryModels\` | Versioned neural model weights, ONNX binaries, and evaluation cards |
 
-- **Zero Suppressions**: 100% free of `# type: ignore`, `# noqa`, `# pylint: disable`, and bare `except:` blocks.
-- **Zero Emojis**: Complete absence of Unicode emojis in source code, tests, docstrings, and documentation.
-- **Strict Typing**: Fully typed with strict Pyright verification.
-- **Full Test Coverage**: 114 unit tests passing cleanly across all subsystems.
-- **Multi-Gate Compliance**: Verified with 100% `[PASS]` under `env_manager.cli validate -p lemgendary-training-suite`.
+---
+
+LemGendary AI Suite — Advanced Agentic Coding 2026
