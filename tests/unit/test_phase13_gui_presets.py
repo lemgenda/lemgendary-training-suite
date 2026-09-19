@@ -173,7 +173,8 @@ class TestPhase13DesktopGUIAndPresets(unittest.TestCase):
             self.assertEqual(params.get("preset"), preset_name)
             self.assertEqual(params.get("epochs"), exp_epochs)
             self.assertEqual(params.get("batch_size"), exp_batch)
-            self.assertAlmostEqual(params.get("learning_rate"), exp_lr)
+            self.assertIsNotNone(params.get("learning_rate"))
+            self.assertAlmostEqual(float(params["learning_rate"]), exp_lr)
 
     def test_quick_train_parameter_overrides(self) -> None:
         """Verify QuickTrainRequest supports custom parameter overrides."""
