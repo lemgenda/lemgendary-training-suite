@@ -1,316 +1,199 @@
-# LemGendary AI Training Suite (v16.3.0-NUCLEAR-HARDENED)
+# LemGendary Model Training Suite
 
-> **The 2026 Global Standard for High-Fidelity Vision Model Training.**
+> Industrial-standard training, evaluation, export, and telemetry orchestration suite for Vision, Restoration, and Financial Time-Series deep learning models.
 >
-> A unified, industrial-grade orchestration layer for training, optimizing, and deploying SOTA vision and multimodal models. Optimized for high-frequency artifact detection and structural restoration with **Nuclear-Hardened v16.3.0 Architecture** (now featuring Live Polarity Shields and Absolute Anti-Loop Guards).
+> **Function reference and architecture details:** [Whitepaper (PAPER_TRAINING_SUITE.md)](./lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md) · [Roadmap (training_suite_refactoring_roadmap.md)](./lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
 ---
 
-## [SYNC] Mission Status: v16.2.9 (High-Fidelity Era)
+## Current Status
 
-[LAUNCH] **Status**: High-Fidelity Calibration Active / Global Registry Hardened
-[GOAL] **Current Goal**: Finalize the **Resolution Ladder (256px-640px)** with **Ladder-Aware SOTA Guards** and **Manifold Hardening**.
+| Metric | Value |
+| :--- | :--- |
+| **Version** | `v2026.11.0` |
+| **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
+| **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
+| **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
+| **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
 
 ---
 
-## [FAST] High-Fidelity "Nuclear" Hardening & Technical Backlog
+## Changelog
 
-The deep architectural backlog, including the **Memory-Sentinel**, **Sawtooth Governance**, **Resolution Ladders**, **SOTA Validation Guards**, and **Judicial Audit** logic, has been fully consolidated into our official whitepapers.
+### v2026.11.0 — Full S.O.L.I.D. Modernization, Sidecar Daemon & Canonical Presets (Phases 0-14)
 
-- **Hardware Audit Remediation (v16.3.5)**: Full hardware resource utilization audit for Kaggle cloud training resolved 7 issues: (1) Notebook sentinels now raise `RuntimeError` on missing GPU instead of continuing silently in CPU fallback mode. (2) P100 `requirements.txt` install is protected by a `--constraint` file pinning `torch==2.4.0+cu118` to prevent silent `cu121` upgrade by pip. (3) AUTO-FIX kernel mismatch advice is GPU-conditional: P100 receives the `cu118` fix command, T4 receives `cu121`. (4) `use_amp` and `val_use_amp` now require `cap[0] >= 7` (Turing+), excluding Pascal P100 (`sm_60`) from AMP GradScaler and validation autocast. (5) `audit_hardware_vram` warmup pass re-raises `cudaErrorNoKernelImageForDevice` instead of swallowing it so `sys.exit(1)` fires immediately. (6) `warnings.filterwarnings('ignore')` and `warnings.simplefilter('ignore')` removed from all generated notebook sentinels per ROBOTS.md Zero Tolerance policy. All 23 Kaggle notebooks regenerated.
+Completed the comprehensive 2026 architectural refactoring and modernization roadmap across all 15 milestone phases:
 
-- **Dynamic Segmentation Loading (v16.3.1)**: MultiTaskDataset now natively ingests standard 1-channel `.png` segmentation maps directly from `masks/` allowing training of architectures like ParseNet.
-- **Dynamic Restoration Degradations (v16.3.1)**: MultiTaskDataset dynamically synthesizes blur, haze, noise, rain, and combinations using Albumentations for models like UpnV2 where target maps are solely pristine ground truth.
-- **Adaptive Loop-Breaker & Loop Guards (v16.3.2)**: SmartTrainingGovernor dynamically tracks checkpoint rollback history to detect resolution-regression locks. It automatically triggers spatial resolution promotion (Strategy A) or dynamic drift-gate relaxation (Strategy B), protected by an anti-self-fighting `breakout_lock` retreat shield, to resolve infinite training loops autonomously.
-- **Autonomous Resolution Escalation & Dynamic Limits (v16.3.3)**: `SmartTrainingGovernor` dynamically detects resolution-regression locks when rollback thresholds are met and automatically promotes the training resolution to the next rung in `res_ladder` (`256px -> 384px`), resetting sample fraction to 15% for a fresh warmup. `get_active_regression_limit()` dynamically relaxes `regression_limit` during loop recovery so static YAML limits never block resolution escalation.
-- **Proven-Manifold Protection & Intra-Resolution Data Recoil (v16.0.0)**: If a model regresses during dataset fraction expansion on a resolution where it already achieved a high peak score (`best_quality >= 0.75 * target_quality_score` or `> 85.0`), the `SmartTrainingGovernor` blocks premature Spatial Retreats (resolution drops) and instead executes Intra-Resolution Data Recoil. It steps dataset fraction back to the last safe fraction on the high-resolution manifold (e.g. `75% -> 55%` at `512px`) while cooling the learning rate by 50% and locking stabilization for 5 epochs.
-- **Atomic Governor Fraction Expansion Persistence & Checkpoint State Flush (v16.3.4)**: Solves cloud session preemption rollback during dynamic dataset fraction expansion. When the SOTA Guard triggers sample fraction promotion (e.g. `75% -> 90% -> 100%`), the engine immediately rebuilds DataLoader topologies, flushes the updated governor state into the checkpoint payload, and overwrites both `_latest.pth` and `_best.pth` on disk. Hub Lock skip-paths are anchored directly to live governor telemetry, guaranteeing that cloud restarts resume precisely at the expanded manifold fraction rather than reverting to pre-expansion checkpoints.
-- **Omni-Metric Autonomous SOTA Adaptation (v17.5)**: `SmartTrainingGovernor` dynamically tracks specific deficits ($\Delta_m$) for all SOTA metrics (PSNR, LPIPS, PLCC, SRCC, Directional Accuracy, MAE). Based on the lagging metric, it dynamically actuates stabilizers:
-  - **Dynamic Severity Thresholds**: Automatically tightens deficit classification ($\ge 10\%$ = CRITICAL) for highly asymptotic correlation and probability metrics (SRCC, PLCC, Accuracy) to combat late-stage plateaus.
-  - **Metric Focus Burst**: Executes 5-epoch hyper-aggressive optimization bursts targeted at heavily lagging metrics (e.g., locking backbone LR while boosting `srcc` rank weight to $3.0$).
-  - **Metric-Specific SWA (MS-SWA)**: Maintains independent physical checkpoint vaults for every tracked SOTA metric. Upon Governor trigger, computationally merges the active weights of all individual SOTA peaks into a unified manifold.
-  - Scales `lpips_weight` up for perceptual lag, or down to enforce `psnr` pixel dominance.
-  - Tunes `dir_weight` vs `mag_weight` for financial turbulence.
-- **Differentiable Soft-Spearman Loss & Rank Memory Bank (v19.0)**: Eliminates micro-batch ranking starvation under low VRAM ($b=2$) by evaluating sigmoid-ranked correlation over a historical FIFO queue ($N=32$), scaling pairwise comparisons to $\binom{32}{2} = 496$ pairs per backward pass.
-- **Spatial Statistical Pooling ($\text{Mean} \oplus \text{Std}$)**: Doubles feature sensitivity to localized micro-defects and safety triggers by retaining spatial variance alongside global averages.
-- **Headless Kaggle Cloud Engine & Dataset Bypass (v16.4)**: Full CLI and PowerShell API orchestration for launching, monitoring, and pulling high-VRAM GPU training runs (Tesla T4 x2 / P100) headlessly. Autonomously bypasses unnecessary 200GB+ dataset downloads by inspecting `/images` and `/targets` structures directly on the Kaggle root block.
-- **Universal Post-Training Target Audit & Interactive Guidance**: Diagnostic gap analysis against `sota_targets` upon epoch ceiling completion with interactive cloud escalation and export options.
-- **Walk-Forward Curriculum Orchestrator (v17.1)**: Automated 6-fold spatial-temporal expansion matrix (Phase 1: 4 Pairs $\to$ Phase 4: 16 Pairs) featuring **Dynamic Patience-Based Early Stopping**. The orchestrator autonomously severs unpromising folds and cascades checkpoints forward to ensure robust financial regime generalization without fixed epoch starvation.
-- **Forex High-Entropy Resilience (v17.2)**: `SmartTrainingGovernor` bypasses standard Turbulence Shields for financial manifolds, doubling the Intense Cyclical Learning Rate (Jolt Protocol) intensity ($2.0\times$ multiplier over 5-epoch windows) while extending absolute plateau patience to prevent false-positive retreats.
-- **Multi-Phase Fold Parity Verification (v17.3)**: When training multi-phase Forex curricula with reduced manifold subsets, the orchestrator verifies identical fold counts across all active phases before execution, proactively rejecting mismatched Walk-Forward Cross-Validation splits.
-- **Normalized Pip Scaling & Financial Governance Hardening (v17.4)**: Solves commodity and equity index pip scale divergence via `PAIR_PIP_SCALE` mapping (FX Majors 1.0, Commodities 5.0-10.0, Indices 20.0-40.0) standardizing all loss calculations and regression targets to Normalized Pip Units (0–100 NPUs). Enforces a 0.75 temperature floor for financial manifolds, aligns SOTA target score mathematics, gates differential learning rate jolts to $\le 1.15\times$, and maps training phases to `CURRICULUM_FOLD`.
-- **Clean Training Execution & Checkpoint Isolation (v17.5)**: The CLI (`train.py`) and walk-forward curriculum orchestrator (`train_forex_curriculum.py`) support `--clean` / `--fresh` to initiate runs cleanly from epoch 1 without phantom checkpoint resurrection. When active, Hub Sync bypasses `git lfs pull`, purges local residual checkpoints, resets `curriculum_state.json`, and wipes `metrics.csv`. All checkpoints (`_latest`, `_best`, `_progress`, and `_vault_`) are strictly saved to and loaded from `LemGendaryModels/<model>/checkpoints/`.
-- **16-Symbol Forex Universe Walk-Forward Matrix (v17.6)**: Upgrades ForexPredictor training to natively ingest the 16-symbol physical manifold (`LemGendizedForexUniverseLarge`, 2019-2026). Supports an expanding-window 6-fold Walk-Forward Cross-Validation (WFCV) structure (Fold 1: 2019-2020 -> 2021 through Fold 6: 2019-2025 -> 2026) with automatic symbol aliasing (`NAS100` <-> `USTEC`, `DE40` <-> `GER40`), chunked .npy shard loading, cross-timeframe alignment, and Timeframe Dropout regularizer ($p=0.15$) to prevent high-frequency noise co-adaptation.
-- **Forex Data Pipeline Vectorization & Zero-Worker Windows Execution (v17.7)**: Resolves GPU data starvation (0% utilization) and Windows multiprocessing pagefile thrashing. Vectorizes cross-timeframe temporal alignment matrices ($O(1)$ integer array lookup replacing $35\text{M}$ individual $O(\log N)$ binary searches per epoch). Physical batch sizes dynamically scale by GPU VRAM tier (256 on 4GB GTX 1650 to maximize throughput). Uniform chronological striding represents all 16 symbols proportionally at early curriculum fractions (15%), and Windows execution is strictly gated to in-process execution (`num_workers=0`), eliminating child process memory duplication (freeing 40+ GB committed RAM) and accelerating batch throughput by $12.5\times$. Checkpoint resumption enforces curriculum fraction overrides to prevent legacy 100% resurrected states.
-
-For an exhaustive breakdown of the Training Suite architecture, please consult the [Master Training Suite Guide](file:///c:/Development/python/model-training/lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md) in the `lemgendary-docs` repository.
+- **Phase 14: Root Decluttering & Zero-Suppression Hardening** — Evicted residual binary blobs (`yolov8n.pt`, `face_landmarker.task`) to `.gitignore`-protected storage (`checkpoints/`). Pruned temporary directories and enforced clean project root containing exclusively canonical entrypoints (`cli.py`, `lemgendary_models_hub.ps1`), configuration manifests (`config.yaml`, `unified_models_v2.yaml`, `presets.yaml`, `openapi.json`), dependencies manifests, and subpackages. Maintained 100% zero-suppression policy with zero compiler errors and zero linter warnings.
+- **Phase 13: Canonical Presets & Desktop GUI Integration** — Defined canonical training presets in `presets.yaml` (`quick-sota`, `debug-tiny`, `walk-forward`, `restoration-ultra`, `detection-yolo`). Implemented Desktop GUI dashboard aggregation endpoints in `training/server/routes/gui.py` (`GET /api/gui/state`, `GET /api/gui/models/with-stats`, `POST /api/gui/quick-train`). Exported frozen OpenAPI 3.1 contract (`openapi.json`) for TypeScript client generation in `lemgendary-ai-studio-gui`.
+- **Phase 12: FastAPI Sidecar Daemon & Persistent Job Queue** — Established background sidecar service on `127.0.0.1:8200` with ACID SQLite persistent job queue in `.lemtrain_server/jobs.db` using WAL mode. Added local token security (`.lemtrain_server/token`), process PID management, restart recovery for interrupted jobs, thread pool background workers, and real-time streaming WebSockets at `/api/ws/jobs/{job_id}/logs` and `/api/ws/logs`. Added `lemtrain server start/stop/status/openapi` CLI commands.
+- **Phase 11: In-Process S.O.L.I.D. Services Layer & Canonical Typer CLI** — Decomposed monolithic script workflows into dedicated single-responsibility services (`TrainingService`, `EvaluationService`, `CheckpointService`, `ExportService`, `CloudSyncService`, `NotebookService`, `AuditService`). Replaced fragmented operational scripts with canonical Typer CLI (`training/cli/lemtrain.py` and root `cli.py`) exposing `train`, `eval`, `export`, `notebooks`, `checkpoints`, `presets`, `audit`, `sync`, and `server`. Relocated operational scripts to `tools/` with backward-compatible shims.
+- **Phase 10: Modular Training Engine Coordinator** — Modularized the multi-epoch training engine into `training/training/` (`context.py`, `amp.py`, `optimizer.py`, `epoch.py`, `validation.py`, `engine.py`). Deconstructed monolithic `core_loop.py` from 4,513 lines down to a clean facade delegating execution to `run_training(ctx)`. Verified exact 3-epoch metric trajectory match against baseline.
+- **Phase 9: Modular Notebook Cell Architecture & Cross-Repo Sync** — Built granular cell generator framework (`training/notebooks/cells/`) and platform builders for Kaggle and Google Colab. Reduced `notebook_generator.py` from 2,187 lines to 88 lines while guaranteeing 100% bit-exact notebook structural parity. Cross-synchronized modular cell architecture to `lemgendary-datasets/tools/notebooks/` and modularized `core/docs/`.
+- **Phase 8: Model Export Subsystem** — Implemented dedicated export subpackage `training/export/` orchestrating concurrent FP32, FP16, standalone PyTorch (`.pt`), fixed-shape WebGPU (Opset 17), and Forex MT5 signal targets via unified `export_all()` coordinator. Verified byte-identical parity against reference exports.
+- **Phase 7: Unified Cloud Management** — Implemented structured `CloudManager` protocol in `training/cloud/` with multi-provider credential discovery, stealth secret masking, timeout-bounded git-lfs pushes with auto-rebase, zero-copy hardlink staging for Kaggle Hub, and FUSE/REST Google Drive synchronization with SHA256 verification.
+- **Phase 6: Governance, Curriculum, Thermal & Metric Registry** — Encapsulated optimization intelligence into `training/governance/` (`metrics.py`, `curriculum.py`, `thermal.py`, `sota.py`, `governor.py`). Reduced `optimization_engine.py` from 1,117 lines to 82 lines while preserving full backward compatibility for `audit_epoch()` and loop-breaker policies.
+- **Phase 5: Checkpoint Management, Recovery BFS & SOTA Rollback** — Built atomic checkpoint manager with `.tmp` file staging, disk space headroom evaluation, emergency pruning, typed `ResumeState`, proportional scheduler runway stretching, and Kaggle BFS recovery.
+- **Phase 4: Modern Container Readers & Lossless Decoders** — Implemented zero-copy container readers in `training/data/containers/` for Directory (lossless WebP/PNG/JPEG), Parquet (PyArrow LRU caching), MDS (MosaicML Streaming with Zstd), LitData (tensor streaming), and WebDataset (sharded tar), resolved via `dataset_info.yaml` manifests.
+- **Phase 3: Data Loaders, Worker Topologies & Dynamic Degradation** — Unified cross-platform `ManifoldResolver`, hardware-tuned worker topology calculation (`WorkerTopology`), leak-free loader disposal, and dynamic synthetic degradation routines linking cleanly with `lemgendary-datasets`.
+- **Phase 2: Hardware Discovery, Execution Policy & SentinelGuard** — Implemented hardware auto-discovery probing CUDA, MPS, XPU, DML, and CPU architectures with execution policies for cuDNN benchmarking, TF32, channels-last memory formats, and proactive VRAM headroom protection via `SentinelGuard`.
+- **Phase 1: Core Utilities, Structured Secrets & Delegation Adapters** — Established repository root auto-discovery (`get_project_root()`), `ForceTTY` stream logging, safe subprocess execution, signal traps and active process tracking, cross-repo delegation adapters (`EnvManagerDelegate`, `DatasetCompilerDelegate`), and dotfile secret parsers.
+- **Phase 0: Baseline Freeze & Binary Blobs Eviction** — Created git baseline tag `pre-refactor-v2`, evicted binary files from root, configured `pyproject.toml` and strict `pyrightconfig.json`, and implemented deterministic fixtures.
 
 ---
 
 ## Getting Started
 
-### 1. The Models Hub
+### 1. Canonical CLI (`lemtrain` / `python cli.py`)
 
-The master orchestration console for system bootstrapping and cloud sync.
+The primary command-line interface for local training, evaluation, compilation, and cloud synchronization:
+
+```bash
+# Display global help and command groups
+python cli.py --help
+
+# In-process training run using a canonical preset
+python cli.py train mirnet_exposure --preset quick-sota --epochs 10
+
+# Deterministic validation under torch.no_grad()
+python cli.py eval mirnet_exposure --checkpoint checkpoints/mirnet_exposure/best.pth
+
+# Multi-target model compilation (FP32 ONNX, FP16 ONNX, PyTorch standalone, WebGPU)
+python cli.py export mirnet_exposure
+
+# Kaggle and Google Colab training notebook generation
+python cli.py notebooks mirnet_exposure --platform all
+
+# Inspect and prune checkpoints
+python cli.py checkpoints list mirnet_exposure
+python cli.py checkpoints prune mirnet_exposure --keep 3
+
+# View and inspect canonical presets
+python cli.py presets list
+python cli.py presets show quick-sota
+
+# System resource and model architecture audit
+python cli.py audit system
+python cli.py audit model mirnet_exposure
+
+# Cloud checkpoint synchronization
+python cli.py sync run mirnet_exposure --target gdrive --epoch 5
+```
+
+### 2. Sidecar Daemon Control
+
+The training suite includes a background FastAPI service for headless automation and desktop GUI integration:
+
+```bash
+# Start sidecar daemon in background on port 8200
+python cli.py server start --daemon
+
+# Check daemon health and active hardware sensors
+python cli.py server status
+
+# Export OpenAPI 3.1 specification contract
+python cli.py server openapi --output openapi.json
+
+# Stop running daemon process
+python cli.py server stop
+```
+
+### 3. Master Models Hub Console
+
+The interactive PowerShell terminal console for rapid system bootstrapping, fleet smoke testing, and headless Kaggle cloud orchestration:
 
 ```powershell
 ./lemgendary_models_hub.ps1
 ```
 
-#### Detailed Menu Structure
+---
 
-| Option | Action | Sub-Prompts & Details |
-| :--- | :--- | :--- |
-| **1. Train Individual Model** | **Local Model Training** | Select from parent domains (**Image Manipulation & Restoration**, **Image Generation & Multimodal**, **Financial & Time-Series**) with 24+ SOTA architectures. |
-| **2. Single-Epoch Unit Test** | **Fleet Smoke Test** | Diagnostic 1-epoch execution across all registered models. |
-| **3. Kaggle Cloud Engine** | **Headless GPU Orchestration** | Submenu: **1. Train on Kaggle** (user selection from `.kaggle_users` or new user, notebook selection, launch GPU training, stream telemetry, auto-pull checkpoints and weights after each epoch); **2. Monitor Active Cloud Jobs** (monitor-only live log streaming, no pulling); **3. Pull & Save Checkpoints**; **4. Setup / Verify Credentials**. |
+## Canonical Presets Specification
+
+The training suite standardizes training execution across CLI, API, and Desktop GUI through profiles defined in `presets.yaml`:
+
+| Preset | Precision | Batch Size | Learning Rate | Optimizer | Scheduler | Epochs | Curriculum | SOTA Tracking | Sentinel |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `quick-sota` | `amp_fp16` | 64 | 0.001 | `adamw` | Cosine Warm Restarts | 50 | Yes | Yes | Yes |
+| `debug-tiny` | `fp32` | 4 | 0.0001 | `adam` | Constant | 2 | No | No | No |
+| `walk-forward` | `amp_fp16` | 512 | 0.0005 | `adamw` | Plateau | 100 | Yes | Yes | Yes |
+| `restoration-ultra` | `amp_fp16` | 16 | 0.0002 | `adamw` | Cosine | 80 | Yes | Yes | Yes |
+| `detection-yolo` | `amp_fp16` | 32 | 0.001 | `sgd` | Linear | 100 | No | Yes | Yes |
 
 ---
 
-## Project Anatomy (Stateless Multi-Tenant)
+## Sidecar API Architecture (`127.0.0.1:8200`)
 
-- `unified_models_v2.yaml` — **The Master Registry**: High-Fidelity floor, refined SOTA targets (FID/PLCC), and standardized learning rates.
-- `training/optimization_engine.py` — **The Governor**: Sawtooth scaling, Turbulence Dampening, and NPP Recoil.
-- `training/train.py` — **The Master Pipeline**: Features **Active Memory-Sentinel** and **Atomic SOTA Export**.
-- `LemGendaryModels/` — **The Central Hub & Artifact Vault**: Decoupled repository acting as the exclusive destination for all model weights (`_latest`, `_best`, `_progress`, and `_vault_`), telemetric metrics, and ONNX binaries, fully obsoleting local temporary checkpoint directories.
+The FastAPI sidecar daemon coordinates background training, evaluations, exports, and real-time telemetry:
 
----
-
-## [GUARD] Feature Matrix (v16.2.9 Master Engine)
-
-All features have been exhaustively documented in the [Master Training Suite Guide](file:///c:/Development/python/model-training/lemgendary-docs/MD-Papers/PAPER_TRAINING_SUITE.md).
-
----
-
-## [METRICS] Universal SOTA Telemetry (Dynamic Hardware-Aware Schema)
-
-Standardized historical audit (`metrics.csv`) automatically scales based on the active domain:
-
-- **28-Column Image Telemetry**: Epoch, Loss, LR, PLCC, SRCC, PSNR, SSIM, LPIPS, FID, mAP50, mIoU, Accuracy, Res, Data, Temp, Clamp, Batch, Accumulation, Stress.
-- **24-Column Financial Telemetry**: Phase, Fold, Epoch, Train_Loss, Val_Loss, LR, DirAcc, WinRate, ProfitFactor, Sharpe, Sortino, MaxDD, TP_MAE, SL_MAE, DirEntropy, Quality_Score, Pairs, Data, Temp, Clamp, Cooldown, Batch, Accumulation, Stress.
-- **Auto-Recovery**: Instantly detects domain/column mismatch upon resume, archiving corrupted/legacy logs to `_legacy.csv` and initializing a fresh schema.
-- **Metrics Sanitizer**: Explicitly sanitizes `inf`/`NaN` artifacts to prevent numerical poison.
-- **Cloud Persistence**: Metrics are synchronized across local and cloud via the CloudSyncManager.
+- **State Root**: `.lemtrain_server/` (local tokens, process PID, SQLite database, per-job log files).
+- **Persistence**: SQLite database (`jobs.db`) configured with `PRAGMA journal_mode=WAL;` and `PRAGMA synchronous=NORMAL;`.
+- **Authentication**: Local security token in `.lemtrain_server/token` validated via `Authorization: Bearer <token>` or `X-LemTrain-Token` header.
+- **REST Endpoints**:
+  - `GET /api/health` — Daemon uptime, version, and GPU accelerator profile.
+  - `GET /api/config` & `GET /api/presets` — Suite configuration and canonical training presets.
+  - `GET /api/jobs`, `GET /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`, `GET /api/jobs/{id}/logs` — Asynchronous job lifecycle.
+  - `GET /api/models`, `GET /api/models/{key}`, `GET /api/models/{key}/audit` — Model parameter topologies and architecture audits.
+  - `POST /api/training/train`, `/evaluate`, `/export` — In-process job dispatch.
+  - `GET /api/datasets` — Discovered compiled manifolds and datasets.
+  - `GET /api/env/telemetry` — Host hardware metrics (CPU, RAM, GPU, VRAM, Disk).
+  - `GET /api/gui/state`, `GET /api/gui/models/with-stats`, `POST /api/gui/quick-train` — Desktop GUI aggregation and quick dispatch.
+- **WebSocket Streaming**:
+  - `/api/ws/jobs/{job_id}/logs` — Line-by-line live log streaming for specific jobs.
+  - `/api/ws/logs` — Global daemon event broadcast stream.
+- **Interactive Documentation**: Swagger UI at `http://127.0.0.1:8200/docs` and OpenAPI JSON at `http://127.0.0.1:8200/openapi.json`.
 
 ---
 
-## Standalone Judicial Audit CLI (`judicial_audit_api.py`)
-
-A fully decoupled, zero-dependency validation wrapper designed for CI/CD integration and isolated model auditing.
-
-**Key Capabilities:**
-
-- **Framework Agnostic Loader:** Loads raw PyTorch `.pth` dictionaries, full PyTorch exported objects, and ONNX compiled graphs dynamically.
-- **Auto-Casting & Guard Rails:** Dynamically detects ONNX input types (`float16`/`float32`) and automatically guards against double-softmax distributions by scanning raw logit distributions.
-- **Fast-Path Correlator:** Bypasses complex multi-process training augmenters for single-threaded PIL loads (eliminating Windows DataLoader worker-hangs), outputting standard `PLCC` (Pearson) and `SRCC` (Spearman) scores natively.
-- **JSON Pipeline Exporter:** Automatically pipes results into a standard JSON schema for automated regression auditing.
-
-**Usage:**
-
-```powershell
-python judicial_audit_api.py --model_path .\export\model.onnx --dataset_dir .\test_data --labels_csv .\test_data\labels.csv --output_json report.json
-```
-
----
-
-## Dual-Repo SOTA Hub Sync & Kaggle Deployment
-
-The Governor automatically synchronizes with your `LemGendaryModels` repository, saving `_latest.pth` and `_best.pth` directly to the Hub. It uses **Dual-Token PATs** (`SUITE_PAT` and `GITHUB_PAT`) for secure, headless authentication on Kaggle.
-
-### Multi-GPU DataParallel Capabilities (Kaggle Scale)
-
-The training suite natively intercepts execution environments with multiple GPUs (e.g., Kaggle Tesla T4 x2) and automatically wraps compatible models in PyTorch's `nn.DataParallel` API.
-
-- **Dynamic Batch Distribution**: Seamlessly splits large high-fidelity pixel matrices across available GPUs, doubling effective throughput.
-- **DataParallel Gathering Safeguard (v20.0)**: Fixes primary-device VRAM bottlenecking by eliminating naive `gpu_count` micro-batch multiplication at high resolutions ($\ge 512\text{px}$) and for restoration architectures. GPU 0 is protected from output gathering saturation and loss graph spikes, utilizing Universal Gradient Accumulation to maintain the target effective batch size.
-- **Dynamic Headroom Tiering & Pre-Jump Dry-Run Probe**: Enforces a 30% free VRAM safety headroom margin (`safety_multiplier = 0.70`) for spatial ladders $\ge 512\text{px}$ and perceptual loss engines (LPIPS/VGG). Runs an isolated forward and backward dry-run probe with full loss evaluation before committing to spatial ladder escalation (`512px -> 640px`), automatically vetoing resolution jumps and anchoring weights at the proven resolution if physical VRAM headroom is breached.
-- **Hardware ECC, CUDA Kernel Compatibility & Virtual Memory Fragmentation Guard**: Detects uncorrectable ECC hardware errors and CUDA compute kernel incompatibilities (such as Pascal sm_60 on modern CUDA 12 builds) during pre-flight sanity checks with clear diagnostic recovery guidance and auto-remediation, and configures `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` to eliminate CUDA memory allocator fragmentation.
-- **Seamless CPU Checkpointing**: Intelligently intercepts the `.pth` save hooks, stripping the `module.` prefix injected by `DataParallel` before saving to disk. This guarantees that Kaggle Multi-GPU checkpoints can be effortlessly downloaded and evaluated natively on standalone Windows environments or CPU deployments without manual layer re-mapping.
-- **ONNX Trace Resilience (FakeTensor Guards)**: Dynamically wraps unmapped `FakeTensor` memory pointer access (`data_ptr()`) during FX/ONNX graph tracing within the DataParallel multi-GPU engine to prevent false-positive segmentation faults during structural graph export.
-- **Real-Time SOTA Export Device Re-Anchoring**: Guarantees that multi-GPU DataParallel parameters and buffers are atomically restored to the primary accelerator (`cuda:0`) across all SOTA export cycles via `finally` execution blocks, with proactive start-of-epoch device alignment verification.
-- **Read-Only Dataset Manifold Resilience**: Safely skips dataset directory writes when running in read-only environments (such as Kaggle `/kaggle/input` mounts/symlinks) without interrupting training or model export workflows.
-
-### Universal Hardware Inference
-
-All inference notebooks and training engines natively fall back to **DirectML** on local machines, providing zero-config GPU acceleration for **AMD** and **Intel** graphics cards on Windows.
-
-- **Hardware-Aware Resolution Capping**: Dynamically limits maximum training and validation resolution (e.g. `max_allowed_local_resolution: 640`, `max_allowed_cloud_resolution: 512` on 16GB tiers) on local and cloud environments to prevent VRAM exhaustion and hardware ECC faults, while permitting 1024px+ scaling on robust high-memory cloud infrastructures.
-
----
-
-## [PROGRESS] Forex Trading Model (`forex_predictor`)
-
-The LemGendary Training Suite includes a **production-grade Forex prediction model** trained on MetaTrader 5 OHLCV data across all major currency pairs and all timeframes.
-
-### Architecture: Multi-Scale CNN-Transformer Hybrid
+## Project Structure
 
 ```text
-[M1 branch] [M5 branch] [M15 branch] [H1 branch] [H4 branch] [D1 branch]
-     │            │            │            │           │            │
-Causal TCN   Causal TCN   Causal TCN   Causal TCN  Causal TCN  Causal TCN
-(4 layers)   (4 layers)   (4 layers)   (4 layers)  (4 layers)  (4 layers)
-     └────────────┴────────────┴────────────┴───────────┴────────────┘
-                       Cross-Timeframe Attention (4 heads)
-                       + Currency Pair Embedding (8 pairs)
-                                     │
-                        Fused Feature Manifold [d=256]
-                       ┌─────────────┴─────────────┐
-                 Direction Head               Magnitude Head
-               3-class Softmax            Regression (Softplus)
-            [Down / Sideways / Up]        [TP pips, SL pips]
-              + Confidence Score
+lemgendary-training-suite/
+|-- cli.py                         # Canonical root CLI entrypoint
+|-- lemgendary_models_hub.ps1      # Interactive PowerShell terminal orchestrator
+|-- config.yaml                    # Global paths and runtime environment manifest
+|-- unified_models_v2.yaml         # Master model architecture registry
+|-- presets.yaml                   # Canonical training preset definitions
+|-- openapi.json                   # Frozen OpenAPI 3.1 specification contract
+|-- pyproject.toml                 # Package manifest and build metadata
+|-- requirements.txt               # Pinned Python package dependencies
+|-- pyrightconfig.json             # Strict static type checker configuration
+|-- README.md                      # Architecture documentation and changelog
+|-- models.md                      # Registered model descriptions and specifications
+|
+|-- training/                      # Core training suite package
+|   |-- checkpoint/                # Atomic checkpointing, Kaggle BFS recovery, resume stretching
+|   |-- cli/                       # Canonical Typer CLI command definitions
+|   |-- cloud/                     # Multi-provider cloud sync (GitHub, Kaggle, Google Drive)
+|   |-- config/                    # Structured secrets and environment configurations
+|   |-- data/                      # Manifold resolver, worker topologies, container readers
+|   |-- export/                    # ONNX (FP32/FP16), PyTorch standalone, WebGPU, MT5 exporters
+|   |-- governance/                # Metrics registry, curriculum ladders, thermal cooling, SOTA tracker
+|   |-- hardware/                  # Device discovery, execution policies, SentinelGuard
+|   |-- notebooks/                 # Modular notebook cell generators and platform builders
+|   |-- parallel/                  # Multi-GPU DataParallel and DistributedDataParallel strategies
+|   |-- server/                    # FastAPI sidecar daemon, SQLite WAL queue, REST/WS routes
+|   |-- services/                  # In-process S.O.L.I.D. services layer
+|   |-- training/                  # Modular multi-epoch engine, AMP context, optimizer factories
+|   `-- utils/                     # Paths auto-discovery, logging wrappers, subprocess runner
+|
+|-- models/                        # Deep learning architecture definitions and factory
+|-- data/                          # Dataset containers and multi-task datasets
+|-- export/                        # Export utilities and legacy shims
+|-- tools/                         # Relocated auxiliary scripts and diagnostic tools
+`-- tests/                         # Test suite
+    |-- smoke/                     # Entrypoint smoke tests
+    `-- unit/                      # 114 passing unit tests across all subsystems
 ```
-
-**Design Principles:**
-
-- **Stateless** — no hidden state between calls → safe for ONNX + MT5 EA
-- **Causal Conv1D only** — zero future lookahead, zero data leakage
-- **Confidence-gated magnitude** — low-confidence bars don't corrupt regression
-- **ONNX-compatible** — exports cleanly for MT5 EA deployment
-
-### Lookback Windows
-
-| Timeframe | Window | Span |
-| :--- | :--- | :--- |
-| M1 | 512 bars | ~8.5 hours |
-| M5 | 288 bars | ~1 day |
-| M15 | 192 bars | ~2 days |
-| H1 | 168 bars | ~1 week |
-| H4 | 90 bars | ~2.5 weeks |
-| D1 | 252 bars | ~1 year |
-
-### Governor Curriculum & Temporal Progression
-
-Training employs a staged **Macro-to-Micro Temporal Curriculum** to prevent high-frequency microstructure noise (M1/M5) from overwhelming macro trend representations:
-
-- **Stage A (Macro Anchor)**: Train on H1, H4, D1 (`60, 240, 1440` min) to establish structural trend, swing momentum, and regime identification.
-- **Stage B (Intraday Structure)**: Add M15 (`15` min) for session breaks and intraday momentum setups.
-- **Stage C (Precision Execution)**: Add M5 and M1 (`5, 1` min) for precise entry timing and slippage-resilient TP/SL calibration.
-- **Timeframe Dropout Regularization**: Injects stochastic TF masking ($p=0.15$) during training to prevent single-timeframe co-adaptation.
-- **6-Fold Walk-Forward Matrix**: Evaluates continuous chronological out-of-sample performance across years 2019-2026.
-- **High-Velocity Parquet Streaming Pipeline (v20.1)**: Operates directly on unified `ForexUniverse{year}.parquet` data stores. Employs `ParquetRowGroupCache` for zero-seek random access and sub-microsecond batch tensor recovery ($<1\mu\text{s}$), completely replacing uncompressed `.npy` array folders and reducing data loading I/O overhead by over 95%.
-
-### Key Files
-
-| File | Purpose |
-| :--- | :--- |
-| `models/forex_predictor.py` | Model architecture (ForexPredictor) |
-| `data/mt5_pipeline.py` | MT5 data download, indicator computation, label generation |
-| `data/forex_dataset.py` | ForexDataset (Governor-aligned fractional sampling) |
-| `training/losses.py` | ForexDualLoss (Focal direction + Huber magnitude) |
-| `export/mt5_signal.py` | ONNX export + live signal generator + MQL5 EA stub |
-
-### MT5 Deployment
-
-Once a demo account is available:
-
-```powershell
-# 1. Download data (using credentials or MT5_LOGIN/MT5_PASSWORD/MT5_SERVER environment variables)
-python data/mt5_pipeline.py --mode download --pairs EURUSD GBPUSD --timeframes 60 240 --login <ACCOUNT_NUMBER> --password <PASSWORD> --server <SERVER_NAME>
-
-# 2. Train
-python training/train.py --model forex_predictor
-
-# 3. Export to ONNX
-python export/mt5_signal.py --mode export --checkpoint LemGendaryModels/forex_predictor/forex_predictor_best.pth
-
-# 4. Generate live signal
-python export/mt5_signal.py --mode signal --onnx LemGendaryModels/forex_predictor/forex_predictor.onnx --pair EURUSD --login <ACCOUNT_NUMBER> --password <PASSWORD> --server <SERVER_NAME>
-
-# 5. Generate MQL5 EA stub
-python export/mt5_signal.py --mode mql5_stub --out export/LemGendaryForexEA.mq5
-```
-
-> [WARNING] **Live Trading Safety**: The model emits signals only. SL/TP enforcement and max drawdown kill-switch must be implemented in the MQL5 EA layer independently of the model.
 
 ---
 
-## Google Drive Model Synchronization (Cloud Vault)
+## Ecosystem Quality & Compliance Standards
 
-The training suite natively synchronizes trained model checkpoints, metrics, and exported binaries to the centralized Google Drive root folder:
+The LemGendary Model Training Suite adheres strictly to ecosystem governance standards:
 
-- **Root Google Drive Folder ID**: `142G7B9ONfUkXAhVkPeN4NeJ3YXU0UmJX`
-- **Root Folder URL**: [Google Drive Folder](https://drive.google.com/drive/folders/142G7B9ONfUkXAhVkPeN4NeJ3YXU0UmJX?usp=drive_link)
-- **Destination Structure**: `142G7B9ONfUkXAhVkPeN4NeJ3YXU0UmJX / <model_key> / checkpoints / <model_key>_best.pth` and `<model_key> / metrics.csv`.
-
-### Standalone CLI Synchronization
-
-Synchronize individual models or the entire fleet directly to Google Drive:
-
-```powershell
-# Sync a specific model
-python sync_to_gdrive.py --model forex_predictor
-
-# Dry-run validation
-python sync_to_gdrive.py --model nima_aesthetic_mobile --dry-run
-
-# Sync all fleet models
-python sync_to_gdrive.py --all
-```
-
-### Authentication Precedence
-
-The Google Drive Cloud Manager automatically resolves credentials using the following hierarchy:
-
-1. `--token` parameter override
-2. Local token file: `lemgendary-training-suite/.GOOGLE_DRIVE`
-3. Environment variable: `GOOGLE_DRIVE`
-4. Kaggle Secrets: `GOOGLE_DRIVE` (in Kaggle notebooks)
-5. Google Colab Secrets / userdata: `GOOGLE_DRIVE` (in Colab notebooks)
-6. Google Colab FUSE mount (`/content/drive/MyDrive`)
-
-### Kaggle Lifecycle & Google Drive Sync Policy
-
-To maintain zero cloud manifold drift and strictly prioritize Kaggle Models as the active cloud source of truth, the suite enforces the following lifecycle rules in Kaggle environments:
-
-1. **Startup Discovery**: Checkpoints are loaded exclusively from attached Kaggle Models (`/kaggle/input/models/<owner>/<slug>/pytorch/default/`), automatically resolving the latest numerical version in descending order without pulling from GitHub or Google Drive.
-2. **Mid-Epoch Persistence & Preemption**: During training, intra-epoch progress is saved locally to `/kaggle/working/LemGendaryModels/<model>/checkpoints/`. If the session is interrupted or preempted (`SIGINT` or `SIGTERM`), an emergency hook pushes the progress checkpoint solely to Kaggle Models, deferring Google Drive synchronization.
-3. **Epoch Completion Gating**: The model is synchronized to Google Drive strictly after an epoch has fully completed AND `kagglehub.model_upload()` has successfully committed a new model version on Kaggle.
-
----
-
-## Kaggle Cloud Engine & Multi-Account Orchestrator (`kaggle_monitor.py`)
-
-The suite integrates a high-performance, multi-tenant Kaggle Cloud Engine accessible directly via Option 3 in `lemgendary_models_hub.ps1`. It orchestrates headless GPU training, real-time telemetry streaming, and automated checkpoint synchronization without requiring a web browser.
-
-### Submenu Capabilities (Option 3)
-
-1. **1. Train on Kaggle (`--action train`)**:
-   - Prompts for user selection from `.kaggle_users` or entry of a new username and API token.
-   - Queries and lists notebooks from the user's Kaggle account (or allows deploying a registered local model manifold).
-   - Launches training on Kaggle GPU, automatically streaming execution logs back to the local terminal.
-   - Dynamically detects completed epochs and pulls updated model weights and checkpoints (`.pth`, `metrics.csv`) to `LemGendaryModels/<model_name>/` after each epoch, concluding with a final sync upon completion.
-2. **2. Monitor Active Cloud Jobs (`--action monitor`)**:
-   - Prompts for user selection from `.kaggle_users` or entry of a new username and API token.
-   - Concurrently resolves active (`RUNNING` / `QUEUED`) and recent kernels via multi-threaded workers.
-   - Operates in strict monitor-only mode: streams live stdout and stderr telemetry without pulling model weights or checkpoints.
-3. **3. Pull & Save Checkpoints (`--action pull`)**:
-   - Manually downloads latest checkpoints and metrics from Kaggle Models or kernel outputs to local disk.
-4. **4. Setup / Verify Credentials (`--action setup_auth`)**:
-   - Configures, validates, and stores Kaggle credentials.
-
-### Multi-Account Registry (`.kaggle_users`)
-
-The engine parses credentials from `.kaggle_users` located in the suite root:
-
-```text
-KAGGLE_USERNAME=kuznetsovr, KAGGLE_API_TOKEN=KGAT_...;
-KAGGLE_USERNAME=shyning123, KAGGLE_API_TOKEN=KGAT_...;
-KAGGLE_USERNAME=lemgenda, KAGGLE_API_TOKEN=KGAT_...;
-KAGGLE_USERNAME=lemtreursi, KAGGLE_API_TOKEN=KGAT_...;
-```
-
-### CLI Execution
-
-Launch training or monitoring directly from the command line:
-
-```powershell
-# Interactive Train on Kaggle (Launch, stream, auto-pull checkpoints per epoch)
-python -m training.kaggle_monitor --action train
-
-# Interactive Monitor Only (Stream live logs, no pulling)
-python -m training.kaggle_monitor --action monitor
-
-# Direct CLI Stream for automated pipelines
-python -m training.kaggle_monitor --user lemtreursi --token KGAT_... --kernel lemgendizedmirnetexposuretraining
-```
+- **Zero Suppressions**: 100% free of `# type: ignore`, `# noqa`, `# pylint: disable`, and bare `except:` blocks.
+- **Zero Emojis**: Complete absence of Unicode emojis in source code, tests, docstrings, and documentation.
+- **Strict Typing**: Fully typed with strict Pyright verification.
+- **Full Test Coverage**: 114 unit tests passing cleanly across all subsystems.
+- **Multi-Gate Compliance**: Verified with 100% `[PASS]` under `env_manager.cli validate -p lemgendary-training-suite`.
