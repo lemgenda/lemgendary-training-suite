@@ -1,0 +1,76 @@
+---
+# LemGendary Model Training Suite Presets
+# Canonical preset profiles for CLI, API, and Desktop GUI consumption.
+
+version: "1.0"
+
+presets:
+  quick-sota:
+    name: "quick-sota"
+    title: "Quick SOTA (Aggressive Convergence Baseline)"
+    description: "Mixed-precision training with cosine annealing, warm restarts, full curriculum progression, and active SOTA rollback gating."
+    precision: "amp_fp16"
+    batch_size: 64
+    learning_rate: 0.001
+    optimizer: "adamw"
+    scheduler: "cosine_annealing_warm_restarts"
+    epochs: 50
+    curriculum_enabled: true
+    sota_tracking: true
+    vram_sentinel: true
+
+  debug-tiny:
+    name: "debug-tiny"
+    title: "Debug Tiny (Instant Verification Run)"
+    description: "Rapid 2-epoch run over a tiny 8-sample fixture batch for quick regression testing and pipeline debugging on CPU or single GPU."
+    precision: "fp32"
+    batch_size: 4
+    learning_rate: 0.0001
+    optimizer: "adam"
+    scheduler: "constant"
+    epochs: 2
+    curriculum_enabled: false
+    sota_tracking: false
+    vram_sentinel: false
+
+  walk-forward:
+    name: "walk-forward"
+    title: "Walk-Forward Financial (Forex Time-Series)"
+    description: "Curriculum-driven walk-forward time-series training using ParquetRowGroupCache, RowGroupAwareSampler, and combined EMD + Rank losses."
+    precision: "amp_fp16"
+    batch_size: 512
+    learning_rate: 0.0005
+    optimizer: "adamw"
+    scheduler: "plateau"
+    epochs: 100
+    curriculum_enabled: true
+    sota_tracking: true
+    vram_sentinel: true
+
+  restoration-ultra:
+    name: "restoration-ultra"
+    title: "Restoration Ultra (High-Fidelity Vision Restoration)"
+    description: "High-resolution tile curriculum for MIRNet, DeblurGAN, and super-resolution models with combined L1 + Perceptual loss and VRAM sentinel protection."
+    precision: "amp_fp16"
+    batch_size: 16
+    learning_rate: 0.0002
+    optimizer: "adamw"
+    scheduler: "cosine"
+    epochs: 80
+    curriculum_enabled: true
+    sota_tracking: true
+    vram_sentinel: true
+
+  detection-yolo:
+    name: "detection-yolo"
+    title: "Object Detection (YOLO Multi-Task Vision)"
+    description: "Detection tuning with CIoU + DFL loss, dynamic letterboxing, and mosaic/mixup augmentations."
+    precision: "amp_fp16"
+    batch_size: 32
+    learning_rate: 0.001
+    optimizer: "sgd"
+    scheduler: "linear"
+    epochs: 100
+    curriculum_enabled: false
+    sota_tracking: true
+    vram_sentinel: true

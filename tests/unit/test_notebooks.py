@@ -267,6 +267,11 @@ class TestNotebookSubsystem(unittest.TestCase):
             sys.path.insert(0, str(ds_tools))
             paths_inserted.append(str(ds_tools))
 
+        import tools
+        ds_tools_str = str(ds_tools)
+        if ds_tools_str not in tools.__path__:
+            tools.__path__.insert(0, ds_tools_str)
+
         webdataset_mocked = False
         if "webdataset" not in sys.modules:
             import types
@@ -325,6 +330,8 @@ class TestNotebookSubsystem(unittest.TestCase):
             for p in paths_inserted:
                 if p in sys.path:
                     sys.path.remove(p)
+            if ds_tools_str in tools.__path__:
+                tools.__path__.remove(ds_tools_str)
 
 
 if __name__ == "__main__":
