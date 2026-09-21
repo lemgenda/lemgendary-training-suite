@@ -953,10 +953,10 @@ yolov8n:
     - 640
     plateau_priority: resolution
   datasets:
-  - LemGendizedYoloV8nLarge
-  kaggle_ref: kaggle://lemtreursi/lemgendizedyolov8nlarge
+  - LemGendizedYoloV8n
+  kaggle_ref: kaggle://lemtreursi/lemgendizedyolov8n
   kaggle_dataset_urls:
-  - https://www.kaggle.com/datasets/lemtreursi/lemgendizedyolov8nlarge
+  - https://www.kaggle.com/datasets/lemtreursi/lemgendizedyolov8n
   sota_targets:
     map50: 0.54
     map50_95: 0.39
