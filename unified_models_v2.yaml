@@ -16,6 +16,7 @@ forex_predictor:
   learning_rate: 0.0001
   loss_fn: forex_dual
   dataset_type: forex
+  preferred_parallel: single
   optimal_key: forex_predictor
   architecture_type: Multi-Scale CNN-Transformer (Causal TCN + Cross-Timeframe Attention)
   description: 'Multi-pair, multi-timeframe Forex trading model trained on MetaTrader
@@ -126,6 +127,7 @@ nima_aesthetic_mobile:
   learning_rate: 5.0e-05
   loss_fn: emd
   dataset_type: quality
+  preferred_parallel: ddp
   optimal_key: nima_aesthetic_mobile
   architecture_type: MobileNetV2 (Global Composition)
   description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
@@ -191,6 +193,7 @@ nima_aesthetic_efficientnet:
     hidden_dim: 256
   loss_fn: emd
   dataset_type: quality
+  preferred_parallel: ddp
   optimal_key: nima_aesthetic_efficientnet
   architecture_type: EfficientNetV2-S (Global Composition)
   description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
@@ -255,6 +258,7 @@ nima_aesthetic_pro:
     backbone: swin_v2_t
   loss_fn: emd
   dataset_type: quality
+  preferred_parallel: ddp
   optimal_key: nima_aesthetic_pro
   architecture_type: Swin-v2-T (Global Multi-Scale Attention)
   description: High-end aesthetic quality scorer using Swin Transformer V2, optimized
@@ -319,6 +323,7 @@ nima_technical:
     hidden_dim: 256
   loss_fn: emd
   dataset_type: quality
+  preferred_parallel: ddp
   optimal_key: nima_technical
   architecture_type: EfficientNetV2-S (Spatial Integrity)
   description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset,
@@ -386,6 +391,7 @@ nima_authenticity:
     backbone: efficientnet_v2_s
   loss_fn: emd
   dataset_type: quality
+  preferred_parallel: ddp
   optimal_key: nima_authenticity
   architecture_type: EfficientNetV2-S (Distribution Scorer)
   description: DeepFake and AI-generated image detection model built on EfficientNetV2.
@@ -432,6 +438,7 @@ upn_v2:
   learning_rate: 0.0001
   loss_fn: smooth_l1
   dataset_type: parameter_prediction
+  preferred_parallel: single
   needs_synthesis: true
   output_names:
   - deg
@@ -484,6 +491,7 @@ film_restorer:
   learning_rate: 0.0001
   loss_fn: l1_lpips
   dataset_type: restoration
+  preferred_parallel: ddp
   needs_synthesis: true
   optimal_key: film_restorer
   description: Universal image restoration autoencoder
@@ -528,6 +536,7 @@ codeformer:
   learning_rate: 0.0001
   loss_fn: mse
   dataset_type: face
+  preferred_parallel: ddp
   needs_synthesis: true
   optimal_key: codeformer
   description: Face restoration model
@@ -573,6 +582,7 @@ parsenet:
   learning_rate: 5.0e-05
   loss_fn: cross_entropy
   dataset_type: segmentation
+  preferred_parallel: ddp
   num_classes: 19
   optimal_key: parsenet
   description: Face parsing model for segmentation
@@ -611,6 +621,7 @@ ffanet_indoor:
   learning_rate: 5.0e-05
   loss_fn: l1
   dataset_type: restoration
+  preferred_parallel: ddp
   optimal_key: ffanet_indoor
   description: FFANet indoor dehazing restoration
   datasets:
@@ -658,6 +669,7 @@ ffanet_outdoor:
   learning_rate: 5.0e-05
   loss_fn: l1
   dataset_type: restoration
+  preferred_parallel: ddp
   optimal_key: ffanet_outdoor
   description: FFANet outdoor dehazing restoration
   datasets:
@@ -704,6 +716,7 @@ mirnet_lowlight:
   learning_rate: 5.0e-05
   loss_fn: l1_lpips
   dataset_type: restoration
+  preferred_parallel: ddp
   optimal_key: mirnet_lowlight
   description: MIRNet v2 low-light image enhancement
   datasets:
@@ -750,6 +763,7 @@ mirnet_exposure:
   learning_rate: 5.0e-05
   loss_fn: l1_lpips
   dataset_type: restoration
+  preferred_parallel: ddp
   optimal_key: mirnet_exposure
   description: MIRNet v2 for overexposure correction and dynamic range adjustment
   datasets:
@@ -796,6 +810,7 @@ mprnet_deraining:
   learning_rate: 5.0e-05
   loss_fn: l1
   dataset_type: restoration
+  preferred_parallel: ddp
   optimal_key: mprnet_deraining
   description: MPRNet image deraining
   datasets:
@@ -843,6 +858,7 @@ nafnet_debluring:
   learning_rate: 5.0e-05
   loss_fn: l1
   dataset_type: restoration
+  preferred_parallel: ddp
   optimal_key: nafnet_debluring
   description: NAFNet image debluring
   optimization:
@@ -889,6 +905,7 @@ nafnet_denoising:
   learning_rate: 5.0e-05
   loss_fn: l1
   dataset_type: restoration
+  preferred_parallel: ddp
   optimal_key: nafnet_denoising
   description: NAFNet image denoising
   optimization:
@@ -938,6 +955,7 @@ yolov8n:
   - detection
   - classification
   - pose
+  preferred_parallel: single
   optimal_key: yolov8n
   description: Unified YOLOv8n for classification, detection, and pose
   optimization:
@@ -978,6 +996,7 @@ professional_multitask_restoration:
   learning_rate: 0.0001
   loss_fn: hybrid_restoration
   dataset_type: restoration
+  preferred_parallel: dp
   needs_synthesis: true
   optimal_key: professional_multitask_restoration
   description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze,
@@ -1022,6 +1041,7 @@ ultrazoom:
   learning_rate: 0.0001
   loss_fn: mse
   dataset_type: restoration
+  preferred_parallel: ddp
   optimal_key: ultrazoom
   description: Dynamic scale super-resolution model
   datasets:
@@ -1063,6 +1083,7 @@ universal_nsfw_classification:
   learning_rate: 3.0e-05
   loss_fn: cross_entropy
   dataset_type: classification
+  preferred_parallel: ddp
   optimal_key: universal_nsfw_classification
   architecture_type: EfficientNetV2-S (Multi-Class Categorical Head)
   description: Universal safety filter and NSFW classifier for realistic and anime
@@ -1101,6 +1122,7 @@ retinaface:
   learning_rate: 0.0005
   loss_fn: retinaface
   dataset_type: face_detection
+  preferred_parallel: ddp
   output_names:
   - output
   - output2

@@ -10,7 +10,7 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v2026.11.0` |
+| **Version** | `v2026.11.1` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
@@ -19,6 +19,14 @@
 ---
 
 ## Changelog
+
+### v2026.11.1 — Parallel Strategy Audit, Modernized Manifold Sync & DDP Tooling
+
+- **Parallel Strategies Audit & DDP Engine** — Completed full audit of Single, DataParallel (DP), and DistributedDataParallel (DDP) execution pathways. Upgraded `training/parallel/ddp.py` with multi-GPU initialization using PyTorch distributed process groups (`RANK`, `WORLD_SIZE`, `LOCAL_RANK`), gradient accumulation via `no_sync()`, broadcast sync, and safe distributed cleanup. Added `preferred_parallel` field per model in `unified_models_v2.yaml` (`ddp` for large vision backbones, `dp` for multitask restoration, `single` for lightweight / sequential models).
+- **Modernized Dataset Format Synchronization** — Added full lossless `.webp` format and container fallback decoding to `data/dataset.py`, ensuring native loader compatibility with all modernized manifold container standards (Directory, Parquet, MDS, LitData, WebDataset). Fixed bare exception handlers to eliminate silent failures.
+- **YOLO Ultralytics Trainer Delegation** — Enforced delegation guard in `models/factory.py` directing YOLOv8 architectures to Ultralytics native trainer with dedicated multi-GPU DDP support.
+- **Distributed Training Launcher Tool** — Introduced `tools/launch_ddp.py` wrapping `torchrun` for multi-GPU execution in local cluster, cloud, and Kaggle environments with dynamic worker configuration and automated port assignment.
+- **Diagnostic & Verification Hardening** — Resolved all IDE type and parameter mismatch diagnostics in `training/core_loop.py` for Forex dataset loading, checkpoint recovery discovery, resume state handling, export parameters, and notebook generation paths. Validated with 100% pass rate under `lem-env validate`.
 
 ### v2026.11.0 — Full S.O.L.I.D. Modernization, Sidecar Daemon & Canonical Presets (Phases 0-14)
 

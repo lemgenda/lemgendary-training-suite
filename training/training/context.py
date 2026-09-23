@@ -62,4 +62,5 @@ class TrainingContext:
     scaler: Any | None = None
     resume_state: ResumeState | None = None
     raw_model: torch.nn.Module | None = None
+    parallel_strategy: Any | None = None
     metadata: dict[str, Any] = field(default_factory=dict)

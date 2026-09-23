@@ -1,4 +1,5 @@
 # pylint: disable=no-member,too-few-public-methods,too-many-return-statements
+import logging
 import os
 import multiprocessing
 import math
@@ -25,6 +26,8 @@ from training.data.degrade import (
     apply_synthetic_degradation,
     synthesize_degradation,
 )
+
+logger = logging.getLogger("lemtrain.dataset")
 
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1152]
@@ -120,12 +123,12 @@ class MultiTaskDataset(Dataset):
                                 if os.path.isdir(sub_path):
                                     try:
                                         print(f"      -> {sub} contains: {os.listdir(sub_path)[:5]}")
-                                    except Exception:
-                                        pass
+                                    except OSError as sub_err:
+                                        logger.debug("Failed listing %s: %s", sub_path, sub_err)
                 else:
                     print("  -> /kaggle/input does not exist!")
-            except Exception as e:
-                print("  -> Error listing /kaggle/input:", e)
+            except OSError as list_err:
+                print("  -> Error listing /kaggle/input:", list_err)
 
         raw_dataset_names = self.model_info.get("datasets", [])
         if isinstance(raw_dataset_names, str):
@@ -175,10 +178,17 @@ class MultiTaskDataset(Dataset):
             if not scan_dir or not os.path.exists(scan_dir): continue
             
             items = os.listdir(scan_dir)
-            files = [f for f in items if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+            files = [
+                f for f in items
+                if f.lower().endswith(('.jpg', '.png', '.jpeg', '.webp'))
+            ]
             for f in files:
                 self.all_samples.append((ds_name, f))
-        
+
+        # Container-format fallback: if no directory samples found, try ContainerReader.
+        if not self.all_samples:
+            self._try_load_container_samples(loaded_paths)
+
         self.samples = list(self.all_samples)
         if self.is_train and self.sample_fraction < 1.0:
             import random
@@ -244,6 +254,40 @@ class MultiTaskDataset(Dataset):
                 transforms.RandomCrop(self.size) if self.is_train else transforms.CenterCrop(self.size),
                 transforms.ToTensor()
             ])
+
+    def _try_load_container_samples(self, loaded_paths: set) -> None:
+        """Attempt container-format loading when no directory images are found.
+
+        Iterates over already-resolved dataset paths and uses ``resolve_container_reader``
+        to detect WebDataset, Parquet, MDS, or LitData layouts. Builds a synthetic
+        ``all_samples`` index as ``(ds_name, int_index)`` tuples and stores an active
+        ``ContainerReader`` per dataset in ``self._container_readers``.
+        """
+        from training.data.containers import resolve_container_reader
+
+        if not hasattr(self, "_container_readers"):
+            self._container_readers: dict[str, Any] = {}
+
+        for ds_name, ds_path in self.path_cache.items():
+            if ds_path is None or ds_path not in loaded_paths:
+                continue
+            try:
+                reader = resolve_container_reader(ds_path, split=self.split)
+                count = len(reader)
+                if count == 0:
+                    reader.close()
+                    continue
+                self._container_readers[ds_name] = reader
+                for idx in range(count):
+                    self.all_samples.append((ds_name, idx))
+                logger.info(
+                    "Container reader resolved for '%s': %s (%d samples)",
+                    ds_name,
+                    type(reader).__name__,
+                    count,
+                )
+            except (FileNotFoundError, OSError, ValueError) as exc:
+                logger.debug("Container reader failed for '%s': %s", ds_name, exc)
 
     def get_dataset_path(self, ds_name):
         from training.data.manifold import ManifoldResolver
@@ -319,10 +363,13 @@ class MultiTaskDataset(Dataset):
                     while queue:
                         curr = queue.pop(0)
                         depth = depths[curr]
-                        if depth > 4: continue
+                        if depth > 4:
+                            continue
                         try:
                             items = os.listdir(curr)
-                        except: continue
+                        except OSError as listdir_err:
+                            logger.debug("Cannot list directory %s: %s", curr, listdir_err)
+                            continue
                         for item in items:
                             path = os.path.join(curr, item)
                             if os.path.isdir(path):
@@ -338,8 +385,10 @@ class MultiTaskDataset(Dataset):
                                             if os.path.isdir(sub_path):
                                                 if os.path.exists(os.path.join(sub_path, 'images')) or os.path.exists(os.path.join(sub_path, 'targets')):
                                                     return sub_path
-                                    except: pass
-                except: pass
+                                    except OSError as sub_err:
+                                        logger.debug("Cannot list sub-path %s: %s", path, sub_err)
+                except OSError as kaggle_err:
+                    logger.debug("Kaggle /kaggle/input traversal failed: %s", kaggle_err)
             print(f"\n[WARNING] No attached dataset found for '{ds_name}' in Kaggle /kaggle/input!")
             print("Please attach the dataset to your Kaggle Notebook.")
             return None
@@ -349,7 +398,7 @@ class MultiTaskDataset(Dataset):
             path = os.path.join(self.data_root, ds_name)
             if os.path.exists(os.path.join(path, 'images')) or os.path.exists(os.path.join(path, 'targets')):
                 return path
-            
+
             if os.path.exists(self.data_root):
                 try:
                     for item in os.listdir(self.data_root):
@@ -357,7 +406,8 @@ class MultiTaskDataset(Dataset):
                             cand = os.path.join(self.data_root, item)
                             if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')):
                                 return cand
-                except: pass
+                except OSError as local_err:
+                    logger.debug("Failed listing local data root: %s", local_err)
             
             # Priority 2: Use gdown
             if gdrive_id:
@@ -386,6 +436,63 @@ class MultiTaskDataset(Dataset):
 
     def __len__(self):
         return len(self.samples)
+
+    def _getitem_container(self, ds_name: str, idx: int):
+        """Fetch and decode a sample from a ContainerReader-backed dataset."""
+        reader = self._container_readers[ds_name]
+        try:
+            sample = reader[idx]
+        except (IndexError, OSError, RuntimeError) as exc:
+            logger.debug("Container read failed for %s[%d]: %s", ds_name, idx, exc)
+            return self._get_sync_dummy()
+
+        # Decode image bytes.
+        try:
+            img = Image.open(io.BytesIO(sample.image_bytes)).convert("RGB")
+        except (OSError, ValueError) as dec_err:
+            logger.debug("Image decode failed for %s[%d]: %s", ds_name, idx, dec_err)
+            img = Image.new("RGB", self.size, (128, 128, 128))
+
+        # Decode target bytes if present.
+        target_img = None
+        if sample.target_bytes:
+            try:
+                target_img = Image.open(io.BytesIO(sample.target_bytes)).convert("RGB")
+            except (OSError, ValueError) as tdec_err:
+                logger.debug("Target decode failed for %s[%d]: %s", ds_name, idx, tdec_err)
+
+        seed = random.randint(0, 2 ** 32 - 1)
+        random.seed(seed)
+        torch.manual_seed(seed)
+        img_tensor = self.transform(img)
+
+        if self.task_type in ("restoration", "enhancement", "face"):
+            if target_img is not None:
+                random.seed(seed)
+                torch.manual_seed(seed)
+                target_tensor = self.transform(target_img)
+            else:
+                random.seed(seed)
+                torch.manual_seed(seed)
+                target_tensor = self.transform(img)
+            return img_tensor, target_tensor, self.task_type
+
+        if self.task_type == "quality":
+            label = sample.label
+            if isinstance(label, (list, tuple)) and len(label) >= 10:
+                score_tensor = torch.tensor(label[:10], dtype=torch.float32)
+            elif isinstance(label, (int, float)):
+                score_tensor = torch.zeros(10, dtype=torch.float32)
+            else:
+                score_tensor = torch.zeros(10, dtype=torch.float32)
+            return img_tensor, score_tensor, "quality"
+
+        if self.task_type == "classification":
+            label = sample.label
+            class_idx = int(label) if isinstance(label, (int, float)) else 0
+            return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
+
+        return img_tensor, torch.zeros(1), self.task_type
 
     def _get_sync_dummy(self):
         # 1. Determine input shape
@@ -419,7 +526,13 @@ class MultiTaskDataset(Dataset):
         elif not hasattr(self.sync_mode, 'value') and self.sync_mode:
             return self._get_sync_dummy()
 
-        ds_name, fname = self.samples[index]
+        ds_name, sample_id = self.samples[index]
+
+        # Container-backed sample path: sample_id is an integer index.
+        if isinstance(sample_id, int) and hasattr(self, "_container_readers") and ds_name in self._container_readers:
+            return self._getitem_container(ds_name, sample_id)
+
+        fname = sample_id  # Directory-backed path: sample_id is a filename string.
         ds_path = self.path_cache.get(ds_name)
         if ds_path is None:
             ds_path = self.get_dataset_path(ds_name)

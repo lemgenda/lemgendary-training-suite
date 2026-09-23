@@ -2,6 +2,9 @@
 
 Backward-compatible entry point delegating runtime execution, optimization,
 AMP management, and validation to the modular training.training subpackage.
+
+YOLOv8n is handled via Ultralytics native trainer (_run_yolo_native).
+All other models use the universal TrainingContext path.
 """
 
 from __future__ import annotations
@@ -186,12 +189,13 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     raw_model = get_model(model_key, model_info)
     raw_model.to(device_info.device)
 
-    # Parallel strategy wrapping
+    # Parallel strategy wrapping — pass model_info so preferred_parallel is honored.
     parallel_strategy = build_parallel_strategy(
         name=args.parallel,
         model=raw_model,
         device=device_info.device,
         model_key=model_key,
+        model_info=model_info,
         config=config,
     )
     model = parallel_strategy.setup()
@@ -217,10 +221,26 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     batch_size = args.batch_size or model_info.get("batch_size", 16)
     if task_type == "forex":
         from data.forex_dataset import ForexDataset
-        train_ds = ForexDataset(config, is_train=True, env=args.env)
+        _forex_shard_root = str(
+            config.get("paths", {}).get("datasets_root", "../LemGendaryDatasets")
+        )
+        _forex_pairs = model_info.get("pairs", None)
+        _forex_timeframes = model_info.get("active_timeframes", None)
+        train_ds = ForexDataset(
+            shard_root=_forex_shard_root,
+            pairs=_forex_pairs,
+            active_timeframes=_forex_timeframes,
+            is_train=True,
+        )
         try:
-            val_ds = ForexDataset(config, is_train=False, env=args.env)
-        except Exception:
+            val_ds = ForexDataset(
+                shard_root=_forex_shard_root,
+                pairs=_forex_pairs,
+                active_timeframes=_forex_timeframes,
+                is_train=False,
+            )
+        except Exception as forex_val_err:
+            logger.debug("Forex val dataset failed: %s", forex_val_err)
             val_ds = None
     else:
         from data.dataset import MultiTaskDataset
@@ -274,8 +294,10 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     # 9. Recovery inspection
     resume_state = None
     if not args.clean:
-        recovery_engine = CheckpointRecoveryEngine(model_key=model_key)
-        ckpt_candidate = recovery_engine.find_best_checkpoint()
+        recovery_engine = CheckpointRecoveryEngine()
+        candidate_roots = recovery_engine.find_candidate_roots(model_key, config=config)
+        discovered = recovery_engine.discover_checkpoints(candidate_roots, model_key)
+        ckpt_candidate = discovered.get("best") or discovered.get("progress")
         if ckpt_candidate and ckpt_candidate.exists():
             loaded_data = safe_load_checkpoint(ckpt_candidate, map_location=device_info.device)
             if loaded_data and "model_state" in loaded_data:
@@ -285,9 +307,11 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 resume_state = ResumeState(
                     epoch=loaded_data.get("epoch", 0),
                     iteration=loaded_data.get("iteration", 0),
-                    best_loss=loaded_data.get("best_loss", float("inf")),
+                    model_state_dict=loaded_data["model_state"],
+                    optimizer_state_dict=loaded_data.get("optimizer_state"),
+                    scheduler_state_dict=loaded_data.get("scheduler_state"),
                     best_score=loaded_data.get("best_score", 0.0),
-                    checkpoint_path=ckpt_candidate,
+                    sota_achieved=loaded_data.get("sota_achieved", False),
                 )
 
     scaler = create_grad_scaler(policy)
@@ -315,7 +339,74 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         scaler=scaler,
         resume_state=resume_state,
         raw_model=raw_model,
+        parallel_strategy=parallel_strategy,
     )
+
+
+def _run_yolo_native(args: argparse.Namespace, config: dict, project_root: Path) -> None:
+    """Delegate yolov8n training to the Ultralytics native trainer.
+
+    Ultralytics handles its own DDP internally via the ``device`` argument
+    (e.g. ``device='0,1'`` for two GPUs). No external torchrun is needed.
+    ONNX export is performed after training for consistency with the rest of
+    the LemGendary Model Training Suite export pipeline.
+    """
+    try:
+        from ultralytics import YOLO
+    except ImportError as exc:
+        raise RuntimeError(
+            "Ultralytics is required for yolov8n training. "
+            "Install it with: pip install ultralytics"
+        ) from exc
+
+    from data.yolo_config_gen import generate_yolo_yaml
+
+    unified_models_rel = config.get("unified_models", "unified_models_v2.yaml")
+    unified_models_path = project_root / unified_models_rel
+    with open(unified_models_path, "r", encoding="utf-8") as f:
+        unified_models_registry = yaml.safe_load(f) or {}
+
+    model_info = unified_models_registry.get("yolov8n", {})
+    batch_size = args.batch_size or model_info.get("batch_size", 16)
+    if batch_size == "auto":
+        batch_size = -1  # Ultralytics auto-batch
+    epochs = args.epochs or model_info.get("epochs", 300)
+    export_dir = project_root / "export" / "yolov8n"
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    import torch
+    gpu_count = torch.cuda.device_count()
+    if gpu_count >= 2:
+        device_arg = ",".join(str(i) for i in range(gpu_count))
+    elif gpu_count == 1:
+        device_arg = "0"
+    else:
+        device_arg = "cpu"
+
+    yolo_yaml = generate_yolo_yaml(config, "yolov8n", unified_models_registry)
+    if yolo_yaml is None:
+        raise RuntimeError("generate_yolo_yaml returned None — no datasets configured for yolov8n.")
+
+    checkpoint_key = model_info.get("checkpoint", "yolov8n.pt")
+    print(f"[YOLO] Launching Ultralytics native trainer for yolov8n on device(s): {device_arg}", flush=True)
+    model = YOLO(checkpoint_key)
+    model.train(
+        data=yolo_yaml,
+        epochs=int(epochs),
+        imgsz=model_info.get("input_size", [3, 320, 320])[1],
+        device=device_arg,
+        batch=batch_size,
+        project=str(export_dir),
+        name="yolov8n",
+        exist_ok=True,
+    )
+    print("[YOLO] Training complete. Exporting to ONNX...", flush=True)
+    try:
+        model.export(format="onnx")
+        print("[YOLO] ONNX export complete.", flush=True)
+    except Exception as export_err:
+        print(f"[WARNING] YOLO ONNX export failed: {export_err}")
+    print("[SUCCESS] yolov8n training via Ultralytics native trainer complete.", flush=True)
 
 
 def main(raw_args: list[str] | None = None) -> None:
@@ -324,6 +415,17 @@ def main(raw_args: list[str] | None = None) -> None:
     args = parser.parse_args(raw_args)
 
     print("[BOOT] LemGendary Training Suite initiating...", flush=True)
+
+    # Intercept yolov8n before building TrainingContext — it uses the Ultralytics native trainer.
+    if args.model == "yolov8n":
+        load_secrets()
+        project_root = get_project_root()
+        config_path = project_root / "config.yaml"
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+        _run_yolo_native(args, config, project_root)
+        return
+
     ctx = build_training_context(args)
 
     try:
@@ -331,12 +433,11 @@ def main(raw_args: list[str] | None = None) -> None:
         print(f"[SUCCESS] Training completed at epoch {summary.final_epoch} with status: {summary.status}")
 
         # Post-training export
-        raw_model = ctx.raw_model if ctx.raw_model is not None else ctx.model
         export_all(
-            model_name=ctx.model_name,
-            model=raw_model,
-            export_dir=ctx.paths.export_dir,
+            model_key=ctx.model_name,
             checkpoint_path=ctx.paths.best_checkpoint_path,
+            config=ctx.config,
+            output_dir=ctx.paths.export_dir,
         )
 
         # Post-training documentation & notebooks
@@ -362,10 +463,10 @@ def main(raw_args: list[str] | None = None) -> None:
                 generate_usage_notebook,
             )
 
-            generate_inference_notebook(ctx.model_name, ctx.paths.export_dir)
-            generate_usage_notebook(ctx.model_name, ctx.paths.export_dir)
-            generate_colab_inference_notebook(ctx.model_name, ctx.paths.export_dir)
-            generate_colab_usage_notebook(ctx.model_name, ctx.paths.export_dir)
+            generate_inference_notebook(ctx.model_name, str(ctx.paths.export_dir))
+            generate_usage_notebook(ctx.model_name, str(ctx.paths.export_dir))
+            generate_colab_inference_notebook(ctx.model_name, str(ctx.paths.export_dir))
+            generate_colab_usage_notebook(ctx.model_name, str(ctx.paths.export_dir))
         except Exception as nb_err:
             print(f"[WARNING] Notebook generation failed: {nb_err}")
 
@@ -377,6 +478,12 @@ def main(raw_args: list[str] | None = None) -> None:
                 print(f"[WARNING] Final cloud sync failed: {sync_err}")
 
     finally:
+        # Always clean up parallel strategy (destroys DDP process group if active).
+        if ctx.parallel_strategy is not None:
+            try:
+                ctx.parallel_strategy.cleanup()
+            except Exception as cleanup_err:
+                print(f"[WARNING] Parallel strategy cleanup failed: {cleanup_err}")
         cleanup_active_processes()
 
 

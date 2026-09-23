@@ -1,9 +1,12 @@
 import inspect
+import logging
 import os
 import yaml
 import torch
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1412]
+
+logger = logging.getLogger("lemtrain.factory")
 
 # --- Dynamic Architecture Registry (Task 10.2) ---
 _MODEL_REGISTRY = {}
@@ -76,26 +79,27 @@ def _populate_registry():
         from models.master_generative import StableDiffusionXL, Flux1_Master
         _MODEL_REGISTRY["StableDiffusionXL"] = StableDiffusionXL
         _MODEL_REGISTRY["Flux1_Master"] = Flux1_Master
-    except Exception as e:
-        pass # Silently bypass generative imports if dependencies are missing
+    except Exception as generative_err:
+        logger.debug("Generative models unavailable (missing 'diffusers'?): %s", generative_err)
 
     # 3. Heavy Multimodal Models (May lack 'transformers')
     try:
         from models.master_multimodal import LLaVA_v1_5, BLIP_2
         _MODEL_REGISTRY["LLaVA_v1_5"] = LLaVA_v1_5
         _MODEL_REGISTRY["BLIP_2"] = BLIP_2
-    except Exception as e:
-        pass # Silently bypass multimodal imports if dependencies are missing
+    except Exception as multimodal_err:
+        logger.debug("Multimodal models unavailable (missing 'transformers'?): %s", multimodal_err)
 
 
 def get_model(model_key, config=None):
     """Factory function using Dynamic Architecture Registry."""
-    if not _MODEL_REGISTRY: _populate_registry()
-    
+    if not _MODEL_REGISTRY:
+        _populate_registry()
+
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     unified_name = config.get("unified_models", "unified_models_v2.yaml") if config else "unified_models_v2.yaml"
     unified_models_path = os.path.join(project_root, unified_name)
-    
+
     model_class_name = None
     kwargs = {}
     if os.path.exists(unified_models_path):
@@ -105,6 +109,15 @@ def get_model(model_key, config=None):
                 model_class_name = unified[model_key].get("class_name")
                 kwargs = unified[model_key].get("kwargs", {})
 
+    # YOLO models are delegated to the Ultralytics native trainer via core_loop._run_yolo_native().
+    # Reaching this point means the bypass in core_loop.main() was skipped, which is a bug.
+    if model_class_name == "YOLO":
+        raise ValueError(
+            f"YOLO models must be trained via the Ultralytics native trainer. "
+            f"core_loop.py should intercept '{model_key}' before calling get_model(). "
+            f"Ensure main() checks args.model == 'yolov8n' before build_training_context()."
+        )
+
     if model_class_name in _MODEL_REGISTRY:
         print(f" [FACTORY] Instantiating {model_class_name} for key: {model_key}")
         cls = _MODEL_REGISTRY[model_class_name]
@@ -113,8 +126,10 @@ def get_model(model_key, config=None):
             sig = inspect.signature(cls.__init__)
             has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
             filtered_kwargs = kwargs if has_var_kw else {k: v for k, v in kwargs.items() if k in sig.parameters}
-        except Exception:
+        except Exception as sig_err:
+            logger.debug("Signature inspection failed for %s: %s", model_class_name, sig_err)
             filtered_kwargs = kwargs
         return cls(**filtered_kwargs)
-    
+
     raise ValueError(f" [FACTORY ERROR] Model architecture '{model_class_name}' not found or implemented.")
+
