@@ -19,7 +19,7 @@ def get_health() -> dict[str, Any]:
     return {
         "status": "ok",
         "service": "lemgendary-training-suite",
-        "version": "2026.11.0",
+        "version": "16.2.9",
         "port": 8200,
         "timestamp": datetime.now().isoformat(),
         "device": {

@@ -57,7 +57,7 @@ def is_sidecar_online(port: int = SIDECAR_PORT) -> bool:
 @app.command("version")
 def version() -> None:
     """Show LemGendary Training Suite version."""
-    typer.echo("LemGendary Model Training Suite v2026.11.0 (Refactored & Hardened)")
+    typer.echo("LemGendary Model Training Suite v16.2.9 (Refactored & Hardened)")
 
 
 @app.command("train")
