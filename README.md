@@ -10,7 +10,7 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.2.9` |
+| **Version** | `v16.8.0-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
@@ -19,6 +19,21 @@
 ---
 
 ## Changelog
+
+### v16.8.0 — Container Dependencies, Model Registry Modernization & Zero-Duplication Storage Integration
+
+- **Unified Container Dependencies Manifest Synchronization (Phase 1)** — Synchronized `requirements.txt` from `lemgendary-env-manager` SSOT manifest (`requirements-training.txt`) establishing verified runtime support for all 5 container formats: `webdataset==1.0.2`, `mosaicml-streaming>=0.9.0,<1.0.0`, `litdata>=0.2.0,<1.0.0`, `pyarrow==25.0.1`, and `zstandard>=0.23.0`.
+- **Sidecar Web Service Dependencies Alignment (Phase 1)** — Embedded missing web server dependencies (`fastapi==0.141.1`, `uvicorn==0.53.0`, `pydantic==2.13.5`, `pydantic-core==2.46.5`, `httpx==0.28.1`) in the SSOT manifest.
+- **Cloud Notebook Auto-Installers Hardening (Phase 1)** — Upgraded `training/notebooks/cells/deps.py` with automated fallback installation of core streaming container dependencies in both Kaggle and Google Colab execution targets.
+- **Virtual Environment Runtime Validation (Phase 1)** — Installed and verified zero-conflict execution across all 5 container format loaders, PyTorch 2.5.1, Diffusers 0.40.0, and Transformers 5.17.0 in `lemgendary-training-suite\.venv`.
+- **Unified Models Registry Modernization (Phase 2)** — Upgraded `unified_models_v2.yaml` to Version 2.3.0, registering `canonical_format` (`parquet`, `litdata`, `mds`, `webdataset`, `directory`) across all 22 active neural architectures.
+- **Zero-Duplication Container Integration & Multi-Modal Streaming (Phase 4)** — Aligned training data pipelines with modern single-format container manifolds (`.tar`, `.mds`, `chunk*.bin`), supporting self-contained multi-modal restoration samples (`target.webp`, `mask.webp`) with zero-overhead memory mapping.
+- **WebDataset Reader Multi-Modal & 10-Bin Distribution Hardening (Phase 5)** — Upgraded `training/data/containers/webdataset.py` with multi-modal paired sample parsing, extracting ground-truth targets (`target.webp`), segmentation masks (`mask.webp`), text captions, and full JSON payloads containing 10-bin human perceptual quality distributions for NIMA models. Added recursive and nested directory search (`shards/*.tar`, `shards/<split>/*.tar`).
+- **LitData Streaming Container Reader Hardening (Phase 5)** — Upgraded `training/data/containers/litdata.py` to auto-discover nested litdata directories (`litdata/<split>`, `<split>/litdata`, `litdata`), handle variable-shape tensor sample dicts, and gracefully recover from initialization faults with zero silent failures.
+- **MosaicML Streaming (MDS) Reader Resilience (Phase 5)** — Hardened `training/data/containers/mds.py` with multi-tier directory resolution (`mds/<split>`, `mds`), dual `LocalDataset` and `StreamingDataset` initialization with fallback to zero-latency raw index parsing, and multi-modal sample extraction.
+- **Universal Container Resolver Ecosystem (Phase 5)** — Upgraded `training/data/containers/__init__.py` (`resolve_container_reader`) to prioritize top-level `format` and `canonical_format` declarations in `dataset_info.yaml`, with heuristic fallback detecting nested container subdirectories (`shards/`, `mds/`, `litdata/`, `parquet/`).
+- **Workspace-Level Notebook Directory Resolution (Phase 6)** — Fixed workspace directory resolution in `training/notebooks/builders/base.py` (`_get_workspace_root`), eliminating incorrect path traversal outside the project and synchronizing notebooks strictly to `kaggle_training` and `colab_training`.
+- **Notebook Generation & Baseline Parity Verification (Phase 6)** — Synchronized cell header titles in `training/notebooks/builders/colab.py` with `lemgendary-datasets` and refreshed test fixtures in `tests/fixtures/baseline_notebooks/`, passing all 8 notebook subsystem and all 6 container reader unit tests with 100% success.
 
 ### v16.2.9 — Parallel Strategy Audit, Modernized Manifold Sync & DDP Tooling
 

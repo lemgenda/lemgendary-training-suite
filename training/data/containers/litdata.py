@@ -17,12 +17,27 @@ class LitDataReader:
         self.root = Path(root).resolve()
         self.split = split
 
-        # Locate LitData split directory
-        split_dir = self.root / self.split
-        self.data_dir = split_dir if split_dir.exists() and split_dir.is_dir() else self.root
+        # Locate LitData split directory across candidate locations
+        cand_dirs = [
+            self.root / "litdata" / self.split,
+            self.root / self.split / "litdata",
+            self.root / "litdata",
+            self.root / self.split,
+            self.root,
+        ]
+        self.data_dir = self.root
+        for d in cand_dirs:
+            if d.exists() and d.is_dir():
+                try:
+                    if any(d.glob("*.bin")) or (d / "index.json").exists():
+                        self.data_dir = d
+                        break
+                except OSError:
+                    pass
 
         self._lit_ds: Any = None
         self._sample_count = 0
+        self._chunks: list[Path] = []
         self._init_litdata()
 
     def _init_litdata(self) -> None:
@@ -34,8 +49,8 @@ class LitDataReader:
                 self._lit_ds = streaming_cls(input_dir=str(self.data_dir))
                 self._sample_count = len(self._lit_ds)
                 return
-        except (ImportError, ModuleNotFoundError, AttributeError) as exc:
-            logger.debug("LitData library not installed: %s", exc)
+        except Exception as exc:
+            logger.debug("LitData library initialization failed: %s", exc)
 
         # Fallback: scan for chunk / bin files in data_dir
         self._chunks = sorted(set(self.data_dir.glob("*.bin")))
@@ -58,6 +73,9 @@ class LitDataReader:
                 target_bytes = item.get("target") or item.get("target_bytes")
                 mask_bytes = item.get("mask") or item.get("mask_bytes")
                 label = item.get("label")
+                meta = {"index": index}
+                if isinstance(item.get("metadata"), dict):
+                    meta.update(item["metadata"])
                 return Sample(
                     name=name,
                     image_bytes=bytes(image_bytes) if isinstance(image_bytes, (bytes, bytearray)) else b"",
@@ -65,7 +83,7 @@ class LitDataReader:
                     target_bytes=bytes(target_bytes) if isinstance(target_bytes, (bytes, bytearray)) else None,
                     mask_bytes=bytes(mask_bytes) if isinstance(mask_bytes, (bytes, bytearray)) else None,
                     label=label,
-                    metadata={"index": index},
+                    metadata=meta,
                 )
 
         return Sample(

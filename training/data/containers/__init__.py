@@ -42,9 +42,13 @@ def resolve_container_reader(
         try:
             info_data = yaml.safe_load(info_file.read_text(encoding="utf-8")) or {}
             if isinstance(info_data, dict):
-                container_cfg = info_data.get("container", {})
-                if isinstance(container_cfg, dict):
-                    primary_format = container_cfg.get("primary", "").lower()
+                raw_fmt = (
+                    info_data.get("format")
+                    or info_data.get("canonical_format")
+                    or (info_data.get("container", {}) if isinstance(info_data.get("container"), dict) else {}).get("primary", "")
+                )
+                if raw_fmt:
+                    primary_format = str(raw_fmt).strip().lower()
         except Exception as exc:
             logger.debug("Error reading %s: %s", info_file, exc)
 
@@ -56,7 +60,7 @@ def resolve_container_reader(
         return MdsReader(root, split=split)
     if primary_format == "litdata":
         return LitDataReader(root, split=split)
-    if primary_format == "webdataset":
+    if primary_format in ("webdataset", "wds"):
         return WebDatasetReader(root, split=split)
 
     # 2. Heuristic inspection based on directory contents
@@ -66,19 +70,19 @@ def resolve_container_reader(
     # Check for parquet
     if root.is_file() and root.suffix == ".parquet":
         return ParquetReader(root, split=split)
-    if list(check_dir.glob("*.parquet")):
+    if list(check_dir.glob("*.parquet")) or (root / "parquet").exists() or list(root.glob("*.parquet")):
         return ParquetReader(root, split=split)
 
     # Check for webdataset tar files
-    if list(check_dir.glob("*.tar")):
+    if list(check_dir.glob("*.tar")) or (root / "shards").exists() or list(root.glob("*.tar")):
         return WebDatasetReader(root, split=split)
 
     # Check for MDS index.json
-    if (check_dir / "index.json").exists() and not (check_dir / "images").exists():
+    if (root / "mds").exists() or ((check_dir / "index.json").exists() and not (check_dir / "images").exists()):
         return MdsReader(root, split=split)
 
     # Check for LitData chunks
-    if list(check_dir.glob("*.bin")) and not (check_dir / "images").exists():
+    if (root / "litdata").exists() or (list(check_dir.glob("*.bin")) and not (check_dir / "images").exists()):
         return LitDataReader(root, split=split)
 
     # Default to standard DirectoryReader

@@ -83,6 +83,8 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the repository.\")\n",
             "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
             "    print('[ACTION REQUIRED] Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n",
+            "    print('[INFO] Installing core container streaming dependencies as fallback...')\n",
+            "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'webdataset==1.0.2', 'mosaicml-streaming>=0.9.0,<1.0.0', 'litdata>=0.2.0,<1.0.0', 'pyarrow>=25.0.1', 'zstandard>=0.23.0'])\n",
         ]
     else:
         source = [
@@ -152,6 +154,8 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the repository.\")\n",
             "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Colab Secrets.')\n",
             "    print('[ACTION REQUIRED] Fix: Go to Colab Secrets and add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n",
+            "    print('[INFO] Installing core container streaming dependencies as fallback...')\n",
+            "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'webdataset==1.0.2', 'mosaicml-streaming>=0.9.0,<1.0.0', 'litdata>=0.2.0,<1.0.0', 'pyarrow>=25.0.1', 'zstandard>=0.23.0'])\n",
         ]
 
     return make_code_cell(source)

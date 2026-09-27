@@ -1,6 +1,6 @@
 ---
 _registry_metadata:
-  version: 2.2.0
+  version: 2.3.0
   specialization: 2026_Resiliency
   datasets:
     LemGendizedForexUniverseLarge:
@@ -19,14 +19,13 @@ forex_predictor:
   preferred_parallel: single
   optimal_key: forex_predictor
   architecture_type: Multi-Scale CNN-Transformer (Causal TCN + Cross-Timeframe Attention)
-  description: 'Multi-pair, multi-timeframe Forex trading model trained on MetaTrader
-    5 OHLCV data. Predicts trade direction (Up/Down/Sideways) and magnitude (TP/SL
-    pips) for all major currency pairs. Architecture uses causal Conv1D stacks per
-    timeframe fused via cross-timeframe attention. Fully stateless and ONNX-compatible
-    for live MT5 EA deployment.
+  description: 'Multi-pair, multi-timeframe Forex trading model trained on MetaTrader 5 OHLCV data. Predicts trade direction
+    (Up/Down/Sideways) and magnitude (TP/SL pips) for all major currency pairs. Architecture uses causal Conv1D stacks per
+    timeframe fused via cross-timeframe attention. Fully stateless and ONNX-compatible for live MT5 EA deployment.
 
     '
   datasets:
+  - LemGendizedForexUniverse
   - LemGendizedForexUniverseLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedforexuniverselarge
   kaggle_dataset_urls:
@@ -110,6 +109,7 @@ forex_predictor:
     swa_start_pct: 0.7
   val_resolution: null
   kaggle_accelerator: T4
+  canonical_format: parquet
 nima_aesthetic_mobile:
   name: LemGendary NIMA Aesthetic Scorer (Mobile)
   class_name: NIMA_Model
@@ -130,9 +130,10 @@ nima_aesthetic_mobile:
   preferred_parallel: ddp
   optimal_key: nima_aesthetic_mobile
   architecture_type: MobileNetV2 (Global Composition)
-  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
-    optimized for artistic composition and color harmony.
+  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset, optimized for artistic composition
+    and color harmony.
   datasets:
+  - LemGendizedNimaAesthetic
   - LemGendizedNimaAestheticLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizednimaaestheticlarge
   kaggle_dataset_urls:
@@ -176,6 +177,7 @@ nima_aesthetic_mobile:
     swa_start_pct: 0.65
   val_resolution: 224
   kaggle_accelerator: T4
+  canonical_format: webdataset
 nima_aesthetic_efficientnet:
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
   class_name: NIMA_Model
@@ -196,9 +198,10 @@ nima_aesthetic_efficientnet:
   preferred_parallel: ddp
   optimal_key: nima_aesthetic_efficientnet
   architecture_type: EfficientNetV2-S (Global Composition)
-  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
-    optimized for artistic composition and color harmony using EfficientNetV2-S backbone.
+  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset, optimized for artistic composition
+    and color harmony using EfficientNetV2-S backbone.
   datasets:
+  - LemGendizedNimaAesthetic
   - LemGendizedNimaAestheticLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizednimaaestheticlarge
   kaggle_dataset_urls:
@@ -242,6 +245,7 @@ nima_aesthetic_efficientnet:
     swa_start_pct: 0.65
   val_resolution: 384
   kaggle_accelerator: T4
+  canonical_format: webdataset
 nima_aesthetic_pro:
   name: LemGendary NIMA Aesthetic Scorer (Pro ViT)
   class_name: NIMA_Model
@@ -261,9 +265,9 @@ nima_aesthetic_pro:
   preferred_parallel: ddp
   optimal_key: nima_aesthetic_pro
   architecture_type: Swin-v2-T (Global Multi-Scale Attention)
-  description: High-end aesthetic quality scorer using Swin Transformer V2, optimized
-    for high-res global composition.
+  description: High-end aesthetic quality scorer using Swin Transformer V2, optimized for high-res global composition.
   datasets:
+  - LemGendizedNimaAesthetic
   - LemGendizedNimaAestheticLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizednimaaestheticlarge
   kaggle_dataset_urls:
@@ -306,6 +310,7 @@ nima_aesthetic_pro:
     swa_start_pct: 0.65
   val_resolution: 512
   kaggle_accelerator: Dual T4
+  canonical_format: webdataset
 nima_technical:
   name: LemGendary NIMA Technical Scorer
   class_name: NIMA_Model
@@ -326,9 +331,10 @@ nima_technical:
   preferred_parallel: ddp
   optimal_key: nima_technical
   architecture_type: EfficientNetV2-S (Spatial Integrity)
-  description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset,
-    optimized for detecting micro-defects, noise, and artifacts.
+  description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset, optimized for detecting
+    micro-defects, noise, and artifacts.
   datasets:
+  - LemGendizedNimaTechnical
   - LemGendizedNimaTechnicalLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizednimatechnicallarge
   kaggle_dataset_urls:
@@ -375,6 +381,7 @@ nima_technical:
     swa_start_pct: 0.75
   val_resolution: 512
   kaggle_accelerator: T4
+  canonical_format: webdataset
 nima_authenticity:
   name: LemGendary Authenticity Scorer (AI vs Human)
   class_name: NIMA_Model
@@ -396,6 +403,7 @@ nima_authenticity:
   architecture_type: EfficientNetV2-S (Distribution Scorer)
   description: DeepFake and AI-generated image detection model built on EfficientNetV2.
   datasets:
+  - LemGendizedNimaAuthenticity
   - LemGendizedNimaAuthenticityLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizednimaauthenticitylarge
   kaggle_dataset_urls:
@@ -425,6 +433,7 @@ nima_authenticity:
     plateau_priority: data
   val_resolution: 768
   kaggle_accelerator: T4
+  canonical_format: webdataset
 upn_v2:
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2
@@ -469,6 +478,7 @@ upn_v2:
     - 256
     plateau_priority: data
   datasets:
+  - LemGendizedUpnV2
   - LemGendizedUpnV2Large
   kaggle_ref: kaggle://lemtreursi/lemgendizedupnv2large
   kaggle_dataset_urls:
@@ -478,6 +488,7 @@ upn_v2:
   architecture_type: UPN_v2 (MobileNet-Lite Parameter Regressor)
   kwargs:
     backbone: mobilenet_lite
+  canonical_format: litdata
 film_restorer:
   name: LemGendary Universal Film Restorer
   class_name: UniversalFilmRestorer
@@ -514,6 +525,7 @@ film_restorer:
     - 512
     plateau_priority: resolution
   datasets:
+  - LemGendizedFilmRestorer
   - LemGendizedFilmRestorerLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedfilmrestorerlarge
   kaggle_dataset_urls:
@@ -523,6 +535,7 @@ film_restorer:
   architecture_type: UniversalFilmRestorer (Residual Dense Autoencoder)
   kwargs:
     backbone: residual_dense_blocks
+  canonical_format: webdataset
 codeformer:
   name: LemGendary CodeFormer Face Restoration
   class_name: CodeFormer
@@ -554,6 +567,7 @@ codeformer:
   stabilizers:
     logit_clamp: 15.0
   datasets:
+  - LemGendizedCodeFormer
   - LemGendizedCodeFormerLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedcodeformerlarge
   kaggle_dataset_urls:
@@ -568,6 +582,7 @@ codeformer:
   architecture_type: CodeFormer (Transformer-Based Face Restoration)
   kwargs:
     backbone: unet_transformer
+  canonical_format: webdataset
 parsenet:
   name: LemGendary ParseNet Face Parsing
   class_name: ParseNet
@@ -587,6 +602,7 @@ parsenet:
   optimal_key: parsenet
   description: Face parsing model for segmentation
   datasets:
+  - LemGendizedParseNet
   - LemGendizedParseNetLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedparsenetlarge
   kaggle_dataset_urls:
@@ -607,6 +623,7 @@ parsenet:
   architecture_type: ParseNet (Bilateral Face Segmentation Network)
   kwargs:
     backbone: resnet_fpn
+  canonical_format: webdataset
 ffanet_indoor:
   name: LemGendary FFANet Dehazing (Indoor)
   class_name: BranchedFFANet
@@ -625,6 +642,7 @@ ffanet_indoor:
   optimal_key: ffanet_indoor
   description: FFANet indoor dehazing restoration
   datasets:
+  - LemGendizedFfaNetIndoor
   - LemGendizedFfaNetIndoorLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedffanetindoorlarge
   kaggle_dataset_urls:
@@ -655,6 +673,7 @@ ffanet_indoor:
   architecture_type: BranchedFFANet (Feature Fusion Attention)
   kwargs:
     backbone: ffanet_branched
+  canonical_format: webdataset
 ffanet_outdoor:
   name: LemGendary FFANet Dehazing (Outdoor)
   class_name: BranchedFFANet
@@ -673,6 +692,7 @@ ffanet_outdoor:
   optimal_key: ffanet_outdoor
   description: FFANet outdoor dehazing restoration
   datasets:
+  - LemGendizedFfaNetOutdoor
   - LemGendizedFfaNetOutdoorLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedffanetoutdoorlarge
   kaggle_dataset_urls:
@@ -703,6 +723,7 @@ ffanet_outdoor:
   architecture_type: BranchedFFANet (Feature Fusion Attention)
   kwargs:
     backbone: ffanet_branched
+  canonical_format: webdataset
 mirnet_lowlight:
   name: LemGendary MIRNet v2 Low-Light Enhancement
   class_name: MIRNet
@@ -720,6 +741,7 @@ mirnet_lowlight:
   optimal_key: mirnet_lowlight
   description: MIRNet v2 low-light image enhancement
   datasets:
+  - LemGendizedMirNetLowLight
   - LemGendizedMirNetLowLightLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedmirnetlowlightlarge
   kaggle_dataset_urls:
@@ -750,6 +772,7 @@ mirnet_lowlight:
   architecture_type: MIRNet_v2 (Multi-Scale Residual Network)
   kwargs:
     backbone: multi_scale_residual
+  canonical_format: webdataset
 mirnet_exposure:
   name: LemGendary MIRNet v2 Exposure Correction
   class_name: MIRNet
@@ -767,6 +790,7 @@ mirnet_exposure:
   optimal_key: mirnet_exposure
   description: MIRNet v2 for overexposure correction and dynamic range adjustment
   datasets:
+  - LemGendizedMirNetExposure
   - LemGendizedMirNetExposureLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedmirnetexposurelarge
   kaggle_dataset_urls:
@@ -797,6 +821,7 @@ mirnet_exposure:
   architecture_type: MIRNet_v2 (Multi-Scale Residual Network)
   kwargs:
     backbone: multi_scale_residual
+  canonical_format: webdataset
 mprnet_deraining:
   name: LemGendary MPRNet Deraining
   class_name: MPRNet
@@ -814,6 +839,7 @@ mprnet_deraining:
   optimal_key: mprnet_deraining
   description: MPRNet image deraining
   datasets:
+  - LemGendizedMprNetDeraining
   - LemGendizedMprNetDerainingLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedmprnetderaininglarge
   kaggle_dataset_urls:
@@ -844,6 +870,7 @@ mprnet_deraining:
   architecture_type: MPRNet (Multi-Stage Progressive Network)
   kwargs:
     backbone: multi_stage_progressive
+  canonical_format: webdataset
 nafnet_debluring:
   name: LemGendary NAFNet Debluring
   class_name: NAFNet
@@ -873,6 +900,7 @@ nafnet_debluring:
     - 384
     - 512
   datasets:
+  - LemGendizedNafNetDebluring
   - LemGendizedNafNetDebluringLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizednafnetdebluringlarge
   kaggle_dataset_urls:
@@ -891,6 +919,7 @@ nafnet_debluring:
   architecture_type: NAFNet (Nonlinear Activation-Free Network)
   kwargs:
     backbone: nafnet_blocks
+  canonical_format: webdataset
 nafnet_denoising:
   name: LemGendary NAFNet Denoising
   class_name: NAFNet
@@ -921,6 +950,7 @@ nafnet_denoising:
     - 384
     - 512
   datasets:
+  - LemGendizedNafNetDenoising
   - LemGendizedNafNetDenoisingLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizednafnetdenoisinglarge
   kaggle_dataset_urls:
@@ -939,6 +969,7 @@ nafnet_denoising:
   architecture_type: NAFNet (Nonlinear Activation-Free Network)
   kwargs:
     backbone: nafnet_blocks
+  canonical_format: webdataset
 yolov8n:
   name: LemGendary YOLOv8n Multi-Task Model
   class_name: YOLO
@@ -983,6 +1014,7 @@ yolov8n:
   architecture_type: YOLOv8n (CSPDarknet53 + PANet)
   kwargs:
     backbone: cspdarknet
+  canonical_format: directory
 professional_multitask_restoration:
   name: LemGendary Professional Multi-Task Restoration Model
   class_name: MultiTaskRestorer
@@ -999,8 +1031,7 @@ professional_multitask_restoration:
   preferred_parallel: dp
   needs_synthesis: true
   optimal_key: professional_multitask_restoration
-  description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze,
-    and Low-Light
+  description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze, and Low-Light
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -1019,6 +1050,7 @@ professional_multitask_restoration:
     lpips: 0.07
     fid: 12.0
   datasets:
+  - LemGendizedProfessionalMultitaskRestoration
   - LemGendizedProfessionalMultitaskRestorationLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedprofessionalmultitaskrestorationlarge
   kaggle_dataset_urls:
@@ -1028,6 +1060,7 @@ professional_multitask_restoration:
   architecture_type: MultiTaskRestorer (Shared Encoder Multi-Task MoE)
   kwargs:
     backbone: shared_encoder_moe
+  canonical_format: mds
 ultrazoom:
   name: LemGendary UltraZoom Master Model
   class_name: UltraZoomMaster
@@ -1045,6 +1078,7 @@ ultrazoom:
   optimal_key: ultrazoom
   description: Dynamic scale super-resolution model
   datasets:
+  - LemGendizedUltraZoom
   - LemGendizedUltraZoomLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedultrazoomlarge
   kaggle_dataset_urls:
@@ -1070,6 +1104,7 @@ ultrazoom:
   architecture_type: UltraZoomMaster (Sub-Pixel ESPCN Super-Resolution)
   kwargs:
     backbone: espcn_residual
+  canonical_format: webdataset
 universal_nsfw_classification:
   name: LemGendary Universal NSFW Classifier
   class_name: UniversalClassifier
@@ -1086,9 +1121,9 @@ universal_nsfw_classification:
   preferred_parallel: ddp
   optimal_key: universal_nsfw_classification
   architecture_type: EfficientNetV2-S (Multi-Class Categorical Head)
-  description: Universal safety filter and NSFW classifier for realistic and anime
-    content.
+  description: Universal safety filter and NSFW classifier for realistic and anime content.
   datasets:
+  - LemGendizedClassificationMasterManifold
   - LemGendizedClassificationMasterManifoldLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedclassificationmastermanifoldlarge
   kaggle_dataset_urls:
@@ -1109,6 +1144,7 @@ universal_nsfw_classification:
   kaggle_accelerator: T4
   kwargs:
     backbone: efficientnet_v2_s
+  canonical_format: mds
 retinaface:
   name: LemGendary RetinaFace Detection
   class_name: RetinaFace
@@ -1130,6 +1166,7 @@ retinaface:
   optimal_key: retinaface
   description: MobileNet-based face detection
   datasets:
+  - LemGendizedRetinaFaceMobileNet
   - LemGendizedRetinaFaceMobileNetLarge
   kaggle_ref: kaggle://lemtreursi/lemgendizedretinafacemobilenetlarge
   kaggle_dataset_urls:
@@ -1152,3 +1189,4 @@ retinaface:
   kwargs:
     backbone: mobilenet_0.25
   kaggle_accelerator: T4
+  canonical_format: webdataset

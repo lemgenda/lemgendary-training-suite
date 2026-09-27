@@ -29,13 +29,26 @@ class ParquetReader:
         self.root = Path(root).resolve()
         self.split = split
 
-        # Discover parquet files
+        # Discover parquet files across candidate locations
+        cand_dirs = [
+            self.root / "parquet" / self.split,
+            self.root / self.split / "parquet",
+            self.root / self.split,
+            self.root / "parquet",
+            self.root,
+        ]
+        self.files: list[Path] = []
         if self.root.is_file() and self.root.suffix == ".parquet":
             self.files = [self.root]
-        elif (self.root / self.split).exists() and (self.root / self.split).is_dir():
-            self.files = sorted((self.root / self.split).glob("*.parquet"))
         else:
-            self.files = sorted(self.root.glob("*.parquet"))
+            for d in cand_dirs:
+                if d.exists() and d.is_dir():
+                    parquets = sorted(d.glob("*.parquet"))
+                    if parquets:
+                        self.files = parquets
+                        break
+            if not self.files:
+                self.files = sorted(self.root.glob("**/*.parquet"))
 
         if not self.files:
             raise FileNotFoundError(f"No Parquet files discovered in '{self.root}' for split '{self.split}'.")
@@ -93,11 +106,17 @@ class ParquetReader:
                 img_fmt = str(row.get("image_format", "webp"))
                 break
 
-        # Targets / Labels
+        # Targets / Labels / Masks
         target_bytes: bytes | None = None
         for tgt_name in ["target", "target_bytes", "ground_truth"]:
             if tgt_name in row and isinstance(row[tgt_name], (bytes, bytearray)):
                 target_bytes = bytes(row[tgt_name])
+                break
+
+        mask_bytes: bytes | None = None
+        for msk_name in ["mask", "mask_bytes", "segmentation"]:
+            if msk_name in row and isinstance(row[msk_name], (bytes, bytearray)):
+                mask_bytes = bytes(row[msk_name])
                 break
 
         label = row.get("label") or row.get("target") or row.get("signal")
@@ -107,6 +126,7 @@ class ParquetReader:
             image_bytes=image_bytes,
             image_format=img_fmt,
             target_bytes=target_bytes,
+            mask_bytes=mask_bytes,
             label=label,
             metadata=row,
         )

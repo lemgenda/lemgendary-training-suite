@@ -1,6 +1,7 @@
 """Unit tests for LemGendary modern container reader plugins."""
 
 import io
+import json
 from pathlib import Path
 import tarfile
 import tempfile
@@ -102,17 +103,47 @@ class TestContainers(unittest.TestCase):
 
     def test_webdataset_reader(self) -> None:
         manifold = self.root / "test_wds_manifold"
-        manifold.mkdir(parents=True)
-        tar_path = manifold / "shard-000000.tar"
+        shards_dir = manifold / "shards"
+        shards_dir.mkdir(parents=True)
+        tar_path = shards_dir / "shard-000000.tar"
 
-        buf = io.BytesIO()
-        Image.new("RGB", (16, 16), color=(50, 60, 70)).save(buf, format="WEBP")
-        raw_bytes = buf.getvalue()
+        buf_img = io.BytesIO()
+        Image.new("RGB", (16, 16), color=(50, 60, 70)).save(buf_img, format="WEBP")
+        img_bytes = buf_img.getvalue()
+
+        buf_tgt = io.BytesIO()
+        Image.new("RGB", (16, 16), color=(255, 255, 255)).save(buf_tgt, format="WEBP")
+        tgt_bytes = buf_tgt.getvalue()
+
+        buf_mask = io.BytesIO()
+        Image.new("L", (16, 16), color=128).save(buf_mask, format="WEBP")
+        mask_bytes = buf_mask.getvalue()
+
+        meta_json = json.dumps({
+            "distribution": [0.05, 0.05, 0.1, 0.1, 0.2, 0.2, 0.1, 0.1, 0.05, 0.05],
+            "task": "restoration",
+        }).encode("utf-8")
 
         with tarfile.open(tar_path, mode="w") as tf:
-            ti = tarfile.TarInfo(name="item_001.webp")
-            ti.size = len(raw_bytes)
-            tf.addfile(ti, io.BytesIO(raw_bytes))
+            # Add input image
+            ti_img = tarfile.TarInfo(name="item_001.webp")
+            ti_img.size = len(img_bytes)
+            tf.addfile(ti_img, io.BytesIO(img_bytes))
+
+            # Add paired target
+            ti_tgt = tarfile.TarInfo(name="item_001.target.webp")
+            ti_tgt.size = len(tgt_bytes)
+            tf.addfile(ti_tgt, io.BytesIO(tgt_bytes))
+
+            # Add paired mask
+            ti_msk = tarfile.TarInfo(name="item_001.mask.webp")
+            ti_msk.size = len(mask_bytes)
+            tf.addfile(ti_msk, io.BytesIO(mask_bytes))
+
+            # Add JSON metadata with distribution
+            ti_json = tarfile.TarInfo(name="item_001.json")
+            ti_json.size = len(meta_json)
+            tf.addfile(ti_json, io.BytesIO(meta_json))
 
         reader = WebDatasetReader(manifold, split="train")
         self.assertEqual(len(reader), 1)
@@ -120,13 +151,19 @@ class TestContainers(unittest.TestCase):
         sample = reader[0]
         self.assertEqual(sample.name, "item_001")
         self.assertEqual(sample.image_format, "webp")
-        self.assertEqual(sample.image_bytes, raw_bytes)
+        self.assertEqual(sample.image_bytes, img_bytes)
+        self.assertEqual(sample.target_bytes, tgt_bytes)
+        self.assertEqual(sample.mask_bytes, mask_bytes)
+        self.assertIsInstance(sample.label, list)
+        self.assertEqual(len(sample.label), 10)
+        self.assertEqual(sample.metadata.get("json", {}).get("task"), "restoration")
 
         reader.close()
 
     def test_mds_reader(self) -> None:
         manifold = self.root / "test_mds_manifold"
-        manifold.mkdir(parents=True)
+        mds_dir = manifold / "mds"
+        mds_dir.mkdir(parents=True)
 
         index_content = {
             "version": 2,
@@ -135,8 +172,7 @@ class TestContainers(unittest.TestCase):
                 {"samples": 5, "raw_data": {"basename": "shard.00001.mds"}},
             ],
         }
-        import json
-        (manifold / "index.json").write_text(json.dumps(index_content), encoding="utf-8")
+        (mds_dir / "index.json").write_text(json.dumps(index_content), encoding="utf-8")
 
         reader = MdsReader(manifold, split="train")
         self.assertEqual(len(reader), 10)
@@ -152,9 +188,10 @@ class TestContainers(unittest.TestCase):
 
     def test_litdata_reader(self) -> None:
         manifold = self.root / "test_lit_manifold"
-        manifold.mkdir(parents=True)
-        (manifold / "chunk-0.bin").touch()
-        (manifold / "chunk-1.bin").touch()
+        lit_dir = manifold / "litdata"
+        lit_dir.mkdir(parents=True)
+        (lit_dir / "chunk-0.bin").touch()
+        (lit_dir / "chunk-1.bin").touch()
 
         reader = LitDataReader(manifold, split="train")
         self.assertEqual(len(reader), 2)
@@ -174,12 +211,35 @@ class TestContainers(unittest.TestCase):
         self.assertIsInstance(reader, DirectoryReader)
         reader.close()
 
-        # 2. Explicit dataset_info.yaml declaration
-        info_data = {"container": {"primary": "parquet"}}
-        (manifold / "dataset_info.yaml").write_text(yaml.dump(info_data), encoding="utf-8")
-        (manifold / "data.parquet").touch()
+        # 2. Modern dataset_info.yaml format declarations
+        # format: webdataset
+        info_data_wds = {"format": "webdataset"}
+        (manifold / "dataset_info.yaml").write_text(yaml.dump(info_data_wds), encoding="utf-8")
+        shards_dir = manifold / "shards"
+        shards_dir.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(shards_dir / "shard-00000.tar", mode="w") as tf:
+            ti = tarfile.TarInfo(name="item_000.webp")
+            ti.size = 0
+            tf.addfile(ti, io.BytesIO(b""))
 
-        # Resolves to ParquetReader based on manifest
+        wds_reader = resolve_container_reader(manifold, split="train")
+        self.assertIsInstance(wds_reader, WebDatasetReader)
+        wds_reader.close()
+
+        # canonical_format: litdata
+        info_data_lit = {"canonical_format": "litdata"}
+        (manifold / "dataset_info.yaml").write_text(yaml.dump(info_data_lit), encoding="utf-8")
+        lit_dir = manifold / "litdata"
+        lit_dir.mkdir(parents=True, exist_ok=True)
+        (lit_dir / "chunk-0.bin").touch()
+
+        lit_reader = resolve_container_reader(manifold, split="train")
+        self.assertIsInstance(lit_reader, LitDataReader)
+        lit_reader.close()
+
+        # format: parquet
+        info_data = {"format": "parquet"}
+        (manifold / "dataset_info.yaml").write_text(yaml.dump(info_data), encoding="utf-8")
         table = pa.Table.from_arrays([pa.array(["s1"])], names=["id"])
         pq.write_table(table, manifold / "data.parquet")
 

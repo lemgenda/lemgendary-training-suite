@@ -1,5 +1,7 @@
 """MDS (MosaicML Streaming Dataset) container reader with Zstd decompression support."""
 
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
@@ -17,9 +19,19 @@ class MdsReader:
         self.root = Path(root).resolve()
         self.split = split
 
-        # Locate MDS directory
-        split_dir = self.root / self.split
-        self.mds_dir = split_dir if split_dir.exists() and split_dir.is_dir() else self.root
+        # Locate MDS directory across candidate locations
+        cand_dirs = [
+            self.root / "mds" / self.split,
+            self.root / self.split / "mds",
+            self.root / "mds",
+            self.root / self.split,
+            self.root,
+        ]
+        self.mds_dir = self.root
+        for d in cand_dirs:
+            if d.exists() and d.is_dir() and (d / "index.json").exists():
+                self.mds_dir = d
+                break
 
         self.index_file = self.mds_dir / "index.json"
         if not self.index_file.exists():
@@ -47,15 +59,22 @@ class MdsReader:
         try:
             import importlib
             streaming_pkg = importlib.import_module("streaming")
+            local_ds_cls = getattr(streaming_pkg, "LocalDataset", None)
             streaming_cls = getattr(streaming_pkg, "StreamingDataset", None)
+            if local_ds_cls is not None:
+                try:
+                    self._streaming_ds = local_ds_cls(local=str(self.mds_dir))
+                    return
+                except Exception as exc:
+                    logger.debug("LocalDataset initialization failed, trying StreamingDataset: %s", exc)
             if streaming_cls is not None:
                 self._streaming_ds = streaming_cls(
                     local=str(self.mds_dir),
                     split=None,
                     shuffle=False,
                 )
-        except (ImportError, ModuleNotFoundError, AttributeError):
-            logger.debug("Streaming library not installed. Operating via MDS raw index parser.")
+        except Exception as exc:
+            logger.debug("Streaming library initialization failed, operating via raw index: %s", exc)
             self._streaming_ds = None
 
     def __len__(self) -> int:
@@ -75,6 +94,9 @@ class MdsReader:
             target_bytes = record.get("target") or record.get("target_bytes")
             mask_bytes = record.get("mask") or record.get("mask_bytes")
             label = record.get("label")
+            meta = {"index": index}
+            if isinstance(record.get("metadata"), dict):
+                meta.update(record["metadata"])
             return Sample(
                 name=name,
                 image_bytes=bytes(image_bytes) if isinstance(image_bytes, (bytes, bytearray)) else b"",
@@ -82,7 +104,7 @@ class MdsReader:
                 target_bytes=bytes(target_bytes) if isinstance(target_bytes, (bytes, bytearray)) else None,
                 mask_bytes=bytes(mask_bytes) if isinstance(mask_bytes, (bytes, bytearray)) else None,
                 label=label,
-                metadata={"index": index},
+                metadata=meta,
             )
 
         # Fallback index metadata record
@@ -101,7 +123,7 @@ class MdsReader:
             image_format="webp",
             target_bytes=None,
             label=None,
-            metadata={"shard": shard_name, "local_index": local_idx},
+            metadata={"shard": shard_name, "local_index": local_idx, "index": index},
         )
 
     def close(self) -> None:

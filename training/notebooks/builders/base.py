@@ -9,11 +9,20 @@ import os
 from pathlib import Path
 from typing import Any
 
+def _get_workspace_root() -> Path:
+    """Resolve the canonical workspace root containing sibling LemGendary projects."""
+    here = Path(__file__).resolve()
+    for parent in [here] + list(here.parents):
+        if (parent / "lemgendary-datasets").exists() and (parent / "lemgendary-training-suite").exists():
+            return parent
+    return _get_project_root().parent
+
+
 def _get_project_root() -> Path:
     """Resolve project root directory across training suite or datasets repositories."""
     here = Path(__file__).resolve()
     for parent in [here] + list(here.parents):
-        if (parent / "config.yaml").exists() or (parent / "unified_data.yaml").exists() or (parent / "pyproject.toml").exists():
+        if (parent / "unified_data.yaml").exists() or (parent / "unified_models_v2.yaml").exists() or ((parent / "config.yaml").exists() and parent.name == "lemgendary-training-suite"):
             return parent
     return here.parent.parent.parent
 
@@ -45,8 +54,8 @@ def sync_manifold_notebooks(
     unified_models_registry: dict[str, Any] | None = None,
 ) -> None:
     """Sync generated notebook JSON to matching LemGendaryDatasets manifold directories."""
-    project_root = _get_project_root()
-    datasets_hub_root = os.path.abspath(os.path.join(project_root, "../LemGendaryDatasets"))
+    workspace_root = _get_workspace_root()
+    datasets_hub_root = workspace_root / "LemGendaryDatasets"
 
     if not unified_models_registry:
         return
@@ -67,7 +76,7 @@ def sync_manifold_notebooks(
         if model_key not in target_candidates:
             target_candidates.append(model_key)
 
-    synced_dirs: set[str] = set()
+    synced_dirs: set[Path] = set()
     for target_folder in target_candidates:
         if not target_folder:
             continue
@@ -87,10 +96,10 @@ def sync_manifold_notebooks(
         ]
 
         for m_folder in possible_manifold_folders:
-            ds_dir = os.path.join(datasets_hub_root, m_folder)
-            if os.path.exists(ds_dir) and ds_dir not in synced_dirs:
+            ds_dir = datasets_hub_root / m_folder
+            if ds_dir.exists() and ds_dir not in synced_dirs:
                 synced_dirs.add(ds_dir)
-                ds_output_path = os.path.join(ds_dir, filename)
+                ds_output_path = ds_dir / filename
                 try:
                     with open(ds_output_path, "w", encoding="utf-8") as f:
                         f.write(json_str)
@@ -106,11 +115,10 @@ def sync_workspace_training_notebook(
     display_title: str,
 ) -> None:
     """Sync generated notebook JSON to workspace training folder (e.g. kaggle_training)."""
-    project_root = _get_project_root()
-    workspace_root = os.path.abspath(os.path.join(project_root, ".."))
-    target_dir = os.path.join(workspace_root, subfolder_name)
-    os.makedirs(target_dir, exist_ok=True)
-    out_file = os.path.join(target_dir, filename)
+    workspace_root = _get_workspace_root()
+    target_dir = workspace_root / subfolder_name
+    target_dir.mkdir(parents=True, exist_ok=True)
+    out_file = target_dir / filename
     try:
         with open(out_file, "w", encoding="utf-8") as f:
             f.write(json_str)
