@@ -488,7 +488,7 @@ upn_v2:
   architecture_type: UPN_v2 (MobileNet-Lite Parameter Regressor)
   kwargs:
     backbone: mobilenet_lite
-  canonical_format: litdata
+  canonical_format: webdataset
 film_restorer:
   name: LemGendary Universal Film Restorer
   class_name: UniversalFilmRestorer

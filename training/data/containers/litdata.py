@@ -41,11 +41,11 @@ class LitDataReader:
         self._init_litdata()
 
     def _init_litdata(self) -> None:
-        """Initialize LitData StreamingDataset if library is present."""
+        """Initialize LitData StreamingDataset if library is present and valid index exists."""
         try:
             litdata_pkg = importlib.import_module("litdata")
             streaming_cls = getattr(litdata_pkg, "StreamingDataset", None)
-            if streaming_cls is not None:
+            if streaming_cls is not None and (self.data_dir / "index.json").exists():
                 self._lit_ds = streaming_cls(input_dir=str(self.data_dir))
                 self._sample_count = len(self._lit_ds)
                 return
