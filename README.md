@@ -20,6 +20,12 @@
 
 ## Changelog
 
+### v16.9.0 — Cross-Suite E2E Testing, WebDataset Parity & Tripartite Sidecar Mesh
+
+- **Cross-Suite End-to-End Integration Testing** — Implemented and verified `tests/test_integration_e2e.py` validating that streaming WebDataset `.tar` shards produced by `lemgendary-datasets` are auto-discovered, decoded into tensors, and ingested by the training engine without intermediate filesystem extraction.
+- **Tripartite Health Mesh Compatibility** — Validated FastAPI sidecar daemon route schemas and health telemetry on port 8200 (`/api/training/models`, `/health`), guaranteeing reliable status reporting across the unified desktop client.
+- **Full Compliance Testing** — Verified 100% test pass rate and compliance under `lem-env validate --project lemgendary-training-suite`.
+
 ### v16.8.0 — Container Dependencies, Model Registry Modernization & Zero-Duplication Storage Integration
 
 - **Unified Container Dependencies Manifest Synchronization (Phase 1)** — Synchronized `requirements.txt` from `lemgendary-env-manager` SSOT manifest (`requirements-training.txt`) establishing verified runtime support for all 5 container formats: `webdataset==1.0.2`, `mosaicml-streaming>=0.9.0,<1.0.0`, `litdata>=0.2.0,<1.0.0`, `pyarrow==25.0.1`, and `zstandard>=0.23.0`.
