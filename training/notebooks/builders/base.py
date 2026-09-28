@@ -70,7 +70,7 @@ def sync_manifold_notebooks(
         ds_list = []
 
     if model_key == "professional_multitask_restoration":
-        target_candidates = ["LemGendizedProfessionalMultitaskRestorationLarge", "professional_multitask_restoration"]
+        target_candidates = ["LemGendizedMultitaskRestorationPro", "professional_multitask_restoration"]
     else:
         target_candidates = list(ds_list)
         if model_key not in target_candidates:

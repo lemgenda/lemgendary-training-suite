@@ -1050,11 +1050,11 @@ professional_multitask_restoration:
     lpips: 0.07
     fid: 12.0
   datasets:
-  - LemGendizedProfessionalMultitaskRestoration
-  - LemGendizedProfessionalMultitaskRestorationLarge
-  kaggle_ref: kaggle://lemtreursi/lemgendizedprofessionalmultitaskrestorationlarge
+  - LemGendizedMultitaskRestorationPro
+  - LemGendizedMultitaskRestorationProLarge
+  kaggle_ref: kaggle://lemtreursi/lemgendizedmultitaskrestorationprolarge
   kaggle_dataset_urls:
-  - https://www.kaggle.com/datasets/lemtreursi/lemgendizedprofessionalmultitaskrestorationlarge
+  - https://www.kaggle.com/datasets/lemtreursi/lemgendizedmultitaskrestorationprolarge
   val_resolution: 512
   kaggle_accelerator: Dual T4
   architecture_type: MultiTaskRestorer (Shared Encoder Multi-Task MoE)
@@ -1123,11 +1123,11 @@ universal_nsfw_classification:
   architecture_type: EfficientNetV2-S (Multi-Class Categorical Head)
   description: Universal safety filter and NSFW classifier for realistic and anime content.
   datasets:
-  - LemGendizedClassificationMasterManifold
-  - LemGendizedClassificationMasterManifoldLarge
-  kaggle_ref: kaggle://lemtreursi/lemgendizedclassificationmastermanifoldlarge
+  - LemGendizedClassificationMaster
+  - LemGendizedClassificationMasterLarge
+  kaggle_ref: kaggle://lemtreursi/lemgendizedclassificationmasterlarge
   kaggle_dataset_urls:
-  - https://www.kaggle.com/datasets/lemtreursi/lemgendizedclassificationmastermanifoldlarge
+  - https://www.kaggle.com/datasets/lemtreursi/lemgendizedclassificationmasterlarge
   sota_targets:
     accuracy: 0.98
   optimization:
@@ -1166,11 +1166,11 @@ retinaface:
   optimal_key: retinaface
   description: MobileNet-based face detection
   datasets:
-  - LemGendizedRetinaFaceMobileNet
-  - LemGendizedRetinaFaceMobileNetLarge
-  kaggle_ref: kaggle://lemtreursi/lemgendizedretinafacemobilenetlarge
+  - LemGendizedRetinaFace
+  - LemGendizedRetinaFaceLarge
+  kaggle_ref: kaggle://lemtreursi/lemgendizedretinaface
   kaggle_dataset_urls:
-  - https://www.kaggle.com/datasets/lemtreursi/lemgendizedretinafacemobilenetlarge
+  - https://www.kaggle.com/datasets/lemtreursi/lemgendizedretinaface
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
