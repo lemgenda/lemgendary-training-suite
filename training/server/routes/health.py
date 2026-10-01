@@ -13,6 +13,7 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
+@router.head("/health")
 def get_health() -> dict[str, Any]:
     """Return health status, daemon version, and hardware accelerator profile."""
     device_info = discover_device()
