@@ -99,7 +99,7 @@ def resolve_model_metadata(
     primary_manifold = (
         ds_list[0]
         if ds_list
-        else (f"LemGendized{pascal_name}Large" if not is_forex else "LemGendizedForexUniverseLarge")
+        else (f"LemGendized{pascal_name}" if not is_forex else "LemGendizedForexUniverse")
     )
     if not clean_kaggle_repo:
         clean_kaggle_repo = f"lemtreursi/{primary_manifold.lower()}"

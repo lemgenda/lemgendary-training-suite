@@ -87,6 +87,16 @@ class ManifoldResolver:
         """Generate common name variations (prefixes, suffixes) for fuzzy resolution."""
         candidates: list[str] = [manifold_name]
 
+        # Suffix stripping / normalization: e.g. LemGendizedNimaAestheticLarge -> LemGendizedNimaAesthetic
+        if manifold_name.endswith("Large"):
+            stripped = manifold_name[:-5]
+            if stripped not in candidates:
+                candidates.append(stripped)
+        elif not manifold_name.endswith("Large") and not manifold_name.endswith("KaggleReady"):
+            legacy = f"{manifold_name}Large"
+            if legacy not in candidates:
+                candidates.append(legacy)
+
         suffix = "KaggleReady" if self.env == "kaggle" else ""
         if suffix and not manifold_name.endswith(suffix):
             candidates.append(f"{manifold_name}{suffix}")
@@ -95,6 +105,12 @@ class ManifoldResolver:
             candidates.append(f"LemGendized{manifold_name}")
             if suffix:
                 candidates.append(f"LemGendized{manifold_name}{suffix}")
+
+        for c in list(candidates):
+            if c.endswith("Large"):
+                s = c[:-5]
+                if s not in candidates:
+                    candidates.append(s)
 
         return candidates
 
@@ -196,12 +212,18 @@ class ManifoldResolver:
         container_type = "directory"
         if "container" in meta and isinstance(meta["container"], dict):
             container_type = meta["container"].get("primary", "directory")
+        elif meta.get("canonical_format"):
+            container_type = meta.get("canonical_format")
+        elif meta.get("format"):
+            container_type = meta.get("format")
+        elif (path / "shards").exists() or any(f.suffix == ".tar" for f in path.iterdir() if f.is_file()):
+            container_type = "webdataset"
+        elif (path / "mds").exists() or ((path / "index.json").exists() and not (path / "images").exists()):
+            container_type = "mds"
+        elif (path / "litdata").exists():
+            container_type = "litdata"
         elif any(f.suffix == ".parquet" for f in path.iterdir() if f.is_file()):
             container_type = "parquet"
-        elif any(f.suffix == ".tar" for f in path.iterdir() if f.is_file()):
-            container_type = "webdataset"
-        elif (path / "index.json").exists() and not (path / "images").exists():
-            container_type = "mds"
 
         # Task type detection
         task_type = meta.get("task_type", "")
