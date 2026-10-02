@@ -20,6 +20,13 @@
 
 ## Changelog
 
+### v16.9.10 — Governed YOLO Curriculum Runner & Sawtooth VRAM Pacing
+
+- **Governed YOLO Curriculum Runner (`training/governance/yolo_governor.py`)** — Implemented `YOLOCurriculumGovernor` and `run_governed_yolo_training`. Coordinates multi-stage spatial resolution ladders (`320px -> 480px -> 640px`), hardware-aware Sawtooth VRAM batch allocation, dataset fraction scaling (`0.3 -> 0.6 -> 1.0`), numerical AMP stabilization on GTX 16xx hardware, cross-stage checkpoint handoff, and real-time telemetry synchronization with `TelemetryEngine` and GUI WebSocket callbacks.
+- **In-Process Dynamic Stage Transition & SOTA Early Stopping** — Connected YOLO training loop to autonomous early stopping upon reaching target SOTA thresholds (`map50 >= 0.54, map50_95 >= 0.39`) at the 640px full-dataset rung, with automated stage escalation on validation plateau.
+- **`core_loop.py` Delegation Architecture** — Refactored `_run_yolo_native` to delegate execution directly to `run_governed_yolo_training`, replacing monolithic fixed-resolution runs with autonomous curriculum progression while preserving native Ultralytics inner-loop optimizations.
+- **Telemetry Parity & Full Training Certification** — Integrated per-epoch metric synchronization to `checkpoints/yolov8n/metrics.csv` and `LemGendaryModels/yolov8n/metrics.csv`, ensuring the desktop GUI receives resolution ladder progress, data fraction advancement, and 3-pillar SOTA convergence badges.
+
 ### v16.9.9 — In-Process YOLOv8n Execution, Ladder Stage Propagation & Hyperparameter Hydration
 
 - **In-Process YOLOv8n Native Trainer Routing** — Integrated `_run_yolo_native` directly into `TrainingService.train()` when `model_key == "yolov8n"`. Prevents `ValueError` factory crashes by delegating execution to the Ultralytics trainer in-process and returning a valid `TrainingSummary`.

@@ -379,103 +379,20 @@ def _run_yolo_native(
     project_root: Path,
     on_epoch_end: Any = None,
 ) -> Any:
-    """Delegate yolov8n training to the Ultralytics native trainer.
+    """Delegate yolov8n training to the Governed YOLO Curriculum Runner.
 
-    Ultralytics handles its own DDP internally via the ``device`` argument
-    (e.g. ``device='0,1'`` for two GPUs). No external torchrun is needed.
-    ONNX export is performed after training for consistency with the rest of
-    the LemGendary Model Training Suite export pipeline.
+    Coordinates multi-stage resolution ladder progression (320px -> 480px -> 640px),
+    hardware-aware Sawtooth VRAM batch allocation, dataset fraction scaling,
+    and real-time telemetry synchronization while preserving native Ultralytics
+    inner-loop optimizations.
     """
-    import time
-    from training.training.engine import TrainingSummary
+    from training.governance.yolo_governor import run_governed_yolo_training
 
-    start_time = time.time()
-    try:
-        from ultralytics import YOLO
-    except ImportError as exc:
-        raise RuntimeError(
-            "Ultralytics is required for yolov8n training. "
-            "Install it with: pip install ultralytics"
-        ) from exc
-
-    from data.yolo_config_gen import generate_yolo_yaml
-
-    unified_models_rel = config.get("unified_models", "unified_models_v2.yaml")
-    unified_models_path = project_root / unified_models_rel
-    with open(unified_models_path, "r", encoding="utf-8") as f:
-        unified_models_registry = yaml.safe_load(f) or {}
-
-    model_info = unified_models_registry.get("yolov8n", {})
-    batch_size = args.batch_size or model_info.get("batch_size", 16)
-    if batch_size == "auto":
-        batch_size = -1  # Ultralytics auto-batch
-    epochs = args.epochs or model_info.get("epochs", 300)
-    export_dir = project_root / "export" / "yolov8n"
-    export_dir.mkdir(parents=True, exist_ok=True)
-
-    import torch
-    gpu_count = torch.cuda.device_count()
-    if gpu_count >= 2:
-        device_arg = ",".join(str(i) for i in range(gpu_count))
-    elif gpu_count == 1:
-        device_arg = "0"
-    else:
-        device_arg = "cpu"
-
-    yolo_yaml = generate_yolo_yaml(config, "yolov8n", unified_models_registry)
-    if yolo_yaml is None:
-        raise RuntimeError("generate_yolo_yaml returned None - no datasets configured for yolov8n.")
-
-    imgsz_val = getattr(args, "resolution", None) or model_info.get("val_resolution") or model_info.get("input_size", [3, 320, 320])[1]
-    checkpoint_key = model_info.get("checkpoint", "yolov8n.pt")
-    print(f"[YOLO] Launching Ultralytics native trainer for yolov8n on device(s): {device_arg} (imgsz={imgsz_val})", flush=True)
-    model = YOLO(checkpoint_key)
-
-    if on_epoch_end is not None:
-        def on_fit_epoch_end(trainer: Any) -> None:
-            try:
-                ep = int(getattr(trainer, "epoch", 0)) + 1
-                raw_metrics = getattr(trainer, "metrics", {}) or {}
-                metrics: dict[str, float] = {}
-                for k, v in raw_metrics.items():
-                    try:
-                        metrics[str(k)] = float(v)
-                    except (ValueError, TypeError):
-                        pass
-                on_epoch_end(ep, metrics)
-            except Exception as cb_err:
-                logger.debug("YOLO epoch callback failed: %s", cb_err)
-
-        model.add_callback("on_fit_epoch_end", on_fit_epoch_end)
-
-    train_kwargs: dict[str, Any] = {
-        "data": yolo_yaml,
-        "epochs": int(epochs),
-        "imgsz": int(imgsz_val),
-        "device": device_arg,
-        "batch": batch_size,
-        "project": str(export_dir),
-        "name": "yolov8n",
-        "exist_ok": True,
-    }
-    if getattr(args, "lr", None) is not None:
-        train_kwargs["lr0"] = float(args.lr)
-
-    model.train(**train_kwargs)
-    print("[YOLO] Training complete. Exporting to ONNX...", flush=True)
-    try:
-        model.export(format="onnx")
-        print("[YOLO] ONNX export complete.", flush=True)
-    except Exception as export_err:
-        print(f"[WARNING] YOLO ONNX export failed: {export_err}")
-    print("[SUCCESS] yolov8n training via Ultralytics native trainer complete.", flush=True)
-
-    return TrainingSummary(
-        model_name="yolov8n",
-        final_epoch=int(epochs),
-        best_metrics={"map50": 0.54, "map50_95": 0.39},
-        total_time=round(time.time() - start_time, 2),
-        status="completed",
+    return run_governed_yolo_training(
+        args=args,
+        config=config,
+        project_root=project_root,
+        on_epoch_end=on_epoch_end,
     )
 
 

@@ -10,6 +10,7 @@ from training.governance.metrics import (
 )
 from training.governance.sota import SotaTracker
 from training.governance.thermal import ThermalState
+from training.governance.yolo_governor import YOLOCurriculumGovernor, run_governed_yolo_training
 
 __all__ = [
     "CurriculumState",
@@ -21,4 +22,6 @@ __all__ = [
     "DEFAULT_METRIC_WEIGHTS",
     "SotaTracker",
     "ThermalState",
+    "YOLOCurriculumGovernor",
+    "run_governed_yolo_training",
 ]

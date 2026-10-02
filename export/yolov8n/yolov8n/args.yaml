@@ -1,4 +1,3 @@
----
 task: detect
 mode: train
 model: yolov8n.pt
