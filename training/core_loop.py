@@ -214,7 +214,13 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     )
 
     # 6. Criterion
-    task_type = model_info.get("task_type", "restoration")
+    raw_task_type = (
+        model_info.get("task_type")
+        or model_info.get("dataset_type")
+        or model_info.get("category")
+        or "restoration"
+    )
+    task_type = raw_task_type[0] if isinstance(raw_task_type, list) else str(raw_task_type)
     criterion = CombinedLoss(task_type=task_type)
 
     # 7. Data Loaders
@@ -224,8 +230,17 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         _forex_shard_root = str(
             config.get("paths", {}).get("datasets_root", "../LemGendaryDatasets")
         )
-        _forex_pairs = model_info.get("pairs", None)
-        _forex_timeframes = model_info.get("active_timeframes", None)
+        kwargs = model_info.get("kwargs", {})
+        _forex_pairs = (
+            getattr(args, "pairs", None)
+            or model_info.get("pairs")
+            or kwargs.get("pairs")
+        )
+        _forex_timeframes = (
+            getattr(args, "timeframes", None)
+            or model_info.get("active_timeframes")
+            or kwargs.get("active_timeframes")
+        )
         train_ds = ForexDataset(
             shard_root=_forex_shard_root,
             pairs=_forex_pairs,

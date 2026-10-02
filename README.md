@@ -20,6 +20,13 @@
 
 ## Changelog
 
+### v16.9.8 — Authoritative 3-Pillar SOTA Convergence & Forex Multi-Timeframe Confluence Telemetry
+
+- **Authoritative 3-Pillar Fully-Trained Verification Invariant** — Enforced non-negotiable triple-gate criterion for model status certification: `fully_trained` strictly requires (1) 100% of defined SOTA metrics satisfied across all specified targets in `sota_targets`, (2) full traversal through highest resolution ladder rung (`max_res_completed >= target_res`), and (3) completion on 100% training data fraction (`data_fraction_completed >= 0.99`). Sub-unitary or partial runs are designated strictly as `partially_trained`.
+- **Multi-Metric SOTA Registry & Directional Gate** — Built `METRIC_REGISTRY` mapping 23 metrics across vision restoration, quality scoring, object detection, and financial domains. Automatically resolves directional criteria (lower-is-better for LPIPS, FID, MAE, MaxDD, TP/SL errors; higher-is-better for PSNR, SSIM, SRCC, PLCC, Accuracy, DirAcc, WinRate, Sharpe).
+- **Forex Multi-Timeframe Confluence Ladder (`res_ladder: [1, 5, 15, 60, 240, 1440]`)** — Mapped resolution ladder to MetaTrader 5 candle intervals (`M1`, `M5`, `M15`, `H1`, `H4`, `D1`), isolated 8 financial scorecard metrics from vision datasets, and updated `core_loop.py` to extract pairs and active timeframes directly from YAML `kwargs`.
+- **Desktop GUI Telemetry Hydration** — Enriched `GET /api/gui/models/with-stats` with `sota_targets_total`, `sota_targets_met`, `sota_all_met`, `sota_details`, `ladder_type`, `is_forex`, `ladder_passed`, and `data_fraction_passed`.
+
 ### v16.9.0 — Cross-Suite E2E Testing, WebDataset Parity & Tripartite Sidecar Mesh
 
 - **Cross-Suite End-to-End Integration Testing** — Implemented and verified `tests/test_integration_e2e.py` validating that streaming WebDataset `.tar` shards produced by `lemgendary-datasets` are auto-discovered, decoded into tensors, and ingested by the training engine without intermediate filesystem extraction.

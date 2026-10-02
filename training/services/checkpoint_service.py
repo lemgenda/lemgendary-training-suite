@@ -22,8 +22,25 @@ class CheckpointService:
         self.project_root = project_root or get_project_root()
         self.checkpoints_root = self.project_root / "checkpoints"
 
+        # Resolve configured external LemGendaryModels hub directory
+        hub_path = (self.project_root / ".." / "LemGendaryModels").resolve()
+        cfg_path = self.project_root / "config.yaml"
+        if cfg_path.exists():
+            try:
+                import yaml
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f) or {}
+                rel = cfg.get("paths", {}).get("checkpoints_root")
+                if rel:
+                    candidate = (self.project_root / rel).resolve()
+                    if candidate.exists():
+                        hub_path = candidate
+            except Exception:
+                pass
+        self.hub_root = hub_path if hub_path.exists() else None
+
     def list_checkpoints(self, model_key: str | None = None) -> list[dict[str, Any]]:
-        """List available checkpoint files on disk.
+        """List available checkpoint files on disk from local checkpoints and model hub.
 
         Args:
             model_key: Optional specific model key to filter by.
@@ -32,24 +49,64 @@ class CheckpointService:
             list[dict[str, Any]]: Metadata list of discovered checkpoints.
         """
         results: list[dict[str, Any]] = []
-        if not self.checkpoints_root.exists():
-            return results
+        target_dirs: list[tuple[str, Path]] = []
 
-        target_dirs: list[Path] = []
-        if model_key:
-            model_dir = self.checkpoints_root / model_key
-            if model_dir.exists():
-                target_dirs.append(model_dir)
-        else:
-            target_dirs = [d for d in self.checkpoints_root.iterdir() if d.is_dir()]
+        if self.checkpoints_root.exists():
+            if model_key:
+                model_dir = self.checkpoints_root / model_key
+                if model_dir.exists():
+                    target_dirs.append((model_key, model_dir))
+            else:
+                for d in self.checkpoints_root.iterdir():
+                    if d.is_dir() and not d.name.startswith((".", "_")):
+                        target_dirs.append((d.name, d))
 
-        for m_dir in target_dirs:
-            key = m_dir.name
-            for file_path in m_dir.glob("*.pth"):
+        if self.hub_root and self.hub_root.exists():
+            if model_key:
+                hub_dir = self.hub_root / model_key
+                if hub_dir.exists():
+                    target_dirs.append((model_key, hub_dir))
+            else:
+                for d in self.hub_root.iterdir():
+                    if d.is_dir() and not d.name.startswith((".", "_")):
+                        target_dirs.append((d.name, d))
+
+        seen_paths: set[str] = set()
+
+        for key, m_dir in target_dirs:
+            # Check for metrics.csv to determine recorded epochs
+            max_epoch_from_csv: int | None = None
+            csv_path = m_dir / "metrics.csv"
+            if csv_path.exists():
+                try:
+                    import csv
+                    with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                        reader = csv.DictReader(f)
+                        for row in reader:
+                            ep_val = row.get("Epoch") or row.get("epoch")
+                            if ep_val:
+                                ep_num = int(ep_val)
+                                if max_epoch_from_csv is None or ep_num > max_epoch_from_csv:
+                                    max_epoch_from_csv = ep_num
+                except Exception:
+                    pass
+
+            candidates = (
+                list(m_dir.glob("*.pth"))
+                + list((m_dir / "checkpoints").glob("*.pth"))
+                + list(m_dir.glob("*.pt"))
+            )
+
+            for file_path in candidates:
+                resolved_str = str(file_path.resolve())
+                if resolved_str in seen_paths:
+                    continue
+                seen_paths.add(resolved_str)
+
                 stat = file_path.stat()
                 epoch_match = re.search(r"epoch_(\d+)", file_path.name)
-                epoch = int(epoch_match.group(1)) if epoch_match else None
-                is_best = "best" in file_path.name.lower()
+                epoch = int(epoch_match.group(1)) if epoch_match else max_epoch_from_csv
+                is_best = "best" in file_path.name.lower() or file_path.suffix == ".pt"
 
                 results.append({
                     "model_key": key,
