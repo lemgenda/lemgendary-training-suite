@@ -20,6 +20,12 @@
 
 ## Changelog
 
+### v16.9.12 — Checkpoint Resumption Protocol, Authoritative Persistence & Literature Citations
+
+- **Mid-Rung Checkpoint Resumption & Stage Skip Protocol (`training/governance/yolo_governor.py`)** — Solved the issue where YOLO training restarted from epoch 1 instead of continuing from checkpoint. Interrogates checkpoint metadata (`torch.load`) to extract `ckpt_epoch` and `ckpt_imgsz`. If a resolution ladder rung was already satisfied, the governor skips it immediately. If interrupted mid-stage, it sets `resume=True` and resumes from `ckpt_epoch + 2` without resetting optimizer buffers.
+- **Authoritative Single Source of Truth Persistence (`LemGendaryModels/`)** — Fixed relative path traversal in `training/checkpoint/recovery.py` and aligned `yolo_governor.py`, `core_loop.py`, and `engine.py` so that `LemGendaryModels/<model_key>/checkpoints/` and `LemGendaryModels/<model_key>/metrics.csv` are the authoritative persistence locations across all models.
+- **Scientific Literature & Reference Citations (`training/doc_generator.py`)** — Embedded canonical research paper titles, authors, conference/journal publications, arXiv links, and BibTeX citations across all 22 model READMEs in `LemGendaryModels/<model_key>/README.md`.
+
 ### v16.9.11 — Real-Time Checkpoint Parity & Sub-Second Minibatch Cancellation Protocol
 
 - **Dual-Path Real-Time Checkpoint Mirroring (`training/governance/yolo_governor.py`)** — Added `_synchronize_checkpoints` invoked on every completed epoch (`on_fit_epoch_end`) and spatial ladder transition. Intermediate weights (`best.pt`, `best.pth`, `last.pt`, `progress.pth`) are mirrored immediately into both `checkpoints/yolov8n/` and `LemGendaryModels/yolov8n/checkpoints/` alongside `metrics.csv`, eliminating delay in weight availability.

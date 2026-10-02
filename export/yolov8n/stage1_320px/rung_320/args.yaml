@@ -1,6 +1,6 @@
 task: detect
 mode: train
-model: C:\Development\python\model-training\lemgendary-training-suite\checkpoints\yolov8n\best.pt
+model: C:\Development\python\model-training\lemgendary-training-suite\export\yolov8n\stage1_320px\rung_320\weights\last.pt
 data: data\yolo_yolov8n_config.yaml
 epochs: 75
 time: null
@@ -25,7 +25,7 @@ single_cls: false
 rect: false
 cos_lr: false
 close_mosaic: 10
-resume: false
+resume: C:\Development\python\model-training\lemgendary-training-suite\export\yolov8n\stage1_320px\rung_320\weights\last.pt
 amp: false
 fraction: 0.3
 profile: false
@@ -77,7 +77,7 @@ momentum: 0.937
 weight_decay: 0.0005
 warmup_epochs: 3.0
 warmup_momentum: 0.8
-warmup_bias_lr: 0.1
+warmup_bias_lr: 0.0
 distill_model: null
 dis: 6.0
 box: 7.5
