@@ -190,6 +190,11 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     export_dir = project_root / "export" / model_key
     export_dir.mkdir(parents=True, exist_ok=True)
 
+    models_hub_dir = (project_root.parent / "LemGendaryModels" / model_key).resolve()
+    models_hub_checkpoint_dir = models_hub_dir / "checkpoints"
+    models_hub_dir.mkdir(parents=True, exist_ok=True)
+    models_hub_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
     paths = TrainingPaths(
         project_root=project_root,
         local_checkpoint_dir=local_checkpoint_dir,
@@ -198,7 +203,30 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         progress_local_path=local_checkpoint_dir / "progress.pth",
         best_checkpoint_path=local_checkpoint_dir / "best.pth",
         history_csv_path=local_checkpoint_dir / "history.csv",
+        models_hub_dir=models_hub_dir,
+        models_hub_checkpoint_dir=models_hub_checkpoint_dir,
+        models_hub_progress_path=models_hub_checkpoint_dir / "progress.pth",
+        models_hub_best_path=models_hub_checkpoint_dir / "best.pth",
+        models_hub_metrics_csv=models_hub_dir / "metrics.csv",
     )
+
+    if args.clean:
+        for clean_target in [
+            local_checkpoint_dir / "progress.pth",
+            local_checkpoint_dir / "best.pth",
+            local_checkpoint_dir / "history.csv",
+            local_checkpoint_dir / "metrics.csv",
+            models_hub_checkpoint_dir / "progress.pth",
+            models_hub_checkpoint_dir / "best.pth",
+            models_hub_checkpoint_dir / f"{model_key}_latest.pth",
+            models_hub_checkpoint_dir / f"{model_key}_best.pth",
+            models_hub_dir / "metrics.csv",
+        ]:
+            if clean_target.exists():
+                try:
+                    clean_target.unlink()
+                except OSError:
+                    pass
 
     # 3. Model construction
     raw_model = get_model(model_key, model_info)
@@ -324,10 +352,14 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     # 9. Recovery inspection
     resume_state = None
     if not args.clean:
-        recovery_engine = CheckpointRecoveryEngine()
+        recovery_engine = CheckpointRecoveryEngine(
+            workspace_root=project_root.parent,
+            project_root=project_root,
+            env=args.env,
+        )
         candidate_roots = recovery_engine.find_candidate_roots(model_key, config=config)
         discovered = recovery_engine.discover_checkpoints(candidate_roots, model_key)
-        ckpt_candidate = discovered.get("best") or discovered.get("progress")
+        ckpt_candidate = discovered.get("progress") or discovered.get("latest") or discovered.get("best")
         if ckpt_candidate and ckpt_candidate.exists():
             loaded_data = safe_load_checkpoint(ckpt_candidate, map_location=device_info.device)
             if loaded_data and "model_state" in loaded_data:

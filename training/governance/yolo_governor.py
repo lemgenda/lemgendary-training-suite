@@ -9,7 +9,9 @@ preserving native Ultralytics inner-loop optimizations.
 from __future__ import annotations
 
 import argparse
+import csv
 from dataclasses import dataclass
+import json
 import logging
 from pathlib import Path
 import shutil
@@ -201,15 +203,20 @@ class YOLOCurriculumGovernor:
 
         self.export_dir = project_root / "export" / "yolov8n"
         self.checkpoints_dir = project_root / "checkpoints" / "yolov8n"
-        self.models_hub_dir = (project_root / ".." / "LemGendaryModels" / "yolov8n").resolve()
+        self.models_hub_dir = (project_root.parent / "LemGendaryModels" / "yolov8n").resolve()
+        self.models_hub_ckpt_dir = self.models_hub_dir / "checkpoints"
 
         self.export_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
         self.models_hub_dir.mkdir(parents=True, exist_ok=True)
-        (self.models_hub_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+        self.models_hub_ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-        self.telemetry = TelemetryEngine(export_dir=str(self.checkpoints_dir), task_type="yolo")
+        # Primary metrics and telemetry stream directly from LemGendaryModels/yolov8n
+        self.telemetry = TelemetryEngine(export_dir=str(self.models_hub_dir), task_type="yolo")
         self.telemetry.validate_and_initialize_csv()
+
+        self.best_overall_metrics: Dict[str, float] = {"map50": 0.0, "map50_95": 0.0}
+        self.sota_achieved = False
 
     def _synchronize_checkpoints(
         self,
@@ -217,18 +224,19 @@ class YOLOCurriculumGovernor:
         resolution: int,
         global_epoch: Optional[int] = None,
     ) -> None:
-        """Mirror stage checkpoints to canonical suite and models hub paths.
+        """Mirror stage checkpoints to canonical LemGendaryModels hub and suite paths.
 
         Maintains real-time parity with standard PyTorch model checkpointing by
         ensuring best.pt, best.pth, last.pt, and progress.pth are synchronized to:
-          - lemgendary-training-suite/checkpoints/yolov8n/
           - LemGendaryModels/yolov8n/checkpoints/
+          - LemGendaryModels/yolov8n/
+          - lemgendary-training-suite/checkpoints/yolov8n/
         """
         stage_weights_dir = stage_dir / f"rung_{resolution}" / "weights"
         if not stage_weights_dir.exists():
             stage_weights_dir = stage_dir / "weights"
 
-        hub_ckpt_dir = self.models_hub_dir / "checkpoints"
+        hub_ckpt_dir = self.models_hub_ckpt_dir
         hub_ckpt_dir.mkdir(parents=True, exist_ok=True)
 
         # Synchronize best weights if present
@@ -238,6 +246,7 @@ class YOLOCurriculumGovernor:
                 shutil.copy2(best_cand, self.checkpoints_dir / "best.pt")
                 shutil.copy2(best_cand, self.checkpoints_dir / "best.pth")
                 shutil.copy2(best_cand, hub_ckpt_dir / "best.pt")
+                shutil.copy2(best_cand, hub_ckpt_dir / "best.pth")
                 shutil.copy2(best_cand, self.models_hub_dir / "best.pt")
             except OSError as copy_err:
                 logger.debug("Non-fatal checkpoint copy error for best weights: %s", copy_err)
@@ -249,6 +258,8 @@ class YOLOCurriculumGovernor:
                 shutil.copy2(last_cand, self.checkpoints_dir / "last.pt")
                 shutil.copy2(last_cand, self.checkpoints_dir / "progress.pth")
                 shutil.copy2(last_cand, hub_ckpt_dir / "last.pt")
+                shutil.copy2(last_cand, hub_ckpt_dir / "progress.pth")
+                shutil.copy2(last_cand, self.models_hub_dir / "last.pt")
             except OSError as copy_err:
                 logger.debug("Non-fatal checkpoint copy error for last weights: %s", copy_err)
 
@@ -260,6 +271,26 @@ class YOLOCurriculumGovernor:
                 shutil.copy2(csv_source, self.models_hub_dir / "metrics.csv")
             except OSError as csv_err:
                 logger.debug("Non-fatal metrics CSV sync error: %s", csv_err)
+
+        # Synchronize curriculum state to LemGendaryModels and local checkpoints
+        if global_epoch is not None:
+            curriculum_state = {
+                "model_key": "yolov8n",
+                "global_epoch": global_epoch,
+                "resolution": resolution,
+                "best_metrics": self.best_overall_metrics,
+                "sota_achieved": self.sota_achieved,
+            }
+            for state_path in [
+                self.models_hub_dir / "curriculum_state.json",
+                hub_ckpt_dir / "curriculum_state.json",
+                self.checkpoints_dir / "curriculum_state.json",
+            ]:
+                try:
+                    with open(state_path, "w", encoding="utf-8") as f:
+                        json.dump(curriculum_state, f, indent=2)
+                except OSError as state_err:
+                    logger.debug("Non-fatal curriculum state save error: %s", state_err)
 
         # Automated Cloud Sync Trigger if operating under remote environment
         if global_epoch is not None and getattr(self.args, "auto_sync", False) and getattr(self.args, "env", "local") == "kaggle":
@@ -320,37 +351,143 @@ class YOLOCurriculumGovernor:
             start_resolution=start_res,
         )
 
-        initial_checkpoint = self.project_root / "checkpoints" / "yolov8n" / "best.pt"
-        if not initial_checkpoint.exists():
-            initial_checkpoint = self.project_root / "checkpoints" / "yolov8n.pt"
-        if not initial_checkpoint.exists():
-            initial_checkpoint = self.project_root / "yolov8n.pt"
+        # Clean run handling
+        if getattr(self.args, "clean", False):
+            print("[GOVERNOR] [CLEAN] Clean run requested. Wiping prior checkpoints, state, and metrics...", flush=True)
+            for p in [
+                self.models_hub_dir / "metrics.csv",
+                self.models_hub_dir / "curriculum_state.json",
+                self.models_hub_ckpt_dir / "curriculum_state.json",
+                self.models_hub_ckpt_dir / "last.pt",
+                self.models_hub_ckpt_dir / "progress.pth",
+                self.models_hub_ckpt_dir / "best.pt",
+                self.models_hub_ckpt_dir / "best.pth",
+                self.checkpoints_dir / "metrics.csv",
+                self.checkpoints_dir / "curriculum_state.json",
+                self.checkpoints_dir / "last.pt",
+                self.checkpoints_dir / "progress.pth",
+            ]:
+                if p.exists():
+                    try:
+                        p.unlink()
+                    except OSError:
+                        pass
 
-        current_weights_path = str(initial_checkpoint) if initial_checkpoint.exists() else "yolov8n.pt"
+        # Discover candidate checkpoint from LemGendaryModels or suite
+        candidate_ckpt: Optional[Path] = None
+        if not getattr(self.args, "clean", False):
+            for c in [
+                self.models_hub_ckpt_dir / "last.pt",
+                self.models_hub_ckpt_dir / "progress.pth",
+                self.models_hub_ckpt_dir / "best.pt",
+                self.models_hub_dir / "best.pt",
+                self.checkpoints_dir / "last.pt",
+                self.checkpoints_dir / "best.pt",
+                self.project_root / "checkpoints" / "yolov8n.pt",
+                self.project_root / "yolov8n.pt",
+            ]:
+                if c.exists() and c.stat().st_size > 0:
+                    candidate_ckpt = c
+                    break
+
+        current_weights_path = str(candidate_ckpt) if candidate_ckpt else "yolov8n.pt"
+
+        # Inspect candidate checkpoint metadata
+        ckpt_dict: Optional[Dict[str, Any]] = None
+        if candidate_ckpt and candidate_ckpt.name in ["last.pt", "best.pt", "progress.pth"]:
+            try:
+                loaded = torch.load(str(candidate_ckpt), map_location="cpu")
+                if isinstance(loaded, dict) and "epoch" in loaded and loaded.get("optimizer") is not None:
+                    ckpt_dict = loaded
+            except Exception as exc:
+                logger.debug("Failed reading checkpoint dict from %s: %s", candidate_ckpt, exc)
+
+        # Inspect metrics.csv history
+        csv_epochs = 0
+        last_csv_res = None
+        metrics_csv_path = Path(self.telemetry.metrics_csv_path)
+        if metrics_csv_path.exists() and not getattr(self.args, "clean", False):
+            try:
+                with open(metrics_csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        ep = row.get("Epoch")
+                        if ep and ep.isdigit():
+                            csv_epochs = max(csv_epochs, int(ep))
+                            res_val = row.get("Res")
+                            if res_val and res_val.isdigit():
+                                last_csv_res = int(res_val)
+                        m50 = float(row.get("mAP50", 0.0) or 0.0)
+                        m95 = float(row.get("mAP50-95", 0.0) or 0.0)
+                        if m50 > self.best_overall_metrics["map50"]:
+                            self.best_overall_metrics["map50"] = m50
+                        if m95 > self.best_overall_metrics["map50_95"]:
+                            self.best_overall_metrics["map50_95"] = m95
+            except Exception as e:
+                logger.debug("Error reading metrics.csv: %s", e)
 
         print(
             f"[GOVERNOR] Commencing Governed YOLOv8n Training across {len(curriculum_stages)} ladder rungs | "
-            f"VRAM Capacity: {vram_gb:.1f} GB | AMP Precision: {'FP16' if is_amp_safe else 'FP32 (Numerical Safe)'}",
+            f"VRAM Capacity: {vram_gb:.1f} GB | AMP Precision: {'FP16' if is_amp_safe else 'FP32 (Numerical Safe)'} | "
+            f"Loaded Weights: {Path(current_weights_path).name} (History: {csv_epochs} epochs)",
             flush=True,
         )
 
         completed_prior_epochs = 0
-        best_overall_metrics: Dict[str, float] = {"map50": 0.0, "map50_95": 0.0}
-        sota_achieved = False
+        ckpt_epoch = int(ckpt_dict.get("epoch", -1)) if ckpt_dict else -1
+        ckpt_imgsz = int(ckpt_dict.get("train_args", {}).get("imgsz", 0)) if ckpt_dict else 0
 
         for stage in curriculum_stages:
-            print(
-                f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] Launching {stage.resolution}px rung | "
-                f"Batch Size: {stage.batch_size} (Sawtooth Guard) | Data Fraction: {stage.fraction*100:.0f}% | "
-                f"Target Epochs: {stage.target_epochs} | Starting Weights: {Path(current_weights_path).name}",
-                flush=True,
-            )
-
             stage_dir = self.export_dir / f"stage{stage.stage_index}_{stage.resolution}px"
             stage_dir.mkdir(parents=True, exist_ok=True)
+            stage_weights_dir = stage_dir / f"rung_{stage.resolution}" / "weights"
+            stage_weights_dir.mkdir(parents=True, exist_ok=True)
+
+            # Check if this stage was already fully completed in previous runs
+            stage_already_complete = False
+            if ckpt_dict and ckpt_imgsz > stage.resolution:
+                stage_already_complete = True
+            elif ckpt_dict and ckpt_imgsz == stage.resolution and (ckpt_epoch + 1) >= stage.target_epochs:
+                stage_already_complete = True
+            elif last_csv_res is not None and last_csv_res > stage.resolution:
+                stage_already_complete = True
+
+            if stage_already_complete and not getattr(self.args, "clean", False):
+                print(
+                    f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] {stage.resolution}px rung already completed "
+                    f"({stage.target_epochs} epochs). Skipping to next ladder stage.",
+                    flush=True,
+                )
+                completed_prior_epochs += stage.target_epochs
+                continue
+
+            # Check if this stage should resume mid-run
+            stage_resume = False
+            if ckpt_dict and ckpt_imgsz == stage.resolution and 0 <= ckpt_epoch < (stage.target_epochs - 1) and not getattr(self.args, "clean", False):
+                stage_resume = True
+                print(
+                    f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] Resuming {stage.resolution}px rung from epoch "
+                    f"{ckpt_epoch + 2}/{stage.target_epochs} | Batch Size: {stage.batch_size} | "
+                    f"Data Fraction: {stage.fraction*100:.0f}% | Checkpoint: {Path(current_weights_path).name}",
+                    flush=True,
+                )
+                local_last = stage_weights_dir / "last.pt"
+                if not local_last.exists() and Path(current_weights_path).exists():
+                    try:
+                        shutil.copy2(current_weights_path, local_last)
+                    except OSError:
+                        pass
+                if local_last.exists():
+                    current_weights_path = str(local_last)
+            else:
+                print(
+                    f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] Launching {stage.resolution}px rung | "
+                    f"Batch Size: {stage.batch_size} (Sawtooth Guard) | Data Fraction: {stage.fraction*100:.0f}% | "
+                    f"Target Epochs: {stage.target_epochs} | Starting Weights: {Path(current_weights_path).name}",
+                    flush=True,
+                )
 
             model = YOLO(current_weights_path)
-
             stage_epochs_recorded = 0
 
             def create_epoch_callback(
@@ -358,7 +495,7 @@ class YOLOCurriculumGovernor:
                 prior_epochs: int,
             ) -> Callable[[Any], None]:
                 def on_fit_epoch_end(trainer: Any) -> None:
-                    nonlocal stage_epochs_recorded, best_overall_metrics, sota_achieved
+                    nonlocal stage_epochs_recorded
                     try:
                         raw_epoch = int(getattr(trainer, "epoch", 0)) + 1
                         stage_epochs_recorded = raw_epoch
@@ -378,10 +515,10 @@ class YOLOCurriculumGovernor:
                         if hasattr(trainer, "optimizer") and trainer.optimizer and trainer.optimizer.param_groups:
                             lr_val = float(trainer.optimizer.param_groups[0].get("lr", 0.01))
 
-                        if map50 > best_overall_metrics.get("map50", 0.0):
-                            best_overall_metrics["map50"] = map50
-                        if map50_95 > best_overall_metrics.get("map50_95", 0.0):
-                            best_overall_metrics["map50_95"] = map50_95
+                        if map50 > self.best_overall_metrics.get("map50", 0.0):
+                            self.best_overall_metrics["map50"] = map50
+                        if map50_95 > self.best_overall_metrics.get("map50_95", 0.0):
+                            self.best_overall_metrics["map50_95"] = map50_95
 
                         quality_score = (map50 * 50.0) + (map50_95 * 50.0)
                         gov_state = {
@@ -418,7 +555,7 @@ class YOLOCurriculumGovernor:
                         target_map50_95 = self.sota_targets.get("map50_95", 0.39)
                         if current_stage.resolution >= 640 and current_stage.fraction >= 0.99:
                             if map50 >= target_map50 and map50_95 >= target_map50_95:
-                                sota_achieved = True
+                                self.sota_achieved = True
 
                         if self.cancel_check is not None and self.cancel_check():
                             if hasattr(trainer, "stop"):
@@ -470,6 +607,8 @@ class YOLOCurriculumGovernor:
                 "plots": True,
                 "verbose": True,
             }
+            if stage_resume:
+                train_kwargs["resume"] = True
             if getattr(self.args, "lr", None) is not None:
                 train_kwargs["lr0"] = float(self.args.lr)
 
@@ -480,7 +619,7 @@ class YOLOCurriculumGovernor:
                 return TrainingSummary(
                     model_name="yolov8n",
                     final_epoch=completed_prior_epochs,
-                    best_metrics=best_overall_metrics,
+                    best_metrics=self.best_overall_metrics,
                     total_time=round(time.time() - start_time, 2),
                     status="cancelled",
                 )
@@ -490,7 +629,7 @@ class YOLOCurriculumGovernor:
                 return TrainingSummary(
                     model_name="yolov8n",
                     final_epoch=completed_prior_epochs,
-                    best_metrics=best_overall_metrics,
+                    best_metrics=self.best_overall_metrics,
                     total_time=round(time.time() - start_time, 2),
                     status="cancelled",
                 )
@@ -518,11 +657,12 @@ class YOLOCurriculumGovernor:
                 logger.warning("Stage %d weights could not be located; retaining previous checkpoint.", stage.stage_index)
 
             completed_prior_epochs += stage_epochs_recorded
+            ckpt_dict = None  # Reset so subsequent ladder rungs start fresh with new resolution
 
-            if sota_achieved:
+            if self.sota_achieved:
                 print(
                     f"[GOVERNOR] [SOTA ATTAINED] Targets met on 640px full manifold! "
-                    f"mAP50={best_overall_metrics['map50']:.4f}, mAP50-95={best_overall_metrics['map50_95']:.4f}. Concluding early.",
+                    f"mAP50={self.best_overall_metrics['map50']:.4f}, mAP50-95={self.best_overall_metrics['map50_95']:.4f}. Concluding early.",
                     flush=True,
                 )
                 break
@@ -531,19 +671,22 @@ class YOLOCurriculumGovernor:
         final_best_source = Path(current_weights_path)
         canonical_export_weights = self.export_dir / "yolov8n" / "weights" / "best.pt"
         canonical_export_weights.parent.mkdir(parents=True, exist_ok=True)
-        hub_ckpt_dir = self.models_hub_dir / "checkpoints"
+        hub_ckpt_dir = self.models_hub_ckpt_dir
         hub_ckpt_dir.mkdir(parents=True, exist_ok=True)
         if final_best_source.exists():
             shutil.copy2(final_best_source, canonical_export_weights)
             shutil.copy2(final_best_source, self.checkpoints_dir / "best.pt")
             shutil.copy2(final_best_source, self.checkpoints_dir / "best.pth")
             shutil.copy2(final_best_source, hub_ckpt_dir / "best.pt")
+            shutil.copy2(final_best_source, hub_ckpt_dir / "best.pth")
             shutil.copy2(final_best_source, self.models_hub_dir / "best.pt")
 
         print("[GOVERNOR] Training complete. Packaging final ONNX artifact at 640px SOTA resolution...", flush=True)
         try:
             export_model = YOLO(str(canonical_export_weights if canonical_export_weights.exists() else current_weights_path))
-            export_model.export(format="onnx", imgsz=640)
+            exported_onnx_path = export_model.export(format="onnx", imgsz=640)
+            if exported_onnx_path and Path(exported_onnx_path).exists():
+                shutil.copy2(exported_onnx_path, self.models_hub_dir / "yolov8n.onnx")
             print("[GOVERNOR] ONNX export complete.", flush=True)
         except Exception as export_err:
             logger.warning("YOLO ONNX export encountered error: %s", export_err)
@@ -554,7 +697,7 @@ class YOLOCurriculumGovernor:
         return TrainingSummary(
             model_name="yolov8n",
             final_epoch=completed_prior_epochs,
-            best_metrics=best_overall_metrics,
+            best_metrics=self.best_overall_metrics,
             total_time=total_time,
             status="completed",
         )

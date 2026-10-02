@@ -33,19 +33,32 @@ class CheckpointRecoveryEngine:
         cfg = config or {}
         roots: list[Path] = []
 
-        # Local Hub & Checkpoints
+        # Local Hub & Checkpoints in LemGendaryModels
+        hub_candidates = [
+            (self.workspace_root / "LemGendaryModels" / model_name / "checkpoints").resolve(),
+            (self.workspace_root / "LemGendaryModels" / model_name).resolve(),
+            (self.project_root.parent / "LemGendaryModels" / model_name / "checkpoints").resolve(),
+            (self.project_root.parent / "LemGendaryModels" / model_name).resolve(),
+        ]
         p_paths = cfg.get("paths", {})
         export_root = p_paths.get("export_root", "../LemGendaryModels")
-        hub_ckpt = (self.workspace_root / export_root / model_name / "checkpoints").resolve()
-        if hub_ckpt.exists():
-            roots.append(hub_ckpt)
+        hub_candidates.append((self.project_root / export_root / model_name / "checkpoints").resolve())
+        hub_candidates.append((self.workspace_root / export_root / model_name / "checkpoints").resolve())
 
-        local_ckpt = self.project_root / "checkpoints"
-        if local_ckpt.exists():
+        for hc in hub_candidates:
+            if hc.exists() and hc not in roots:
+                roots.append(hc)
+
+        local_model_ckpt = (self.project_root / "checkpoints" / model_name).resolve()
+        if local_model_ckpt.exists() and local_model_ckpt not in roots:
+            roots.append(local_model_ckpt)
+
+        local_ckpt = (self.project_root / "checkpoints").resolve()
+        if local_ckpt.exists() and local_ckpt not in roots:
             roots.append(local_ckpt)
 
-        scratch_ckpt = self.project_root / "_local_checkpoints" / model_name
-        if scratch_ckpt.exists():
+        scratch_ckpt = (self.project_root / "_local_checkpoints" / model_name).resolve()
+        if scratch_ckpt.exists() and scratch_ckpt not in roots:
             roots.append(scratch_ckpt)
 
         # Kaggle input mounts and working directory
@@ -128,9 +141,9 @@ class CheckpointRecoveryEngine:
                         queue.append((entry, depth + 1))
                         continue
 
-                    if entry.is_file() and entry.suffix == ".pth":
+                    if entry.is_file() and entry.suffix in {".pth", ".pt"}:
                         name_lower = entry.name.lower()
-                        if "latest" in name_lower and "latest" not in discovered:
+                        if ("latest" in name_lower or "last" in name_lower) and "latest" not in discovered:
                             discovered["latest"] = entry
                         elif "best" in name_lower and "best" not in discovered:
                             discovered["best"] = entry
@@ -174,8 +187,8 @@ class CheckpointRecoveryEngine:
                 except OSError as exc:
                     logger.warning("Failed syncing metrics.csv: %s", exc)
 
-        # Sync .pth files
-        for pth in source_root.glob("**/*.pth"):
+        # Sync .pth and .pt files
+        for pth in list(source_root.glob("**/*.pth")) + list(source_root.glob("**/*.pt")):
             if pth.is_file():
                 dst_pth = target_dir / pth.name
                 try:

@@ -30,6 +30,11 @@ class TrainingPaths:
     progress_local_path: Path
     best_checkpoint_path: Path
     history_csv_path: Path
+    models_hub_dir: Path | None = None
+    models_hub_checkpoint_dir: Path | None = None
+    models_hub_progress_path: Path | None = None
+    models_hub_best_path: Path | None = None
+    models_hub_metrics_csv: Path | None = None
 
 
 @dataclass

@@ -117,6 +117,15 @@ def run_training(
         if is_best:
             safe_atomic_save(checkpoint_payload, ctx.paths.best_checkpoint_path)
 
+        # Mirror progress and checkpoints directly to LemGendaryModels project
+        if ctx.paths.models_hub_checkpoint_dir is not None:
+            ctx.paths.models_hub_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            safe_atomic_save(checkpoint_payload, ctx.paths.models_hub_checkpoint_dir / "progress.pth")
+            safe_atomic_save(checkpoint_payload, ctx.paths.models_hub_checkpoint_dir / f"{ctx.model_name}_latest.pth")
+            if is_best:
+                safe_atomic_save(checkpoint_payload, ctx.paths.models_hub_checkpoint_dir / "best.pth")
+                safe_atomic_save(checkpoint_payload, ctx.paths.models_hub_checkpoint_dir / f"{ctx.model_name}_best.pth")
+
         # 7. Vault recording and telemetry export
         ctx.vault.record_epoch(
             epoch=epoch,
@@ -124,6 +133,9 @@ def run_training(
             checkpoint_path=str(ctx.paths.best_checkpoint_path) if is_best else None,
         )
         ctx.vault.export_csv(ctx.paths.history_csv_path)
+        if ctx.paths.models_hub_metrics_csv is not None:
+            ctx.paths.models_hub_metrics_csv.parent.mkdir(parents=True, exist_ok=True)
+            ctx.vault.export_csv(ctx.paths.models_hub_metrics_csv)
 
         # 8. Check governor directives
         if hasattr(ctx.governor, "audit_epoch"):
