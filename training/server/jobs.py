@@ -192,6 +192,8 @@ class JobManager:
             clean=params.get("clean", False),
             auto_sync=params.get("auto_sync", False),
             parallel=params.get("parallel", "auto"),
+            resolution=params.get("resolution"),
+            enable_sawtooth=params.get("enable_sawtooth", True),
             on_epoch_end=epoch_callback,
         )
 

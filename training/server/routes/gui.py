@@ -25,6 +25,8 @@ class QuickTrainRequest(BaseModel):
     batch_size: int | None = Field(None, description="Optional override for batch size")
     learning_rate: float | None = Field(None, description="Optional override for learning rate")
     env: str = Field("local", description="Execution environment ('local', 'kaggle', 'colab')")
+    ladder_stage: int | None = Field(None, description="Selected spatial ladder resolution or timeframe minute stage")
+    enable_sawtooth: bool | None = Field(True, description="Enable Sawtooth VRAM Governor memory guard")
 
 
 def _get_root(request: Request) -> Path:
@@ -437,6 +439,9 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             "sota_details": sota_details,
             "sota_reached": sota_reached,
             "training_status": training_status,
+            "learning_rate": float(info.get("learning_rate", 0.0002)) if isinstance(info.get("learning_rate"), (int, float)) else (0.01 if model_key == "yolov8n" else 0.0001 if is_forex else 0.0002),
+            "batch_size": int(info["batch_size"]) if isinstance(info.get("batch_size"), (int, float)) else (16 if model_key == "yolov8n" else 128 if is_forex else 8),
+            "default_epochs": int(info.get("epochs") or (300 if model_key == "yolov8n" else 50 if is_forex else 30)),
             "description": info.get("description", "").strip(),
         })
 
@@ -461,6 +466,8 @@ def quick_train(payload: QuickTrainRequest, request: Request) -> dict[str, Any]:
         "learning_rate": payload.learning_rate if payload.learning_rate is not None else preset_cfg.get("learning_rate"),
         "clean": payload.clean,
         "env": payload.env,
+        "resolution": payload.ladder_stage,
+        "enable_sawtooth": payload.enable_sawtooth if payload.enable_sawtooth is not None else True,
     }
     if payload.model_key == "forex_predictor":
         params["task_type"] = "forex"

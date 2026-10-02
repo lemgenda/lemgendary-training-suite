@@ -30,14 +30,17 @@ class TrainingService:
         if self._cached_presets is not None:
             return self._cached_presets
 
+        presets: dict[str, Any] = {}
         if self.presets_path.exists():
             with open(self.presets_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-                self._cached_presets = data.get("presets", {})
-        else:
-            self._cached_presets = {}
+                data = yaml.safe_load(f)
+                if isinstance(data, dict):
+                    loaded = data.get("presets")
+                    if isinstance(loaded, dict):
+                        presets = loaded
 
-        return self._cached_presets
+        self._cached_presets = presets
+        return presets
 
     def get_preset(self, preset_name: str) -> dict[str, Any] | None:
         """Retrieve a specific preset configuration by name."""
@@ -55,6 +58,8 @@ class TrainingService:
         clean: bool = False,
         auto_sync: bool = False,
         parallel: str = "auto",
+        resolution: int | None = None,
+        enable_sawtooth: bool = True,
         on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
     ) -> TrainingSummary:
         """Execute a training job in-process.
@@ -69,6 +74,8 @@ class TrainingService:
             clean: Whether to ignore prior checkpoints and start fresh from epoch 1.
             auto_sync: Enable automated cloud synchronization.
             parallel: Parallel strategy ('auto', 'single', 'dp', 'ddp').
+            resolution: Selected input spatial resolution or timeframe horizon.
+            enable_sawtooth: Enable Sawtooth VRAM Governor memory protection.
             on_epoch_end: Optional callback invoked after each epoch.
 
         Returns:
@@ -101,16 +108,26 @@ class TrainingService:
             phase=1,
             fold=1,
             pairs=None,
-            timeframes=None,
+            timeframes=[resolution] if resolution and model_key == "forex_predictor" else None,
+            resolution=resolution,
+            enable_sawtooth=enable_sawtooth,
             num_workers=None,
             val_num_workers=None,
             enable_batch_growth=False,
             parallel=parallel,
         )
 
-        # 3. Construct deterministic TrainingContext
+        # 3. Intercept yolov8n before building TrainingContext - it uses Ultralytics native trainer
+        if model_key == "yolov8n":
+            config_path = self.project_root / "config.yaml"
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+            from training.core_loop import _run_yolo_native
+            return _run_yolo_native(args, config, self.project_root)
+
+        # 4. Construct deterministic TrainingContext
         ctx = build_training_context(args)
 
-        # 4. Run training coordinator
+        # 5. Run training coordinator
         summary = run_training(ctx)
         return summary

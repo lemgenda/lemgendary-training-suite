@@ -20,6 +20,12 @@
 
 ## Changelog
 
+### v16.9.9 — In-Process YOLOv8n Execution, Ladder Stage Propagation & Hyperparameter Hydration
+
+- **In-Process YOLOv8n Native Trainer Routing** — Integrated `_run_yolo_native` directly into `TrainingService.train()` when `model_key == "yolov8n"`. Prevents `ValueError` factory crashes by delegating execution to the Ultralytics trainer in-process and returning a valid `TrainingSummary`.
+- **Resolution & Sawtooth Governor Parameter Propagation** — Added `ladder_stage` and `enable_sawtooth` to `QuickTrainRequest` in `training/server/routes/gui.py`, forwarded them through `jobs.py` to `TrainingService.train()`, and passed them into `args.resolution` and `args.enable_sawtooth`. Updated `_run_yolo_native` to honor `args.resolution` (as `imgsz`) and `args.lr` (as `lr0`). Added `--resolution` and `--enable-sawtooth` CLI options to `build_cli_parser()`.
+- **Model Hyperparameter Defaults Hydration** — Enriched `GET /api/gui/models/with-stats` to include `learning_rate`, `batch_size`, and `default_epochs` in the model return payload, enabling desktop clients to synchronize form defaults immediately upon model selection.
+
 ### v16.9.8 — Authoritative 3-Pillar SOTA Convergence & Forex Multi-Timeframe Confluence Telemetry
 
 - **Authoritative 3-Pillar Fully-Trained Verification Invariant** — Enforced non-negotiable triple-gate criterion for model status certification: `fully_trained` strictly requires (1) 100% of defined SOTA metrics satisfied across all specified targets in `sota_targets`, (2) full traversal through highest resolution ladder rung (`max_res_completed >= target_res`), and (3) completion on 100% training data fraction (`data_fraction_completed >= 0.99`). Sub-unitary or partial runs are designated strictly as `partially_trained`.
