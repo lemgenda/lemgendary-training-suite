@@ -179,11 +179,13 @@ class YOLOCurriculumGovernor:
         config: Dict[str, Any],
         project_root: Path,
         on_epoch_end: Optional[Callable[[int, Dict[str, float]], None]] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> None:
         self.args = args
         self.config = config
         self.project_root = project_root
         self.on_epoch_end = on_epoch_end
+        self.cancel_check = cancel_check
 
         unified_models_rel = config.get("unified_models", "unified_models_v2.yaml")
         unified_models_path = project_root / unified_models_rel
@@ -418,6 +420,11 @@ class YOLOCurriculumGovernor:
                             if map50 >= target_map50 and map50_95 >= target_map50_95:
                                 sota_achieved = True
 
+                        if self.cancel_check is not None and self.cancel_check():
+                            if hasattr(trainer, "stop"):
+                                trainer.stop = True
+                            raise InterruptedError("Training cancelled by user request.")
+
                         if self.on_epoch_end is not None:
                             stream_payload = {
                                 "epoch": float(global_epoch),
@@ -432,11 +439,19 @@ class YOLOCurriculumGovernor:
                             }
                             self.on_epoch_end(global_epoch, stream_payload)
 
+                    except (InterruptedError, KeyboardInterrupt):
+                        raise
                     except Exception as cb_err:
                         logger.debug("YOLO governor epoch callback failed: %s", cb_err)
 
                 return on_fit_epoch_end
 
+            def on_train_batch_end(trainer: Any) -> None:
+                if self.cancel_check is not None and self.cancel_check():
+                    if hasattr(trainer, "stop"):
+                        trainer.stop = True
+
+            model.add_callback("on_train_batch_end", on_train_batch_end)
             model.add_callback("on_fit_epoch_end", create_epoch_callback(stage, completed_prior_epochs))
 
             train_kwargs: Dict[str, Any] = {
@@ -458,7 +473,27 @@ class YOLOCurriculumGovernor:
             if getattr(self.args, "lr", None) is not None:
                 train_kwargs["lr0"] = float(self.args.lr)
 
-            model.train(**train_kwargs)
+            try:
+                model.train(**train_kwargs)
+            except (InterruptedError, KeyboardInterrupt):
+                print(f"[GOVERNOR] Stage {stage.stage_index} interrupted by cancellation signal.", flush=True)
+                return TrainingSummary(
+                    model_name="yolov8n",
+                    final_epoch=completed_prior_epochs,
+                    best_metrics=best_overall_metrics,
+                    total_time=round(time.time() - start_time, 2),
+                    status="cancelled",
+                )
+
+            if self.cancel_check is not None and self.cancel_check():
+                print(f"[GOVERNOR] Stage {stage.stage_index} cancellation signal detected. Halting.", flush=True)
+                return TrainingSummary(
+                    model_name="yolov8n",
+                    final_epoch=completed_prior_epochs,
+                    best_metrics=best_overall_metrics,
+                    total_time=round(time.time() - start_time, 2),
+                    status="cancelled",
+                )
 
             # Locate stage checkpoint weights
             stage_weights_candidates = [
@@ -530,6 +565,7 @@ def run_governed_yolo_training(
     config: Dict[str, Any],
     project_root: Path,
     on_epoch_end: Optional[Callable[[int, Dict[str, float]], None]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
 ) -> TrainingSummary:
     """Entry point for governed YOLOv8n training dispatch."""
     governor = YOLOCurriculumGovernor(
@@ -537,5 +573,6 @@ def run_governed_yolo_training(
         config=config,
         project_root=project_root,
         on_epoch_end=on_epoch_end,
+        cancel_check=cancel_check,
     )
     return governor.run()

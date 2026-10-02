@@ -32,6 +32,7 @@ class TrainingSummary:
 def run_training(
     ctx: TrainingContext,
     on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> TrainingSummary:
     """Run the complete training loop across all configured epochs.
 
@@ -43,10 +44,12 @@ def run_training(
     - SOTA rollback recoil on prolonged plateau or divergence
     - Automated cloud synchronization triggers
     - Optional epoch completion callback invocation
+    - Cancellation checks for responsive user termination
 
     Args:
         ctx: Configured TrainingContext containing model, data, optimizer, and governance.
         on_epoch_end: Optional callback invoked after each epoch with epoch number and metrics.
+        cancel_check: Optional callable returning True when cancellation is requested.
 
     Returns:
         TrainingSummary: Results summary containing final epoch and best metrics.
@@ -59,6 +62,16 @@ def run_training(
     best_metrics: dict[str, float] = {}
 
     for epoch in range(start_epoch, ctx.total_epochs + 1):
+        if cancel_check is not None and cancel_check():
+            print(f"[CANCEL] Training aborted at epoch {epoch} by user cancellation.", flush=True)
+            return TrainingSummary(
+                model_name=ctx.model_name,
+                final_epoch=epoch - 1,
+                best_metrics=best_metrics,
+                total_time=time.time() - total_start_time,
+                status="cancelled",
+            )
+
         # 1. Pre-epoch governance step
         if hasattr(ctx.governor, "thermal") and hasattr(ctx.governor.thermal, "step_epoch"):
             ctx.governor.thermal.step_epoch()
@@ -140,6 +153,15 @@ def run_training(
         if on_epoch_end is not None:
             try:
                 on_epoch_end(epoch, combined_metrics)
+            except (InterruptedError, KeyboardInterrupt):
+                print(f"[CANCEL] Epoch {epoch} interrupted by cancellation callback.", flush=True)
+                return TrainingSummary(
+                    model_name=ctx.model_name,
+                    final_epoch=epoch,
+                    best_metrics=best_metrics,
+                    total_time=time.time() - total_start_time,
+                    status="cancelled",
+                )
             except Exception as cb_err:
                 print(f"[WARNING] Telemetry epoch callback failed: {cb_err}")
 

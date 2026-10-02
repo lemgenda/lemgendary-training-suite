@@ -378,6 +378,7 @@ def _run_yolo_native(
     config: dict,
     project_root: Path,
     on_epoch_end: Any = None,
+    cancel_check: Any = None,
 ) -> Any:
     """Delegate yolov8n training to the Governed YOLO Curriculum Runner.
 
@@ -393,6 +394,7 @@ def _run_yolo_native(
         config=config,
         project_root=project_root,
         on_epoch_end=on_epoch_end,
+        cancel_check=cancel_check,
     )
 
 

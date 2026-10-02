@@ -314,6 +314,10 @@ class JobManager:
             else:
                 raise ValueError(f"Unknown job_type: '{job_type}'")
 
+        except (InterruptedError, KeyboardInterrupt):
+            logger.info("Job %s was cancelled by user request.", job_id)
+            self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
+            self._broadcast_log(job_id, f"[CANCEL] Job {job_id} halted by cancellation signal.")
         except Exception as exc:
             logger.exception("Job %s encountered unexpected failure: %s", job_id, exc)
             self.state.update_job_status(job_id=job_id, status="failed", error_message=str(exc))
@@ -355,6 +359,7 @@ class JobManager:
             resolution=params.get("resolution"),
             enable_sawtooth=params.get("enable_sawtooth", True),
             on_epoch_end=epoch_callback,
+            cancel_check=cancel_event.is_set,
         )
 
         metrics: dict[str, Any] = {
@@ -363,6 +368,11 @@ class JobManager:
             "status": summary.status,
             "best_metrics": summary.best_metrics,
         }
+
+        if summary.status == "cancelled" or cancel_event.is_set():
+            self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
+            self._broadcast_log(job_id, f"[CANCEL] Training halted for '{summary.model_name}' by user request.")
+            return
 
         self.state.update_job_status(job_id=job_id, status="completed", metrics=metrics)
         self._broadcast_log(job_id, f"[SUCCESS] Training complete for '{summary.model_name}'. Status: {summary.status}")

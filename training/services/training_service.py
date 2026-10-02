@@ -61,6 +61,7 @@ class TrainingService:
         resolution: int | None = None,
         enable_sawtooth: bool = True,
         on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> TrainingSummary:
         """Execute a training job in-process.
 
@@ -77,6 +78,7 @@ class TrainingService:
             resolution: Selected input spatial resolution or timeframe horizon.
             enable_sawtooth: Enable Sawtooth VRAM Governor memory protection.
             on_epoch_end: Optional callback invoked after each epoch.
+            cancel_check: Optional callable returning True when cancellation is requested.
 
         Returns:
             TrainingSummary: Completed run metrics and summary.
@@ -123,11 +125,17 @@ class TrainingService:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
             from training.core_loop import _run_yolo_native
-            return _run_yolo_native(args, config, self.project_root, on_epoch_end=on_epoch_end)
+            return _run_yolo_native(
+                args,
+                config,
+                self.project_root,
+                on_epoch_end=on_epoch_end,
+                cancel_check=cancel_check,
+            )
 
         # 4. Construct deterministic TrainingContext
         ctx = build_training_context(args)
 
         # 5. Run training coordinator
-        summary = run_training(ctx, on_epoch_end=on_epoch_end)
+        summary = run_training(ctx, on_epoch_end=on_epoch_end, cancel_check=cancel_check)
         return summary
