@@ -1,6 +1,6 @@
 task: detect
 mode: train
-model: C:\Development\python\model-training\lemgendary-training-suite\checkpoints\yolov8n.pt
+model: C:\Development\python\model-training\lemgendary-training-suite\checkpoints\yolov8n\best.pt
 data: data\yolo_yolov8n_config.yaml
 epochs: 75
 time: null
