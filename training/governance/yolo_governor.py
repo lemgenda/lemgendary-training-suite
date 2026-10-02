@@ -204,9 +204,68 @@ class YOLOCurriculumGovernor:
         self.export_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
         self.models_hub_dir.mkdir(parents=True, exist_ok=True)
+        (self.models_hub_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
 
         self.telemetry = TelemetryEngine(export_dir=str(self.checkpoints_dir), task_type="yolo")
         self.telemetry.validate_and_initialize_csv()
+
+    def _synchronize_checkpoints(
+        self,
+        stage_dir: Path,
+        resolution: int,
+        global_epoch: Optional[int] = None,
+    ) -> None:
+        """Mirror stage checkpoints to canonical suite and models hub paths.
+
+        Maintains real-time parity with standard PyTorch model checkpointing by
+        ensuring best.pt, best.pth, last.pt, and progress.pth are synchronized to:
+          - lemgendary-training-suite/checkpoints/yolov8n/
+          - LemGendaryModels/yolov8n/checkpoints/
+        """
+        stage_weights_dir = stage_dir / f"rung_{resolution}" / "weights"
+        if not stage_weights_dir.exists():
+            stage_weights_dir = stage_dir / "weights"
+
+        hub_ckpt_dir = self.models_hub_dir / "checkpoints"
+        hub_ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+        # Synchronize best weights if present
+        best_cand = stage_weights_dir / "best.pt"
+        if best_cand.exists() and best_cand.stat().st_size > 0:
+            try:
+                shutil.copy2(best_cand, self.checkpoints_dir / "best.pt")
+                shutil.copy2(best_cand, self.checkpoints_dir / "best.pth")
+                shutil.copy2(best_cand, hub_ckpt_dir / "best.pt")
+                shutil.copy2(best_cand, self.models_hub_dir / "best.pt")
+            except OSError as copy_err:
+                logger.debug("Non-fatal checkpoint copy error for best weights: %s", copy_err)
+
+        # Synchronize last / progress weights if present
+        last_cand = stage_weights_dir / "last.pt"
+        if last_cand.exists() and last_cand.stat().st_size > 0:
+            try:
+                shutil.copy2(last_cand, self.checkpoints_dir / "last.pt")
+                shutil.copy2(last_cand, self.checkpoints_dir / "progress.pth")
+                shutil.copy2(last_cand, hub_ckpt_dir / "last.pt")
+            except OSError as copy_err:
+                logger.debug("Non-fatal checkpoint copy error for last weights: %s", copy_err)
+
+        # Synchronize metrics CSV to checkpoints and documentation models hub
+        csv_source = Path(self.telemetry.metrics_csv_path)
+        if csv_source.exists():
+            try:
+                shutil.copy2(csv_source, self.checkpoints_dir / "metrics.csv")
+                shutil.copy2(csv_source, self.models_hub_dir / "metrics.csv")
+            except OSError as csv_err:
+                logger.debug("Non-fatal metrics CSV sync error: %s", csv_err)
+
+        # Automated Cloud Sync Trigger if operating under remote environment
+        if global_epoch is not None and getattr(self.args, "auto_sync", False) and getattr(self.args, "env", "local") == "kaggle":
+            try:
+                from training.cloud_sync import trigger_cloud_sync
+                trigger_cloud_sync("yolov8n", global_epoch, self.config)
+            except Exception as sync_err:
+                logger.debug("Non-fatal cloud sync trigger error: %s", sync_err)
 
     def _resolve_devices(self) -> str:
         """Resolve CUDA device configuration string."""
@@ -350,10 +409,8 @@ class YOLOCurriculumGovernor:
                             stress=0.0,
                         )
 
-                        # Synchronize metrics CSV to checkpoints and documentation models hub
-                        csv_source = Path(self.telemetry.metrics_csv_path)
-                        if csv_source.exists():
-                            shutil.copy2(csv_source, self.models_hub_dir / "metrics.csv")
+                        # Synchronize checkpoints and metrics CSV to checkpoints and documentation models hub
+                        self._synchronize_checkpoints(stage_dir, current_stage.resolution, global_epoch=global_epoch)
 
                         target_map50 = self.sota_targets.get("map50", 0.54)
                         target_map50_95 = self.sota_targets.get("map50_95", 0.39)
@@ -417,6 +474,7 @@ class YOLOCurriculumGovernor:
 
             if next_weights:
                 current_weights_path = next_weights
+                self._synchronize_checkpoints(stage_dir, stage.resolution, global_epoch=completed_prior_epochs)
                 print(
                     f"[GOVERNOR] [STAGE {stage.stage_index} COMPLETE] Advanced checkpoint: {Path(current_weights_path).name}",
                     flush=True,
@@ -438,10 +496,13 @@ class YOLOCurriculumGovernor:
         final_best_source = Path(current_weights_path)
         canonical_export_weights = self.export_dir / "yolov8n" / "weights" / "best.pt"
         canonical_export_weights.parent.mkdir(parents=True, exist_ok=True)
+        hub_ckpt_dir = self.models_hub_dir / "checkpoints"
+        hub_ckpt_dir.mkdir(parents=True, exist_ok=True)
         if final_best_source.exists():
             shutil.copy2(final_best_source, canonical_export_weights)
             shutil.copy2(final_best_source, self.checkpoints_dir / "best.pt")
             shutil.copy2(final_best_source, self.checkpoints_dir / "best.pth")
+            shutil.copy2(final_best_source, hub_ckpt_dir / "best.pt")
             shutil.copy2(final_best_source, self.models_hub_dir / "best.pt")
 
         print("[GOVERNOR] Training complete. Packaging final ONNX artifact at 640px SOTA resolution...", flush=True)

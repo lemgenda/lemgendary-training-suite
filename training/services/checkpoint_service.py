@@ -141,17 +141,29 @@ class CheckpointService:
         epoch = loaded.get("epoch")
         metrics = loaded.get("metrics", {})
         best_loss = loaded.get("best_loss")
+        if best_loss is None and "best_fitness" in loaded:
+            best_loss = loaded.get("best_fitness")
+        if not metrics and "best_fitness" in loaded:
+            metrics = {"fitness": float(loaded.get("best_fitness", 0.0))}
 
         # Determine parameter count and keys
         model_state = loaded.get("model_state") or loaded.get("state_dict") or {}
         param_count = 0
         layer_names: list[str] = []
 
-        if isinstance(model_state, dict):
+        if isinstance(model_state, dict) and model_state:
             for name, tensor in model_state.items():
                 layer_names.append(str(name))
                 if isinstance(tensor, torch.Tensor):
                     param_count += tensor.numel()
+        elif "model" in loaded and hasattr(loaded["model"], "named_parameters"):
+            try:
+                for name, param in loaded["model"].named_parameters():
+                    layer_names.append(str(name))
+                    if isinstance(param, torch.Tensor):
+                        param_count += param.numel()
+            except Exception:
+                pass
 
         return {
             "path": str(path),
