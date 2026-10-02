@@ -20,6 +20,12 @@
 
 ## Changelog
 
+### v16.9.11 — Real-Time Checkpoint Parity & Sub-Second Minibatch Cancellation Protocol
+
+- **Dual-Path Real-Time Checkpoint Mirroring (`training/governance/yolo_governor.py`)** — Added `_synchronize_checkpoints` invoked on every completed epoch (`on_fit_epoch_end`) and spatial ladder transition. Intermediate weights (`best.pt`, `best.pth`, `last.pt`, `progress.pth`) are mirrored immediately into both `checkpoints/yolov8n/` and `LemGendaryModels/yolov8n/checkpoints/` alongside `metrics.csv`, eliminating delay in weight availability.
+- **Sub-Second Minibatch Cancellation Hook (`on_train_batch_end`)** — Registered an inner-loop callback with the Ultralytics trainer that checks `cancel_check()` after every single minibatch and immediately sets `trainer.stop = True`. Propagated cancellation listeners through `TrainingService.train()`, `_run_yolo_native()`, and `run_training()`, enabling instant termination upon user stop request without waiting for epoch completion.
+- **Ultralytics Checkpoint Inspector Support (`training/services/checkpoint_service.py`)** — Enhanced `CheckpointService.inspect_checkpoint()` to inspect Ultralytics `.pt` checkpoints natively, extracting parameter counts (3.15M), layer counts (129 layers), and `best_fitness` metrics for the desktop GUI checkpoint inspector.
+
 ### v16.9.10 — Governed YOLO Curriculum Runner & Sawtooth VRAM Pacing
 
 - **Governed YOLO Curriculum Runner (`training/governance/yolo_governor.py`)** — Implemented `YOLOCurriculumGovernor` and `run_governed_yolo_training`. Coordinates multi-stage spatial resolution ladders (`320px -> 480px -> 640px`), hardware-aware Sawtooth VRAM batch allocation, dataset fraction scaling (`0.3 -> 0.6 -> 1.0`), numerical AMP stabilization on GTX 16xx hardware, cross-stage checkpoint handoff, and real-time telemetry synchronization with `TelemetryEngine` and GUI WebSocket callbacks.
