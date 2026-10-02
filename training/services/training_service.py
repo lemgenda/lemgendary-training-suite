@@ -123,11 +123,11 @@ class TrainingService:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
             from training.core_loop import _run_yolo_native
-            return _run_yolo_native(args, config, self.project_root)
+            return _run_yolo_native(args, config, self.project_root, on_epoch_end=on_epoch_end)
 
         # 4. Construct deterministic TrainingContext
         ctx = build_training_context(args)
 
         # 5. Run training coordinator
-        summary = run_training(ctx)
+        summary = run_training(ctx, on_epoch_end=on_epoch_end)
         return summary

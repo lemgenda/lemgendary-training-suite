@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import time
-from typing import Any
+from typing import Any, Callable
 import torch
 
 from training.checkpoint import safe_atomic_save
@@ -29,7 +29,10 @@ class TrainingSummary:
     status: str
 
 
-def run_training(ctx: TrainingContext) -> TrainingSummary:
+def run_training(
+    ctx: TrainingContext,
+    on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
+) -> TrainingSummary:
     """Run the complete training loop across all configured epochs.
 
     Coordinates:
@@ -39,9 +42,11 @@ def run_training(ctx: TrainingContext) -> TrainingSummary:
     - Atomic checkpoint saving for progress and best models
     - SOTA rollback recoil on prolonged plateau or divergence
     - Automated cloud synchronization triggers
+    - Optional epoch completion callback invocation
 
     Args:
         ctx: Configured TrainingContext containing model, data, optimizer, and governance.
+        on_epoch_end: Optional callback invoked after each epoch with epoch number and metrics.
 
     Returns:
         TrainingSummary: Results summary containing final epoch and best metrics.
@@ -130,6 +135,13 @@ def run_training(ctx: TrainingContext) -> TrainingSummary:
                 trigger_cloud_sync(ctx.model_name, epoch, ctx.config)
             except Exception as sync_err:
                 print(f"[WARNING] Automated cloud sync trigger failed: {sync_err}")
+
+        # 10. External telemetry callback
+        if on_epoch_end is not None:
+            try:
+                on_epoch_end(epoch, combined_metrics)
+            except Exception as cb_err:
+                print(f"[WARNING] Telemetry epoch callback failed: {cb_err}")
 
     total_elapsed = time.time() - total_start_time
     return TrainingSummary(

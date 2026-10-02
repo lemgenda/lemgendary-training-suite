@@ -12,6 +12,8 @@ from datetime import datetime
 import json
 import logging
 from pathlib import Path
+import re
+import sys
 import threading
 import time
 from typing import Any, Callable
@@ -24,6 +26,120 @@ from training.services.training_service import TrainingService
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.server.jobs")
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+CLEAN_CONTROL_RE = re.compile(r"^\s*\[K\s*")
+PROGRESS_RE = re.compile(
+    r"(\d+%\s*[━█─\-=|]+|\b\d+/\d+\b\s+.*\b(it/s|s/it|B/s|KB/s|MB/s|GB/s)\b|\d+:\d+<\d+:\d+|\d+%\s*\|.*\|\s*\d+/\d+)"
+)
+
+
+def _clean_console_line(text: str) -> str:
+    if not text:
+        return ""
+    if "\r" in text:
+        parts = [p for p in text.split("\r") if p.strip()]
+        if parts:
+            text = parts[-1]
+    text = ANSI_ESCAPE_RE.sub("", text)
+    text = CLEAN_CONTROL_RE.sub("", text)
+    return text.strip()
+
+
+def _is_progress_line(text: str) -> bool:
+    return bool(PROGRESS_RE.search(text))
+
+
+class _GlobalOutputTee:
+    """Process-wide stream tee that routes thread-specific stdout/stderr lines to active job loggers."""
+
+    def __init__(self, original_stream: Any) -> None:
+        self.original_stream = original_stream
+        self._handlers: dict[int, Callable[[str], None]] = {}
+        self._lock = threading.Lock()
+        self._buffers: dict[int, str] = {}
+
+    def register_thread(self, thread_id: int, on_line: Callable[[str], None]) -> None:
+        with self._lock:
+            self._handlers[thread_id] = on_line
+            self._buffers[thread_id] = ""
+
+    def unregister_thread(self, thread_id: int) -> None:
+        with self._lock:
+            buf = self._buffers.pop(thread_id, "").strip()
+            handler = self._handlers.pop(thread_id, None)
+            if buf and handler:
+                try:
+                    handler(buf)
+                except Exception:
+                    pass
+
+    def write(self, s: str) -> int:
+        try:
+            self.original_stream.write(s)
+            self.original_stream.flush()
+        except Exception:
+            pass
+
+        tid = threading.get_ident()
+        with self._lock:
+            handler = self._handlers.get(tid)
+            if handler:
+                buf = self._buffers.get(tid, "") + s
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    clean = _clean_console_line(line)
+                    if clean:
+                        try:
+                            handler(clean)
+                        except Exception:
+                            pass
+                self._buffers[tid] = buf
+        return len(s)
+
+    def flush(self) -> None:
+        try:
+            self.original_stream.flush()
+        except Exception:
+            pass
+        tid = threading.get_ident()
+        with self._lock:
+            handler = self._handlers.get(tid)
+            if handler:
+                buf = self._buffers.get(tid, "")
+                clean = _clean_console_line(buf)
+                if clean:
+                    try:
+                        handler(clean)
+                    except Exception:
+                        pass
+                    self._buffers[tid] = ""
+
+    def isatty(self) -> bool:
+        return False
+
+    def fileno(self) -> int:
+        if hasattr(self.original_stream, "fileno"):
+            return self.original_stream.fileno()
+        raise OSError("fileno not supported")
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.original_stream, name)
+
+
+_stdout_tee: _GlobalOutputTee | None = None
+_stderr_tee: _GlobalOutputTee | None = None
+
+
+def _ensure_output_tees() -> tuple[_GlobalOutputTee, _GlobalOutputTee]:
+    global _stdout_tee, _stderr_tee
+    if _stdout_tee is None:
+        _stdout_tee = _GlobalOutputTee(sys.stdout)
+        sys.stdout = _stdout_tee  # type: ignore[assignment]
+    if _stderr_tee is None:
+        _stderr_tee = _GlobalOutputTee(sys.stderr)
+        sys.stderr = _stderr_tee  # type: ignore[assignment]
+    return _stdout_tee, _stderr_tee
 
 
 class JobManager:
@@ -38,6 +154,8 @@ class JobManager:
         self._global_subscribers: set[asyncio.Queue[str]] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._lock = threading.Lock()
+        self._stdout_tee, self._stderr_tee = _ensure_output_tees()
+        self._last_progress_broadcast: dict[str, float] = {}
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Register server event loop for threadsafe WebSocket broadcasting."""
@@ -114,11 +232,43 @@ class JobManager:
     def _broadcast_log(self, job_id: str, message: str) -> None:
         """Stream log line to file, job subscribers, and global subscribers."""
         timestamp = datetime.now().isoformat()
-        log_payload = json.dumps({"timestamp": timestamp, "job_id": job_id, "message": message})
+        is_progress = _is_progress_line(message)
+
+        # Rate-limit high-frequency progress bar updates (max 10 Hz) to avoid overwhelming UI/WebSocket
+        if is_progress:
+            now = time.monotonic()
+            last_broadcast = self._last_progress_broadcast.get(job_id, 0.0)
+            if now - last_broadcast < 0.1:
+                return
+            self._last_progress_broadcast[job_id] = now
+
+        # Classify status for compatible GUI telemetry display
+        status = "running"
+        msg_lower = message.lower()
+        if "[error]" in msg_lower or "failed" in msg_lower or "traceback" in msg_lower:
+            status = "error"
+        elif "[success]" in msg_lower or "complete" in msg_lower:
+            status = "success"
+        elif "[progress]" in msg_lower:
+            status = "running"
+        elif "[warn" in msg_lower:
+            status = "warning"
+
+        payload_dict = {
+            "timestamp": timestamp,
+            "job_id": job_id,
+            "message": message,
+            "step_name": "Training",
+            "step_number": 0,
+            "status": status,
+            "is_progress": is_progress,
+        }
+        log_payload = json.dumps(payload_dict)
 
         # Append to log file
         log_file = self.state.logs_dir / f"{job_id}.log"
         try:
+            self.state.logs_dir.mkdir(parents=True, exist_ok=True)
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(f"[{timestamp}] {message}\n")
         except OSError as e:
@@ -143,6 +293,12 @@ class JobManager:
         self.state.update_job_status(job_id=job_id, status="running")
         self._broadcast_log(job_id, f"[START] Commencing execution of {job_type} on {model_key}...")
 
+        tid = threading.get_ident()
+        if self._stdout_tee:
+            self._stdout_tee.register_thread(tid, lambda line: self._broadcast_log(job_id, line))
+        if self._stderr_tee:
+            self._stderr_tee.register_thread(tid, lambda line: self._broadcast_log(job_id, line))
+
         try:
             if cancel_event.is_set():
                 self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled before start")
@@ -163,6 +319,10 @@ class JobManager:
             self.state.update_job_status(job_id=job_id, status="failed", error_message=str(exc))
             self._broadcast_log(job_id, f"[ERROR] Execution failed: {exc}")
         finally:
+            if self._stdout_tee:
+                self._stdout_tee.unregister_thread(tid)
+            if self._stderr_tee:
+                self._stderr_tee.unregister_thread(tid)
             with self._lock:
                 self._cancellation_events.pop(job_id, None)
 

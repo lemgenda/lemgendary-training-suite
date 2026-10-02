@@ -33,6 +33,10 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
     # Use the FIRST dataset listed as the primary path anchor
     suffix = "KaggleReady" if config.get("env") == 'kaggle' else config.get("execution", {}).get("suffixes", {}).get(config.get("execution", {}).get("mode", "training"), "")
     primary_ds = dataset_names[0] if (suffix and dataset_names[0].endswith(suffix)) else f"{dataset_names[0]}{suffix}"
+    if not os.path.exists(os.path.join(abs_data_root, primary_ds)):
+        if os.path.exists(os.path.join(abs_data_root, dataset_names[0])):
+            primary_ds = dataset_names[0]
+
     train_path = os.path.join(abs_data_root, primary_ds, "images", "train")
     val_path = os.path.join(abs_data_root, primary_ds, "images", "val")
     

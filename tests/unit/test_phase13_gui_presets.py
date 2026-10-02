@@ -93,6 +93,7 @@ class TestPhase13DesktopGUIAndPresets(unittest.TestCase):
 
         self.state = ServerState(project_root=self.root)
         self.app = create_app(project_root=self.root, enforce_auth=False)
+        self.app.state.job_manager._run_job_worker = lambda *args, **kwargs: None
         self.client = TestClient(self.app)
 
     def tearDown(self) -> None:

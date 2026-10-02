@@ -373,7 +373,12 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     )
 
 
-def _run_yolo_native(args: argparse.Namespace, config: dict, project_root: Path) -> Any:
+def _run_yolo_native(
+    args: argparse.Namespace,
+    config: dict,
+    project_root: Path,
+    on_epoch_end: Any = None,
+) -> Any:
     """Delegate yolov8n training to the Ultralytics native trainer.
 
     Ultralytics handles its own DDP internally via the ``device`` argument
@@ -425,6 +430,24 @@ def _run_yolo_native(args: argparse.Namespace, config: dict, project_root: Path)
     checkpoint_key = model_info.get("checkpoint", "yolov8n.pt")
     print(f"[YOLO] Launching Ultralytics native trainer for yolov8n on device(s): {device_arg} (imgsz={imgsz_val})", flush=True)
     model = YOLO(checkpoint_key)
+
+    if on_epoch_end is not None:
+        def on_fit_epoch_end(trainer: Any) -> None:
+            try:
+                ep = int(getattr(trainer, "epoch", 0)) + 1
+                raw_metrics = getattr(trainer, "metrics", {}) or {}
+                metrics: dict[str, float] = {}
+                for k, v in raw_metrics.items():
+                    try:
+                        metrics[str(k)] = float(v)
+                    except (ValueError, TypeError):
+                        pass
+                on_epoch_end(ep, metrics)
+            except Exception as cb_err:
+                logger.debug("YOLO epoch callback failed: %s", cb_err)
+
+        model.add_callback("on_fit_epoch_end", on_fit_epoch_end)
+
     train_kwargs: dict[str, Any] = {
         "data": yolo_yaml,
         "epochs": int(epochs),
