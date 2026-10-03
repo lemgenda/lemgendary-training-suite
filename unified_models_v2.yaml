@@ -990,6 +990,7 @@ yolov8n:
   optimal_key: yolov8n
   description: Unified YOLOv8n for classification, detection, and pose
   optimization:
+    initial_fraction: 0.3
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15

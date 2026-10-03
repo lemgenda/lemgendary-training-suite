@@ -218,5 +218,265 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         self.assertEqual(gov.current_res, 256)
 
 
+class TestYOLOLadderCurriculum(unittest.TestCase):
+    """Unit tests for YOLO ladder curriculum and gradual 15-20% intra-resolution fraction progression."""
+
+    def test_ladder_intra_resolution_fractions(self) -> None:
+        from training.governance.yolo_governor import build_ladder_curriculum
+        opt_cfg = {"initial_fraction": 0.3, "plateau_patience": 10}
+        stages = build_ladder_curriculum(
+            res_ladder=[320, 480, 640],
+            total_epochs=300,
+            vram_gb=4.0,
+            requested_batch=16,
+            opt_config=opt_cfg,
+        )
+        # 13 stages total: 5 on 320px, 4 on 480px, 4 on 640px
+        self.assertEqual(len(stages), 13)
+
+        # Base rung (320px) traverses 30% -> 50% -> 70% -> 85% -> 100%
+        base_fracs = [stages[i].fraction for i in range(5)]
+        self.assertEqual(base_fracs, [0.30, 0.50, 0.70, 0.85, 1.00])
+        for i in range(4):
+            delta = round(base_fracs[i + 1] - base_fracs[i], 2)
+            self.assertTrue(0.15 <= delta <= 0.20, f"Delta {delta} not in [0.15, 0.20]")
+
+        # 480px rung starts at 50% and progresses: 50% -> 65% -> 80% -> 100%
+        rung480_fracs = [stages[i].fraction for i in range(5, 9)]
+        self.assertEqual(rung480_fracs, [0.50, 0.65, 0.80, 1.00])
+        for i in range(3):
+            delta = round(rung480_fracs[i + 1] - rung480_fracs[i], 2)
+            self.assertTrue(0.15 <= delta <= 0.20, f"Delta {delta} not in [0.15, 0.20]")
+
+        # 640px rung starts at 50% and progresses: 50% -> 65% -> 80% -> 100%
+        rung640_fracs = [stages[i].fraction for i in range(9, 13)]
+        self.assertEqual(rung640_fracs, [0.50, 0.65, 0.80, 1.00])
+        for i in range(3):
+            delta = round(rung640_fracs[i + 1] - rung640_fracs[i], 2)
+            self.assertTrue(0.15 <= delta <= 0.20, f"Delta {delta} not in [0.15, 0.20]")
+
+        # Epoch sum equality
+        self.assertEqual(sum(s.target_epochs for s in stages), 300)
+
+    def test_ladder_start_resolution_override(self) -> None:
+        from training.governance.yolo_governor import build_ladder_curriculum
+        stages = build_ladder_curriculum(
+            res_ladder=[320, 480, 640],
+            total_epochs=100,
+            vram_gb=8.0,
+            requested_batch=16,
+            opt_config={},
+            start_resolution=480,
+        )
+        # 8 stages total: 4 on 480px, 4 on 640px
+        self.assertEqual(len(stages), 8)
+        self.assertEqual(stages[0].resolution, 480)
+        self.assertEqual(stages[0].fraction, 0.50)
+        self.assertEqual(stages[3].resolution, 480)
+        self.assertEqual(stages[3].fraction, 1.00)
+        self.assertEqual(stages[4].resolution, 640)
+        self.assertEqual(stages[4].fraction, 0.50)
+        self.assertEqual(stages[7].resolution, 640)
+        self.assertEqual(stages[7].fraction, 1.00)
+        self.assertEqual(sum(s.target_epochs for s in stages), 100)
+
+    def test_ladder_single_resolution(self) -> None:
+        from training.governance.yolo_governor import build_ladder_curriculum
+        stages = build_ladder_curriculum(
+            res_ladder=[640],
+            total_epochs=50,
+            vram_gb=8.0,
+            requested_batch=8,
+            opt_config={},
+        )
+        # 4 stages total: 50% -> 65% -> 80% -> 100%
+        self.assertEqual(len(stages), 4)
+        self.assertEqual([s.fraction for s in stages], [0.50, 0.65, 0.80, 1.00])
+        self.assertEqual(sum(s.target_epochs for s in stages), 50)
+
+
+
+class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
+    """Tests to verify checkpoint isolation to checkpoints subfolders and SOTA export behavior."""
+
+    def test_checkpoint_isolation_directories(self) -> None:
+        import argparse
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock
+        from training.governance.yolo_governor import YOLOCurriculumGovernor
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            proj_root = Path(tmpdir) / "lemgendary-training-suite"
+            models_root = Path(tmpdir) / "LemGendaryModels" / "yolov8n"
+            proj_root.mkdir(parents=True)
+            models_root.mkdir(parents=True)
+
+            mock_args = argparse.Namespace(
+                clean=False,
+                start_res=None,
+                target_epochs=100,
+                auto_sync=False,
+                env="local",
+            )
+            config = {
+                "curriculum": {"resolutions": [320, 480, 640]},
+                "training": {"batch_size": 16, "epochs": 100},
+                "optimization": {},
+            }
+
+            governor = YOLOCurriculumGovernor(
+                args=mock_args,
+                config=config,
+                project_root=proj_root,
+            )
+
+            # Create mock stage weights
+            stage_dir = proj_root / "runs" / "exp_stage1"
+            weights_dir = stage_dir / "weights"
+            weights_dir.mkdir(parents=True)
+            fake_best = weights_dir / "best.pt"
+            fake_last = weights_dir / "last.pt"
+            fake_best.write_bytes(b"FAKEMODELBEST")
+            fake_last.write_bytes(b"FAKEMODELLAST")
+
+            # Call checkpoint sync
+            governor._synchronize_checkpoints(
+                stage_dir=stage_dir,
+                resolution=320,
+                fraction=0.30,
+                stage_index=1,
+                global_epoch=1,
+            )
+
+            # Assert checkpoints exist strictly in checkpoints directories
+            hub_ckpt_dir = governor.models_hub_ckpt_dir
+            self.assertTrue((hub_ckpt_dir / "best.pt").exists())
+            self.assertTrue((hub_ckpt_dir / "best.pth").exists())
+            self.assertTrue((hub_ckpt_dir / "last.pt").exists())
+            self.assertTrue((hub_ckpt_dir / "progress.pth").exists())
+            self.assertTrue((hub_ckpt_dir / "curriculum_state.json").exists())
+
+            # Assert root LemGendaryModels/yolov8n contains NO checkpoint artifacts
+            self.assertFalse((governor.models_hub_dir / "best.pt").exists())
+            self.assertFalse((governor.models_hub_dir / "best.pth").exists())
+            self.assertFalse((governor.models_hub_dir / "last.pt").exists())
+            self.assertFalse((governor.models_hub_dir / "progress.pth").exists())
+            self.assertFalse((governor.models_hub_dir / "curriculum_state.json").exists())
+
+    def test_sota_model_export(self) -> None:
+        import argparse
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch, MagicMock
+        from training.governance.yolo_governor import YOLOCurriculumGovernor
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            proj_root = Path(tmpdir) / "lemgendary-training-suite"
+            models_root = Path(tmpdir) / "LemGendaryModels" / "yolov8n"
+            proj_root.mkdir(parents=True)
+            models_root.mkdir(parents=True)
+
+            mock_args = argparse.Namespace(
+                clean=False,
+                start_res=None,
+                target_epochs=100,
+                auto_sync=False,
+                env="local",
+            )
+            config = {
+                "curriculum": {"resolutions": [320, 480, 640]},
+                "training": {"batch_size": 16, "epochs": 100},
+                "optimization": {},
+            }
+
+            governor = YOLOCurriculumGovernor(
+                args=mock_args,
+                config=config,
+                project_root=proj_root,
+            )
+
+            fake_weight = proj_root / "best.pt"
+            fake_weight.write_bytes(b"SOTAWEIGHTS")
+
+            # Mock YOLO export so ONNX conversion produces a mock file
+            mock_yolo_instance = MagicMock()
+            fake_onnx_source = Path(tmpdir) / "mock_exported.onnx"
+            fake_onnx_source.write_bytes(b"ONNXMODELDATA")
+            mock_yolo_instance.export.return_value = str(fake_onnx_source)
+
+            with patch("ultralytics.YOLO", return_value=mock_yolo_instance):
+                governor._export_sota_models(fake_weight, resolution=640)
+
+            # Verify PyTorch model and ONNX model were exported to LemGendaryModels/yolov8n
+            exported_pt = governor.models_hub_dir / "yolov8n.pt"
+            exported_onnx = governor.models_hub_dir / "yolov8n.onnx"
+            self.assertTrue(exported_pt.exists())
+            self.assertEqual(exported_pt.read_bytes(), b"SOTAWEIGHTS")
+            self.assertTrue(exported_onnx.exists())
+            self.assertEqual(exported_onnx.read_bytes(), b"ONNXMODELDATA")
+
+    def test_open_ended_sota_convergence_protocol(self) -> None:
+        import argparse
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch, MagicMock
+        from training.governance.yolo_governor import YOLOCurriculumGovernor
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            proj_root = Path(tmpdir) / "lemgendary-training-suite"
+            models_root = Path(tmpdir) / "LemGendaryModels" / "yolov8n"
+            proj_root.mkdir(parents=True)
+            models_root.mkdir(parents=True)
+
+            mock_args = argparse.Namespace(
+                clean=False,
+                resolution=None,
+                target_epochs=10,
+                epochs=10,
+                batch_size="16",
+                auto_sync=False,
+                env="local",
+                lr=None,
+            )
+            config = {
+                "curriculum": {"resolutions": [640]},
+                "training": {"batch_size": 16, "epochs": 10},
+                "optimization": {"res_ladder": [640], "extension_epochs": 5},
+            }
+
+            governor = YOLOCurriculumGovernor(
+                args=mock_args,
+                config=config,
+                project_root=proj_root,
+            )
+
+            call_count = 0
+            def mock_train(**kwargs):
+                nonlocal call_count
+                call_count += 1
+                # When reaching extension cycle (call 5), simulate SOTA achievement
+                if call_count >= 5:
+                    governor.sota_achieved = True
+
+            mock_yolo_instance = MagicMock()
+            mock_yolo_instance.train.side_effect = mock_train
+            fake_onnx = Path(tmpdir) / "test.onnx"
+            fake_onnx.write_bytes(b"ONNXDATA")
+            mock_yolo_instance.export.return_value = str(fake_onnx)
+
+            with patch("ultralytics.YOLO", return_value=mock_yolo_instance), \
+                 patch("training.governance.yolo_governor.generate_yolo_yaml", return_value="mock.yaml"):
+                summary = governor.run()
+
+            # Governor executed 4 planned stages (50%, 65%, 80%, 100%) + 1 extension cycle until SOTA
+            self.assertEqual(call_count, 5)
+            self.assertTrue(governor.sota_achieved)
+            self.assertEqual(summary.status, "completed")
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+

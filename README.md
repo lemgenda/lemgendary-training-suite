@@ -18,7 +18,11 @@
 
 ---
 
-## Changelog
+### v16.9.13 — Intra-Resolution Fraction Progression & Governor Overfitting Rescue Protocol
+
+- **Intra-Resolution Fraction Ladder Progression (`training/governance/yolo_governor.py`)** — Refactored `build_ladder_curriculum` to ensure training traverses dataset manifold fractions from initial (30%) through mid-fidelity (70%) to full data (100%) on the lowest resolution rung (320px) before escalating to higher spatial resolutions (`480px`, `640px`). Prevents spatial jumping on partial data slices and anchors basic feature extraction on the complete dataset distribution.
+- **Governor Overfitting Rescue Protocol (`on_fit_epoch_end`)** — Introduced active overfitting detection during partial fraction training (`fraction < 1.0`). If train loss decreases while validation loss increases over a 3-epoch window, or validation mAP plateaus while train loss drops, the governor immediately triggers `trainer.stop = True`, halts the partial stage early, and escalates to the next expanded dataset fraction to introduce sample variety and break the overfitting attractor.
+- **Multi-Fraction Checkpoint Discovery & Resumption Sync** — Enhanced stage indexing and checkpoint serialization to encode both spatial resolution and dataset fraction (`stage{idx}_{res}px_f{pct}`). Checkpoint inspection and metrics CSV parsing determine exact prior stage completion and enable seamless mid-stage resumption without losing epoch counts or resetting optimizer states.
 
 ### v16.9.12 — Checkpoint Resumption Protocol, Authoritative Persistence & Literature Citations
 
