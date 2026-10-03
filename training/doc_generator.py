@@ -431,6 +431,7 @@ graph TD
 ```bibtex
 {paper['bibtex']}
 ```
+
 """
     else:
         paper_section = ""
