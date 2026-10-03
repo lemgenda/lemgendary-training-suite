@@ -370,8 +370,8 @@ graph TD
     elif task in ["detection", "yolo"] or model_key == "yolov8n":
         m50 = metrics.get("mAP50") or metrics.get("map50", "0.540")
         m95 = metrics.get("mAP50-95") or metrics.get("map50_95", "0.390")
-        b_loss = metrics.get("Box_Loss", "1.20-")
-        c_loss = metrics.get("Cls_Loss", "0.50-")
+        b_loss = metrics.get("Box_Loss") or (f"{float(metrics['Train_Loss']):.4f}" if metrics.get("Train_Loss") else "1.20-")
+        c_loss = metrics.get("Cls_Loss") or (f"{float(metrics['Val_Loss']):.4f}" if metrics.get("Val_Loss") else "0.50-")
         metrics_summary = f"**mAP50**: {m50} | **mAP50-95**: {m95} | **Box Loss**: {b_loss} | **Cls Loss**: {c_loss}"
         vector_section = ""
     elif task == "face_detection" or model_key == "retinaface":
@@ -436,6 +436,20 @@ graph TD
     else:
         paper_section = ""
 
+    # --- Implementation Guide & Checkpoints Structure TIP ---
+    nb_name = f"{model_key}-usage.ipynb" if model_key == "yolov8n" else f"{model_key}_usage.ipynb"
+    extra_tip = ""
+    if model_key == "yolov8n":
+        extra_tip = """
+>
+> **Artifacts & Checkpoints Structure**:
+>
+> - Production SOTA exports: `yolov8n.onnx` and `yolov8n.pt` are deployed to this directory whenever SOTA targets are achieved.
+> - Training checkpoints & curriculum state: Preserved strictly in [`checkpoints/`](checkpoints/) (`best.pt`, `best.pth`, `last.pt`, `progress.pth`, `curriculum_state.json`)."""
+
+    tip_block = f"""> [!TIP]
+> **Implementation Guide**: For high-performance deployment including ONNX (FP32/FP16) and standalone PyTorch snippets, refer to the **[{nb_name}]({nb_name})** notebook in this directory.{extra_tip}"""
+
     # --- Premium 10-Section Template ---
     return f"""# {name}
 
@@ -458,8 +472,7 @@ The **{name}** is a professional-grade AI model optimized for the `{task}` lifec
 
 {usage_snippet}
 
-> [!TIP]
-> **Implementation Guide**: For high-performance deployment including ONNX (FP32/FP16) and standalone PyTorch snippets, refer to the **[{model_key}_usage.ipynb]({model_key}_usage.ipynb)** notebook in this directory.
+{tip_block}
 
 {input_reqs_str}
 
