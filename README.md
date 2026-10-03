@@ -18,6 +18,14 @@
 
 ---
 
+### v16.9.14 — Plateau-Driven Ladder Advancement, Global Epoch Synchronization & Validation Display
+
+- **Plateau- and Overfitting-Driven Rung Advancement (`training/governance/yolo_governor.py`)** — Removed fixed per-rung epoch budgets. Every fraction step and resolution rung now advances only when the quality score (`0.7 * mAP50-95 + 0.3 * mAP50`) fails to improve by more than `rung_plateau_min_delta` (0.001) for `rung_plateau_patience` (5) epochs after at least `rung_min_epochs` (3), or when overfitting signatures appear at any fraction. SOTA extension cycles at the top rung are uncapped, and the global epoch ceiling auto-extends by 100 when approached.
+- **13-Stage Gradual Ladder** — 320px: 30% to 50% to 70% to 85% to 100%; 480px and 640px: 50% to 65% to 80% to 100% (15%-20% increments, restart at 50% on each resolution jump).
+- **Global Epoch Synchronization** — `trainer.start_epoch`, `trainer.epochs` and the LR scheduler are aligned at `on_pretrain_routine_end`; optimizer, scaler and EMA state are restored with `_load_checkpoint_state` instead of `resume=True`. Progress bar, Governor banners, `metrics.csv` and WebSocket telemetry now show the same monotonic epoch. Resumption no longer marks a stage complete from epoch counts.
+- **Validation Display** — Validator description overridden to `Validation`, replacing the raw metric header in the progress bar, with a per-epoch summary of train loss, validation loss (box, cls, dfl), mAP50 and mAP50-95.
+- **Checkpoint and Export Isolation** — Checkpoints live only in `LemGendaryModels/yolov8n/checkpoints/`; `yolov8n.pt` and `yolov8n.onnx` are exported to `LemGendaryModels/yolov8n/` whenever SOTA targets (`mAP50 >= 0.54`, `mAP50-95 >= 0.39`) are reached.
+
 ### v16.9.13 — Intra-Resolution Fraction Progression & Governor Overfitting Rescue Protocol
 
 - **Intra-Resolution Fraction Ladder Progression (`training/governance/yolo_governor.py`)** — Refactored `build_ladder_curriculum` to ensure training traverses dataset manifold fractions from initial (30%) through mid-fidelity (70%) to full data (100%) on the lowest resolution rung (320px) before escalating to higher spatial resolutions (`480px`, `640px`). Prevents spatial jumping on partial data slices and anchors basic feature extraction on the complete dataset distribution.
