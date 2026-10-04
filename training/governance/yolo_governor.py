@@ -266,6 +266,45 @@ class YOLOCurriculumGovernor:
         self.best_overall_metrics: Dict[str, float] = {"map50": 0.0, "map50_95": 0.0}
         self.sota_achieved = False
         self.best_sota_quality = 0.0
+        self.best_export_quality = 0.0
+
+    def _export_if_new_best(self, trainer: Any, resolution: int) -> None:
+        """Export PyTorch and ONNX artifacts whenever a new global best checkpoint is saved.
+
+        Runs from the Ultralytics on_model_save hook, which fires after best.pt has been
+        written for the current epoch. A model is exported only when Ultralytics marks the
+        epoch as its best and the combined quality score beats every prior export.
+        """
+        try:
+            fitness = getattr(trainer, "fitness", None)
+            best_fitness = getattr(trainer, "best_fitness", None)
+            if fitness is None or best_fitness is None or float(fitness) != float(best_fitness):
+                return
+
+            raw_metrics = getattr(trainer, "metrics", {}) or {}
+            map50 = float(raw_metrics.get("metrics/mAP50(B)", 0.0))
+            map50_95 = float(raw_metrics.get("metrics/mAP50-95(B)", 0.0))
+            quality = (map50_95 * 0.7) + (map50 * 0.3)
+            if quality <= self.best_export_quality:
+                return
+
+            best_path = getattr(trainer, "best", None)
+            if not (best_path and Path(best_path).exists() and Path(best_path).stat().st_size > 0):
+                return
+
+            self.best_export_quality = quality
+            target_map50 = self.sota_targets.get("map50", 0.54)
+            target_map50_95 = self.sota_targets.get("map50_95", 0.39)
+            sota_met = map50 >= target_map50 and map50_95 >= target_map50_95
+            tag = "SOTA ATTAINED" if sota_met else "NEW BEST"
+            print(
+                f"\n[GOVERNOR] [{tag}] mAP50={map50:.4f}, mAP50-95={map50_95:.4f} "
+                f"(quality {quality:.4f}). Exporting PyTorch and ONNX artifacts to {self.models_hub_dir}...",
+                flush=True,
+            )
+            self._export_sota_models(Path(best_path), resolution=resolution)
+        except Exception as export_err:
+            logger.warning("New-best export hook failed: %s", export_err)
 
     def _export_sota_models(self, source_weights: Path, resolution: int = 640) -> None:
         """Export high-performance SOTA model as ONNX and PyTorch artifacts.
@@ -292,6 +331,7 @@ class YOLOCurriculumGovernor:
                 imgsz=resolution,
                 dynamic=False,
                 simplify=True,
+                device="cpu",
             )
             if exported_onnx_path and Path(exported_onnx_path).exists():
                 target_onnx = self.models_hub_dir / "yolov8n.onnx"
@@ -522,6 +562,8 @@ class YOLOCurriculumGovernor:
                             self.best_overall_metrics["map50"] = m50
                         if m95 > self.best_overall_metrics["map50_95"]:
                             self.best_overall_metrics["map50_95"] = m95
+                        if (self.models_hub_dir / "yolov8n.pt").exists():
+                            self.best_export_quality = max(self.best_export_quality, (m95 * 0.7) + (m50 * 0.3))
             except Exception as e:
                 logger.debug("Error reading metrics.csv: %s", e)
 
@@ -741,23 +783,6 @@ class YOLOCurriculumGovernor:
                                 self.sota_achieved = True
                                 if hasattr(trainer, "stop"):
                                     trainer.stop = True
-                            if quality > self.best_sota_quality:
-                                self.best_sota_quality = quality
-                                sota_cand = stage_weights_dir / "best.pt"
-                                if not (sota_cand.exists() and sota_cand.stat().st_size > 0):
-                                    trainer_best = getattr(trainer, "best", None)
-                                    if trainer_best and Path(trainer_best).exists() and Path(trainer_best).stat().st_size > 0:
-                                        sota_cand = Path(trainer_best)
-                                if not (sota_cand.exists() and sota_cand.stat().st_size > 0):
-                                    sota_cand = stage_weights_dir / "last.pt"
-                                if sota_cand.exists() and sota_cand.stat().st_size > 0:
-                                    print(
-                                        f"\n[GOVERNOR] [SOTA ATTAINED] New SOTA performance achieved "
-                                        f"(mAP50={map50:.4f}>={target_map50}, mAP50-95={map50_95:.4f}>={target_map50_95})! "
-                                        f"Exporting SOTA ONNX and PyTorch artifacts to {self.models_hub_dir}...",
-                                        flush=True,
-                                    )
-                                    self._export_sota_models(sota_cand, resolution=current_stage.resolution)
 
                         if self.cancel_check is not None and self.cancel_check():
                             if hasattr(trainer, "stop"):
@@ -851,6 +876,10 @@ class YOLOCurriculumGovernor:
             model.add_callback("on_pretrain_routine_end", on_pretrain_routine_end)
             model.add_callback("on_train_epoch_start", on_train_epoch_start)
             model.add_callback("on_fit_epoch_end", create_epoch_callback(stage, completed_prior_epochs))
+            model.add_callback(
+                "on_model_save",
+                lambda trainer, _res=stage.resolution: self._export_if_new_best(trainer, _res),
+            )
 
             train_kwargs: Dict[str, Any] = {
                 "data": yolo_yaml,
@@ -1080,28 +1109,10 @@ class YOLOCurriculumGovernor:
                             global_epoch=global_epoch,
                         )
 
-                        quality = (map50_95 * 0.7) + (map50 * 0.3)
                         if map50 >= target_map50 and map50_95 >= target_map50_95:
                             self.sota_achieved = True
                             if hasattr(trainer, "stop"):
                                 trainer.stop = True
-                            if quality > self.best_sota_quality:
-                                self.best_sota_quality = quality
-                                sota_cand = ext_weights_dir / "best.pt"
-                                if not (sota_cand.exists() and sota_cand.stat().st_size > 0):
-                                    trainer_best = getattr(trainer, "best", None)
-                                    if trainer_best and Path(trainer_best).exists() and Path(trainer_best).stat().st_size > 0:
-                                        sota_cand = Path(trainer_best)
-                                if not (sota_cand.exists() and sota_cand.stat().st_size > 0):
-                                    sota_cand = ext_weights_dir / "last.pt"
-                                if sota_cand.exists() and sota_cand.stat().st_size > 0:
-                                    print(
-                                        f"\n[GOVERNOR] [SOTA ATTAINED] New SOTA performance achieved "
-                                        f"(mAP50={map50:.4f}>={target_map50}, mAP50-95={map50_95:.4f}>={target_map50_95})! "
-                                        f"Exporting SOTA ONNX and PyTorch artifacts to {self.models_hub_dir}...",
-                                        flush=True,
-                                    )
-                                    self._export_sota_models(sota_cand, resolution=current_stage.resolution)
 
                         if self.cancel_check is not None and self.cancel_check():
                             if hasattr(trainer, "stop"):
@@ -1133,6 +1144,10 @@ class YOLOCurriculumGovernor:
             model.add_callback("on_pretrain_routine_end", on_ext_pretrain_routine_end)
             model.add_callback("on_train_epoch_start", on_ext_train_epoch_start)
             model.add_callback("on_fit_epoch_end", create_ext_callback(ext_stage))
+            model.add_callback(
+                "on_model_save",
+                lambda trainer, _res=ext_stage.resolution: self._export_if_new_best(trainer, _res),
+            )
 
             train_kwargs = {
                 "data": yolo_yaml,

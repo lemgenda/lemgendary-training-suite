@@ -1,6 +1,6 @@
 task: detect
 mode: train
-model: C:\Development\python\model-training\LemGendaryModels\yolov8n\checkpoints\last.pt
+model: C:\Development\python\model-training\lemgendary-training-suite\export\yolov8n\stage3_320px_f70\rung_320\weights\last.pt
 data: data\yolo_yolov8n_config.yaml
 epochs: 300
 time: null
