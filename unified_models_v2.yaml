@@ -980,6 +980,7 @@ yolov8n:
   - 3
   - 320
   - 320
+  batch_size: 32
   learning_rate: 0.01
   loss_fn: yolo
   dataset_type:
@@ -1008,8 +1009,8 @@ yolov8n:
   kaggle_dataset_urls:
   - https://www.kaggle.com/datasets/lemtreursi/lemgendizedyolov8n
   sota_targets:
-    map50: 0.54
-    map50_95: 0.39
+    map50: 0.74
+    map50_95: 0.55
   val_resolution: 640
   kaggle_accelerator: T4
   architecture_type: YOLOv8n (CSPDarknet53 + PANet)
