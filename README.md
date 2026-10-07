@@ -18,6 +18,11 @@
 
 ---
 
+### v16.9.15 — Dynamic Sawtooth VRAM Batch Governor & Generalized Kaggle Dataset Auto-Binding
+
+- **Dynamic Sawtooth VRAM Batch Scaling (`training/governance/yolo_governor.py`)** — Upgraded `compute_safe_batch_size` across all VRAM tiers. On 4GB hardware (`<= 4.5 GB`), updated safe batch limits to `{320: 32, 480: 16, 640: 8, 1024: 4}`, unlocking batch size 16 at resolution 480 for YOLOv8n (which previously was throttled to 8 despite consuming only 1.52 GB VRAM). Implemented dynamic runtime Sawtooth Governor feedback: dynamically probes peak VRAM pressure via `torch.cuda.max_memory_allocated()`; if pressure exceeds 90%, it dynamically halves the batch size to protect against OOM spikes; if VRAM headroom is abundant (< 60% capacity), it automatically promotes the stage batch size up to the safe capacity limit.
+- **Generalized Kaggle Attached Dataset Auto-Binding (`training/data/manifold.py`, `data/dataset.py`, `data/yolo_config_gen.py`)** — Decoupled Kaggle cloud training from specific dataset name requirements (such as `LemGendizedMirNetExposureKaggleReady`). Added `is_valid_manifold_dir` and `scan_kaggle_input_manifolds` in `ManifoldResolver`, detecting manifolds with `shards/`, `images/`, `targets/`, `dataset_info.yaml`, `dataset-metadata.json`, and `.parquet` containers. In Kaggle environments, training automatically scans `/kaggle/input` and auto-binds to whichever dataset or datasets are attached to the notebook as input, eliminating `ValueError: num_samples=0` on container and custom-named manifolds.
+
 ### v16.9.14 — Plateau-Driven Ladder Advancement, Global Epoch Synchronization & Validation Display
 
 - **Plateau- and Overfitting-Driven Rung Advancement (`training/governance/yolo_governor.py`)** — Removed fixed per-rung epoch budgets. Every fraction step and resolution rung now advances only when the quality score (`0.7 * mAP50-95 + 0.3 * mAP50`) fails to improve by more than `rung_plateau_min_delta` (0.001) for `rung_plateau_patience` (5) epochs after at least `rung_min_epochs` (3), or when overfitting signatures appear at any fraction. SOTA extension cycles at the top rung are uncapped, and the global epoch ceiling auto-extends by 100 when approached.

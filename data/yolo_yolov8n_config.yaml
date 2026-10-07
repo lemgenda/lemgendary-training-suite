@@ -80,6 +80,6 @@ names:
   78: class_78
   79: class_79
 nc: 80
-path: C:\Development\python\model-training\LemGendaryDatasets
-train: LemGendizedYoloV8n\images\train
-val: LemGendizedYoloV8n\images\val
+path: C:\Development\python\model-training\LemGendaryDatasets\LemGendizedYoloV8n
+train: images/train
+val: images/val

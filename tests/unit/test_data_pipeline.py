@@ -162,6 +162,19 @@ class TestDataPipeline(unittest.TestCase):
         synth = synthesize_degradation(pil_img)
         self.assertEqual(synth.size, (64, 64))
 
+    def test_kaggle_manifold_generic_discovery(self) -> None:
+        kaggle_dir = self.root_path / "mock_kaggle" / "input"
+        dataset_dir = kaggle_dir / "lemgendizedmirnetexposure" / "LemGendizedMirNetExposure"
+        shards_dir = dataset_dir / "shards"
+        shards_dir.mkdir(parents=True)
+        (dataset_dir / "dataset_info.yaml").write_text("format: webdataset\n", encoding="utf-8")
+
+        self.assertTrue(ManifoldResolver.is_valid_manifold_dir(dataset_dir))
+
+        discovered = ManifoldResolver.scan_kaggle_input_manifolds(root=kaggle_dir)
+        self.assertEqual(len(discovered), 1)
+        self.assertEqual(discovered[0].resolve(), dataset_dir.resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

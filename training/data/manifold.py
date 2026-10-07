@@ -114,6 +114,60 @@ class ManifoldResolver:
 
         return candidates
 
+    @staticmethod
+    def is_valid_manifold_dir(p: Path) -> bool:
+        """Check if directory contains dataset images, targets, shards, parquet, or manifest metadata."""
+        if not p.is_dir():
+            return False
+        for sub in ("images", "targets", "masks", "forex", "shards", "train", "val", "labels", "mds", "litdata", "parquet"):
+            if (p / sub).exists():
+                return True
+        for meta in ("dataset_info.yaml", "dataset-metadata.json", "index.json", "classes.txt", "category.txt"):
+            if (p / meta).exists():
+                return True
+        try:
+            for item in p.iterdir():
+                if item.suffix.lower() in (".parquet", ".tar", ".webp", ".jpg", ".png", ".jpeg"):
+                    return True
+        except OSError:
+            pass
+        return False
+
+    @classmethod
+    def scan_kaggle_input_manifolds(cls, root: Path = Path("/kaggle/input"), max_depth: int = 4) -> list[Path]:
+        """Discover all attached dataset manifolds in /kaggle/input regardless of name."""
+        if not root.exists() or not root.is_dir():
+            return []
+        discovered: list[Path] = []
+        visited: set[Path] = set()
+        queue: list[tuple[Path, int]] = [(root, 0)]
+        while queue:
+            curr, depth = queue.pop(0)
+            if depth > max_depth or not curr.is_dir():
+                continue
+            if curr != root and cls.is_valid_manifold_dir(curr):
+                real_p = curr.resolve()
+                if real_p not in visited:
+                    visited.add(real_p)
+                    discovered.append(curr)
+                continue
+            try:
+                children = list(curr.iterdir())
+            except OSError:
+                continue
+            for child in children:
+                if child.is_dir():
+                    if child.name.lower() == "models" and curr == root:
+                        continue
+                    if cls.is_valid_manifold_dir(child):
+                        real_p = child.resolve()
+                        if real_p not in visited:
+                            visited.add(real_p)
+                            discovered.append(child)
+                    else:
+                        queue.append((child, depth + 1))
+        return discovered
+
     def resolve_manifold(self, manifold_name: str) -> Path | None:
         """Locate a dataset manifold directory on disk."""
         candidates = self.generate_name_candidates(manifold_name)
@@ -128,12 +182,10 @@ class ManifoldResolver:
                 if direct.exists() and (direct.is_dir() or direct.suffix in {".parquet", ".tar"}):
                     return direct
 
-                # Subdirectory check (e.g. root / cand / "forex")
                 sub = direct / "forex"
                 if sub.exists() and sub.is_dir():
                     return sub
 
-                # Case-insensitive direct match in root
                 try:
                     for child in root.iterdir():
                         if child.name.lower() == cand.lower():
@@ -141,39 +193,36 @@ class ManifoldResolver:
                 except OSError as exc:
                     logger.debug("Failed listing directory %s: %s", root, exc)
 
-        # Phase B: Kaggle /kaggle/input BFS traversal (depth <= 3)
-        if self.env == "kaggle" or any("/kaggle/input" in str(r).replace("\\", "/") for r in search_roots):
+        # Phase B: Kaggle /kaggle/input inspection (train on whichever dataset or datasets are attached)
+        if self.env == "kaggle" or any("/kaggle/input" in str(r).replace("\\", "/") for r in search_roots) or Path("/kaggle/input").exists():
             kaggle_input = Path("/kaggle/input")
             if kaggle_input.exists():
-                simplified_target = manifold_name.lower().replace("-", "").replace("_", "").replace("lemgendized", "")
-                for suf in ["kaggleready", "large", "mini"]:
-                    simplified_target = simplified_target.replace(suf, "")
+                attached_manifolds = self.scan_kaggle_input_manifolds(kaggle_input)
+                if attached_manifolds:
+                    simplified_target = manifold_name.lower().replace("-", "").replace("_", "").replace("lemgendized", "")
+                    for suf in ["kaggleready", "large", "mini"]:
+                        simplified_target = simplified_target.replace(suf, "")
 
-                queue: list[tuple[Path, int]] = [(kaggle_input, 0)]
-                while queue:
-                    curr_dir, depth = queue.pop(0)
-                    if depth > 3:
-                        continue
-                    try:
-                        children = list(curr_dir.iterdir())
-                    except OSError:
-                        continue
+                    # 1. Exact or candidate name match
+                    for m in attached_manifolds:
+                        if m.name.lower() in [c.lower() for c in candidates]:
+                            return m
 
-                    for child in children:
-                        if not child.is_dir():
-                            continue
-                        name_norm = child.name.lower().replace("-", "").replace("_", "").replace("lemgendized", "")
-                        if simplified_target and simplified_target in name_norm:
-                            if (child / "images").exists() or (child / "targets").exists() or (child / "forex").exists():
-                                return child
-                            # Check single nested subfolder
-                            try:
-                                for sub in child.iterdir():
-                                    if sub.is_dir() and ((sub / "images").exists() or (sub / "targets").exists()):
-                                        return sub
-                            except OSError:
-                                pass
-                        queue.append((child, depth + 1))
+                    # 2. Fuzzy name match against manifold or parent dataset slug
+                    for m in attached_manifolds:
+                        name_norm = m.name.lower().replace("-", "").replace("_", "").replace("lemgendized", "")
+                        parent_norm = m.parent.name.lower().replace("-", "").replace("_", "").replace("lemgendized", "")
+                        if simplified_target and (simplified_target in name_norm or simplified_target in parent_norm):
+                            return m
+
+                    # 3. Dynamic Fallback: Auto-bind attached Kaggle dataset manifold
+                    fallback_m = attached_manifolds[0]
+                    logger.info(
+                        "Auto-bound attached Kaggle dataset manifold '%s' for requested '%s'",
+                        fallback_m,
+                        manifold_name,
+                    )
+                    return fallback_m
 
         return None
 

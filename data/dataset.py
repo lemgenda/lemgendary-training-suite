@@ -185,6 +185,30 @@ class MultiTaskDataset(Dataset):
             for f in files:
                 self.all_samples.append((ds_name, f))
 
+        # Kaggle dynamic discovery: Train on whichever datasets are attached in /kaggle/input
+        if (self.env == 'kaggle' or os.path.exists('/kaggle/input')) and not self.all_samples:
+            from training.data.manifold import ManifoldResolver
+            resolver = ManifoldResolver(env=self.env, config=config)
+            attached_manifolds = resolver.scan_kaggle_input_manifolds()
+            if attached_manifolds:
+                print(f"\n[KAGGLE] Auto-discovered {len(attached_manifolds)} attached dataset manifold(s) in /kaggle/input:")
+                for m_path in attached_manifolds:
+                    print(f"  -> {m_path}")
+                    m_str = str(m_path)
+                    if m_str in loaded_paths:
+                        continue
+                    loaded_paths.add(m_str)
+                    ds_key = m_path.name
+                    self.path_cache[ds_key] = m_str
+                    for sub in ["images", "targets"]:
+                        sub_dir = os.path.join(m_str, sub, self.split) if os.path.exists(os.path.join(m_str, sub, self.split)) else os.path.join(m_str, sub)
+                        if os.path.exists(sub_dir):
+                            items = [f for f in os.listdir(sub_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg', '.webp'))]
+                            for f in items:
+                                self.all_samples.append((ds_key, f))
+                            if items:
+                                break
+
         # Container-format fallback: if no directory samples found, try ContainerReader.
         if not self.all_samples:
             self._try_load_container_samples(loaded_paths)
@@ -340,55 +364,36 @@ class MultiTaskDataset(Dataset):
             # Priority 1: Check symlinked data_root (/kaggle/working/LemGendaryDatasets)
             if hasattr(self, 'data_root') and os.path.exists(self.data_root):
                 cand = os.path.join(self.data_root, ds_name)
-                if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')):
+                if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')) or os.path.exists(os.path.join(cand, 'shards')):
                     return cand
                 try:
                     for item in os.listdir(self.data_root):
                         if item.lower() == ds_name.lower():
                             cand = os.path.join(self.data_root, item)
-                            if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')):
+                            if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')) or os.path.exists(os.path.join(cand, 'shards')):
                                 return cand
                 except Exception:
                     pass
 
-            # Priority 2: Direct lookup in /kaggle/input
-            target = ds_name.lower().replace("-", "").replace("_", "").replace("lemgendized", "").replace("lemgendary", "")
-            for suffix in ["kaggleready", "large", "mini"]:
-                target = target.replace(suffix, "")
-            
+            # Priority 2: Scan /kaggle/input for attached manifolds (directory or container format)
             if os.path.exists('/kaggle/input'):
-                try:
-                    queue = ['/kaggle/input']
-                    depths = {'/kaggle/input': 0}
-                    while queue:
-                        curr = queue.pop(0)
-                        depth = depths[curr]
-                        if depth > 4:
-                            continue
-                        try:
-                            items = os.listdir(curr)
-                        except OSError as listdir_err:
-                            logger.debug("Cannot list directory %s: %s", curr, listdir_err)
-                            continue
-                        for item in items:
-                            path = os.path.join(curr, item)
-                            if os.path.isdir(path):
-                                depths[path] = depth + 1
-                                queue.append(path)
-                                name_lower = item.lower().replace("-", "").replace("_", "").replace("lemgendized", "").replace("lemgendary", "")
-                                if target and target in name_lower:
-                                    if os.path.exists(os.path.join(path, 'images')) or os.path.exists(os.path.join(path, 'targets')):
-                                        return path
-                                    try:
-                                        for sub in os.listdir(path):
-                                            sub_path = os.path.join(path, sub)
-                                            if os.path.isdir(sub_path):
-                                                if os.path.exists(os.path.join(sub_path, 'images')) or os.path.exists(os.path.join(sub_path, 'targets')):
-                                                    return sub_path
-                                    except OSError as sub_err:
-                                        logger.debug("Cannot list sub-path %s: %s", path, sub_err)
-                except OSError as kaggle_err:
-                    logger.debug("Kaggle /kaggle/input traversal failed: %s", kaggle_err)
+                attached = resolver.scan_kaggle_input_manifolds()
+                if attached:
+                    target = ds_name.lower().replace("-", "").replace("_", "").replace("lemgendized", "").replace("lemgendary", "")
+                    for suffix in ["kaggleready", "large", "mini"]:
+                        target = target.replace(suffix, "")
+
+                    # Exact or fuzzy match against attached manifolds
+                    for cand_path in attached:
+                        cand_name = cand_path.name.lower().replace("-", "").replace("_", "").replace("lemgendized", "").replace("lemgendary", "")
+                        cand_parent = cand_path.parent.name.lower().replace("-", "").replace("_", "").replace("lemgendized", "").replace("lemgendary", "")
+                        if target and (target in cand_name or target in cand_parent):
+                            return str(cand_path)
+
+                    # Dynamic Fallback: Auto-bind attached Kaggle dataset manifold
+                    logger.info("Auto-bound attached Kaggle dataset '%s' for target '%s'", attached[0], ds_name)
+                    return str(attached[0])
+
             print(f"\n[WARNING] No attached dataset found for '{ds_name}' in Kaggle /kaggle/input!")
             print("Please attach the dataset to your Kaggle Notebook.")
             return None

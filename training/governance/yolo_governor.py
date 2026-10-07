@@ -81,31 +81,70 @@ def compute_safe_batch_size(
     imgsz: int,
     vram_gb: float,
     requested_batch: Optional[int] = None,
+    opt_config: Optional[Dict[str, Any]] = None,
 ) -> int:
-    """Calculate maximum safe physical batch size under Sawtooth VRAM guard.
+    """Calculate maximum safe physical batch size from first-principles VRAM arithmetic.
 
-    Prevents CUDA Out-Of-Memory crashes at high spatial resolutions by
-    dynamically pacing minibatch allocation based on available GPU VRAM.
+    Derives the safe batch size by estimating actual GPU memory consumption for
+    YOLOv8n training at the requested spatial resolution, rather than using a
+    hardcoded lookup table. All tuning constants are configurable via opt_config
+    (sourced from unified_models_v2.yaml > optimization) with sensible defaults.
+
+    VRAM budget model:
+      total_budget_mb  = vram_gb * 1024 * vram_safety_factor
+      available_mb     = total_budget_mb - static_overhead_mb
+      per_sample_mb    = per_sample_vram_mb_640 * (imgsz / 640) ** 2
+      max_safe_batch   = floor(available_mb / per_sample_mb)
+
+    Empirical baseline (YOLOv8n):
+      - static_overhead_mb  ~ 260 MB  (weights + gradients + AdamW states)
+      - per_sample_vram_mb_640 ~ 480 MB  (activation maps at 640px, batch=1)
+
+    Args:
+        imgsz: Input spatial resolution in pixels (square assumed).
+        vram_gb: Total physical GPU VRAM in gigabytes.
+        requested_batch: Optional caller-requested batch size upper bound.
+        opt_config: Model optimization config dict from unified_models_v2.yaml.
+
+    Returns:
+        Safe integer batch size, clamped to [1, requested_batch] if provided.
     """
-    if vram_gb <= 4.5:
-        ladder_limits = {320: 16, 480: 8, 640: 4, 1024: 2}
-    elif vram_gb <= 8.5:
-        ladder_limits = {320: 32, 480: 16, 640: 8, 1024: 4}
-    elif vram_gb <= 16.5:
-        ladder_limits = {320: 64, 480: 32, 640: 16, 1024: 8}
-    else:
-        ladder_limits = {320: 128, 480: 64, 640: 32, 1024: 16}
+    cfg = opt_config or {}
 
-    max_safe = 4
-    for res_bound, safe_limit in sorted(ladder_limits.items()):
-        if imgsz <= res_bound:
-            max_safe = safe_limit
-            break
+    # Constants configurable from unified_models_v2.yaml > optimization:
+    #   static_vram_mb           - fixed VRAM cost regardless of batch size
+    #                              (model weights + optimizer states + CUDA context)
+    #   per_sample_vram_mb_640   - VRAM consumed per training sample at 640px
+    #                              (scales quadratically with imgsz)
+    #   sawtooth_vram_safety     - fraction of total VRAM to target (headroom reserve)
+    #   batch_min / batch_max    - absolute clamps for safety and hardware alignment
+    static_mb: float = float(cfg.get("static_vram_mb", 260.0))
+    per_sample_mb_640: float = float(cfg.get("per_sample_vram_mb_640", 480.0))
+    safety: float = float(cfg.get("sawtooth_vram_safety", 0.82))
+    batch_min: int = int(cfg.get("batch_min", 1))
+    batch_max: int = int(cfg.get("batch_max", 512))
+
+    # Activation memory scales quadratically with spatial resolution
+    scale = (imgsz / 640.0) ** 2
+    per_sample_mb = per_sample_mb_640 * scale
+
+    total_budget_mb = vram_gb * 1024.0 * safety
+    available_mb = total_budget_mb - static_mb
+
+    if available_mb <= 0 or per_sample_mb <= 0:
+        max_safe = batch_min
     else:
-        max_safe = 2
+        import math
+        max_safe = max(batch_min, min(batch_max, math.floor(available_mb / per_sample_mb)))
+
+    # Power-of-2 quantisation improves GPU utilisation (not strictly required)
+    pow2 = 1
+    while pow2 * 2 <= max_safe:
+        pow2 *= 2
+    max_safe = pow2
 
     if requested_batch is not None and requested_batch > 0:
-        return min(requested_batch, max_safe)
+        return max(batch_min, min(requested_batch, max_safe))
 
     return max_safe
 
@@ -202,6 +241,7 @@ def build_ladder_curriculum(
             imgsz=res,
             vram_gb=vram_gb,
             requested_batch=requested_batch,
+            opt_config=opt_config,
         )
         stage_patience = max(5, patience_base + (idx * 2))
         stages.append(
@@ -249,15 +289,16 @@ class YOLOCurriculumGovernor:
             {"map50": 0.54, "map50_95": 0.39},
         )
 
-        self.export_dir = project_root / "export" / "yolov8n"
-        self.checkpoints_dir = project_root / "checkpoints" / "yolov8n"
+        # All training artifacts are stored exclusively under LemGendaryModels — the training
+        # suite project root is for code only, never for generated model files.
         self.models_hub_dir = (project_root.parent / "LemGendaryModels" / "yolov8n").resolve()
         self.models_hub_ckpt_dir = self.models_hub_dir / "checkpoints"
+        # Curriculum stage outputs go under LemGendaryModels/yolov8n/runs/
+        self.runs_dir = self.models_hub_dir / "runs"
 
-        self.export_dir.mkdir(parents=True, exist_ok=True)
-        self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
         self.models_hub_dir.mkdir(parents=True, exist_ok=True)
         self.models_hub_ckpt_dir.mkdir(parents=True, exist_ok=True)
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
 
         # Primary metrics and telemetry stream directly from LemGendaryModels/yolov8n
         self.telemetry = TelemetryEngine(export_dir=str(self.models_hub_dir), task_type="yolo")
@@ -348,12 +389,10 @@ class YOLOCurriculumGovernor:
         stage_index: int = 1,
         global_epoch: Optional[int] = None,
     ) -> None:
-        """Mirror stage checkpoints to canonical LemGendaryModels checkpoints and suite paths.
+        """Mirror stage checkpoints to canonical LemGendaryModels/yolov8n/checkpoints/.
 
-        Maintains real-time parity with standard PyTorch model checkpointing by
-        ensuring best.pt, best.pth, last.pt, and progress.pth are synchronized strictly to:
-          - LemGendaryModels/yolov8n/checkpoints/
-          - lemgendary-training-suite/checkpoints/yolov8n/
+        All checkpoint artifacts are written exclusively to the LemGendaryModels hub.
+        The training-suite project root is code-only and never receives generated files.
         """
         frac_pct = round(fraction * 100)
         stage_weights_candidates = [
@@ -370,38 +409,33 @@ class YOLOCurriculumGovernor:
         hub_ckpt_dir = self.models_hub_ckpt_dir
         hub_ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-        # Synchronize best weights strictly to checkpoints subfolders
+        # Synchronize best weights to LemGendaryModels/yolov8n/checkpoints/
         best_cand = stage_weights_dir / "best.pt"
         if best_cand.exists() and best_cand.stat().st_size > 0:
             try:
-                shutil.copy2(best_cand, self.checkpoints_dir / "best.pt")
-                shutil.copy2(best_cand, self.checkpoints_dir / "best.pth")
                 shutil.copy2(best_cand, hub_ckpt_dir / "best.pt")
                 shutil.copy2(best_cand, hub_ckpt_dir / "best.pth")
             except OSError as copy_err:
                 logger.debug("Non-fatal checkpoint copy error for best weights: %s", copy_err)
 
-        # Synchronize last / progress weights strictly to checkpoints subfolders
+        # Synchronize last / progress weights to LemGendaryModels/yolov8n/checkpoints/
         last_cand = stage_weights_dir / "last.pt"
         if last_cand.exists() and last_cand.stat().st_size > 0:
             try:
-                shutil.copy2(last_cand, self.checkpoints_dir / "last.pt")
-                shutil.copy2(last_cand, self.checkpoints_dir / "progress.pth")
                 shutil.copy2(last_cand, hub_ckpt_dir / "last.pt")
                 shutil.copy2(last_cand, hub_ckpt_dir / "progress.pth")
             except OSError as copy_err:
                 logger.debug("Non-fatal checkpoint copy error for last weights: %s", copy_err)
 
-        # Synchronize metrics CSV to checkpoints and documentation models hub
+        # Synchronize metrics CSV to LemGendaryModels/yolov8n/
         csv_source = Path(self.telemetry.metrics_csv_path)
         if csv_source.exists():
             try:
-                shutil.copy2(csv_source, self.checkpoints_dir / "metrics.csv")
                 shutil.copy2(csv_source, self.models_hub_dir / "metrics.csv")
             except OSError as csv_err:
                 logger.debug("Non-fatal metrics CSV sync error: %s", csv_err)
 
-        # Synchronize curriculum state strictly to checkpoints subfolders
+        # Persist curriculum state to LemGendaryModels/yolov8n/checkpoints/
         if global_epoch is not None:
             curriculum_state = {
                 "model_key": "yolov8n",
@@ -412,15 +446,11 @@ class YOLOCurriculumGovernor:
                 "best_metrics": self.best_overall_metrics,
                 "sota_achieved": self.sota_achieved,
             }
-            for state_path in [
-                hub_ckpt_dir / "curriculum_state.json",
-                self.checkpoints_dir / "curriculum_state.json",
-            ]:
-                try:
-                    with open(state_path, "w", encoding="utf-8") as f:
-                        json.dump(curriculum_state, f, indent=2)
-                except OSError as state_err:
-                    logger.debug("Non-fatal curriculum state save error: %s", state_err)
+            try:
+                with open(hub_ckpt_dir / "curriculum_state.json", "w", encoding="utf-8") as f:
+                    json.dump(curriculum_state, f, indent=2)
+            except OSError as state_err:
+                logger.debug("Non-fatal curriculum state save error: %s", state_err)
 
         # Automated Cloud Sync Trigger if operating under remote environment
         if global_epoch is not None and getattr(self.args, "auto_sync", False) and getattr(self.args, "env", "local") == "kaggle":
@@ -486,16 +516,11 @@ class YOLOCurriculumGovernor:
             print("[GOVERNOR] [CLEAN] Clean run requested. Wiping prior checkpoints, state, and metrics...", flush=True)
             for p in [
                 self.models_hub_dir / "metrics.csv",
-                self.models_hub_dir / "curriculum_state.json",
                 self.models_hub_ckpt_dir / "curriculum_state.json",
                 self.models_hub_ckpt_dir / "last.pt",
                 self.models_hub_ckpt_dir / "progress.pth",
                 self.models_hub_ckpt_dir / "best.pt",
                 self.models_hub_ckpt_dir / "best.pth",
-                self.checkpoints_dir / "metrics.csv",
-                self.checkpoints_dir / "curriculum_state.json",
-                self.checkpoints_dir / "last.pt",
-                self.checkpoints_dir / "progress.pth",
             ]:
                 if p.exists():
                     try:
@@ -503,7 +528,7 @@ class YOLOCurriculumGovernor:
                     except OSError:
                         pass
 
-        # Discover candidate checkpoint from LemGendaryModels or suite
+        # Discover candidate checkpoint exclusively from LemGendaryModels hub
         candidate_ckpt: Optional[Path] = None
         if not getattr(self.args, "clean", False):
             for c in [
@@ -512,10 +537,6 @@ class YOLOCurriculumGovernor:
                 self.models_hub_ckpt_dir / "best.pt",
                 self.models_hub_ckpt_dir / "best.pth",
                 self.models_hub_dir / "yolov8n.pt",
-                self.checkpoints_dir / "last.pt",
-                self.checkpoints_dir / "best.pt",
-                self.project_root / "checkpoints" / "yolov8n.pt",
-                self.project_root / "yolov8n.pt",
             ]:
                 if c.exists() and c.stat().st_size > 0:
                     candidate_ckpt = c
@@ -582,7 +603,8 @@ class YOLOCurriculumGovernor:
 
         for stage in curriculum_stages:
             frac_pct = round(stage.fraction * 100)
-            stage_dir = self.export_dir / f"stage{stage.stage_index}_{stage.resolution}px_f{frac_pct}"
+            # Stage output goes to LemGendaryModels/yolov8n/runs/ — not the project root
+            stage_dir = self.runs_dir / f"stage{stage.stage_index}_{stage.resolution}px_f{frac_pct}"
             stage_dir.mkdir(parents=True, exist_ok=True)
             stage_weights_dir = stage_dir / f"rung_{stage.resolution}" / "weights"
             stage_weights_dir.mkdir(parents=True, exist_ok=True)
@@ -616,6 +638,48 @@ class YOLOCurriculumGovernor:
                 )
                 completed_prior_epochs += prior_stage_epochs
                 continue
+
+            # Sawtooth VRAM Governor: Dynamic batch size adjustment based on runtime memory telemetry
+            if torch.cuda.is_available() and vram_gb > 0:
+                try:
+                    peak_bytes = torch.cuda.max_memory_allocated(0)
+                    peak_gb = peak_bytes / (1024**3)
+                    vram_pct = peak_gb / vram_gb
+
+                    # Thresholds are configurable via opt_config (unified_models_v2.yaml).
+                    # vram_pressure_thresh: fraction above which batch is halved (default 0.90)
+                    # vram_headroom_thresh: fraction below which batch may be promoted (default 0.60)
+                    pressure_thresh = float(self.opt_config.get("sawtooth_vram_pressure_thresh", 0.90))
+                    headroom_thresh = float(self.opt_config.get("sawtooth_vram_headroom_thresh", 0.60))
+
+                    # 1. Sawtooth Pressure Sentinel: downscale if memory spiked dangerously
+                    if vram_pct >= pressure_thresh:
+                        reduced_batch = max(2, stage.batch_size // 2)
+                        if reduced_batch < stage.batch_size:
+                            print(
+                                f"\n[GOVERNOR] [SAWTOOTH SENTINEL] High VRAM pressure detected "
+                                f"({vram_pct * 100:.1f}% >= {pressure_thresh * 100:.0f}%). Dynamically reducing batch size: "
+                                f"{stage.batch_size} -> {reduced_batch}\n",
+                                flush=True,
+                            )
+                            stage.batch_size = reduced_batch
+                    # 2. Dynamic Headroom Promotion: scale up if VRAM utilization was low
+                    elif peak_bytes > 0 and vram_pct < headroom_thresh:
+                        safe_limit = compute_safe_batch_size(stage.resolution, vram_gb, requested_batch, self.opt_config)
+                        if safe_limit > stage.batch_size:
+                            promoted_batch = min(safe_limit, max(stage.batch_size * 2, safe_limit))
+                            if promoted_batch > stage.batch_size:
+                                print(
+                                    f"\n[GOVERNOR] [SAWTOOTH DYNAMIC] Abundant VRAM headroom detected "
+                                    f"({vram_pct * 100:.1f}% < {headroom_thresh * 100:.0f}% used). Dynamically scaling batch size: "
+                                    f"{stage.batch_size} -> {promoted_batch}\n",
+                                    flush=True,
+                                )
+                                stage.batch_size = promoted_batch
+
+                    torch.cuda.reset_peak_memory_stats(0)
+                except (RuntimeError, ValueError) as mem_err:
+                    logger.debug("Sawtooth dynamic memory probe notice: %s", mem_err)
 
             # Check if this stage should resume mid-run
             stage_resume = False
@@ -662,6 +726,9 @@ class YOLOCurriculumGovernor:
             rung_patience = int(self.opt_config.get("rung_plateau_patience", 5))
             rung_min_epochs = int(self.opt_config.get("rung_min_epochs", 3))
             rung_min_delta = float(self.opt_config.get("rung_plateau_min_delta", 0.001))
+            # Fraction progression step bounds (configurable from opt_config)
+            _frac_step_min = float(self.opt_config.get("fraction_step_min", 0.15))
+            _frac_step_max = float(self.opt_config.get("fraction_step_max", 0.20))
             plateau_state: Dict[str, float] = {"best": -1.0, "stall": 0}
 
             def on_pretrain_routine_end(trainer: Any) -> None:
@@ -871,6 +938,8 @@ class YOLOCurriculumGovernor:
                 if self.cancel_check is not None and self.cancel_check():
                     if hasattr(trainer, "stop"):
                         trainer.stop = True
+                    # Raise immediately so model.train() exits without waiting for epoch-end
+                    raise InterruptedError("Training cancelled by user request.")
 
             model.add_callback("on_train_batch_end", on_train_batch_end)
             model.add_callback("on_pretrain_routine_end", on_pretrain_routine_end)
@@ -987,20 +1056,53 @@ class YOLOCurriculumGovernor:
                 flush=True,
             )
 
+            ext_batch = compute_safe_batch_size(
+                imgsz=top_res,
+                vram_gb=vram_gb,
+                requested_batch=requested_batch,
+            )
+            if torch.cuda.is_available() and vram_gb > 0:
+                try:
+                    peak_bytes = torch.cuda.max_memory_allocated(0)
+                    peak_gb = peak_bytes / (1024**3)
+                    vram_pct = peak_gb / vram_gb
+                    pressure_thresh = float(self.opt_config.get("sawtooth_vram_pressure_thresh", 0.90))
+                    headroom_thresh = float(self.opt_config.get("sawtooth_vram_headroom_thresh", 0.60))
+                    if vram_pct >= pressure_thresh:
+                        reduced = max(2, ext_batch // 2)
+                        if reduced < ext_batch:
+                            print(
+                                f"\n[GOVERNOR] [SAWTOOTH SENTINEL] VRAM pressure ({vram_pct * 100:.1f}% >= {pressure_thresh * 100:.0f}%). "
+                                f"Downscaling extension batch size: {ext_batch} -> {reduced}\n",
+                                flush=True,
+                            )
+                            ext_batch = reduced
+                    elif peak_bytes > 0 and vram_pct < headroom_thresh:
+                        safe_limit = compute_safe_batch_size(top_res, vram_gb, requested_batch, self.opt_config)
+                        if safe_limit > ext_batch:
+                            promoted = min(safe_limit, max(ext_batch * 2, safe_limit))
+                            if promoted > ext_batch:
+                                print(
+                                    f"\n[GOVERNOR] [SAWTOOTH DYNAMIC] VRAM headroom ({vram_pct * 100:.1f}% < {headroom_thresh * 100:.0f}% used). "
+                                    f"Promoting extension batch size: {ext_batch} -> {promoted}\n",
+                                    flush=True,
+                                )
+                                ext_batch = promoted
+                    torch.cuda.reset_peak_memory_stats(0)
+                except (RuntimeError, ValueError) as mem_err:
+                    logger.debug("Sawtooth extension dynamic probe notice: %s", mem_err)
+
             ext_stage = YOLOLadderStage(
                 stage_index=len(curriculum_stages) + extension_cycle,
                 resolution=top_res,
-                batch_size=compute_safe_batch_size(
-                    imgsz=top_res,
-                    vram_gb=vram_gb,
-                    requested_batch=requested_batch,
-                ),
+                batch_size=ext_batch,
                 fraction=1.0,
                 target_epochs=extension_epochs,
                 patience=max(10, int(self.opt_config.get("plateau_patience", 10))),
             )
 
-            ext_dir = self.export_dir / f"stage{ext_stage.stage_index}_{top_res}px_sota_ext{extension_cycle}"
+            # Extension cycle output also goes to LemGendaryModels/yolov8n/runs/
+            ext_dir = self.runs_dir / f"stage{ext_stage.stage_index}_{top_res}px_sota_ext{extension_cycle}"
             ext_dir.mkdir(parents=True, exist_ok=True)
             ext_weights_dir = ext_dir / f"rung_{top_res}" / "weights"
             ext_weights_dir.mkdir(parents=True, exist_ok=True)
@@ -1206,23 +1308,17 @@ class YOLOCurriculumGovernor:
             completed_prior_epochs += ext_stage_epochs_recorded
             extension_cycle += 1
 
-        # Final Canonical Checkpoint Consolidation
+        # Final Canonical Checkpoint Consolidation — all writes go to LemGendaryModels/yolov8n/
         final_best_source = Path(current_weights_path)
-        canonical_export_weights = self.export_dir / "yolov8n" / "weights" / "best.pt"
-        canonical_export_weights.parent.mkdir(parents=True, exist_ok=True)
         hub_ckpt_dir = self.models_hub_ckpt_dir
         hub_ckpt_dir.mkdir(parents=True, exist_ok=True)
         if final_best_source.exists():
-            shutil.copy2(final_best_source, canonical_export_weights)
-            shutil.copy2(final_best_source, self.checkpoints_dir / "best.pt")
-            shutil.copy2(final_best_source, self.checkpoints_dir / "best.pth")
             shutil.copy2(final_best_source, hub_ckpt_dir / "best.pt")
             shutil.copy2(final_best_source, hub_ckpt_dir / "best.pth")
 
-        export_source = canonical_export_weights if canonical_export_weights.exists() else final_best_source
-        if export_source.exists():
+        if final_best_source.exists():
             print("[GOVERNOR] Training complete. Packaging final production artifacts (PyTorch & ONNX) to LemGendaryModels/yolov8n...", flush=True)
-            self._export_sota_models(export_source, resolution=640)
+            self._export_sota_models(final_best_source, resolution=640)
 
         total_time = round(time.time() - start_time, 2)
         print(f"[SUCCESS] Governed YOLOv8n multi-stage training finished in {total_time}s.", flush=True)

@@ -475,6 +475,21 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             self.assertEqual(summary.status, "completed")
 
 
+    def test_compute_safe_batch_size_yolo_480px(self) -> None:
+        from training.governance.yolo_governor import compute_safe_batch_size
+        # 4.0 GB VRAM GPU (e.g. GTX 1650)
+        vram_4gb = 4.0
+        # At resolution 480, safe batch size must allow 16
+        safe_batch_480 = compute_safe_batch_size(imgsz=480, vram_gb=vram_4gb, requested_batch=16)
+        self.assertEqual(safe_batch_480, 16)
+        # When requested batch is 32, clamped to safe max of 16
+        safe_batch_clamped = compute_safe_batch_size(imgsz=480, vram_gb=vram_4gb, requested_batch=32)
+        self.assertEqual(safe_batch_clamped, 16)
+        # At 320px on 4GB, allows 32
+        safe_batch_320 = compute_safe_batch_size(imgsz=320, vram_gb=vram_4gb, requested_batch=32)
+        self.assertEqual(safe_batch_320, 32)
+
+
 if __name__ == "__main__":
     unittest.main()
 
