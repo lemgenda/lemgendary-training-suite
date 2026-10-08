@@ -23,7 +23,13 @@ class DirectoryReader:
         # Locate image directory
         self.img_dir = self._resolve_subfolder("images")
         if self.img_dir is None or not self.img_dir.exists():
-            raise FileNotFoundError(f"Image directory not found in manifold '{self.root}' for split '{self.split}'.")
+            for alt in [self.split, "train", "val", "data"]:
+                cand = self.root / alt
+                if cand.exists() and cand.is_dir():
+                    self.img_dir = cand
+                    break
+            if self.img_dir is None or not self.img_dir.exists():
+                self.img_dir = self.root
 
         # Locate optional directories
         self.tgt_dir = self._resolve_subfolder("targets")
@@ -35,6 +41,11 @@ class DirectoryReader:
             f for f in self.img_dir.iterdir()
             if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS and not f.name.startswith(".")
         ])
+        if not self.sample_files:
+            self.sample_files = sorted([
+                f for f in self.img_dir.rglob("*")
+                if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS and not f.name.startswith(".")
+            ])
 
     def _resolve_subfolder(self, folder_name: str) -> Path | None:
         """Resolve split-aware folder or root folder."""
@@ -95,6 +106,8 @@ class DirectoryReader:
                     label = lbl_candidate.read_text(encoding="utf-8").strip()
                 except OSError as exc:
                     logger.debug("Failed reading label for %s: %s", stem, exc)
+        if label is None and img_path.parent != self.img_dir:
+            label = img_path.parent.name
 
         return Sample(
             name=stem,

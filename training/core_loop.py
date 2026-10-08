@@ -276,11 +276,13 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             or model_info.get("active_timeframes")
             or kwargs.get("active_timeframes")
         )
+        _forex_fold = getattr(args, "fold", 1)
         train_ds = ForexDataset(
             shard_root=_forex_shard_root,
             pairs=_forex_pairs,
             active_timeframes=_forex_timeframes,
             is_train=True,
+            fold=_forex_fold,
         )
         try:
             val_ds = ForexDataset(
@@ -288,6 +290,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 pairs=_forex_pairs,
                 active_timeframes=_forex_timeframes,
                 is_train=False,
+                fold=_forex_fold,
             )
         except Exception as forex_val_err:
             logger.debug("Forex val dataset failed: %s", forex_val_err)

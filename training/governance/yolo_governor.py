@@ -119,7 +119,7 @@ def compute_safe_batch_size(
     #   sawtooth_vram_safety     - fraction of total VRAM to target (headroom reserve)
     #   batch_min / batch_max    - absolute clamps for safety and hardware alignment
     static_mb: float = float(cfg.get("static_vram_mb", 260.0))
-    per_sample_mb_640: float = float(cfg.get("per_sample_vram_mb_640", 480.0))
+    per_sample_mb_640: float = float(cfg.get("per_sample_vram_mb_640", 240.0))
     safety: float = float(cfg.get("sawtooth_vram_safety", 0.82))
     batch_min: int = int(cfg.get("batch_min", 1))
     batch_max: int = int(cfg.get("batch_max", 512))

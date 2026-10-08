@@ -36,8 +36,35 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
     resolved_path = resolver.resolve_manifold(dataset_names[0])
 
     if resolved_path is not None and resolved_path.exists():
-        rel_train = "images/train" if (resolved_path / "images" / "train").exists() else "images"
-        rel_val = "images/val" if (resolved_path / "images" / "val").exists() else ("images/train" if (resolved_path / "images" / "train").exists() else "images")
+        classes_file = resolved_path / "classes.txt"
+        if classes_file.exists():
+            try:
+                c_names = [line.strip() for line in classes_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+                if c_names:
+                    names = c_names
+            except Exception:
+                pass
+
+        if (resolved_path / "images" / "train").exists():
+            rel_train = "images/train"
+        elif (resolved_path / "train" / "images").exists():
+            rel_train = "train/images"
+        elif (resolved_path / "train").exists():
+            rel_train = "train"
+        elif (resolved_path / "images").exists():
+            rel_train = "images"
+        else:
+            rel_train = "."
+
+        if (resolved_path / "images" / "val").exists():
+            rel_val = "images/val"
+        elif (resolved_path / "val" / "images").exists():
+            rel_val = "val/images"
+        elif (resolved_path / "val").exists():
+            rel_val = "val"
+        else:
+            rel_val = rel_train
+
         yolo_cfg = {
             "path": str(resolved_path),
             "train": rel_train,

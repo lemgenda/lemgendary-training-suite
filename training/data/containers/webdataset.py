@@ -229,6 +229,10 @@ class WebDatasetReader:
 
         # Mode: tar
         _, t_path, img_m, tgt_m, mask_m, txt_m, json_m = entry
+        if t_path is None or not isinstance(t_path, Path):
+            raise ValueError(f"Corrupted WebDataset index entry: tar archive path is None at index {index}.")
+        assert isinstance(t_path, Path)
+
         tf = self._tar_handles.get(t_path)
         if tf is None:
             tf = tarfile.open(t_path, mode="r:*")

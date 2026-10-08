@@ -346,24 +346,44 @@ class ForexDataset(Dataset):
         self._index = []
         self._tf_map = {}
 
+        import re
+
         year_parquet_map = {}
         year_dirs_map = {}
+
+        def _register_parquet(path_str: str, base_name: str) -> None:
+            raw_key = base_name.replace(".parquet", "")
+            year_parquet_map[raw_key] = path_str
+            m = re.search(r"(20\d\d)", base_name)
+            if m:
+                yr = m.group(1)
+                year_parquet_map[f"ForexUniverse{yr}"] = path_str
+                year_parquet_map[yr] = path_str
+
+        def _register_dir(path_str: str, base_name: str) -> None:
+            year_dirs_map[base_name] = path_str
+            m = re.search(r"(20\d\d)", base_name)
+            if m:
+                yr = m.group(1)
+                year_dirs_map[f"ForexUniverse{yr}"] = path_str
+                year_dirs_map[yr] = path_str
+
         for root in self.shard_roots:
             if not os.path.exists(root):
                 continue
             bname = os.path.basename(root)
-            if bname.startswith("ForexUniverse") and bname.endswith(".parquet") and os.path.isfile(root):
-                year_parquet_map[bname.replace(".parquet", "")] = root
-            elif bname.startswith("ForexUniverse") and os.path.isdir(root):
-                year_dirs_map[bname] = root
+            if ("forex" in bname.lower() or "universe" in bname.lower() or re.search(r"20\d\d", bname)) and bname.endswith(".parquet") and os.path.isfile(root):
+                _register_parquet(root, bname)
+            elif ("forex" in bname.lower() or "universe" in bname.lower() or re.search(r"20\d\d", bname)) and os.path.isdir(root):
+                _register_dir(root, bname)
             try:
                 for sd in os.listdir(root):
                     full_p = os.path.join(root, sd)
-                    if sd.startswith("ForexUniverse") and sd.endswith(".parquet") and os.path.isfile(full_p):
-                        year_parquet_map[sd.replace(".parquet", "")] = full_p
-                    elif sd.startswith("ForexUniverse") and not sd.endswith(".zip") and os.path.isdir(full_p):
+                    if sd.endswith(".parquet") and os.path.isfile(full_p):
+                        _register_parquet(full_p, sd)
+                    elif not sd.endswith(".zip") and os.path.isdir(full_p):
                         if sd not in year_dirs_map:
-                            year_dirs_map[sd] = full_p
+                            _register_dir(full_p, sd)
             except OSError:
                 continue
 
@@ -371,28 +391,41 @@ class ForexDataset(Dataset):
             try:
                 for root_dir, dirs, files in os.walk('/kaggle/input'):
                     for f in files:
-                        if f.startswith("ForexUniverse") and f.endswith(".parquet"):
-                            yk = f.replace(".parquet", "")
-                            if yk not in year_parquet_map:
-                                year_parquet_map[yk] = os.path.join(root_dir, f)
+                        if f.endswith(".parquet") and ("forex" in f.lower() or "universe" in f.lower() or re.search(r"20\d\d", f)):
+                            _register_parquet(os.path.join(root_dir, f), f)
                     for d in dirs:
-                        if d.startswith("ForexUniverse") and not d.endswith(".zip"):
+                        if not d.endswith(".zip") and ("forex" in d.lower() or "universe" in d.lower() or re.search(r"20\d\d", d)):
                             cand = os.path.join(root_dir, d)
-                            if d not in year_dirs_map:
-                                try:
-                                    if any(p in os.listdir(cand) for p in ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'XAUUSD']):
-                                        year_dirs_map[d] = cand
-                                except OSError:
-                                    pass
+                            try:
+                                if any(p in os.listdir(cand) for p in ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'XAUUSD']):
+                                    _register_dir(cand, d)
+                            except OSError:
+                                pass
             except OSError:
                 pass
 
         if year_parquet_map or year_dirs_map:
             fold_idx = max(1, min(6, self.fold))
             if self.is_train:
-                target_years = [f"ForexUniverse{yr}" for yr in range(2019, 2019 + fold_idx + 1)]
+                candidate_years = [f"ForexUniverse{yr}" for yr in range(2019, 2019 + fold_idx + 1)]
             else:
-                target_years = [f"ForexUniverse{2019 + fold_idx + 1}"]
+                candidate_years = [f"ForexUniverse{2019 + fold_idx + 1}"]
+
+            valid_targets = [y for y in candidate_years if y in year_parquet_map or y in year_dirs_map]
+            if not valid_targets:
+                # Dynamic fallback: Use whatever years are present on disk
+                available = sorted({
+                    k for k in list(year_parquet_map.keys()) + list(year_dirs_map.keys())
+                    if k.startswith("ForexUniverse") and re.search(r"\d{4}", k)
+                })
+                if not available:
+                    available = sorted(list(year_parquet_map.keys()) + list(year_dirs_map.keys()))
+                if available:
+                    if self.is_train:
+                        valid_targets = available[:-1] if len(available) > 1 else available
+                    else:
+                        valid_targets = [available[-1]]
+            target_years = valid_targets
 
             for yr_name in target_years:
                 if yr_name in year_parquet_map:

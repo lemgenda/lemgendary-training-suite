@@ -29,8 +29,10 @@ GoogleDriveCredentials.json
 # Ignore throwaway scripts
 scratch/
 
-# Ultralytics YOLO output
+# Ultralytics YOLO output & generated configs
 runs/
+data/yolo_*_config.yaml
+export/*/
 
 # Training suite diagnostic logs
 fleet_failure_report.json

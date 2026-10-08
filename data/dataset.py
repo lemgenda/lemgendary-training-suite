@@ -98,14 +98,18 @@ class MultiTaskDataset(Dataset):
     def _get_split_path(self, ds_path, folder_name, fname, ext=""):
         base_name = os.path.splitext(fname)[0] if ext else fname
         suffix = ext if ext else ""
-        primary_path = os.path.join(ds_path, folder_name, self.split, base_name + suffix)
-        if os.path.exists(primary_path):
-            return primary_path
-        alt_split = "val" if self.split == "train" else "train"
-        fallback_path = os.path.join(ds_path, folder_name, alt_split, base_name + suffix)
-        if os.path.exists(fallback_path):
-            return fallback_path
-        return primary_path
+        cands = [
+            os.path.join(ds_path, folder_name, self.split, base_name + suffix),
+            os.path.join(ds_path, folder_name, ("val" if self.split == "train" else "train"), base_name + suffix),
+            os.path.join(ds_path, folder_name, base_name + suffix),
+            os.path.join(ds_path, self.split, folder_name, base_name + suffix),
+            os.path.join(ds_path, self.split, base_name + suffix),
+            os.path.join(ds_path, base_name + suffix),
+        ]
+        for c in cands:
+            if os.path.exists(c):
+                return c
+        return cands[0]
 
     def _load_manifest(self, config):
         self.all_samples = []
@@ -182,6 +186,11 @@ class MultiTaskDataset(Dataset):
                 f for f in items
                 if f.lower().endswith(('.jpg', '.png', '.jpeg', '.webp'))
             ]
+            if not files:
+                for root_dir, _, sub_files in os.walk(scan_dir):
+                    for sf in sub_files:
+                        if sf.lower().endswith(('.jpg', '.png', '.jpeg', '.webp')):
+                            files.append(os.path.relpath(os.path.join(root_dir, sf), scan_dir).replace("\\", "/"))
             for f in files:
                 self.all_samples.append((ds_name, f))
 
@@ -198,10 +207,15 @@ class MultiTaskDataset(Dataset):
                     loaded_paths.add(m_str)
                     ds_key = m_path.name
                     self.path_cache[ds_key] = m_str
-                    for sub in ["images", "targets", "shards"]:
+                    for sub in ["images", "targets", "shards", "train", "val"]:
                         sub_dir = os.path.join(m_str, sub, self.split) if os.path.exists(os.path.join(m_str, sub, self.split)) else os.path.join(m_str, sub)
                         if os.path.exists(sub_dir):
                             items = [f for f in os.listdir(sub_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg', '.webp'))]
+                            if not items:
+                                for root_dir, _, sub_files in os.walk(sub_dir):
+                                    for sf in sub_files:
+                                        if sf.lower().endswith(('.jpg', '.png', '.jpeg', '.webp')):
+                                            items.append(os.path.relpath(os.path.join(root_dir, sf), sub_dir).replace("\\", "/"))
                             for f in items:
                                 self.all_samples.append((ds_key, f))
                             if items:
@@ -495,7 +509,22 @@ class MultiTaskDataset(Dataset):
 
         if self.task_type == "classification":
             label = sample.label
-            class_idx = int(label) if isinstance(label, (int, float)) else 0
+            class_idx = 0
+            if isinstance(label, (int, float)):
+                class_idx = int(label)
+            elif isinstance(label, str):
+                if label.isdigit():
+                    class_idx = int(label)
+                else:
+                    classes_file = os.path.join(self.path_cache.get(ds_name, ""), "classes.txt")
+                    if os.path.exists(classes_file):
+                        try:
+                            with open(classes_file, "r", encoding="utf-8") as cf:
+                                c_lines = [line.strip() for line in cf if line.strip()]
+                            if label in c_lines:
+                                class_idx = c_lines.index(label)
+                        except Exception:
+                            pass
             return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
 
         return img_tensor, torch.zeros(1), self.task_type
@@ -718,6 +747,20 @@ class MultiTaskDataset(Dataset):
                         class_idx = int(float(f.read().strip()))
                         return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
                     except: pass
+            parent_dir = os.path.dirname(fname)
+            if parent_dir:
+                class_candidate = os.path.basename(parent_dir)
+                if class_candidate.isdigit():
+                    return img_tensor, torch.tensor(int(class_candidate), dtype=torch.long), "classification"
+                classes_file = os.path.join(ds_path, "classes.txt")
+                if os.path.exists(classes_file):
+                    try:
+                        with open(classes_file, "r", encoding="utf-8") as cf:
+                            c_lines = [line.strip() for line in cf if line.strip()]
+                        if class_candidate in c_lines:
+                            return img_tensor, torch.tensor(c_lines.index(class_candidate), dtype=torch.long), "classification"
+                    except Exception:
+                        pass
             return img_tensor, torch.tensor(0, dtype=torch.long), "classification"
         elif self.task_type == "segmentation":
             mask_path = self._get_split_path(ds_path, "masks", fname)
