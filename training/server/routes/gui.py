@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from training.cloud.credentials import resolve_kaggle_credentials
 from training.server.routes.models import _load_registry
 from training.services.audit_service import AuditService
 from training.services.checkpoint_service import CheckpointService
