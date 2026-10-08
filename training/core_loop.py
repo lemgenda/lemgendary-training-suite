@@ -183,13 +183,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     device_info = discover_device()
     policy = apply_hardware_policy(model_key, model_info, device_info, config)
 
-    # 2. Directory structure
-    local_checkpoint_dir = project_root / "checkpoints" / model_key
-    local_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    hub_checkpoint_dir = project_root / "hub" / model_key
-    export_dir = project_root / "export" / model_key
-    export_dir.mkdir(parents=True, exist_ok=True)
-
+    # 2. Directory structure — exclusively under LemGendaryModels
+    # Training suite project is code-only; all artifacts, checkpoints, exports, and metrics go to LemGendaryModels
     models_hub_dir = (project_root.parent / "LemGendaryModels" / model_key).resolve()
     models_hub_checkpoint_dir = models_hub_dir / "checkpoints"
     models_hub_dir.mkdir(parents=True, exist_ok=True)
@@ -197,12 +192,12 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
 
     paths = TrainingPaths(
         project_root=project_root,
-        local_checkpoint_dir=local_checkpoint_dir,
-        hub_checkpoint_dir=hub_checkpoint_dir,
-        export_dir=export_dir,
-        progress_local_path=local_checkpoint_dir / "progress.pth",
-        best_checkpoint_path=local_checkpoint_dir / "best.pth",
-        history_csv_path=local_checkpoint_dir / "history.csv",
+        local_checkpoint_dir=models_hub_checkpoint_dir,
+        hub_checkpoint_dir=models_hub_checkpoint_dir,
+        export_dir=models_hub_dir,
+        progress_local_path=models_hub_checkpoint_dir / "progress.pth",
+        best_checkpoint_path=models_hub_checkpoint_dir / "best.pth",
+        history_csv_path=models_hub_dir / "history.csv",
         models_hub_dir=models_hub_dir,
         models_hub_checkpoint_dir=models_hub_checkpoint_dir,
         models_hub_progress_path=models_hub_checkpoint_dir / "progress.pth",
@@ -212,14 +207,11 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
 
     if args.clean:
         for clean_target in [
-            local_checkpoint_dir / "progress.pth",
-            local_checkpoint_dir / "best.pth",
-            local_checkpoint_dir / "history.csv",
-            local_checkpoint_dir / "metrics.csv",
             models_hub_checkpoint_dir / "progress.pth",
             models_hub_checkpoint_dir / "best.pth",
             models_hub_checkpoint_dir / f"{model_key}_latest.pth",
             models_hub_checkpoint_dir / f"{model_key}_best.pth",
+            models_hub_dir / "history.csv",
             models_hub_dir / "metrics.csv",
         ]:
             if clean_target.exists():

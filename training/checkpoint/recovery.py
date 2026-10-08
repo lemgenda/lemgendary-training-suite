@@ -1,5 +1,6 @@
 """BFS checkpoint recovery engine across Kaggle mounts, model hubs, and local scratch dirs."""
 
+import concurrent.futures
 import logging
 from pathlib import Path
 import re
@@ -83,7 +84,7 @@ class CheckpointRecoveryEngine:
                 except OSError as exc:
                     logger.debug("Failed traversing /kaggle/input: %s", exc)
 
-            # Attempt kagglehub download probe
+            # Attempt kagglehub download probe with non-blocking timeout
             try:
                 import importlib
                 kh_mod = importlib.import_module("kagglehub")
@@ -97,10 +98,16 @@ class CheckpointRecoveryEngine:
 
                 model_download_fn = getattr(kh_mod, "model_download", None)
                 if callable(model_download_fn):
-                    dl_path = Path(model_download_fn(k_handle))
-                    if dl_path.exists():
-                        logger.info("KaggleHub resolved checkpoint directory: %s", dl_path)
-                        roots.insert(0, dl_path)
+                    print(f"[RECOVERY] Probing KaggleHub checkpoints for '{k_handle}' (5s timeout)...", flush=True)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(model_download_fn, k_handle)
+                        dl_path = Path(future.result(timeout=5.0))
+                        if dl_path.exists():
+                            logger.info("KaggleHub resolved checkpoint directory: %s", dl_path)
+                            print(f"[RECOVERY] Discovered KaggleHub checkpoint directory: {dl_path}", flush=True)
+                            roots.insert(0, dl_path)
+            except concurrent.futures.TimeoutError:
+                print(f"[RECOVERY] KaggleHub checkpoint probe timed out (5s). Skipping remote probe.", flush=True)
             except Exception as kh_exc:
                 logger.debug("KaggleHub checkpoint probe notice: %s", kh_exc)
 

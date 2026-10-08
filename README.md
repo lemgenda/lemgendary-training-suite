@@ -18,6 +18,13 @@
 
 ---
 
+### v16.9.16 — Real-Time Batch/Epoch Progress Telemetry, Code-Only Suite Isolation & First-Principles VRAM Formula
+
+- **Live Minibatch & Epoch Telemetry (`training/training/epoch.py`, `training/training/engine.py`)** — Added real-time visual progress logging to terminal during epoch iteration. Reports loss, running average loss, learning rate, and elapsed execution seconds every 10 minibatches (and upon final minibatch completion). Epoch initiation and completion banners announce current quality scores, PSNR/SSIM reconstruction metrics, and SOTA records.
+- **Code-Only Training Suite Isolation (`training/core_loop.py`, `training/governance/yolo_governor.py`)** — Enforced complete separation between training code and generated model artifacts. All checkpoints, production exports, training history, and metrics CSV files are routed strictly to `LemGendaryModels/<model_key>/`. Eliminated local `checkpoints/` and model subdirectories inside `export/`.
+- **First-Principles Continuous VRAM Batch Formula (`training/governance/yolo_governor.py`, `unified_models_v2.yaml`)** — Replaced hardcoded $4 \times 4$ VRAM tier lookup table with continuous first-principles memory arithmetic ($\text{VRAM}_{\text{GB}} \cdot 1024 \cdot \text{safety} - \text{static\_overhead}$) divided by resolution-scaled activation memory. Externalized all governor tuning parameters to YAML under `yolov8n > optimization`.
+- **KaggleHub Checkpoint Probe Timeout & Non-Blocking Discovery (`training/checkpoint/recovery.py`)** — Wrapped remote checkpoint probing in a 5-second non-blocking timeout with clear console diagnostics to prevent silent execution hangs during cloud startup.
+
 ### v16.9.15 — Dynamic Sawtooth VRAM Batch Governor & Generalized Kaggle Dataset Auto-Binding
 
 - **Dynamic Sawtooth VRAM Batch Scaling (`training/governance/yolo_governor.py`)** — Upgraded `compute_safe_batch_size` across all VRAM tiers. On 4GB hardware (`<= 4.5 GB`), updated safe batch limits to `{320: 32, 480: 16, 640: 8, 1024: 4}`, unlocking batch size 16 at resolution 480 for YOLOv8n (which previously was throttled to 8 despite consuming only 1.52 GB VRAM). Implemented dynamic runtime Sawtooth Governor feedback: dynamically probes peak VRAM pressure via `torch.cuda.max_memory_allocated()`; if pressure exceeds 90%, it dynamically halves the batch size to protect against OOM spikes; if VRAM headroom is abundant (< 60% capacity), it automatically promotes the stage batch size up to the safe capacity limit.

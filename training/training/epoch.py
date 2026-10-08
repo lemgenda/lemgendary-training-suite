@@ -73,6 +73,9 @@ def train_one_epoch(ctx: TrainingContext, epoch: int) -> dict[str, float]:
 
     ctx.optimizer.zero_grad(set_to_none=True)
 
+    num_batches = len(ctx.train_loader) if hasattr(ctx.train_loader, "__len__") else 0
+    log_interval = max(1, min(10, num_batches // 10)) if num_batches > 0 else 10
+
     for batch_idx, batch in enumerate(ctx.train_loader):
         inputs, targets, task_idx = _unpack_batch(batch, device)
 
@@ -111,6 +114,28 @@ def train_one_epoch(ctx: TrainingContext, epoch: int) -> dict[str, float]:
                 ctx.optimizer.step()
 
             ctx.optimizer.zero_grad(set_to_none=True)
+
+        if (batch_idx + 1) % log_interval == 0 or (batch_idx + 1) == num_batches:
+            batch_loss = float(raw_loss.item())
+            cur_lr = float(ctx.optimizer.param_groups[0]["lr"])
+            elapsed_batch = time.time() - start_time
+            if num_batches > 0:
+                print(
+                    f"  [BATCH {batch_idx + 1:>{len(str(num_batches))}}/{num_batches}] "
+                    f"Loss: {batch_loss:.4f} | "
+                    f"AvgLoss: {total_loss / step_count:.4f} | "
+                    f"LR: {cur_lr:.6f} | "
+                    f"{elapsed_batch:.1f}s",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"  [BATCH {batch_idx + 1}] "
+                    f"Loss: {batch_loss:.4f} | "
+                    f"AvgLoss: {total_loss / step_count:.4f} | "
+                    f"{elapsed_batch:.1f}s",
+                    flush=True,
+                )
 
     elapsed = time.time() - start_time
     avg_loss = total_loss / max(1, step_count)

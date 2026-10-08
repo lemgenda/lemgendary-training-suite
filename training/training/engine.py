@@ -76,6 +76,8 @@ def run_training(
         if hasattr(ctx.governor, "thermal") and hasattr(ctx.governor.thermal, "step_epoch"):
             ctx.governor.thermal.step_epoch()
 
+        print(f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for {ctx.model_name}...", flush=True)
+
         # 2. Train one epoch
         train_metrics = train_one_epoch(ctx, epoch)
 
@@ -96,6 +98,20 @@ def run_training(
         )
         if is_best:
             best_metrics = dict(combined_metrics)
+
+        # Epoch summary logging
+        val_info = f"ValLoss: {current_loss:.4f}"
+        if "psnr" in combined_metrics:
+            val_info += f" | PSNR: {combined_metrics['psnr']:.2f}dB | SSIM: {combined_metrics.get('ssim', 0.0):.4f}"
+        sota_star = " [NEW BEST]" if is_best else ""
+        print(
+            f"[EPOCH {epoch}/{ctx.total_epochs} COMPLETE] "
+            f"TrainLoss: {train_loss:.4f} | "
+            f"{val_info} | "
+            f"Quality: {current_quality:.2f}{sota_star} | "
+            f"EpochTime: {train_metrics.get('epoch_time', 0.0):.1f}s",
+            flush=True,
+        )
 
         # 5. Checkpoint serialization payload
         raw_model = ctx.raw_model if ctx.raw_model is not None else ctx.model

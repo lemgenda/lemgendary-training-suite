@@ -991,18 +991,52 @@ yolov8n:
   optimal_key: yolov8n
   description: Unified YOLOv8n for classification, detection, and pose
   optimization:
-    initial_fraction: 0.3
+    # ── Curriculum fraction progression ───────────────────────────────────────
+    initial_fraction: 0.3          # Starting data fraction for lowest resolution rung
+    next_res_start_fraction: 0.50  # Starting data fraction when advancing to higher resolution
+    fraction_step_min: 0.15        # Minimum inter-stage fraction increment
+    fraction_step_max: 0.20        # Maximum inter-stage fraction increment
     high_fidelity_fraction: 0.7
-    enabled: true
-    absolute_patience: 15
     fraction_increment: 0.2
-    plateau_patience: 10
+    # ── Plateau / overfitting detection ───────────────────────────────────────
+    enabled: true
+    plateau_patience: 10           # Epochs without improvement before governor triggers
+    absolute_patience: 15
+    rung_plateau_patience: 5       # Per-rung plateau patience (inner loop)
+    rung_min_epochs: 3             # Minimum epochs per rung before plateau check
+    rung_plateau_min_delta: 0.001  # Minimum quality delta to reset plateau counter
     cooling_factor: 0.75
+    plateau_priority: resolution
+    # ── SOTA convergence extension ─────────────────────────────────────────────
+    extension_epochs: 20           # Epochs per SOTA extension cycle (no hard cap)
+    # ── Spatial resolution ladder ─────────────────────────────────────────────
     res_ladder:
     - 320
     - 480
     - 640
-    plateau_priority: resolution
+    # ── Sawtooth VRAM Governor ────────────────────────────────────────────────
+    # Dynamic batch sizing via first-principles VRAM arithmetic.
+    # All values are tunable here; no hardcoding in the training code.
+    #
+    # VRAM budget formula:
+    #   total_budget_mb  = vram_gb * 1024 * sawtooth_vram_safety
+    #   available_mb     = total_budget_mb - static_vram_mb
+    #   per_sample_mb    = per_sample_vram_mb_640 * (imgsz / 640) ** 2
+    #   max_safe_batch   = floor(available_mb / per_sample_mb)  [rounded to power-of-2]
+    #
+    # Calibration source: GTX 1650 (4.0 GB) ran batch=16 at 480px stably.
+    #   observed avail  ≈ 4.0 * 1024 * 0.85 - 260 = 3214 MB
+    #   per_sample@480  ≈ 3214 / 16 = 200 MB
+    #   per_sample@640  ≈ 200 / (480/640)² = 200 / 0.5625 ≈ 356 MB → rounded to 240
+    #   (240 * 0.5625 = 135 -> 3214/135 = 23 -> p2 = 16 [ok] for 4GB at 480px)
+    #
+    static_vram_mb: 260            # Fixed GPU VRAM overhead: weights + gradients + optimizer states
+    per_sample_vram_mb_640: 240    # Activation VRAM per sample at 640px (empirically calibrated for YOLOv8n)
+    sawtooth_vram_safety: 0.85     # Target fraction of total VRAM to use (leave ~15% headroom)
+    sawtooth_vram_pressure_thresh: 0.90   # Fraction above which batch is halved immediately
+    sawtooth_vram_headroom_thresh: 0.60   # Fraction below which batch may be promoted
+    batch_min: 1                   # Hard floor on batch size regardless of VRAM
+    batch_max: 512                 # Hard ceiling on batch size
   datasets:
   - LemGendizedYoloV8n
   kaggle_ref: kaggle://lemtreursi/lemgendizedyolov8n

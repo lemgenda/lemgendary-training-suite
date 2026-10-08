@@ -149,16 +149,21 @@ def compute_safe_batch_size(
     return max_safe
 
 
-def _build_gradual_fractions(start: float) -> List[float]:
-    """Build fractions from start to 1.0 where every increment is between 0.15 and 0.20."""
+def _build_gradual_fractions(
+    start: float,
+    step_min: float = 0.15,
+    step_max: float = 0.20,
+) -> List[float]:
+    """Build fractions from start to 1.0 where every increment is between step_min and step_max."""
     if start >= 0.99:
         return [1.0]
+    step_mid = (step_min + step_max) / 2.0
     span = 1.0 - start
-    steps = max(1, round(span / 0.175))
+    steps = max(1, round(span / step_mid))
     step_size = span / steps
-    if step_size > 0.20:
+    if step_size > step_max:
         steps += 1
-    elif step_size < 0.15 and steps > 1:
+    elif step_size < step_min and steps > 1:
         steps -= 1
     fractions = [round(start + i * (span / steps), 2) for i in range(steps)]
     fractions.append(1.0)
@@ -170,25 +175,30 @@ def get_fractions_for_resolution(
     is_lowest_rung: bool,
     opt_config: Optional[Dict[str, Any]] = None,
 ) -> List[float]:
-    """Generate gradual fraction progression in 15%-20% increments up to 100%.
+    """Generate gradual fraction progression in configurable step increments up to 100%.
+
+    Step bounds are read from opt_config keys fraction_step_min / fraction_step_max
+    (defaults: 0.15 / 0.20).
 
     Rules:
       - Lowest resolution rung (<= 320px) starts from initial fraction (~30%)
-        and increases gradually by 15%-20% per stage: [0.30, 0.50, 0.70, 0.85, 1.00].
+        and increases gradually: [0.30, 0.50, 0.70, 0.85, 1.00].
       - Subsequent higher resolution rungs (480px, 640px) start from 50% data
-        and increase gradually by 15%-20% per stage: [0.50, 0.65, 0.80, 1.00].
+        and increase gradually: [0.50, 0.65, 0.80, 1.00].
     """
     opt_config = opt_config or {}
+    step_min = float(opt_config.get("fraction_step_min", 0.15))
+    step_max = float(opt_config.get("fraction_step_max", 0.20))
     if is_lowest_rung and resolution <= 320:
         initial = float(opt_config.get("initial_fraction", 0.30))
-        if abs(initial - 0.30) < 0.05:
+        if abs(initial - 0.30) < 0.05 and abs(step_min - 0.15) < 0.01 and abs(step_max - 0.20) < 0.01:
             return [0.30, 0.50, 0.70, 0.85, 1.00]
-        return _build_gradual_fractions(initial)
+        return _build_gradual_fractions(initial, step_min, step_max)
     else:
         next_res_start = float(opt_config.get("next_res_start_fraction", 0.50))
-        if abs(next_res_start - 0.50) < 0.05:
+        if abs(next_res_start - 0.50) < 0.05 and abs(step_min - 0.15) < 0.01 and abs(step_max - 0.20) < 0.01:
             return [0.50, 0.65, 0.80, 1.00]
-        return _build_gradual_fractions(next_res_start)
+        return _build_gradual_fractions(next_res_start, step_min, step_max)
 
 
 def build_ladder_curriculum(
@@ -434,6 +444,31 @@ class YOLOCurriculumGovernor:
                 shutil.copy2(csv_source, self.models_hub_dir / "metrics.csv")
             except OSError as csv_err:
                 logger.debug("Non-fatal metrics CSV sync error: %s", csv_err)
+
+        # Synchronize validation plots (confusion matrices, PR/F1 curves) to LemGendaryModels/yolov8n/
+        rung_dirs = [
+            stage_dir / f"rung_{resolution}_f{frac_pct}",
+            stage_dir / f"rung_{resolution}",
+            stage_dir,
+        ]
+        for rd in rung_dirs:
+            if rd.exists():
+                for plot_name in [
+                    "confusion_matrix.png",
+                    "confusion_matrix_normalized.png",
+                    "BoxPR_curve.png",
+                    "BoxF1_curve.png",
+                    "BoxP_curve.png",
+                    "BoxR_curve.png",
+                    "results.png",
+                ]:
+                    plot_file = rd / plot_name
+                    if plot_file.exists() and plot_file.stat().st_size > 0:
+                        try:
+                            shutil.copy2(plot_file, self.models_hub_dir / plot_name)
+                        except OSError as plot_err:
+                            logger.debug("Non-fatal plot sync error: %s", plot_err)
+                break
 
         # Persist curriculum state to LemGendaryModels/yolov8n/checkpoints/
         if global_epoch is not None:
