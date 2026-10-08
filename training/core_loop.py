@@ -309,6 +309,9 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 env=args.env,
                 sample_fraction=1.0,
             )
+            if len(val_ds) == 0:
+                logger.info("Validation dataset contains 0 samples; running without validation.")
+                val_ds = None
         except Exception:
             val_ds = None
 
@@ -320,7 +323,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         env=args.env,
         config=config,
     )
-    if val_ds is not None:
+    if val_ds is not None and len(val_ds) > 0:
         try:
             val_loader = canonical_build_val_loader(
                 dataset=val_ds,

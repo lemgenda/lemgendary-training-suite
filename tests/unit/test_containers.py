@@ -160,6 +160,40 @@ class TestContainers(unittest.TestCase):
 
         reader.close()
 
+    def test_webdataset_extracted_shards_reader(self) -> None:
+        """Test WebDatasetReader discovering unpacked shard directories (Kaggle layout)."""
+        manifold = self.root / "test_wds_extracted"
+        shard_dir = manifold / "shards" / "train" / "shard-00000"
+        shard_dir.mkdir(parents=True)
+
+        buf_img = io.BytesIO()
+        Image.new("RGB", (16, 16), color=(200, 100, 50)).save(buf_img, format="WEBP")
+        img_bytes = buf_img.getvalue()
+
+        buf_tgt = io.BytesIO()
+        Image.new("RGB", (16, 16), color=(50, 100, 200)).save(buf_tgt, format="WEBP")
+        tgt_bytes = buf_tgt.getvalue()
+
+        meta_json = json.dumps({"task": "restoration", "distribution": [0.1] * 10}).encode("utf-8")
+
+        (shard_dir / "sample_001.webp").write_bytes(img_bytes)
+        (shard_dir / "sample_001.target.webp").write_bytes(tgt_bytes)
+        (shard_dir / "sample_001.json").write_bytes(meta_json)
+
+        reader = WebDatasetReader(manifold, split="train")
+        self.assertEqual(len(reader), 1)
+
+        sample = reader[0]
+        self.assertEqual(sample.name, "sample_001")
+        self.assertEqual(sample.image_format, "webp")
+        self.assertEqual(sample.image_bytes, img_bytes)
+        self.assertEqual(sample.target_bytes, tgt_bytes)
+        self.assertIsInstance(sample.label, list)
+        self.assertEqual(len(sample.label), 10)
+        self.assertEqual(sample.metadata.get("json", {}).get("task"), "restoration")
+
+        reader.close()
+
     def test_mds_reader(self) -> None:
         manifold = self.root / "test_mds_manifold"
         mds_dir = manifold / "mds"

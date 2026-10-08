@@ -195,12 +195,10 @@ class MultiTaskDataset(Dataset):
                 for m_path in attached_manifolds:
                     print(f"  -> {m_path}")
                     m_str = str(m_path)
-                    if m_str in loaded_paths:
-                        continue
                     loaded_paths.add(m_str)
                     ds_key = m_path.name
                     self.path_cache[ds_key] = m_str
-                    for sub in ["images", "targets"]:
+                    for sub in ["images", "targets", "shards"]:
                         sub_dir = os.path.join(m_str, sub, self.split) if os.path.exists(os.path.join(m_str, sub, self.split)) else os.path.join(m_str, sub)
                         if os.path.exists(sub_dir):
                             items = [f for f in os.listdir(sub_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg', '.webp'))]
@@ -310,8 +308,11 @@ class MultiTaskDataset(Dataset):
                     type(reader).__name__,
                     count,
                 )
+                print(f"[CONTAINER] Resolved {type(reader).__name__} for '{ds_name}': {count} samples ({self.split} split)")
             except (FileNotFoundError, OSError, ValueError) as exc:
                 logger.debug("Container reader failed for '%s': %s", ds_name, exc)
+                if self.split == "train":
+                    print(f"[CONTAINER] Notice: Container reader for '{ds_name}' ({self.split} split): {exc}")
 
     def get_dataset_path(self, ds_name):
         from training.data.manifold import ManifoldResolver
