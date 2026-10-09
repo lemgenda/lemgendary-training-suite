@@ -463,7 +463,7 @@ upn_v2:
   - theta
   - conf
   optimal_key: upn_v2
-  description: Universal parameter predictor for image restoration
+  description: Universal parameter predictor for image restoration powered by MobileNetV3-Small backbone
   stabilizers:
     numerical_sentinel:
     - -0.1
@@ -494,9 +494,9 @@ upn_v2:
   - https://www.kaggle.com/datasets/lemtreursi/lemgendizedupnv2
   val_resolution: 256
   kaggle_accelerator: T4
-  architecture_type: UPN_v2 (MobileNet-Lite Parameter Regressor)
+  architecture_type: MobileNetV3-Small Parameter Regressor
   kwargs:
-    backbone: mobilenet_lite
+    backbone: mobilenet_v3_small
   canonical_format: webdataset
 film_restorer:
   status: VALIDATED
@@ -1225,9 +1225,8 @@ retinaface:
   - output3
   optimal_key: retinaface
   description: >-
-    Robust single-stage face and landmark detection supporting MobileNetV1-0.25
-    for ultra-fast edge deployment and ResNet-50 for high-capacity multi-scale
-    feature pyramid network extraction.
+    Robust single-stage face and landmark detection with unified MobileNetV3-Small
+    backbone for real-time edge deployment.
   datasets:
   - LemGendizedRetinaFace
   - LemGendizedRetinaFace
@@ -1248,11 +1247,11 @@ retinaface:
     map_easy: 0.915
     map_medium: 0.89
     map_hard: 0.75
-  architecture_type: RetinaFace (MobileNetV1-0.25 / ResNet-50 FPN Backbone)
+  architecture_type: MobileNetV3-Small Backbone
   kwargs:
-    backbone: mobilenet_0.25
+    backbone: mobilenet_v3_small
     supported_backbones:
-    - mobilenet_0.25
-    - resnet50
+    - mobilenet_v3_small
+    - mobilenet_v2
   kaggle_accelerator: T4
   canonical_format: webdataset

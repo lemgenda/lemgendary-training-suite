@@ -30,7 +30,7 @@ class NIMA_Model(nn.Module):
     Nuclear-Hardened NIMA (Neural IMage Assessment).
     Implements Autonomous Temperature Sharpening, Spatial Statistical Pooling, and Logit Clamping.
     """
-    def __init__(self, backbone="mobilenet_v2", hidden_dim=None, pooling="avg", **kwargs):
+    def __init__(self, backbone="mobilenet_v3_small", hidden_dim=None, pooling="avg", **kwargs):
         super().__init__()
         self.backbone_name = backbone
 
@@ -42,9 +42,12 @@ class NIMA_Model(nn.Module):
         elif backbone == "swin_v2_t":
             self.features = models.swin_v2_t(weights=models.Swin_V2_T_Weights.IMAGENET1K_V1).features
             base_in_features = 768
-        else:
+        elif backbone == "mobilenet_v2":
             self.features = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1).features
             base_in_features = 1280
+        else:
+            self.features = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1).features
+            base_in_features = 576
 
         in_features = base_in_features * 2 if pooling == "stats" else base_in_features
         if pooling == "gem":

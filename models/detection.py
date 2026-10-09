@@ -4,13 +4,17 @@ from torchvision import models
 
 class RetinaFace_MobileNet(nn.Module):
     """
-    Real RetinaFace structure with MobileNetV2 backbone.
+    Real RetinaFace structure with MobileNetV3-Small backbone.
     Outputs: [B, 4] Bboxes, [B, 1] Confidence, [B, 10] Landmarks.
     """
-    def __init__(self, **kwargs):
+    def __init__(self, backbone="mobilenet_v3_small", **kwargs):
         super().__init__()
-        # Use pretrained MobileNetV2 features
-        self.backbone = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1).features
+        if backbone == "mobilenet_v2":
+            self.backbone = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1).features
+            in_channels = 1280
+        else:
+            self.backbone = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1).features
+            in_channels = 576
         
         # Detection Heads
         self.conv_feat = nn.Sequential(
@@ -18,10 +22,9 @@ class RetinaFace_MobileNet(nn.Module):
             nn.Flatten()
         )
         
-        # 1280 is the output channel count of MobileNetV2
-        self.bbox_head = nn.Linear(1280, 4)
-        self.conf_head = nn.Linear(1280, 1)
-        self.landmark_head = nn.Linear(1280, 10)
+        self.bbox_head = nn.Linear(in_channels, 4)
+        self.conf_head = nn.Linear(in_channels, 1)
+        self.landmark_head = nn.Linear(in_channels, 10)
 
     def forward(self, x):
         feat = self.backbone(x)

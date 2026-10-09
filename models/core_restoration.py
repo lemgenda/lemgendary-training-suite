@@ -446,28 +446,35 @@ class UniversalFilmRestorer(nn.Module):
         return out + x  # Global residual connection
 
 class UPN_v2_Model(nn.Module):
-    """Universal Parameter Predictor with MobileNet-lite backbone.
+    """Universal Parameter Predictor with MobileNetV3-Small backbone.
     
     Outputs 3 bounded parameters:
       - deg   ∈ [0, 1]  — degradation degree (blur sigma, noise level, etc.)
       - theta ∈ [0, π]  — degradation orientation/angle
       - conf  ∈ [0, 1]  — confidence/severity
     """
-    def __init__(self, **kwargs):
+    def __init__(self, backbone="mobilenet_v3_small", **kwargs):
         super().__init__()
-        self.backbone = nn.Sequential(
-            nn.Conv2d(3, 16, 3, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(16, 32, 3, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(32, 64, 3, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d(1)
-        )
-        self.fc = nn.Linear(64, 3)  # deg, theta, conf
+        from torchvision import models
+        if backbone == "cnn_lite":
+            self.backbone = nn.Sequential(
+                nn.Conv2d(3, 16, 3, stride=2, padding=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(16, 32, 3, stride=2, padding=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(32, 64, 3, stride=2, padding=1),
+                nn.ReLU(inplace=True),
+            )
+            in_features = 64
+        else:
+            self.backbone = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1).features
+            in_features = 576
+
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(in_features, 3)  # deg, theta, conf
         
     def forward(self, x):
-        feat = self.backbone(x).flatten(1)
+        feat = self.pool(self.backbone(x)).flatten(1)
         raw = self.fc(feat)
         # Bounded activation: deg∈[0,1], theta∈[0,π], conf∈[0,1]
         deg = torch.sigmoid(raw[:, 0])
