@@ -214,13 +214,22 @@ def export_tri_format_yolo(
     except Exception as exc:
         logger.error("Failed saving YOLO .pt to %s: %s", pt_path, exc)
 
+    yolo_model = None
+    if hasattr(trainer, "export"):
+        yolo_model = trainer
+    elif hasattr(trainer, "best") and Path(getattr(trainer, "best", "")).exists():
+        from ultralytics import YOLO
+        yolo_model = YOLO(str(trainer.best))
+    elif pt_path.exists():
+        from ultralytics import YOLO
+        yolo_model = YOLO(str(pt_path))
+
     # 2. FP32 ONNX with Separate Weights Sidecar
     fp32_onnx_path = target_dir / f"{model_key}_FP32.onnx"
     fp32_data_path = target_dir / f"{model_key}_FP32.onnx.data"
     try:
-        if hasattr(trainer, "model") and hasattr(trainer.model, "export"):
-            # Ultralytics export produces standard ONNX
-            raw_onnx = trainer.model.export(format="onnx", half=False, imgsz=640)
+        if yolo_model is not None and hasattr(yolo_model, "export"):
+            raw_onnx = yolo_model.export(format="onnx", half=False, imgsz=640)
             if raw_onnx and Path(raw_onnx).exists():
                 onnx_model = onnx.load(str(raw_onnx))
                 onnx.external_data_helper.convert_model_to_external_data(
@@ -240,14 +249,24 @@ def export_tri_format_yolo(
     # 3. FP16 ONNX with Integrated Weights
     fp16_onnx_path = target_dir / f"{model_key}.onnx"
     try:
-        if hasattr(trainer, "model") and hasattr(trainer.model, "export"):
-            raw_half_onnx = trainer.model.export(format="onnx", half=True, imgsz=640)
+        if yolo_model is not None and hasattr(yolo_model, "export"):
+            raw_half_onnx = yolo_model.export(format="onnx", half=True, imgsz=640)
             if raw_half_onnx and Path(raw_half_onnx).exists():
-                import shutil
-                shutil.copy2(str(raw_half_onnx), str(fp16_onnx_path))
+                if Path(raw_half_onnx).resolve() != fp16_onnx_path.resolve():
+                    import shutil
+                    shutil.copy2(str(raw_half_onnx), str(fp16_onnx_path))
                 exported_files["onnx_fp16"] = fp16_onnx_path
                 logger.info("Successfully exported YOLO FP16 integrated ONNX to %s", fp16_onnx_path)
     except Exception as exc:
         logger.error("Failed exporting YOLO FP16 ONNX: %s", exc)
+
+    # Clean up any misplaced/orphaned {model_key}.onnx.data
+    orphaned_data = target_dir / f"{model_key}.onnx.data"
+    if orphaned_data.exists():
+        try:
+            orphaned_data.unlink()
+            logger.info("Cleaned up orphaned sidecar data %s", orphaned_data)
+        except OSError:
+            pass
 
     return exported_files
