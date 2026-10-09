@@ -51,12 +51,17 @@ def _unpack_batch(batch: Any, device: torch.device) -> tuple[Any, Any, Any]:
     return inputs, targets, task_idx
 
 
-def train_one_epoch(ctx: TrainingContext, epoch: int) -> dict[str, float]:
+def train_one_epoch(
+    ctx: TrainingContext,
+    epoch: int,
+    cancel_check: Any = None,
+) -> dict[str, float]:
     """Execute one training epoch across all batches in the data loader.
 
     Args:
         ctx: Training context holding model, optimizer, data loaders, and policies.
         epoch: Zero-indexed or one-indexed epoch number.
+        cancel_check: Optional callable returning True when cancellation is requested.
 
     Returns:
         dict[str, float]: Telemetry dictionary containing loss, lr, grad_norm, and elapsed time.
@@ -77,6 +82,9 @@ def train_one_epoch(ctx: TrainingContext, epoch: int) -> dict[str, float]:
     log_interval = max(1, min(10, num_batches // 10)) if num_batches > 0 else 10
 
     for batch_idx, batch in enumerate(ctx.train_loader):
+        if cancel_check is not None and cancel_check():
+            raise InterruptedError("Training cancelled by user request.")
+
         inputs, targets, task_idx = _unpack_batch(batch, device)
 
         with autocast_ctx:

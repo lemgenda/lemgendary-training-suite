@@ -23,12 +23,17 @@ def _compute_psnr(mse: float, max_val: float = 1.0) -> float:
     return float(20.0 * math.log10(max_val) - 10.0 * math.log10(mse))
 
 
-def validate_one_epoch(ctx: TrainingContext, epoch: int) -> dict[str, float]:
+def validate_one_epoch(
+    ctx: TrainingContext,
+    epoch: int,
+    cancel_check: Any = None,
+) -> dict[str, float]:
     """Execute validation over the evaluation loader.
 
     Args:
         ctx: Training context holding model, validation data loader, and policies.
         epoch: Epoch index being evaluated.
+        cancel_check: Optional callable returning True when cancellation is requested.
 
     Returns:
         dict[str, float]: Dictionary of validation metrics.
@@ -49,6 +54,9 @@ def validate_one_epoch(ctx: TrainingContext, epoch: int) -> dict[str, float]:
 
     with torch.no_grad():
         for batch in ctx.val_loader:
+            if cancel_check is not None and cancel_check():
+                raise InterruptedError("Validation cancelled by user request.")
+
             inputs, targets, task_idx = _unpack_batch(batch, device)
 
             with autocast_ctx:

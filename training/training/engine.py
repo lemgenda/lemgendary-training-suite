@@ -89,10 +89,20 @@ def run_training(
         print(f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for {ctx.model_name}...", flush=True)
 
         # 2. Train one epoch
-        train_metrics = train_one_epoch(ctx, epoch)
+        train_metrics = train_one_epoch(ctx, epoch, cancel_check=cancel_check)
+
+        if cancel_check is not None and cancel_check():
+            print(f"[CANCEL] Training aborted after epoch {epoch} training pass by user cancellation.", flush=True)
+            return TrainingSummary(
+                model_name=ctx.model_name,
+                final_epoch=epoch,
+                best_metrics=best_metrics,
+                total_time=time.time() - total_start_time,
+                status="cancelled",
+            )
 
         # 3. Validate one epoch
-        val_metrics = validate_one_epoch(ctx, epoch)
+        val_metrics = validate_one_epoch(ctx, epoch, cancel_check=cancel_check)
 
         # Combined metrics for governance and telemetry
         combined_metrics = {**train_metrics, **val_metrics}

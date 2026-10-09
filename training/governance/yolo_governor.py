@@ -808,6 +808,10 @@ class YOLOCurriculumGovernor:
 
                 def on_fit_epoch_end(trainer: Any) -> None:
                     nonlocal stage_epochs_recorded, rescued_overfitting
+                    if self.cancel_check is not None and self.cancel_check():
+                        if hasattr(trainer, "stop"):
+                            trainer.stop = True
+                        raise InterruptedError("Training cancelled by user request.")
                     try:
                         curr_global = int(getattr(trainer, "epoch", 0)) + 1
                         if curr_global in recorded_stage_epochs:
@@ -973,6 +977,12 @@ class YOLOCurriculumGovernor:
 
                 return on_fit_epoch_end
 
+            def on_train_batch_start(trainer: Any) -> None:
+                if self.cancel_check is not None and self.cancel_check():
+                    if hasattr(trainer, "stop"):
+                        trainer.stop = True
+                    raise InterruptedError("Training cancelled by user request.")
+
             def on_train_batch_end(trainer: Any) -> None:
                 if self.cancel_check is not None and self.cancel_check():
                     if hasattr(trainer, "stop"):
@@ -980,7 +990,29 @@ class YOLOCurriculumGovernor:
                     # Raise immediately so model.train() exits without waiting for epoch-end
                     raise InterruptedError("Training cancelled by user request.")
 
+            def on_val_start(validator: Any) -> None:
+                if self.cancel_check is not None and self.cancel_check():
+                    if hasattr(validator, "stop"):
+                        validator.stop = True
+                    raise InterruptedError("Validation cancelled by user request.")
+
+            def on_val_batch_start(validator: Any) -> None:
+                if self.cancel_check is not None and self.cancel_check():
+                    if hasattr(validator, "stop"):
+                        validator.stop = True
+                    raise InterruptedError("Validation cancelled by user request.")
+
+            def on_val_batch_end(validator: Any) -> None:
+                if self.cancel_check is not None and self.cancel_check():
+                    if hasattr(validator, "stop"):
+                        validator.stop = True
+                    raise InterruptedError("Validation cancelled by user request.")
+
+            model.add_callback("on_train_batch_start", on_train_batch_start)
             model.add_callback("on_train_batch_end", on_train_batch_end)
+            model.add_callback("on_val_start", on_val_start)
+            model.add_callback("on_val_batch_start", on_val_batch_start)
+            model.add_callback("on_val_batch_end", on_val_batch_end)
             model.add_callback("on_pretrain_routine_end", on_pretrain_routine_end)
             model.add_callback("on_train_epoch_start", on_train_epoch_start)
             model.add_callback("on_fit_epoch_end", create_epoch_callback(stage, completed_prior_epochs))
