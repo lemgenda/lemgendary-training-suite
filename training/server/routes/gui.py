@@ -241,11 +241,16 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
         latest_data = None
         csv_metrics_history: dict[str, list[float]] = {}
 
-        for csv_path in csv_candidates:
-            if csv_path.exists():
-                try:
-                    import csv
-                    with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+        chosen_csv = None
+        for cand in csv_candidates:
+            if cand.exists() and cand.stat().st_size > 0:
+                if chosen_csv is None or cand.stat().st_mtime > chosen_csv.stat().st_mtime:
+                    chosen_csv = cand
+
+        if chosen_csv is not None:
+            try:
+                import csv
+                with open(chosen_csv, "r", encoding="utf-8", errors="ignore") as f:
                         reader = csv.DictReader(f)
                         for row in reader:
                             ep_val = row.get("Epoch") or row.get("epoch")
@@ -302,8 +307,8 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                                         csv_metrics_history[ykey].append(c_val)
                                     except (ValueError, TypeError):
                                         pass
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
         has_hub_weights = False
         if hub_dir.exists():
@@ -453,8 +458,8 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             ladder_passed = (csv_max_res >= target_res) if target_res is not None else (completed_epochs > 0)
 
         # Current contiguous data fraction on active rung
-        curr_data = latest_data if latest_data is not None else (csv_max_data if csv_max_data > 0 else (1.0 if sota_reached and has_checkpoint else 0.0))
-        data_fraction_passed = (csv_max_data >= 0.99) or (curr_data >= 0.99)
+        curr_data = latest_data if latest_data is not None else (1.0 if (sota_reached and has_checkpoint) else (csv_max_data if csv_max_data > 0 else 0.0))
+        data_fraction_passed = (curr_data >= 0.99 and ladder_passed) or (sota_reached and has_checkpoint)
 
         # Authoritative criteria:
         # A model is FULLY TRAINED if and only if:
