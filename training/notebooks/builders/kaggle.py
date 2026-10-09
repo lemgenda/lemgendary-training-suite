@@ -77,6 +77,8 @@ def generate_inference_notebook(
 
     output_filename = f"{model_key}_training.ipynb"
     output_path = os.path.join(export_dir, output_filename)
+    kaggle_alt_filename = f"{model_key}_kaggle_training.ipynb"
+    kaggle_alt_path = os.path.join(export_dir, kaggle_alt_filename)
 
     json_str = write_notebook(notebook_content, output_path)
     if json_str is None:
@@ -84,16 +86,36 @@ def generate_inference_notebook(
 
     print(f"[OK] Generated Training Notebook: {output_path}")
 
+    # Mirror as explicit kaggle training notebook in export dir
+    try:
+        with open(kaggle_alt_path, "w", encoding="utf-8") as f:
+            f.write(json_str)
+        print(f"[OK] Synchronized Kaggle Alias Notebook: {kaggle_alt_path}")
+    except OSError:
+        pass
+
     sync_manifold_notebooks(
         model_key=model_key,
         json_str=json_str,
         filename=output_filename,
         unified_models_registry=unified_models_registry,
     )
+    sync_manifold_notebooks(
+        model_key=model_key,
+        json_str=json_str,
+        filename=kaggle_alt_filename,
+        unified_models_registry=unified_models_registry,
+    )
 
     sync_workspace_training_notebook(
         subfolder_name="kaggle_training",
         filename=output_filename,
+        json_str=json_str,
+        display_title="Kaggle",
+    )
+    sync_workspace_training_notebook(
+        subfolder_name="kaggle_training",
+        filename=kaggle_alt_filename,
         json_str=json_str,
         display_title="Kaggle",
     )
