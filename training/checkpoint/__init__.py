@@ -1,6 +1,18 @@
 """Checkpoint management, recovery, and metric history tracking package."""
 
 from training.checkpoint.lifecycle_manager import CheckpointLifecycleManager
+
+def generate_preflight_assets(*args, **kwargs):
+    from training.checkpoint.preflight_generator import generate_preflight_assets as _fn
+
+    return _fn(*args, **kwargs)
+
+
+def generate_all_preflight_assets(*args, **kwargs):
+    from training.checkpoint.preflight_generator import generate_all_preflight_assets as _fn
+
+    return _fn(*args, **kwargs)
+
 from training.checkpoint.manager import (
     CheckpointSaveError,
     audit_disk_space,
@@ -24,6 +36,8 @@ __all__ = [
     "MetricVault",
     "ResumeState",
     "audit_disk_space",
+    "generate_all_preflight_assets",
+    "generate_preflight_assets",
     "parse_resume_state",
     "safe_atomic_save",
     "safe_load_checkpoint",

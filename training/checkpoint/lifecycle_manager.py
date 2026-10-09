@@ -77,6 +77,21 @@ class CheckpointLifecycleManager:
         # Initialize vault tracking from sota_targets or existing metrics.csv
         self._initialize_vault_history()
 
+        # Pre-flight asset generation (README and cloud notebooks before Epoch 1)
+        self.run_preflight(force=False)
+
+    def run_preflight(self, force: bool = False) -> dict[str, Path]:
+        """Generate pre-flight deployment documentation and cloud training notebooks."""
+        try:
+            from training.checkpoint.preflight_generator import generate_preflight_assets
+
+            assets = generate_preflight_assets(self.model_name, self.root, force=force)
+            logger.info("Pre-flight assets verified for %s: %s", self.model_name, list(assets.keys()))
+            return assets
+        except Exception as exc:
+            logger.warning("Pre-flight generation notice for %s: %s", self.model_name, exc)
+            return {}
+
     def _initialize_vault_history(self) -> None:
         """Scan existing metrics.csv to establish historical baselines for vault targets."""
         if not self.metrics_csv_path.exists():
