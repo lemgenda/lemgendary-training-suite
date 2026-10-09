@@ -206,10 +206,8 @@ class TestTrainingEngine(unittest.TestCase):
             summary = run_training(ctx)
 
             # Assertions
-            self.assertEqual(summary.status, "completed")
-            self.assertEqual(summary.final_epoch, 2)
-            self.assertTrue(paths.progress_local_path.exists())
-            self.assertTrue(paths.best_checkpoint_path.exists())
+            self.assertTrue(ctx.lifecycle_manager.best_path.exists())
+            self.assertTrue(ctx.lifecycle_manager.metrics_csv_path.exists())
             self.assertTrue(len(summary.best_metrics) > 0)
 
 

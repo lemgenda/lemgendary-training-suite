@@ -98,6 +98,7 @@ class TestServicesLayer(unittest.TestCase):
         )
 
         service = CheckpointService(project_root=self.root_path)
+        service.hub_root = None
         listed = service.list_checkpoints(model_key="test_model")
         self.assertEqual(len(listed), 6)
 

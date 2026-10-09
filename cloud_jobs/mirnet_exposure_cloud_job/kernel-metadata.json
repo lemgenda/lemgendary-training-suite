@@ -1,0 +1,11 @@
+{
+  "id": "kuznetsovr/lemgendary-mirnet-exposure-training",
+  "title": "LemGendary Mirnet Exposure Training",
+  "code_file": "train_cloud.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_internet": "true",
+  "accelerator": "NvidiaTeslaT4"
+}

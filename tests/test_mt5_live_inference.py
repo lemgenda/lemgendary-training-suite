@@ -86,7 +86,7 @@ def test_multi_timeframe_live_pipeline():
 
     # 3. Model Instantiation & Forward Pass
     print("\n -> Instantiating ForexPredictor (4 Heads, Cross-Timeframe Fusion)...", flush=True)
-    model = ForexPredictor(active_timeframes=active_tfs, d_model=128, n_heads=4, n_layers=4)
+    model = ForexPredictor(active_timeframes=active_tfs, in_features=10, d_model=128, n_heads=4, n_layers=4)
     model.eval()
 
     pair_tensor = torch.tensor([pair_id], dtype=torch.long)

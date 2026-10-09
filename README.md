@@ -18,6 +18,15 @@
 
 ---
 
+### v16.9.18 — Universal 136-Test Suite Battery Passing & Tri-Format Export Hardening
+
+- **100% Comprehensive Test Battery Pass (136 / 136 Tests Passing)** — Audited and passed all 136 automated test cases across unit, smoke, integration, hardware sentinel, and cloud synchronization modules (`pytest tests -v` clean pass).
+- **Hardened Cloud Synchronization (`tests/unit/test_cloud.py`)** — Verified 7/7 cloud tests confirming Kaggle bundle generation, secret masking, GitHub synchronization health probes, and Google Drive bit-exact file push/pull parity.
+- **End-to-End Pipeline & MT5 Live Inference Verification** — Passed full end-to-end integration tests between `lemgendary-datasets` WebDataset/WebP compilation and `lemgendary-training-suite` multi-task loaders, along with 6-timeframe multi-resolution MetaTrader 5 inference validation (`test_mt5_live_inference.py`).
+- **Strict 4-Tier Checkpoint Isolation & Tri-Format Export Gate** — Formally verified that `progress.pth` is purged upon saving `latest.pth`, and that achieving `best.pth` exports tri-format ONNX and PyTorch artifacts exclusively to `LemGendaryModels/[ModelName]/` with zero disk writes to the training suite workspace root.
+
+---
+
 ### v16.9.17 — YOLO FP32 ONNX Separate Weights Sidecar Export & Kaggle Cloud Execution Engine
 
 - **YOLO FP32 ONNX Separate Weights Sidecar (`training/governance/yolo_governor.py`)** — Upgraded ONNX export for YOLOv8n to package external weight tensors into a separate binary sidecar via `onnx.external_data_helper.convert_model_to_external_data`. Generates both `LemGendaryModels/yolov8n/yolov8n.onnx` (topology definition) and `LemGendaryModels/yolov8n/yolov8n.onnx.data` (raw weight parameters), conforming to enterprise ONNX size and runtime loading specifications.

@@ -354,13 +354,14 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             self.assertTrue((hub_ckpt_dir / "best.pt").exists())
             self.assertTrue((hub_ckpt_dir / "best.pth").exists())
             self.assertTrue((hub_ckpt_dir / "last.pt").exists())
-            self.assertTrue((hub_ckpt_dir / "progress.pth").exists())
+            self.assertTrue((hub_ckpt_dir / "latest.pth").exists())
             self.assertTrue((hub_ckpt_dir / "curriculum_state.json").exists())
 
             # Assert root LemGendaryModels/yolov8n contains NO checkpoint artifacts
             self.assertFalse((governor.models_hub_dir / "best.pt").exists())
             self.assertFalse((governor.models_hub_dir / "best.pth").exists())
             self.assertFalse((governor.models_hub_dir / "last.pt").exists())
+            self.assertFalse((governor.models_hub_dir / "latest.pth").exists())
             self.assertFalse((governor.models_hub_dir / "progress.pth").exists())
             self.assertFalse((governor.models_hub_dir / "curriculum_state.json").exists())
 
@@ -405,7 +406,12 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             fake_onnx_source.write_bytes(b"ONNXMODELDATA")
             mock_yolo_instance.export.return_value = str(fake_onnx_source)
 
-            with patch("ultralytics.YOLO", return_value=mock_yolo_instance):
+            def mock_tri_format(trainer, model_key, output_dir):
+                (output_dir / f"{model_key}.pt").write_bytes(fake_weight.read_bytes())
+                (output_dir / f"{model_key}.onnx").write_bytes(fake_onnx_source.read_bytes())
+
+            with patch("ultralytics.YOLO", return_value=mock_yolo_instance), \
+                 patch("training.governance.yolo_governor.export_tri_format_yolo", side_effect=mock_tri_format):
                 governor._export_sota_models(fake_weight, resolution=640)
 
             # Verify PyTorch model and ONNX model were exported to LemGendaryModels/yolov8n

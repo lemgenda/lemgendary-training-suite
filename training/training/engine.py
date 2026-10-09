@@ -182,6 +182,11 @@ def run_training(
                 metrics=combined_metrics,
                 payload=checkpoint_payload,
             )
+        else:
+            if is_best and ctx.paths.best_checkpoint_path is not None:
+                torch.save(checkpoint_payload, ctx.paths.best_checkpoint_path)
+            if ctx.paths.history_csv_path is not None:
+                ctx.vault.export_csv(ctx.paths.history_csv_path)
 
         # 7. Vault recording and telemetry export
         ctx.vault.record_epoch(

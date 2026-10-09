@@ -461,7 +461,14 @@ class JobManager:
             self._broadcast_log(job_id, f"[KAGGLE] Kernel successfully pushed: {kernel_slug}")
         except Exception as sdk_err:
             self._broadcast_log(job_id, f"[WARN] Python SDK push notice: {sdk_err}. Trying CLI fallback...")
-            res = subprocess.run(["kaggle", "kernels", "push", "-p", str(kernel_dir)], capture_output=True, text=True, timeout=60)
+            cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+            res = subprocess.run(
+                ["kaggle", "kernels", "push", "-p", str(kernel_dir)],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                creationflags=cflags,
+            )
             if res.returncode == 0:
                 self._broadcast_log(job_id, f"[KAGGLE] CLI push succeeded: {res.stdout.strip()}")
             else:
