@@ -14,16 +14,16 @@ Models are categorized across three operational domains:
 
 | Model Key | Model Name | Domain | Category | Dataset Type | Architecture & Backbone | Res Ladder | Target Manifold | Recommended Accelerator | Target SOTA Metrics |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `nima_aesthetic_mobile` | LemGendary NIMA Aesthetic Scorer (Mobile) | Image Manipulation & Restoration | `enhance` | `quality` | MobileNetV2 (Global Composition) | [224] | `LemGendizedNimaAesthetic` | P100 | PLCC: 0.65, SRCC: 0.65 |
+| `nima_aesthetic_mobile` | LemGendary NIMA Aesthetic Scorer (Mobile) | Image Manipulation & Restoration | `enhance` | `quality` | MobileNetV3-Small (Global Composition) | [224] | `LemGendizedNimaAesthetic` | P100 | PLCC: 0.65, SRCC: 0.65 |
 | `nima_aesthetic_efficientnet` | LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S) | Image Manipulation & Restoration | `enhance` | `quality` | EfficientNetV2-S (Global Composition) | [224, 256, 384] | `LemGendizedNimaAesthetic` | P100 | PLCC: 0.70, SRCC: 0.70 |
 | `nima_aesthetic_pro` | LemGendary NIMA Aesthetic Scorer (Pro ViT) | Image Manipulation & Restoration | `enhance` | `quality` | Swin-v2-T (Global Multi-Scale Attention) | [256, 384, 512] | `LemGendizedNimaAesthetic` | Dual T4 | PLCC: 0.75, SRCC: 0.75 |
 | `nima_technical` | LemGendary NIMA Technical Scorer | Image Manipulation & Restoration | `enhance` | `quality` | EfficientNetV2-S (Spatial Integrity) | [256, 384, 512] | `LemGendizedNimaTechnical` | P100 | PLCC: 0.91, SRCC: 0.91, Rank Margin: 0.05 |
 | `nima_authenticity` | LemGendary Authenticity Scorer (AI vs Human) | Image Manipulation & Restoration | `enhance` | `quality` | EfficientNetV2-S (Distribution Scorer) | [256, 384, 512, 768] | `LemGendizedNimaAuthenticity` | P100 | Accuracy: 0.96 |
-| `upn_v2` | LemGendary UPN v2 Parameter Predictor | Image Manipulation & Restoration | `enhance` | `parameter_prediction` | UPN_v2 (MobileNet-Lite Parameter Regressor) | [128, 192, 256] | `LemGendizedUpnV2` | P100 | MAE: 0.05 |
+| `upn_v2` | LemGendary UPN v2 Parameter Predictor | Image Manipulation & Restoration | `enhance` | `parameter_prediction` | UPN_v2 (MobileNetV3-Small Parameter Regressor) | [128, 192, 256] | `LemGendizedUpnV2` | P100 | MAE: 0.05 |
 | `film_restorer` | LemGendary Universal Film Restorer | Image Manipulation & Restoration | `restoration` | `restoration` | UniversalFilmRestorer (Residual Dense Autoencoder) | [256, 384, 512] | `LemGendizedFilmRestorer` | Dual T4 | PSNR: 24.0, SSIM: 0.80, LPIPS: 0.25, FID: 12.0 |
 | `codeformer` | LemGendary CodeFormer Face Restoration | Image Manipulation & Restoration | `face` | `face` | CodeFormer (Transformer-Based Face Restoration) | [512] | `LemGendizedCodeFormer` | Dual T4 | PSNR: 30.5, SSIM: 0.93, LPIPS: 0.08, FID: 5.2 |
 | `parsenet` | LemGendary ParseNet Face Parsing | Image Manipulation & Restoration | `face` | `segmentation` | ParseNet (Bilateral Face Segmentation Network) | [512] | `LemGendizedParseNet` | Dual T4 | mIoU: 0.86 |
-| `retinaface` | LemGendary RetinaFace Detection | Image Manipulation & Restoration | `face` | `face_detection` | RetinaFace (MobileNetV1-0.25 FPN Backbone) | [640] | `LemGendizedRetinaFace` | P100 | mAP Easy: 0.915, Med: 0.890, Hard: 0.750 |
+| `retinaface` | LemGendary RetinaFace Detection | Image Manipulation & Restoration | `face` | `face_detection` | RetinaFace (MobileNetV3-Small Backbone) | [640] | `LemGendizedRetinaFace` | P100 | mAP Easy: 0.915, Med: 0.890, Hard: 0.750 |
 | `ffanet_indoor` | LemGendary FFANet Dehazing (Indoor) | Image Manipulation & Restoration | `restoration` | `restoration` | BranchedFFANet (Feature Fusion Attention) | [256, 384, 512] | `LemGendizedFfaNetIndoor` | Dual T4 | PSNR: 36.5, SSIM: 0.990, LPIPS: 0.08, FID: 12.0 |
 | `ffanet_outdoor` | LemGendary FFANet Dehazing (Outdoor) | Image Manipulation & Restoration | `restoration` | `restoration` | BranchedFFANet (Feature Fusion Attention) | [256, 384, 512] | `LemGendizedFfaNetOutdoor` | Dual T4 | PSNR: 33.7, SSIM: 0.986, LPIPS: 0.08, FID: 12.0 |
 | `mirnet_lowlight` | LemGendary MIRNet v2 Low-Light Enhancement | Image Manipulation & Restoration | `restoration` | `restoration` | MIRNet_v2 (Multi-Scale Residual Network) | [256, 384, 512] | `LemGendizedMirNetLowLight` | Dual T4 | PSNR: 24.3, SSIM: 0.840, LPIPS: 0.08, FID: 12.0 |
@@ -61,7 +61,7 @@ The **Image Manipulation & Restoration** domain encompasses specialized image re
 3. **Facial Restoration & Geometry Parsing**:
    - **CodeFormer**: Expressive vector-quantized codebook lookup network with transformer feature binding for blind face restoration.
    - **ParseNet**: 19-class bilateral semantic segmentation network resolving discrete anatomical face boundaries.
-   - **RetinaFace**: Single-shot feature pyramid network with MobileNetV1-0.25 backbone optimized for robust multi-scale facial landmarking and bounding box localization.
+   - **RetinaFace**: Single-stage face and landmark detection network with unified MobileNetV3-Small backbone optimized for robust facial landmarking and bounding box localization.
 
 ### 2.2 Financial & Time-Series Domain
 
