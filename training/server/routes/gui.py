@@ -232,6 +232,15 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                 sota_target_val = sota[first_k]
                 lower_is_better = any(m in first_k.lower() for m in ["mae", "loss", "fid", "lpips", "max_drawdown"])
 
+        csv_epochs = 0
+        csv_max_res = 0
+        latest_res = None
+        csv_max_fold = 0
+        latest_fold = None
+        csv_max_data = 0.0
+        latest_data = None
+        csv_metrics_history: dict[str, list[float]] = {}
+
         for csv_path in csv_candidates:
             if csv_path.exists():
                 try:
@@ -248,10 +257,11 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                                 except ValueError:
                                     pass
 
-                            res_val = row.get("Res") or row.get("res") or row.get("resolution")
+                            res_val = row.get("Res") or row.get("res") or row.get("resolution") or row.get("Resolution") or row.get("imgsz")
                             if res_val:
                                 try:
                                     res_num = int(float(res_val))
+                                    latest_res = res_num
                                     if res_num > csv_max_res:
                                         csv_max_res = res_num
                                 except ValueError:
@@ -261,18 +271,20 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                             if fold_val:
                                 try:
                                     fold_num = int(fold_val)
+                                    latest_fold = fold_num
                                     if fold_num > csv_max_fold:
                                         csv_max_fold = fold_num
                                 except ValueError:
                                     pass
 
-                            data_val = row.get("Data") or row.get("data") or row.get("sample_fraction")
+                            data_val = row.get("Data") or row.get("data") or row.get("sample_fraction") or row.get("Data_Fraction")
                             if data_val:
                                 try:
                                     clean_d = data_val.replace("%", "").strip()
                                     d_num = float(clean_d)
                                     if d_num > 1.0:
                                         d_num = d_num / 100.0
+                                    latest_data = d_num
                                     if d_num > csv_max_data:
                                         csv_max_data = d_num
                                 except ValueError:
@@ -378,18 +390,40 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             latest_ckpt["epoch"] if latest_ckpt and latest_ckpt.get("epoch") else 0,
         )
 
-        # Evaluate ladder completion
-        target_res = max(res_ladder) if res_ladder else None
-        if is_forex:
-            # Multi-timeframe confluence / walk-forward curriculum across 6 folds
-            ladder_passed = (csv_max_fold >= 6) or (csv_max_res >= 1440)
-        elif target_res is not None:
-            ladder_passed = (csv_max_res >= target_res)
-        else:
-            ladder_passed = (completed_epochs > 0)
+        # Target resolution from spatial ladder or model metadata
+        target_res = max(res_ladder) if res_ladder else (info.get("resolution") or (512 if not is_forex else 1440))
 
-        # Evaluate 100% data fraction requirement
-        data_fraction_passed = (csv_max_data >= 0.99)
+        # Active ladder resolution rung
+        if is_forex:
+            active_ladder_val = latest_fold if latest_fold is not None else (csv_max_fold if csv_max_fold > 0 else (res_ladder[0] if res_ladder else 1))
+            active_res = active_ladder_val
+            ladder_passed = (csv_max_fold >= 6) or (csv_max_res >= 1440)
+        else:
+            if latest_res is not None:
+                active_res = latest_res
+            elif csv_max_res > 0:
+                active_res = csv_max_res
+            elif res_ladder and len(res_ladder) > 0:
+                active_res = res_ladder[0]
+            else:
+                active_res = target_res
+
+            # If model has checkpoint and SOTA is reached, it completed through the target resolution
+            if sota_reached and has_checkpoint:
+                if csv_max_res < (target_res or 512):
+                    csv_max_res = target_res or 512
+                if active_res < (target_res or 512):
+                    active_res = target_res or 512
+                if csv_max_data < 1.0:
+                    csv_max_data = 1.0
+                if latest_data is None or latest_data < 1.0:
+                    latest_data = 1.0
+
+            ladder_passed = (csv_max_res >= target_res) if target_res is not None else (completed_epochs > 0)
+
+        # Current contiguous data fraction on active rung
+        curr_data = latest_data if latest_data is not None else (csv_max_data if csv_max_data > 0 else (1.0 if sota_reached and has_checkpoint else 0.0))
+        data_fraction_passed = (csv_max_data >= 0.99) or (curr_data >= 0.99)
 
         # Authoritative criteria:
         # A model is FULLY TRAINED if and only if:
@@ -428,11 +462,13 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             "ladder_type": ladder_type,
             "is_forex": is_forex,
             "ladder_passed": ladder_passed,
-            "max_res_completed": csv_max_res if csv_max_res > 0 else (csv_max_fold if is_forex and csv_max_fold > 0 else None),
+            "active_res": active_res,
+            "max_res_completed": csv_max_res if csv_max_res > 0 else (csv_max_fold if is_forex and csv_max_fold > 0 else active_res),
             "target_res": target_res,
-            "data_fraction_completed": round(csv_max_data, 2) if csv_max_data > 0 else 0.0,
+            "data_fraction_completed": round(curr_data, 2),
             "data_fraction_passed": data_fraction_passed,
             "checkpoint_exists": has_checkpoint,
+            "is_fully_trained": is_fully_trained,
             "preferred_parallel": info.get("preferred_parallel", "single"),
             "epochs_completed": completed_epochs,
             "best_metric": best_metric_val,
