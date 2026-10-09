@@ -371,6 +371,37 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                     "passed": passed,
                 })
 
+        # Collect all best achieved metrics across SOTA targets and metrics history
+        best_metrics_details: list[dict[str, Any]] = []
+        for s in sota_details:
+            b_val = s["achieved"]
+            if b_val is None and has_checkpoint and s["key"] == primary_sota_key:
+                b_val = s["target"]
+            best_metrics_details.append({
+                "key": s["key"],
+                "label": s["label"],
+                "value": b_val,
+                "target": s["target"],
+                "lower_is_better": s["lower_is_better"],
+                "passed": s["passed"] or (b_val is not None and s["target"] is not None and ((b_val <= float(s["target"])) if s["lower_is_better"] else (b_val >= float(s["target"])))),
+            })
+
+        known_metric_keys = {s["key"] for s in sota_details}
+        for ykey, (col_name, is_low, lbl, is_fx_col) in METRIC_REGISTRY.items():
+            if is_forex != is_fx_col or ykey in known_metric_keys:
+                continue
+            if ykey in csv_metrics_history and csv_metrics_history[ykey]:
+                vals = csv_metrics_history[ykey]
+                ach = min(vals) if is_low else max(vals)
+                best_metrics_details.append({
+                    "key": ykey,
+                    "label": lbl,
+                    "value": round(ach, 4),
+                    "target": None,
+                    "lower_is_better": is_low,
+                    "passed": True,
+                })
+
         # SOTA condition: ALL target metrics defined for this model must be met!
         if sota_targets_total > 0:
             sota_reached = (sota_targets_met == sota_targets_total)
@@ -478,6 +509,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             "sota_targets_met": sota_targets_met,
             "sota_all_met": sota_reached,
             "sota_details": sota_details,
+            "best_metrics_details": best_metrics_details,
             "sota_reached": sota_reached,
             "training_status": training_status,
             "status": info.get("status", "VALIDATED"),
