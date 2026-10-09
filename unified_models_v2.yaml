@@ -6,6 +6,7 @@ _registry_metadata:
     LemGendizedForexUniverse:
       count: 30810572
 forex_predictor:
+  status: TRAINING
   name: LemGendary Forex Predictor (Multi-Scale CNN-Transformer)
   class_name: ForexPredictor
   category: forex
@@ -111,6 +112,7 @@ forex_predictor:
   kaggle_accelerator: T4
   canonical_format: parquet
 nima_aesthetic_mobile:
+  status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Mobile)
   class_name: NIMA_Model
   category: enhance
@@ -118,7 +120,7 @@ nima_aesthetic_mobile:
   checkpoint: NIMAAestheticMobileWeights_FP32.pth
   kwargs:
     hidden_dim: 256
-    backbone: mobilenet_v2
+    backbone: mobilenet_v3_small
   input_size:
   - 3
   - 224
@@ -129,9 +131,11 @@ nima_aesthetic_mobile:
   dataset_type: quality
   preferred_parallel: ddp
   optimal_key: nima_aesthetic_mobile
-  architecture_type: MobileNetV2 (Global Composition)
-  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset, optimized for artistic composition
-    and color harmony.
+  architecture_type: MobileNetV3-Small (Global Composition)
+  description: >-
+    Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
+    optimized for artistic composition and color harmony with ultra-lightweight
+    MobileNetV3-Small backbone for real-time mobile and edge inference.
   datasets:
   - LemGendizedNimaAesthetic
   - LemGendizedNimaAesthetic
@@ -179,6 +183,7 @@ nima_aesthetic_mobile:
   kaggle_accelerator: T4
   canonical_format: webdataset
 nima_aesthetic_efficientnet:
+  status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
   class_name: NIMA_Model
   category: enhance
@@ -247,6 +252,7 @@ nima_aesthetic_efficientnet:
   kaggle_accelerator: T4
   canonical_format: webdataset
 nima_aesthetic_pro:
+  status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Pro ViT)
   class_name: NIMA_Model
   category: enhance
@@ -312,6 +318,7 @@ nima_aesthetic_pro:
   kaggle_accelerator: Dual T4
   canonical_format: webdataset
 nima_technical:
+  status: VALIDATED
   name: LemGendary NIMA Technical Scorer
   class_name: NIMA_Model
   category: enhance
@@ -383,6 +390,7 @@ nima_technical:
   kaggle_accelerator: T4
   canonical_format: webdataset
 nima_authenticity:
+  status: VALIDATED
   name: LemGendary Authenticity Scorer (AI vs Human)
   class_name: NIMA_Model
   category: enhance
@@ -435,6 +443,7 @@ nima_authenticity:
   kaggle_accelerator: T4
   canonical_format: webdataset
 upn_v2:
+  status: VALIDATED
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2
   category: enhance
@@ -490,6 +499,7 @@ upn_v2:
     backbone: mobilenet_lite
   canonical_format: webdataset
 film_restorer:
+  status: VALIDATED
   name: LemGendary Universal Film Restorer
   class_name: UniversalFilmRestorer
   category: restoration
@@ -537,6 +547,7 @@ film_restorer:
     backbone: residual_dense_blocks
   canonical_format: webdataset
 codeformer:
+  status: VALIDATED
   name: LemGendary CodeFormer Face Restoration
   class_name: CodeFormer
   category: face
@@ -584,6 +595,7 @@ codeformer:
     backbone: unet_transformer
   canonical_format: webdataset
 parsenet:
+  status: VALIDATED
   name: LemGendary ParseNet Face Parsing
   class_name: ParseNet
   category: face
@@ -625,6 +637,7 @@ parsenet:
     backbone: resnet_fpn
   canonical_format: webdataset
 ffanet_indoor:
+  status: VALIDATED
   name: LemGendary FFANet Dehazing (Indoor)
   class_name: BranchedFFANet
   category: restoration
@@ -675,6 +688,7 @@ ffanet_indoor:
     backbone: ffanet_branched
   canonical_format: webdataset
 ffanet_outdoor:
+  status: VALIDATED
   name: LemGendary FFANet Dehazing (Outdoor)
   class_name: BranchedFFANet
   category: restoration
@@ -725,6 +739,7 @@ ffanet_outdoor:
     backbone: ffanet_branched
   canonical_format: webdataset
 mirnet_lowlight:
+  status: VALIDATED
   name: LemGendary MIRNet v2 Low-Light Enhancement
   class_name: MIRNet
   category: restoration
@@ -774,6 +789,7 @@ mirnet_lowlight:
     backbone: multi_scale_residual
   canonical_format: webdataset
 mirnet_exposure:
+  status: VALIDATED
   name: LemGendary MIRNet v2 Exposure Correction
   class_name: MIRNet
   category: restoration
@@ -823,6 +839,7 @@ mirnet_exposure:
     backbone: multi_scale_residual
   canonical_format: webdataset
 mprnet_deraining:
+  status: VALIDATED
   name: LemGendary MPRNet Deraining
   class_name: MPRNet
   category: restoration
@@ -872,6 +889,7 @@ mprnet_deraining:
     backbone: multi_stage_progressive
   canonical_format: webdataset
 nafnet_debluring:
+  status: VALIDATED
   name: LemGendary NAFNet Debluring
   class_name: NAFNet
   category: restoration
@@ -921,6 +939,7 @@ nafnet_debluring:
     backbone: nafnet_blocks
   canonical_format: webdataset
 nafnet_denoising:
+  status: VALIDATED
   name: LemGendary NAFNet Denoising
   class_name: NAFNet
   category: restoration
@@ -971,6 +990,7 @@ nafnet_denoising:
     backbone: nafnet_blocks
   canonical_format: webdataset
 yolov8n:
+  status: PRODUCTION
   name: LemGendary YOLOv8n Multi-Task Model
   class_name: YOLO
   category: yolo
@@ -1052,6 +1072,7 @@ yolov8n:
     backbone: cspdarknet
   canonical_format: directory
 professional_multitask_restoration:
+  status: DATASET_READY
   name: LemGendary Professional Multi-Task Restoration Model
   class_name: MultiTaskRestorer
   category: restoration
@@ -1098,6 +1119,7 @@ professional_multitask_restoration:
     backbone: shared_encoder_moe
   canonical_format: mds
 ultrazoom:
+  status: VALIDATED
   name: LemGendary UltraZoom Master Model
   class_name: UltraZoomMaster
   category: restoration
@@ -1142,6 +1164,7 @@ ultrazoom:
     backbone: espcn_residual
   canonical_format: webdataset
 universal_nsfw_classification:
+  status: DATASET_READY
   name: LemGendary Universal NSFW Classifier
   class_name: UniversalClassifier
   category: enhance
@@ -1182,6 +1205,7 @@ universal_nsfw_classification:
     backbone: efficientnet_v2_s
   canonical_format: mds
 retinaface:
+  status: DATASET_READY
   name: LemGendary RetinaFace Detection
   class_name: RetinaFace
   category: face
@@ -1200,7 +1224,10 @@ retinaface:
   - output2
   - output3
   optimal_key: retinaface
-  description: MobileNet-based face detection
+  description: >-
+    Robust single-stage face and landmark detection supporting MobileNetV1-0.25
+    for ultra-fast edge deployment and ResNet-50 for high-capacity multi-scale
+    feature pyramid network extraction.
   datasets:
   - LemGendizedRetinaFace
   - LemGendizedRetinaFace
@@ -1221,8 +1248,11 @@ retinaface:
     map_easy: 0.915
     map_medium: 0.89
     map_hard: 0.75
-  architecture_type: RetinaFace (MobileNetV1-0.25 FPN Backbone)
+  architecture_type: RetinaFace (MobileNetV1-0.25 / ResNet-50 FPN Backbone)
   kwargs:
     backbone: mobilenet_0.25
+    supported_backbones:
+    - mobilenet_0.25
+    - resnet50
   kaggle_accelerator: T4
   canonical_format: webdataset

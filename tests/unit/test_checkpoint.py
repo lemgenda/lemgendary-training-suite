@@ -6,6 +6,7 @@ import unittest
 import torch
 
 from training.checkpoint import (
+    CheckpointLifecycleManager,
     CheckpointRecoveryEngine,
     MetricVault,
     ResumeState,
@@ -151,6 +152,72 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertEqual(len(loaded_vault.history), 3)
         self.assertEqual(loaded_vault.best_record.epoch, 2)
 
+    def test_checkpoint_lifecycle_manager(self) -> None:
+        mgr = CheckpointLifecycleManager(
+            model_name="test_model",
+            project_root=self.root,
+            sota_targets={"psnr": 30.0, "ssim": 0.90},
+            min_progress_interval_sec=0.0,  # Zero for deterministic test evaluation
+        )
+
+        dummy_payload = {"epoch": 1, "state": "test"}
+
+        # 1. Progress bounds test: < 5% rejected
+        saved_low = mgr.check_and_save_progress(
+            epoch=1, phase="train", step=2, total_steps=100, payload_builder=lambda: dict(dummy_payload)
+        )
+        self.assertFalse(saved_low)
+        self.assertFalse(mgr.progress_path.exists())
+
+        # 2. Progress bounds test: > 50% rejected
+        saved_high = mgr.check_and_save_progress(
+            epoch=1, phase="train", step=60, total_steps=100, payload_builder=lambda: dict(dummy_payload)
+        )
+        self.assertFalse(saved_high)
+        self.assertFalse(mgr.progress_path.exists())
+
+        # 3. Progress bounds test: within [5%, 50%] (e.g. 25%) accepted
+        saved_valid = mgr.check_and_save_progress(
+            epoch=1, phase="train", step=25, total_steps=100, payload_builder=lambda: dict(dummy_payload)
+        )
+        self.assertTrue(saved_valid)
+        self.assertTrue(mgr.progress_path.exists())
+
+        # 4. Save latest purges progress
+        mgr.save_latest(epoch=1, payload=dict(dummy_payload))
+        self.assertTrue(mgr.latest_path.exists())
+        self.assertFalse(mgr.progress_path.exists())
+
+        # 5. Save best
+        is_best = mgr.save_best(epoch=1, quality_score=85.0, payload=dict(dummy_payload))
+        self.assertTrue(is_best)
+        self.assertTrue(mgr.best_path.exists())
+
+        # Worse quality score rejected
+        is_not_best = mgr.save_best(epoch=2, quality_score=80.0, payload=dict(dummy_payload))
+        self.assertFalse(is_not_best)
+
+        # 6. Vault milestones
+        vaults_ep1 = mgr.check_and_save_vault(
+            epoch=1,
+            metrics={"psnr": 28.5, "ssim": 0.88},
+            payload=dict(dummy_payload),
+        )
+        self.assertIn("psnr", vaults_ep1)
+        self.assertIn("ssim", vaults_ep1)
+        self.assertTrue((mgr.checkpoints_dir / "vault_psnr.pth").exists())
+        self.assertTrue((mgr.checkpoints_dir / "vault_ssim.pth").exists())
+
+        # Epoch 2 beats psnr but not ssim
+        vaults_ep2 = mgr.check_and_save_vault(
+            epoch=2,
+            metrics={"psnr": 29.5, "ssim": 0.85},
+            payload=dict(dummy_payload),
+        )
+        self.assertIn("psnr", vaults_ep2)
+        self.assertNotIn("ssim", vaults_ep2)
+
 
 if __name__ == "__main__":
     unittest.main()
+

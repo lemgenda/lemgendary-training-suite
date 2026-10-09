@@ -110,8 +110,9 @@ def export_all(
 
     if "onnx_fp32" in export_targets:
         fp32_path = destination_dir / f"{base_name}_FP32.onnx"
-        export_onnx(model, fp32_path, dummy_shape=dummy_shape, half=False)
+        export_onnx(model, fp32_path, dummy_shape=dummy_shape, half=False, external_data=True)
         results["onnx_fp32"] = fp32_path
+        results["onnx_fp32_data"] = destination_dir / f"{base_name}_FP32.onnx.data"
 
     if "onnx_fp16" in export_targets:
         fp16_path = destination_dir / f"{base_name}.onnx"

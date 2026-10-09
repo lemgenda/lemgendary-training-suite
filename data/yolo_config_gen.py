@@ -90,11 +90,14 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
             "names": dict(enumerate(names))
         }
     
-    temp_cfg_path = os.path.join("data", f"yolo_{model_key}_config.yaml")
-    os.makedirs("data", exist_ok=True)
-    
-    with open(temp_cfg_path, "w") as f:
+    suite_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    hub_training_dir = os.path.join(os.path.dirname(suite_root), "LemGendaryModels", model_key, "training")
+    os.makedirs(hub_training_dir, exist_ok=True)
+    temp_cfg_path = os.path.join(hub_training_dir, f"yolo_{model_key}_config.yaml")
+
+    with open(temp_cfg_path, "w", encoding="utf-8") as f:
         yaml.dump(yolo_cfg, f, default_flow_style=False)
-        
-    print(f"[YOLO GEN] Dynamic config materialized for {model_key} with {len(names)} classes.")
+
+    print(f"[YOLO GEN] Dynamic config materialized for {model_key} with {len(names)} classes at {temp_cfg_path}.")
     return temp_cfg_path
+

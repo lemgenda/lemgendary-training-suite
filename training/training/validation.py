@@ -66,7 +66,27 @@ def validate_one_epoch(ctx: TrainingContext, epoch: int) -> dict[str, float]:
             total_loss += float(loss.item())
             step_count += 1
 
+            # Intra-epoch progress check during validation (15 min interval, strictly bounded to [5%, 50%])
+            if ctx.lifecycle_manager is not None:
+                raw_m = ctx.raw_model if ctx.raw_model is not None else ctx.model
+                total_val = len(ctx.val_loader) if hasattr(ctx.val_loader, "__len__") else 0
+                ctx.lifecycle_manager.check_and_save_progress(
+                    epoch=epoch,
+                    phase="val",
+                    step=step_count,
+                    total_steps=total_val,
+                    payload_builder=lambda: {
+                        "epoch": epoch,
+                        "model_name": ctx.model_name,
+                        "model_state": raw_m.state_dict(),
+                        "optimizer_state": ctx.optimizer.state_dict(),
+                        "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
+                        "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
+                    },
+                )
+
             # Check if outputs and targets are 4D image tensors [B, C, H, W] for PSNR/SSIM
+
             if (
                 isinstance(preds, torch.Tensor)
                 and isinstance(targets, torch.Tensor)

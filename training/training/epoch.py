@@ -115,7 +115,26 @@ def train_one_epoch(ctx: TrainingContext, epoch: int) -> dict[str, float]:
 
             ctx.optimizer.zero_grad(set_to_none=True)
 
+        # Intra-epoch progress check (15 min interval, strictly bounded to [5%, 50%])
+        if ctx.lifecycle_manager is not None:
+            raw_m = ctx.raw_model if ctx.raw_model is not None else ctx.model
+            ctx.lifecycle_manager.check_and_save_progress(
+                epoch=epoch,
+                phase="train",
+                step=batch_idx + 1,
+                total_steps=num_batches,
+                payload_builder=lambda: {
+                    "epoch": epoch,
+                    "model_name": ctx.model_name,
+                    "model_state": raw_m.state_dict(),
+                    "optimizer_state": ctx.optimizer.state_dict(),
+                    "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
+                    "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
+                },
+            )
+
         if (batch_idx + 1) % log_interval == 0 or (batch_idx + 1) == num_batches:
+
             batch_loss = float(raw_loss.item())
             cur_lr = float(ctx.optimizer.param_groups[0]["lr"])
             elapsed_batch = time.time() - start_time

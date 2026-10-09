@@ -12,7 +12,7 @@ from typing import Any
 import torch
 from torch.utils.data import DataLoader
 
-from training.checkpoint import MetricVault, ResumeState
+from training.checkpoint import CheckpointLifecycleManager, MetricVault, ResumeState
 from training.governance import SmartTrainingGovernor, SotaTracker
 from training.hardware.discovery import DeviceInfo
 from training.hardware.policy import ExecutionPolicy
@@ -68,4 +68,6 @@ class TrainingContext:
     resume_state: ResumeState | None = None
     raw_model: torch.nn.Module | None = None
     parallel_strategy: Any | None = None
+    lifecycle_manager: CheckpointLifecycleManager | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+

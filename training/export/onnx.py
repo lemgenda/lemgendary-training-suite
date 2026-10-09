@@ -23,6 +23,7 @@ def export_onnx(
     dynamic_axes: dict[str, dict[int, str]] | None = None,
     opset: int = 17,
     half: bool = False,
+    external_data: bool = False,
     input_names: list[str] | None = None,
     output_names: list[str] | None = None,
 ) -> bool:
@@ -70,12 +71,28 @@ def export_onnx(
                 output_names=out_names,
                 dynamic_axes=dynamic_axes,
             )
+
+        if external_data:
+            import onnx
+            data_filename = f"{out_file.name}.data"
+            onnx_model = onnx.load(str(out_file))
+            onnx.external_data_helper.convert_model_to_external_data(
+                onnx_model,
+                all_tensors_to_one_file=True,
+                location=data_filename,
+                size_threshold=1024,
+                convert_attribute=False,
+            )
+            onnx.save(onnx_model, str(out_file))
+            logger.info("Converted FP32 ONNX to external weights sidecar: %s", data_filename)
+
         logger.info("Successfully exported ONNX model to %s", out_file)
         return True
     except Exception as exc:
         err_msg = f"ONNX export to {out_file} failed: {exc}"
         logger.error(err_msg)
         raise ExportError("ONNX_EXPORT_FAILED", err_msg) from exc
+
     finally:
         if half:
             # Revert model to float32

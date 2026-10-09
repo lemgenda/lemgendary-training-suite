@@ -18,12 +18,29 @@
 
 ---
 
+### v16.9.17 — YOLO FP32 ONNX Separate Weights Sidecar Export & Kaggle Cloud Execution Engine
+
+- **YOLO FP32 ONNX Separate Weights Sidecar (`training/governance/yolo_governor.py`)** — Upgraded ONNX export for YOLOv8n to package external weight tensors into a separate binary sidecar via `onnx.external_data_helper.convert_model_to_external_data`. Generates both `LemGendaryModels/yolov8n/yolov8n.onnx` (topology definition) and `LemGendaryModels/yolov8n/yolov8n.onnx.data` (raw weight parameters), conforming to enterprise ONNX size and runtime loading specifications.
+- **Kaggle Cloud Training Launch & Live Monitoring Engine (`training/server/jobs.py`, `training/server/routes/training.py`)** — Added backend endpoints and background execution workers to push training jobs directly to Kaggle GPU clusters (`POST /api/training/kaggle/train`), attach live telemetry WebSocket streams to active Kaggle kernel logs (`POST /api/training/kaggle/monitor`), probe kernel execution status (`GET /api/training/kaggle/status`), and automatically pull remote checkpoints upon epoch completion (`POST /api/training/kaggle/pull`).
+- **P0 Model Registry & Status Normalization (`unified_models_v2.yaml`, `training/server/routes/gui.py`, `training/server/routes/models.py`)** — Standardized all model statuses across the ecosystem to the authoritative 8-token vocabulary (`PLANNED`, `SPECIFICATION`, `DATASET_READY`, `TRAINING`, `TRAINED`, `VALIDATED`, `PRODUCTION`, `DEPRECATED`). Resolved NIMA Mobile backbone contradiction uniformly to `MobileNetV3-Small` and documented dual backbones (`MobileNetV1-0.25` and `ResNet-50`) for RetinaFace.
+
 ### v16.9.16 — Real-Time Batch/Epoch Progress Telemetry, Code-Only Suite Isolation & First-Principles VRAM Formula
 
 - **Live Minibatch & Epoch Telemetry (`training/training/epoch.py`, `training/training/engine.py`)** — Added real-time visual progress logging to terminal during epoch iteration. Reports loss, running average loss, learning rate, and elapsed execution seconds every 10 minibatches (and upon final minibatch completion). Epoch initiation and completion banners announce current quality scores, PSNR/SSIM reconstruction metrics, and SOTA records.
 - **Code-Only Training Suite Isolation (`training/core_loop.py`, `training/governance/yolo_governor.py`)** — Enforced complete separation between training code and generated model artifacts. All checkpoints, production exports, training history, and metrics CSV files are routed strictly to `LemGendaryModels/<model_key>/`. Eliminated local `checkpoints/` and model subdirectories inside `export/`.
 - **First-Principles Continuous VRAM Batch Formula (`training/governance/yolo_governor.py`, `unified_models_v2.yaml`)** — Replaced hardcoded $4 \times 4$ VRAM tier lookup table with continuous first-principles memory arithmetic ($\text{VRAM}_{\text{GB}} \cdot 1024 \cdot \text{safety} - \text{static\_overhead}$) divided by resolution-scaled activation memory. Externalized all governor tuning parameters to YAML under `yolov8n > optimization`.
 - **KaggleHub Checkpoint Probe Timeout & Non-Blocking Discovery (`training/checkpoint/recovery.py`)** — Wrapped remote checkpoint probing in a 5-second non-blocking timeout with clear console diagnostics to prevent silent execution hangs during cloud startup.
+
+### v16.9.16 — Universal Export & Checkpoint Governance Engine Across All Architectures & Methods
+
+- **Universal Tri-Format Export (`training/export/universal_exporter.py` & `training/export/onnx.py`)** — Standardized export pipeline across all model architectures and all training modes (Local, Kaggle, Colab). On every new `best.pth` checkpoint, exports: (1) `[ModelName].onnx` in FP16 precision with integrated self-contained weights, (2) `[ModelName]_FP32.onnx` + `[ModelName]_FP32.onnx.data` in FP32 precision with separate external binary weights sidecar (`onnx.external_data_helper.convert_model_to_external_data`), and (3) `[ModelName].pt` standard PyTorch FP32 model checkpoint. Target destination is strictly `LemGendaryModels/[ModelName]/`.
+- **Strict 4-Tier Checkpoint Hierarchy (`training/checkpoint/lifecycle_manager.py`)** — Implemented `CheckpointLifecycleManager` enforcing uniform checkpoint governance:
+  1. `progress.pth`: Intra-epoch checkpoint evaluated every 15 minutes during training and validation passes, strictly bounded to `[5%, 50%]` progress (never saved below 5% or above 50% regardless of time elapsed).
+  2. `latest.pth`: Saved at epoch completion after both train and val passes complete; immediately purges `progress.pth` upon creation and resets the 15-minute timer.
+  3. `best.pth`: Saved whenever the model achieves a new best `Quality_Score`; immediately triggers tri-format export and refreshes `LemGendaryModels/[ModelName]/README.md`.
+  4. `vault_[target].pth`: Milestone checkpoints persisting historical best scores for individual metrics defined in `sota_targets` (e.g., `vault_psnr.pth`, `vault_ssim.pth`, `vault_plcc.pth`, `vault_map50.pth`).
+- **Zero Pollution Isolation Guarantee** — All checkpoints persist to `LemGendaryModels/[ModelName]/checkpoints/`, runtime auxiliary configs and intermediate artifacts route to `LemGendaryModels/[ModelName]/training/`, and epoch statistics append exclusively to `LemGendaryModels/[ModelName]/metrics.csv`. Completely eliminated file generation in `lemgendary-training-suite/`.
+- **Registry Schema Resilience & Kaggle Pipeline Parity (`training/core_loop.py` & `data/yolo_config_gen.py`)** — Resolved model info resolution for both top-level and nested `models` dictionaries in `unified_models_v2.yaml`, preventing empty metadata and task-type misclassification in cloud environments. Dynamic YOLO configuration files now materialize directly into `LemGendaryModels/[model_key]/training/`.
 
 ### v16.9.15 — Dynamic Sawtooth VRAM Batch Governor & Generalized Kaggle Dataset Auto-Binding
 

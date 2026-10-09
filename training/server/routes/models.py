@@ -56,6 +56,7 @@ def list_models(request: Request) -> list[dict[str, Any]]:
             "resolution": info.get("resolution"),
             "batch_size": info.get("batch_size"),
             "checkpoint": info.get("checkpoint"),
+            "status": info.get("status", "VALIDATED"),
         })
     return sorted(results, key=lambda x: x["model_key"])
 

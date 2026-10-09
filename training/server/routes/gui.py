@@ -444,6 +444,8 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             "sota_details": sota_details,
             "sota_reached": sota_reached,
             "training_status": training_status,
+            "status": info.get("status", "VALIDATED"),
+            "authoritative_status": info.get("status", "VALIDATED"),
             "learning_rate": float(info.get("learning_rate", 0.0002)) if isinstance(info.get("learning_rate"), (int, float)) else (0.01 if model_key == "yolov8n" else 0.0001 if is_forex else 0.0002),
             "batch_size": int(info["batch_size"]) if isinstance(info.get("batch_size"), (int, float)) else (16 if model_key == "yolov8n" else 128 if is_forex else 8),
             "default_epochs": int(info.get("epochs") or (300 if model_key == "yolov8n" else 50 if is_forex else 30)),

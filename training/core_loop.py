@@ -176,12 +176,23 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         unified_models_registry = yaml.safe_load(f) or {}
 
     model_key = args.model
-    models_dict = unified_models_registry.get("models", {})
+    models_dict = unified_models_registry.get("models")
+    if not isinstance(models_dict, dict):
+        models_dict = unified_models_registry
     model_info = models_dict.get(model_key, {})
 
-    # 1. Hardware discovery & policy
+    # 1. Checkpoint Lifecycle Manager (Strict 4-tier governance under LemGendaryModels)
+    from training.checkpoint import CheckpointLifecycleManager
+    lifecycle_manager = CheckpointLifecycleManager(
+        model_name=model_key,
+        project_root=project_root,
+        sota_targets=model_info.get("sota_targets", {}),
+    )
+
+    # 2. Hardware discovery & policy
     device_info = discover_device()
     policy = apply_hardware_policy(model_key, model_info, device_info, config)
+
 
     # 2. Directory structure — exclusively under LemGendaryModels
     # Training suite project is code-only; all artifacts, checkpoints, exports, and metrics go to LemGendaryModels
@@ -400,6 +411,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         resume_state=resume_state,
         raw_model=raw_model,
         parallel_strategy=parallel_strategy,
+        lifecycle_manager=lifecycle_manager,
     )
 
 

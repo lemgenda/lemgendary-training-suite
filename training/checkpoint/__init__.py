@@ -1,5 +1,6 @@
 """Checkpoint management, recovery, and metric history tracking package."""
 
+from training.checkpoint.lifecycle_manager import CheckpointLifecycleManager
 from training.checkpoint.manager import (
     CheckpointSaveError,
     audit_disk_space,
@@ -16,6 +17,7 @@ from training.checkpoint.resume import (
 from training.checkpoint.vault import MetricRecord, MetricVault
 
 __all__ = [
+    "CheckpointLifecycleManager",
     "CheckpointRecoveryEngine",
     "CheckpointSaveError",
     "MetricRecord",
@@ -28,3 +30,4 @@ __all__ = [
     "scale_resume_progress",
     "stretch_scheduler_runway",
 ]
+

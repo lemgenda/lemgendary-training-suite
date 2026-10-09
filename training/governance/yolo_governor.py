@@ -22,6 +22,7 @@ import torch
 import yaml
 
 from data.yolo_config_gen import generate_yolo_yaml
+from training.export.universal_exporter import export_tri_format_yolo
 from training.telemetry import TelemetryEngine
 from training.training.engine import TrainingSummary
 
@@ -358,38 +359,28 @@ class YOLOCurriculumGovernor:
             logger.warning("New-best export hook failed: %s", export_err)
 
     def _export_sota_models(self, source_weights: Path, resolution: int = 640) -> None:
-        """Export high-performance SOTA model as ONNX and PyTorch artifacts.
+        """Export high-performance SOTA model as tri-format ONNX and PyTorch artifacts.
 
         Exports production-ready deployment assets directly to LemGendaryModels/yolov8n/:
-          - yolov8n.pt (native PyTorch state)
-          - yolov8n.onnx (optimized ONNX inference graph)
+          - yolov8n.pt (native PyTorch FP32 weights)
+          - yolov8n_FP32.onnx + yolov8n_FP32.onnx.data (FP32 ONNX graph with external sidecar)
+          - yolov8n.onnx (optimized FP16 ONNX inference graph)
         """
         if not source_weights.exists() or source_weights.stat().st_size == 0:
             logger.warning("Cannot export SOTA model: source weights %s missing or empty.", source_weights)
             return
 
         try:
-            # 1. Export PyTorch model to LemGendaryModels/yolov8n/yolov8n.pt
-            target_pt = self.models_hub_dir / "yolov8n.pt"
-            shutil.copy2(source_weights, target_pt)
-            print(f"[GOVERNOR] [SOTA EXPORT] PyTorch SOTA model saved to: {target_pt}", flush=True)
-
-            # 2. Export ONNX model to LemGendaryModels/yolov8n/yolov8n.onnx
             from ultralytics import YOLO
             export_model = YOLO(str(source_weights))
-            exported_onnx_path = export_model.export(
-                format="onnx",
-                imgsz=resolution,
-                dynamic=False,
-                simplify=True,
-                device="cpu",
+            export_tri_format_yolo(
+                trainer=export_model,
+                model_key="yolov8n",
+                output_dir=self.models_hub_dir,
             )
-            if exported_onnx_path and Path(exported_onnx_path).exists():
-                target_onnx = self.models_hub_dir / "yolov8n.onnx"
-                shutil.copy2(exported_onnx_path, target_onnx)
-                print(f"[GOVERNOR] [SOTA EXPORT] ONNX SOTA model exported to: {target_onnx}", flush=True)
+            print(f"[GOVERNOR] [SOTA EXPORT] Tri-format SOTA models exported to {self.models_hub_dir}", flush=True)
         except Exception as export_err:
-            logger.warning("Error during SOTA model export: %s", export_err)
+            logger.warning("Error during tri-format SOTA model export: %s", export_err)
 
     def _synchronize_checkpoints(
         self,
@@ -402,7 +393,8 @@ class YOLOCurriculumGovernor:
         """Mirror stage checkpoints to canonical LemGendaryModels/yolov8n/checkpoints/.
 
         All checkpoint artifacts are written exclusively to the LemGendaryModels hub.
-        The training-suite project root is code-only and never receives generated files.
+        Enforces strict lifecycle rules: latest.pth purges progress.pth; vault milestones
+        are persisted for map50 and map50_95.
         """
         frac_pct = round(fraction * 100)
         stage_weights_candidates = [
@@ -425,17 +417,29 @@ class YOLOCurriculumGovernor:
             try:
                 shutil.copy2(best_cand, hub_ckpt_dir / "best.pt")
                 shutil.copy2(best_cand, hub_ckpt_dir / "best.pth")
+
+                # Vault milestone checkpoints for YOLO targets
+                if self.best_overall_metrics["map50"] > 0:
+                    shutil.copy2(best_cand, hub_ckpt_dir / "vault_map50.pth")
+                if self.best_overall_metrics["map50_95"] > 0:
+                    shutil.copy2(best_cand, hub_ckpt_dir / "vault_map50_95.pth")
             except OSError as copy_err:
                 logger.debug("Non-fatal checkpoint copy error for best weights: %s", copy_err)
 
-        # Synchronize last / progress weights to LemGendaryModels/yolov8n/checkpoints/
+        # Synchronize latest weights to LemGendaryModels/yolov8n/checkpoints/
         last_cand = stage_weights_dir / "last.pt"
         if last_cand.exists() and last_cand.stat().st_size > 0:
             try:
+                shutil.copy2(last_cand, hub_ckpt_dir / "latest.pth")
                 shutil.copy2(last_cand, hub_ckpt_dir / "last.pt")
-                shutil.copy2(last_cand, hub_ckpt_dir / "progress.pth")
+
+                # Immediate action: purge progress.pth upon saving latest
+                progress_file = hub_ckpt_dir / "progress.pth"
+                if progress_file.exists():
+                    progress_file.unlink()
             except OSError as copy_err:
-                logger.debug("Non-fatal checkpoint copy error for last weights: %s", copy_err)
+                logger.debug("Non-fatal checkpoint copy error for latest weights: %s", copy_err)
+
 
         # Synchronize metrics CSV to LemGendaryModels/yolov8n/
         csv_source = Path(self.telemetry.metrics_csv_path)

@@ -58,8 +58,18 @@ def run_training(
     if ctx.resume_state is not None and ctx.resume_state.epoch > 0:
         start_epoch = ctx.resume_state.epoch + 1
 
+    if ctx.lifecycle_manager is None:
+        from training.checkpoint import CheckpointLifecycleManager
+        sota_targets = ctx.model_info.get("sota_targets", {})
+        ctx.lifecycle_manager = CheckpointLifecycleManager(
+            model_name=ctx.model_name,
+            project_root=ctx.paths.project_root,
+            sota_targets=sota_targets,
+        )
+
     total_start_time = time.time()
     best_metrics: dict[str, float] = {}
+
 
     for epoch in range(start_epoch, ctx.total_epochs + 1):
         if cancel_check is not None and cancel_check():
@@ -128,30 +138,49 @@ def run_training(
             "current_metrics": combined_metrics,
         }
 
-        # 6. Save checkpoints atomically
-        safe_atomic_save(checkpoint_payload, ctx.paths.progress_local_path)
-        if is_best:
-            safe_atomic_save(checkpoint_payload, ctx.paths.best_checkpoint_path)
+        # 6. Lifecycle Management: Save latest.pth (and purge progress.pth)
+        if ctx.lifecycle_manager is not None:
+            ctx.lifecycle_manager.save_latest(epoch=epoch, payload=checkpoint_payload)
 
-        # Mirror progress and checkpoints directly to LemGendaryModels project
-        if ctx.paths.models_hub_checkpoint_dir is not None:
-            ctx.paths.models_hub_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            safe_atomic_save(checkpoint_payload, ctx.paths.models_hub_checkpoint_dir / "progress.pth")
-            safe_atomic_save(checkpoint_payload, ctx.paths.models_hub_checkpoint_dir / f"{ctx.model_name}_latest.pth")
             if is_best:
-                safe_atomic_save(checkpoint_payload, ctx.paths.models_hub_checkpoint_dir / "best.pth")
-                safe_atomic_save(checkpoint_payload, ctx.paths.models_hub_checkpoint_dir / f"{ctx.model_name}_best.pth")
+                # Prepare dummy input for ONNX export
+                raw_size = ctx.model_info.get("input_size", 256)
+                if isinstance(raw_size, list):
+                    if len(raw_size) == 3:
+                        dummy_shape = (1, int(raw_size[0]), int(raw_size[1]), int(raw_size[2]))
+                    elif len(raw_size) == 2:
+                        dummy_shape = (1, 3, int(raw_size[0]), int(raw_size[1]))
+                    else:
+                        dummy_shape = (1, 3, 256, 256)
+                elif isinstance(raw_size, int):
+                    dummy_shape = (1, 3, raw_size, raw_size)
+                else:
+                    dummy_shape = (1, 3, 256, 256)
+                dummy_input = torch.randn(*dummy_shape, device=ctx.device_info.device)
+
+                ctx.lifecycle_manager.save_best(
+                    epoch=epoch,
+                    quality_score=current_quality,
+                    payload=checkpoint_payload,
+                    model=raw_model,
+                    dummy_input=dummy_input,
+                )
+
+            # Check and save vault milestones
+            ctx.lifecycle_manager.check_and_save_vault(
+                epoch=epoch,
+                metrics=combined_metrics,
+                payload=checkpoint_payload,
+            )
 
         # 7. Vault recording and telemetry export
         ctx.vault.record_epoch(
             epoch=epoch,
             metrics=combined_metrics,
-            checkpoint_path=str(ctx.paths.best_checkpoint_path) if is_best else None,
+            checkpoint_path=str(ctx.lifecycle_manager.best_path) if (is_best and ctx.lifecycle_manager) else None,
         )
-        ctx.vault.export_csv(ctx.paths.history_csv_path)
-        if ctx.paths.models_hub_metrics_csv is not None:
-            ctx.paths.models_hub_metrics_csv.parent.mkdir(parents=True, exist_ok=True)
-            ctx.vault.export_csv(ctx.paths.models_hub_metrics_csv)
+        if ctx.lifecycle_manager is not None:
+            ctx.vault.export_csv(ctx.lifecycle_manager.metrics_csv_path)
 
         # 8. Check governor directives
         if hasattr(ctx.governor, "audit_epoch"):
