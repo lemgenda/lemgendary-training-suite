@@ -25,10 +25,21 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
         "yolov8n": ["face", "person", "hand", "eye"] # Expanded Master Detection Set
     }
     
+    COCO_CLASSES = [
+        "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+        "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+        "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+        "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+        "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+        "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
+        "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
+        "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
+        "hair drier", "toothbrush"
+    ]
+
     names = class_map.get(model_key, ["object"])
     if model_key == "yolov8n":
-        while len(names) < 80:
-            names.append(f"class_{len(names)}")
+        names = list(COCO_CLASSES)
     
     # Resolve primary dataset path using ManifoldResolver
     from training.data.manifold import ManifoldResolver
@@ -40,7 +51,9 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
         if classes_file.exists():
             try:
                 c_names = [line.strip() for line in classes_file.read_text(encoding="utf-8").splitlines() if line.strip()]
-                if c_names:
+                if c_names and len(c_names) >= 80:
+                    names = c_names
+                elif c_names and model_key != "yolov8n":
                     names = c_names
             except Exception:
                 pass
