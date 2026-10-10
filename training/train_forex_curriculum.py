@@ -246,7 +246,8 @@ def main():
         print(f" [EXEC] {' '.join(cmd)}")
 
         try:
-            res = subprocess.run(cmd, check=False)
+            cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+            res = subprocess.run(cmd, check=False, creationflags=cflags)
             if res.returncode != 0:
                 print(f"\n [ERROR] Training crashed during Fold {fold}. Exiting curriculum.")
                 sys.exit(1)

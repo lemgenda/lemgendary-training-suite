@@ -7,6 +7,7 @@ import logging
 import os
 from pathlib import Path
 import subprocess
+import sys
 from typing import Any
 
 from training.cloud.credentials import mask_secret, resolve_github_credentials
@@ -46,6 +47,7 @@ class GitHubSyncManager:
         """
         run_cwd = cwd or self.hub_root
         cmd = ["git"] + args
+        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
         try:
             res = subprocess.run(
                 cmd,
@@ -53,6 +55,7 @@ class GitHubSyncManager:
                 capture_output=True,
                 text=True,
                 timeout=120,
+                creationflags=cflags,
             )
             stdout_masked = mask_secret(res.stdout, self.pat)
             stderr_masked = mask_secret(res.stderr, self.pat)
@@ -146,12 +149,14 @@ class GitHubSyncManager:
         if self.pat:
             clone_url = f"https://{self.pat}@github.com/{self.hub_user}/{remote_identifier}.git"
 
+        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
         try:
             res = subprocess.run(
                 ["git", "clone", "--depth", "1", clone_url, str(dest_dir)],
                 capture_output=True,
                 text=True,
                 timeout=180,
+                creationflags=cflags,
             )
             if res.returncode != 0:
                 masked_err = mask_secret(res.stderr, self.pat)
@@ -171,8 +176,15 @@ class GitHubSyncManager:
     def probe_health(self) -> dict[str, Any]:
         """Verify Git installation, hub directory existence, and credentials."""
         git_installed = False
+        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
         try:
-            res = subprocess.run(["git", "--version"], capture_output=True, text=True, timeout=5)
+            res = subprocess.run(
+                ["git", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=cflags,
+            )
             git_installed = (res.returncode == 0)
         except OSError:
             pass

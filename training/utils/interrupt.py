@@ -31,7 +31,13 @@ def cleanup_active_processes(*args: Any) -> None:
         if p.poll() is None:
             try:
                 if os.name == "nt":
-                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True, check=False)
+                    cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(p.pid)],
+                        capture_output=True,
+                        check=False,
+                        creationflags=cflags,
+                    )
                 else:
                     p.terminate()
             except Exception as exc:

@@ -58,7 +58,14 @@ def launch_kaggle_training(
         logger.warning("Kaggle Python SDK push notice: %s. Trying CLI fallback...", err)
 
     try:
-        res = subprocess.run(["kaggle", "kernels", "push", "-p", str(kernel_dir)], capture_output=True, text=True, timeout=60)
+        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+        res = subprocess.run(
+            ["kaggle", "kernels", "push", "-p", str(kernel_dir)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            creationflags=cflags,
+        )
         if res.returncode == 0:
             logger.info("CLI push successful: %s", res.stdout.strip())
             return True

@@ -3,6 +3,7 @@
 import logging
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,7 @@ def run_command(
     if env:
         full_env.update(env)
 
+    cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
     try:
         res = subprocess.run(
             cmd,
@@ -48,6 +50,7 @@ def run_command(
             timeout=timeout,
             check=False,
             env=full_env,
+            creationflags=cflags,
         )
     except subprocess.TimeoutExpired as exc:
         err_msg = f"Command timed out after {timeout}s: '{cmd_str}' in '{cwd_path}'"
