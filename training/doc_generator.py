@@ -437,7 +437,8 @@ graph TD
         paper_section = ""
 
     # --- Implementation Guide & Checkpoints Structure TIP ---
-    nb_name = f"{model_key}-usage.ipynb" if model_key == "yolov8n" else f"{model_key}_usage.ipynb"
+    kaggle_usage_name = f"{model_key}-kaggle-usage.ipynb"
+    colab_usage_name = f"{model_key}-colab-usage.ipynb"
     extra_tip = ""
     if model_key == "yolov8n":
         extra_tip = """
@@ -448,7 +449,7 @@ graph TD
 > - Training checkpoints & curriculum state: Preserved strictly in [`checkpoints/`](checkpoints/) (`best.pt`, `best.pth`, `last.pt`, `progress.pth`, `curriculum_state.json`)."""
 
     tip_block = f"""> [!TIP]
-> **Implementation Guide**: For high-performance deployment including ONNX (FP32/FP16) and standalone PyTorch snippets, refer to the **[{nb_name}]({nb_name})** notebook in this directory.{extra_tip}"""
+> **Implementation Guide**: For high-performance deployment including ONNX (FP32/FP16) and standalone PyTorch snippets, refer to the **[{kaggle_usage_name}]({kaggle_usage_name})** or **[{colab_usage_name}]({colab_usage_name})** notebooks in this directory.{extra_tip}"""
 
     # --- Premium 10-Section Template ---
     return f"""# {name}

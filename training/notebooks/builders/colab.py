@@ -5,6 +5,7 @@ and standalone inference usage notebooks specifically tailored for Google Colab 
 """
 
 import os
+from pathlib import Path
 from typing import Any
 
 from ..cells.base import make_markdown_cell
@@ -37,12 +38,23 @@ from .base import (
 
 def generate_colab_inference_notebook(
     model_key: str,
-    export_dir: str,
-    unified_models_registry: dict[str, Any] | None = None,
+    export_dir: str | Path,
+    unified_models_registry: Any = None,
     config: dict[str, Any] | None = None,
+    *extra_args: Any,
+    **extra_kwargs: Any,
 ) -> str | None:
     """Generate a nuclear-hardened training execution notebook for Google Colab."""
-    meta = resolve_model_metadata(model_key, unified_models_registry, config)
+    if extra_args or (isinstance(unified_models_registry, (str, Path)) and not isinstance(unified_models_registry, dict)):
+        # Legacy call signature: (pascal_name, model_key, output_path)
+        actual_model_key = str(export_dir)
+        target_path = Path(unified_models_registry if not extra_args else extra_args[0])
+        actual_export_dir = str(target_path.parent)
+        meta = resolve_model_metadata(actual_model_key, None, None)
+    else:
+        actual_model_key = model_key
+        actual_export_dir = str(export_dir)
+        meta = resolve_model_metadata(actual_model_key, unified_models_registry, config)
 
     notebook_content = {
         "metadata": {
@@ -84,8 +96,8 @@ def generate_colab_inference_notebook(
         ],
     }
 
-    output_filename = f"{model_key}_colab_training.ipynb"
-    output_path = os.path.join(export_dir, output_filename)
+    output_filename = f"{actual_model_key}_colab_training.ipynb"
+    output_path = os.path.join(actual_export_dir, output_filename)
 
     json_str = write_notebook(notebook_content, output_path)
     if json_str is None:
@@ -94,10 +106,10 @@ def generate_colab_inference_notebook(
     print(f"[OK] Generated Colab Training Notebook: {output_path}")
 
     sync_manifold_notebooks(
-        model_key=model_key,
+        model_key=actual_model_key,
         json_str=json_str,
         filename=output_filename,
-        unified_models_registry=unified_models_registry,
+        unified_models_registry=unified_models_registry if isinstance(unified_models_registry, dict) else None,
     )
 
     sync_workspace_training_notebook(

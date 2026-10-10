@@ -62,9 +62,9 @@ def generate_preflight_assets(
 
     Artifacts generated strictly under LemGendaryModels/[model_key]/:
     - README.md: Model documentation with topology and metrics.
-    - [model_key]_kaggle_training.ipynb & [model_key]_training.ipynb: Kaggle execution notebook.
+    - [model_key]_kaggle_training.ipynb: Kaggle execution notebook.
     - [model_key]_colab_training.ipynb: Google Colab execution notebook.
-    - [model_key]-usage.ipynb: Standalone inference and usage notebook.
+    - [model_key]-kaggle-usage.ipynb: Standalone Kaggle inference and usage notebook.
     - [model_key]-colab-usage.ipynb: Standalone Colab usage notebook.
 
     Args:
@@ -114,10 +114,9 @@ def generate_preflight_assets(
         logger.info("Generated pre-flight README: %s", readme_path)
     generated_assets["readme"] = readme_path
 
-    # 2. Kaggle Training Notebooks
-    kaggle_train_path = hub_dir / f"{model_key}_training.ipynb"
-    kaggle_alt_train_path = hub_dir / f"{model_key}_kaggle_training.ipynb"
-    if force or not kaggle_train_path.exists() or not kaggle_alt_train_path.exists():
+    # 2. Kaggle Training Notebook
+    kaggle_train_path = hub_dir / f"{model_key}_kaggle_training.ipynb"
+    if force or not kaggle_train_path.exists():
         try:
             out_nb = generate_training_notebook(
                 model_key=model_key,
@@ -126,9 +125,7 @@ def generate_preflight_assets(
                 config=config,
             )
             if out_nb and Path(out_nb).exists():
-                shutil.copy2(out_nb, kaggle_alt_train_path)
-                generated_assets["kaggle_training"] = kaggle_alt_train_path
-                generated_assets["kaggle_training_std"] = Path(out_nb)
+                generated_assets["kaggle_training"] = Path(out_nb)
         except Exception as exc:
             logger.warning("Kaggle training notebook generation notice for %s: %s", model_key, exc)
 
@@ -148,19 +145,19 @@ def generate_preflight_assets(
             logger.warning("Colab training notebook generation notice for %s: %s", model_key, exc)
 
     # 4. Usage Notebooks (Kaggle & Colab Standalone Inference)
-    usage_nb = hub_dir / f"{model_key}-usage.ipynb"
-    if force or not usage_nb.exists():
+    kaggle_usage_nb = hub_dir / f"{model_key}-kaggle-usage.ipynb"
+    if force or not kaggle_usage_nb.exists():
         try:
-            generate_usage_notebook(
+            out_usage = generate_usage_notebook(
                 model_key=model_key,
                 export_dir=str(hub_dir),
                 unified_models_registry=registry,
                 config=config,
             )
-            if usage_nb.exists():
-                generated_assets["usage"] = usage_nb
+            if kaggle_usage_nb.exists():
+                generated_assets["kaggle_usage"] = kaggle_usage_nb
         except Exception as exc:
-            logger.debug("Usage notebook generation notice for %s: %s", model_key, exc)
+            logger.debug("Kaggle usage notebook generation notice for %s: %s", model_key, exc)
 
     colab_usage_nb = hub_dir / f"{model_key}-colab-usage.ipynb"
     if force or not colab_usage_nb.exists():

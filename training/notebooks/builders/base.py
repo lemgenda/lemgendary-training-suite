@@ -58,6 +58,13 @@ def sync_manifold_notebooks(
     datasets_hub_root = workspace_root / "LemGendaryDatasets"
 
     if not unified_models_registry:
+        try:
+            from ..registry import load_registry
+            unified_models_registry = load_registry()
+        except Exception:
+            unified_models_registry = {}
+
+    if not unified_models_registry:
         return
 
     m_info = unified_models_registry.get(model_key, {})

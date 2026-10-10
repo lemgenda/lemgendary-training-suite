@@ -88,6 +88,13 @@ class KagglePullRequest(BaseModel):
     model: str = Field(..., description="Target model key")
 
 
+class KagglePushRequest(BaseModel):
+    """Payload for uploading model checkpoints to Kaggle Models."""
+    model: str = Field(..., description="Target model key")
+    source_dir: Optional[str] = Field(None, description="Optional custom source directory")
+    username: Optional[str] = Field(None, description="Optional Kaggle username override")
+
+
 @router.get("/kaggle/status")
 def get_kaggle_status() -> dict[str, Any]:
     """Check Kaggle credentials configuration and authentication status."""
@@ -166,4 +173,21 @@ def pull_kaggle_model_artifacts(payload: KagglePullRequest) -> dict[str, Any]:
         "status": "success" if success else "failed",
         "model": payload.model,
         "message": f"Artifact pull {'completed' if success else 'failed'} for {payload.model}",
+    }
+
+
+@router.post("/kaggle/push")
+def push_kaggle_model_artifacts(payload: KagglePushRequest) -> dict[str, Any]:
+    """Stage and upload local model checkpoints and metrics to Kaggle Models."""
+    from training.kaggle_cloud_manager import push_kaggle_artifacts
+
+    success = push_kaggle_artifacts(
+        model_name=payload.model,
+        source_dir=payload.source_dir,
+        username=payload.username,
+    )
+    return {
+        "status": "success" if success else "failed",
+        "model": payload.model,
+        "message": f"Artifact push {'completed successfully' if success else 'failed'} for {payload.model}",
     }

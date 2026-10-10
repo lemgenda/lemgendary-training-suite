@@ -254,11 +254,17 @@ class JobManager:
         elif "[warn" in msg_lower:
             status = "warning"
 
+        # Determine contextual job type and step name for telemetry isolation
+        job = self.state.get_job(job_id)
+        job_type = job.get("job_type", "train") if job else "train"
+        step_name = "Cloud Training" if job_type in ("kaggle_train", "kaggle_monitor", "cloud_push") else "Training"
+
         payload_dict = {
             "timestamp": timestamp,
             "job_id": job_id,
+            "job_type": job_type,
             "message": message,
-            "step_name": "Training",
+            "step_name": step_name,
             "step_number": 0,
             "status": status,
             "is_progress": is_progress,

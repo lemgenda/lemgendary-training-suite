@@ -1,0 +1,11 @@
+{
+  "id": "kuznetsovr/lemgendary-forex-predictor-training",
+  "title": "LemGendary Forex Predictor Training",
+  "code_file": "train_cloud.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_internet": "true",
+  "accelerator": "NvidiaTeslaT4"
+}

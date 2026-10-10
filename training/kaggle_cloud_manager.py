@@ -128,10 +128,33 @@ def pull_kaggle_artifacts(
         return False
 
 
+def push_kaggle_artifacts(
+    model_name: str,
+    source_dir: str | None = None,
+    username: str | None = None,
+) -> bool:
+    """Stage and upload local model checkpoints and artifacts to Kaggle Models Hub."""
+    user, key = resolve_kaggle_credentials(override_user=username)
+    mgr = KaggleHubManager(username=user, key=key)
+    suite_dir = Path(__file__).resolve().parent.parent
+    src = Path(source_dir) if source_dir else suite_dir.parent / "LemGendaryModels" / model_name
+    if not src.exists():
+        logger.error("Source directory does not exist for model %s: %s", model_name, src)
+        return False
+
+    handle = mgr.get_handle(model_name)
+    logger.info("Pushing Kaggle artifacts for %s (%s) from %s", model_name, handle, src)
+    try:
+        return mgr.sync(model_name=model_name, epoch=1, src_dir=src)
+    except Exception as exc:
+        logger.error("Artifact push failed for %s: %s", model_name, exc)
+        return False
+
+
 def main() -> None:
     """CLI entry point for Kaggle cloud management."""
     parser = argparse.ArgumentParser(description="LemGendary Headless Kaggle Cloud Engine")
-    parser.add_argument("--action", type=str, required=True, choices=["launch", "status", "monitor", "monitor_interactive", "pull", "cancel", "setup_auth"])
+    parser.add_argument("--action", type=str, required=True, choices=["launch", "status", "monitor", "monitor_interactive", "pull", "push", "cancel", "setup_auth"])
     parser.add_argument("--model", type=str, default="nima_technical", help="Model manifold name")
     parser.add_argument("--username", type=str, default=None, help="Kaggle Username override")
     parser.add_argument("--key", type=str, default=None, help="Kaggle API Key override")
@@ -148,6 +171,8 @@ def main() -> None:
         monitor_kaggle_training(args.model, username=args.username)
     elif args.action == "pull":
         pull_kaggle_artifacts(args.model, destination_dir=args.output_dir, username=args.username)
+    elif args.action == "push":
+        push_kaggle_artifacts(args.model, source_dir=args.output_dir, username=args.username)
     elif args.action == "status":
         u, _ = resolve_kaggle_credentials(override_user=args.username)
         slug = get_kernel_slug(args.model, u)

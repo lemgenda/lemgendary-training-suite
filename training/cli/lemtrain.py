@@ -37,12 +37,14 @@ presets_app = typer.Typer(name="presets", help="Preset profile exploration and m
 audit_app = typer.Typer(name="audit", help="System resources, model topology, and judicial audits.")
 sync_app = typer.Typer(name="sync", help="Cloud storage synchronization and provider telemetry.")
 server_app = typer.Typer(name="server", help="FastAPI sidecar daemon process management.")
+notebooks_app = typer.Typer(name="notebooks", help="Jupyter training, inference, and usage notebook generation.")
 
 app.add_typer(checkpoints_app, name="checkpoints")
 app.add_typer(presets_app, name="presets")
 app.add_typer(audit_app, name="audit")
 app.add_typer(sync_app, name="sync")
 app.add_typer(server_app, name="server")
+app.add_typer(notebooks_app, name="notebooks")
 
 SIDECAR_PORT = 8200
 
@@ -344,6 +346,55 @@ def sync_run(
         typer.echo(f"[ERROR] Cloud sync failed: {res.get('message', '')}")
 
 
+@notebooks_app.command("list")
+def notebooks_list() -> None:
+    """List all registered models available for notebook generation."""
+    service = NotebookService()
+    models = service.list_supported_models()
+    typer.echo(f"Discovered {len(models)} models available for notebook generation:")
+    for m in models:
+        typer.echo(f"  * {m}")
+
+
+@notebooks_app.command("generate")
+def notebooks_generate(
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Target model key (e.g. nima_aesthetic_mobile)."),
+    platform: str = typer.Option("all", "--platform", "-p", help="Target platform ('kaggle', 'colab', 'all')."),
+    kind: Optional[List[str]] = typer.Option(None, "--kind", "-k", help="Notebook kind ('training', 'inference', 'usage'). Default is all."),
+    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="Custom output directory."),
+    all_models: bool = typer.Option(False, "--all", "-a", help="Generate notebooks for all registered models."),
+) -> None:
+    """Generate Jupyter training, inference, and usage notebooks."""
+    if not model and not all_models:
+        typer.echo("[ERROR] Please specify either a model key with --model or use --all.")
+        raise typer.Exit(code=1)
+
+    service = NotebookService()
+    if all_models:
+        typer.echo(f"[START] Generating {platform} notebooks for all registered models...")
+        results = service.generate_all_models(platform=platform, kinds=kind, output_dir=output_dir)
+        total_generated = sum(len(v) for v in results.values())
+        typer.echo(f"[SUCCESS] Generated {total_generated} notebooks across {len(results)} models.")
+        for m, files in results.items():
+            if files:
+                typer.echo(f"  * {m}: {', '.join(files.keys())}")
+    else:
+        typer.echo(f"[START] Generating {platform} notebooks for model '{model}'...")
+        try:
+            res = service.generate_notebooks(
+                model_key=model,
+                platform=platform,
+                kinds=kind,
+                output_dir=output_dir,
+            )
+            typer.echo(f"[SUCCESS] Generated {len(res)} notebooks for '{model}':")
+            for k, p in res.items():
+                typer.echo(f"  * {k}: {p}")
+        except Exception as e:
+            typer.echo(f"[ERROR] Notebook generation failed: {e}")
+            raise typer.Exit(code=1)
+
+
 @server_app.command("start")
 def server_start(
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind address"),
@@ -445,3 +496,7 @@ def server_openapi(
         typer.echo(f"[SUCCESS] Exported OpenAPI specification to {out_path}")
     else:
         typer.echo(content)
+
+
+if __name__ == "__main__":
+    app()

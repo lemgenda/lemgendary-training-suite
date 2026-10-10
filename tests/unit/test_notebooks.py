@@ -227,8 +227,8 @@ class TestNotebookSubsystem(unittest.TestCase):
         if not base_dir.exists():
             self.skipTest("Baseline notebooks not found on disk")
 
-        self._assert_notebook_parity(out_dir / f"{model_key}_training.ipynb", base_dir / f"{model_key}_training.ipynb")
-        self._assert_notebook_parity(out_dir / f"{model_key}-usage.ipynb", base_dir / f"{model_key}-usage.ipynb")
+        self._assert_notebook_parity(out_dir / f"{model_key}_kaggle_training.ipynb", base_dir / f"{model_key}_kaggle_training.ipynb")
+        self._assert_notebook_parity(out_dir / f"{model_key}-kaggle-usage.ipynb", base_dir / f"{model_key}-kaggle-usage.ipynb")
         self._assert_notebook_parity(out_dir / f"{model_key}_colab_training.ipynb", base_dir / f"{model_key}_colab_training.ipynb")
         self._assert_notebook_parity(out_dir / f"{model_key}-colab-usage.ipynb", base_dir / f"{model_key}-colab-usage.ipynb")
 
@@ -247,8 +247,8 @@ class TestNotebookSubsystem(unittest.TestCase):
         if not base_dir.exists():
             self.skipTest("Baseline notebooks not found on disk")
 
-        self._assert_notebook_parity(out_dir / f"{model_key}_training.ipynb", base_dir / f"{model_key}_training.ipynb")
-        self._assert_notebook_parity(out_dir / f"{model_key}-usage.ipynb", base_dir / f"{model_key}-usage.ipynb")
+        self._assert_notebook_parity(out_dir / f"{model_key}_kaggle_training.ipynb", base_dir / f"{model_key}_kaggle_training.ipynb")
+        self._assert_notebook_parity(out_dir / f"{model_key}-kaggle-usage.ipynb", base_dir / f"{model_key}-kaggle-usage.ipynb")
         self._assert_notebook_parity(out_dir / f"{model_key}_colab_training.ipynb", base_dir / f"{model_key}_colab_training.ipynb")
         self._assert_notebook_parity(out_dir / f"{model_key}-colab-usage.ipynb", base_dir / f"{model_key}-colab-usage.ipynb")
 
@@ -317,8 +317,8 @@ class TestNotebookSubsystem(unittest.TestCase):
 
             base_dir = self.baseline_root / model_key
             if base_dir.exists():
-                self._assert_notebook_parity(out_dir / f"{model_key}_training.ipynb", base_dir / f"{model_key}_training.ipynb")
-                self._assert_notebook_parity(out_dir / f"{model_key}-usage.ipynb", base_dir / f"{model_key}-usage.ipynb")
+                self._assert_notebook_parity(out_dir / f"{model_key}_kaggle_training.ipynb", base_dir / f"{model_key}_kaggle_training.ipynb")
+                self._assert_notebook_parity(out_dir / f"{model_key}-kaggle-usage.ipynb", base_dir / f"{model_key}-kaggle-usage.ipynb")
                 self._assert_notebook_parity(out_dir / f"{model_key}_colab_training.ipynb", base_dir / f"{model_key}_colab_training.ipynb")
                 self._assert_notebook_parity(out_dir / f"{model_key}-colab-usage.ipynb", base_dir / f"{model_key}-colab-usage.ipynb")
         finally:

@@ -11,6 +11,7 @@ from .builders.colab import (
 )
 from .builders.kaggle import (
     generate_inference_notebook,
+    generate_kaggle_usage_notebook,
     generate_training_notebook,
     generate_usage_notebook,
 )
@@ -23,6 +24,7 @@ from .registry import (
 __all__ = [
     "generate_inference_notebook",
     "generate_usage_notebook",
+    "generate_kaggle_usage_notebook",
     "generate_training_notebook",
     "generate_colab_inference_notebook",
     "generate_colab_usage_notebook",

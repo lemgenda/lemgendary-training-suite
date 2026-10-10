@@ -18,6 +18,19 @@
 
 ---
 
+### v16.9.19 — Unified SSOT Notebook Generation Architecture & Model-Card GUI Integration
+
+- **Single Source of Truth (SSOT) Notebook Generator (`training/notebooks/`, `training/services/notebook_service.py`)** — Consolidated all Jupyter training, inference, and usage notebook synthesis exclusively into `lemgendary-training-suite`. Provides polymorphic builder interfaces supporting both legacy `(pascal_name, model_key, output_path)` and modern `(model_key, export_dir)` call signatures for complete backward compatibility.
+- **Dedicated Typer CLI (`lemtrain notebooks`)** — Added canonical CLI commands for managing and synthesizing notebooks:
+  - `lemtrain notebooks list`: Enumerate all registered architectures available for notebook compilation.
+  - `lemtrain notebooks generate --model <key> [--platform all|kaggle|colab] [--kind training|inference|usage]`: Regenerate notebooks for a specific model.
+  - `lemtrain notebooks generate --all`: Batch regenerate and synchronize notebooks across all 22 registered models.
+- **REST API Endpoints (`training/server/routes/notebooks.py`)** — Exposed public endpoints on the FastAPI Sidecar daemon (port 8200): `GET /api/notebooks/models`, `POST /api/notebooks/generate`, and `POST /api/notebooks/refresh-all`. Enables external services and the desktop GUI to trigger notebook synthesis on demand.
+- **Automated Pre-Flight Training Synchronization (`training/services/training_service.py`)** — Integrated Step 0 pre-flight hook into `TrainingService.train()`. Whenever model training is launched (via CLI, GUI, or API), the suite automatically regenerates and synchronizes fresh notebooks for that architecture across `LemGendaryModels/`, `kaggle_training/`, `colab_training/`, and matching `LemGendaryDatasets/` manifolds before execution begins.
+- **Full Cross-Workspace Distribution (`training/notebooks/builders/base.py`)** — Automated parallel synchronization: Kaggle training notebooks deploy to `LemGendaryModels/<model>/`, `LemGendaryDatasets/<manifold>/`, and `kaggle_training/`; Colab training notebooks deploy to `LemGendaryModels/<model>/`, `LemGendaryDatasets/<manifold>/`, and `colab_training/`; standalone usage guides deploy to `LemGendaryModels/<model>/`.
+
+---
+
 ### v16.9.18 — Universal 136-Test Suite Battery Passing & Tri-Format Export Hardening
 
 - **100% Comprehensive Test Battery Pass (136 / 136 Tests Passing)** — Audited and passed all 136 automated test cases across unit, smoke, integration, hardware sentinel, and cloud synchronization modules (`pytest tests -v` clean pass).

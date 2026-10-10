@@ -5,6 +5,7 @@ specifically tailored for Kaggle environments.
 """
 
 import os
+from pathlib import Path
 from typing import Any
 
 from ..cells.base import make_markdown_cell
@@ -35,12 +36,23 @@ from .base import (
 
 def generate_inference_notebook(
     model_key: str,
-    export_dir: str,
-    unified_models_registry: dict[str, Any] | None = None,
+    export_dir: str | Path,
+    unified_models_registry: Any = None,
     config: dict[str, Any] | None = None,
+    *extra_args: Any,
+    **extra_kwargs: Any,
 ) -> str | None:
     """Generate a nuclear-hardened training execution notebook for Kaggle."""
-    meta = resolve_model_metadata(model_key, unified_models_registry, config)
+    if extra_args or (isinstance(unified_models_registry, (str, Path)) and not isinstance(unified_models_registry, dict)):
+        # Legacy call signature: (pascal_name, model_key, output_path)
+        actual_model_key = str(export_dir)
+        target_path = Path(unified_models_registry if not extra_args else extra_args[0])
+        actual_export_dir = str(target_path.parent)
+        meta = resolve_model_metadata(actual_model_key, None, None)
+    else:
+        actual_model_key = model_key
+        actual_export_dir = str(export_dir)
+        meta = resolve_model_metadata(actual_model_key, unified_models_registry, config)
 
     notebook_content = {
         "metadata": {
@@ -75,47 +87,25 @@ def generate_inference_notebook(
         ],
     }
 
-    output_filename = f"{model_key}_training.ipynb"
-    output_path = os.path.join(export_dir, output_filename)
-    kaggle_alt_filename = f"{model_key}_kaggle_training.ipynb"
-    kaggle_alt_path = os.path.join(export_dir, kaggle_alt_filename)
+    output_filename = f"{actual_model_key}_kaggle_training.ipynb"
+    output_path = os.path.join(actual_export_dir, output_filename)
 
     json_str = write_notebook(notebook_content, output_path)
     if json_str is None:
         return None
 
-    print(f"[OK] Generated Training Notebook: {output_path}")
-
-    # Mirror as explicit kaggle training notebook in export dir
-    try:
-        with open(kaggle_alt_path, "w", encoding="utf-8") as f:
-            f.write(json_str)
-        print(f"[OK] Synchronized Kaggle Alias Notebook: {kaggle_alt_path}")
-    except OSError:
-        pass
+    print(f"[OK] Generated Kaggle Training Notebook: {output_path}")
 
     sync_manifold_notebooks(
-        model_key=model_key,
+        model_key=actual_model_key,
         json_str=json_str,
         filename=output_filename,
-        unified_models_registry=unified_models_registry,
-    )
-    sync_manifold_notebooks(
-        model_key=model_key,
-        json_str=json_str,
-        filename=kaggle_alt_filename,
-        unified_models_registry=unified_models_registry,
+        unified_models_registry=unified_models_registry if isinstance(unified_models_registry, dict) else None,
     )
 
     sync_workspace_training_notebook(
         subfolder_name="kaggle_training",
         filename=output_filename,
-        json_str=json_str,
-        display_title="Kaggle",
-    )
-    sync_workspace_training_notebook(
-        subfolder_name="kaggle_training",
-        filename=kaggle_alt_filename,
         json_str=json_str,
         display_title="Kaggle",
     )
@@ -162,13 +152,14 @@ def generate_usage_notebook(
         ],
     }
 
-    output_path = os.path.join(export_dir, f"{model_key}-usage.ipynb")
+    output_path = os.path.join(export_dir, f"{model_key}-kaggle-usage.ipynb")
     json_str = write_notebook(notebook_content, output_path)
     if json_str is None:
         return None
 
-    print(f"[OK] Generated Usage Notebook: {output_path}")
+    print(f"[OK] Generated Kaggle Usage Notebook: {output_path}")
     return output_path
 
 
 generate_training_notebook = generate_inference_notebook
+generate_kaggle_usage_notebook = generate_usage_notebook

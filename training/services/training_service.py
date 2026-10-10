@@ -83,6 +83,15 @@ class TrainingService:
         Returns:
             TrainingSummary: Completed run metrics and summary.
         """
+        # 0. Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds, and training dirs
+        try:
+            from training.services.notebook_service import NotebookService
+            nb_service = NotebookService(project_root=self.project_root)
+            nb_service.generate_notebooks(model_key=model_key, platform="all")
+        except Exception as e:
+            import logging
+            logging.getLogger("lemtrain").warning(f"Pre-flight notebook generation skipped for {model_key}: {e}")
+
         # 1. Resolve preset parameters if requested
         if preset:
             preset_cfg = self.get_preset(preset)

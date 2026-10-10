@@ -33,16 +33,18 @@ __all__ = [
     "generate_colab_inference_notebook",
     "generate_colab_usage_notebook",
     "generate_colab_training_notebook",
+    "main",
 ]
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> int:
     import yaml
 
     parser = argparse.ArgumentParser(description="LemGendary Notebook Orchestrator (v16.2.9 Nuclear)")
     parser.add_argument("--model", type=str, help="Generate notebooks for a specific model key.")
+    parser.add_argument("--dataset", type=str, default=None, help="Dataset key context if invoked from compiler suite.")
     parser.add_argument("--all", action="store_true", help="Regenerate the entire Notebook Matrix for all registry models.")
     parser.add_argument("--dir", type=str, help="Override export directory.")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     project_root = get_project_root()
     config_path = project_root / "config.yaml"
@@ -61,18 +63,18 @@ if __name__ == "__main__":
 
     models_to_gen: list[str] = []
     if args.all:
-        models_to_gen = [k for k in registry.keys() if k != "_registry_metadata"]
+        models_to_gen = [k for k in registry.keys() if not k.startswith("_")]
         print(f"[NUCLEAR] Initiating Global Notebook Refresh for {len(models_to_gen)} models...")
     elif args.model:
         if args.model in registry:
             models_to_gen = [args.model]
         else:
             print(f"[ERROR] Model '{args.model}' not found in registry.")
-            print("[REMEDY] Verify the spelling of the model key in 'unified_models.yaml'.")
-            sys.exit(1)
+            print("[REMEDY] Verify the spelling of the model key in 'unified_models_v2.yaml'.")
+            return 1
     else:
         parser.print_help()
-        sys.exit(0)
+        return 0
 
     for m_key in models_to_gen:
         m_dir = os.path.join(export_root, m_key)
@@ -83,3 +85,8 @@ if __name__ == "__main__":
         generate_colab_usage_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
 
     print("\n[SUCCESS] Notebook Matrix Synchronized.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -39,6 +39,26 @@ def resolve_github_credentials(override_pat: str | None = None) -> str | None:
     return None
 
 
+def load_secrets_yaml_registry() -> list[dict[str, Any]]:
+    """Load secrets registry from workspace .secrets.yaml."""
+    from training.utils.paths import get_workspace_root
+    candidates = [
+        get_workspace_root() / ".secrets.yaml",
+        get_project_root() / ".secrets.yaml",
+        get_project_root().parent / ".secrets.yaml",
+        Path.cwd() / ".secrets.yaml",
+    ]
+    for p in candidates:
+        if p.exists() and p.is_file():
+            try:
+                import yaml
+                data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+                return data.get("secrets", [])
+            except Exception as e:
+                logger.debug("Failed parsing .secrets.yaml at %s: %s", p, e)
+    return []
+
+
 def find_kaggle_users_file(explicit_path: Path | None = None) -> Path | None:
     """Locate the .kaggle_users registry file across project hierarchies."""
     if explicit_path and explicit_path.exists() and explicit_path.is_file():
@@ -59,14 +79,30 @@ def find_kaggle_users_file(explicit_path: Path | None = None) -> Path | None:
     return default_target if default_target.exists() else None
 
 
-def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, str]]:
-    """Parse configured Kaggle user accounts from .kaggle_users.
+def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, Any]]:
+    """Parse configured Kaggle user accounts, prioritizing default from .secrets.yaml."""
+    accounts: list[dict[str, Any]] = []
 
-    Expected format per line: KAGGLE_USERNAME=<user>, KAGGLE_API_TOKEN=<token>;
-    """
+    # 1. Primary: load from .secrets.yaml
+    secrets = load_secrets_yaml_registry()
+    if secrets:
+        kaggle_secrets = [s for s in secrets if str(s.get("service", "")).lower() == "kaggle"]
+        if kaggle_secrets:
+            sorted_secrets = sorted(kaggle_secrets, key=lambda s: not bool(s.get("is_default", False)))
+            for s in sorted_secrets:
+                u = s.get("username") or ""
+                t = s.get("secret_value") or ""
+                if u and t:
+                    accounts.append({
+                        "username": u,
+                        "token": t,
+                        "is_default": bool(s.get("is_default", False)),
+                    })
+            if accounts:
+                return accounts
+
+    # 2. Fallback: parse .kaggle_users dotfile
     target_file = find_kaggle_users_file(users_file)
-    accounts: list[dict[str, str]] = []
-
     if target_file and target_file.exists():
         try:
             content = target_file.read_text(encoding="utf-8")
@@ -77,10 +113,13 @@ def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, str]]:
                 m_user = re.search(r"KAGGLE_USERNAME=([^,;\s]+)", line)
                 m_token = re.search(r"KAGGLE_API_TOKEN=([^,;\s]+)", line)
                 if m_user and m_token:
+                    u = m_user.group(1).strip()
                     accounts.append({
-                        "username": m_user.group(1).strip(),
+                        "username": u,
                         "token": m_token.group(1).strip(),
+                        "is_default": u == "lemtreursi",
                     })
+            accounts.sort(key=lambda a: not a.get("is_default", False))
         except OSError as e:
             logger.warning("Could not read .kaggle_users at %s: %s", target_file, e)
 
@@ -94,23 +133,44 @@ def resolve_kaggle_credentials(
     """Resolve Kaggle credentials with senior fallback hierarchy.
 
     1. Explicit parameters
-    2. Environment variables (KAGGLE_USERNAME, KAGGLE_KEY)
-    3. User home ~/.kaggle/kaggle.json
-    4. Sibling/project .kaggle_token or .kaggle_users
+    2. Ecosystem .secrets.yaml vault (default active Kaggle secret)
+    3. Environment variables (KAGGLE_USERNAME, KAGGLE_KEY)
+    4. User home ~/.kaggle/kaggle.json
+    5. Sibling/project .kaggle_token or .kaggle_users
+    6. Default fallback account (lemtreursi)
     """
-    k_user = override_user or os.environ.get("KAGGLE_USERNAME", "")
-    k_key = override_key or os.environ.get("KAGGLE_KEY", "")
+    k_user = override_user or ""
+    k_key = override_key or ""
 
+    # Ecosystem .secrets.yaml registry check
+    if not (k_user and k_key):
+        accounts = load_kaggle_users()
+        if accounts:
+            default_acc = next((a for a in accounts if a.get("is_default")), accounts[0])
+            if not k_user:
+                k_user = default_acc.get("username", "")
+            if not k_key:
+                k_key = default_acc.get("token", "")
+
+    # Environment variables fallback
+    if not k_user:
+        k_user = os.environ.get("KAGGLE_USERNAME", "")
+    if not k_key:
+        k_key = os.environ.get("KAGGLE_KEY", "")
+
+    # User home ~/.kaggle/kaggle.json fallback (supporting utf-8-sig, utf-16, utf-8)
     user_kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
     if not (k_user and k_key) and user_kaggle_json.exists():
-        try:
-            creds = json.loads(user_kaggle_json.read_text(encoding="utf-8"))
-            if not k_user:
-                k_user = creds.get("username", "")
-            if not k_key:
-                k_key = creds.get("key", "")
-        except (OSError, ValueError) as e:
-            logger.debug("Failed parsing ~/.kaggle/kaggle.json: %s", e)
+        for enc in ("utf-8-sig", "utf-8", "utf-16", "latin-1"):
+            try:
+                creds = json.loads(user_kaggle_json.read_text(encoding=enc))
+                if not k_user:
+                    k_user = creds.get("username", "")
+                if not k_key:
+                    k_key = creds.get("key", "")
+                break
+            except (OSError, ValueError, UnicodeError) as e:
+                logger.debug("Failed parsing ~/.kaggle/kaggle.json with %s: %s", enc, e)
 
     # Project .kaggle_token fallback
     project_root = get_project_root()
@@ -124,23 +184,24 @@ def resolve_kaggle_credentials(
         except OSError as e:
             logger.debug("Failed reading .kaggle_token: %s", e)
 
-    # Multi-account registry fallback
-    if not (k_user and k_key):
-        accounts = load_kaggle_users()
-        if accounts:
-            first = accounts[0]
-            if not k_user:
-                k_user = first.get("username", "")
-            if not k_key:
-                k_key = first.get("token", "")
-
     if not k_user:
         k_user = "lemtreursi"
 
+    # Export to environment for Kaggle Python SDK and child processes
     if k_user:
         os.environ["KAGGLE_USERNAME"] = k_user
     if k_key:
         os.environ["KAGGLE_KEY"] = k_key
+
+    # Sync ~/.kaggle/kaggle.json in clean UTF-8 so CLI works seamlessly
+    if k_user and k_key:
+        try:
+            k_json = Path.home() / ".kaggle" / "kaggle.json"
+            k_json.parent.mkdir(parents=True, exist_ok=True)
+            k_content = json.dumps({"username": k_user, "key": k_key}, indent=2)
+            k_json.write_text(k_content, encoding="utf-8")
+        except OSError:
+            pass
 
     return k_user, k_key
 
