@@ -78,7 +78,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Model key from unified_models.yaml",
     )
     parser.add_argument("--epochs", type=int, default=None, help="Number of training epochs")
-    parser.add_argument("--batch_size", type=int, default=None, help="Batch size per step")
+    parser.add_argument("--batch_size", type=str, default=None, help="Batch size per step (positive integer or 'auto')")
     parser.add_argument("--lr", type=float, default=None, help="Base learning rate")
     parser.add_argument(
         "--env",
@@ -270,7 +270,42 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     criterion = CombinedLoss(task_type=task_type)
 
     # 7. Data Loaders
-    batch_size = args.batch_size or model_info.get("batch_size", 16)
+    raw_batch = args.batch_size
+    resolved_batch: int | None = None
+    if raw_batch is not None:
+        if isinstance(raw_batch, str) and raw_batch.strip().lower() in ("auto", "none", ""):
+            resolved_batch = None
+        else:
+            try:
+                parsed_bs = int(raw_batch)
+                if parsed_bs > 0:
+                    resolved_batch = parsed_bs
+            except (ValueError, TypeError):
+                resolved_batch = None
+
+    if resolved_batch is None:
+        cfg_batch = model_info.get("batch_size")
+        if isinstance(cfg_batch, int) and cfg_batch > 0:
+            resolved_batch = cfg_batch
+        elif isinstance(cfg_batch, str) and cfg_batch.strip().isdigit() and int(cfg_batch) > 0:
+            resolved_batch = int(cfg_batch)
+        else:
+            from training.hardware.probe import audit_hardware_vram
+            resolved_batch = audit_hardware_vram(
+                model_key=model_key,
+                model_info=model_info,
+                config=config,
+                device=device_info.device,
+                model=raw_model,
+                res_override=getattr(args, "resolution", None),
+                mode="train",
+                fold=getattr(args, "fold", None),
+                pairs=getattr(args, "pairs", None) or model_info.get("pairs"),
+            )
+
+    if not isinstance(resolved_batch, int) or resolved_batch <= 0:
+        resolved_batch = 128 if task_type == "forex" else 16
+    batch_size = resolved_batch
     if task_type == "forex":
         from data.forex_dataset import ForexDataset
         _forex_shard_root = str(
@@ -355,6 +390,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     # 8. Sentinels & Governance
     sentinel = SentinelGuard(device=device_info.device)
     governor = SmartTrainingGovernor(model_info=model_info, config=config)
+    governor.curriculum.current_batch = batch_size
     sota_tracker = SotaTracker()
     vault = MetricVault()
 

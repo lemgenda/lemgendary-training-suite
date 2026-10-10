@@ -41,6 +41,10 @@ def resolve_auto(model: Any, model_key: str, config: dict, model_info: dict | No
     # 1. Explicit per-model preference from the unified models registry.
     preferred = info.get("preferred_parallel", "")
     if preferred in _STRATEGIES:
+        if preferred == "ddp" and "RANK" not in os.environ and "WORLD_SIZE" not in os.environ:
+            if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+                return "dp"
+            return "single"
         return preferred
 
     # 2. Models that must always run on a single process.

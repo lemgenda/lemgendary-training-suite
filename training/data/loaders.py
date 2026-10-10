@@ -28,6 +28,14 @@ def build_train_loader(
     dev = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
     is_forex = getattr(dataset, "task_type", "") == "forex"
 
+    if not isinstance(batch_size, int) or batch_size <= 0:
+        try:
+            batch_size = int(batch_size)
+            if batch_size <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            batch_size = 128 if is_forex else 16
+
     topology = compute_worker_topology(
         env=env,
         device=dev,
@@ -82,6 +90,14 @@ def build_val_loader(
     """Construct a standardized validation DataLoader with conservative worker overhead."""
     dev = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
     is_forex = getattr(dataset, "task_type", "") == "forex"
+
+    if not isinstance(batch_size, int) or batch_size <= 0:
+        try:
+            batch_size = int(batch_size)
+            if batch_size <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            batch_size = 256 if is_forex else 16
 
     topology = compute_worker_topology(
         env=env,

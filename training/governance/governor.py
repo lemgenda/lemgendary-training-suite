@@ -91,9 +91,12 @@ class SmartTrainingGovernor:
         self.curriculum.current_batch = int(batch_val) if batch_val and batch_val != "auto" else 16
         self.curriculum.current_acc = 1
 
-        raw_size = model_info.get("input_size", 224)
+        raw_size = model_info.get("input_size") or 224
         current_res = raw_size[1] if isinstance(raw_size, (list, tuple)) else raw_size
-        self.curriculum.current_res = int(current_res)
+        try:
+            self.curriculum.current_res = int(current_res) if current_res is not None else 224
+        except (ValueError, TypeError):
+            self.curriculum.current_res = 224
 
         if not res_ladder:
             stride = manifold_defaults.get("resolution_stride", 128)

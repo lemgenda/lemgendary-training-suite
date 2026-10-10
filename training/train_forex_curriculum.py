@@ -31,6 +31,7 @@ def main():
     parser.add_argument("--folds", type=int, nargs='+', default=None, help="Explicit list of active folds to train (e.g. 1 2 3 4 5 6)")
     parser.add_argument("--timeframes", type=int, nargs='+', default=None, help="Force specific active timeframes in minutes (e.g. 60 240 1440)")
     parser.add_argument("--epochs-per-fold", type=int, default=200, help="Max base epochs per fold before early stopping checks")
+    parser.add_argument("--batch_size", "--batch-size", dest="batch_size", type=str, default=None, help="Batch size per step (positive integer or 'auto')")
     args = parser.parse_args()
 
     print("================================================================================")
@@ -231,6 +232,9 @@ def main():
             "--fold", str(fold),
             "--enable-batch-growth",
         ]
+
+        if getattr(args, 'batch_size', None):
+            cmd.extend(["--batch_size", str(args.batch_size)])
 
         if getattr(args, 'timeframes', None):
             cmd.append("--timeframes")

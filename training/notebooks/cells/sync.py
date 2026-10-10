@@ -197,7 +197,7 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
     cmd_line = (
         "cmd = [sys.executable, '-u', '-m', 'training.train_forex_curriculum']\n"
         if meta.is_forex
-        else f"cmd = [sys.executable, '-u', 'training/train.py', '--model', f'{{model_key}}', '--env', '{env_flag}', '--auto_sync']\n"
+        else f"cmd = [sys.executable, '-u', 'training/train.py', '--model', '{meta.model_key}', '--env', '{env_flag}', '--auto_sync']\n"
     )
 
     if target == "kaggle":
