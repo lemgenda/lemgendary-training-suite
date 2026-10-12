@@ -76,6 +76,7 @@ def generate_notebooks_endpoint(
 
 
 @router.post("/refresh-all")
+@router.post("/generate-all")
 def refresh_all_notebooks_endpoint(
     payload: NotebookRefreshAllRequest,
     request: Request,

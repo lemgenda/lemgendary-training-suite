@@ -10,11 +10,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.8.0-STABLE` |
+| **Version** | `v16.9.20-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+---
+
+### v16.9.20 — Fleet Diagnostic Smoke Test Endpoint, Kaggle Models Checkpoint Publishing & Notebook Synthesis Aliases
+
+- **Fleet Diagnostic Smoke Test Job & API (`POST /api/training/unit-test-all`)** — Added backend API route and job execution runner invoking `tools/train_all.py` sequentially across all 22 registered neural architectures with custom epoch overrides.
+- **CLI Subcommands (`lemtrain test-all`, `lemtrain sync push`)** — Implemented `lemtrain test-all [--epochs 1]` for automated diagnostic verification and `lemtrain sync push <model_name>` for packaging and pushing trained checkpoints to Kaggle Models repositories.
+- **Notebook Generator Route Alias (`POST /api/notebooks/generate-all`)** — Added explicit alias endpoint for `POST /api/notebooks/refresh-all` matching cross-project convention.
+- **Desktop GUI TrainingPanel Alignment** — Integrated top toolbar buttons ("Run 1-Epoch Diagnostic", "Generate All Notebooks"), card actions ("Evaluate Model", "Export Binaries"), and CloudTrainModal 3rd tab ("Upload Checkpoints").
 
 ---
 

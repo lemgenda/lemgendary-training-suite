@@ -146,6 +146,28 @@ def export(
         typer.echo(f"  [{tgt}] -> {path}")
 
 
+@app.command("test-all")
+def test_all(
+    epochs: int = typer.Option(1, "--epochs", "-e", help="Epochs per model (default: 1 for unit test)."),
+    yes: bool = typer.Option(True, "--yes", "-y", help="Auto-confirm all models without interactive prompt."),
+    force: bool = typer.Option(False, "--force", "-f", help="Force execution even if artifacts exist."),
+    env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle')."),
+) -> None:
+    """Run sequential diagnostic unit-test pass across all registered neural models."""
+    typer.echo(f"[TEST-ALL] Launching diagnostic fleet test (epochs={epochs}, env={env})...")
+    project_root = Path(__file__).resolve().parent.parent.parent
+    train_all_script = project_root / "tools" / "train_all.py"
+    cmd = [sys.executable, str(train_all_script), "--epochs", str(epochs), "--env", env]
+    if yes:
+        cmd.append("--yes")
+    if force:
+        cmd.append("--force")
+    code = subprocess.call(cmd, cwd=str(project_root))
+    if code != 0:
+        raise typer.Exit(code=code)
+    typer.echo("[SUCCESS] Fleet diagnostic unit-test pass completed.")
+
+
 @app.command("notebooks")
 def notebooks(
     model: str = typer.Argument(..., help="Model key for notebook generation."),
@@ -344,6 +366,22 @@ def sync_run(
         typer.echo(f"[SUCCESS] Cloud sync complete: {res.get('message', '')}")
     else:
         typer.echo(f"[ERROR] Cloud sync failed: {res.get('message', '')}")
+
+
+@sync_app.command("push")
+def sync_push(
+    model: str = typer.Argument(..., help="Model key to upload to Kaggle Models."),
+    source_dir: Optional[str] = typer.Option(None, "--source-dir", "-s", help="Optional custom source directory."),
+    username: Optional[str] = typer.Option(None, "--username", "-u", help="Optional Kaggle username override."),
+) -> None:
+    """Stage and upload local model checkpoints and metrics to Kaggle Models."""
+    from training.kaggle_cloud_manager import push_kaggle_artifacts
+    typer.echo(f"[SYNC] Pushing artifacts for model '{model}' to Kaggle Models...")
+    ok = push_kaggle_artifacts(model_name=model, source_dir=source_dir, username=username)
+    if not ok:
+        typer.echo(f"[ERROR] Failed to push artifacts for '{model}'.")
+        raise typer.Exit(code=1)
+    typer.echo(f"[SUCCESS] Uploaded artifacts for '{model}' to Kaggle Models.")
 
 
 @notebooks_app.command("list")

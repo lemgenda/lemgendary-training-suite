@@ -65,6 +65,26 @@ def enqueue_export(payload: ExportRequest, request: Request) -> dict[str, Any]:
     return {"job_id": job_id, "status": "pending", "message": f"Export job enqueued for {payload.model}"}
 
 
+class UnitTestAllRequest(BaseModel):
+    """Payload for submitting single-epoch diagnostic unit test across all registered models."""
+    epochs: int = Field(1, description="Diagnostic epochs per model (default: 1)")
+    env: str = Field("local", description="Execution environment ('local', 'kaggle')")
+    force: bool = Field(False, description="Force re-train even if SOTA checkpoint exists")
+
+
+@router.post("/unit-test-all")
+def enqueue_unit_test_all(payload: UnitTestAllRequest, request: Request) -> dict[str, Any]:
+    """Enqueue single-epoch diagnostic pass across all fleet models."""
+    manager = request.app.state.job_manager
+    params = payload.model_dump()
+    job_id = manager.submit_job(job_type="test_all", model_key="all", params=params)
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "message": "Fleet diagnostic unit-test job enqueued for all models",
+    }
+
+
 # ─── Kaggle Cloud Engine Endpoints ───────────────────────────────────────────
 
 class KaggleTrainRequest(BaseModel):

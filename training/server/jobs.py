@@ -321,6 +321,8 @@ class JobManager:
                 self._execute_kaggle_training(job_id, model_key, params, cancel_event)
             elif job_type == "kaggle_monitor":
                 self._execute_kaggle_monitor(job_id, model_key, params, cancel_event)
+            elif job_type in ("test_all", "unit_test_all"):
+                self._execute_test_all(job_id, params, cancel_event)
             else:
                 raise ValueError(f"Unknown job_type: '{job_type}'")
 
@@ -622,6 +624,71 @@ class JobManager:
         if cancel_event.is_set():
             self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
             self._broadcast_log(job_id, f"[CANCEL] Disconnected from telemetry stream.")
+
+    def _execute_test_all(
+        self,
+        job_id: str,
+        params: dict[str, Any],
+        cancel_event: threading.Event,
+    ) -> None:
+        """Execute fleet diagnostic pass across all models using tools/train_all.py."""
+        import subprocess
+        import sys
+
+        train_all_script = self.project_root / "tools" / "train_all.py"
+        epochs = str(params.get("epochs", 1))
+        env = str(params.get("env", "local"))
+        cmd = [sys.executable, str(train_all_script), "--epochs", epochs, "--yes", "--env", env]
+        if params.get("force", False):
+            cmd.append("--force")
+
+        self._broadcast_log(job_id, f"[COMMAND] Launching fleet diagnostic: {' '.join(cmd)}")
+
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(self.project_root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+
+        try:
+            if proc.stdout:
+                for line in proc.stdout:
+                    if cancel_event.is_set():
+                        proc.terminate()
+                        break
+                    clean_line = _clean_console_line(line)
+                    if clean_line:
+                        self._broadcast_log(job_id, clean_line)
+            proc.wait()
+        finally:
+            if cancel_event.is_set():
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+        if cancel_event.is_set():
+            self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
+            self._broadcast_log(job_id, "[CANCEL] Fleet diagnostic pass halted by cancellation.")
+            return
+
+        if proc.returncode == 0:
+            self.state.update_job_status(
+                job_id=job_id,
+                status="completed",
+                metrics={"returncode": 0, "epochs": int(epochs)},
+            )
+            self._broadcast_log(job_id, "[SUCCESS] Fleet diagnostic pass completed successfully.")
+        else:
+            self.state.update_job_status(
+                job_id=job_id,
+                status="failed",
+                error_message=f"Exit code: {proc.returncode}",
+            )
+            self._broadcast_log(job_id, f"[ERROR] Fleet diagnostic pass failed with return code {proc.returncode}.")
 
     def shutdown(self) -> None:
         """Gracefully terminate thread pool executors."""
