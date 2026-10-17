@@ -16,6 +16,13 @@
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
 
+### v16.9.27 — Resilient Atomic Replacement & Windows File Lock Remediation
+
+- **Windows Resilient Atomic Replacement (`_resilient_replace`, `training/checkpoint/manager.py`)** — Resolved the Windows NTFS `[WinError 5] Access is denied` error encountered during `progress.pth.tmp` -> `progress.pth` atomic renaming when background scanner services (Windows Defender, Search Indexer) momentarily acquire read locks on newly written checkpoints. Implemented exponential backoff with transient lock retries for WinError 5 and WinError 32.
+- **Intra-Epoch Checkpoint Failure Backoff (`training/checkpoint/lifecycle_manager.py`)** — Added a 60-second retry backoff to `check_and_save_progress` on write failure, preventing rapid 1-second batch iterations from repeatedly hammering locked filesystem handles.
+
+---
+
 ### v16.9.26 — Forex Parquet Locality Acceleration, Curriculum Fraction Ingestion & Telemetry Progress Synchronization
 
 - **Parquet Row-Group Locality Acceleration (`RowGroupAwareSampler`, `training/core_loop.py`)** — Integrated `RowGroupAwareSampler` for Forex multi-timeframe Parquet datasets to shuffle at the row-group level. Resolves the 98% cache miss rate caused by PyTorch's default random row shuffling, boosting LRU hit rate to 99% and restoring batch execution throughput to expected high-speed rates (<0.5s/batch vs 55s/batch).

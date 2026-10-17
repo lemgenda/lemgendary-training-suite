@@ -187,6 +187,9 @@ class CheckpointLifecycleManager:
                 f"to {self.progress_path.name}",
                 flush=True,
             )
+        else:
+            # Back off for 60 seconds on failure so subsequent 1-second batch iterations do not hammer locked files
+            self.last_progress_save_time = now - self.min_progress_interval_sec + 60.0
         return success
 
     def save_latest(self, epoch: int, payload: dict[str, Any]) -> bool:

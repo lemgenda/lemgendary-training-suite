@@ -4,6 +4,8 @@ import logging
 import os
 from pathlib import Path
 import shutil
+import sys
+import time
 from typing import Any
 import torch
 
@@ -50,6 +52,32 @@ def audit_disk_space(target_dir: Path, min_free_gb: float = 5.0) -> float:
     return free_gb
 
 
+def _resilient_replace(src: Path, dst: Path, max_retries: int = 8, initial_delay: float = 0.1) -> None:
+    """Atomically replace dst with src, retrying with exponential backoff on transient Windows file lock errors (WinError 5 / 32)."""
+    last_err: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            os.replace(str(src), str(dst))
+            return
+        except (PermissionError, OSError) as exc:
+            last_err = exc
+            is_win_lock = sys.platform == "win32" and (
+                isinstance(exc, PermissionError) or getattr(exc, "winerror", None) in (5, 32)
+            )
+            if not is_win_lock or attempt == max_retries - 1:
+                raise
+            delay = initial_delay * (1.5**attempt)
+            time.sleep(delay)
+            # If multiple retries failed and destination exists, attempt unlinking dst before final attempts
+            if attempt >= 3 and dst.exists():
+                try:
+                    dst.unlink()
+                except Exception:
+                    pass
+    if last_err:
+        raise last_err
+
+
 def safe_atomic_save(payload: Any, path: Path | str, min_free_gb: float = 5.0) -> bool:
     """Save an object to disk atomically via a temporary file with disk headroom checking."""
     target_path = Path(path).resolve()
@@ -66,8 +94,7 @@ def safe_atomic_save(payload: Any, path: Path | str, min_free_gb: float = 5.0) -
 
     try:
         torch.save(payload, str(tmp_path))
-        # Atomic replace on POSIX, atomic on Windows with os.replace
-        os.replace(str(tmp_path), str(target_path))
+        _resilient_replace(tmp_path, target_path)
         logger.info("Saved atomic checkpoint to %s", target_path)
         return True
     except Exception as exc:
