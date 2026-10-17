@@ -33,20 +33,39 @@ def audit_hardware_vram(
         configured_batch = model_info.get("batch_size", "auto")
         gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
         vram_gb = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) if torch.cuda.is_available() else 0.0
+        free_gb = 0.0
+        if torch.cuda.is_available():
+            try:
+                free_vram_probe, _ = torch.cuda.mem_get_info(0)
+                free_gb = free_vram_probe / (1024**3)
+            except Exception:
+                free_gb = 0.0
 
         if isinstance(configured_batch, int) and configured_batch > 0:
             final_batch = configured_batch if mode == "train" else configured_batch * 2
         else:
             gpu_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
-            if vram_gb >= 20.0:
-                per_device = 256
-            elif vram_gb >= 14.0:
-                per_device = 128
-            elif vram_gb >= 7.0:
-                per_device = 64
-            elif vram_gb >= 3.5:
-                per_device = 32
+            if torch.cuda.is_available():
+                free_vram, total_vram = torch.cuda.mem_get_info(0)
+                free_gb = free_vram / (1024**3)
+                # Compute dynamic batch: ~2.5MB activation footprint per multi-timeframe sample
+                # Maintain 30% safety margin for optimizer momentum, activations, and CUDA context
+                usable_bytes = free_vram * 0.70
+                sample_bytes = 2.5 * 1024 * 1024
+                dyn_batch = int(usable_bytes / sample_bytes)
+
+                if dyn_batch >= 256 and vram_gb >= 20.0:
+                    per_device = 256
+                elif dyn_batch >= 128 and vram_gb >= 12.0:
+                    per_device = 128
+                elif dyn_batch >= 64 and vram_gb >= 6.0:
+                    per_device = 64
+                elif dyn_batch >= 32 and vram_gb >= 3.2:
+                    per_device = 32
+                else:
+                    per_device = 16
             else:
+                free_gb = 0.0
                 per_device = 16
 
             final_batch = per_device * gpu_count if gpu_count > 1 else per_device
@@ -56,8 +75,8 @@ def audit_hardware_vram(
         symbols_str = " | ".join(pairs) if pairs else "ALL"
         fold_str = str(fold) if fold else "MAIN"
         logger.info(
-            "Forex Memory Probe: %s (%.1fGB) | Phase: %s | Batch: %d | Fold: %s | Symbols: %s",
-            gpu_name, vram_gb, mode.capitalize(), final_batch, fold_str, symbols_str
+            "Forex Dynamic Hardware Probe: %s (Free: %.1fGB / Total: %.1fGB) | Phase: %s | Batch: %d | Fold: %s | Symbols: %s",
+            gpu_name, free_gb if torch.cuda.is_available() else 0.0, vram_gb, mode.capitalize(), final_batch, fold_str, symbols_str
         )
         return final_batch
 

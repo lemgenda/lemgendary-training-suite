@@ -30,7 +30,7 @@ logger = logging.getLogger("lemtrain.server.jobs")
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 CLEAN_CONTROL_RE = re.compile(r"^\s*\[K\s*")
 PROGRESS_RE = re.compile(
-    r"(\d+%\s*[━█─\-=|]+|\b\d+/\d+\b\s+.*\b(it/s|s/it|B/s|KB/s|MB/s|GB/s)\b|\d+:\d+<\d+:\d+|\d+%\s*\|.*\|\s*\d+/\d+)"
+    r"(\d+%\s*[━█─\-=|]+|\b\d+/\d+\b\s+.*\b(it/s|s/it|B/s|KB/s|MB/s|GB/s)\b|\d+:\d+<\d+:\d+|\d+%\s*\|.*\|\s*\d+/\d+|\[BATCH\s+\d+/\d+\])"
 )
 
 

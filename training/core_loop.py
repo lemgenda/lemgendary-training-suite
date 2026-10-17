@@ -22,6 +22,7 @@ from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
 from training.data import build_train_loader
 from training.data import build_val_loader as canonical_build_val_loader
+from data.forex_sampler import RowGroupAwareSampler
 from training.export import export_all
 from training.governance import SmartTrainingGovernor, SotaTracker
 from training.hardware.discovery import discover_device
@@ -294,6 +295,15 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     if not isinstance(resolved_batch, int) or resolved_batch <= 0:
         resolved_batch = 128 if task_type == "forex" else 16
     batch_size = resolved_batch
+    # 8. Sentinels & Governance
+    sentinel = SentinelGuard(device=device_info.device)
+    governor = SmartTrainingGovernor(model_info=model_info, config=config)
+    governor.curriculum.current_batch = batch_size
+    sota_tracker = SotaTracker()
+    vault = MetricVault()
+
+    sample_fraction = getattr(governor.curriculum, "current_fraction", 1.0)
+
     if task_type == "forex":
         from data.forex_dataset import ForexDataset
         _forex_shard_root = str(
@@ -316,6 +326,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             pairs=_forex_pairs,
             active_timeframes=_forex_timeframes,
             is_train=True,
+            sample_fraction=sample_fraction,
             fold=_forex_fold,
         )
         try:
@@ -344,7 +355,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             model_key=model_key,
             is_train=True,
             env=args.env,
-            sample_fraction=1.0,
+            sample_fraction=sample_fraction,
         )
         try:
             val_ds = MultiTaskDataset(
@@ -374,6 +385,23 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             collate_fn=collate_fn,
             drop_last=False,
         )
+    elif task_type == "forex":
+        train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+        logger.info(
+            "RowGroupAwareSampler active for Forex dataset: %d locality groups (fraction: %.2f)",
+            len(train_sampler._group_keys),
+            sample_fraction,
+        )
+        train_loader = build_train_loader(
+            dataset=train_ds,
+            batch_size=batch_size,
+            sampler=train_sampler,
+            shuffle=False,
+            num_workers=args.num_workers,
+            device=device_info.device,
+            env=args.env,
+            config=config,
+        )
     else:
         train_loader = build_train_loader(
             dataset=train_ds,
@@ -397,13 +425,6 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             val_loader = None
     else:
         val_loader = None
-
-    # 8. Sentinels & Governance
-    sentinel = SentinelGuard(device=device_info.device)
-    governor = SmartTrainingGovernor(model_info=model_info, config=config)
-    governor.curriculum.current_batch = batch_size
-    sota_tracker = SotaTracker()
-    vault = MetricVault()
 
     # 9. Recovery inspection
     resume_state = None

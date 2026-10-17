@@ -79,7 +79,8 @@ def train_one_epoch(
     ctx.optimizer.zero_grad(set_to_none=True)
 
     num_batches = len(ctx.train_loader) if hasattr(ctx.train_loader, "__len__") else 0
-    log_interval = max(1, min(10, num_batches // 10)) if num_batches > 0 else 10
+    log_interval = max(1, min(25, num_batches // 50)) if num_batches > 0 else 10
+    last_log_time = start_time
 
     for batch_idx, batch in enumerate(ctx.train_loader):
         if cancel_check is not None and cancel_check():
@@ -141,17 +142,36 @@ def train_one_epoch(
                 },
             )
 
-        if (batch_idx + 1) % log_interval == 0 or (batch_idx + 1) == num_batches:
+        now = time.time()
+        is_warmup = (batch_idx + 1) in (1, 2, 5, 10)
+        time_elapsed_since_log = now - last_log_time
+        is_periodic = ((batch_idx + 1) % log_interval == 0) or ((batch_idx + 1) == num_batches)
+        is_heartbeat = (time_elapsed_since_log >= 8.0 and (batch_idx + 1) > 10)
 
+        if is_warmup or is_periodic or is_heartbeat:
+            last_log_time = now
             batch_loss = float(raw_loss.item())
             cur_lr = float(ctx.optimizer.param_groups[0]["lr"])
-            elapsed_batch = time.time() - start_time
+            elapsed_batch = now - start_time
+            rate = (batch_idx + 1) / max(0.001, elapsed_batch)
+            rate_str = f"{rate:.2f} it/s" if rate >= 1.0 else f"{1.0 / max(1e-4, rate):.1f} s/it"
+
             if num_batches > 0:
+                pct = ((batch_idx + 1) / num_batches) * 100.0
+                remaining = max(0, num_batches - (batch_idx + 1))
+                eta_s = int(remaining / max(1e-4, rate))
+                eta_m, eta_sec = divmod(eta_s, 60)
+                eta_h, eta_m = divmod(eta_m, 60)
+                eta_str = f"ETA {eta_h}h{eta_m:02d}m" if eta_h > 0 else f"ETA {eta_m:02d}m{eta_sec:02d}s"
+
                 print(
                     f"  [BATCH {batch_idx + 1:>{len(str(num_batches))}}/{num_batches}] "
+                    f"({pct:.2f}%) "
                     f"Loss: {batch_loss:.4f} | "
                     f"AvgLoss: {total_loss / step_count:.4f} | "
                     f"LR: {cur_lr:.6f} | "
+                    f"{rate_str} | "
+                    f"{eta_str} | "
                     f"{elapsed_batch:.1f}s",
                     flush=True,
                 )
@@ -160,6 +180,8 @@ def train_one_epoch(
                     f"  [BATCH {batch_idx + 1}] "
                     f"Loss: {batch_loss:.4f} | "
                     f"AvgLoss: {total_loss / step_count:.4f} | "
+                    f"LR: {cur_lr:.6f} | "
+                    f"{rate_str} | "
                     f"{elapsed_batch:.1f}s",
                     flush=True,
                 )

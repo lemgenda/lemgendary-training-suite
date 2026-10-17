@@ -88,6 +88,10 @@ def run_training(
 
         print(f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for {ctx.model_name}...", flush=True)
 
+        # Reseed sampler epoch if supported (e.g. RowGroupAwareSampler)
+        if hasattr(ctx.train_loader, "sampler") and hasattr(ctx.train_loader.sampler, "set_epoch"):
+            ctx.train_loader.sampler.set_epoch(epoch)
+
         # 2. Train one epoch
         train_metrics = train_one_epoch(ctx, epoch, cancel_check=cancel_check)
 

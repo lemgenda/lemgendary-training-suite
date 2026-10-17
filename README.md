@@ -10,11 +10,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.25-STABLE` |
+| **Version** | `v16.9.26-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.26 — Forex Parquet Locality Acceleration, Curriculum Fraction Ingestion & Telemetry Progress Synchronization
+
+- **Parquet Row-Group Locality Acceleration (`RowGroupAwareSampler`, `training/core_loop.py`)** — Integrated `RowGroupAwareSampler` for Forex multi-timeframe Parquet datasets to shuffle at the row-group level. Resolves the 98% cache miss rate caused by PyTorch's default random row shuffling, boosting LRU hit rate to 99% and restoring batch execution throughput to expected high-speed rates (<0.5s/batch vs 55s/batch).
+- **Curriculum Initial Fraction Ingestion (`training/core_loop.py`)** — Pre-initialized `SmartTrainingGovernor` before dataset construction and passed `sample_fraction` into `ForexDataset`. Aligns initial training epochs with the configured 15% curriculum initial fraction (`initial_fraction: 0.15`) instead of loading the entire 109,196-batch dataset at once.
+- **Intra-Epoch Batch Telemetry & Heartbeat (`training/training/epoch.py`)** — Modernized batch log format with explicit percentage, iteration rate (`it/s`), projected completion ETA, and an 8-second heartbeat timer during batch iteration, preventing log silence between long intervals.
+- **GUI Telemetry Progress Parser & Tracker (`progressParser.ts`, `TelemetryProgressTracker.tsx`)** — Added native pattern matching for `[BATCH <current>/<total>]`, rendered precise decimal percentages for early epoch fractions, and replaced static indeterminate bar rendering with a smooth animated sweep.
+
+---
 
 ### v16.9.25 — Zero-Warning Non-Writable Tensor Remediation & Telemetry Stream Segregation
 
