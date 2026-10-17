@@ -10,11 +10,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.24-STABLE` |
+| **Version** | `v16.9.25-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.25 — Zero-Warning Non-Writable Tensor Remediation & Telemetry Stream Segregation
+
+- **Root-Cause Non-Writable Tensor Remediation (`data/forex_dataset.py`)** — Resolved the PyTorch `UserWarning: The given NumPy array is not writable` during batch iteration by implementing `_safe_from_numpy(arr)` with buffer writeability and contiguous memory validation (`np.array(arr, dtype=np.float32, copy=True)`), strictly avoiding warning suppression or filter silencing.
+- **Dedicated Telemetry Segregation** — Synchronized training telemetry emission with the desktop GUI to ensure local training execution packets (`[Training]`) stream exclusively to the Local Training panel without compiler log intermingling.
+
+---
 
 ### v16.9.24 — Forex Dual Loss Multi-Task Routing, SSOT Doc Generator Parity & Telemetry Stream Hardening
 

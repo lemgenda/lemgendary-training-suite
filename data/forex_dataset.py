@@ -76,6 +76,13 @@ PAIR_PIP_SCALE = {
 }
 
 
+def _safe_from_numpy(arr: np.ndarray) -> torch.Tensor:
+    """Safely convert a NumPy array to a float32 PyTorch tensor, ensuring it is writable and C-contiguous."""
+    if arr.dtype == np.float32 and arr.flags["C_CONTIGUOUS"] and arr.flags["WRITEABLE"]:
+        return torch.from_numpy(arr)
+    return torch.from_numpy(np.array(arr, dtype=np.float32, copy=True))
+
+
 class ParquetRowGroupCache:  # pylint: disable=too-few-public-methods
     """
     Process-safe LRU cache for Parquet row groups.
@@ -723,10 +730,7 @@ class ForexDataset(Dataset):
             raw_sample = self._fit_window(cache.get_row_features(row), target_len)
 
             # Single-copy tensor materialization.
-            if raw_sample.dtype == np.float32 and raw_sample.flags["C_CONTIGUOUS"]:
-                primary_tensor = torch.from_numpy(raw_sample)
-            else:
-                primary_tensor = torch.from_numpy(np.ascontiguousarray(raw_sample, dtype=np.float32))
+            primary_tensor = _safe_from_numpy(raw_sample)
             tf_inputs = {tf: primary_tensor}
 
             n_features = raw_sample.shape[1]
@@ -755,10 +759,7 @@ class ForexDataset(Dataset):
                 aligned_row = int(other_rows[int(mapped[pos])])
                 other_sample = self._fit_window(cache.get_row_features(aligned_row), other_target_len)
 
-                if other_sample.dtype == np.float32 and other_sample.flags["C_CONTIGUOUS"]:
-                    tf_inputs[other_tf] = torch.from_numpy(other_sample)
-                else:
-                    tf_inputs[other_tf] = torch.from_numpy(np.ascontiguousarray(other_sample, dtype=np.float32))
+                tf_inputs[other_tf] = _safe_from_numpy(other_sample)
 
             scale = PAIR_PIP_SCALE.get(pair_name, 1.0)
             mag_tp = float(meta["tp_pips"][row]) / scale
@@ -786,10 +787,7 @@ class ForexDataset(Dataset):
         target_len = TIMEFRAME_LOOKBACK.get(tf, 168)
         raw_sample = self._fit_window(np.asarray(X[row]), target_len)
 
-        if raw_sample.dtype == np.float32 and raw_sample.flags["C_CONTIGUOUS"]:
-            tf_inputs = {tf: torch.from_numpy(raw_sample)}
-        else:
-            tf_inputs = {tf: torch.from_numpy(np.ascontiguousarray(raw_sample, dtype=np.float32))}
+        tf_inputs = {tf: _safe_from_numpy(raw_sample)}
 
         n_features = raw_sample.shape[1]
 
@@ -816,10 +814,7 @@ class ForexDataset(Dataset):
                     aligned_row = min(int(row * ratio), len(other_X) - 1)
 
                 other_sample = self._fit_window(np.asarray(other_X[aligned_row]), other_target_len)
-                if other_sample.dtype == np.float32 and other_sample.flags["C_CONTIGUOUS"]:
-                    tf_inputs[other_tf] = torch.from_numpy(other_sample)
-                else:
-                    tf_inputs[other_tf] = torch.from_numpy(np.ascontiguousarray(other_sample, dtype=np.float32))
+                tf_inputs[other_tf] = _safe_from_numpy(other_sample)
             else:
                 tf_inputs[other_tf] = torch.zeros(other_target_len, n_features)
 
