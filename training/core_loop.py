@@ -27,7 +27,7 @@ from training.governance import SmartTrainingGovernor, SotaTracker
 from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
 from training.hardware.sentinel import SentinelGuard
-from training.losses import CombinedLoss
+from training.losses import CombinedLoss, ForexDualLoss
 from training.parallel import build_parallel_strategy
 from training.training import (
     TrainingContext,
@@ -250,7 +250,12 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         or "restoration"
     )
     task_type = raw_task_type[0] if isinstance(raw_task_type, list) else str(raw_task_type)
-    criterion = CombinedLoss(task_type=task_type)
+    loss_fn_name = str(model_info.get("loss_fn") or "").lower()
+
+    if loss_fn_name == "forex_dual" or task_type in ("forex", "forex_dual") or args.model == "forex_predictor":
+        criterion = ForexDualLoss()
+    else:
+        criterion = CombinedLoss(task_type=task_type)
 
     # 7. Data Loaders
     raw_batch = args.batch_size

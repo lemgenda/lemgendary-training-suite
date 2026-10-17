@@ -41,6 +41,7 @@ class ForexDualLoss(nn.Module):
         huber_delta: float = 2.0,
         focal_gamma: float = 2.0,
         label_smoothing: float = 0.05,
+        stabilizers: dict | None = None,
     ):
         super().__init__()
         self.direction_weight = direction_weight
@@ -49,11 +50,12 @@ class ForexDualLoss(nn.Module):
         self.focal_gamma      = focal_gamma
         self.label_smoothing  = label_smoothing
         self.max_pips         = 100.0
+        self.stab             = stabilizers or {}
         # Asymmetric class weights: stronger Sideways penalty to prevent collapse
         # Weight vector: [Down=1.3, Sideways=0.7, Up=1.3]
         self.register_buffer('class_weights', torch.tensor([1.3, 0.7, 1.3]))
 
-    def forward(self, pred: dict, labels: dict) -> torch.Tensor:
+    def forward(self, pred: dict, labels: dict, *args, **kwargs) -> torch.Tensor:
         """
         Args:
             pred:   Dict with 'direction_logits' [B, 3] and 'magnitude' [B, 2]
@@ -232,6 +234,7 @@ class CombinedLoss(nn.Module):
         self.ce = nn.CrossEntropyLoss(ignore_index=255)
         self.focal = FocalLoss(gamma=2.0, label_smoothing=0.05)
         self.soft_spearman = SoftSpearmanLoss(temperature=0.1)
+        self.forex_dual = ForexDualLoss(stabilizers=self.stab)
         self.memory_bank = None
         if self.stab.get("rank_memory_bank_size", 0) > 0 or self.stab.get("use_memory_bank", False):
             mb_size = int(self.stab.get("rank_memory_bank_size", 32))
@@ -292,6 +295,10 @@ class CombinedLoss(nn.Module):
 
     # pylint: disable=too-many-return-statements
     def forward(self, pred, target, task_idx=None):
+        if self.task_type in ("forex", "forex_dual") or (isinstance(pred, dict) and ("direction" in pred or "direction_logits" in pred)):
+            self.forex_dual.stab = self.stab
+            return self.forex_dual(pred, target)
+
         if self.task_type in ["restoration", "enhancement"]:
             # 2026: Branched Multi-Task Support (e.g., BranchedFFANet)
             if isinstance(target, dict) and isinstance(pred, dict):

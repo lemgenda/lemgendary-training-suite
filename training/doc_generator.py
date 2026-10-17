@@ -180,7 +180,9 @@ sample_input = {{
     1440: torch.randn(1, 168, 14, device=device),
 }}
 with torch.no_grad():
-    direction_logits, tp_sl_pips = model(sample_input)
+    out = model(sample_input)
+    direction_logits = out["direction_logits"]
+    tp_sl_pips = out["magnitude"]
     probs = torch.softmax(direction_logits, dim=-1)
     # Signal: 0=SELL, 1=HOLD, 2=BUY
     signal = torch.argmax(probs, dim=-1).item()

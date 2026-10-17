@@ -10,11 +10,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.23-STABLE` |
+| **Version** | `v16.9.24-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.24 — Forex Dual Loss Multi-Task Routing, SSOT Doc Generator Parity & Telemetry Stream Hardening
+
+- **Forex Dual Loss Routing (`ForexDualLoss`, `training/core_loop.py`)** — Upgraded criterion resolution in the universal training loop to inspect `loss_fn` and `task_type`. Directly instantiates `ForexDualLoss` for `forex_predictor`, combining Focal Loss for directional logits (Down/Sideways/Up) with Huber Smooth L1 loss for pip magnitude regression (TP/SL pips), preventing dictionary-to-MSE fallback exceptions.
+- **Unified SSOT Loss Forward Guard (`CombinedLoss`, `training/losses.py`)** — Implemented dictionary dispatch in `CombinedLoss.forward` to route multi-task outputs with directional keys to `ForexDualLoss` with dynamic Governor stabilizer parameters (`softmax_temp`, `logit_clamp`).
+- **SSOT Model Documentation Parity (`training/doc_generator.py`)** — Updated standalone model card generator and inference templates to properly unpack dictionary outputs from `ForexPredictor.forward` across markdown documentation and notebooks.
+
+---
 
 ### v16.9.23 — Fleet Kaggle Models Hub Push, Automated Multi-Variation Staging & Desktop GUI Sync
 
