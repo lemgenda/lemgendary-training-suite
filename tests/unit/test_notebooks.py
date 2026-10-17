@@ -261,93 +261,39 @@ class TestNotebookSubsystem(unittest.TestCase):
         self._assert_valid_notebook(out_dir / f"{model_key}_colab_usage.ipynb")
 
     def test_dataset_compiler_notebook_generator_parity(self) -> None:
-        """Verify that lemgendary-datasets tools/notebook_generator matches training suite outputs."""
+        """Verify that lemgendary-datasets delegates to training suite SSOT notebook generator."""
         ds_repo = Path(__file__).resolve().parent.parent.parent.parent / "lemgendary-datasets"
-        ds_tools = ds_repo / "tools"
-        if not (ds_tools / "notebook_generator.py").exists():
-            self.skipTest("lemgendary-datasets not found in workspace")
+        manifold_compile_path = ds_repo / "core" / "manifold_compile.py"
+        self.assertTrue(manifold_compile_path.exists(), f"manifold_compile.py missing at: {manifold_compile_path}")
 
-        paths_inserted: list[str] = []
-        if str(ds_repo) not in sys.path:
-            sys.path.insert(0, str(ds_repo))
-            paths_inserted.append(str(ds_repo))
-        if str(ds_tools) not in sys.path:
-            sys.path.insert(0, str(ds_tools))
-            paths_inserted.append(str(ds_tools))
+        # Verify that manifold_compile.py declares the SSOT dynamic import
+        with open(manifold_compile_path, "r", encoding="utf-8") as f:
+            mc_source = f.read()
+        self.assertIn("def _get_training_suite_notebook_generators", mc_source)
+        self.assertIn("from training.notebooks import", mc_source)
 
-        import tools
-        ds_tools_str = str(ds_tools)
-        if ds_tools_str not in tools.__path__:
-            tools.__path__.insert(0, ds_tools_str)
+        # Verify that the SSOT notebook generators emit valid notebooks
+        from training.notebooks import (
+            generate_colab_training_notebook,
+            generate_training_notebook,
+        )
 
-        webdataset_mocked = False
-        if "webdataset" not in sys.modules:
-            import types
-            wds = types.ModuleType("webdataset")
-            writer_mod = types.ModuleType("webdataset.writer")
-            setattr(writer_mod, "ShardWriter", object)
-            setattr(wds, "writer", writer_mod)
-            sys.modules["webdataset"] = wds
-            sys.modules["webdataset.writer"] = writer_mod
-            webdataset_mocked = True
+        model_key = "mirnet_exposure"
+        out_dir = Path(self.temp_dir) / f"{model_key}_ds_ssot"
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-        try:
-            import importlib.util
+        p_train = generate_training_notebook(model_key, str(out_dir), self.registry, self.config)
+        p_colab = generate_colab_training_notebook(model_key, str(out_dir), self.registry, self.config)
 
-            spec = importlib.util.spec_from_file_location(
-                "ds_notebook_generator", str(ds_tools / "notebook_generator.py")
-            )
-            self.assertIsNotNone(spec)
-            self.assertIsNotNone(spec.loader)  # type assertion for mypy/runtime
-            ds_nb = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(ds_nb)
+        self.assertIsNotNone(p_train)
+        self.assertIsNotNone(p_colab)
+        assert p_train is not None
+        assert p_colab is not None
 
-            # Verify exported symbols
-            for sym in [
-                "_load_runtime_env",
-                "_build_env_var_lines",
-                "generate_inference_notebook",
-                "generate_usage_notebook",
-                "generate_training_notebook",
-                "generate_colab_inference_notebook",
-                "generate_colab_usage_notebook",
-                "generate_colab_training_notebook",
-            ]:
-                self.assertTrue(hasattr(ds_nb, sym), f"Missing exported symbol in ds_nb: {sym}")
-
-            # Verify generation parity
-            # Verify generation parity
-            model_key = "mirnet_exposure"
-            ref_dir = Path(self.temp_dir) / f"{model_key}_ref"
-            out_dir = Path(self.temp_dir) / f"{model_key}_from_datasets"
-            ref_dir.mkdir(parents=True, exist_ok=True)
-            out_dir.mkdir(parents=True, exist_ok=True)
-
-            generate_inference_notebook(model_key, str(ref_dir), self.registry, self.config)
-            generate_colab_inference_notebook(model_key, str(ref_dir), self.registry, self.config)
-
-            ds_nb.generate_inference_notebook(model_key, str(out_dir), self.registry, self.config)
-            ds_nb.generate_colab_inference_notebook(model_key, str(out_dir), self.registry, self.config)
-
-            self._assert_notebook_parity(
-                out_dir / f"{model_key}_kaggle_training.ipynb",
-                ref_dir / f"{model_key}_kaggle_training.ipynb",
-            )
-            self._assert_notebook_parity(
-                out_dir / f"{model_key}_colab_training.ipynb",
-                ref_dir / f"{model_key}_colab_training.ipynb",
-            )
-        finally:
-            if webdataset_mocked:
-                if "webdataset.writer" in sys.modules:
-                    del sys.modules["webdataset.writer"]
-                if "webdataset" in sys.modules:
-                    del sys.modules["webdataset"]
-            for p in paths_inserted:
-                if p in sys.path:
-                    sys.path.remove(p)
-            if ds_tools_str in tools.__path__:
-                tools.__path__.remove(ds_tools_str)
+        self.assertTrue(Path(p_train).exists())
+        self.assertTrue(Path(p_colab).exists())
+        self._assert_valid_notebook(Path(p_train))
+        self._assert_valid_notebook(Path(p_colab))
 
 
 if __name__ == "__main__":
