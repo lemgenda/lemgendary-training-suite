@@ -10,11 +10,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.22-STABLE` |
+| **Version** | `v16.9.23-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.23 — Fleet Kaggle Models Hub Push, Automated Multi-Variation Staging & Desktop GUI Sync
+
+- **Fleet Model Synchronization Endpoint (`POST /api/training/kaggle/push-all`)** — Added backend API endpoint to batch stage, validate, and publish all registered model checkpoints, variations, and metadata to Kaggle Models Hub in a background job (`kaggle_push_all`). Supports optional `--variation`, `--notes`, and `--dry-run` execution modes.
+- **CLI Fleet Push Flags (`lemtrain sync push --all`)** — Extended `lemtrain sync push` with `--all` (`-a`), `--variation` (`-v`), `--notes` (`-n`), and `--dry-run` options, allowing operators to trigger fleet synchronization directly from the terminal with pre-flight isolation checks.
+- **Desktop GUI Push All Models Control** — Integrated "Push All Models to Kaggle" into `TrainingToolbar.tsx` with non-blocking status tracking, live sidecar status gating, and confirmation dialogs.
+
+---
 
 ### v16.9.22 — LLM Instruction Tuning Engine, Universal Exporter Staging & Kaggle Models Sync
 

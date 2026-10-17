@@ -174,6 +174,10 @@ class ModelRegistryService:
         """Retrieve all registered model specifications."""
         return dict(self._models)
 
+    def list_models(self) -> list[ModelSpecification]:
+        """List all registered model specifications as a list."""
+        return list(self._models.values())
+
     def list_keys(self) -> list[str]:
         """List all registered model keys."""
         return list(self._models.keys())

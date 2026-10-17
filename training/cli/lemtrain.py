@@ -370,18 +370,90 @@ def sync_run(
 
 @sync_app.command("push")
 def sync_push(
-    model: str = typer.Argument(..., help="Model key to upload to Kaggle Models."),
+    model: Optional[str] = typer.Argument(None, help="Model key to upload to Kaggle Models (optional if --all is specified)."),
+    all_models: bool = typer.Option(False, "--all", "-a", help="Push all 22 registered models to Kaggle Models Hub."),
+    variation: str = typer.Option("all", "--variation", "-v", help="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')."),
+    version_notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Optional release version notes."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate isolation and metadata without uploading to Kaggle."),
     source_dir: Optional[str] = typer.Option(None, "--source-dir", "-s", help="Optional custom source directory."),
     username: Optional[str] = typer.Option(None, "--username", "-u", help="Optional Kaggle username override."),
 ) -> None:
-    """Stage and upload local model checkpoints and metrics to Kaggle Models."""
-    from training.kaggle_cloud_manager import push_kaggle_artifacts
-    typer.echo(f"[SYNC] Pushing artifacts for model '{model}' to Kaggle Models...")
-    ok = push_kaggle_artifacts(model_name=model, source_dir=source_dir, username=username)
-    if not ok:
-        typer.echo(f"[ERROR] Failed to push artifacts for '{model}'.")
+    """Stage and upload local model checkpoints, variations, and metrics to Kaggle Models."""
+    if not model and not all_models:
+        typer.echo("[ERROR] Please specify either a model key or --all.")
         raise typer.Exit(code=1)
-    typer.echo(f"[SUCCESS] Uploaded artifacts for '{model}' to Kaggle Models.")
+
+    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+    from training.export.staging import VariationStagingService
+    from training.registry import get_model_registry
+
+    sync_mgr = KaggleModelSyncManager(username=username)
+    staging_service = VariationStagingService()
+
+    if all_models:
+        reg = get_model_registry()
+        models = reg.list_models()
+        total_models = len(models)
+        typer.echo(f"[START] Commencing fleet Kaggle push for all {total_models} models (variation: {variation}, dry_run: {dry_run})...")
+        succeeded = 0
+        failed = 0
+
+        for idx, m_spec in enumerate(models, 1):
+            m_key = m_spec.key
+            typer.echo(f"[{idx}/{total_models}] Processing '{m_key}' ({m_spec.name})...")
+            try:
+                sync_mgr.ensure_model_metadata(m_key)
+                staged = staging_service.stage_variations(m_key)
+                if staged.staged_files:
+                    typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
+                res = sync_mgr.push_model(
+                    model_key=m_key,
+                    variation=variation,
+                    version_notes=version_notes,
+                    dry_run=dry_run,
+                )
+                if res.success:
+                    succeeded += 1
+                    handles = [v.handle for v in res.variations.values() if v.success]
+                    typer.echo(f"  [SUCCESS] Pushed -> {handles}")
+                else:
+                    failed += 1
+                    typer.echo(f"  [WARN] Failed/skipped: {'; '.join(res.errors)}")
+            except Exception as e:
+                failed += 1
+                typer.echo(f"  [ERROR] Exception for '{m_key}': {e}")
+
+        typer.echo(f"[COMPLETED] Fleet push finished: {succeeded} succeeded, {failed} failed/skipped out of {total_models} models.")
+        if failed > 0 and not dry_run and succeeded == 0:
+            raise typer.Exit(code=1)
+    else:
+        assert model is not None
+        if source_dir:
+            from training.kaggle_cloud_manager import push_kaggle_artifacts
+            typer.echo(f"[SYNC] Pushing artifacts for model '{model}' to Kaggle Models (legacy path)...")
+            ok = push_kaggle_artifacts(model_name=model, source_dir=source_dir, username=username)
+            if not ok:
+                typer.echo(f"[ERROR] Failed to push artifacts for '{model}'.")
+                raise typer.Exit(code=1)
+            typer.echo(f"[SUCCESS] Uploaded artifacts for '{model}' to Kaggle Models.")
+        else:
+            typer.echo(f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {variation}, dry_run: {dry_run})...")
+            sync_mgr.ensure_model_metadata(model)
+            staged = staging_service.stage_variations(model)
+            if staged.staged_files:
+                typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
+            res = sync_mgr.push_model(
+                model_key=model,
+                variation=variation,
+                version_notes=version_notes,
+                dry_run=dry_run,
+            )
+            if res.success:
+                handles = [v.handle for v in res.variations.values() if v.success]
+                typer.echo(f"[SUCCESS] Model '{model}' pushed successfully -> {handles}")
+            else:
+                typer.echo(f"[ERROR] Model push failed: {'; '.join(res.errors)}")
+                raise typer.Exit(code=1)
 
 
 @notebooks_app.command("list")

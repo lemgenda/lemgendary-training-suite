@@ -236,6 +236,28 @@ def push_kaggle_model_variations(payload: KagglePushModelRequest) -> dict[str, A
     return result.to_dict()
 
 
+class KagglePushAllRequest(BaseModel):
+    """Payload for staging and pushing all registered models to Kaggle Models Hub."""
+    variation: str = Field("all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')")
+    version_notes: Optional[str] = Field(None, description="Optional release version notes")
+    dry_run: bool = Field(False, description="Validate payload and isolation without publishing to Kaggle")
+
+
+@router.post("/kaggle/push-all")
+def push_all_kaggle_models(payload: KagglePushAllRequest, request: Request) -> dict[str, Any]:
+    """Enqueue background fleet synchronization to push all models to Kaggle Models Hub."""
+    manager = request.app.state.job_manager
+    params = payload.model_dump()
+    job_id = manager.submit_job(job_type="kaggle_push_all", model_key="all_models", params=params)
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "message": f"Kaggle fleet push enqueued for all models (variation: {payload.variation}, dry_run: {payload.dry_run})",
+        "variation": payload.variation,
+        "dry_run": payload.dry_run,
+    }
+
+
 class LLMTrainRequest(BaseModel):
     """Payload for dispatching QLoRA instruction fine-tuning for assistant LLM."""
     model: str = Field("ai_helper_lemgend", description="Target LLM model key")

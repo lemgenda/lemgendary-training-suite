@@ -275,7 +275,7 @@ def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str
         "if os.path.exists(local_path):\n",
         "    print(f'[KAGGLE] Pushing finalized SOTA to {model_handle}...')\n",
         "    try:\n",
-        f"        kagglehub.model_upload(model_handle, local_path, version_notes='v16.2.9 SOTA Finalized Sync: {meta.model_key}')\n",
+        f"        kagglehub.model_upload(model_handle, local_path, version_notes='v16.9.23 SOTA Finalized Sync: {meta.model_key}')\n",
         "        print('[DONE] Deployment Complete.')\n",
         "        print('[GDRIVE] Synchronizing finalized production artifacts to Google Drive...')\n",
         "        try:\n",
