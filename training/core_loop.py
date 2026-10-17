@@ -444,6 +444,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 opt_state = loaded_data.get("optimizer_state")
                 if opt_state:
                     optimizer.load_state_dict(opt_state)
+                is_intra = bool(loaded_data.get("progress_metadata") or loaded_data.get("phase") == "train")
                 resume_state = ResumeState(
                     epoch=loaded_data.get("epoch", 0),
                     iteration=loaded_data.get("iteration", 0),
@@ -452,6 +453,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                     scheduler_state_dict=loaded_data.get("scheduler_state"),
                     best_score=loaded_data.get("best_score", 0.0),
                     sota_achieved=loaded_data.get("sota_achieved", False),
+                    is_intra_epoch=is_intra,
                 )
 
     scaler = create_grad_scaler(policy)

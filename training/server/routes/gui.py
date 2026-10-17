@@ -537,13 +537,44 @@ def quick_train(payload: QuickTrainRequest, request: Request) -> dict[str, Any]:
     if not preset_cfg:
         raise HTTPException(status_code=400, detail=f"Invalid preset '{payload.preset}'")
 
+    registry = _load_registry(root)
+    model_cfg = registry.get(payload.model_key, {})
+
+    resolved_epochs = payload.epochs
+    if resolved_epochs is None and model_cfg.get("epochs"):
+        try:
+            resolved_epochs = int(model_cfg["epochs"])
+        except (ValueError, TypeError):
+            resolved_epochs = None
+    if resolved_epochs is None:
+        resolved_epochs = preset_cfg.get("epochs")
+
+    resolved_batch = payload.batch_size
+    if resolved_batch is None and model_cfg.get("batch_size") is not None:
+        cfg_bs = model_cfg.get("batch_size")
+        if isinstance(cfg_bs, int) and cfg_bs > 0:
+            resolved_batch = cfg_bs
+        elif isinstance(cfg_bs, str) and cfg_bs.strip().isdigit() and int(cfg_bs) > 0:
+            resolved_batch = int(cfg_bs)
+    if resolved_batch is None:
+        resolved_batch = preset_cfg.get("batch_size")
+
+    resolved_lr = payload.learning_rate
+    if resolved_lr is None and model_cfg.get("learning_rate") is not None:
+        try:
+            resolved_lr = float(model_cfg["learning_rate"])
+        except (ValueError, TypeError):
+            resolved_lr = None
+    if resolved_lr is None:
+        resolved_lr = preset_cfg.get("learning_rate")
+
     manager = request.app.state.job_manager
     params: dict[str, Any] = {
         "model": payload.model_key,
         "preset": payload.preset,
-        "epochs": payload.epochs if payload.epochs is not None else preset_cfg.get("epochs"),
-        "batch_size": payload.batch_size if payload.batch_size is not None else preset_cfg.get("batch_size"),
-        "learning_rate": payload.learning_rate if payload.learning_rate is not None else preset_cfg.get("learning_rate"),
+        "epochs": resolved_epochs,
+        "batch_size": resolved_batch,
+        "learning_rate": resolved_lr,
         "clean": payload.clean,
         "env": payload.env,
         "resolution": payload.ladder_stage,

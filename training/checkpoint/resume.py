@@ -21,6 +21,7 @@ class ResumeState:
     sota_achieved: bool = False
     best_score: float | None = None
     metric_history: list[dict[str, Any]] = field(default_factory=list)
+    is_intra_epoch: bool = False
 
 
 def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
@@ -47,8 +48,7 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
 
     history: list[dict[str, Any]] = []
     raw_hist = payload.get("metric_history") or payload.get("history")
-    if isinstance(raw_hist, list):
-        history = [item for item in raw_hist if isinstance(item, dict)]
+    is_intra = bool(payload.get("progress_metadata") or payload.get("phase") == "train")
 
     return ResumeState(
         epoch=epoch,
@@ -61,6 +61,7 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
         sota_achieved=sota_achieved,
         best_score=float(best_score) if isinstance(best_score, (int, float)) else None,
         metric_history=history,
+        is_intra_epoch=is_intra,
     )
 
 

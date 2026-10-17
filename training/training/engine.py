@@ -56,7 +56,10 @@ def run_training(
     """
     start_epoch = 1
     if ctx.resume_state is not None and ctx.resume_state.epoch > 0:
-        start_epoch = ctx.resume_state.epoch + 1
+        if getattr(ctx.resume_state, "is_intra_epoch", False):
+            start_epoch = ctx.resume_state.epoch
+        else:
+            start_epoch = ctx.resume_state.epoch + 1
 
     if ctx.lifecycle_manager is None:
         from training.checkpoint import CheckpointLifecycleManager
