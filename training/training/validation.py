@@ -51,6 +51,9 @@ def validate_one_epoch(
     has_image_metrics = False
     step_count = 0
     start_time = time.time()
+    num_val_batches = len(ctx.val_loader) if hasattr(ctx.val_loader, "__len__") else 0
+    log_interval = max(1, num_val_batches // 100) if num_val_batches > 100 else 10
+    last_log_time = time.time()
 
     with torch.no_grad():
         for batch in ctx.val_loader:
@@ -92,6 +95,48 @@ def validate_one_epoch(
                         "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
                     },
                 )
+
+            # Validation batch telemetry progress logging
+            now = time.time()
+            is_warmup = step_count in (1, 2, 5, 10)
+            time_elapsed_since_log = now - last_log_time
+            is_periodic = (step_count % log_interval == 0) or (step_count == num_val_batches)
+            is_heartbeat = (time_elapsed_since_log >= 8.0 and step_count > 10)
+
+            if is_warmup or is_periodic or is_heartbeat:
+                last_log_time = now
+                batch_loss = float(loss.item())
+                elapsed_batch = now - start_time
+                rate = step_count / max(0.001, elapsed_batch)
+                rate_str = f"{rate:.2f} it/s" if rate >= 1.0 else f"{1.0 / max(1e-4, rate):.1f} s/it"
+
+                if num_val_batches > 0:
+                    pct = (step_count / num_val_batches) * 100.0
+                    remaining = max(0, num_val_batches - step_count)
+                    eta_s = int(remaining / max(1e-4, rate))
+                    eta_m, eta_sec = divmod(eta_s, 60)
+                    eta_h, eta_m = divmod(eta_m, 60)
+                    eta_str = f"ETA {eta_h}h{eta_m:02d}m" if eta_h > 0 else f"ETA {eta_m:02d}m{eta_sec:02d}s"
+
+                    print(
+                        f"  [VAL BATCH {step_count:>{len(str(num_val_batches))}}/{num_val_batches}] "
+                        f"({pct:.2f}%) "
+                        f"ValLoss: {batch_loss:.4f} | "
+                        f"AvgValLoss: {total_loss / step_count:.4f} | "
+                        f"{rate_str} | "
+                        f"{eta_str} | "
+                        f"{elapsed_batch:.1f}s",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"  [VAL BATCH {step_count}] "
+                        f"ValLoss: {batch_loss:.4f} | "
+                        f"AvgValLoss: {total_loss / step_count:.4f} | "
+                        f"{rate_str} | "
+                        f"{elapsed_batch:.1f}s",
+                        flush=True,
+                    )
 
             # Check if outputs and targets are 4D image tensors [B, C, H, W] for PSNR/SSIM
 

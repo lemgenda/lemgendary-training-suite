@@ -10,11 +10,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.26-STABLE` |
+| **Version** | `v16.9.28-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.28 — Validation Batch Telemetry & Live Telemetry Progress Synchronization
+
+- **Validation Loop Real-Time Batch Telemetry (`training/training/validation.py`)** — Added explicit per-batch progression telemetry to `validate_one_epoch` matching the training loop cadence: initial warmup batches (1, 2, 5, 10), periodic intervals, and an 8-second heartbeat timer during batch iteration. Emits standard `[VAL BATCH X/Y] (val X.X%) ValLoss: ... | AvgValLoss: ... | rate | ETA` records, resolving telemetry silence during long evaluation passes.
+- **GUI Telemetry Validation Parser & Emerald Progress Tracker (`progressParser.ts`, `TelemetryProgressTracker.tsx`, `client.ts`)** — Extended regex patterns to recognize `[VAL BATCH X/Y]` logs, mapped them to the `VALIDATION` operation, and applied dynamic emerald accent styling to visually distinguish evaluation progress from training.
+
+---
 
 ### v16.9.27 — Resilient Atomic Replacement & Windows File Lock Remediation
 
