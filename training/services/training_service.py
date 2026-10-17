@@ -9,10 +9,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Any, Callable
+
 import yaml
 
 from training.core_loop import build_training_context
-from training.training.context import TrainingContext
 from training.training.engine import TrainingSummary, run_training
 from training.utils.paths import get_project_root
 

@@ -7,7 +7,6 @@ WebGPU, and MT5 Forex) in-process without shell spawning.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from training.export import export_all
 from training.utils.paths import get_project_root

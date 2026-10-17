@@ -151,16 +151,55 @@ def push_kaggle_artifacts(
         return False
 
 
+def push_kaggle_model(
+    model_name: str,
+    variation: str = "all",
+    dry_run: bool = False,
+    username: str | None = None,
+    key: str | None = None,
+) -> bool:
+    """Stage and upload multi-variation model to Kaggle Models hub."""
+    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+
+    sync_mgr = KaggleModelSyncManager(username=username, key=key)
+    res = sync_mgr.push_model(
+        model_key=model_name,
+        variation=variation,
+        dry_run=dry_run,
+    )
+    logger.info("Kaggle model push result for %s: %s", model_name, res)
+    return res.success
+
+
 def main() -> None:
     """CLI entry point for Kaggle cloud management."""
     parser = argparse.ArgumentParser(description="LemGendary Headless Kaggle Cloud Engine")
-    parser.add_argument("--action", type=str, required=True, choices=["launch", "status", "monitor", "monitor_interactive", "pull", "push", "cancel", "setup_auth"])
+    parser.add_argument(
+        "--action",
+        type=str,
+        required=True,
+        choices=[
+            "launch",
+            "status",
+            "monitor",
+            "monitor_interactive",
+            "pull",
+            "push",
+            "push_model",
+            "cancel",
+            "setup_auth",
+        ],
+    )
     parser.add_argument("--model", type=str, default="nima_technical", help="Model manifold name")
+    parser.add_argument("--variation", type=str, default="all", choices=["all", "pytorch", "onnx_fp32", "onnx_fp16"], help="Variation to push")
+    parser.add_argument("--dry-run", action="store_true", help="Validate staging without pushing to Kaggle")
     parser.add_argument("--username", type=str, default=None, help="Kaggle Username override")
     parser.add_argument("--key", type=str, default=None, help="Kaggle API Key override")
     parser.add_argument("--gpu", type=str, default="T4", choices=["P100", "T4", "T4x2"], help="Kaggle GPU accelerator")
     parser.add_argument("--output_dir", type=str, default=None, help="Target destination for downloaded artifacts")
     args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
     if args.action == "setup_auth":
         u, _ = resolve_kaggle_credentials()
@@ -173,6 +212,14 @@ def main() -> None:
         pull_kaggle_artifacts(args.model, destination_dir=args.output_dir, username=args.username)
     elif args.action == "push":
         push_kaggle_artifacts(args.model, source_dir=args.output_dir, username=args.username)
+    elif args.action == "push_model":
+        push_kaggle_model(
+            args.model,
+            variation=args.variation,
+            dry_run=args.dry_run,
+            username=args.username,
+            key=args.key,
+        )
     elif args.action == "status":
         u, _ = resolve_kaggle_credentials(override_user=args.username)
         slug = get_kernel_slug(args.model, u)
@@ -189,3 +236,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

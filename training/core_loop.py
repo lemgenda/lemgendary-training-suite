@@ -11,31 +11,17 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from pathlib import Path
-import shutil
-import sys
 from typing import Any
+
 import yaml
-import torch
-import torch.nn as nn
-
-logger = logging.getLogger("lemtrain.core_loop")
-
 from models.factory import get_model
-from training.checkpoint import (
-    CheckpointRecoveryEngine,
-    MetricVault,
-    ResumeState,
-    safe_load_checkpoint,
-)
-from training.cloud.git_hub import git_hub_sync
+
+from training.checkpoint import CheckpointRecoveryEngine, MetricVault, ResumeState, safe_load_checkpoint
 from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
-from training.data import (
-    build_train_loader,
-    build_val_loader as canonical_build_val_loader,
-)
+from training.data import build_train_loader
+from training.data import build_val_loader as canonical_build_val_loader
 from training.export import export_all
 from training.governance import SmartTrainingGovernor, SotaTracker
 from training.hardware.discovery import discover_device
@@ -48,17 +34,14 @@ from training.training import (
     TrainingPaths,
     build_optimizer,
     build_scheduler,
-    compute_ssim_gpu,
     create_grad_scaler,
     run_training,
 )
-from training.utils.interrupt import (
-    _ACTIVE_PROCESSES,
-    cleanup_active_processes,
-    install_signal_handlers,
-)
+from training.utils.interrupt import _ACTIVE_PROCESSES, cleanup_active_processes, install_signal_handlers
 from training.utils.logging import install_force_tty
 from training.utils.paths import bootstrap_sys_path, get_project_root
+
+logger = logging.getLogger("lemtrain.core_loop")
 
 bootstrap_sys_path()
 install_force_tty()
@@ -341,6 +324,14 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         except Exception as forex_val_err:
             logger.debug("Forex val dataset failed: %s", forex_val_err)
             val_ds = None
+    elif task_type in ("text_instruction", "llm"):
+        from training.data.instruction_dataset import InstructionDataset, collate_instruction_batch
+        data_root = project_root.parent / "LemGendaryDatasets" / "LemGendizedAIHelperLemGend"
+        train_jsonl = data_root / "ai_helper_train.jsonl"
+        val_jsonl = data_root / "ai_helper_val.jsonl"
+        tokenizer = getattr(raw_model, "tokenizer", None)
+        train_ds = InstructionDataset(train_jsonl, tokenizer=tokenizer, max_length=2048)
+        val_ds = InstructionDataset(val_jsonl, tokenizer=tokenizer, max_length=2048) if val_jsonl.exists() else None
     else:
         from data.dataset import MultiTaskDataset
         train_ds = MultiTaskDataset(
@@ -364,14 +355,29 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         except Exception:
             val_ds = None
 
-    train_loader = build_train_loader(
-        dataset=train_ds,
-        batch_size=batch_size,
-        num_workers=args.num_workers,
-        device=device_info.device,
-        env=args.env,
-        config=config,
-    )
+    collate_fn = None
+    if task_type in ("text_instruction", "llm"):
+        from training.data.instruction_dataset import collate_instruction_batch
+        collate_fn = collate_instruction_batch
+
+    from torch.utils.data import DataLoader
+    if collate_fn is not None:
+        train_loader = DataLoader(
+            dataset=train_ds,
+            batch_size=batch_size,
+            shuffle=True,
+            collate_fn=collate_fn,
+            drop_last=False,
+        )
+    else:
+        train_loader = build_train_loader(
+            dataset=train_ds,
+            batch_size=batch_size,
+            num_workers=args.num_workers,
+            device=device_info.device,
+            env=args.env,
+            config=config,
+        )
     if val_ds is not None and len(val_ds) > 0:
         try:
             val_loader = canonical_build_val_loader(
@@ -409,8 +415,9 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             loaded_data = safe_load_checkpoint(ckpt_candidate, map_location=device_info.device)
             if loaded_data and "model_state" in loaded_data:
                 raw_model.load_state_dict(loaded_data["model_state"], strict=False)
-                if "optimizer_state" in loaded_data and loaded_data["optimizer_state"]:
-                    optimizer.load_state_dict(loaded_data["optimizer_state"])
+                opt_state = loaded_data.get("optimizer_state")
+                if opt_state:
+                    optimizer.load_state_dict(opt_state)
                 resume_state = ResumeState(
                     epoch=loaded_data.get("epoch", 0),
                     iteration=loaded_data.get("iteration", 0),

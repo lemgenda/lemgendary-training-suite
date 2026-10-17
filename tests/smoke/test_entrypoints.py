@@ -38,9 +38,23 @@ class TestEntrypointsSmoke(unittest.TestCase):
         self.assertEqual(res.returncode, 0, f"Command failed: {res.stderr}")
         self.assertIn("single", res.stdout.lower())
 
-    def test_train_cli_help(self) -> None:
-        """Verify train.py entry point displays help without crashing."""
-        cmd = [sys.executable, "training/train.py", "--help"]
+    def test_doc_generator_cli_help(self) -> None:
+        """Verify doc_generator entry point displays help without crashing."""
+        cmd = [sys.executable, "-m", "training.doc_generator", "--help"]
+        res = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(res.returncode, 0, f"Command failed: {res.stderr}")
+        self.assertIn("--model", res.stdout)
+
+    def test_kaggle_cloud_manager_cli_help(self) -> None:
+        """Verify kaggle_cloud_manager entry point displays help without crashing."""
+        cmd = [sys.executable, "-m", "training.kaggle_cloud_manager", "--help"]
+        res = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(res.returncode, 0, f"Command failed: {res.stderr}")
+        self.assertIn("--action", res.stdout)
+
+    def test_notebook_generator_cli_help(self) -> None:
+        """Verify notebook_generator entry point displays help without crashing."""
+        cmd = [sys.executable, "-m", "training.notebook_generator", "--help"]
         res = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(res.returncode, 0, f"Command failed: {res.stderr}")
         self.assertIn("--model", res.stdout)

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn as nn
 import yaml
 
+from training.export.base import BaseModelExporter
 from training.export.common import (
     ExportError,
     extract_input_dimensions,
@@ -17,10 +18,27 @@ from training.export.common import (
     resolve_export_paths,
     wrap_quality_model,
 )
+from training.export.exporter_factory import ExporterFactory, get_exporter_for_model
+from training.export.forex_exporter import ForexModelExporter
+from training.export.llm_exporter import LLMModelExporter, export_llm_tri_format
 from training.export.mt5_signal import export_forex_onnx
 from training.export.onnx import export_onnx
+from training.export.pytorch_exporter import PyTorchModelExporter
+from training.export.staging import StagingResult, VariationStagingService
 from training.export.torch_standalone import export_torch_standalone
+from training.export.universal_exporter import (
+    export_tri_format_pytorch,
+    export_tri_format_yolo,
+    export_universal_model,
+    get_model_hub_dir,
+)
+from training.export.validation import (
+    IsolationReport,
+    StrictIsolationValidator,
+    VariationValidationReport,
+)
 from training.export.webgpu import export_webgpu_onnx
+from training.export.yolo_exporter import YOLOModelExporter
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export")
@@ -32,8 +50,9 @@ def export_all(
     config: dict[str, Any] | None = None,
     output_dir: Path | str | None = None,
     targets: list[str] | None = None,
+    stage_dist: bool = True,
 ) -> dict[str, Path]:
-    """Orchestrate full production export across specified targets.
+    """Orchestrate full production export across specified targets with optional variation staging.
 
     Targets can include: "onnx_fp32", "onnx_fp16", "torch_pt", "webgpu", "forex".
     Defaults to ["onnx_fp32", "onnx_fp16", "torch_pt"].
@@ -86,10 +105,13 @@ def export_all(
         active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
         exported_path = export_forex_onnx(ckpt_file, forex_out, active_timeframes=active_tfs)
         results["forex"] = exported_path
+        if stage_dist:
+            VariationStagingService().stage_variations(model_key, results, destination_dir)
         return results
 
     # Instantiate model architecture
     from models.factory import get_model
+
     model = get_model(model_key, cfg).to(torch.device("cpu"))
 
     if ckpt_file and ckpt_file.exists():
@@ -108,39 +130,67 @@ def export_all(
     h, w = extract_input_dimensions(model_info)
     dummy_shape = (1, 3, h, w)
 
+    staging_dir = (destination_dir / ".export_staging") if stage_dist else destination_dir
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
     if "onnx_fp32" in export_targets:
-        fp32_path = destination_dir / f"{base_name}_FP32.onnx"
+        fp32_path = staging_dir / f"{base_name}_FP32.onnx"
         export_onnx(model, fp32_path, dummy_shape=dummy_shape, half=False, external_data=True)
         results["onnx_fp32"] = fp32_path
-        results["onnx_fp32_data"] = destination_dir / f"{base_name}_FP32.onnx.data"
+        results["onnx_fp32_data"] = staging_dir / f"{base_name}_FP32.onnx.data"
 
     if "onnx_fp16" in export_targets:
-        fp16_path = destination_dir / f"{base_name}.onnx"
+        fp16_path = staging_dir / f"{base_name}.onnx"
         export_onnx(model, fp16_path, dummy_shape=dummy_shape, half=True)
         results["onnx_fp16"] = fp16_path
 
     if "torch_pt" in export_targets:
-        pt_path = destination_dir / f"{base_name}.pt"
+        pt_path = staging_dir / f"{base_name}.pt"
         export_torch_standalone(model, pt_path, metadata={"model_key": model_key})
         results["torch_pt"] = pt_path
+        results["pt"] = pt_path
 
     if "webgpu" in export_targets:
-        webgpu_path = destination_dir / f"{base_name}_webgpu.onnx"
+        webgpu_path = staging_dir / f"{base_name}_webgpu.onnx"
         export_webgpu_onnx(model, webgpu_path, dummy_input_shape=(1, 3, 512, 512))
         results["webgpu"] = webgpu_path
+
+    if stage_dist:
+        staging_svc = VariationStagingService()
+        staged_res = staging_svc.stage_variations(model_key, results, destination_dir)
+        results.update(staged_res.staged_files)
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
     logger.info("Completed export_all for %s: %d targets exported.", model_key, len(results))
     return results
 
 
 __all__ = [
+    "BaseModelExporter",
     "ExportError",
+    "ExporterFactory",
+    "ForexModelExporter",
+    "IsolationReport",
+    "LLMModelExporter",
+    "PyTorchModelExporter",
+    "StagingResult",
+    "StrictIsolationValidator",
+    "VariationStagingService",
+    "VariationValidationReport",
+    "YOLOModelExporter",
     "export_all",
     "export_forex_onnx",
+    "export_llm_tri_format",
     "export_onnx",
     "export_torch_standalone",
+    "export_tri_format_pytorch",
+    "export_tri_format_yolo",
+    "export_universal_model",
     "export_webgpu_onnx",
     "extract_input_dimensions",
+    "get_exporter_for_model",
+    "get_model_hub_dir",
     "resolve_checkpoint_file",
     "resolve_export_paths",
     "wrap_quality_model",

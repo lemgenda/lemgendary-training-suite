@@ -82,3 +82,94 @@ def audit_model(model_key: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed auditing model: {e}")
+
+
+@router.post("/{model_key}/docs/generate")
+def generate_model_docs(model_key: str, request: Request) -> dict[str, Any]:
+    """Regenerate authoritative README.md and Kaggle model-metadata.json for model."""
+    root = _get_root(request)
+    registry = _load_registry(root)
+    if model_key not in registry:
+        raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
+
+    try:
+        from training.cloud.metadata_generator import KaggleMetadataService
+        from training.doc_generator import ModelDocumentationService
+
+        doc_service = ModelDocumentationService()
+        meta_service = KaggleMetadataService()
+
+        model_hub_dir = (root.parent / "LemGendaryModels" / model_key).resolve()
+        model_hub_dir.mkdir(parents=True, exist_ok=True)
+
+        readme_file = doc_service.write_readme(model_key, output_dir=model_hub_dir)
+        metadata_file = meta_service.write_metadata(model_key, output_dir=model_hub_dir)
+
+        return {
+            "status": "success",
+            "model_key": model_key,
+            "readme_path": str(readme_file),
+            "metadata_path": str(metadata_file),
+            "message": f"Documentation and Kaggle metadata regenerated for {model_key}",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed generating docs for '{model_key}': {e}")
+
+
+@router.post("/{model_key}/export/stage")
+def stage_model_variations(model_key: str, request: Request) -> dict[str, Any]:
+    """Stage exported model binaries into canonical isolated Kaggle variation subdirectories."""
+    root = _get_root(request)
+    registry = _load_registry(root)
+    if model_key not in registry:
+        raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
+
+    try:
+        from training.export.staging import VariationStagingService
+
+        staging_service = VariationStagingService()
+        result = staging_service.stage_variations(model_key=model_key)
+
+        return {
+            "status": "success" if result.success else "warning",
+            "model_key": model_key,
+            "staged_files": {k: str(v) for k, v in result.staged_files.items()},
+            "is_valid": result.report.is_valid if result.report else True,
+            "errors": result.errors,
+            "message": f"Staged variations for {model_key}",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed staging variations for '{model_key}': {e}")
+
+
+@router.get("/{model_key}/variations/validate")
+def validate_model_variations(model_key: str, request: Request) -> dict[str, Any]:
+    """Validate strict binary isolation across all Kaggle variation directories."""
+    root = _get_root(request)
+    registry = _load_registry(root)
+    if model_key not in registry:
+        raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
+
+    try:
+        from training.export.validation import StrictIsolationValidator
+
+        validator = StrictIsolationValidator()
+        report = validator.validate_all(model_key=model_key)
+
+        return {
+            "model_key": model_key,
+            "is_valid": report.is_valid,
+            "variations": {
+                k: {
+                    "variation": v.variation,
+                    "is_valid": v.is_valid,
+                    "files_found": v.files_found,
+                    "errors": v.errors,
+                    "warnings": v.warnings,
+                }
+                for k, v in report.variations.items()
+            },
+            "all_errors": report.all_errors,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed validating variations for '{model_key}': {e}")

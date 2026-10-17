@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
 import io
 import logging
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import Any
 
 import torch
 import torch.nn as nn

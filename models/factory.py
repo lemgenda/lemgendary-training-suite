@@ -1,8 +1,8 @@
 import inspect
 import logging
 import os
+
 import yaml
-import torch
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1412]
 
@@ -27,7 +27,7 @@ def _populate_registry():
         print(f" [WARNING] [FACTORY] Failed to import MultiTaskRestorer: {e}")
 
     try:
-        from models.nima import NIMA_Model, AuthenticityScorer, UniversalClassifier
+        from models.nima import AuthenticityScorer, NIMA_Model, UniversalClassifier
         _MODEL_REGISTRY["NIMA_Model"] = NIMA_Model
         _MODEL_REGISTRY["AuthenticityScorer"] = AuthenticityScorer
         _MODEL_REGISTRY["UniversalClassifier"] = UniversalClassifier
@@ -56,8 +56,15 @@ def _populate_registry():
 
     try:
         from models.core_restoration import (
-            NAFNet, FFANet, BranchedFFANet, MIRNet_Proxy, MPRNet_Proxy,
-            GenericRestorationModel, UltraZoomModel, UniversalFilmRestorer, UPN_v2_Model
+            BranchedFFANet,
+            FFANet,
+            GenericRestorationModel,
+            MIRNet_Proxy,
+            MPRNet_Proxy,
+            NAFNet,
+            UltraZoomModel,
+            UniversalFilmRestorer,
+            UPN_v2_Model,
         )
         _MODEL_REGISTRY.update({
             "GenericRestoration": GenericRestorationModel,
@@ -76,7 +83,7 @@ def _populate_registry():
 
     # 2. Heavy Generative Models (May lack 'diffusers')
     try:
-        from models.master_generative import StableDiffusionXL, Flux1_Master
+        from models.master_generative import Flux1_Master, StableDiffusionXL
         _MODEL_REGISTRY["StableDiffusionXL"] = StableDiffusionXL
         _MODEL_REGISTRY["Flux1_Master"] = Flux1_Master
     except Exception as generative_err:
@@ -84,11 +91,18 @@ def _populate_registry():
 
     # 3. Heavy Multimodal Models (May lack 'transformers')
     try:
-        from models.master_multimodal import LLaVA_v1_5, BLIP_2
+        from models.master_multimodal import BLIP_2, LLaVA_v1_5
         _MODEL_REGISTRY["LLaVA_v1_5"] = LLaVA_v1_5
         _MODEL_REGISTRY["BLIP_2"] = BLIP_2
     except Exception as multimodal_err:
         logger.debug("Multimodal models unavailable (missing 'transformers'?): %s", multimodal_err)
+
+    # 4. Causal Assistant Language Models
+    try:
+        from models.ai_helper_llm import AIHelperLemGend
+        _MODEL_REGISTRY["AIHelperLemGend"] = AIHelperLemGend
+    except Exception as llm_err:
+        logger.debug("AIHelperLemGend unavailable: %s", llm_err)
 
 
 def get_model(model_key, config=None):

@@ -9,8 +9,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Any
-import torch
-import yaml
 
 from training.checkpoint.manager import safe_load_checkpoint
 from training.checkpoint.recovery import CheckpointRecoveryEngine

@@ -2,9 +2,9 @@
 
 import concurrent.futures
 import logging
-from pathlib import Path
 import re
 import shutil
+from pathlib import Path
 from typing import Any
 
 from training.utils.paths import get_project_root, get_workspace_root
@@ -107,7 +107,7 @@ class CheckpointRecoveryEngine:
                             print(f"[RECOVERY] Discovered KaggleHub checkpoint directory: {dl_path}", flush=True)
                             roots.insert(0, dl_path)
             except concurrent.futures.TimeoutError:
-                print(f"[RECOVERY] KaggleHub checkpoint probe timed out (5s). Skipping remote probe.", flush=True)
+                print("[RECOVERY] KaggleHub checkpoint probe timed out (5s). Skipping remote probe.", flush=True)
             except Exception as kh_exc:
                 logger.debug("KaggleHub checkpoint probe notice: %s", kh_exc)
 
@@ -194,15 +194,74 @@ class CheckpointRecoveryEngine:
                 except OSError as exc:
                     logger.warning("Failed syncing metrics.csv: %s", exc)
 
-        # Sync .pth and .pt files
-        for pth in list(source_root.glob("**/*.pth")) + list(source_root.glob("**/*.pt")):
+        # Ensure canonical subdirectories exist
+        checkpoints_dir = target_dir if target_dir.name == "checkpoints" else (target_dir / "checkpoints")
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
+        dist_dir = target_dir / "dist" / "kaggle"
+
+        # Sync .pth checkpoints (strictly into checkpoints/)
+        for pth in source_root.glob("**/*.pth"):
             if pth.is_file():
-                dst_pth = target_dir / pth.name
+                dst_pth = checkpoints_dir / pth.name
                 try:
                     shutil.copy2(pth, dst_pth)
                     synced.append(dst_pth)
+                    # Mirror canonical best and latest names
+                    if pth.name == "best.pth":
+                        mirror = checkpoints_dir / f"{model_name}_best.pth"
+                        shutil.copy2(pth, mirror)
+                        synced.append(mirror)
+                    elif pth.name == f"{model_name}_best.pth":
+                        mirror = checkpoints_dir / "best.pth"
+                        shutil.copy2(pth, mirror)
+                        synced.append(mirror)
+                    elif pth.name in ("latest.pth", "last.pth"):
+                        mirror = checkpoints_dir / f"{model_name}_latest.pth"
+                        shutil.copy2(pth, mirror)
+                        synced.append(mirror)
+                    elif pth.name == f"{model_name}_latest.pth":
+                        mirror = checkpoints_dir / "latest.pth"
+                        shutil.copy2(pth, mirror)
+                        synced.append(mirror)
                     logger.info("Synced checkpoint: %s -> %s", pth.name, dst_pth)
                 except OSError as exc:
                     logger.warning("Failed syncing checkpoint %s: %s", pth, exc)
+
+        # Sync model binaries (.pt, .onnx) into canonical dist/kaggle/ variations
+        for pt in source_root.glob("**/*.pt"):
+            if pt.is_file():
+                # If YOLO checkpoint, also ensure presence in checkpoints_dir
+                if pt.name in ["best.pt", "last.pt", f"{model_name}.pt"]:
+                    ckpt_pt = checkpoints_dir / pt.name
+                    try:
+                        shutil.copy2(pt, ckpt_pt)
+                        synced.append(ckpt_pt)
+                    except OSError:
+                        pass
+                pytorch_dir = dist_dir / "pytorch"
+                pytorch_dir.mkdir(parents=True, exist_ok=True)
+                dst_pt = pytorch_dir / pt.name
+                try:
+                    shutil.copy2(pt, dst_pt)
+                    synced.append(dst_pt)
+                    logger.info("Synced PyTorch binary: %s -> %s", pt.name, dst_pt)
+                except OSError as exc:
+                    logger.warning("Failed syncing PyTorch binary %s: %s", pt, exc)
+
+        for onnx_file in source_root.glob("**/*.onnx*"):
+            if onnx_file.is_file():
+                if "_FP32" in onnx_file.name:
+                    var_dir = dist_dir / "onnx_fp32"
+                else:
+                    var_dir = dist_dir / "onnx_fp16"
+                var_dir.mkdir(parents=True, exist_ok=True)
+                dst_onnx = var_dir / onnx_file.name
+                try:
+                    shutil.copy2(onnx_file, dst_onnx)
+                    synced.append(dst_onnx)
+                    logger.info("Synced ONNX variation: %s -> %s", onnx_file.name, dst_onnx)
+                except OSError as exc:
+                    logger.warning("Failed syncing ONNX variation %s: %s", onnx_file, exc)
 
         return synced

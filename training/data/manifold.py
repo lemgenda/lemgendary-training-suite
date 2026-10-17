@@ -127,7 +127,7 @@ class ManifoldResolver:
                 return True
         try:
             for item in p.iterdir():
-                if item.suffix.lower() in (".parquet", ".tar", ".webp", ".jpg", ".png", ".jpeg"):
+                if item.suffix.lower() in (".parquet", ".tar", ".data", ".webp", ".jpg", ".png", ".jpeg"):
                     return True
         except OSError:
             pass
@@ -179,7 +179,7 @@ class ManifoldResolver:
                 continue
             for cand in candidates:
                 direct = root / cand
-                if direct.exists() and (direct.is_dir() or direct.suffix in {".parquet", ".tar"}):
+                if direct.exists() and (direct.is_dir() or direct.suffix in {".parquet", ".tar", ".data"}):
                     return direct
 
                 sub = direct / "forex"
@@ -265,7 +265,7 @@ class ManifoldResolver:
             container_type = meta.get("canonical_format")
         elif meta.get("format"):
             container_type = meta.get("format")
-        elif (path / "shards").exists() or any(f.suffix == ".tar" for f in path.iterdir() if f.is_file()):
+        elif (path / "shards").exists() or any(f.suffix in (".tar", ".data") for f in path.iterdir() if f.is_file()):
             container_type = "webdataset"
         elif (path / "mds").exists() or ((path / "index.json").exists() and not (path / "images").exists()):
             container_type = "mds"

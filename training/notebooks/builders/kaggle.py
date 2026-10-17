@@ -43,7 +43,8 @@ def generate_inference_notebook(
     **extra_kwargs: Any,
 ) -> str | None:
     """Generate a nuclear-hardened training execution notebook for Kaggle."""
-    if extra_args or (isinstance(unified_models_registry, (str, Path)) and not isinstance(unified_models_registry, dict)):
+    is_legacy = isinstance(unified_models_registry, (str, Path)) and not isinstance(unified_models_registry, dict)
+    if extra_args or is_legacy:
         # Legacy call signature: (pascal_name, model_key, output_path)
         actual_model_key = str(export_dir)
         target_path = Path(unified_models_registry if not extra_args else extra_args[0])
@@ -53,6 +54,12 @@ def generate_inference_notebook(
         actual_model_key = model_key
         actual_export_dir = str(export_dir)
         meta = resolve_model_metadata(actual_model_key, unified_models_registry, config)
+
+    # Enforce standard model topology: notebooks/ subfolder
+    if Path(actual_export_dir).name != "notebooks":
+        nb_sub = Path(actual_export_dir) / "notebooks"
+        if nb_sub.exists() or Path(actual_export_dir).parent.name == "LemGendaryModels":
+            actual_export_dir = str(nb_sub)
 
     notebook_content = {
         "metadata": {
@@ -115,7 +122,7 @@ def generate_inference_notebook(
 
 def generate_usage_notebook(
     model_key: str,
-    export_dir: str,
+    export_dir: str | Path,
     unified_models_registry: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
 ) -> str | None:
@@ -136,12 +143,14 @@ def generate_usage_notebook(
             ]),
             make_markdown_cell([
                 "## 1. PyTorch Standalone (FP32)\n",
-                "Best for local research, further training, or high-fidelity Python backends. This format includes the full architecture definition.\n",
+                "Best for local research, further training, or high-fidelity Python backends. "
+                "This format includes the full architecture definition.\n",
             ]),
             build_pth_cell(meta),
             make_markdown_cell([
                 "## 2. ONNX Matrix (FP32 + External Weights)\n",
-                "Optimized for desktop deployment where precision is critical. Uses a decoupled `.data` file for stability.\n",
+                "Optimized for desktop deployment where precision is critical. "
+                "Uses a decoupled `.data` file for stability.\n",
             ]),
             build_onnx_fp32_cell(meta),
             make_markdown_cell([
@@ -152,7 +161,13 @@ def generate_usage_notebook(
         ],
     }
 
-    output_path = os.path.join(export_dir, f"{model_key}-kaggle-usage.ipynb")
+    actual_export_dir = str(export_dir)
+    if Path(actual_export_dir).name != "notebooks":
+        nb_sub = Path(actual_export_dir) / "notebooks"
+        if nb_sub.exists() or Path(actual_export_dir).parent.name == "LemGendaryModels":
+            actual_export_dir = str(nb_sub)
+
+    output_path = os.path.join(actual_export_dir, f"{model_key}_kaggle_usage.ipynb")
     json_str = write_notebook(notebook_content, output_path)
     if json_str is None:
         return None

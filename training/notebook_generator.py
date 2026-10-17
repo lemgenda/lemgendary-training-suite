@@ -7,6 +7,7 @@ training.notebook_generator, delegating directly to training.notebooks.
 import argparse
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from training.notebooks import (
@@ -25,24 +26,27 @@ from training.notebooks.cells.env import (
 from training.utils.paths import get_project_root
 
 __all__ = [
-    "_load_runtime_env",
     "_build_env_var_lines",
-    "generate_inference_notebook",
-    "generate_usage_notebook",
-    "generate_training_notebook",
+    "_load_runtime_env",
     "generate_colab_inference_notebook",
-    "generate_colab_usage_notebook",
     "generate_colab_training_notebook",
+    "generate_colab_usage_notebook",
+    "generate_inference_notebook",
+    "generate_training_notebook",
+    "generate_usage_notebook",
     "main",
 ]
+
 
 def main(argv: list[str] | None = None) -> int:
     import yaml
 
     parser = argparse.ArgumentParser(description="LemGendary Notebook Orchestrator (v16.2.9 Nuclear)")
     parser.add_argument("--model", type=str, help="Generate notebooks for a specific model key.")
-    parser.add_argument("--dataset", type=str, default=None, help="Dataset key context if invoked from compiler suite.")
-    parser.add_argument("--all", action="store_true", help="Regenerate the entire Notebook Matrix for all registry models.")
+    parser.add_argument("--dataset", type=str, default=None, help="Dataset key context if invoked.")
+    parser.add_argument(
+        "--all", action="store_true", help="Regenerate the entire Notebook Matrix for all registry models."
+    )
     parser.add_argument("--dir", type=str, help="Override export directory.")
     args = parser.parse_args(argv)
 
@@ -77,12 +81,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     for m_key in models_to_gen:
-        m_dir = os.path.join(export_root, m_key)
+        m_dir = os.path.join(export_root, m_key, "notebooks")
         os.makedirs(m_dir, exist_ok=True)
         generate_inference_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
         generate_usage_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
         generate_colab_inference_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
         generate_colab_usage_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
+
+        # Ensure no duplicate notebook binaries remain in model root
+        hub_root_m = Path(export_root) / m_key
+        for stray in hub_root_m.glob("*.ipynb"):
+            try:
+                stray.unlink()
+            except OSError:
+                pass
 
     print("\n[SUCCESS] Notebook Matrix Synchronized.")
     return 0

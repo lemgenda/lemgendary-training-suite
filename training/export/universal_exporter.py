@@ -1,25 +1,29 @@
 """Universal model exporter for LemGendary AI Training Suite.
 
 Enforces uniform model export across all architectures and training methods:
-1. [ModelName].onnx: FP16 precision with integrated self-contained weights
+1. [ModelName].pt: FP32 PyTorch model weights (isolated in dist/kaggle/pytorch/)
 2. [ModelName]_FP32.onnx + [ModelName]_FP32.onnx.data: FP32 with external binary weights sidecar
-3. [ModelName].pt: FP32 PyTorch model weights
+   (isolated in dist/kaggle/onnx_fp32/)
+3. [ModelName].onnx: FP16 precision with integrated self-contained weights (isolated in dist/kaggle/onnx_fp16/)
 
 All exports persist exclusively to LemGendaryModels/[ModelName]/ and NEVER to lemgendary-training-suite/.
 """
 
 from __future__ import annotations
 
-import io
+import argparse
 import logging
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
-import onnx
 import torch
 import torch.nn as nn
 
+from training.export.exporter_factory import ExporterFactory
+from training.export.pytorch_exporter import PyTorchModelExporter
+from training.export.staging import StagingResult, VariationStagingService
+from training.export.yolo_exporter import YOLOModelExporter
+from training.registry import get_model_registry
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export.universal")
@@ -42,231 +46,149 @@ def export_tri_format_pytorch(
     input_names: list[str] | None = None,
     output_names: list[str] | None = None,
     opset: int = 17,
+    stage_dist: bool = True,
 ) -> dict[str, Path]:
-    """Export standard PyTorch model into all 3 required formats.
+    """Export standard PyTorch model into all 3 required formats with automatic variation staging.
 
     Returns dict with keys: 'onnx_fp16', 'onnx_fp32', 'onnx_fp32_data', 'pt'
     """
     target_dir = Path(output_dir).resolve() if output_dir else get_model_hub_dir(model_key)
-    target_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir = target_dir / ".export_staging" if stage_dist else target_dir
+    staging_dir.mkdir(parents=True, exist_ok=True)
 
-    in_names = input_names or ["input"]
-    out_names = output_names or ["output"]
-    dyn_axes = dynamic_axes or {
-        in_names[0]: {0: "batch", 2: "height", 3: "width"},
-        out_names[0]: {0: "batch", 2: "height", 3: "width"},
-    }
+    exporter = PyTorchModelExporter()
+    exported = exporter.export(
+        model=model,
+        model_key=model_key,
+        output_dir=staging_dir,
+        dummy_input=dummy_input,
+        dynamic_axes=dynamic_axes,
+        input_names=input_names,
+        output_names=output_names,
+        opset=opset,
+    )
 
-    model_to_export = model.module if hasattr(model, "module") else model
-    model_to_export.eval()
-    device = next(model_to_export.parameters()).device
+    if stage_dist:
+        staging_svc = VariationStagingService()
+        st_res = staging_svc.stage_variations(model_key=model_key, source_files=exported, base_dir=target_dir)
+        if staging_dir.exists():
+            import shutil
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        if st_res.staged_files:
+            exported = st_res.staged_files
 
-    exported_files: dict[str, Path] = {}
-
-    # -------------------------------------------------------------------------
-    # 1. FP32 PyTorch Model (.pt)
-    # -------------------------------------------------------------------------
-    pt_path = target_dir / f"{model_key}.pt"
-    logger.info("Saving FP32 PyTorch model to %s...", pt_path)
-    try:
-        torch.save(model_to_export.state_dict(), str(pt_path))
-        exported_files["pt"] = pt_path
-        logger.info("Successfully saved FP32 PyTorch model to %s", pt_path)
-    except Exception as exc:
-        logger.error("Failed saving FP32 PyTorch model to %s: %s", pt_path, exc)
-
-    # -------------------------------------------------------------------------
-    # 2. FP32 ONNX Model with Separate Weights Sidecar (.onnx + .onnx.data)
-    # -------------------------------------------------------------------------
-    fp32_onnx_path = target_dir / f"{model_key}_FP32.onnx"
-    fp32_data_filename = f"{model_key}_FP32.onnx.data"
-    fp32_data_path = target_dir / fp32_data_filename
-
-    logger.info("Exporting FP32 ONNX model with external sidecar to %s...", fp32_onnx_path)
-    buf_fp32 = io.StringIO()
-    try:
-        dummy_fp32 = dummy_input.to(dtype=torch.float32, device=device)
-        model_to_export.to(dtype=torch.float32)
-
-        with redirect_stdout(buf_fp32), redirect_stderr(buf_fp32):
-            torch.onnx.export(
-                model_to_export,
-                (dummy_fp32,),
-                str(fp32_onnx_path),
-                export_params=True,
-                opset_version=opset,
-                do_constant_folding=True,
-                input_names=in_names,
-                output_names=out_names,
-                dynamic_axes=dyn_axes,
-            )
-
-        # Convert to external data sidecar
-        onnx_model = onnx.load(str(fp32_onnx_path))
-        onnx.external_data_helper.convert_model_to_external_data(
-            onnx_model,
-            all_tensors_to_one_file=True,
-            location=fp32_data_filename,
-            size_threshold=1024,
-            convert_attribute=False,
-        )
-        onnx.save(onnx_model, str(fp32_onnx_path))
-
-        exported_files["onnx_fp32"] = fp32_onnx_path
-        exported_files["onnx_fp32_data"] = fp32_data_path
-        logger.info(
-            "Successfully exported FP32 ONNX with sidecar: %s (graph: %.2f KB, weights: %.2f MB)",
-            fp32_onnx_path.name,
-            fp32_onnx_path.stat().st_size / 1024,
-            fp32_data_path.stat().st_size / (1024 * 1024) if fp32_data_path.exists() else 0.0,
-        )
-    except Exception as exc:
-        logger.error("Failed exporting FP32 ONNX sidecar for %s: %s", model_key, exc)
-
-    # -------------------------------------------------------------------------
-    # 3. FP16 ONNX Model with Integrated Weights (.onnx)
-    # -------------------------------------------------------------------------
-    fp16_onnx_path = target_dir / f"{model_key}.onnx"
-    logger.info("Exporting FP16 integrated ONNX model to %s...", fp16_onnx_path)
-    buf_fp16 = io.StringIO()
-    try:
-        dummy_fp16 = dummy_input.to(dtype=torch.float16, device=device)
-        model_to_export.to(dtype=torch.float16)
-
-        with redirect_stdout(buf_fp16), redirect_stderr(buf_fp16):
-            torch.onnx.export(
-                model_to_export,
-                (dummy_fp16,),
-                str(fp16_onnx_path),
-                export_params=True,
-                opset_version=opset,
-                do_constant_folding=True,
-                input_names=in_names,
-                output_names=out_names,
-                dynamic_axes=dyn_axes,
-            )
-
-        exported_files["onnx_fp16"] = fp16_onnx_path
-        logger.info(
-            "Successfully exported FP16 integrated ONNX: %s (%.2f MB)",
-            fp16_onnx_path.name,
-            fp16_onnx_path.stat().st_size / (1024 * 1024),
-        )
-    except Exception as exc:
-        logger.warning(
-            "Direct FP16 torch.onnx.export failed for %s (%s). Falling back to onnxconverter float16 conversion...",
-            model_key,
-            exc,
-        )
-        try:
-            # Fallback: export FP32 without sidecar temporarily, then convert to FP16
-            tmp_fp32 = target_dir / f"{model_key}_temp_fp32.onnx"
-            model_to_export.to(dtype=torch.float32)
-            dummy_fp32 = dummy_input.to(dtype=torch.float32, device=device)
-            torch.onnx.export(
-                model_to_export,
-                (dummy_fp32,),
-                str(tmp_fp32),
-                export_params=True,
-                opset_version=opset,
-                do_constant_folding=True,
-                input_names=in_names,
-                output_names=out_names,
-                dynamic_axes=dyn_axes,
-            )
-            from onnxconverter_common import float16
-            m_fp32 = onnx.load(str(tmp_fp32))
-            m_fp16 = float16.convert_float_to_float16(m_fp32)
-            onnx.save(m_fp16, str(fp16_onnx_path))
-            if tmp_fp32.exists():
-                tmp_fp32.unlink()
-            exported_files["onnx_fp16"] = fp16_onnx_path
-            logger.info("Successfully converted and saved FP16 ONNX model via onnxconverter fallback to %s", fp16_onnx_path)
-        except Exception as fallback_exc:
-            logger.error("Failed FP16 fallback export for %s: %s", model_key, fallback_exc)
-    finally:
-        # Revert model back to float32
-        model_to_export.to(dtype=torch.float32)
-
-    return exported_files
+    return exported
 
 
 def export_tri_format_yolo(
     trainer: Any,
     model_key: str = "yolov8n",
     output_dir: Path | str | None = None,
+    stage_dist: bool = True,
 ) -> dict[str, Path]:
-    """Export Ultralytics YOLO model into all 3 required formats."""
+    """Export Ultralytics YOLO model into all 3 required formats with automatic variation staging."""
     target_dir = Path(output_dir).resolve() if output_dir else get_model_hub_dir(model_key)
-    target_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir = target_dir / ".export_staging" if stage_dist else target_dir
+    staging_dir.mkdir(parents=True, exist_ok=True)
 
-    exported_files: dict[str, Path] = {}
+    exporter = YOLOModelExporter()
+    exported = exporter.export(
+        model=trainer,
+        model_key=model_key,
+        output_dir=staging_dir,
+    )
 
-    # 1. FP32 PyTorch Model (.pt)
-    pt_path = target_dir / f"{model_key}.pt"
-    try:
-        best_pt = getattr(trainer, "best", None)
-        if best_pt and Path(best_pt).exists():
+    if stage_dist:
+        staging_svc = VariationStagingService()
+        st_res = staging_svc.stage_variations(model_key=model_key, source_files=exported, base_dir=target_dir)
+        if staging_dir.exists():
             import shutil
-            shutil.copy2(str(best_pt), str(pt_path))
-            exported_files["pt"] = pt_path
-            logger.info("Mirrored YOLO FP32 PyTorch model to %s", pt_path)
-    except Exception as exc:
-        logger.error("Failed saving YOLO .pt to %s: %s", pt_path, exc)
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        if st_res.staged_files:
+            exported = st_res.staged_files
 
-    yolo_model = None
-    if hasattr(trainer, "export"):
-        yolo_model = trainer
-    elif hasattr(trainer, "best") and Path(getattr(trainer, "best", "")).exists():
-        from ultralytics import YOLO
-        yolo_model = YOLO(str(trainer.best))
-    elif pt_path.exists():
-        from ultralytics import YOLO
-        yolo_model = YOLO(str(pt_path))
+    return exported
 
-    # 2. FP32 ONNX with Separate Weights Sidecar
-    fp32_onnx_path = target_dir / f"{model_key}_FP32.onnx"
-    fp32_data_path = target_dir / f"{model_key}_FP32.onnx.data"
-    try:
-        if yolo_model is not None and hasattr(yolo_model, "export"):
-            raw_onnx = yolo_model.export(format="onnx", half=False, imgsz=640)
-            if raw_onnx and Path(raw_onnx).exists():
-                onnx_model = onnx.load(str(raw_onnx))
-                onnx.external_data_helper.convert_model_to_external_data(
-                    onnx_model,
-                    all_tensors_to_one_file=True,
-                    location=f"{model_key}_FP32.onnx.data",
-                    size_threshold=1024,
-                    convert_attribute=False,
-                )
-                onnx.save(onnx_model, str(fp32_onnx_path))
-                exported_files["onnx_fp32"] = fp32_onnx_path
-                exported_files["onnx_fp32_data"] = fp32_data_path
-                logger.info("Successfully exported YOLO FP32 ONNX with sidecar to %s", fp32_onnx_path)
-    except Exception as exc:
-        logger.error("Failed exporting YOLO FP32 ONNX sidecar: %s", exc)
 
-    # 3. FP16 ONNX with Integrated Weights
-    fp16_onnx_path = target_dir / f"{model_key}.onnx"
-    try:
-        if yolo_model is not None and hasattr(yolo_model, "export"):
-            raw_half_onnx = yolo_model.export(format="onnx", half=True, imgsz=640)
-            if raw_half_onnx and Path(raw_half_onnx).exists():
-                if Path(raw_half_onnx).resolve() != fp16_onnx_path.resolve():
-                    import shutil
-                    shutil.copy2(str(raw_half_onnx), str(fp16_onnx_path))
-                exported_files["onnx_fp16"] = fp16_onnx_path
-                logger.info("Successfully exported YOLO FP16 integrated ONNX to %s", fp16_onnx_path)
-    except Exception as exc:
-        logger.error("Failed exporting YOLO FP16 ONNX: %s", exc)
+def export_universal_model(
+    model_key: str,
+    model: Any | None = None,
+    output_dir: Path | str | None = None,
+    stage_dist: bool = True,
+    **kwargs: Any,
+) -> tuple[dict[str, Path], StagingResult | None]:
+    """Universal export facade resolving exporter via ExporterFactory and staging variations."""
+    reg = get_model_registry()
+    spec = reg.get_model(model_key)
+    target_dir = Path(output_dir).resolve() if output_dir else get_model_hub_dir(model_key)
+    staging_dir = target_dir / ".export_staging" if stage_dist else target_dir
+    staging_dir.mkdir(parents=True, exist_ok=True)
 
-    # Clean up any misplaced/orphaned {model_key}.onnx.data
-    orphaned_data = target_dir / f"{model_key}.onnx.data"
-    if orphaned_data.exists():
-        try:
-            orphaned_data.unlink()
-            logger.info("Cleaned up orphaned sidecar data %s", orphaned_data)
-        except OSError:
-            pass
+    if model is None:
+        from models.factory import get_model
 
-    return exported_files
+        model = get_model(model_key)
+
+    exporter = ExporterFactory.get_exporter(model_key, spec)
+    exported = exporter.export(
+        model=model,
+        model_key=model_key,
+        output_dir=staging_dir,
+        spec=spec,
+        **kwargs,
+    )
+
+    staging_result = None
+    if stage_dist:
+        staging_svc = VariationStagingService(spec=spec)
+        staging_result = staging_svc.stage_variations(
+            model_key=model_key,
+            source_files=exported,
+            base_dir=target_dir,
+            validate=True,
+        )
+        if staging_dir.exists():
+            import shutil
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        if staging_result.staged_files:
+            exported = staging_result.staged_files
+
+    return exported, staging_result
+
+
+def main() -> None:
+    """CLI entrypoint for universal exporter."""
+    parser = argparse.ArgumentParser(description="Universal Model Exporter & Variation Stager")
+    parser.add_argument("--model", type=str, required=True, help="Model key (e.g. yolov8n, ai_helper_lemgend)")
+    parser.add_argument("--output-dir", type=str, default=None, help="Custom export destination")
+    parser.add_argument("--stage-dist", action="store_true", default=True, help="Stage into dist/kaggle/ subfolders")
+    parser.add_argument("--stage-only", action="store_true", help="Only stage existing binaries without re-exporting")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+
+    if args.stage_only:
+        staging_svc = VariationStagingService()
+        res = staging_svc.stage_variations(args.model, base_dir=args.output_dir, validate=True)
+        if res.report:
+            print(res.report.summary())
+        if not res.success:
+            raise SystemExit(1)
+        print(f"Successfully staged variations for {args.model}")
+        return
+
+    exported, st_res = export_universal_model(
+        model_key=args.model,
+        output_dir=args.output_dir,
+        stage_dist=args.stage_dist,
+    )
+    print(f"Exported {len(exported)} artifacts for {args.model}:")
+    for k, v in exported.items():
+        print(f"  {k}: {v}")
+
+    if st_res and st_res.report:
+        print("\n" + st_res.report.summary())
+
+
+if __name__ == "__main__":
+    main()

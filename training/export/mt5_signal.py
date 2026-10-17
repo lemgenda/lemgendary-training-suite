@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
@@ -100,7 +99,7 @@ def export_forex_onnx(
     try:
         torch.onnx.export(
             wrapper,
-            tuple(tf_inputs) + (pair_dummy,),
+            (*tf_inputs, pair_dummy),
             str(out_file),
             input_names=input_names,
             output_names=output_names,

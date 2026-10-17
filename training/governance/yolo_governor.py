@@ -304,12 +304,24 @@ class YOLOCurriculumGovernor:
         # suite project root is for code only, never for generated model files.
         self.models_hub_dir = (project_root.parent / "LemGendaryModels" / "yolov8n").resolve()
         self.models_hub_ckpt_dir = self.models_hub_dir / "checkpoints"
-        # Curriculum stage outputs go under LemGendaryModels/yolov8n/runs/
-        self.runs_dir = self.models_hub_dir / "runs"
+        # Curriculum stage outputs go under local checkpoints directory to keep LemGendaryModels pristine
+        self.runs_dir = (project_root / "checkpoints" / "yolov8n" / "runs").resolve()
 
         self.models_hub_dir.mkdir(parents=True, exist_ok=True)
         self.models_hub_ckpt_dir.mkdir(parents=True, exist_ok=True)
         self.runs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Migrate legacy runs directory out of models hub
+        legacy_runs = self.models_hub_dir / "runs"
+        if legacy_runs.exists():
+            try:
+                for item in legacy_runs.iterdir():
+                    dst_item = self.runs_dir / item.name
+                    if not dst_item.exists():
+                        shutil.move(str(item), str(dst_item))
+                shutil.rmtree(legacy_runs, ignore_errors=True)
+            except OSError:
+                pass
 
         # Primary metrics and telemetry stream directly from LemGendaryModels/yolov8n
         self.telemetry = TelemetryEngine(export_dir=str(self.models_hub_dir), task_type="yolo")
@@ -417,6 +429,7 @@ class YOLOCurriculumGovernor:
             try:
                 shutil.copy2(best_cand, hub_ckpt_dir / "best.pt")
                 shutil.copy2(best_cand, hub_ckpt_dir / "best.pth")
+                shutil.copy2(best_cand, hub_ckpt_dir / "yolov8n_best.pth")
 
                 # Vault milestone checkpoints for YOLO targets
                 if self.best_overall_metrics["map50"] > 0:
@@ -432,6 +445,7 @@ class YOLOCurriculumGovernor:
             try:
                 shutil.copy2(last_cand, hub_ckpt_dir / "latest.pth")
                 shutil.copy2(last_cand, hub_ckpt_dir / "last.pt")
+                shutil.copy2(last_cand, hub_ckpt_dir / "yolov8n_latest.pth")
 
                 # Immediate action: purge progress.pth upon saving latest
                 progress_file = hub_ckpt_dir / "progress.pth"
@@ -469,7 +483,9 @@ class YOLOCurriculumGovernor:
                     plot_file = rd / plot_name
                     if plot_file.exists() and plot_file.stat().st_size > 0:
                         try:
-                            shutil.copy2(plot_file, self.models_hub_dir / plot_name)
+                            vis_dir = self.models_hub_dir / "visualizations"
+                            vis_dir.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(plot_file, vis_dir / plot_name)
                         except OSError as plot_err:
                             logger.debug("Non-fatal plot sync error: %s", plot_err)
                 break
@@ -1386,6 +1402,7 @@ class YOLOCurriculumGovernor:
         if final_best_source.exists():
             shutil.copy2(final_best_source, hub_ckpt_dir / "best.pt")
             shutil.copy2(final_best_source, hub_ckpt_dir / "best.pth")
+            shutil.copy2(final_best_source, hub_ckpt_dir / "yolov8n_best.pth")
 
         if final_best_source.exists():
             print("[GOVERNOR] Training complete. Packaging final production artifacts (PyTorch & ONNX) to LemGendaryModels/yolov8n...", flush=True)

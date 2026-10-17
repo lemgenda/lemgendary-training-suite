@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import json
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from training.cloud.credentials import resolve_kaggle_credentials
 from training.server.routes.models import _load_registry
 from training.services.audit_service import AuditService
 from training.services.checkpoint_service import CheckpointService
@@ -175,8 +171,12 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             res_ladder = [256, 384, 512]
             if isinstance(opt_cfg, dict) and "res_ladder" in opt_cfg and isinstance(opt_cfg["res_ladder"], list):
                 res_ladder = opt_cfg["res_ladder"]
-            elif info.get("input_size") and len(info["input_size"]) >= 2:
-                res_ladder = [info["input_size"][-1]]
+            elif info.get("input_size"):
+                inp = info["input_size"]
+                if isinstance(inp, (list, tuple)) and len(inp) >= 2:
+                    res_ladder = [inp[-1]]
+                elif isinstance(inp, int):
+                    res_ladder = [inp]
             elif info.get("resolution"):
                 res_ladder = [info["resolution"]]
 
@@ -299,7 +299,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                             for ykey, (col_name, is_lower, _lbl, is_fx_col) in METRIC_REGISTRY.items():
                                 if is_forex != is_fx_col:
                                     continue
-                                if col_name in row and row[col_name]:
+                                if row.get(col_name):
                                     try:
                                         c_val = float(row[col_name])
                                         if ykey not in csv_metrics_history:
@@ -395,7 +395,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
         for ykey, (col_name, is_low, lbl, is_fx_col) in METRIC_REGISTRY.items():
             if is_forex != is_fx_col or ykey in known_metric_keys:
                 continue
-            if ykey in csv_metrics_history and csv_metrics_history[ykey]:
+            if csv_metrics_history.get(ykey):
                 vals = csv_metrics_history[ykey]
                 ach = min(vals) if is_low else max(vals)
                 best_metrics_details.append({

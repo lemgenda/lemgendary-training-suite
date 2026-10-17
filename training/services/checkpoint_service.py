@@ -5,10 +5,11 @@ Provides inspection, listing, and lifecycle management of saved model checkpoint
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
-import re
 from typing import Any
+
 import torch
 
 from training.checkpoint.manager import safe_load_checkpoint
@@ -94,6 +95,8 @@ class CheckpointService:
             candidates = (
                 list(m_dir.glob("*.pth"))
                 + list((m_dir / "checkpoints").glob("*.pth"))
+                + list((m_dir / "checkpoints").glob("*.pt"))
+                + list((m_dir / "dist" / "kaggle" / "pytorch").glob("*.pt"))
                 + list(m_dir.glob("*.pt"))
             )
 

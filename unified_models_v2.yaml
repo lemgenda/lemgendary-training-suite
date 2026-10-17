@@ -5,6 +5,7 @@ _registry_metadata:
   datasets:
     LemGendizedForexUniverse:
       count: 30810572
+  models_count: 23
 forex_predictor:
   status: TRAINING
   name: LemGendary Forex Predictor (Multi-Scale CNN-Transformer)
@@ -20,9 +21,11 @@ forex_predictor:
   preferred_parallel: single
   optimal_key: forex_predictor
   architecture_type: Multi-Scale CNN-Transformer (Causal TCN + Cross-Timeframe Attention)
-  description: 'Multi-pair, multi-timeframe Forex trading model trained on MetaTrader 5 OHLCV data. Predicts trade direction
-    (Up/Down/Sideways) and magnitude (TP/SL pips) for all major currency pairs. Architecture uses causal Conv1D stacks per
-    timeframe fused via cross-timeframe attention. Fully stateless and ONNX-compatible for live MT5 EA deployment.
+  description: 'Multi-pair, multi-timeframe Forex trading model trained on MetaTrader
+    5 OHLCV data. Predicts trade direction (Up/Down/Sideways) and magnitude (TP/SL
+    pips) for all major currency pairs. Architecture uses causal Conv1D stacks per
+    timeframe fused via cross-timeframe attention. Fully stateless and ONNX-compatible
+    for live MT5 EA deployment.
 
     '
   datasets:
@@ -111,6 +114,23 @@ forex_predictor:
   val_resolution: null
   kaggle_accelerator: T4
   canonical_format: parquet
+  kaggle_metadata:
+    slug: forex-predictor
+    title: LemGendary Forex Predictor (Multi-Scale CNN-Transformer)
+    subtitle: Multi-Scale CNN-Transformer predicting multi-timeframe directional order
+      flow and pip targets
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - finance
+    - forex
+    - time-series
+    - trading
+    - tcn
+    - attention
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 nima_aesthetic_mobile:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Mobile)
@@ -132,10 +152,9 @@ nima_aesthetic_mobile:
   preferred_parallel: ddp
   optimal_key: nima_aesthetic_mobile
   architecture_type: MobileNetV3-Small (Global Composition)
-  description: >-
-    Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
-    optimized for artistic composition and color harmony with ultra-lightweight
-    MobileNetV3-Small backbone for real-time mobile and edge inference.
+  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
+    optimized for artistic composition and color harmony with ultra-lightweight MobileNetV3-Small
+    backbone for real-time mobile and edge inference.
   datasets:
   - LemGendizedNimaAesthetic
   - LemGendizedNimaAesthetic
@@ -182,6 +201,21 @@ nima_aesthetic_mobile:
   val_resolution: 224
   kaggle_accelerator: T4
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: nima-aesthetic-mobile
+    title: LemGendary NIMA Aesthetic Scorer (Mobile)
+    subtitle: Lightweight MobileNet aesthetic scoring model predicting continuous
+      visual quality distributions
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-quality-assessment
+    - aesthetic-scoring
+    - mobile
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 nima_aesthetic_efficientnet:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
@@ -203,8 +237,8 @@ nima_aesthetic_efficientnet:
   preferred_parallel: ddp
   optimal_key: nima_aesthetic_efficientnet
   architecture_type: EfficientNetV2-S (Global Composition)
-  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset, optimized for artistic composition
-    and color harmony using EfficientNetV2-S backbone.
+  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
+    optimized for artistic composition and color harmony using EfficientNetV2-S backbone.
   datasets:
   - LemGendizedNimaAesthetic
   - LemGendizedNimaAesthetic
@@ -251,6 +285,21 @@ nima_aesthetic_efficientnet:
   val_resolution: 384
   kaggle_accelerator: T4
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: nima-aesthetic-efficientnet
+    title: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
+    subtitle: EfficientNet-based aesthetic quality assessment model with earth mover
+      distance loss
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-quality-assessment
+    - aesthetic-scoring
+    - efficientnet
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 nima_aesthetic_pro:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Pro ViT)
@@ -271,7 +320,8 @@ nima_aesthetic_pro:
   preferred_parallel: ddp
   optimal_key: nima_aesthetic_pro
   architecture_type: Swin-v2-T (Global Multi-Scale Attention)
-  description: High-end aesthetic quality scorer using Swin Transformer V2, optimized for high-res global composition.
+  description: High-end aesthetic quality scorer using Swin Transformer V2, optimized
+    for high-res global composition.
   datasets:
   - LemGendizedNimaAesthetic
   - LemGendizedNimaAesthetic
@@ -317,6 +367,21 @@ nima_aesthetic_pro:
   val_resolution: 512
   kaggle_accelerator: Dual T4
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: nima-aesthetic-pro
+    title: LemGendary NIMA Aesthetic Scorer (Pro ViT)
+    subtitle: High-precision ViT/DenseNet perceptual aesthetic scoring architecture
+      for studio quality evaluation
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-quality-assessment
+    - aesthetic-scoring
+    - vit
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 nima_technical:
   status: VALIDATED
   name: LemGendary NIMA Technical Scorer
@@ -338,8 +403,8 @@ nima_technical:
   preferred_parallel: ddp
   optimal_key: nima_technical
   architecture_type: EfficientNetV2-S (Spatial Integrity)
-  description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset, optimized for detecting
-    micro-defects, noise, and artifacts.
+  description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset,
+    optimized for detecting micro-defects, noise, and artifacts.
   datasets:
   - LemGendizedNimaTechnical
   - LemGendizedNimaTechnical
@@ -389,6 +454,21 @@ nima_technical:
   val_resolution: 512
   kaggle_accelerator: T4
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: nima-technical
+    title: LemGendary NIMA Technical Scorer
+    subtitle: Technical distortion and artifact rating network predicting photographic
+      fidelity distributions
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-quality-assessment
+    - technical-quality
+    - nima
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 nima_authenticity:
   status: VALIDATED
   name: LemGendary Authenticity Scorer (AI vs Human)
@@ -442,6 +522,21 @@ nima_authenticity:
   val_resolution: 768
   kaggle_accelerator: T4
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: nima-authenticity
+    title: LemGendary Authenticity Scorer (AI vs Human)
+    subtitle: Forensic authenticity discriminator detecting synthetic GAN and diffusion-generated
+      imagery
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - deepfake-detection
+    - ai-generated-detection
+    - authenticity
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 upn_v2:
   status: VALIDATED
   name: LemGendary UPN v2 Parameter Predictor
@@ -463,7 +558,8 @@ upn_v2:
   - theta
   - conf
   optimal_key: upn_v2
-  description: Universal parameter predictor for image restoration powered by MobileNetV3-Small backbone
+  description: Universal parameter predictor for image restoration powered by MobileNetV3-Small
+    backbone
   stabilizers:
     numerical_sentinel:
     - -0.1
@@ -498,6 +594,21 @@ upn_v2:
   kwargs:
     backbone: mobilenet_v3_small
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: upn-v2
+    title: LemGendary UPN v2 Parameter Predictor
+    subtitle: Universal Parameter Network predicting neural filter hyper-adjustments
+      for RAW photo enhancement
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-enhancement
+    - parameter-prediction
+    - neural-network
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 film_restorer:
   status: VALIDATED
   name: LemGendary Universal Film Restorer
@@ -546,6 +657,21 @@ film_restorer:
   kwargs:
     backbone: residual_dense_blocks
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: film-restorer
+    title: LemGendary Universal Film Restorer
+    subtitle: Dual-branch spatio-temporal scratch and grain restoration network for
+      vintage celluloid archives
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-restoration
+    - film-restoration
+    - scratch-removal
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 codeformer:
   status: VALIDATED
   name: LemGendary CodeFormer Face Restoration
@@ -594,6 +720,21 @@ codeformer:
   kwargs:
     backbone: unet_transformer
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: codeformer
+    title: LemGendary CodeFormer Face Restoration
+    subtitle: Transformer-based blind face restoration network utilizing discrete
+      codebook lookup priors
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-restoration
+    - face-restoration
+    - transformer
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 parsenet:
   status: VALIDATED
   name: LemGendary ParseNet Face Parsing
@@ -636,6 +777,21 @@ parsenet:
   kwargs:
     backbone: resnet_fpn
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: parsenet
+    title: LemGendary ParseNet Face Parsing
+    subtitle: Facial semantic component parsing and segmentation network producing
+      19-class anatomical masks
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - face-parsing
+    - semantic-segmentation
+    - maskgan
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 ffanet_indoor:
   status: VALIDATED
   name: LemGendary FFANet Dehazing (Indoor)
@@ -687,6 +843,21 @@ ffanet_indoor:
   kwargs:
     backbone: ffanet_branched
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: ffanet-indoor
+    title: LemGendary FFANet Dehazing (Indoor)
+    subtitle: Feature Fusion Attention Network specialized in single-image indoor
+      atmospheric dehazing
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-dehazing
+    - feature-fusion-attention
+    - restoration
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 ffanet_outdoor:
   status: VALIDATED
   name: LemGendary FFANet Dehazing (Outdoor)
@@ -738,6 +909,21 @@ ffanet_outdoor:
   kwargs:
     backbone: ffanet_branched
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: ffanet-outdoor
+    title: LemGendary FFANet Dehazing (Outdoor)
+    subtitle: Feature Fusion Attention Network specialized in dense outdoor haze and
+      smog attenuation
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-dehazing
+    - feature-fusion-attention
+    - restoration
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 mirnet_lowlight:
   status: VALIDATED
   name: LemGendary MIRNet v2 Low-Light Enhancement
@@ -788,6 +974,21 @@ mirnet_lowlight:
   kwargs:
     backbone: multi_scale_residual
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: mirnet-lowlight
+    title: LemGendary MIRNet v2 Low-Light Enhancement
+    subtitle: Multi-scale recursive restoration network enhancing extreme underexposure
+      and photon noise
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-restoration
+    - low-light-enhancement
+    - mirnet
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 mirnet_exposure:
   status: VALIDATED
   name: LemGendary MIRNet v2 Exposure Correction
@@ -838,6 +1039,21 @@ mirnet_exposure:
   kwargs:
     backbone: multi_scale_residual
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: mirnet-exposure
+    title: LemGendary MIRNet v2 Exposure Correction
+    subtitle: Dual-attention dynamic range correction network resolving non-uniform
+      multi-exposure defects
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-restoration
+    - exposure-correction
+    - mirnet
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 mprnet_deraining:
   status: VALIDATED
   name: LemGendary MPRNet Deraining
@@ -888,6 +1104,21 @@ mprnet_deraining:
   kwargs:
     backbone: multi_stage_progressive
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: mprnet-deraining
+    title: LemGendary MPRNet Deraining
+    subtitle: Multi-stage progressive restoration network resolving heavy streak and
+      rain droplet degradations
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-restoration
+    - deraining
+    - mprnet
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 nafnet_debluring:
   status: VALIDATED
   name: LemGendary NAFNet Debluring
@@ -938,6 +1169,21 @@ nafnet_debluring:
   kwargs:
     backbone: nafnet_blocks
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: nafnet-debluring
+    title: LemGendary NAFNet Debluring
+    subtitle: Nonlinear Activation Free baseline network for state-of-the-art camera
+      shake and motion deblurring
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-restoration
+    - deblurring
+    - nafnet
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 nafnet_denoising:
   status: VALIDATED
   name: LemGendary NAFNet Denoising
@@ -989,6 +1235,21 @@ nafnet_denoising:
   kwargs:
     backbone: nafnet_blocks
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: nafnet-denoising
+    title: LemGendary NAFNet Denoising
+    subtitle: Nonlinear Activation Free baseline network for high-fidelity additive
+      Gaussian noise removal
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-restoration
+    - denoising
+    - nafnet
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 yolov8n:
   status: PRODUCTION
   name: LemGendary YOLOv8n Multi-Task Model
@@ -1011,52 +1272,32 @@ yolov8n:
   optimal_key: yolov8n
   description: Unified YOLOv8n for classification, detection, and pose
   optimization:
-    # ── Curriculum fraction progression ───────────────────────────────────────
-    initial_fraction: 0.3          # Starting data fraction for lowest resolution rung
-    next_res_start_fraction: 0.50  # Starting data fraction when advancing to higher resolution
-    fraction_step_min: 0.15        # Minimum inter-stage fraction increment
-    fraction_step_max: 0.20        # Maximum inter-stage fraction increment
+    initial_fraction: 0.3
+    next_res_start_fraction: 0.5
+    fraction_step_min: 0.15
+    fraction_step_max: 0.2
     high_fidelity_fraction: 0.7
     fraction_increment: 0.2
-    # ── Plateau / overfitting detection ───────────────────────────────────────
     enabled: true
-    plateau_patience: 10           # Epochs without improvement before governor triggers
+    plateau_patience: 10
     absolute_patience: 15
-    rung_plateau_patience: 5       # Per-rung plateau patience (inner loop)
-    rung_min_epochs: 3             # Minimum epochs per rung before plateau check
-    rung_plateau_min_delta: 0.001  # Minimum quality delta to reset plateau counter
+    rung_plateau_patience: 5
+    rung_min_epochs: 3
+    rung_plateau_min_delta: 0.001
     cooling_factor: 0.75
     plateau_priority: resolution
-    # ── SOTA convergence extension ─────────────────────────────────────────────
-    extension_epochs: 20           # Epochs per SOTA extension cycle (no hard cap)
-    # ── Spatial resolution ladder ─────────────────────────────────────────────
+    extension_epochs: 20
     res_ladder:
     - 320
     - 480
     - 640
-    # ── Sawtooth VRAM Governor ────────────────────────────────────────────────
-    # Dynamic batch sizing via first-principles VRAM arithmetic.
-    # All values are tunable here; no hardcoding in the training code.
-    #
-    # VRAM budget formula:
-    #   total_budget_mb  = vram_gb * 1024 * sawtooth_vram_safety
-    #   available_mb     = total_budget_mb - static_vram_mb
-    #   per_sample_mb    = per_sample_vram_mb_640 * (imgsz / 640) ** 2
-    #   max_safe_batch   = floor(available_mb / per_sample_mb)  [rounded to power-of-2]
-    #
-    # Calibration source: GTX 1650 (4.0 GB) ran batch=16 at 480px stably.
-    #   observed avail  ≈ 4.0 * 1024 * 0.85 - 260 = 3214 MB
-    #   per_sample@480  ≈ 3214 / 16 = 200 MB
-    #   per_sample@640  ≈ 200 / (480/640)² = 200 / 0.5625 ≈ 356 MB → rounded to 240
-    #   (240 * 0.5625 = 135 -> 3214/135 = 23 -> p2 = 16 [ok] for 4GB at 480px)
-    #
-    static_vram_mb: 260            # Fixed GPU VRAM overhead: weights + gradients + optimizer states
-    per_sample_vram_mb_640: 240    # Activation VRAM per sample at 640px (empirically calibrated for YOLOv8n)
-    sawtooth_vram_safety: 0.85     # Target fraction of total VRAM to use (leave ~15% headroom)
-    sawtooth_vram_pressure_thresh: 0.90   # Fraction above which batch is halved immediately
-    sawtooth_vram_headroom_thresh: 0.60   # Fraction below which batch may be promoted
-    batch_min: 1                   # Hard floor on batch size regardless of VRAM
-    batch_max: 512                 # Hard ceiling on batch size
+    static_vram_mb: 260
+    per_sample_vram_mb_640: 240
+    sawtooth_vram_safety: 0.85
+    sawtooth_vram_pressure_thresh: 0.9
+    sawtooth_vram_headroom_thresh: 0.6
+    batch_min: 1
+    batch_max: 512
   datasets:
   - LemGendizedYoloV8n
   kaggle_ref: kaggle://lemtreursi/lemgendizedyolov8n
@@ -1071,6 +1312,21 @@ yolov8n:
   kwargs:
     backbone: cspdarknet
   canonical_format: directory
+  kaggle_metadata:
+    slug: yolov8n
+    title: LemGendary YOLOv8n Multi-Task Model
+    subtitle: Real-time multi-task object detection, instance bounding, and confidence
+      classification model
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - object-detection
+    - yolov8
+    - ultralytics
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 professional_multitask_restoration:
   status: DATASET_READY
   name: LemGendary Professional Multi-Task Restoration Model
@@ -1088,7 +1344,8 @@ professional_multitask_restoration:
   preferred_parallel: dp
   needs_synthesis: true
   optimal_key: professional_multitask_restoration
-  description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze, and Low-Light
+  description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze,
+    and Low-Light
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -1118,6 +1375,21 @@ professional_multitask_restoration:
   kwargs:
     backbone: shared_encoder_moe
   canonical_format: mds
+  kaggle_metadata:
+    slug: professional-multitask-restoration
+    title: LemGendary Professional Multi-Task Restoration Model
+    subtitle: Unified multi-head restorative architecture addressing composite real-world
+      degradation manifolds
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-restoration
+    - multi-task
+    - all-in-one
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 ultrazoom:
   status: VALIDATED
   name: LemGendary UltraZoom Master Model
@@ -1163,6 +1435,21 @@ ultrazoom:
   kwargs:
     backbone: espcn_residual
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: ultrazoom
+    title: LemGendary UltraZoom Master Model
+    subtitle: Real-time sub-pixel convolutional super-resolution network scaling spatial
+      visual density
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - super-resolution
+    - sub-pixel-cnn
+    - ultrazoom
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 universal_nsfw_classification:
   status: DATASET_READY
   name: LemGendary Universal NSFW Classifier
@@ -1180,7 +1467,8 @@ universal_nsfw_classification:
   preferred_parallel: ddp
   optimal_key: universal_nsfw_classification
   architecture_type: EfficientNetV2-S (Multi-Class Categorical Head)
-  description: Universal safety filter and NSFW classifier for realistic and anime content.
+  description: Universal safety filter and NSFW classifier for realistic and anime
+    content.
   datasets:
   - LemGendizedClassificationMaster
   - LemGendizedClassificationMaster
@@ -1204,6 +1492,21 @@ universal_nsfw_classification:
   kwargs:
     backbone: efficientnet_v2_s
   canonical_format: mds
+  kaggle_metadata:
+    slug: universal-nsfw-classification
+    title: LemGendary Universal NSFW Classifier
+    subtitle: 5-class visual safety moderation classifier enforcing ecosystem content
+      governance
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - image-classification
+    - content-moderation
+    - safety
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
 retinaface:
   status: DATASET_READY
   name: LemGendary RetinaFace Detection
@@ -1224,8 +1527,7 @@ retinaface:
   - output2
   - output3
   optimal_key: retinaface
-  description: >-
-    Robust single-stage face and landmark detection with unified MobileNetV3-Small
+  description: Robust single-stage face and landmark detection with unified MobileNetV3-Small
     backbone for real-time edge deployment.
   datasets:
   - LemGendizedRetinaFace
@@ -1255,3 +1557,68 @@ retinaface:
     - mobilenet_v2
   kaggle_accelerator: T4
   canonical_format: webdataset
+  kaggle_metadata:
+    slug: retinaface
+    title: LemGendary RetinaFace Detection
+    subtitle: Single-stage multi-scale feature pyramid network performing dense facial
+      bounding and landmark alignment
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - computer-vision
+    - face-detection
+    - landmark-localization
+    - retinaface
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr
+ai_helper_lemgend:
+  status: PRODUCTION
+  name: LemGendary AI Studio Assistant (Causal LLM)
+  class_name: AIHelperLemGend
+  category: llm
+  filename: AIHelperLemGend
+  checkpoint: AIHelperLemGend_best.pth
+  input_size: 2048
+  batch_size: 2
+  learning_rate: 0.0002
+  loss_fn: cross_entropy
+  dataset_type: text_instruction
+  preferred_parallel: single
+  optimal_key: ai_helper_lemgend
+  architecture_type: Causal Decoder Transformer (QLoRA Fine-Tuned)
+  base_foundation_model: Qwen/Qwen2.5-Coder-1.5B-Instruct
+  description: Official instruction-tuned assistant LLM for LemGendary AI Studio.
+    Possesses expert domain knowledge of the 22 neural architectures, Dataset Compiler,
+    Training Suite, Sawtooth Governor, REST APIs, and multi-tier diagnostic workflows.
+  datasets:
+  - LemGendizedAIHelperLemGend
+  curriculum:
+    max_seq_length: 2048
+    lora_r: 16
+    lora_alpha: 32
+    lora_dropout: 0.05
+    target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  kaggle_metadata:
+    slug: ai-helper-lemgend
+    title: LemGendary AI Studio Assistant (Causal LLM)
+    subtitle: Domain-specific Causal LLM instruction-tuned on authoritative LemGendary
+      AI specifications
+    is_private: false
+    license: CC BY-NC 4.0
+    tags:
+    - nlp
+    - text-generation
+    - causal-lm
+    - instruction-tuning
+    - pytorch
+    provenance_sources:
+    - https://github.com/lemgendary/model-training
+    - https://lemgenda.hr

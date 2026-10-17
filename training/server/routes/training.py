@@ -126,7 +126,7 @@ def get_kaggle_status() -> dict[str, Any]:
     if user and token:
         try:
             api = authenticate_kaggle_user(user, token)
-            authenticated = bool(api is not None)
+            authenticated = api is not None
         except Exception:
             authenticated = False
 
@@ -211,3 +211,51 @@ def push_kaggle_model_artifacts(payload: KagglePushRequest) -> dict[str, Any]:
         "model": payload.model,
         "message": f"Artifact push {'completed successfully' if success else 'failed'} for {payload.model}",
     }
+
+
+class KagglePushModelRequest(BaseModel):
+    """Payload for pushing validated isolated variations to Kaggle Models Hub."""
+    model: str = Field(..., description="Target model key")
+    variation: str = Field("all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')")
+    version_notes: Optional[str] = Field(None, description="Optional release version notes")
+    dry_run: bool = Field(False, description="Validate payload and isolation without publishing to Kaggle")
+
+
+@router.post("/kaggle/push-model")
+def push_kaggle_model_variations(payload: KagglePushModelRequest) -> dict[str, Any]:
+    """Publish validated isolated model variation(s) to Kaggle Models Hub."""
+    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+
+    sync_mgr = KaggleModelSyncManager()
+    result = sync_mgr.push_model(
+        model_key=payload.model,
+        variation=payload.variation,
+        version_notes=payload.version_notes,
+        dry_run=payload.dry_run,
+    )
+    return result.to_dict()
+
+
+class LLMTrainRequest(BaseModel):
+    """Payload for dispatching QLoRA instruction fine-tuning for assistant LLM."""
+    model: str = Field("ai_helper_lemgend", description="Target LLM model key")
+    epochs: int = Field(3, description="Training epochs")
+    batch_size: int = Field(2, description="Per-device micro batch size")
+    lr: float = Field(0.0002, description="Learning rate")
+    max_seq_length: int = Field(2048, description="Context window maximum token length")
+    env: str = Field("local", description="Training environment ('local', 'kaggle', 'colab')")
+
+
+@router.post("/llm/train")
+def enqueue_llm_training(payload: LLMTrainRequest, request: Request) -> dict[str, Any]:
+    """Enqueue background QLoRA instruction tuning job for assistant LLM."""
+    manager = request.app.state.job_manager
+    params = payload.model_dump()
+    job_id = manager.submit_job(job_type="train", model_key=payload.model, params=params)
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "message": f"LLM instruction tuning job enqueued for {payload.model}",
+        "config": params,
+    }
+

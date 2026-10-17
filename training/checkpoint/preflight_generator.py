@@ -10,9 +10,8 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
-from pathlib import Path
-import shutil
 import sys
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -64,8 +63,8 @@ def generate_preflight_assets(
     - README.md: Model documentation with topology and metrics.
     - [model_key]_kaggle_training.ipynb: Kaggle execution notebook.
     - [model_key]_colab_training.ipynb: Google Colab execution notebook.
-    - [model_key]-kaggle-usage.ipynb: Standalone Kaggle inference and usage notebook.
-    - [model_key]-colab-usage.ipynb: Standalone Colab usage notebook.
+    - [model_key]_kaggle_usage.ipynb: Standalone Kaggle inference and usage notebook.
+    - [model_key]_colab_usage.ipynb: Standalone Colab usage notebook.
 
     Args:
         model_key: Canonical model key registered in unified_models_v2.yaml.
@@ -79,7 +78,18 @@ def generate_preflight_assets(
     hub_dir = (root.parent / "LemGendaryModels" / model_key).resolve()
     hub_dir.mkdir(parents=True, exist_ok=True)
     (hub_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
-    (hub_dir / "training").mkdir(parents=True, exist_ok=True)
+    nb_dir = hub_dir / "notebooks"
+    nb_dir.mkdir(parents=True, exist_ok=True)
+    (hub_dir / "visualizations").mkdir(parents=True, exist_ok=True)
+
+    # Clean up legacy training directory if empty
+    legacy_training_dir = hub_dir / "training"
+    if legacy_training_dir.exists():
+        try:
+            if not any(legacy_training_dir.iterdir()):
+                legacy_training_dir.rmdir()
+        except OSError:
+            pass
 
     registry, config = _load_registry_and_config(root)
     generated_assets: dict[str, Path] = {}
@@ -115,12 +125,12 @@ def generate_preflight_assets(
     generated_assets["readme"] = readme_path
 
     # 2. Kaggle Training Notebook
-    kaggle_train_path = hub_dir / f"{model_key}_kaggle_training.ipynb"
+    kaggle_train_path = nb_dir / f"{model_key}_kaggle_training.ipynb"
     if force or not kaggle_train_path.exists():
         try:
             out_nb = generate_training_notebook(
                 model_key=model_key,
-                export_dir=str(hub_dir),
+                export_dir=str(nb_dir),
                 unified_models_registry=registry,
                 config=config,
             )
@@ -130,12 +140,12 @@ def generate_preflight_assets(
             logger.warning("Kaggle training notebook generation notice for %s: %s", model_key, exc)
 
     # 3. Google Colab Training Notebook
-    colab_train_path = hub_dir / f"{model_key}_colab_training.ipynb"
+    colab_train_path = nb_dir / f"{model_key}_colab_training.ipynb"
     if force or not colab_train_path.exists():
         try:
             out_colab = generate_colab_training_notebook(
                 model_key=model_key,
-                export_dir=str(hub_dir),
+                export_dir=str(nb_dir),
                 unified_models_registry=registry,
                 config=config,
             )
@@ -145,12 +155,12 @@ def generate_preflight_assets(
             logger.warning("Colab training notebook generation notice for %s: %s", model_key, exc)
 
     # 4. Usage Notebooks (Kaggle & Colab Standalone Inference)
-    kaggle_usage_nb = hub_dir / f"{model_key}-kaggle-usage.ipynb"
+    kaggle_usage_nb = nb_dir / f"{model_key}_kaggle_usage.ipynb"
     if force or not kaggle_usage_nb.exists():
         try:
-            out_usage = generate_usage_notebook(
+            generate_usage_notebook(
                 model_key=model_key,
-                export_dir=str(hub_dir),
+                export_dir=str(nb_dir),
                 unified_models_registry=registry,
                 config=config,
             )
@@ -159,12 +169,12 @@ def generate_preflight_assets(
         except Exception as exc:
             logger.debug("Kaggle usage notebook generation notice for %s: %s", model_key, exc)
 
-    colab_usage_nb = hub_dir / f"{model_key}-colab-usage.ipynb"
+    colab_usage_nb = nb_dir / f"{model_key}_colab_usage.ipynb"
     if force or not colab_usage_nb.exists():
         try:
             generate_colab_usage_notebook(
                 model_key=model_key,
-                export_dir=str(hub_dir),
+                export_dir=str(nb_dir),
                 unified_models_registry=registry,
                 config=config,
             )
@@ -172,6 +182,14 @@ def generate_preflight_assets(
                 generated_assets["colab_usage"] = colab_usage_nb
         except Exception as exc:
             logger.debug("Colab usage notebook generation notice for %s: %s", model_key, exc)
+
+    # Purge any stale duplicate notebooks from hub_dir root
+    for stray_nb in hub_dir.glob("*.ipynb"):
+        try:
+            stray_nb.unlink()
+            logger.info("Purged stray root notebook: %s", stray_nb)
+        except OSError:
+            pass
 
     return generated_assets
 

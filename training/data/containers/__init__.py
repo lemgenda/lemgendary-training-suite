@@ -73,8 +73,16 @@ def resolve_container_reader(
     if list(check_dir.glob("*.parquet")) or (root / "parquet").exists() or list(root.glob("*.parquet")):
         return ParquetReader(root, split=split)
 
-    # Check for webdataset tar files
-    if list(check_dir.glob("*.tar")) or (root / "shards").exists() or list(root.glob("*.tar")):
+    # Check for webdataset shard files (.data or .tar)
+    if root.is_file() and root.suffix in (".data", ".tar"):
+        return WebDatasetReader(root, split=split)
+    if (
+        list(check_dir.glob("*.data"))
+        or list(check_dir.glob("*.tar"))
+        or (root / "shards").exists()
+        or list(root.glob("*.data"))
+        or list(root.glob("*.tar"))
+    ):
         return WebDatasetReader(root, split=split)
 
     # Check for MDS index.json

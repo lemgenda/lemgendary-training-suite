@@ -6,7 +6,6 @@ Coordinates automated Jupyter notebook generation for Kaggle and Colab cloud env
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from training.notebooks import (
     generate_colab_inference_notebook,

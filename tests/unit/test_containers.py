@@ -281,6 +281,52 @@ class TestContainers(unittest.TestCase):
         self.assertIsInstance(pq_reader, ParquetReader)
         pq_reader.close()
 
+    def test_webdataset_data_extension_reader(self) -> None:
+        """Test WebDatasetReader discovering and decoding .data obfuscated shards."""
+        manifold = self.root / "test_wds_data_manifold"
+        shards_dir = manifold / "shards"
+        shards_dir.mkdir(parents=True)
+        data_path = shards_dir / "shard-000000.data"
+
+        buf_img = io.BytesIO()
+        Image.new("RGB", (16, 16), color=(100, 150, 200)).save(buf_img, format="WEBP")
+        img_bytes = buf_img.getvalue()
+
+        buf_tgt = io.BytesIO()
+        Image.new("RGB", (16, 16), color=(200, 150, 100)).save(buf_tgt, format="WEBP")
+        tgt_bytes = buf_tgt.getvalue()
+
+        meta_json = json.dumps({"task": "restoration"}).encode("utf-8")
+
+        with tarfile.open(data_path, mode="w") as tf:
+            ti_img = tarfile.TarInfo(name="sample_obf_001.webp")
+            ti_img.size = len(img_bytes)
+            tf.addfile(ti_img, io.BytesIO(img_bytes))
+
+            ti_tgt = tarfile.TarInfo(name="sample_obf_001.target.webp")
+            ti_tgt.size = len(tgt_bytes)
+            tf.addfile(ti_tgt, io.BytesIO(tgt_bytes))
+
+            ti_json = tarfile.TarInfo(name="sample_obf_001.json")
+            ti_json.size = len(meta_json)
+            tf.addfile(ti_json, io.BytesIO(meta_json))
+
+        # Test WebDatasetReader directly on .data
+        reader = WebDatasetReader(manifold, split="train")
+        self.assertEqual(len(reader), 1)
+        sample = reader[0]
+        self.assertEqual(sample.name, "sample_obf_001")
+        self.assertEqual(sample.image_format, "webp")
+        self.assertEqual(sample.image_bytes, img_bytes)
+        self.assertEqual(sample.target_bytes, tgt_bytes)
+        reader.close()
+
+        # Test heuristic container resolution on .data manifold
+        auto_reader = resolve_container_reader(manifold, split="train")
+        self.assertIsInstance(auto_reader, WebDatasetReader)
+        self.assertEqual(len(auto_reader), 1)
+        auto_reader.close()
+
 
 if __name__ == "__main__":
     unittest.main()

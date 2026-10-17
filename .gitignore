@@ -5,6 +5,7 @@ checkpoints/
 __pycache__/
 tmp/
 .ipynb_checkpoints/
+*.ipynb
 .DS_Store
 *.log
 

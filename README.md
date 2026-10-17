@@ -10,11 +10,26 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.20-STABLE` |
+| **Version** | `v16.9.22-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.22 — LLM Instruction Tuning Engine, Universal Exporter Staging & Kaggle Models Sync
+
+- **LLM Instruction Fine-Tuning Engine (`models/ai_helper_llm.py`, `training/data/instruction_dataset.py`)** — Integrated specialized Causal LLM instruction tuning architecture (`AIHelperLemGend`) supporting parameter-efficient LoRA adapters, multi-turn conversation parsing, supervised assistant-only token masking (`IGNORE_INDEX = -100`), and dynamic batch collation.
+- **Universal Multi-Format Exporter & Staging Flags (`training/export/universal_exporter.py`, `training/export/staging.py`)** — Standardized export pipeline with `--stage-dist`, `--stage-only`, and `--stage-variations` flags in CLI and API. Automatically stages exported binaries into canonical Kaggle variation directories (`dist/kaggle/pytorch/`, `dist/kaggle/onnx_fp32/`, `dist/kaggle/onnx_fp16/`).
+- **Kaggle Models Hub Synchronization & Strict Isolation (`lemtrain sync push`, `StrictIsolationValidator`)** — Implemented strict variation isolation verification prior to uploading artifacts to Kaggle Models. Enforces zero cross-contamination among PyTorch, ONNX FP32 (with separate tensor data), and ONNX FP16 edge targets.
+- **Automated Model Documentation Sweep (`training/doc_generator.py`, `training/hub_readme_generator.py`)** — Synchronized model card generator and master hub README generator across all 23 model keys, embedding canonical directory topology, research citations, and live SOTA metrics.
+
+---
+
+### v16.9.21 — WebDataset Shard Obfuscation (.data) Ingestion & Fast Cloud Attachment
+
+- **Dual-Format Shard Discovery (`WebDatasetReader`)** — Updated reader to natively stream POSIX `ustar` magic bytes from `.data` and `.tar` shard archives, prioritizing `.data` archives to support obfuscated cloud dataset manifolds.
+- **Zero-Extraction Cloud Attachment (`cells/data.py`)** — Modernized dataset pre-flight discovery in synthesized Kaggle and Colab notebooks to recognize `shards` directories and `.data` shard archives, eliminating inode exhaustion and backend extraction freezes.
+- **Container Auto-Resolution (`containers/__init__.py`, `manifold.py`)** — Added `.data` shard detection to container auto-selection heuristics and manifold directory scanners.
 
 ---
 
@@ -175,24 +190,29 @@ Completed the comprehensive 2026 architectural refactoring and modernization roa
 
 ---
 
-## Output Topology
+## Output Topology & Canonical Model Persistence
+
+All trained weights, checkpoints, metrics, and production export distributions route strictly into `LemGendaryModels/<model_key>/` adhering to canonical directory topology and the strict 3-variation isolation contract:
 
 ```text
-checkpoints/                                       # Model weights (.gitignore protected)
-|-- <model_key>/
-|   |-- best.pth                                   # SOTA metric checkpoint
-|   |-- progress.pth                               # Intra-epoch recovery checkpoint
-|   `-- history.csv                                # Training validation metric trajectory
-export/                                            # Model compilation artifacts
-|-- <model_key>_fp32.onnx                          # FP32 ONNX inference graph
-|-- <model_key>_fp16.onnx                          # FP16 half-precision ONNX
-|-- <model_key>_webgpu.onnx                        # Fixed-shape WebGPU Opset 17 graph
-`-- <model_key>_standalone.pt                      # Standalone PyTorch artifact
-.lemtrain_server/                                  # Sidecar daemon state root (.gitignore)
-|-- jobs.db                                        # SQLite persistent job queue (WAL mode)
-|-- token                                          # Master local authentication token
-|-- server.pid                                     # Daemon process identifier
-`-- logs/<job_id>.log                              # Buffered job execution logs
+LemGendaryModels/<model_key>/
+├── README.md               # Model Card & SOTA benchmark targets
+├── metrics.csv             # Training and validation loss curves
+├── model-metadata.json     # Kaggle Models manifest (Public, CC BY-NC 4.0)
+├── checkpoints/            # Best and milestone checkpoint vaults (*.pth)
+├── notebooks/              # Standardized Kaggle & Colab notebooks
+├── dist/                   # Isolated production distributions
+│   └── kaggle/
+│       ├── pytorch/        # Variation 1: Standalone PyTorch binary (*.pt)
+│       ├── onnx_fp32/      # Variation 2: ONNX FP32 with external data (*_FP32.onnx*)
+│       └── onnx_fp16/      # Variation 3: Edge-optimized ONNX FP16 (*.onnx)
+└── visualizations/         # Training curves, confusion matrices, and diagnostics
+
+.lemtrain_server/           # Sidecar daemon state root (.gitignore)
+├── jobs.db                 # SQLite persistent job queue (WAL mode)
+├── token                   # Master local authentication token
+├── server.pid              # Daemon process identifier
+└── logs/<job_id>.log       # Buffered job execution logs
 ```
 
 ---

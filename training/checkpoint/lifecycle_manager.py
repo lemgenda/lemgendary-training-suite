@@ -23,8 +23,9 @@ from __future__ import annotations
 
 import csv
 import logging
-from pathlib import Path
+import shutil
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 import torch
@@ -59,15 +60,17 @@ class CheckpointLifecycleManager:
         # Authoritative paths under LemGendaryModels/[ModelName]
         self.model_hub_dir = get_model_hub_dir(model_name, self.root)
         self.checkpoints_dir = (self.model_hub_dir / "checkpoints").resolve()
-        self.training_dir = (self.model_hub_dir / "training").resolve()
+        self.visualizations_dir = (self.model_hub_dir / "visualizations").resolve()
         self.metrics_csv_path = (self.model_hub_dir / "metrics.csv").resolve()
 
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
-        self.training_dir.mkdir(parents=True, exist_ok=True)
+        self.visualizations_dir.mkdir(parents=True, exist_ok=True)
 
         self.progress_path = self.checkpoints_dir / "progress.pth"
         self.latest_path = self.checkpoints_dir / "latest.pth"
         self.best_path = self.checkpoints_dir / "best.pth"
+        self.model_latest_path = self.checkpoints_dir / f"{self.model_name}_latest.pth"
+        self.model_best_path = self.checkpoints_dir / f"{self.model_name}_best.pth"
 
         # Tracking state
         self.last_progress_save_time = time.time()
@@ -103,7 +106,7 @@ class CheckpointLifecycleManager:
                 for row in reader:
                     # Quality score baseline
                     for q_key in ["Quality", "Quality_Score", "quality_score"]:
-                        if q_key in row and row[q_key]:
+                        if row.get(q_key):
                             try:
                                 q_val = float(row[q_key])
                                 if q_val > self.best_quality_score:
@@ -193,6 +196,11 @@ class CheckpointLifecycleManager:
             logger.error("Failed saving latest checkpoint at epoch %d", epoch)
             return False
 
+        try:
+            shutil.copy2(self.latest_path, self.model_latest_path)
+        except OSError as copy_err:
+            logger.debug("Non-fatal copy to model_latest_path: %s", copy_err)
+
         logger.info("Saved latest checkpoint to %s (Epoch %d)", self.latest_path, epoch)
 
         # Immediate action: purge progress.pth upon saving latest.pth
@@ -229,6 +237,11 @@ class CheckpointLifecycleManager:
         if not success:
             logger.error("Failed saving best checkpoint at epoch %d", epoch)
             return False
+
+        try:
+            shutil.copy2(self.best_path, self.model_best_path)
+        except OSError as copy_err:
+            logger.debug("Non-fatal copy to model_best_path: %s", copy_err)
 
         logger.info(
             "Saved new best checkpoint to %s (Epoch %d, Quality Score: %.4f)",
@@ -352,8 +365,9 @@ class CheckpointLifecycleManager:
         """Update LemGendaryModels/[ModelName]/README.md with current best metrics."""
         readme_path = self.model_hub_dir / "README.md"
         try:
-            from training.doc_generator import build_model_readme
             import yaml
+
+            from training.doc_generator import build_model_readme
 
             config_path = self.root / "config.yaml"
             unified_dict = {}
@@ -369,8 +383,8 @@ class CheckpointLifecycleManager:
             readme_content = build_model_readme(
                 model_key=self.model_name,
                 unified_models=unified_dict,
-                final_epoch=epoch,
-                best_metrics=best_metrics,
+                epochs_trained=epoch,
+                metrics=best_metrics,
             )
             readme_path.write_text(readme_content, encoding="utf-8")
             logger.info("Refreshed model hub README at %s", readme_path)

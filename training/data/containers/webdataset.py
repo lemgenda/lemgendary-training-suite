@@ -65,7 +65,6 @@ class WebDatasetReader:
         self.root = Path(root).resolve()
         self.split = split
 
-        # Locate tar archives across candidate locations
         cand_dirs = [
             self.root / "shards" / self.split,
             self.root / self.split / "shards",
@@ -74,17 +73,22 @@ class WebDatasetReader:
             self.root,
         ]
         self.tar_files: list[Path] = []
-        if self.root.is_file() and self.root.suffix == ".tar":
+        if self.root.is_file() and self.root.suffix in (".data", ".tar"):
             self.tar_files = [self.root]
         else:
             for d in cand_dirs:
                 if d.exists() and d.is_dir():
-                    tars = sorted(d.glob("*.tar"))
-                    if tars:
-                        self.tar_files = tars
+                    shards = sorted(d.glob("*.data"))
+                    if not shards:
+                        shards = sorted(d.glob("*.tar"))
+                    if shards:
+                        self.tar_files = shards
                         break
             if not self.tar_files:
-                self.tar_files = sorted(self.root.glob("**/*.tar"))
+                shards = sorted(self.root.glob("**/*.data"))
+                if not shards:
+                    shards = sorted(self.root.glob("**/*.tar"))
+                self.tar_files = shards
 
         # Map sample index -> (storage_mode, tar_path, img_ref, tgt_ref, mask_ref, txt_ref, json_ref)
         self.index_map: list[tuple[str, Path | None, Any, Any, Any, Any, Any]] = []

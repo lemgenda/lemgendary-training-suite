@@ -162,7 +162,40 @@ def generate_hub_readme(project_root=workspace_root):
     else:
         lines.append("- *All models have been deployed.*")
         
-    lines.append("")
+    lines.extend([
+        "",
+        "---",
+        "",
+        "## Canonical Directory Topology & Storage Invariants",
+        "",
+        "Every model repository in `LemGendaryModels/` adheres to a strict, standardized directory structure:",
+        "",
+        "```text",
+        "LemGendaryModels/<model_key>/",
+        "├── README.md               # Model Card & SOTA benchmark targets",
+        "├── metrics.csv             # Training and validation loss curves",
+        "├── model-metadata.json     # Kaggle Models manifest (Public, CC BY-NC 4.0)",
+        "├── checkpoints/            # Best and milestone checkpoint vaults (*.pth)",
+        "├── notebooks/              # Standardized Kaggle & Colab notebooks",
+        "├── dist/                   # Isolated production distributions",
+        "│   └── kaggle/",
+        "│       ├── pytorch/        # Variation 1: Standalone PyTorch binary (*.pt)",
+        "│       ├── onnx_fp32/      # Variation 2: ONNX FP32 with external data (*_FP32.onnx*)",
+        "│       └── onnx_fp16/      # Variation 3: Edge-optimized ONNX FP16 (*.onnx)",
+        "└── visualizations/         # Training curves, confusion matrices, and diagnostics",
+        "```",
+        "",
+        "## Strict 3-Variation Isolation Contract",
+        "",
+        "All model distributions published to Kaggle Models Hub must satisfy strict binary isolation:",
+        "",
+        "1. **Variation 1 (`pytorch`)**: Exclusively standalone PyTorch weights (`<ModelStem>.pt`).",
+        "2. **Variation 2 (`onnx_fp32`)**: Exclusively standard precision ONNX model (`<ModelStem>_FP32.onnx`) and sidecar tensor data (`<ModelStem>_FP32.onnx.data`).",
+        "3. **Variation 3 (`onnx_fp16`)**: Exclusively half-precision embedded ONNX model (`<ModelStem>.onnx`) with zero external tensor references.",
+        "",
+        "This contract is strictly validated prior to upload via `StrictIsolationValidator` to ensure zero cross-contamination.",
+        ""
+    ])
     
     # Save
     os.makedirs(hub_dir, exist_ok=True)
