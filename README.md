@@ -25,6 +25,14 @@
 
 ---
 
+### v16.9.26 — Dynamic Batch Size Precedence, Intra-Epoch Resumption Protection & Forex Manifold Optimization
+
+- **Model-Specific Batch Size & Hyperparameter Precedence (`training/server/routes/gui.py`)** — Upgraded `/api/gui/quick-train` to prioritize explicit request overrides and canonical model configurations from `unified_models_v2.yaml` over generic presets (`quick-sota`), preventing configured batch sizes from being stomped.
+- **Intra-Epoch Checkpoint Resumption Protection (`training/checkpoint/resume.py`, `training/training/engine.py`, `training/core_loop.py`)** — Extended `ResumeState` with `is_intra_epoch` detection based on `progress_metadata`. Fixed the training engine to preserve the nominal epoch counter when recovering from an intra-epoch progress checkpoint (`progress.pth`) rather than prematurely incrementing `start_epoch = epoch + 1`.
+- **Forex Predictor Hardware Batch Scaling (`unified_models_v2.yaml`)** — Set canonical `batch_size: 256` for `forex_predictor`, quadrupling minibatch density, reducing CPU-to-GPU synchronization dispatch overhead, and optimizing dedicated GPU VRAM utilization.
+
+---
+
 ### v16.9.25 — Zero-Warning Non-Writable Tensor Remediation & Telemetry Stream Segregation
 
 - **Root-Cause Non-Writable Tensor Remediation (`data/forex_dataset.py`)** — Resolved the PyTorch `UserWarning: The given NumPy array is not writable` during batch iteration by implementing `_safe_from_numpy(arr)` with buffer writeability and contiguous memory validation (`np.array(arr, dtype=np.float32, copy=True)`), strictly avoiding warning suppression or filter silencing.
