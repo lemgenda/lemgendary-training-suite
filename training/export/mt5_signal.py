@@ -40,6 +40,57 @@ class _OnnxForexWrapper(nn.Module):
         return out["direction_logits"], out["magnitude"]
 
 
+def export_forex_onnx_from_model(
+    model: nn.Module,
+    out_path: Path | str,
+    active_timeframes: list[int] | None = None,
+    opset: int = 17,
+) -> Path:
+    """Export an in-memory ForexPredictor model instance to MT5-compatible ONNX."""
+    out_file = Path(out_path).resolve()
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+
+    timeframes = active_timeframes or getattr(model, "active_timeframes", None) or [1, 5, 15, 60, 240, 1440]
+    model.eval()
+
+    batch_size = 1
+    in_feats = getattr(model, "in_features", FOREX_FEATURES_PER_BAR)
+    device = next(model.parameters()).device if list(model.parameters()) else torch.device("cpu")
+
+    tf_inputs = [
+        torch.zeros(batch_size, TIMEFRAME_LOOKBACK.get(tf, 48), in_feats, device=device)
+        for tf in timeframes
+    ]
+    pair_dummy = torch.zeros(batch_size, dtype=torch.long, device=device)
+
+    tf_keys = [str(tf) for tf in timeframes]
+    wrapper = _OnnxForexWrapper(model, tf_keys)
+    wrapper.eval()
+
+    input_names = [f"tf_{tf}" for tf in timeframes] + ["pair_idx"]
+    output_names = ["direction_logits", "magnitude"]
+    dynamic_axes = {name: {0: "batch"} for name in input_names + output_names}
+
+    logger.info("Exporting Forex ONNX model to %s (opset=%d)...", out_file, opset)
+    try:
+        torch.onnx.export(
+            wrapper,
+            (*tf_inputs, pair_dummy),
+            str(out_file),
+            input_names=input_names,
+            output_names=output_names,
+            dynamic_axes=dynamic_axes,
+            opset_version=opset,
+            do_constant_folding=True,
+        )
+        logger.info("Forex ONNX export successful: %s", out_file)
+        return out_file
+    except Exception as exc:
+        err_msg = f"Forex ONNX export failed: {exc}"
+        logger.error(err_msg)
+        raise ExportError("FOREX_ONNX_EXPORT_FAILED", err_msg) from exc
+
+
 def export_forex_onnx(
     checkpoint_path: Path | str,
     out_path: Path | str | None = None,
@@ -77,39 +128,10 @@ def export_forex_onnx(
         for k, v in raw_state.items()
     }
     model.load_state_dict(state_dict, strict=False)
-    model.eval()
 
-    batch_size = 1
-    in_feats = getattr(model, "in_features", FOREX_FEATURES_PER_BAR)
-    tf_inputs = [
-        torch.zeros(batch_size, TIMEFRAME_LOOKBACK.get(tf, 48), in_feats)
-        for tf in timeframes
-    ]
-    pair_dummy = torch.zeros(batch_size, dtype=torch.long)
-
-    tf_keys = [str(tf) for tf in timeframes]
-    wrapper = _OnnxForexWrapper(model, tf_keys)
-    wrapper.eval()
-
-    input_names = [f"tf_{tf}" for tf in timeframes] + ["pair_idx"]
-    output_names = ["direction_logits", "magnitude"]
-    dynamic_axes = {name: {0: "batch"} for name in input_names + output_names}
-
-    logger.info("Exporting Forex ONNX model to %s (opset=%d)...", out_file, opset)
-    try:
-        torch.onnx.export(
-            wrapper,
-            (*tf_inputs, pair_dummy),
-            str(out_file),
-            input_names=input_names,
-            output_names=output_names,
-            dynamic_axes=dynamic_axes,
-            opset_version=opset,
-            do_constant_folding=True,
-        )
-        logger.info("Forex ONNX export successful: %s", out_file)
-        return out_file
-    except Exception as exc:
-        err_msg = f"Forex ONNX export failed: {exc}"
-        logger.error(err_msg)
-        raise ExportError("FOREX_ONNX_EXPORT_FAILED", err_msg) from exc
+    return export_forex_onnx_from_model(
+        model=model,
+        out_path=out_file,
+        active_timeframes=timeframes,
+        opset=opset,
+    )

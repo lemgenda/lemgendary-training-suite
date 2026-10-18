@@ -10,11 +10,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.28-STABLE` |
+| **Version** | `v16.9.29-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.29 — Architecture-Agnostic Universal Exporter Delegation & Forex Multi-Timeframe ONNX Tracing
+
+- **Universal Exporter Lifecycle Delegation (`CheckpointLifecycleManager.export_tri_format`, `training/checkpoint/lifecycle_manager.py`)** — Refactored `export_tri_format` to delegate to `export_universal_model` and `ExporterFactory` rather than hardcoding computer-vision-specific 4D dummy image tensors (`[1, 3, 256, 256]`) into `export_tri_format_pytorch`. Binds appropriate exporters dynamically across Forex, YOLO, LLM, and Vision architectures.
+- **In-Memory Forex ONNX Model Tracing (`export_forex_onnx_from_model`, `training/export/mt5_signal.py`)** — Added direct in-memory tracing support for `ForexPredictor` instances using `_OnnxForexWrapper`, positional multi-timeframe tensors, and currency pair embeddings. Resolves the `values expected sparse tensor layout but got Strided` failure caused by passing dense image tensors to dictionary input signatures.
+- **Forex Tri-Format Precision & Sidecar Isolation (`ForexModelExporter`, `training/export/forex_exporter.py`)** — Enforced full tri-format isolation compliance for Forex architectures: (1) FP32 PyTorch state dict (`dist/kaggle/pytorch/ForexPredictor.pt`, ~14.2 MB); (2) FP32 ONNX graph (`dist/kaggle/onnx_fp32/ForexPredictor_FP32.onnx`, ~189 KB) with external binary weights sidecar (`ForexPredictor_FP32.onnx.data`, ~14.06 MB); (3) FP16 self-contained ONNX model (`dist/kaggle/onnx_fp16/ForexPredictor.onnx`, ~7.28 MB) with integrated half-precision weights converted via `onnxconverter_common.float16`.
+
+---
 
 ### v16.9.28 — Validation Batch Telemetry & Live Telemetry Progress Synchronization
 

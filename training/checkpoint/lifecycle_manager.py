@@ -35,6 +35,7 @@ from training.checkpoint.manager import safe_atomic_save
 from training.export.universal_exporter import (
     export_tri_format_pytorch,
     export_tri_format_yolo,
+    export_universal_model,
     get_model_hub_dir,
 )
 from training.utils.paths import get_project_root
@@ -338,31 +339,19 @@ class CheckpointLifecycleManager:
         """Trigger universal tri-format export to LemGendaryModels/[ModelName]/."""
         print(f"[EXPORT] Initiating universal tri-format export for {self.model_name}...", flush=True)
         try:
-            if is_yolo:
-                trainer = yolo_trainer or model
-                if trainer is not None:
-                    return export_tri_format_yolo(
-                        trainer=trainer,
-                        model_key=self.model_name,
-                        output_dir=self.model_hub_dir,
-                    )
-            elif model is not None and isinstance(model, nn.Module):
-                # Fallback dummy input if not provided
-                if dummy_input is None:
-                    device = next(model.parameters()).device
-                    dummy_input = torch.randn(1, 3, 256, 256, device=device)
-                return export_tri_format_pytorch(
-                    model=model,
-                    model_key=self.model_name,
-                    dummy_input=dummy_input,
-                    output_dir=self.model_hub_dir,
-                )
-            else:
-                logger.warning("No exportable model or trainer instance provided for %s", self.model_name)
+            target_model = yolo_trainer if is_yolo else model
+            exported, _ = export_universal_model(
+                model_key=self.model_name,
+                model=target_model,
+                output_dir=self.model_hub_dir,
+                checkpoint_path=self.best_path if self.best_path.exists() else None,
+                dummy_input=dummy_input,
+                stage_dist=True,
+            )
+            return exported
         except Exception as exc:
             logger.error("Universal tri-format export failed for %s: %s", self.model_name, exc)
-
-        return {}
+            return {}
 
     def refresh_readme(self, epoch: int, best_metrics: dict[str, float]) -> None:
         """Update LemGendaryModels/[ModelName]/README.md with current best metrics."""
