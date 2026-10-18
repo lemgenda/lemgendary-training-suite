@@ -10,11 +10,21 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.30-STABLE` |
+| **Version** | `v16.9.31-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.31 — Modernized PyTorch cu126 Stack, Transformers v5 Alignment & Hardware Verification
+
+- **CUDA 12.6 PyTorch Stack** — Promoted `torch==2.14.1+cu126`, `torchvision==0.29.1+cu126`, `torchaudio==2.11.0+cu126`, `sympy==1.14.0`, and `numpy>=2.1.0`. `pip check` confirmed clean across all dependencies.
+- **Transformers v5 Modernization** — Integrated `transformers>=5.0.0,<6.0.0` (`v5.20.1`), `tokenizers>=0.23.0`, and `huggingface-hub>=1.0.0`. Validated with offline smoke tests covering tokenizer loading, BERT CUDA forward pass, GPT-2 CUDA generation, and safetensors roundtrip.
+- **Hardware-Aware Verification on Local GPU** — All 9 physical execution gates confirmed passing on local NVIDIA GeForce GTX 1650 (Turing `sm_75`, Driver 610.74): FP32 matmul, FP16 autocast, Conv2D forward/backward, `torch.compile` eager fallback, ONNX Dynamo export (max diff 1.78e-07), Transformers 5.20.1 BERT/GPT2 CUDA inference, and Torchvision CUDA NMS. All 170 unit tests passed cleanly.
+- **WebDataset `.data` Shard Integration & Registry Alignment** — Transparently decodes both `.data` and `.tar` WebDataset containers via magic byte sniffing, bypassing Kaggle auto-extraction freezes while preserving high-throughput streaming. Synchronized `unified_models_v2.yaml` across `professional_multitask_restoration` and `universal_nsfw_classification` to `canonical_format: webdataset`, completing the retirement of MosaicML Streaming (`mosaicml-streaming`).
+- **Cloud Notebook Generator Synchronization** — Aligned `training/notebooks/cells/deps.py` and `env.py` with CUDA 12.6 PyTorch stack (`cu126`), purging legacy `mosaicml-streaming` dependencies and legacy `cu121` auto-fix instructions from synthesized Kaggle and Colab notebooks.
+
+---
 
 ### v16.9.30 — Forex Telemetry Engine Routing, Domain Validation Evaluation, and Canonical CSV Parity
 

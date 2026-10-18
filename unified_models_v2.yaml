@@ -1374,7 +1374,7 @@ professional_multitask_restoration:
   architecture_type: MultiTaskRestorer (Shared Encoder Multi-Task MoE)
   kwargs:
     backbone: shared_encoder_moe
-  canonical_format: mds
+  canonical_format: webdataset
   kaggle_metadata:
     slug: professional-multitask-restoration
     title: LemGendary Professional Multi-Task Restoration Model
@@ -1491,7 +1491,7 @@ universal_nsfw_classification:
   kaggle_accelerator: T4
   kwargs:
     backbone: efficientnet_v2_s
-  canonical_format: mds
+  canonical_format: webdataset
   kaggle_metadata:
     slug: universal-nsfw-classification
     title: LemGendary Universal NSFW Classifier
