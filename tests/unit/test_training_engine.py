@@ -210,6 +210,80 @@ class TestTrainingEngine(unittest.TestCase):
             self.assertTrue(ctx.lifecycle_manager.metrics_csv_path.exists())
             self.assertTrue(len(summary.best_metrics) > 0)
 
+    def test_validate_one_epoch_forex(self) -> None:
+        """Verify validate_one_epoch computes directional and pip regression metrics for Forex models."""
+        class MockForexModel(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.fc = nn.Linear(8, 3)
+
+            def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+                bs = x.shape[0]
+                dir_logits = torch.zeros(bs, 3)
+                dir_logits[:, 2] = 2.0  # Predict BUY
+                mag_preds = torch.full((bs, 2), 15.0)
+                return {
+                    "direction_logits": dir_logits,
+                    "magnitude": mag_preds,
+                }
+
+        model = MockForexModel()
+        criterion = lambda p, t: torch.tensor(0.25)
+        x_val = torch.randn(4, 8)
+        targets = {
+            "direction": torch.tensor([2, 2, 0, 1], dtype=torch.long),
+            "magnitude": torch.full((4, 2), 15.0),
+        }
+
+        class MockForexValLoader:
+            def __iter__(self):
+                yield x_val, targets
+            def __len__(self):
+                return 1
+
+        val_loader = MockForexValLoader()
+        ctx = TrainingContext(
+            model_name="forex_predictor",
+            model=model,
+            optimizer=torch.optim.SGD(model.parameters(), lr=1e-3),
+            scheduler=None,
+            criterion=criterion,
+            train_loader=None,
+            val_loader=val_loader,
+            device_info=self.device_info,
+            policy=self.policy,
+            sentinel=SentinelGuard(device=self.device),
+            governor=SmartTrainingGovernor(model_info={"category": "forex"}),
+            sota_tracker=SotaTracker(),
+            vault=MetricVault(),
+            paths=TrainingPaths(
+                project_root=Path("."),
+                local_checkpoint_dir=Path("."),
+                hub_checkpoint_dir=Path("."),
+                export_dir=Path("."),
+                progress_local_path=Path("."),
+                best_checkpoint_path=Path("."),
+                history_csv_path=Path("."),
+            ),
+            config={},
+            model_info={"category": "forex"},
+            args=None,
+            total_epochs=1,
+        )
+
+        val_metrics = validate_one_epoch(ctx, 1)
+        self.assertIn("dir_acc", val_metrics)
+        self.assertIn("win_rate", val_metrics)
+        self.assertIn("profit_factor", val_metrics)
+        self.assertIn("sharpe_ratio", val_metrics)
+        self.assertIn("sortino_ratio", val_metrics)
+        self.assertIn("max_drawdown", val_metrics)
+        self.assertIn("tp_mae", val_metrics)
+        self.assertIn("sl_mae", val_metrics)
+        self.assertIn("dir_entropy", val_metrics)
+        self.assertIn("quality_score", val_metrics)
+        self.assertEqual(val_metrics["dir_acc"], 50.0)
+
 
 if __name__ == "__main__":
     unittest.main()

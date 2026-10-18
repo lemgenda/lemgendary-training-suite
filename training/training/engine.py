@@ -130,6 +130,8 @@ def run_training(
         val_info = f"ValLoss: {current_loss:.4f}"
         if "psnr" in combined_metrics:
             val_info += f" | PSNR: {combined_metrics['psnr']:.2f}dB | SSIM: {combined_metrics.get('ssim', 0.0):.4f}"
+        if "dir_acc" in combined_metrics:
+            val_info += f" | DirAcc: {combined_metrics['dir_acc']:.2f}% | WinRate: {combined_metrics.get('win_rate', 0.0):.2f}%"
         sota_star = " [NEW BEST]" if is_best else ""
         print(
             f"[EPOCH {epoch}/{ctx.total_epochs} COMPLETE] "
@@ -195,14 +197,47 @@ def run_training(
             if ctx.paths.history_csv_path is not None:
                 ctx.vault.export_csv(ctx.paths.history_csv_path)
 
-        # 7. Vault recording and telemetry export
+        # 7. Vault recording and canonical telemetry export
         ctx.vault.record_epoch(
             epoch=epoch,
             metrics=combined_metrics,
             checkpoint_path=str(ctx.lifecycle_manager.best_path) if (is_best and ctx.lifecycle_manager) else None,
         )
+        if ctx.paths.history_csv_path is not None:
+            ctx.vault.export_csv(ctx.paths.history_csv_path)
+
+        # Standard LemGendary Telemetry Engine export (metrics.csv)
         if ctx.lifecycle_manager is not None:
-            ctx.vault.export_csv(ctx.lifecycle_manager.metrics_csv_path)
+            from training.telemetry import TelemetryEngine
+
+            is_forex = (
+                ctx.model_info.get("category") == "forex"
+                or ctx.model_info.get("task_type") == "forex"
+                or ctx.model_name == "forex_predictor"
+            )
+            task_type = "forex" if is_forex else "image"
+            export_dir = str(ctx.lifecycle_manager.model_hub_dir)
+            telemetry = TelemetryEngine(export_dir=export_dir, task_type=task_type)
+            gov_state = ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else {}
+            stress = float(getattr(ctx.governor, "stress", 0.0))
+            quality_score = float(combined_metrics.get("quality_score", current_quality))
+            fold = int(getattr(ctx.args, "fold", 1) or 1)
+            phase = int(getattr(ctx.args, "phase", 1) or 1)
+            pairs_cfg = ctx.model_info.get("kwargs", {}).get("pairs", [])
+            num_pairs = len(pairs_cfg) if pairs_cfg else 16
+            telemetry.write_epoch_row(
+                epoch=epoch,
+                train_loss=train_loss,
+                val_loss=current_loss,
+                lr=float(combined_metrics.get("lr", 0.0)),
+                curr_metrics=combined_metrics,
+                quality_score=quality_score,
+                governor_state=gov_state,
+                stress=stress,
+                num_pairs=num_pairs,
+                phase=phase,
+                fold=fold,
+            )
 
         # 8. Check governor directives
         if hasattr(ctx.governor, "audit_epoch"):

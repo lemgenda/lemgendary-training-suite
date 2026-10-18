@@ -76,8 +76,9 @@ class TelemetryEngine:
                 f.write(header_str)
 
     def write_epoch_row(self, epoch, train_loss, val_loss, lr, curr_metrics, quality_score, governor_state, stress, num_pairs=None, phase=1, fold=1):
-        """Mathematically serialize the row directly to the IO stream."""
-        
+        """Mathematically serialize the row directly to the IO stream with deduplication and schema safety."""
+        self.validate_and_initialize_csv()
+
         # 2026 Governor extraction variables
         data = governor_state.get('sample_fraction', 0.15) if governor_state else 0.15
         temp = governor_state.get('softmax_temp', 1.5) if governor_state else 1.5
@@ -86,47 +87,92 @@ class TelemetryEngine:
         batch = governor_state.get('batch_size', 1) if governor_state else 1
         accum = governor_state.get('accumulation_steps', 24) if governor_state else 24
 
+        epoch_idx = int(epoch) if int(epoch) >= 1 else int(epoch) + 1
+
         if self.task_type == "forex":
-            dir_acc = curr_metrics.get('dir_acc', 0.0)
-            win_rate = curr_metrics.get('win_rate', 0.0)
-            profit_factor = curr_metrics.get('profit_factor', 0.0)
-            sharpe = curr_metrics.get('sharpe_ratio', 0.0)
-            sortino = curr_metrics.get('sortino_ratio', 0.0)
-            max_dd = curr_metrics.get('max_drawdown', 0.0)
-            tp_mae = curr_metrics.get('tp_mae', 0.0)
-            sl_mae = curr_metrics.get('sl_mae', 0.0)
-            dir_entropy = curr_metrics.get('dir_entropy', float('inf'))
+            dir_acc = float(curr_metrics.get('dir_acc', 0.0))
+            win_rate = float(curr_metrics.get('win_rate', 0.0))
+            profit_factor = float(curr_metrics.get('profit_factor', 0.0))
+            sharpe = float(curr_metrics.get('sharpe_ratio', 0.0))
+            sortino = float(curr_metrics.get('sortino_ratio', 0.0))
+            max_dd = float(curr_metrics.get('max_drawdown', 0.0))
+            tp_mae = float(curr_metrics.get('tp_mae', 0.0))
+            sl_mae = float(curr_metrics.get('sl_mae', 0.0))
+            raw_ent = curr_metrics.get('dir_entropy', 0.0)
+            dir_entropy = 0.0 if (raw_ent is None or np.isinf(raw_ent) or np.isnan(raw_ent)) else float(raw_ent)
             pairs = num_pairs if num_pairs is not None else (governor_state.get('input_size', 16) if governor_state else 16)
 
-            with open(self.metrics_csv_path, "a", encoding='utf-8') as f:
-                f.write(f"{phase},{fold},{epoch+1},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"
-                        f"{dir_acc:.4f},{win_rate:.4f},{profit_factor:.4f},{sharpe:.4f},{sortino:.4f},"
-                        f"{max_dd:.4f},{tp_mae:.4f},{sl_mae:.4f},{dir_entropy:.4f},{quality_score:.4f},"
-                        f"{pairs},{data:.2f},{temp:.4f},{clamp:.1f},{cooldown},{batch},{accum},{stress:.6f}\n")
+            new_line = (
+                f"{phase},{fold},{epoch_idx},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"
+                f"{dir_acc:.4f},{win_rate:.4f},{profit_factor:.4f},{sharpe:.4f},{sortino:.4f},"
+                f"{max_dd:.4f},{tp_mae:.4f},{sl_mae:.4f},{dir_entropy:.4f},{quality_score:.4f},"
+                f"{pairs},{data:.2f},{temp:.4f},{clamp:.1f},{cooldown},{batch},{accum},{stress:.6f}\n"
+            )
+            key_tuple = (str(phase), str(fold), str(epoch_idx))
         else:
-            plcc = curr_metrics.get('plcc', 0.0)
-            srcc = curr_metrics.get('srcc', 0.0)
-            psnr = curr_metrics.get('psnr', 0.0)
-            ssim = curr_metrics.get('ssim', 0.0)
-            lpips = curr_metrics.get('lpips', 0.0)
-            fid = curr_metrics.get('fid', 0.0)
-            map50 = curr_metrics.get('map50', 0.0)
-            map50_95 = curr_metrics.get('map50_95', 0.0)
-            accuracy = curr_metrics.get('accuracy', 0.0)
-            rank_margin = curr_metrics.get('rank_margin', 0.0)
-            mae = curr_metrics.get('mae', 0.0)
-            miou = curr_metrics.get('miou', 0.0)
-            map_medium = curr_metrics.get('map_medium', 0.0)
-            map_hard = curr_metrics.get('map_hard', 0.0)
-            acc_vqa = curr_metrics.get('accuracy_vqa', 0.0)
+            plcc = float(curr_metrics.get('plcc', 0.0))
+            srcc = float(curr_metrics.get('srcc', 0.0))
+            psnr = float(curr_metrics.get('psnr', 0.0))
+            ssim = float(curr_metrics.get('ssim', 0.0))
+            lpips = float(curr_metrics.get('lpips', 0.0))
+            fid = float(curr_metrics.get('fid', 0.0))
+            map50 = float(curr_metrics.get('map50', 0.0))
+            map50_95 = float(curr_metrics.get('map50_95', 0.0))
+            accuracy = float(curr_metrics.get('accuracy', 0.0))
+            rank_margin = float(curr_metrics.get('rank_margin', 0.0))
+            mae = float(curr_metrics.get('mae', 0.0))
+            miou = float(curr_metrics.get('miou', 0.0))
+            map_medium = float(curr_metrics.get('map_medium', 0.0))
+            map_hard = float(curr_metrics.get('map_hard', 0.0))
+            acc_vqa = float(curr_metrics.get('accuracy_vqa', 0.0))
             res = governor_state.get('input_size', 512) if governor_state else 512
-    
-            with open(self.metrics_csv_path, "a", encoding='utf-8') as f:
-                f.write(f"{epoch+1},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"
-                        f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim:.4f},{lpips:.4f},{fid:.4f},"
-                        f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{rank_margin:.4f},{mae:.4f},"
-                        f"{miou:.4f},{map_medium:.4f},{map_hard:.4f},{acc_vqa:.4f},{quality_score:.4f},"
-                        f"{res},{data:.2f},{temp:.4f},{clamp:.1f},{cooldown},{batch},{accum},{stress:.6f}\n")
+
+            new_line = (
+                f"{epoch_idx},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"
+                f"{plcc:.4f},{srcc:.4f},{psnr:.4f},{ssim:.4f},{lpips:.4f},{fid:.4f},"
+                f"{map50:.4f},{map50_95:.4f},{accuracy:.4f},{rank_margin:.4f},{mae:.4f},"
+                f"{miou:.4f},{map_medium:.4f},{map_hard:.4f},{acc_vqa:.4f},{quality_score:.4f},"
+                f"{res},{data:.2f},{temp:.4f},{clamp:.1f},{cooldown},{batch},{accum},{stress:.6f}\n"
+            )
+            key_tuple = (str(epoch_idx),)
+
+        # Read existing file to update in-place if epoch already present, or append
+        existing_lines = []
+        if os.path.exists(self.metrics_csv_path):
+            with open(self.metrics_csv_path, "r", encoding="utf-8") as f:
+                existing_lines = f.readlines()
+
+        if not existing_lines:
+            with open(self.metrics_csv_path, "w", encoding="utf-8") as f:
+                f.write(new_line)
+            return
+
+        header = existing_lines[0]
+        data_rows = existing_lines[1:]
+        replaced = False
+        updated_rows = []
+
+        for row in data_rows:
+            parts = [p.strip() for p in row.split(",")]
+            if self.task_type == "forex" and len(parts) >= 3:
+                row_key = (parts[0], parts[1], parts[2])
+            elif len(parts) >= 1:
+                row_key = (parts[0],)
+            else:
+                row_key = ()
+
+            if row_key == key_tuple:
+                updated_rows.append(new_line)
+                replaced = True
+            else:
+                updated_rows.append(row if row.endswith("\n") else row + "\n")
+
+        if not replaced:
+            updated_rows.append(new_line)
+
+        with open(self.metrics_csv_path, "w", encoding="utf-8") as f:
+            f.write(header if header.endswith("\n") else header + "\n")
+            f.writelines(updated_rows)
 
     def compute_quality_score(self, curr_metrics, sota_targets, task_type):
         """Dynamic Quality Score: Weighted average of all SOTA targets."""

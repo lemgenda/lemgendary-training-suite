@@ -32,7 +32,12 @@ logger = logging.getLogger("lemtrain.export.universal")
 def get_model_hub_dir(model_key: str, project_root: Path | None = None) -> Path:
     """Return the authoritative target directory in LemGendaryModels."""
     root = (project_root or get_project_root()).resolve()
-    hub_dir = (root.parent / "LemGendaryModels" / model_key).resolve()
+    proj_root = get_project_root().resolve()
+    if root != proj_root:
+        # Isolated test environment / custom root: keep model hub inside provided root
+        hub_dir = (root / "LemGendaryModels" / model_key).resolve()
+    else:
+        hub_dir = (root.parent / "LemGendaryModels" / model_key).resolve()
     hub_dir.mkdir(parents=True, exist_ok=True)
     return hub_dir
 

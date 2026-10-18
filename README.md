@@ -10,13 +10,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.29-STABLE` |
+| **Version** | `v16.9.30-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
 
-### v16.9.29 — Architecture-Agnostic Universal Exporter Delegation & Forex Multi-Timeframe ONNX Tracing
+### v16.9.30 — Forex Telemetry Engine Routing, Domain Validation Evaluation, and Canonical CSV Parity
+
+- **Forex Domain Metric Extraction in Validation Engine (`validate_one_epoch`, `training/training/validation.py`)** — Added dedicated directional and magnitude regression evaluation for multi-timeframe Forex tasks. Computes directional accuracy (`dir_acc`), trade win rate (`win_rate`), directional entropy (`dir_entropy`), take-profit/stop-loss mean absolute error (`tp_mae`, `sl_mae`), along with simulated trading performance metrics: profit factor (`profit_factor`), Sharpe ratio (`sharpe_ratio`), Sortino ratio (`sortino_ratio`), and maximum drawdown (`max_drawdown`). Resolves previous evaluation passes where Forex predictions were ignored because tensors were non-4D.
+- **Canonical Telemetry Engine Routing (`run_training`, `training/training/engine.py`)** — Refactored epoch-end `metrics.csv` persistence to route exclusively through `TelemetryEngine.write_epoch_row` instead of `MetricVault.export_csv`. Eliminates internal checkpoint debugging headers (`checkpoint_path`, `timestamp`, `is_best`) and enforces the canonical 24-column Forex schema (`Phase,Fold,Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,DirEntropy,Quality_Score,Pairs,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress`). Preserved `MetricVault.export_csv` for internal training histories (`history.csv`).
+- **Telemetry In-Place Deduplication and 1-Based Indexing (`TelemetryEngine`, `training/telemetry.py`)** — Added 1-based epoch index normalization and in-place row replacement in `write_epoch_row` so re-evaluating an epoch never appends duplicate rows.
+- **Test Isolation for LemGendaryModels Hub (`get_model_hub_dir`, `training/export/universal_exporter.py`)** — Isolated `LemGendaryModels` target directory inside custom project roots when running under temporary unit test directories, preventing test artifacts from polluting user workspace models.
 
 - **Universal Exporter Lifecycle Delegation (`CheckpointLifecycleManager.export_tri_format`, `training/checkpoint/lifecycle_manager.py`)** — Refactored `export_tri_format` to delegate to `export_universal_model` and `ExporterFactory` rather than hardcoding computer-vision-specific 4D dummy image tensors (`[1, 3, 256, 256]`) into `export_tri_format_pytorch`. Binds appropriate exporters dynamically across Forex, YOLO, LLM, and Vision architectures.
 - **In-Memory Forex ONNX Model Tracing (`export_forex_onnx_from_model`, `training/export/mt5_signal.py`)** — Added direct in-memory tracing support for `ForexPredictor` instances using `_OnnxForexWrapper`, positional multi-timeframe tensors, and currency pair embeddings. Resolves the `values expected sparse tensor layout but got Strided` failure caused by passing dense image tensors to dictionary input signatures.
