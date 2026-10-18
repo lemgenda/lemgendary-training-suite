@@ -11,8 +11,10 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import json
 import logging
+import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -659,7 +661,16 @@ class JobManager:
             if proc.stdout:
                 for line in proc.stdout:
                     if cancel_event.is_set():
-                        proc.terminate()
+                        if os.name == "nt":
+                            cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                            subprocess.run(
+                                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                capture_output=True,
+                                check=False,
+                                creationflags=cflags,
+                            )
+                        else:
+                            proc.terminate()
                         break
                     clean_line = _clean_console_line(line)
                     if clean_line:
@@ -668,7 +679,16 @@ class JobManager:
         finally:
             if cancel_event.is_set():
                 try:
-                    proc.kill()
+                    if os.name == "nt":
+                        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                            capture_output=True,
+                            check=False,
+                            creationflags=cflags,
+                        )
+                    else:
+                        proc.kill()
                 except Exception:
                     pass
 
