@@ -444,16 +444,28 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 opt_state = loaded_data.get("optimizer_state")
                 if opt_state:
                     optimizer.load_state_dict(opt_state)
-                is_intra = bool(loaded_data.get("progress_metadata") or loaded_data.get("phase") == "train")
+                progress_meta = loaded_data.get("progress_metadata")
+                if isinstance(progress_meta, dict):
+                    is_intra = True
+                    phase = str(progress_meta.get("phase", "train"))
+                    iteration = int(progress_meta.get("step", loaded_data.get("iteration", 0)))
+                else:
+                    phase = str(loaded_data.get("phase", "train"))
+                    is_intra = bool(loaded_data.get("phase") == "train" and "step" in loaded_data)
+                    iteration = int(loaded_data.get("iteration", 0))
+
+                train_metrics = loaded_data.get("train_metrics") or loaded_data.get("current_metrics") or {}
                 resume_state = ResumeState(
                     epoch=loaded_data.get("epoch", 0),
-                    iteration=loaded_data.get("iteration", 0),
+                    iteration=iteration,
                     model_state_dict=loaded_data["model_state"],
                     optimizer_state_dict=loaded_data.get("optimizer_state"),
                     scheduler_state_dict=loaded_data.get("scheduler_state"),
                     best_score=loaded_data.get("best_score", 0.0),
                     sota_achieved=loaded_data.get("sota_achieved", False),
                     is_intra_epoch=is_intra,
+                    phase=phase,
+                    train_metrics=dict(train_metrics) if isinstance(train_metrics, dict) else {},
                 )
 
     scaler = create_grad_scaler(policy)

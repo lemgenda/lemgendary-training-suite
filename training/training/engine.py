@@ -89,14 +89,38 @@ def run_training(
         if hasattr(ctx.governor, "thermal") and hasattr(ctx.governor.thermal, "step_epoch"):
             ctx.governor.thermal.step_epoch()
 
-        print(f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for {ctx.model_name}...", flush=True)
+        is_resuming_val = (
+            ctx.resume_state is not None
+            and ctx.resume_state.is_intra_epoch
+            and ctx.resume_state.phase == "val"
+            and epoch == start_epoch
+            and not getattr(ctx, "_resumed_val_handled", False)
+        )
 
-        # Reseed sampler epoch if supported (e.g. RowGroupAwareSampler)
-        if hasattr(ctx.train_loader, "sampler") and hasattr(ctx.train_loader.sampler, "set_epoch"):
-            ctx.train_loader.sampler.set_epoch(epoch)
+        if is_resuming_val:
+            setattr(ctx, "_resumed_val_handled", True)
+            print(
+                f"\n[RESUME] Resuming directly into validation pass for {ctx.model_name} at Epoch {epoch} "
+                f"(progress checkpoint captured during validation phase; skipping redundant training pass)...",
+                flush=True,
+            )
+            train_metrics = dict(ctx.resume_state.train_metrics) if ctx.resume_state.train_metrics else {}
+            if "train_loss" not in train_metrics:
+                train_metrics["train_loss"] = float(train_metrics.get("loss", 0.0))
+            if "epoch_time" not in train_metrics:
+                train_metrics["epoch_time"] = 0.0
+        else:
+            print(f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for {ctx.model_name}...", flush=True)
 
-        # 2. Train one epoch
-        train_metrics = train_one_epoch(ctx, epoch, cancel_check=cancel_check)
+            # Reseed sampler epoch if supported (e.g. RowGroupAwareSampler)
+            if hasattr(ctx.train_loader, "sampler") and hasattr(ctx.train_loader.sampler, "set_epoch"):
+                ctx.train_loader.sampler.set_epoch(epoch)
+
+            # 2. Train one epoch
+            train_metrics = train_one_epoch(ctx, epoch, cancel_check=cancel_check)
+
+        # Cache last train metrics on context for validation-phase progress saves
+        ctx.last_train_metrics = train_metrics
 
         if cancel_check is not None and cancel_check():
             print(f"[CANCEL] Training aborted after epoch {epoch} training pass by user cancellation.", flush=True)

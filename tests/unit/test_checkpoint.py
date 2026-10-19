@@ -135,11 +135,15 @@ class TestCheckpointSubsystem(unittest.TestCase):
         is_best3 = vault.record_epoch(3, {"val_loss": 0.45, "val_psnr": 29.0})
         self.assertFalse(is_best3)
 
+        self.assertIsNotNone(vault.best_record)
+        assert vault.best_record is not None
         self.assertEqual(vault.best_record.epoch, 2)
         self.assertAlmostEqual(vault.best_record.primary_value, 0.40)
 
         # Rolling average
         avg_loss = vault.get_rolling_average("val_loss", window=2)
+        self.assertIsNotNone(avg_loss)
+        assert avg_loss is not None
         self.assertAlmostEqual(avg_loss, 0.425)
 
         # Export and re-load CSV
@@ -150,6 +154,8 @@ class TestCheckpointSubsystem(unittest.TestCase):
         loaded_vault = MetricVault(primary_metric="val_loss", mode="min")
         loaded_vault.load_csv(csv_path)
         self.assertEqual(len(loaded_vault.history), 3)
+        self.assertIsNotNone(loaded_vault.best_record)
+        assert loaded_vault.best_record is not None
         self.assertEqual(loaded_vault.best_record.epoch, 2)
 
     def test_checkpoint_lifecycle_manager(self) -> None:
@@ -216,6 +222,65 @@ class TestCheckpointSubsystem(unittest.TestCase):
         )
         self.assertIn("psnr", vaults_ep2)
         self.assertNotIn("ssim", vaults_ep2)
+
+    def test_vault_direction_and_alias_matching(self) -> None:
+        mgr = CheckpointLifecycleManager(
+            model_name="forex_test",
+            project_root=self.root,
+            sota_targets={
+                "dir_acc": 58.5,
+                "max_drawdown": 12.0,
+                "sharpe_ratio": 1.85,
+                "tp_mae": 12.5,
+            },
+            min_progress_interval_sec=0.0,
+        )
+        dummy_payload = {"epoch": 1}
+
+        # Epoch 1: Telemetry dictionary with CSV/engine keys ("DirAcc", "MaxDD", "Sharpe", "TP_MAE")
+        vaults_ep1 = mgr.check_and_save_vault(
+            epoch=1,
+            metrics={"DirAcc": 59.0, "MaxDD": 11.5, "Sharpe": 1.90, "TP_MAE": 12.0},
+            payload=dummy_payload,
+        )
+        self.assertIn("dir_acc", vaults_ep1)
+        self.assertIn("max_drawdown", vaults_ep1)
+        self.assertIn("sharpe_ratio", vaults_ep1)
+        self.assertIn("tp_mae", vaults_ep1)
+        self.assertTrue((mgr.checkpoints_dir / "vault_dir_acc.pth").exists())
+        self.assertTrue((mgr.checkpoints_dir / "vault_max_drawdown.pth").exists())
+        self.assertTrue((mgr.checkpoints_dir / "vault_sharpe_ratio.pth").exists())
+        self.assertTrue((mgr.checkpoints_dir / "vault_tp_mae.pth").exists())
+
+        # Epoch 2: Only MaxDD improves (10.0 < 11.5). DirAcc, Sharpe are worse. TP_MAE is worse (13.0 > 12.0).
+        vaults_ep2 = mgr.check_and_save_vault(
+            epoch=2,
+            metrics={"DirAcc": 58.0, "MaxDD": 10.0, "Sharpe": 1.70, "TP_MAE": 13.0},
+            payload=dummy_payload,
+        )
+        self.assertIn("max_drawdown", vaults_ep2)
+        self.assertNotIn("dir_acc", vaults_ep2)
+        self.assertNotIn("sharpe_ratio", vaults_ep2)
+        self.assertNotIn("tp_mae", vaults_ep2)
+
+    def test_resume_state_validation_phase(self) -> None:
+        payload = {
+            "epoch": 2,
+            "progress_metadata": {
+                "epoch": 2,
+                "phase": "val",
+                "step": 13410,
+                "total_steps": 27451,
+            },
+            "train_metrics": {"train_loss": 0.2714},
+            "model_state": {"w": torch.tensor([1.0])},
+        }
+        state = parse_resume_state(payload)
+        self.assertTrue(state.is_intra_epoch)
+        self.assertEqual(state.phase, "val")
+        self.assertEqual(state.epoch, 2)
+        self.assertEqual(state.iteration, 13410)
+        self.assertEqual(state.train_metrics["train_loss"], 0.2714)
 
 
 if __name__ == "__main__":

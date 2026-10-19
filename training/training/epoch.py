@@ -82,7 +82,22 @@ def train_one_epoch(
     log_interval = max(1, min(25, num_batches // 50)) if num_batches > 0 else 10
     last_log_time = start_time
 
+    resume_step = 0
+    if (
+        ctx.resume_state is not None
+        and ctx.resume_state.is_intra_epoch
+        and ctx.resume_state.phase == "train"
+        and ctx.resume_state.iteration > 0
+        and not getattr(ctx, "_resumed_train_step_handled", False)
+    ):
+        resume_step = ctx.resume_state.iteration
+        setattr(ctx, "_resumed_train_step_handled", True)
+        print(f"[RESUME] Fast-forwarding {resume_step} completed batches in Epoch {epoch}...", flush=True)
+
     for batch_idx, batch in enumerate(ctx.train_loader):
+        if batch_idx < resume_step:
+            continue
+
         if cancel_check is not None and cancel_check():
             raise InterruptedError("Training cancelled by user request.")
 

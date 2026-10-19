@@ -429,7 +429,6 @@ class YOLOCurriculumGovernor:
             try:
                 shutil.copy2(best_cand, hub_ckpt_dir / "best.pt")
                 shutil.copy2(best_cand, hub_ckpt_dir / "best.pth")
-                shutil.copy2(best_cand, hub_ckpt_dir / "yolov8n_best.pth")
 
                 # Vault milestone checkpoints for YOLO targets
                 if self.best_overall_metrics["map50"] > 0:
@@ -445,7 +444,6 @@ class YOLOCurriculumGovernor:
             try:
                 shutil.copy2(last_cand, hub_ckpt_dir / "latest.pth")
                 shutil.copy2(last_cand, hub_ckpt_dir / "last.pt")
-                shutil.copy2(last_cand, hub_ckpt_dir / "yolov8n_latest.pth")
 
                 # Immediate action: purge progress.pth upon saving latest
                 progress_file = hub_ckpt_dir / "progress.pth"
@@ -1402,7 +1400,6 @@ class YOLOCurriculumGovernor:
         if final_best_source.exists():
             shutil.copy2(final_best_source, hub_ckpt_dir / "best.pt")
             shutil.copy2(final_best_source, hub_ckpt_dir / "best.pth")
-            shutil.copy2(final_best_source, hub_ckpt_dir / "yolov8n_best.pth")
 
         if final_best_source.exists():
             print("[GOVERNOR] Training complete. Packaging final production artifacts (PyTorch & ONNX) to LemGendaryModels/yolov8n...", flush=True)

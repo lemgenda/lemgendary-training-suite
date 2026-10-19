@@ -43,6 +43,130 @@ from training.utils.paths import get_project_root
 logger = logging.getLogger("lemtrain.checkpoint.lifecycle")
 
 
+LOWER_IS_BETTER_METRICS: set[str] = {
+    "loss",
+    "val_loss",
+    "train_loss",
+    "lpips",
+    "fid",
+    "mae",
+    "mse",
+    "tp_mae",
+    "sl_mae",
+    "max_drawdown",
+    "maxdd",
+    "drawdown",
+    "rank_margin",
+    "entropy",
+    "dir_entropy",
+}
+
+CANONICAL_METRIC_ALIASES: dict[str, str] = {
+    "diracc": "dir_acc",
+    "dir_acc": "dir_acc",
+    "winrate": "win_rate",
+    "win_rate": "win_rate",
+    "profitfactor": "profit_factor",
+    "profit_factor": "profit_factor",
+    "sharpe": "sharpe_ratio",
+    "sharperatio": "sharpe_ratio",
+    "sharpe_ratio": "sharpe_ratio",
+    "sortino": "sortino_ratio",
+    "sortinoratio": "sortino_ratio",
+    "sortino_ratio": "sortino_ratio",
+    "maxdd": "max_drawdown",
+    "max_drawdown": "max_drawdown",
+    "tpmae": "tp_mae",
+    "tp_mae": "tp_mae",
+    "slmae": "sl_mae",
+    "sl_mae": "sl_mae",
+    "direntropy": "dir_entropy",
+    "dir_entropy": "dir_entropy",
+    "map_50": "map50",
+    "map50": "map50",
+    "map_50_95": "map50_95",
+    "map50_95": "map50_95",
+    "map50-95": "map50_95",
+}
+
+
+def normalize_metric_name(name: str) -> str:
+    """Normalize metric key to canonical lower-cased snake_case representation."""
+    cleaned = str(name).strip().lower().replace("-", "_")
+    unscored = cleaned.replace("_", "")
+    return CANONICAL_METRIC_ALIASES.get(cleaned, CANONICAL_METRIC_ALIASES.get(unscored, cleaned))
+
+
+def is_lower_better(metric_name: str) -> bool:
+    """Determine whether a metric improves when its value decreases."""
+    norm = normalize_metric_name(metric_name)
+    if norm in LOWER_IS_BETTER_METRICS:
+        return True
+    return any(sub in norm for sub in ("loss", "mae", "mse", "drawdown", "lpips", "fid"))
+
+
+def canonicalize_checkpoints(model_hub_dir: Path, checkpoints_dir: Path) -> list[str]:
+    """Scan model directory for legacy-named checkpoints and rename to canonical if canonical does not exist.
+
+    Canonical format:
+    - best.pth
+    - latest.pth
+    - progress.pth
+    - vault_[metric].pth
+    """
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+    actions: list[str] = []
+
+    if not model_hub_dir.exists():
+        return actions
+
+    for pth in list(model_hub_dir.rglob("*.pth")):
+        if not pth.is_file():
+            continue
+
+        name_lower = pth.name.lower()
+
+        # Determine target canonical filename
+        target_name: str | None = None
+        if "vault_" in name_lower:
+            metric_part = name_lower.split("vault_")[-1].replace(".pth", "")
+            metric_clean = normalize_metric_name(metric_part)
+            target_name = f"vault_{metric_clean}.pth"
+        elif "best" in name_lower:
+            target_name = "best.pth"
+        elif "latest" in name_lower or "last" in name_lower:
+            target_name = "latest.pth"
+        elif "progress" in name_lower:
+            target_name = "progress.pth"
+
+        if not target_name:
+            continue
+
+        target_path = checkpoints_dir / target_name
+
+        if pth.resolve() == target_path.resolve():
+            continue
+
+        if not target_path.exists():
+            try:
+                shutil.move(str(pth), str(target_path))
+                msg = f"Renamed legacy checkpoint {pth.name} -> {target_path.name}"
+                actions.append(msg)
+                logger.info(msg)
+            except OSError as move_err:
+                logger.warning("Failed renaming checkpoint %s -> %s: %s", pth, target_path, move_err)
+        else:
+            try:
+                pth.unlink()
+                msg = f"Purged redundant duplicate checkpoint {pth.name} (canonical {target_path.name} exists)"
+                actions.append(msg)
+                logger.info(msg)
+            except OSError as unlink_err:
+                logger.debug("Failed unlinking duplicate checkpoint %s: %s", pth, unlink_err)
+
+    return actions
+
+
 class CheckpointLifecycleManager:
     """Universal Checkpoint Lifecycle Manager enforcing strict governance rules."""
 
@@ -67,11 +191,12 @@ class CheckpointLifecycleManager:
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
         self.visualizations_dir.mkdir(parents=True, exist_ok=True)
 
+        # Enforce canonical naming: rename legacy checkpoints if canonical missing, purge redundant duplicates
+        canonicalize_checkpoints(self.model_hub_dir, self.checkpoints_dir)
+
         self.progress_path = self.checkpoints_dir / "progress.pth"
         self.latest_path = self.checkpoints_dir / "latest.pth"
         self.best_path = self.checkpoints_dir / "best.pth"
-        self.model_latest_path = self.checkpoints_dir / f"{self.model_name}_latest.pth"
-        self.model_best_path = self.checkpoints_dir / f"{self.model_name}_best.pth"
 
         # Tracking state
         self.last_progress_save_time = time.time()
@@ -117,14 +242,21 @@ class CheckpointLifecycleManager:
 
                     # SOTA target metric baselines
                     for target_key in self.sota_targets:
-                        # Match case-insensitively with stripped names
+                        lower_better = is_lower_better(target_key)
+                        norm_target = normalize_metric_name(target_key)
                         for k, v in row.items():
-                            if k and k.lower() == target_key.lower() and v:
+                            if k and normalize_metric_name(k) == norm_target and v:
                                 try:
                                     val = float(v)
-                                    cur = self.vault_bests.get(target_key, float("-inf"))
-                                    if val > cur:
+                                    cur = self.vault_bests.get(target_key)
+                                    if cur is None:
                                         self.vault_bests[target_key] = val
+                                    elif lower_better:
+                                        if val < cur:
+                                            self.vault_bests[target_key] = val
+                                    else:
+                                        if val > cur:
+                                            self.vault_bests[target_key] = val
                                 except ValueError:
                                     pass
         except OSError as exc:
@@ -200,11 +332,6 @@ class CheckpointLifecycleManager:
             logger.error("Failed saving latest checkpoint at epoch %d", epoch)
             return False
 
-        try:
-            shutil.copy2(self.latest_path, self.model_latest_path)
-        except OSError as copy_err:
-            logger.debug("Non-fatal copy to model_latest_path: %s", copy_err)
-
         logger.info("Saved latest checkpoint to %s (Epoch %d)", self.latest_path, epoch)
 
         # Immediate action: purge progress.pth upon saving latest.pth
@@ -241,11 +368,6 @@ class CheckpointLifecycleManager:
         if not success:
             logger.error("Failed saving best checkpoint at epoch %d", epoch)
             return False
-
-        try:
-            shutil.copy2(self.best_path, self.model_best_path)
-        except OSError as copy_err:
-            logger.debug("Non-fatal copy to model_best_path: %s", copy_err)
 
         logger.info(
             "Saved new best checkpoint to %s (Epoch %d, Quality Score: %.4f)",
@@ -287,10 +409,10 @@ class CheckpointLifecycleManager:
         achieved_vaults: list[str] = []
 
         for target_key in self.sota_targets:
-            # Locate metric in metrics dict case-insensitively
+            norm_target = normalize_metric_name(target_key)
             val: float | None = None
             for k, v in metrics.items():
-                if k.lower() == target_key.lower():
+                if normalize_metric_name(k) == norm_target:
                     try:
                         val = float(v)
                         break
@@ -300,12 +422,22 @@ class CheckpointLifecycleManager:
             if val is None:
                 continue
 
-            prev_best = self.vault_bests.get(target_key, float("-inf"))
-            if val > prev_best:
+            lower_better = is_lower_better(target_key)
+            prev_best = self.vault_bests.get(target_key)
+
+            if prev_best is None:
+                is_milestone = True
+            elif lower_better:
+                is_milestone = (val < prev_best)
+            else:
+                is_milestone = (val > prev_best)
+
+            if is_milestone:
                 self.vault_bests[target_key] = val
                 achieved_vaults.append(target_key)
 
-                vault_filename = f"vault_{target_key.lower()}.pth"
+                vault_metric_clean = target_key.lower().strip().replace("-", "_")
+                vault_filename = f"vault_{vault_metric_clean}.pth"
                 vault_path = self.checkpoints_dir / vault_filename
                 vault_payload = dict(payload)
                 vault_payload["vault_metric"] = target_key

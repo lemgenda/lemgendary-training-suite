@@ -22,6 +22,8 @@ class ResumeState:
     best_score: float | None = None
     metric_history: list[dict[str, Any]] = field(default_factory=list)
     is_intra_epoch: bool = False
+    phase: str = "train"
+    train_metrics: dict[str, Any] = field(default_factory=dict)
 
 
 def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
@@ -48,7 +50,17 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
 
     history: list[dict[str, Any]] = []
     raw_hist = payload.get("metric_history") or payload.get("history")
-    is_intra = bool(payload.get("progress_metadata") or payload.get("phase") == "train")
+
+    progress_meta = payload.get("progress_metadata")
+    if isinstance(progress_meta, dict):
+        is_intra = True
+        phase = str(progress_meta.get("phase", "train"))
+        iteration = int(progress_meta.get("step", iteration))
+    else:
+        phase = str(payload.get("phase", "train"))
+        is_intra = bool(payload.get("phase") == "train" and "step" in payload)
+
+    train_metrics = payload.get("train_metrics") or payload.get("current_metrics") or {}
 
     return ResumeState(
         epoch=epoch,
@@ -62,6 +74,8 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
         best_score=float(best_score) if isinstance(best_score, (int, float)) else None,
         metric_history=history,
         is_intra_epoch=is_intra,
+        phase=phase,
+        train_metrics=dict(train_metrics) if isinstance(train_metrics, dict) else {},
     )
 
 

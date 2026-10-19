@@ -1,6 +1,9 @@
 """Checkpoint management, recovery, and metric history tracking package."""
 
-from training.checkpoint.lifecycle_manager import CheckpointLifecycleManager
+from training.checkpoint.lifecycle_manager import (
+    CheckpointLifecycleManager,
+    canonicalize_checkpoints,
+)
 
 def generate_preflight_assets(*args, **kwargs):
     from training.checkpoint.preflight_generator import generate_preflight_assets as _fn
@@ -36,6 +39,7 @@ __all__ = [
     "MetricVault",
     "ResumeState",
     "audit_disk_space",
+    "canonicalize_checkpoints",
     "generate_all_preflight_assets",
     "generate_preflight_assets",
     "parse_resume_state",

@@ -81,33 +81,11 @@ class ModelTopologyRestructuringService:
                     shutil.move(str(p), str(dest))
                 actions.append(f"Moved visual asset {p.name} -> visualizations/")
 
-        # 3. Relocate training checkpoints to checkpoints/
-        for p in model_dir.glob("*.pth"):
-            dest = checkpoints_dir / p.name
-            if dest.exists() and dest != p:
-                p.unlink()
-            else:
-                shutil.move(str(p), str(dest))
-            actions.append(f"Moved checkpoint {p.name} -> checkpoints/")
+        # 3. Relocate and canonicalize training checkpoints strictly to checkpoints/
+        from training.checkpoint.lifecycle_manager import canonicalize_checkpoints
 
-        # Ensure canonical pairing in checkpoints/
-        best_cand = checkpoints_dir / "best.pth"
-        model_best = checkpoints_dir / f"{model_key}_best.pth"
-        if best_cand.exists() and not model_best.exists():
-            shutil.copy2(best_cand, model_best)
-            actions.append(f"Mirrored best.pth -> {model_key}_best.pth")
-        elif model_best.exists() and not best_cand.exists():
-            shutil.copy2(model_best, best_cand)
-            actions.append(f"Mirrored {model_key}_best.pth -> best.pth")
-
-        latest_cand = checkpoints_dir / "latest.pth"
-        model_latest = checkpoints_dir / f"{model_key}_latest.pth"
-        if latest_cand.exists() and not model_latest.exists():
-            shutil.copy2(latest_cand, model_latest)
-            actions.append(f"Mirrored latest.pth -> {model_key}_latest.pth")
-        elif model_latest.exists() and not latest_cand.exists():
-            shutil.copy2(model_latest, latest_cand)
-            actions.append(f"Mirrored {model_key}_latest.pth -> latest.pth")
+        ckpt_actions = canonicalize_checkpoints(model_dir, checkpoints_dir)
+        actions.extend(ckpt_actions)
 
         # 4. Stage isolated Kaggle variations
         staging_res = self.staging_service.stage_variations(

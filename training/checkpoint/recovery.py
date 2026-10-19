@@ -203,27 +203,17 @@ class CheckpointRecoveryEngine:
         # Sync .pth checkpoints (strictly into checkpoints/)
         for pth in source_root.glob("**/*.pth"):
             if pth.is_file():
-                dst_pth = checkpoints_dir / pth.name
+                # Enforce canonical checkpoint names
+                if pth.name in ("best.pth", f"{model_name}_best.pth"):
+                    dst_pth = checkpoints_dir / "best.pth"
+                elif pth.name in ("latest.pth", "last.pth", f"{model_name}_latest.pth"):
+                    dst_pth = checkpoints_dir / "latest.pth"
+                else:
+                    dst_pth = checkpoints_dir / pth.name
+
                 try:
                     shutil.copy2(pth, dst_pth)
                     synced.append(dst_pth)
-                    # Mirror canonical best and latest names
-                    if pth.name == "best.pth":
-                        mirror = checkpoints_dir / f"{model_name}_best.pth"
-                        shutil.copy2(pth, mirror)
-                        synced.append(mirror)
-                    elif pth.name == f"{model_name}_best.pth":
-                        mirror = checkpoints_dir / "best.pth"
-                        shutil.copy2(pth, mirror)
-                        synced.append(mirror)
-                    elif pth.name in ("latest.pth", "last.pth"):
-                        mirror = checkpoints_dir / f"{model_name}_latest.pth"
-                        shutil.copy2(pth, mirror)
-                        synced.append(mirror)
-                    elif pth.name == f"{model_name}_latest.pth":
-                        mirror = checkpoints_dir / "latest.pth"
-                        shutil.copy2(pth, mirror)
-                        synced.append(mirror)
                     logger.info("Synced checkpoint: %s -> %s", pth.name, dst_pth)
                 except OSError as exc:
                     logger.warning("Failed syncing checkpoint %s: %s", pth, exc)

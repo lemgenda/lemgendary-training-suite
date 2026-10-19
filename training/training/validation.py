@@ -133,6 +133,7 @@ def validate_one_epoch(
                         "optimizer_state": ctx.optimizer.state_dict(),
                         "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
                         "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
+                        "train_metrics": getattr(ctx, "last_train_metrics", {}),
                     },
                 )
 
