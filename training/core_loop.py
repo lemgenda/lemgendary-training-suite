@@ -30,7 +30,7 @@ from training.checkpoint import (
 )
 from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
-from training.data import build_train_loader
+from training.data import build_train_loader, rebuild_train_loader
 from training.data import build_val_loader as canonical_build_val_loader
 from training.data.instruction_dataset import InstructionDataset, collate_instruction_batch
 from training.doc_generator import build_model_readme
@@ -475,6 +475,52 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 if isinstance(gov_state, dict) and hasattr(governor, "load_state"):
                     try:
                         governor.load_state(gov_state)
+                        # Synchronize train dataset and train DataLoader with restored governor state
+                        rec_res = getattr(governor, "current_res", None)
+                        rec_frac = getattr(governor, "current_fraction", None)
+                        if rec_frac is not None or rec_res is not None:
+                            if hasattr(train_ds, "update_strategy"):
+                                train_ds.update_strategy(size=rec_res, fraction=rec_frac)
+                            elif hasattr(train_ds, "sample_fraction") and rec_frac is not None:
+                                setattr(train_ds, "sample_fraction", rec_frac)
+                            # Rebuild train loader with the restored dataset state
+                            curr_batch = getattr(governor, "current_batch", batch_size)
+                            if collate_fn is not None:
+                                train_loader = DataLoader(
+                                    dataset=train_ds,
+                                    batch_size=curr_batch,
+                                    shuffle=True,
+                                    collate_fn=collate_fn,
+                                    drop_last=False,
+                                )
+                            elif task_type == "forex":
+                                train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+                                train_loader = rebuild_train_loader(
+                                    old_loader=train_loader,
+                                    dataset=train_ds,
+                                    batch_size=curr_batch,
+                                    sampler=train_sampler,
+                                    shuffle=False,
+                                    num_workers=args.num_workers,
+                                    device=device_info.device,
+                                    env=args.env,
+                                    config=config,
+                                )
+                            else:
+                                train_loader = rebuild_train_loader(
+                                    old_loader=train_loader,
+                                    dataset=train_ds,
+                                    batch_size=curr_batch,
+                                    num_workers=args.num_workers,
+                                    device=device_info.device,
+                                    env=args.env,
+                                    config=config,
+                                )
+                            logger.info(
+                                "Synchronized training dataset and loader with recovered governor state: res=%s, frac=%.2f",
+                                rec_res,
+                                rec_frac if rec_frac is not None else 1.0,
+                            )
                     except Exception as gov_err:
                         logger.warning("Governor state could not be loaded cleanly: %s", gov_err)
                 if hasattr(sota_tracker, "best_quality"):

@@ -74,4 +74,5 @@ class TrainingContext:
     last_train_metrics: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     _resumed_val_handled: bool = False
+    _resumed_val_step_handled: bool = False
 

@@ -10,11 +10,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.32-STABLE` |
+| **Version** | `v16.9.33-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.33 — Autonomous 15% Initial Manifold Fraction, Open-Ended Horizon & Checkpoint Loader Synchronization
+
+- **Universal 15% Initial Data Fraction Protocol** — Standardized all model training pipelines to initiate training from 15% data fraction (`0.15`) on the lowest ladder rung (`res_ladder[0]`), progressing through gradual intra-resolution expansion (`15% -> 35% -> 55% -> 75% -> 100%`). Synchronized `training/governance/curriculum.py` (`CurriculumState.current_fraction = 0.15`), `training/governance/yolo_governor.py`, and `unified_models_v2.yaml`.
+- **Open-Ended SOTA Convergence Horizon** — Replaced fixed-epoch iteration ceilings with dynamic horizon runway extensions in `training/training/engine.py` and `training/governance/yolo_governor.py`. Enforces the authoritative 4-Pillar completion invariant: models continue training past initial epoch targets with automated runway extensions until all SOTA targets in `sota_targets` are attained at 100% data fraction on the top ladder resolution with at least 30 epochs completed.
+- **Checkpoint Resumption Dataset & Loader Synchronization** — Hardened `training/core_loop.py` to immediately synchronize training dataset manifolds (`train_ds.update_strategy` / `sample_fraction`) and worker DataLoaders (`rebuild_train_loader`) to the exact recovered resolution ladder rung and data fraction upon restoring governor state from checkpoint payloads.
+
+---
 
 ### v16.9.32 — Authoritative 4-Pillar Fully-Trained Verification Invariant & SOTA Dashboard Hardening
 

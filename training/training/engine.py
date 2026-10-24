@@ -6,6 +6,7 @@ SOTA tracking, atomic checkpointing, rollback recovery, and cloud sync triggers.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 
@@ -13,11 +14,15 @@ import torch
 
 from training.checkpoint import CheckpointLifecycleManager
 from training.cloud_sync import trigger_cloud_sync
+from training.data import rebuild_train_loader
+from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS
 from training.telemetry import TelemetryEngine
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
 from training.training.summary import TrainingSummary
 from training.training.validation import validate_one_epoch
+
+logger = logging.getLogger("lemtrain.engine")
 
 
 def run_training(
@@ -66,14 +71,17 @@ def run_training(
 
     total_start_time = time.time()
     best_metrics: dict[str, float] = {}
+    epochs_no_improve = 0
 
+    epoch = start_epoch
+    last_epoch_executed = 0
 
-    for epoch in range(start_epoch, ctx.total_epochs + 1):
+    while True:
         if cancel_check is not None and cancel_check():
             print(f"[CANCEL] Training aborted at epoch {epoch} by user cancellation.", flush=True)
             return TrainingSummary(
                 model_name=ctx.model_name,
-                final_epoch=epoch - 1,
+                final_epoch=max(0, epoch - 1),
                 best_metrics=best_metrics,
                 total_time=time.time() - total_start_time,
                 status="cancelled",
@@ -259,22 +267,72 @@ def run_training(
                 fold=fold,
             )
 
+        if is_best:
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
+
         # 8. Check governor directives
         if hasattr(ctx.governor, "audit_epoch"):
             try:
                 best_q = float(ctx.sota_tracker.best_quality)
-                ctx.governor.audit_epoch(
+                f_chg, r_chg, lr_chg, t_chg, c_chg, b_chg, stop_trig, gov_msg = ctx.governor.audit_epoch(
                     current_quality=current_quality,
                     best_quality=best_q,
-                    epochs_no_improve=0,
+                    epochs_no_improve=epochs_no_improve,
                     regression_epochs=0,
                     current_lr=combined_metrics.get("lr"),
                     current_loss=current_loss,
                     train_loss=train_loss,
                     metrics_dict=combined_metrics,
                 )
+                if gov_msg:
+                    print(f"{gov_msg}", flush=True)
+
+                # Dynamic manifold scaling: update dataset and rebuild train_loader if fraction or resolution changed
+                if (f_chg or r_chg) and ctx.train_loader is not None:
+                    train_ds = getattr(ctx.train_loader, "dataset", None)
+                    if train_ds is not None and hasattr(train_ds, "update_strategy"):
+                        new_res = getattr(ctx.governor, "current_res", None)
+                        new_frac = getattr(ctx.governor, "current_fraction", None)
+                        stress_val = getattr(ctx.governor, "current_stress", None)
+                        train_ds.update_strategy(
+                            size=new_res if r_chg else None,
+                            fraction=new_frac if f_chg else None,
+                            stress=stress_val,
+                        )
+                        curr_batch = int(getattr(ctx.governor.curriculum, "current_batch", ctx.train_loader.batch_size or 16))
+                        curr_sampler = getattr(ctx.train_loader, "sampler", None)
+                        ctx.train_loader = rebuild_train_loader(
+                            old_loader=ctx.train_loader,
+                            dataset=train_ds,
+                            batch_size=curr_batch,
+                            sampler=curr_sampler,
+                            shuffle=(curr_sampler is None),
+                            num_workers=ctx.args.num_workers if hasattr(ctx.args, "num_workers") else None,
+                            device=ctx.device_info.device,
+                            env=getattr(ctx.args, "env", "local"),
+                            config=ctx.config,
+                        )
+                        logger.info(
+                            "Rebuilt train_loader on governor directive: res=%s, fraction=%s, batch_size=%d",
+                            str(new_res),
+                            str(new_frac),
+                            curr_batch,
+                        )
+
+                # Learning rate propulsion or cooling adjustments
+                if lr_chg and ctx.optimizer is not None:
+                    lr_mult = float(getattr(ctx.governor, "lr_multiplier", 1.0))
+                    for param_group in ctx.optimizer.param_groups:
+                        if "initial_lr" in param_group:
+                            param_group["lr"] = param_group["initial_lr"] * lr_mult
+                        else:
+                            param_group["lr"] = param_group.get("lr", 1e-4) * lr_mult
+                    logger.debug("Applied governor learning rate multiplier: %.3fx", lr_mult)
+
             except Exception as gov_err:
-                print(f"[WARNING] Governor audit skipped: {gov_err}")
+                print(f"[WARNING] Governor audit notice: {gov_err}")
 
         # 9. Cloud sync trigger if configured
         if getattr(ctx.args, "auto_sync", False) and getattr(ctx.args, "env", "local") == "kaggle":
@@ -299,39 +357,82 @@ def run_training(
             except Exception as cb_err:
                 print(f"[WARNING] Telemetry epoch callback failed: {cb_err}")
 
-    total_elapsed = time.time() - total_start_time
-    last_epoch_executed = ctx.total_epochs if start_epoch <= ctx.total_epochs else max(0, start_epoch - 1)
+        last_epoch_executed = epoch
 
-    # Determine resolution ladder and max rung
-    is_forex = (
-        ctx.model_info.get("category") == "forex"
-        or ctx.model_info.get("task_type") == "forex"
-        or ctx.model_name == "forex_predictor"
-    )
-    opt_cfg = ctx.model_info.get("optimization", {})
-    if is_forex:
-        res_ladder = opt_cfg.get("res_ladder") or [1, 5, 15, 60, 240, 1440]
-        target_res = max(res_ladder) if res_ladder else 1440
-        ladder_passed = (
-            getattr(ctx.args, "fold", 1) >= 6
-            or (getattr(ctx.governor, "current_res", 0) >= 1440)
+        # Evaluate 4-Pillar Completion Invariant:
+        # 1. Minimum 30 epochs
+        # 2. Top resolution ladder rung (or Fold 6 for forex)
+        # 3. 100% data fraction (>= 0.999)
+        # 4. All defined SOTA targets met
+        is_forex = (
+            ctx.model_info.get("category") == "forex"
+            or ctx.model_info.get("task_type") == "forex"
+            or ctx.model_name == "forex_predictor"
         )
-    else:
-        res_ladder = opt_cfg.get("res_ladder") or [256, 384, 512]
-        target_res = max(res_ladder) if res_ladder else (ctx.model_info.get("resolution") or 512)
-        curr_res = getattr(ctx.governor, "current_res", 0)
-        ladder_passed = curr_res >= target_res
+        opt_cfg = ctx.model_info.get("optimization", {})
+        if is_forex:
+            res_ladder = opt_cfg.get("res_ladder") or [1, 5, 15, 60, 240, 1440]
+            target_res = max(res_ladder) if res_ladder else 1440
+            ladder_passed = (
+                getattr(ctx.args, "fold", 1) >= 6
+                or (getattr(ctx.governor, "current_res", 0) >= 1440)
+            )
+        else:
+            res_ladder = opt_cfg.get("res_ladder") or [256, 384, 512]
+            target_res = max(res_ladder) if res_ladder else (ctx.model_info.get("resolution") or 512)
+            curr_res = getattr(ctx.governor, "current_res", 0)
+            ladder_passed = curr_res >= target_res
 
-    curr_data_frac = getattr(ctx.governor, "current_fraction", 0.0)
-    data_fraction_passed = curr_data_frac >= 0.999
+        curr_data_frac = getattr(ctx.governor, "current_fraction", 0.0)
+        data_fraction_passed = curr_data_frac >= 0.999
 
-    # Strict LemGendary Invariant:
-    # Training should NEVER be declared complete if it didn't reach 100% data fraction
-    # on max resolution and hasn't trained for at least 30 epochs!
-    if last_epoch_executed >= 30 and ladder_passed and data_fraction_passed:
-        final_status = "completed"
-    else:
-        final_status = "partially_trained"
+        sota_targets = ctx.model_info.get("sota_targets", {})
+        sota_all_met = True
+        if isinstance(sota_targets, dict) and sota_targets:
+            for s_key, s_target in sota_targets.items():
+                if s_key not in combined_metrics:
+                    sota_all_met = False
+                    break
+                achieved = float(combined_metrics[s_key])
+                target_val = float(s_target)
+                is_higher = DEFAULT_METRIC_DIRECTIONS.get(s_key, True)
+                if is_higher and achieved < target_val:
+                    sota_all_met = False
+                    break
+                elif not is_higher and achieved > target_val:
+                    sota_all_met = False
+                    break
+
+        is_fully_completed = (
+            last_epoch_executed >= 30
+            and ladder_passed
+            and data_fraction_passed
+            and sota_all_met
+        )
+
+        if is_fully_completed:
+            print(
+                f"\n[SUCCESS] [CONVERGENCE ATTAINED] Model {ctx.model_name} satisfied all SOTA targets "
+                f"at 100% data fraction on top ladder resolution ({last_epoch_executed} epochs). Concluding.",
+                flush=True,
+            )
+            break
+
+        # Open-Ended Horizon: If static epoch budget reached but SOTA targets not met, extend runway!
+        if epoch >= ctx.total_epochs:
+            extension_epochs = int(opt_cfg.get("extension_epochs", 10))
+            ctx.total_epochs += extension_epochs
+            print(
+                f"\n[GOVERNOR] [SOTA RUNWAY EXTENSION] Epoch ceiling reached ({epoch}) but full SOTA criteria "
+                f"not yet attained (Epochs>=30: {last_epoch_executed >= 30}, Ladder: {ladder_passed}, "
+                f"Data: {data_fraction_passed}, SOTA: {sota_all_met}). Extending runway +{extension_epochs} epochs...",
+                flush=True,
+            )
+
+        epoch += 1
+
+    total_elapsed = time.time() - total_start_time
+    final_status = "completed" if is_fully_completed else "partially_trained"
 
     return TrainingSummary(
         model_name=ctx.model_name,

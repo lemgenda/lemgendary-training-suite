@@ -185,23 +185,23 @@ def get_fractions_for_resolution(
     (defaults: 0.15 / 0.20).
 
     Rules:
-      - Lowest resolution rung (<= 320px) starts from initial fraction (~30%)
-        and increases gradually: [0.30, 0.50, 0.70, 0.85, 1.00].
-      - Subsequent higher resolution rungs (480px, 640px) start from 50% data
-        and increase gradually: [0.50, 0.65, 0.80, 1.00].
+      - Lowest resolution rung (<= 320px) starts from initial fraction (15%)
+        and increases gradually: [0.15, 0.35, 0.55, 0.75, 1.00].
+      - Subsequent higher resolution rungs (480px, 640px) start from 15% data
+        and increase gradually: [0.15, 0.35, 0.55, 0.75, 1.00].
     """
     opt_config = opt_config or {}
     step_min = float(opt_config.get("fraction_step_min", 0.15))
     step_max = float(opt_config.get("fraction_step_max", 0.20))
+    initial = float(opt_config.get("initial_fraction", 0.15))
     if is_lowest_rung and resolution <= 320:
-        initial = float(opt_config.get("initial_fraction", 0.30))
-        if abs(initial - 0.30) < 0.05 and abs(step_min - 0.15) < 0.01 and abs(step_max - 0.20) < 0.01:
-            return [0.30, 0.50, 0.70, 0.85, 1.00]
+        if abs(initial - 0.15) < 0.05 and abs(step_min - 0.15) < 0.01 and abs(step_max - 0.20) < 0.01:
+            return [0.15, 0.35, 0.55, 0.75, 1.00]
         return _build_gradual_fractions(initial, step_min, step_max)
     else:
-        next_res_start = float(opt_config.get("next_res_start_fraction", 0.50))
-        if abs(next_res_start - 0.50) < 0.05 and abs(step_min - 0.15) < 0.01 and abs(step_max - 0.20) < 0.01:
-            return [0.50, 0.65, 0.80, 1.00]
+        next_res_start = float(opt_config.get("next_res_start_fraction", 0.15))
+        if abs(next_res_start - 0.15) < 0.05 and abs(step_min - 0.15) < 0.01 and abs(step_max - 0.20) < 0.01:
+            return [0.15, 0.35, 0.55, 0.75, 1.00]
         return _build_gradual_fractions(next_res_start, step_min, step_max)
 
 
@@ -217,10 +217,10 @@ def build_ladder_curriculum(
     """Construct deterministic multi-stage resolution ladder curriculum.
 
     Implements gradual intra-resolution fraction progression in 15%-20% increments:
-      - Lowest resolution rung (<= 320px) starts from initial fraction (30%) and
-        gradually progresses: 30% -> 50% -> 70% -> 85% -> 100%.
-      - Subsequent higher resolution rungs (480px, 640px) start from 50% data
-        and gradually progress: 50% -> 65% -> 80% -> 100%.
+      - Lowest resolution rung (<= 320px) starts from initial fraction (15%) and
+        gradually progresses: 15% -> 35% -> 55% -> 75% -> 100%.
+      - Subsequent higher resolution rungs (480px, 640px) start from 15% data
+        and gradually progress: 15% -> 35% -> 55% -> 75% -> 100%.
     This prevents overfitting and breaks performance plateaus when scaling across spatial rungs.
     """
     opt_config = opt_config or {}
@@ -1170,7 +1170,8 @@ class YOLOCurriculumGovernor:
                     "Stage %d weights could not be located; retaining previous checkpoint.", stage.stage_index
                 )
 
-            completed_prior_epochs += stage_epochs_recorded
+            actual_stage_epochs = stage_epochs_recorded if stage_epochs_recorded > 0 else stage.target_epochs
+            completed_prior_epochs += actual_stage_epochs
             ckpt_dict = None  # Reset so subsequent ladder rungs start fresh with new resolution
 
             if self.sota_achieved:
@@ -1499,7 +1500,8 @@ class YOLOCurriculumGovernor:
 
             last_completed_res = top_res
             last_completed_frac = 1.0
-            completed_prior_epochs += ext_stage_epochs_recorded
+            actual_ext_epochs = ext_stage_epochs_recorded if ext_stage_epochs_recorded > 0 else ext_stage.target_epochs
+            completed_prior_epochs += actual_ext_epochs
             extension_cycle += 1
 
         # Final Canonical Checkpoint Consolidation — all writes go to LemGendaryModels/yolov8n/
@@ -1522,11 +1524,12 @@ class YOLOCurriculumGovernor:
         print(f"[SUCCESS] Governed YOLOv8n multi-stage training finished in {total_time}s.", flush=True)
 
         # Authoritative invariant check:
-        # Minimum 30 epochs (or SOTA convergence attained), max resolution ladder rung (640), and 100% data fraction
+        # Minimum 30 epochs AND SOTA convergence attained, max resolution ladder rung (640), and 100% data fraction
         res_ladder = self.opt_config.get("res_ladder", [320, 480, 640])
         max_ladder_res = max(res_ladder) if res_ladder else 640
         yolo_completed = (
-            (completed_prior_epochs >= 30 or getattr(self, "sota_achieved", False))
+            completed_prior_epochs >= 30
+            and getattr(self, "sota_achieved", False)
             and last_completed_res >= max_ladder_res
             and last_completed_frac >= 0.999
         )

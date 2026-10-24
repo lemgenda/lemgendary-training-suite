@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import time
 from typing import Any
+
 import numpy as np
 import torch
 
@@ -72,6 +73,7 @@ def validate_one_epoch(
         return {"val_loss": 0.0}
 
     ctx.model.eval()
+    raw_m = ctx.raw_model if ctx.raw_model is not None else ctx.model
     device = ctx.device_info.device
     autocast_ctx = get_autocast_context(ctx.policy, device)
 
@@ -104,7 +106,7 @@ def validate_one_epoch(
         and not getattr(ctx, "_resumed_val_step_handled", False)
     ):
         resume_step = ctx.resume_state.iteration
-        setattr(ctx, "_resumed_val_step_handled", True)
+        ctx._resumed_val_step_handled = True
         print(f"[RESUME] Fast-forwarding {resume_step} completed validation batches in Epoch {epoch}...", flush=True)
 
         # Restore running accumulators if available
@@ -164,7 +166,6 @@ def validate_one_epoch(
 
             # Intra-epoch progress check during validation (15 min interval, strictly bounded to [5%, 50%])
             if ctx.lifecycle_manager is not None:
-                raw_m = ctx.raw_model if ctx.raw_model is not None else ctx.model
                 total_val = len(ctx.val_loader) if hasattr(ctx.val_loader, "__len__") else 0
                 val_acc_snapshot = {
                     "total_loss": total_loss,
@@ -182,21 +183,28 @@ def validate_one_epoch(
                     "total_mag_samples": total_mag_samples,
                     "trade_returns": list(trade_returns),
                 }
+
+                def _build_progress_payload(
+                    target_model: torch.nn.Module = raw_m,
+                    acc_dict: dict[str, Any] = val_acc_snapshot,
+                ) -> dict[str, Any]:
+                    return {
+                        "epoch": epoch,
+                        "model_name": ctx.model_name,
+                        "model_state": target_model.state_dict(),
+                        "optimizer_state": ctx.optimizer.state_dict(),
+                        "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
+                        "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
+                        "train_metrics": getattr(ctx, "last_train_metrics", {}),
+                        "val_accumulators": acc_dict,
+                    }
+
                 ctx.lifecycle_manager.check_and_save_progress(
                     epoch=epoch,
                     phase="val",
                     step=step_count,
                     total_steps=total_val,
-                    payload_builder=lambda: {
-                        "epoch": epoch,
-                        "model_name": ctx.model_name,
-                        "model_state": raw_m.state_dict(),
-                        "optimizer_state": ctx.optimizer.state_dict(),
-                        "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
-                        "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
-                        "train_metrics": getattr(ctx, "last_train_metrics", {}),
-                        "val_accumulators": dict(val_acc_snapshot),
-                    },
+                    payload_builder=_build_progress_payload,
                 )
 
             # Validation batch telemetry progress logging
@@ -243,18 +251,21 @@ def validate_one_epoch(
                     )
 
             # Check if outputs and targets are 4D image tensors [B, C, H, W] for PSNR/SSIM
+            eval_pred = preds.get("restored_image", preds) if isinstance(preds, dict) else preds
+            eval_target = targets.get("image", targets) if isinstance(targets, dict) else targets
+
             if (
-                isinstance(preds, torch.Tensor)
-                and isinstance(targets, torch.Tensor)
-                and preds.ndim == 4
-                and targets.ndim == 4
-                and preds.shape == targets.shape
+                isinstance(eval_pred, torch.Tensor)
+                and isinstance(eval_target, torch.Tensor)
+                and eval_pred.ndim == 4
+                and eval_target.ndim == 4
+                and eval_pred.shape == eval_target.shape
             ):
                 has_image_metrics = True
-                mse = float(torch.nn.functional.mse_loss(preds, targets).item())
+                mse = float(torch.nn.functional.mse_loss(eval_pred, eval_target).item())
                 total_mse += mse
                 try:
-                    ssim = float(compute_ssim_gpu(preds, targets).item())
+                    ssim = float(compute_ssim_gpu(eval_pred, eval_target).item())
                     total_ssim += ssim
                 except Exception:
                     pass
@@ -340,7 +351,10 @@ def validate_one_epoch(
 
             gross_profit = float(pos_returns.sum()) if len(pos_returns) > 0 else 0.0
             gross_loss = float(neg_returns.sum()) if len(neg_returns) > 0 else 0.0
-            pf = gross_profit / max(1e-4, gross_loss) if gross_loss > 0 else (min(3.0, gross_profit) if gross_profit > 0 else 1.0)
+            if gross_loss > 0:
+                pf = gross_profit / max(1e-4, gross_loss)
+            else:
+                pf = min(3.0, gross_profit) if gross_profit > 0 else 1.0
             profit_factor = float(np.clip(pf, 0.0, 10.0))
 
             mean_r = float(np.mean(returns_arr))

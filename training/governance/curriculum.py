@@ -13,7 +13,7 @@ class CurriculumState:
 
     res_ladder: list[int] = field(default_factory=lambda: [256])
     current_res: int = 256
-    current_fraction: float = 1.0
+    current_fraction: float = 0.15
     fraction_increment: float = 0.15
     current_batch: int = 16
     current_acc: int = 1
@@ -85,7 +85,7 @@ class CurriculumState:
         return cls(
             res_ladder=data.get("res_ladder", [256]),
             current_res=int(data.get("current_res", 256)),
-            current_fraction=float(data.get("current_fraction", 1.0)),
+            current_fraction=float(data.get("current_fraction", 0.15)),
             fraction_increment=float(data.get("fraction_increment", 0.15)),
             current_batch=int(data.get("current_batch", 16)),
             current_acc=int(data.get("current_acc", 1)),

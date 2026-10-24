@@ -1,6 +1,7 @@
 """BFS checkpoint recovery engine across Kaggle mounts, model hubs, and local scratch dirs."""
 
 import concurrent.futures
+import importlib
 import logging
 import re
 import shutil
@@ -86,7 +87,6 @@ class CheckpointRecoveryEngine:
 
             # Attempt kagglehub download probe with non-blocking timeout
             try:
-                import importlib
                 kh_mod = importlib.import_module("kagglehub")
                 k_user = cfg.get("kaggle_username", "lemtreursi")
                 k_slug = model_name.replace("_", "-")
@@ -129,6 +129,8 @@ class CheckpointRecoveryEngine:
         discovered: dict[str, Path] = {}
         epoch_ckpts: list[tuple[int, Path]] = []
 
+        model_norm = model_name.lower().replace("_", "").replace("-", "")
+
         for root in candidate_roots:
             if not root.exists():
                 continue
@@ -146,11 +148,24 @@ class CheckpointRecoveryEngine:
 
                 for entry in entries:
                     if entry.is_dir():
+                        # If inside generic 'checkpoints' root, do not traverse into unrelated model subdirs
+                        dir_norm = entry.name.lower().replace("_", "").replace("-", "")
+                        if curr_dir.name.lower() == "checkpoints":
+                            if dir_norm != model_norm and not dir_norm.startswith(model_norm):
+                                continue
                         queue.append((entry, depth + 1))
                         continue
 
                     if entry.is_file() and entry.suffix in {".pth", ".pt"}:
                         name_lower = entry.name.lower()
+                        # If file is directly inside checkpoints or mixed folder, ensure it belongs to this model
+                        parent_norm = entry.parent.name.lower().replace("_", "").replace("-", "")
+                        entry_file_norm = name_lower.replace("_", "").replace("-", "")
+                        if parent_norm not in {model_norm, "checkpoints", "runs"} and model_norm not in parent_norm:
+                            # If parent directory doesn't match model_name, skip unless file name itself specifies model
+                            if model_norm not in entry_file_norm:
+                                continue
+
                         if ("latest" in name_lower or "last" in name_lower) and "latest" not in discovered:
                             discovered["latest"] = entry
                         elif "best" in name_lower and "best" not in discovered:

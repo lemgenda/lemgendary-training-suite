@@ -572,8 +572,8 @@ upn_v2:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    initial_fraction: 0.5
-    fraction_increment: 0.25
+    initial_fraction: 0.15
+    fraction_increment: 0.15
     plateau_patience: 4
     cooling_factor: 0.85
     target_effective_batch: 64
@@ -1272,12 +1272,12 @@ yolov8n:
   optimal_key: yolov8n
   description: Unified YOLOv8n for classification, detection, and pose
   optimization:
-    initial_fraction: 0.3
-    next_res_start_fraction: 0.5
+    initial_fraction: 0.15
+    next_res_start_fraction: 0.15
     fraction_step_min: 0.15
     fraction_step_max: 0.2
     high_fidelity_fraction: 0.7
-    fraction_increment: 0.2
+    fraction_increment: 0.15
     enabled: true
     plateau_patience: 10
     absolute_patience: 15

@@ -223,7 +223,7 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
 
     def test_ladder_intra_resolution_fractions(self) -> None:
         from training.governance.yolo_governor import build_ladder_curriculum
-        opt_cfg = {"initial_fraction": 0.3, "plateau_patience": 10}
+        opt_cfg = {"initial_fraction": 0.15, "plateau_patience": 10}
         stages = build_ladder_curriculum(
             res_ladder=[320, 480, 640],
             total_epochs=300,
@@ -231,29 +231,29 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
             requested_batch=16,
             opt_config=opt_cfg,
         )
-        # 13 stages total: 5 on 320px, 4 on 480px, 4 on 640px
-        self.assertEqual(len(stages), 13)
+        # 15 stages total: 5 on 320px, 5 on 480px, 5 on 640px
+        self.assertEqual(len(stages), 15)
 
-        # Base rung (320px) traverses 30% -> 50% -> 70% -> 85% -> 100%
+        # Base rung (320px) traverses 15% -> 35% -> 55% -> 75% -> 100%
         base_fracs = [stages[i].fraction for i in range(5)]
-        self.assertEqual(base_fracs, [0.30, 0.50, 0.70, 0.85, 1.00])
+        self.assertEqual(base_fracs, [0.15, 0.35, 0.55, 0.75, 1.00])
         for i in range(4):
             delta = round(base_fracs[i + 1] - base_fracs[i], 2)
-            self.assertTrue(0.15 <= delta <= 0.20, f"Delta {delta} not in [0.15, 0.20]")
+            self.assertTrue(0.15 <= delta <= 0.25, f"Delta {delta} not in [0.15, 0.25]")
 
-        # 480px rung starts at 50% and progresses: 50% -> 65% -> 80% -> 100%
-        rung480_fracs = [stages[i].fraction for i in range(5, 9)]
-        self.assertEqual(rung480_fracs, [0.50, 0.65, 0.80, 1.00])
-        for i in range(3):
+        # 480px rung starts at 15% and progresses: 15% -> 35% -> 55% -> 75% -> 100%
+        rung480_fracs = [stages[i].fraction for i in range(5, 10)]
+        self.assertEqual(rung480_fracs, [0.15, 0.35, 0.55, 0.75, 1.00])
+        for i in range(4):
             delta = round(rung480_fracs[i + 1] - rung480_fracs[i], 2)
-            self.assertTrue(0.15 <= delta <= 0.20, f"Delta {delta} not in [0.15, 0.20]")
+            self.assertTrue(0.15 <= delta <= 0.25, f"Delta {delta} not in [0.15, 0.25]")
 
-        # 640px rung starts at 50% and progresses: 50% -> 65% -> 80% -> 100%
-        rung640_fracs = [stages[i].fraction for i in range(9, 13)]
-        self.assertEqual(rung640_fracs, [0.50, 0.65, 0.80, 1.00])
-        for i in range(3):
+        # 640px rung starts at 15% and progresses: 15% -> 35% -> 55% -> 75% -> 100%
+        rung640_fracs = [stages[i].fraction for i in range(10, 15)]
+        self.assertEqual(rung640_fracs, [0.15, 0.35, 0.55, 0.75, 1.00])
+        for i in range(4):
             delta = round(rung640_fracs[i + 1] - rung640_fracs[i], 2)
-            self.assertTrue(0.15 <= delta <= 0.20, f"Delta {delta} not in [0.15, 0.20]")
+            self.assertTrue(0.15 <= delta <= 0.25, f"Delta {delta} not in [0.15, 0.25]")
 
         # Epoch sum equality
         self.assertEqual(sum(s.target_epochs for s in stages), 300)
@@ -268,16 +268,16 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
             opt_config={},
             start_resolution=480,
         )
-        # 8 stages total: 4 on 480px, 4 on 640px
-        self.assertEqual(len(stages), 8)
+        # 10 stages total: 5 on 480px, 5 on 640px starting from 15% fraction
+        self.assertEqual(len(stages), 10)
         self.assertEqual(stages[0].resolution, 480)
-        self.assertEqual(stages[0].fraction, 0.50)
-        self.assertEqual(stages[3].resolution, 480)
-        self.assertEqual(stages[3].fraction, 1.00)
-        self.assertEqual(stages[4].resolution, 640)
-        self.assertEqual(stages[4].fraction, 0.50)
-        self.assertEqual(stages[7].resolution, 640)
-        self.assertEqual(stages[7].fraction, 1.00)
+        self.assertEqual(stages[0].fraction, 0.15)
+        self.assertEqual(stages[4].resolution, 480)
+        self.assertEqual(stages[4].fraction, 1.00)
+        self.assertEqual(stages[5].resolution, 640)
+        self.assertEqual(stages[5].fraction, 0.15)
+        self.assertEqual(stages[9].resolution, 640)
+        self.assertEqual(stages[9].fraction, 1.00)
         self.assertEqual(sum(s.target_epochs for s in stages), 100)
 
     def test_ladder_single_resolution(self) -> None:
@@ -289,9 +289,9 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
             requested_batch=8,
             opt_config={},
         )
-        # 4 stages total: 50% -> 65% -> 80% -> 100%
-        self.assertEqual(len(stages), 4)
-        self.assertEqual([s.fraction for s in stages], [0.50, 0.65, 0.80, 1.00])
+        # 5 stages total: 15% -> 35% -> 55% -> 75% -> 100%
+        self.assertEqual(len(stages), 5)
+        self.assertEqual([s.fraction for s in stages], [0.15, 0.35, 0.55, 0.75, 1.00])
         self.assertEqual(sum(s.target_epochs for s in stages), 50)
 
 
@@ -438,8 +438,8 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             mock_args = argparse.Namespace(
                 clean=False,
                 resolution=None,
-                target_epochs=10,
-                epochs=10,
+                target_epochs=30,
+                epochs=30,
                 batch_size="16",
                 auto_sync=False,
                 env="local",
@@ -447,7 +447,7 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             )
             config = {
                 "curriculum": {"resolutions": [640]},
-                "training": {"batch_size": 16, "epochs": 10},
+                "training": {"batch_size": 16, "epochs": 30},
                 "optimization": {"res_ladder": [640], "extension_epochs": 5},
             }
 

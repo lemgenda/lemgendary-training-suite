@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import io
 import json
 import logging
-from pathlib import Path
 import tarfile
+from pathlib import Path
 from typing import Any
 
 from training.data.containers.base import Sample
@@ -26,13 +25,10 @@ def _parse_member_name(name: str) -> tuple[str, str, str]:
     ext = p.suffix.lower()
 
     # Directory-in-tar pattern (e.g. targets/train/sample01.webp)
-    parent_parts = [part.lower() for part in p.parent.parts]
-    if "targets" in parent_parts:
-        return p.stem, "target", ext
-    if "masks" in parent_parts:
-        return p.stem, "mask", ext
-    if "images" in parent_parts:
-        return p.stem, "image", ext
+    parent_parts = {part.lower() for part in p.parent.parts}
+    for directory_role in ("target", "mask", "image"):
+        if f"{directory_role}s" in parent_parts:
+            return p.stem, directory_role, ext
 
     # WebDataset dot-separated pattern:
     # 000001.target.webp -> key='000001', role='target', ext='.webp'
@@ -41,20 +37,24 @@ def _parse_member_name(name: str) -> tuple[str, str, str]:
     if len(parts) >= 3:
         key = parts[0]
         sub = parts[1].lower()
+        role = sub
         if sub in ("target", "tgt", "gt", "hr"):
-            return key, "target", ext
-        if sub in ("mask", "msk", "seg"):
-            return key, "mask", ext
-        return key, sub, ext
+            role = "target"
+        elif sub in ("mask", "msk", "seg"):
+            role = "mask"
+        return key, role, ext
+
     if len(parts) == 2:
         key = parts[0]
+        role = "other"
         if ext in IMAGE_EXTENSIONS:
-            return key, "image", ext
-        if ext in (".txt", ".caption"):
-            return key, "text", ext
-        if ext == ".json":
-            return key, "json", ext
-        return key, "other", ext
+            role = "image"
+        elif ext in (".txt", ".caption"):
+            role = "text"
+        elif ext == ".json":
+            role = "json"
+        return key, role, ext
+
     return p.stem, "image", ext
 
 
@@ -97,36 +97,35 @@ class WebDatasetReader:
         if self.tar_files:
             for t_path in self.tar_files:
                 try:
-                    tf = tarfile.open(t_path, mode="r:*")
-                    self._tar_handles[t_path] = tf
-                    members = tf.getmembers()
+                    with tarfile.open(t_path, mode="r:*") as tf:
+                        members = tf.getmembers()
 
-                    # Group by sample key -> role -> member_name
-                    samples: dict[str, dict[str, str]] = {}
-                    for m in members:
-                        if not m.isfile():
-                            continue
-                        key, role, ext = _parse_member_name(m.name)
-                        if key not in samples:
-                            samples[key] = {}
-                        samples[key][role] = m.name
+                        # Group by sample key -> role -> member_name
+                        samples: dict[str, dict[str, str]] = {}
+                        for m in members:
+                            if not m.isfile():
+                                continue
+                            key, role, ext = _parse_member_name(m.name)
+                            if key not in samples:
+                                samples[key] = {}
+                            samples[key][role] = m.name
 
-                    for key, roles in samples.items():
-                        img_member = roles.get("image")
-                        if img_member is not None:
-                            tgt_member = roles.get("target")
-                            mask_member = roles.get("mask")
-                            txt_member = roles.get("text")
-                            json_member = roles.get("json")
-                            self.index_map.append((
-                                "tar",
-                                t_path,
-                                img_member,
-                                tgt_member,
-                                mask_member,
-                                txt_member,
-                                json_member,
-                            ))
+                        for _key, roles in samples.items():
+                            img_member = roles.get("image")
+                            if img_member is not None:
+                                tgt_member = roles.get("target")
+                                mask_member = roles.get("mask")
+                                txt_member = roles.get("text")
+                                json_member = roles.get("json")
+                                self.index_map.append((
+                                    "tar",
+                                    t_path,
+                                    img_member,
+                                    tgt_member,
+                                    mask_member,
+                                    txt_member,
+                                    json_member,
+                                ))
                 except Exception as exc:
                     logger.warning("Failed opening tar file %s: %s", t_path, exc)
         else:
@@ -154,7 +153,7 @@ class WebDatasetReader:
                         logger.debug("Failed scanning directory %s: %s", scan_dir, scan_err)
                         continue
 
-                    for key, roles in samples_dir.items():
+                    for _key, roles in samples_dir.items():
                         img_path = roles.get("image")
                         if img_path is not None:
                             tgt_path = roles.get("target")
@@ -176,7 +175,8 @@ class WebDatasetReader:
 
         if not self.index_map and self.split == "train":
             raise FileNotFoundError(
-                f"No WebDataset tar archives or extracted shard directories found in '{self.root}' for split '{self.split}'."
+                f"No WebDataset tar archives or extracted shard directories found in '{self.root}' "
+                f"for split '{self.split}'."
             )
 
     def __len__(self) -> int:
@@ -295,6 +295,17 @@ class WebDatasetReader:
             label=label,
             metadata=meta,
         )
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Exclude open file handles when pickling across process boundaries."""
+        state = self.__dict__.copy()
+        state["_tar_handles"] = {}
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Reconstruct state with clean handle cache in worker processes."""
+        self.__dict__.update(state)
+        self._tar_handles = {}
 
     def close(self) -> None:
         """Close all open tar file handles."""

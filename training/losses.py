@@ -1,6 +1,16 @@
+from __future__ import annotations
+
+import gc
+from typing import Any
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
+
+try:
+    from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+except ImportError:
+    LearnedPerceptualImagePatchSimilarity = None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Forex Dual Loss
@@ -36,6 +46,7 @@ class ForexDualLoss(nn.Module):
     """
     def __init__(
         self,
+        *,
         direction_weight: float = 0.5,
         magnitude_weight: float = 0.02,
         huber_delta: float = 2.0,
@@ -189,7 +200,7 @@ class RankMemoryBank:
     def update(self, p_active: torch.Tensor, t_active: torch.Tensor):
         """Push active samples into detached FIFO queue."""
         with torch.no_grad():
-            for p, t in zip(p_active.detach().view(-1), t_active.detach().view(-1)):
+            for p, t in zip(p_active.detach().view(-1), t_active.detach().view(-1), strict=False):
                 self.p_memory.append(p)
                 self.t_memory.append(t)
                 if len(self.p_memory) > self.capacity:
@@ -264,25 +275,25 @@ class CombinedLoss(nn.Module):
         if self.task_type in ["restoration", "enhancement"] and use_perc:
             try:
                 # 2026 Resilience: Surgical Memory Reclamation before heavy Perceptual Engine load
-                import gc
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                
-                from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
-                
+
                 print(" [MISSION] Initializing Neural Perceptual Engine (TorchMetrics LPIPS/VGG)...")
-                
+
                 class AutocastLPIPS(torch.nn.Module):
                     def __init__(self, perc_module):
                         super().__init__()
                         self.perc = perc_module
                     def forward(self, x, y):
-                        with torch.autocast(device_type='cuda', enabled=True):
+                        with torch.autocast(device_type="cuda", enabled=True):
                             return self.perc(x, y)
-                            
-                self.perc = AutocastLPIPS(LearnedPerceptualImagePatchSimilarity(net_type='vgg', normalize=False))
-                
+
+                if LearnedPerceptualImagePatchSimilarity is None:
+                    raise ImportError("TorchMetrics LPIPS is not installed")
+
+                self.perc = AutocastLPIPS(LearnedPerceptualImagePatchSimilarity(net_type="vgg", normalize=False))
+
                 self.perc.eval()
                 for param in self.perc.parameters():
                     param.requires_grad = False
@@ -295,145 +306,107 @@ class CombinedLoss(nn.Module):
 
     # pylint: disable=too-many-return-statements
     def forward(self, pred, target, task_idx=None):
-        if self.task_type in ("forex", "forex_dual") or (isinstance(pred, dict) and ("direction" in pred or "direction_logits" in pred)):
+        is_forex_pred = isinstance(pred, dict) and ("direction" in pred or "direction_logits" in pred)
+        if self.task_type in ("forex", "forex_dual") or is_forex_pred:
             self.forex_dual.stab = self.stab
             return self.forex_dual(pred, target)
 
         if self.task_type in ["restoration", "enhancement"]:
-            # 2026: Branched Multi-Task Support (e.g., BranchedFFANet)
-            if isinstance(target, dict) and isinstance(pred, dict):
-                img_target = target["image"]
+            detect_loss = None
+            if isinstance(pred, dict) and "restored_image" in pred:
                 img_pred = pred["restored_image"]
-                base_loss = self.l1(img_pred, img_target)
-                
-                if self.perc is not None:
-                    p_scaled = torch.clamp(img_pred, 0, 1) * 2.0 - 1.0
-                    t_scaled = torch.clamp(img_target, 0, 1) * 2.0 - 1.0
-                    raw_lpips = self.perc(p_scaled, t_scaled).view(-1)
-                    if task_idx is not None and len(task_idx.shape) > 0:
-                        dynamic_weights = self.task_lpips_weights[task_idx]
-                        perc_loss = (raw_lpips * dynamic_weights).mean()
-                    else:
-                        perc_loss = 0.025 * raw_lpips.mean()
-                    base_loss += perc_loss
-                
-                # Detection Loss (Best Practice: lambda = 0.1 to prevent detection gradients from destroying image quality)
-                bbox_pred = pred["detections"]
-                # In a full production implementation, this interfaces with Ultralytics anchor-matching.
-                # Here we use a smooth_l1 placeholder against a dummy target of the same shape to ensure end-to-end graph flow.
-                detect_loss = F.smooth_l1_loss(bbox_pred, torch.zeros_like(bbox_pred))
-                
-                return base_loss + 0.1 * detect_loss
-
-            # Support both Hybrid (img, weights) outputs and Pure Image generation
-            if isinstance(pred, (tuple, list)):
-                base_loss = self.l1(pred[0], target) + 0.1 * self.ce(pred[1], task_idx)
-                if self.perc is not None:
-                    # LPIPS natively outputs spatial arrays. Clamp to [-1, 1].
-                    p_scaled = torch.clamp(pred[0], 0, 1) * 2.0 - 1.0
-                    t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0 # type: ignore
-                    
-                    raw_lpips = self.perc(p_scaled, t_scaled).view(-1) # [B]
-                    
-                    if task_idx is not None and len(task_idx.shape) > 0:
-                        # Extract the dynamic weight for each sample in the batch
-                        dynamic_weights = self.task_lpips_weights[task_idx]
-                        perc_loss = (raw_lpips * dynamic_weights).mean()
-                    else:
-                        perc_loss = 0.025 * raw_lpips.mean()
-                        
-                    base_loss += perc_loss
-                return base_loss
+                img_target = target["image"] if isinstance(target, dict) else target
+                bbox_pred = pred.get("detections")
+                if bbox_pred is not None and isinstance(bbox_pred, torch.Tensor):
+                    detect_loss = F.smooth_l1_loss(bbox_pred, torch.zeros_like(bbox_pred))
+            elif isinstance(pred, (tuple, list)):
+                img_pred = pred[0]
+                img_target = target
             else:
-                base_loss = self.l1(pred, target)
-                if self.perc is not None:
-                    p_scaled = torch.clamp(pred, 0, 1) * 2.0 - 1.0
-                    t_scaled = torch.clamp(target, 0, 1) * 2.0 - 1.0 # type: ignore
-                    
-                    raw_lpips = self.perc(p_scaled, t_scaled).view(-1) # [B]
-                    
-                    if task_idx is not None and len(task_idx.shape) > 0:
-                        dynamic_weights = self.task_lpips_weights[task_idx]
-                        perc_loss = (raw_lpips * dynamic_weights).mean()
-                    else:
-                        perc_loss = 0.025 * raw_lpips.mean()
-                        
-                    base_loss += perc_loss
-                return base_loss
-        
+                img_pred = pred
+                img_target = target
+
+            base_loss = self.l1(img_pred, img_target)
+            if isinstance(pred, (tuple, list)) and len(pred) > 1 and task_idx is not None:
+                base_loss = base_loss + 0.1 * self.ce(pred[1], task_idx)
+
+            if self.perc is not None:
+                p_scaled = torch.clamp(img_pred, 0, 1) * 2.0 - 1.0
+                t_scaled = torch.clamp(img_target, 0, 1) * 2.0 - 1.0
+                raw_lpips = self.perc(p_scaled, t_scaled).view(-1)
+                if task_idx is not None and len(task_idx.shape) > 0:
+                    dynamic_weights = self.task_lpips_weights[task_idx]
+                    perc_loss = (raw_lpips * dynamic_weights).mean()
+                else:
+                    perc_loss = 0.025 * raw_lpips.mean()
+                base_loss = base_loss + perc_loss
+
+            if detect_loss is not None:
+                base_loss = base_loss + 0.1 * detect_loss
+
+            return base_loss
+
         elif self.task_type == "quality":
-            pred_f = pred.float()
-            tgt_f = target.float()
+            return self._compute_quality_loss(pred, target)
 
-            # NIMA specific Earth Mover's Distance (EMD) (Removed dangerous logit clamping that causes zero-gradients)
-            p_probs = F.softmax(pred_f / float(self.stab.get("softmax_temp", 1.0)), dim=-1)
-            t_probs = tgt_f / torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=float(self.stab.get("emd_epsilon", 1e-6)))
+        return self._compute_fallback_loss(pred, target)
 
-            cdf_p = torch.cumsum(p_probs, dim=-1)
-            cdf_t = torch.cumsum(t_probs, dim=-1)
+    def _compute_quality_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Compute multi-objective distribution, rank, and Spearman loss for quality assessment."""
+        pred_f = pred.float()
+        tgt_f = target.float()
 
-            # 2026: Geometric Stabilizer - Summing squared CDF error per-bin
-            emd = torch.sum((cdf_p - cdf_t) ** 2, dim=-1).mean()
+        p_probs = F.softmax(pred_f / float(self.stab.get("softmax_temp", 1.0)), dim=-1)
+        t_sum = torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=float(self.stab.get("emd_epsilon", 1e-6)))
+        t_probs = tgt_f / t_sum
 
-            # Expected score scalar calculation [B]
-            p_mean = (p_probs * self.rank_weights).sum(dim=-1)
-            t_mean = (t_probs * self.rank_weights).sum(dim=-1)
+        cdf_p = torch.cumsum(p_probs, dim=-1)
+        cdf_t = torch.cumsum(t_probs, dim=-1)
+        emd = torch.sum((cdf_p - cdf_t) ** 2, dim=-1).mean()
 
-            # Cross-Microbatch Memory Buffer Injection
-            if self.memory_bank is not None:
-                p_eval, t_eval = self.memory_bank.get_context(p_mean, t_mean)
-                self.memory_bank.update(p_mean, t_mean)
-            else:
-                p_eval, t_eval = p_mean, t_mean
+        p_mean = (p_probs * self.rank_weights).sum(dim=-1)
+        t_mean = (t_probs * self.rank_weights).sum(dim=-1)
 
-            # --- 2026 Governor: Dynamic EMD weight ---
-            # emd_weight is raised to boost PLCC (distribution matching) and lowered
-            # to make rank losses dominant when SRCC is the lagging metric.
-            emd_weight = float(self.stab.get('emd_weight', 1.0))
-            total_loss = emd_weight * emd
+        if self.memory_bank is not None:
+            p_eval, t_eval = self.memory_bank.get_context(p_mean, t_mean)
+            self.memory_bank.update(p_mean, t_mean)
+        else:
+            p_eval, t_eval = p_mean, t_mean
 
-            # --- 2026: Differentiable Soft-Spearman Loss ---
-            use_soft_spearman = self.stab.get("use_soft_spearman", True)
-            if use_soft_spearman and p_eval.size(0) > 1:
-                spearman_loss = self.soft_spearman(p_eval, t_eval)
-                spearman_weight = float(self.stab.get("soft_spearman_weight", 0.5))
-                total_loss = total_loss + (spearman_weight * spearman_loss)
+        emd_weight = float(self.stab.get('emd_weight', 1.0))
+        total_loss = emd_weight * emd
 
-            # --- 2026 Governor: SSIM-proxy auxiliary loss ---
-            # ssim_weight > 0 adds a differentiable structural-similarity proxy:
-            # Pearson correlation of predicted vs target expected scores.
-            # Boosted by governor when SSIM is the lagging metric.
-            ssim_w = float(self.stab.get('ssim_weight', 0.0))
-            if ssim_w > 0.0 and p_eval.size(0) > 1:
-                p_c = p_eval - p_eval.mean()
-                t_c = t_eval - t_eval.mean()
-                denom_ssim = torch.sqrt(
-                    torch.clamp((p_c ** 2).sum() * (t_c ** 2).sum(), min=1e-8))
-                ssim_proxy = 1.0 - (p_c * t_c).sum() / denom_ssim
-                total_loss = total_loss + ssim_w * ssim_proxy
+        use_soft_spearman = self.stab.get("use_soft_spearman", True)
+        if use_soft_spearman and p_eval.size(0) > 1:
+            spearman_loss = self.soft_spearman(p_eval, t_eval)
+            spearman_weight = float(self.stab.get("soft_spearman_weight", 0.5))
+            total_loss = total_loss + (spearman_weight * spearman_loss)
 
-            # --- 2026: Neural Rank-Boost (Pairwise Margin Loss) ---
-            rank_weight = float(self.stab.get('rank_weight', 0.0))
-            if rank_weight > 0 and p_eval.size(0) > 1:
-                p_diff = p_eval.unsqueeze(0) - p_eval.unsqueeze(1)
-                t_diff = t_eval.unsqueeze(0) - t_eval.unsqueeze(1)
-                t_sign = torch.sign(t_diff)
+        ssim_w = float(self.stab.get('ssim_weight', 0.0))
+        if ssim_w > 0.0 and p_eval.size(0) > 1:
+            p_c = p_eval - p_eval.mean()
+            t_c = t_eval - t_eval.mean()
+            denom_ssim = torch.sqrt(torch.clamp((p_c ** 2).sum() * (t_c ** 2).sum(), min=1e-8))
+            ssim_proxy = 1.0 - (p_c * t_c).sum() / denom_ssim
+            total_loss = total_loss + ssim_w * ssim_proxy
 
-                margin = float(self.stab.get('rank_margin', 0.05))
-                rank_loss = F.relu(margin - t_sign * p_diff)
-                mask = (t_sign != 0).float()
-                avg_rank_loss = (rank_loss * mask).sum() / torch.clamp(mask.sum(), min=1.0)
+        rank_weight = float(self.stab.get('rank_weight', 0.0))
+        if rank_weight > 0 and p_eval.size(0) > 1:
+            p_diff = p_eval.unsqueeze(0) - p_eval.unsqueeze(1)
+            t_diff = t_eval.unsqueeze(0) - t_eval.unsqueeze(1)
+            t_sign = torch.sign(t_diff)
 
-                total_loss = total_loss + (rank_weight * avg_rank_loss)
+            margin = float(self.stab.get('rank_margin', 0.05))
+            rank_loss = F.relu(margin - t_sign * p_diff)
+            mask = (t_sign != 0).float()
+            avg_rank_loss = (rank_loss * mask).sum() / torch.clamp(mask.sum(), min=1.0)
+            total_loss = total_loss + (rank_weight * avg_rank_loss)
 
-            return total_loss
-            
-        elif self.task_type == "parameter_prediction":
-            # 2026: Bounded Regression Loss for UPNv2 Parameter Predictor
-            # SmoothL1 (Huber) is robust to outliers and stable for bounded [0,1] targets.
-            # Normalize theta by π so all parameters contribute equally in [0,1] range.
-            # huber_delta is dynamically reduced by the governor when MAE is the lagging metric,
-            # making the loss more L2-like near zero (more sensitive to small residuals).
+        return total_loss
+
+    def _compute_fallback_loss(self, pred: Any, target: Any) -> torch.Tensor:
+        """Fallback loss computation for detection, segmentation, classification, or generic MSE."""
+        if self.task_type == "parameter_prediction":
             pred_norm = pred.clone()
             target_norm = target.clone()
             if pred_norm.shape[-1] >= 3:
@@ -442,35 +415,33 @@ class CombinedLoss(nn.Module):
             huber_delta = float(self.stab.get('huber_delta', 1.0))
             return F.smooth_l1_loss(pred_norm, target_norm, beta=huber_delta)
 
-        elif self.task_type == "classification":
+        if self.task_type == "classification":
             return self.ce(pred, target)
-            
-        elif self.task_type == "segmentation":
+
+        if self.task_type == "segmentation":
             if target.dim() == 4:
                 target = target.squeeze(1)
             elif target.dim() == 2 and target.size(1) == 1:
                 target = torch.zeros((pred.size(0), pred.size(2), pred.size(3)), dtype=torch.long, device=pred.device)
             return self.ce(pred, target.long())
 
-        elif self.task_type == "face_detection":
-            if isinstance(pred, (tuple, list)) and len(pred) == 3:
-                p_bbox, p_conf, p_landm = pred
-                t_conf = target[:, 0:1]
-                t_bbox = target[:, 1:5]
-                t_landm = target[:, 5:15]
-                
-                with torch.autocast(device_type='cuda', enabled=False):
-                    loss_conf = F.binary_cross_entropy(p_conf.float(), t_conf.float())
-                
-                pos_mask = t_conf > 0.5
-                if pos_mask.sum() > 0:
-                    loss_bbox = F.smooth_l1_loss(p_bbox[pos_mask.squeeze(-1)], t_bbox[pos_mask.squeeze(-1)])
-                    loss_landm = F.smooth_l1_loss(p_landm[pos_mask.squeeze(-1)], t_landm[pos_mask.squeeze(-1)])
-                else:
-                    loss_bbox = torch.tensor(0.0, device=p_bbox.device)
-                    loss_landm = torch.tensor(0.0, device=p_landm.device)
-                    
-                return loss_conf + loss_bbox * 2.0 + loss_landm * 1.0
-            return self.mse(pred, target)
-            
+        if self.task_type == "face_detection" and isinstance(pred, (tuple, list)) and len(pred) == 3:
+            p_bbox, p_conf, p_landm = pred
+            t_conf = target[:, 0:1]
+            t_bbox = target[:, 1:5]
+            t_landm = target[:, 5:15]
+
+            with torch.autocast(device_type='cuda', enabled=False):
+                loss_conf = F.binary_cross_entropy(p_conf.float(), t_conf.float())
+
+            pos_mask = t_conf > 0.5
+            if pos_mask.sum() > 0:
+                loss_bbox = F.smooth_l1_loss(p_bbox[pos_mask.squeeze(-1)], t_bbox[pos_mask.squeeze(-1)])
+                loss_landm = F.smooth_l1_loss(p_landm[pos_mask.squeeze(-1)], t_landm[pos_mask.squeeze(-1)])
+            else:
+                loss_bbox = torch.tensor(0.0, device=p_bbox.device)
+                loss_landm = torch.tensor(0.0, device=p_landm.device)
+
+            return loss_conf + loss_bbox * 2.0 + loss_landm * 1.0
+
         return self.mse(pred, target)
