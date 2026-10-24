@@ -25,6 +25,7 @@ from ..cells.repo import build_clone_cell
 from ..cells.sync import (
     build_continuous_sync_cell,
     build_fuse_mount_cell,
+    build_push_cell,
     build_secrets_cell,
     build_training_cell,
 )
@@ -100,6 +101,8 @@ def generate_colab_inference_notebook(
             build_continuous_sync_cell(meta),
             make_markdown_cell(["## 8. Nuclear Training Matrix\n"]),
             build_training_cell(meta, "colab"),
+            make_markdown_cell(["## 9. SOTA Models Hub & Google Drive Publishing (4 Variations)\n"]),
+            build_push_cell(meta, "colab"),
         ],
     }
 

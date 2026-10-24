@@ -1,18 +1,21 @@
 """Variation Staging Service for Kaggle Models Hub distributions.
 
-Stages and isolates exported models into canonical variation folders:
-1. dist/kaggle/pytorch/   -> [ModelStem].pt
-2. dist/kaggle/onnx_fp32/ -> [ModelStem]_FP32.onnx + [ModelStem]_FP32.onnx.data
-3. dist/kaggle/onnx_fp16/ -> [ModelStem].onnx
+Stages and strictly isolates model artifacts into canonical publishing variation folders:
+1. dist/kaggle/pytorch_default/ -> checkpoints/ (*.pth) + root files (README.md, metrics.csv)
+2. dist/kaggle/pytorch_fp32/    -> [ModelStem].pt (linked/copied from dist/kaggle/pytorch/)
+3. dist/kaggle/onnx_fp16/       -> [ModelStem].onnx
+4. dist/kaggle/onnx_fp32/       -> [ModelStem]_FP32.onnx + [ModelStem]_FP32.onnx.data
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from training.cloud.variations import ONNX_FP16, ONNX_FP32, PYTORCH_DEFAULT, PYTORCH_FP32, VARIATIONS
 from training.export.validation import IsolationReport, StrictIsolationValidator
 from training.registry import ModelSpecification, get_model_registry
 from training.utils.paths import get_project_root
@@ -65,27 +68,43 @@ class VariationStagingService:
         base_dir: Path | str | None = None,
         validate: bool = True,
     ) -> StagingResult:
-        """Stage all available model variations into dist/kaggle/ subdirectories."""
+        """Stage all 4 model variations into dist/kaggle/ subdirectories."""
         hub_dir = self._resolve_hub_dir(model_key, base_dir)
         stem = self._resolve_stem(model_key)
         dist_dir = hub_dir / "dist" / "kaggle"
 
-        pytorch_dir = dist_dir / "pytorch"
+        # Directories
+        pytorch_default_dir = dist_dir / PYTORCH_DEFAULT.payload_dir
+        pytorch_fp32_dir = dist_dir / "pytorch"  # Canonical storage for .pt
         onnx_fp32_dir = dist_dir / "onnx_fp32"
         onnx_fp16_dir = dist_dir / "onnx_fp16"
 
-        pytorch_dir.mkdir(parents=True, exist_ok=True)
+        pytorch_default_dir.mkdir(parents=True, exist_ok=True)
+        pytorch_fp32_dir.mkdir(parents=True, exist_ok=True)
         onnx_fp32_dir.mkdir(parents=True, exist_ok=True)
         onnx_fp16_dir.mkdir(parents=True, exist_ok=True)
 
         staged: dict[str, Path] = {}
         errors: list[str] = []
-
         sources = dict(source_files or {})
+
+        def _safe_copy(src: Path, dest: Path) -> None:
+            if src.resolve() == dest.resolve():
+                return
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists():
+                try:
+                    if src.stat().st_size == dest.stat().st_size:
+                        return
+                    dest.unlink()
+                except OSError:
+                    pass
+            shutil.copy2(str(src), str(dest))
 
         def _transfer(src: Path, dest: Path) -> None:
             if src.resolve() == dest.resolve():
                 return
+            dest.parent.mkdir(parents=True, exist_ok=True)
             if dest.exists():
                 try:
                     if src.stat().st_size == dest.stat().st_size:
@@ -97,7 +116,34 @@ class VariationStagingService:
             shutil.move(str(src), str(dest))
 
         # ---------------------------------------------------------------------
-        # 1. Stage PyTorch (.pt)
+        # 1. Stage PyTorch Default (checkpoints/ + README.md + metrics.csv)
+        # ---------------------------------------------------------------------
+        dest_ckpts_dir = pytorch_default_dir / "checkpoints"
+        dest_ckpts_dir.mkdir(parents=True, exist_ok=True)
+
+        src_ckpts_dir = hub_dir / "checkpoints"
+        if src_ckpts_dir.exists() and src_ckpts_dir.is_dir():
+            for pth in src_ckpts_dir.glob("*.pth"):
+                target_pth = dest_ckpts_dir / pth.name
+                _safe_copy(pth, target_pth)
+                staged[f"default_ckpt_{pth.name}"] = target_pth
+
+        for root_file_name in ("README.md", "metrics.csv"):
+            rf = hub_dir / root_file_name
+            if rf.exists() and rf.is_file():
+                target_rf = pytorch_default_dir / root_file_name
+                _safe_copy(rf, target_rf)
+                staged[f"default_{root_file_name}"] = target_rf
+
+        # Purge any metadata, .pt, or .onnx files from pytorch_default
+        for child in pytorch_default_dir.iterdir():
+            if child.is_file():
+                if any(bad in child.name.lower() for bad in ("model-metadata", "model_metadata", ".pt", ".onnx")):
+                    child.unlink()
+                    logger.debug("Purged forbidden file from pytorch_default: %s", child.name)
+
+        # ---------------------------------------------------------------------
+        # 2. Stage PyTorch FP32 (.pt)
         # ---------------------------------------------------------------------
         pt_src = sources.get("pt") or sources.get("pytorch")
         if not pt_src or not pt_src.exists():
@@ -115,16 +161,16 @@ class VariationStagingService:
                 if root_pts:
                     pt_src = root_pts[0]
 
-        dest_pt = pytorch_dir / f"{stem}.pt"
+        dest_pt = pytorch_fp32_dir / f"{stem}.pt"
         if pt_src and pt_src.exists():
             _transfer(pt_src, dest_pt)
             staged["pytorch"] = dest_pt
-            logger.info("Staged PyTorch variation to %s", dest_pt)
+            logger.info("Staged PyTorch FP32 variation to %s", dest_pt)
         elif dest_pt.exists():
             staged["pytorch"] = dest_pt
 
         # Purge foreign files from pytorch dir and remove root leftovers
-        for child in pytorch_dir.iterdir():
+        for child in pytorch_fp32_dir.iterdir():
             if child.is_file() and child.name != f"{stem}.pt":
                 child.unlink()
                 logger.debug("Removed foreign file from pytorch variation: %s", child.name)
@@ -137,7 +183,7 @@ class VariationStagingService:
                     pass
 
         # ---------------------------------------------------------------------
-        # 2. Stage ONNX FP32 (.onnx + .onnx.data)
+        # 3. Stage ONNX FP32 (.onnx + .onnx.data)
         # ---------------------------------------------------------------------
         fp32_onnx_src = sources.get("onnx_fp32")
         if not fp32_onnx_src or not fp32_onnx_src.exists():
@@ -186,7 +232,6 @@ class VariationStagingService:
             if dest_fp32_data.exists():
                 staged["onnx_fp32_data"] = dest_fp32_data
 
-        # Purge foreign files from onnx_fp32 dir and remove root leftovers
         allowed_names = {f"{stem}_FP32.onnx", f"{stem}_FP32.onnx.data"}
         for child in onnx_fp32_dir.iterdir():
             if child.is_file() and child.name not in allowed_names:
@@ -201,7 +246,7 @@ class VariationStagingService:
                     pass
 
         # ---------------------------------------------------------------------
-        # 3. Stage ONNX FP16 (.onnx)
+        # 4. Stage ONNX FP16 (.onnx)
         # ---------------------------------------------------------------------
         fp16_src = sources.get("onnx_fp16")
         if not fp16_src or not fp16_src.exists():
@@ -230,7 +275,6 @@ class VariationStagingService:
         elif dest_fp16.exists():
             staged["onnx_fp16"] = dest_fp16
 
-        # Purge foreign files and any sidecar data from onnx_fp16 dir
         for child in onnx_fp16_dir.iterdir():
             if child.is_file() and child.name != f"{stem}.onnx":
                 child.unlink()
@@ -244,14 +288,10 @@ class VariationStagingService:
                     pass
 
         # ---------------------------------------------------------------------
-        # 4. Isolation Validation
+        # 5. Isolation Validation
         # ---------------------------------------------------------------------
         report = None
-        has_any_staged = bool(staged) or any(
-            d.is_dir() and any(d.iterdir())
-            for d in (pytorch_dir, onnx_fp32_dir, onnx_fp16_dir)
-        )
-        if validate and has_any_staged:
+        if validate:
             report = self.validator.validate_all(model_key, hub_dir)
             if not report.is_valid:
                 errors.extend(report.all_errors)

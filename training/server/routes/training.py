@@ -104,8 +104,11 @@ class KaggleMonitorRequest(BaseModel):
 
 
 class KagglePullRequest(BaseModel):
-    """Payload for downloading model checkpoints from Kaggle Models."""
+    """Payload for downloading model variations from Kaggle Models Hub."""
     model: str = Field(..., description="Target model key")
+    variation: str = Field("all", description="Variation to pull ('all', 'pytorch', 'pytorch_fp32', 'onnx_fp16', 'onnx_fp32')")
+    force_download: bool = Field(False, description="Force re-download even if cached version is current")
+    username: Optional[str] = Field(None, description="Optional Kaggle username override")
 
 
 class KagglePushRequest(BaseModel):
@@ -184,32 +187,34 @@ def monitor_kaggle_kernel(payload: KaggleMonitorRequest, request: Request) -> di
 
 
 @router.post("/kaggle/pull")
-def pull_kaggle_model_artifacts(payload: KagglePullRequest) -> dict[str, Any]:
-    """Pull latest model weights and metrics from Kaggle Models to LemGendaryModels."""
-    from training.kaggle_cloud_manager import pull_kaggle_artifacts
-
-    success = pull_kaggle_artifacts(payload.model)
+def pull_kaggle_model_artifacts(payload: KagglePullRequest, request: Request) -> dict[str, Any]:
+    """Enqueue a job that downloads all 4 model variations from Kaggle Models Hub."""
+    manager = request.app.state.job_manager
+    params: dict[str, Any] = {
+        "variation": payload.variation,
+        "force_download": payload.force_download,
+        "username": payload.username,
+    }
+    job_id = manager.submit_job(job_type="kaggle_pull", model_key=payload.model, params=params)
     return {
-        "status": "success" if success else "failed",
+        "job_id": job_id,
+        "status": "pending",
         "model": payload.model,
-        "message": f"Artifact pull {'completed' if success else 'failed'} for {payload.model}",
+        "message": f"Kaggle pull enqueued for {payload.model} (pytorch/default, pytorch/fp32, onnx/fp16, onnx/fp32)",
     }
 
 
 @router.post("/kaggle/push")
-def push_kaggle_model_artifacts(payload: KagglePushRequest) -> dict[str, Any]:
-    """Stage and upload local model checkpoints and metrics to Kaggle Models."""
-    from training.kaggle_cloud_manager import push_kaggle_artifacts
-
-    success = push_kaggle_artifacts(
-        model_name=payload.model,
-        source_dir=payload.source_dir,
-        username=payload.username,
-    )
+def push_kaggle_model_artifacts(payload: KagglePushRequest, request: Request) -> dict[str, Any]:
+    """Enqueue a job staging and pushing all 4 variations of one model to Kaggle Models."""
+    manager = request.app.state.job_manager
+    params: dict[str, Any] = {"variation": "all", "dry_run": False, "username": payload.username}
+    job_id = manager.submit_job(job_type="kaggle_push", model_key=payload.model, params=params)
     return {
-        "status": "success" if success else "failed",
+        "job_id": job_id,
+        "status": "pending",
         "model": payload.model,
-        "message": f"Artifact push {'completed successfully' if success else 'failed'} for {payload.model}",
+        "message": f"Kaggle push enqueued for {payload.model} (pytorch/default, pytorch/fp32, onnx/fp16, onnx/fp32)",
     }
 
 

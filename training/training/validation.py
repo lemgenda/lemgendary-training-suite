@@ -95,16 +95,61 @@ def validate_one_epoch(
     log_interval = max(1, num_val_batches // 100) if num_val_batches > 100 else 10
     last_log_time = time.time()
 
+    resume_step = 0
+    if (
+        ctx.resume_state is not None
+        and ctx.resume_state.is_intra_epoch
+        and ctx.resume_state.phase == "val"
+        and ctx.resume_state.iteration > 0
+        and not getattr(ctx, "_resumed_val_step_handled", False)
+    ):
+        resume_step = ctx.resume_state.iteration
+        setattr(ctx, "_resumed_val_step_handled", True)
+        print(f"[RESUME] Fast-forwarding {resume_step} completed validation batches in Epoch {epoch}...", flush=True)
+
+        # Restore running accumulators if available
+        acc = getattr(ctx.resume_state, "val_accumulators", {})
+        if acc:
+            total_loss = float(acc.get("total_loss", 0.0))
+            total_ssim = float(acc.get("total_ssim", 0.0))
+            total_mse = float(acc.get("total_mse", 0.0))
+            has_image_metrics = bool(acc.get("has_image_metrics", False))
+            has_forex_metrics = bool(acc.get("has_forex_metrics", False))
+            total_forex_samples = int(acc.get("total_forex_samples", 0))
+            correct_forex_samples = int(acc.get("correct_forex_samples", 0))
+            total_trades = int(acc.get("total_trades", 0))
+            winning_trades = int(acc.get("winning_trades", 0))
+            total_forex_entropy = float(acc.get("total_forex_entropy", 0.0))
+            total_tp_mae = float(acc.get("total_tp_mae", 0.0))
+            total_sl_mae = float(acc.get("total_sl_mae", 0.0))
+            total_mag_samples = int(acc.get("total_mag_samples", 0))
+            trade_returns = list(acc.get("trade_returns", []))
+            step_count = resume_step
+
+    ff_interval = max(1, min(500, resume_step // 20)) if resume_step > 0 else 100
+
     with torch.no_grad():
-        for batch in ctx.val_loader:
+        for batch_idx, batch in enumerate(ctx.val_loader):
+            if batch_idx < resume_step:
+                if (batch_idx + 1) % ff_interval == 0 or (batch_idx + 1) == resume_step:
+                    ff_pct = ((batch_idx + 1) / max(1, num_val_batches)) * 100.0
+                    print(
+                        f"  [FAST-FORWARD] [VAL BATCH {batch_idx + 1:>{len(str(num_val_batches))}}/{num_val_batches}] "
+                        f"({ff_pct:.1f}%) Skipping processed validation batches...",
+                        flush=True,
+                    )
+                continue
+
             if cancel_check is not None and cancel_check():
                 raise InterruptedError("Validation cancelled by user request.")
 
             inputs, targets, task_idx = _unpack_batch(batch, device)
 
+            loss: Any
             with autocast_ctx:
-                if hasattr(ctx.model, "eval_step"):
-                    val_out = ctx.model.eval_step(inputs)
+                eval_step_fn = getattr(ctx.model, "eval_step", None)
+                if callable(eval_step_fn):
+                    val_out = eval_step_fn(inputs)
                     loss = val_out["loss"] if isinstance(val_out, dict) else val_out
                     preds = val_out.get("preds", inputs) if isinstance(val_out, dict) else inputs
                 elif task_idx is not None:
@@ -121,6 +166,22 @@ def validate_one_epoch(
             if ctx.lifecycle_manager is not None:
                 raw_m = ctx.raw_model if ctx.raw_model is not None else ctx.model
                 total_val = len(ctx.val_loader) if hasattr(ctx.val_loader, "__len__") else 0
+                val_acc_snapshot = {
+                    "total_loss": total_loss,
+                    "total_ssim": total_ssim,
+                    "total_mse": total_mse,
+                    "has_image_metrics": has_image_metrics,
+                    "has_forex_metrics": has_forex_metrics,
+                    "total_forex_samples": total_forex_samples,
+                    "correct_forex_samples": correct_forex_samples,
+                    "total_trades": total_trades,
+                    "winning_trades": winning_trades,
+                    "total_forex_entropy": total_forex_entropy,
+                    "total_tp_mae": total_tp_mae,
+                    "total_sl_mae": total_sl_mae,
+                    "total_mag_samples": total_mag_samples,
+                    "trade_returns": list(trade_returns),
+                }
                 ctx.lifecycle_manager.check_and_save_progress(
                     epoch=epoch,
                     phase="val",
@@ -134,6 +195,7 @@ def validate_one_epoch(
                         "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
                         "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
                         "train_metrics": getattr(ctx, "last_train_metrics", {}),
+                        "val_accumulators": dict(val_acc_snapshot),
                     },
                 )
 
@@ -148,7 +210,8 @@ def validate_one_epoch(
                 last_log_time = now
                 batch_loss = float(loss.item())
                 elapsed_batch = now - start_time
-                rate = step_count / max(0.001, elapsed_batch)
+                processed_in_session = max(1, step_count - resume_step)
+                rate = processed_in_session / max(0.001, elapsed_batch)
                 rate_str = f"{rate:.2f} it/s" if rate >= 1.0 else f"{1.0 / max(1e-4, rate):.1f} s/it"
 
                 if num_val_batches > 0:

@@ -86,7 +86,7 @@ def audit_model(model_key: str, request: Request) -> dict[str, Any]:
 
 @router.post("/{model_key}/docs/generate")
 def generate_model_docs(model_key: str, request: Request) -> dict[str, Any]:
-    """Regenerate authoritative README.md and Kaggle model-metadata.json for model."""
+    """Regenerate authoritative README.md and Kaggle model_metadata.yaml for model."""
     root = _get_root(request)
     registry = _load_registry(root)
     if model_key not in registry:

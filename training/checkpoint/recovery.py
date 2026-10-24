@@ -101,7 +101,8 @@ class CheckpointRecoveryEngine:
                     print(f"[RECOVERY] Probing KaggleHub checkpoints for '{k_handle}' (5s timeout)...", flush=True)
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(model_download_fn, k_handle)
-                        dl_path = Path(future.result(timeout=5.0))
+                        dl_res = future.result(timeout=5.0)
+                        dl_path = Path(str(dl_res))
                         if dl_path.exists():
                             logger.info("KaggleHub resolved checkpoint directory: %s", dl_path)
                             print(f"[RECOVERY] Discovered KaggleHub checkpoint directory: {dl_path}", flush=True)

@@ -14,7 +14,7 @@ forex_predictor:
   filename: ForexPredictor
   checkpoint: ForexPredictorWeights_FP32.pth
   input_size: null
-  batch_size: 256
+  batch_size: 128
   learning_rate: 0.0001
   loss_fn: forex_dual
   dataset_type: forex

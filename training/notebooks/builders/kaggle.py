@@ -23,6 +23,7 @@ from ..cells.model import (
 )
 from ..cells.repo import build_clone_cell
 from ..cells.sync import (
+    build_push_cell,
     build_secrets_cell,
     build_training_cell,
 )
@@ -91,6 +92,8 @@ def generate_inference_notebook(
             build_checkpoint_recovery_cell(meta, "kaggle"),
             make_markdown_cell(["## 7. Nuclear Training Matrix\n"]),
             build_training_cell(meta, "kaggle"),
+            make_markdown_cell(["## 8. SOTA Models Hub & Google Drive Publishing (4 Variations)\n"]),
+            build_push_cell(meta, "kaggle"),
         ],
     }
 

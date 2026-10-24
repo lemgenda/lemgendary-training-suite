@@ -99,32 +99,15 @@ def pull_kaggle_artifacts(
     destination_dir: str | None = None,
     username: str | None = None,
 ) -> bool:
-    """Download latest checkpoints and metrics from Kaggle Models."""
-    user, _ = resolve_kaggle_credentials(override_user=username)
-    mgr = KaggleHubManager(username=user)
-    suite_dir = Path(__file__).resolve().parent.parent
-    target_dir = Path(destination_dir) if destination_dir else suite_dir.parent / "LemGendaryModels" / model_name
-    target_dir.mkdir(parents=True, exist_ok=True)
+    """Download latest checkpoints and metrics from Kaggle Models via unified sync manager."""
+    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 
-    handle = mgr.get_handle(model_name)
-    logger.info("Pulling Kaggle artifacts for %s (%s) -> %s", model_name, handle, target_dir)
-
+    sync_mgr = KaggleModelSyncManager(username=username)
+    logger.info("Pulling Kaggle model variations for %s ...", model_name)
     try:
-        return mgr.pull(handle, target_dir)
-    except CloudSyncError as exc:
-        logger.warning("Model registry pull notice: %s. Attempting kernel output fallback...", exc)
-
-    try:
-        kaggle_mod = importlib.import_module("kaggle.api.kaggle_api_extended")
-        api_cls = getattr(kaggle_mod, "KaggleApi")
-        api = api_cls()
-        api.authenticate()
-        slug = mgr.get_kernel_slug(model_name)
-        api.kernels_output(slug, path=str(target_dir))
-        logger.info("Kernel output artifacts pulled successfully.")
-        return True
-    except Exception as k_err:
-        logger.error("Artifact pull failed: %s", k_err)
+        return sync_mgr.pull_model(model_key=model_name)
+    except Exception as exc:
+        logger.error("Failed pulling model %s: %s", model_name, exc)
         return False
 
 
@@ -133,22 +116,12 @@ def push_kaggle_artifacts(
     source_dir: str | None = None,
     username: str | None = None,
 ) -> bool:
-    """Stage and upload local model checkpoints and artifacts to Kaggle Models Hub."""
-    user, key = resolve_kaggle_credentials(override_user=username)
-    mgr = KaggleHubManager(username=user, key=key)
-    suite_dir = Path(__file__).resolve().parent.parent
-    src = Path(source_dir) if source_dir else suite_dir.parent / "LemGendaryModels" / model_name
-    if not src.exists():
-        logger.error("Source directory does not exist for model %s: %s", model_name, src)
-        return False
+    """Stage and upload multi-variation model to Kaggle Models Hub via unified sync pipeline."""
+    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 
-    handle = mgr.get_handle(model_name)
-    logger.info("Pushing Kaggle artifacts for %s (%s) from %s", model_name, handle, src)
-    try:
-        return mgr.sync(model_name=model_name, epoch=1, src_dir=src)
-    except Exception as exc:
-        logger.error("Artifact push failed for %s: %s", model_name, exc)
-        return False
+    sync_mgr = KaggleModelSyncManager(username=username)
+    res = sync_mgr.push_model(model_key=model_name, variation="all")
+    return res.success
 
 
 def push_kaggle_model(

@@ -275,7 +275,7 @@ class TestFullProductionPipelinePass(unittest.TestCase):
             validator = StrictIsolationValidator()
             report = validator.validate_all("mirnet_exposure", base_dir=model_hub_dir)
             self.assertTrue(report.is_valid)
-            self.assertEqual(len(report.variations), 3)
+            self.assertEqual(len(report.variations), 4)
 
             # 7. Dry-run Kaggle upload payload
             sync_mgr = KaggleModelSyncManager(hub_root=model_hub_dir.parent)

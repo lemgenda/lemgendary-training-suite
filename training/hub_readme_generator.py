@@ -174,7 +174,7 @@ def generate_hub_readme(project_root=workspace_root):
         "LemGendaryModels/<model_key>/",
         "├── README.md               # Model Card & SOTA benchmark targets",
         "├── metrics.csv             # Training and validation loss curves",
-        "├── model-metadata.json     # Kaggle Models manifest (Public, CC BY-NC 4.0)",
+        "├── model_metadata.yaml     # Kaggle Models manifest (Public, CC BY-NC 4.0)",
         "├── checkpoints/            # Best and milestone checkpoint vaults (*.pth)",
         "├── notebooks/              # Standardized Kaggle & Colab notebooks",
         "├── dist/                   # Isolated production distributions",

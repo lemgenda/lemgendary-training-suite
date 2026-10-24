@@ -85,17 +85,19 @@ class TestModelIsolation(unittest.TestCase):
         """Verify aggregate validation across dist/kaggle/ directory tree."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             dist_kaggle = Path(tmp_dir) / "dist" / "kaggle"
+            (dist_kaggle / "pytorch_default" / "checkpoints").mkdir(parents=True)
             (dist_kaggle / "pytorch").mkdir(parents=True)
             (dist_kaggle / "onnx_fp32").mkdir(parents=True)
             (dist_kaggle / "onnx_fp16").mkdir(parents=True)
 
+            (dist_kaggle / "pytorch_default" / "checkpoints" / "best.pth").write_bytes(b"pth")
             (dist_kaggle / "pytorch" / "ModelA.pt").write_bytes(b"pt")
             (dist_kaggle / "onnx_fp32" / "ModelA_FP32.onnx").write_bytes(b"onnx32")
             (dist_kaggle / "onnx_fp16" / "ModelA.onnx").write_bytes(b"onnx16")
 
             report = self.validator.validate_all("ModelA", base_dir=tmp_dir)
             self.assertTrue(report.is_valid)
-            self.assertEqual(len(report.variations), 3)
+            self.assertEqual(len(report.variations), 4)
 
 
 if __name__ == "__main__":

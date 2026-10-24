@@ -58,9 +58,13 @@ class TestKaggleMetadata(unittest.TestCase):
             out_file = self.service.write_metadata("nafnet_debluring", output_dir=tmp_dir)
 
             self.assertTrue(out_file.exists())
-            self.assertEqual(out_file.name, "model-metadata.json")
+            self.assertEqual(out_file.name, "model_metadata.yaml")
 
-            with open(out_file, "r", encoding="utf-8") as f:
+            # Check that model-metadata.json is also written for Kaggle compatibility
+            json_file = Path(tmp_dir) / "model-metadata.json"
+            self.assertTrue(json_file.exists())
+
+            with open(json_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             self.assertEqual(data["slug"], "nafnet-debluring")

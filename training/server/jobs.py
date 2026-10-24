@@ -259,7 +259,7 @@ class JobManager:
         # Determine contextual job type and step name for telemetry isolation
         job = self.state.get_job(job_id)
         job_type = job.get("job_type", "train") if job else "train"
-        step_name = "Cloud Training" if job_type in ("kaggle_train", "kaggle_monitor", "cloud_push", "kaggle_push_all") else "Training"
+        step_name = "Cloud Training" if job_type in ("kaggle_train", "kaggle_monitor", "cloud_push") else "Training"
 
         payload_dict = {
             "timestamp": timestamp,
@@ -302,10 +302,23 @@ class JobManager:
         self._broadcast_log(job_id, f"[START] Commencing execution of {job_type} on {model_key}...")
 
         tid = threading.get_ident()
+        def _job_log_filter(line: str) -> None:
+            if job_type in ("kaggle_push", "kaggle_push_all"):
+                # Suppress noisy library lines; keep structured steps, errors, and success summaries
+                low = line.lower()
+                if (
+                    low.startswith("uploading model https://")
+                    or "does not exist or access is forbidden" in low
+                    or "creating or handling model" in low
+                    or low.startswith("failed uploading ")
+                ):
+                    return
+            self._broadcast_log(job_id, line)
+
         if self._stdout_tee:
-            self._stdout_tee.register_thread(tid, lambda line: self._broadcast_log(job_id, line))
+            self._stdout_tee.register_thread(tid, _job_log_filter)
         if self._stderr_tee:
-            self._stderr_tee.register_thread(tid, lambda line: self._broadcast_log(job_id, line))
+            self._stderr_tee.register_thread(tid, _job_log_filter)
 
         try:
             if cancel_event.is_set():
@@ -327,6 +340,10 @@ class JobManager:
                 self._execute_test_all(job_id, params, cancel_event)
             elif job_type == "kaggle_push_all":
                 self._execute_kaggle_push_all(job_id, params, cancel_event)
+            elif job_type == "kaggle_push":
+                self._execute_kaggle_push(job_id, model_key, params, cancel_event)
+            elif job_type == "kaggle_pull":
+                self._execute_kaggle_pull(job_id, model_key, params, cancel_event)
             else:
                 raise ValueError(f"Unknown job_type: '{job_type}'")
 
@@ -712,6 +729,100 @@ class JobManager:
             )
             self._broadcast_log(job_id, f"[ERROR] Fleet diagnostic pass failed with return code {proc.returncode}.")
 
+    def _push_model_with_telemetry(
+        self,
+        job_id: str,
+        sync_mgr: Any,
+        model_key: str,
+        variation: str,
+        version_notes: str | None,
+        dry_run: bool,
+        cancel_event: threading.Event,
+        prefix: str = "",
+    ) -> Any:
+        """Stage, then push each variation one by one, emitting progress lines and summary logs."""
+        from training.cloud.variations import VARIATION_BY_KEY, VARIATIONS
+        from training.export.staging import VariationStagingService
+
+        sync_mgr.ensure_model_metadata(model_key)
+        staging_res = VariationStagingService().stage_variations(model_key)
+        if staging_res.staged_files:
+            staged_names = [f.name for f in staging_res.staged_files.values()]
+            self._broadcast_log(job_id, f"{prefix}[STAGING] Staged {len(staged_names)} files for '{model_key}': {staged_names}")
+
+        variations = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
+        from training.cloud.kaggle_model_sync import ModelPushResult
+        result = ModelPushResult(model_key=model_key, success=True, isolation_report=sync_mgr.validate_isolation(model_key))
+        total = len(variations)
+
+        # 1. Push all variations with progress
+        for i, var in enumerate(variations, 1):
+            if cancel_event.is_set():
+                raise InterruptedError("Push cancelled")
+
+            pct_start = int(((i - 1) / total) * 100)
+            handle = sync_mgr.get_handle(model_key, var)
+            # Format with [UPLOAD] keyword so progressParser.ts detects upload operation
+            self._broadcast_log(
+                job_id,
+                f"{prefix}[UPLOAD] [Step {i}/{total}] PUSHING {model_key} [{var}] -> {handle} ({pct_start}%)",
+            )
+            var_res = sync_mgr.push_variation(model_key=model_key, variation=var, version_notes=version_notes, dry_run=dry_run)
+            result.variations[var] = var_res
+            pct_done = int((i / total) * 100)
+            if var_res.success:
+                self._broadcast_log(
+                    job_id,
+                    f"{prefix}[UPLOAD] [Step {i}/{total}] DONE {model_key} [{var}] files={var_res.files} ({pct_done}%)",
+                )
+            else:
+                result.success = False
+                result.errors.append(f"[{var}] {var_res.error}")
+                self._broadcast_log(job_id, f"{prefix}[ERROR] {model_key} [{var}]: {var_res.error}")
+
+        # 2. Sync metadata via API if variations succeeded
+        if result.success or dry_run:
+            try:
+                sync_meta_res = sync_mgr.sync_kaggle_metadata(model_key, dry_run=dry_run)
+                result.metadata_sync_result = sync_meta_res
+                if sync_meta_res.get("errors"):
+                    result.errors.extend(sync_meta_res["errors"])
+            except Exception as meta_exc:
+                err_str = f"Metadata synchronization error: {meta_exc}"
+                result.errors.append(err_str)
+                self._broadcast_log(job_id, f"{prefix}[ERROR] {model_key} metadata sync: {err_str}")
+
+        # 3. Emit exact 2 clean summary log entries on success
+        if result.success and (not result.metadata_sync_result or not result.metadata_sync_result.get("errors")):
+            self._broadcast_log(job_id, f"{prefix}[SUCCESS] Model {model_key} pushed successfully to Kaggle ({total} variations)")
+            self._broadcast_log(job_id, f"{prefix}[SUCCESS] Kaggle metadata was successfully updated for {model_key}")
+        elif result.errors:
+            self._broadcast_log(job_id, f"{prefix}[ERROR] Kaggle publish failed for {model_key}: {'; '.join(result.errors)}")
+
+        return result
+
+    def _execute_kaggle_push(
+        self,
+        job_id: str,
+        model_key: str,
+        params: dict[str, Any],
+        cancel_event: threading.Event,
+    ) -> None:
+        """Push all 4 variations of a single model to Kaggle Models Hub with live telemetry."""
+        from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+
+        variation = params.get("variation", "all")
+        dry_run = params.get("dry_run", False)
+        sync_mgr = KaggleModelSyncManager(username=params.get("username"))
+        res = self._push_model_with_telemetry(
+            job_id, sync_mgr, model_key, variation, params.get("version_notes"), dry_run, cancel_event
+        )
+        if res.success and (not res.metadata_sync_result or not res.metadata_sync_result.get("errors")):
+            self.state.update_job_status(job_id=job_id, status="completed", metrics=res.to_dict())
+        else:
+            err = "; ".join(res.errors) if res.errors else "Kaggle push failed"
+            self.state.update_job_status(job_id=job_id, status="failed", error_message=err, metrics=res.to_dict())
+
     def _execute_kaggle_push_all(
         self,
         job_id: str,
@@ -720,7 +831,6 @@ class JobManager:
     ) -> None:
         """Execute fleet synchronization pushing all registered models to Kaggle Models Hub."""
         from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-        from training.export.staging import VariationStagingService
         from training.registry import get_model_registry
 
         variation = params.get("variation", "all")
@@ -736,7 +846,6 @@ class JobManager:
         )
 
         sync_mgr = KaggleModelSyncManager()
-        staging_service = VariationStagingService()
 
         results: dict[str, Any] = {}
         successful_count = 0
@@ -749,33 +858,21 @@ class JobManager:
                 return
 
             model_key = model_spec.key
+            fleet_pct = int(((idx - 1) / total_models) * 100)
             self._broadcast_log(
                 job_id,
-                f"[{idx}/{total_models}] Processing model '{model_key}' ({model_spec.name})...",
+                f"[UPLOAD] [Step {idx}/{total_models}] FLEET {model_key} ({model_spec.name}) ({fleet_pct}%)",
             )
 
             try:
-                sync_mgr.ensure_model_metadata(model_key)
-                staging_res = staging_service.stage_variations(model_key)
-                if staging_res.staged_files:
-                    staged_names = [f.name for f in staging_res.staged_files.values()]
-                    self._broadcast_log(job_id, f"  [STAGING] Staged {len(staged_names)} files for '{model_key}': {staged_names}")
-
-                push_res = sync_mgr.push_model(
-                    model_key=model_key,
-                    variation=variation,
-                    version_notes=version_notes,
-                    dry_run=dry_run,
+                push_res = self._push_model_with_telemetry(
+                    job_id, sync_mgr, model_key, variation, version_notes, dry_run, cancel_event, prefix="  "
                 )
 
-                if push_res.success:
+                if push_res.success and (not push_res.metadata_sync_result or not push_res.metadata_sync_result.get("errors")):
                     successful_count += 1
-                    var_handles = [v.handle for v in push_res.variations.values() if v.success]
-                    self._broadcast_log(job_id, f"  [SUCCESS] Pushed '{model_key}' -> {var_handles}")
                 else:
                     failed_count += 1
-                    err_msg = "; ".join(push_res.errors) if push_res.errors else "Unknown sync failure"
-                    self._broadcast_log(job_id, f"  [WARN] Push notice for '{model_key}': {err_msg}")
 
                 results[model_key] = push_res.to_dict()
 
@@ -796,8 +893,82 @@ class JobManager:
         self.state.update_job_status(job_id=job_id, status=overall_status, metrics=metrics)
         self._broadcast_log(
             job_id,
-            f"[COMPLETED] Kaggle fleet push finished: {successful_count} succeeded, {failed_count} skipped/failed out of {total_models} models.",
+            f"[COMPLETED] Kaggle fleet push finished: {successful_count} succeeded, {failed_count} skipped/failed out of {total_models} models (100%).",
         )
+
+    def _execute_kaggle_pull(
+        self,
+        job_id: str,
+        model_key: str,
+        params: dict[str, Any],
+        cancel_event: threading.Event,
+    ) -> None:
+        """Download all 4 model variations from Kaggle Models Hub with live telemetry."""
+        from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+        from training.cloud.variations import VARIATION_BY_KEY
+
+        variation = params.get("variation", "all")
+        force_download = params.get("force_download", False)
+
+        sync_mgr = KaggleModelSyncManager(username=params.get("username"))
+        vars_to_pull = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
+        total = len(vars_to_pull)
+
+        self._broadcast_log(job_id, f"[DOWNLOAD] Pulling {total} variation(s) for '{model_key}' from Kaggle Models Hub...")
+
+        success_count = 0
+        errors: list[str] = []
+
+        for i, var_key in enumerate(vars_to_pull, 1):
+            if cancel_event.is_set():
+                raise InterruptedError("Pull cancelled")
+
+            pct_start = int(((i - 1) / total) * 100)
+            handle = sync_mgr.get_handle(model_key, var_key)
+            self._broadcast_log(
+                job_id,
+                f"[DOWNLOAD] [Step {i}/{total}] PULLING {model_key} [{var_key}] <- {handle} ({pct_start}%)",
+            )
+
+            try:
+                ok = sync_mgr.pull_variation(model_key, var_key, force_download=force_download)
+                pct_done = int((i / total) * 100)
+                if ok:
+                    success_count += 1
+                    target_dir = sync_mgr.get_variation_dir(model_key, var_key)
+                    self._broadcast_log(
+                        job_id,
+                        f"[DOWNLOAD] [Step {i}/{total}] DONE {model_key} [{var_key}] -> {target_dir} ({pct_done}%)",
+                    )
+                else:
+                    errors.append(f"[{var_key}] Pull returned False")
+                    self._broadcast_log(job_id, f"[ERROR] {model_key} [{var_key}]: pull returned False")
+            except Exception as exc:
+                errors.append(f"[{var_key}] {exc}")
+                self._broadcast_log(job_id, f"[ERROR] {model_key} [{var_key}]: {exc}")
+
+        if success_count == total:
+            self.state.update_job_status(
+                job_id=job_id,
+                status="completed",
+                metrics={"model_key": model_key, "variations_pulled": total},
+            )
+            self._broadcast_log(
+                job_id,
+                f"[SUCCESS] Model {model_key} pulled successfully from Kaggle ({total} variations)",
+            )
+        else:
+            err_summary = "; ".join(errors)
+            self.state.update_job_status(
+                job_id=job_id,
+                status="failed",
+                error_message=err_summary,
+                metrics={"model_key": model_key, "success_count": success_count, "errors": errors},
+            )
+            self._broadcast_log(
+                job_id,
+                f"[ERROR] Pull incomplete for {model_key}: {success_count}/{total} succeeded. {err_summary}",
+            )
 
     def shutdown(self) -> None:
         """Gracefully terminate thread pool executors."""

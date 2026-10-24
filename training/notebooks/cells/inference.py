@@ -12,16 +12,20 @@ from .base import make_code_cell
 
 def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     """Build the PyTorch standalone model inference code cell."""
+    stem = meta.filename or meta.pascal_name
+    pt_handle = meta.handle_pytorch_fp32 or f"{meta.k_username}/{meta.k_slug}/pytorch/fp32"
     if meta.is_forex:
         source = [
-            "import base64\n",
+            "import os, base64\n",
             "try:\n",
+            "    import kagglehub\n",
+            f"    pt_dir = kagglehub.model_download('{pt_handle}')\n",
+            f"    model_path = os.path.join(pt_dir, '{stem}.pt') if pt_dir else '{stem}.pt'\n",
             "    t_key = 'dG' + '9y' + 'Y2g='\n",
             "    torch = __import__(base64.b64decode(t_key).decode())\n",
             "    import numpy as np\n",
             "\n",
             "    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
-            f"    model_path = '{meta.pascal_name}.pt'\n",
             "    model = torch.load(model_path, map_location=device)\n",
             "    if device.type == 'cuda' and torch.cuda.device_count() > 1:\n",
             "        model = torch.nn.DataParallel(model)\n",
@@ -39,15 +43,17 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     else:
         h, w = meta.input_size
         source = [
-            "import base64\n",
+            "import os, base64\n",
             "try:\n",
+            "    import kagglehub\n",
+            f"    pt_dir = kagglehub.model_download('{pt_handle}')\n",
+            f"    model_path = os.path.join(pt_dir, '{stem}.pt') if pt_dir else '{stem}.pt'\n",
             "    t_key = 'dG' + '9y' + 'Y2g='\n",
             "    torch = __import__(base64.b64decode(t_key).decode())\n",
             "    from PIL import Image\n",
             "    import numpy as np\n",
             "\n",
             "    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
-            f"    model_path = '{meta.pascal_name}.pt'\n",
             "    model = torch.load(model_path, map_location=device)\n",
             "    if device.type == 'cuda' and torch.cuda.device_count() > 1:\n",
             "        model = torch.nn.DataParallel(model)\n",
@@ -70,14 +76,18 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
 
 def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     """Build the ONNX FP32 external-weight model inference code cell."""
+    stem = meta.filename or meta.pascal_name
+    onnx_handle = meta.handle_onnx_fp32 or f"{meta.k_username}/{meta.k_slug}/onnx/fp32"
     if meta.is_forex:
         source = [
-            "import base64, numpy as np\n",
+            "import os, base64, numpy as np\n",
             "try:\n",
+            "    import kagglehub\n",
+            f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
+            f"    onnx_path = os.path.join(onnx_dir, '{stem}_FP32.onnx') if onnx_dir else '{stem}_FP32.onnx'\n",
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "\n",
-            f"    onnx_path = '{meta.pascal_name}_FP32.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
             "    inputs = {f'tf_{tf}': np.random.randn(1, 168, 14).astype(np.float32) for tf in [1, 5, 15, 60, 240, 1440]}\n",
@@ -89,13 +99,15 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     else:
         h, w = meta.input_size
         source = [
-            "import base64, numpy as np\n",
+            "import os, base64, numpy as np\n",
             "try:\n",
+            "    import kagglehub\n",
+            f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
+            f"    onnx_path = os.path.join(onnx_dir, '{stem}_FP32.onnx') if onnx_dir else '{stem}_FP32.onnx'\n",
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "    from PIL import Image\n",
             "\n",
-            f"    onnx_path = '{meta.pascal_name}_FP32.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
@@ -111,14 +123,18 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
 
 def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     """Build the ONNX FP16 embedded model inference code cell."""
+    stem = meta.filename or meta.pascal_name
+    onnx_handle = meta.handle_onnx_fp16 or f"{meta.k_username}/{meta.k_slug}/onnx/fp16"
     if meta.is_forex:
         source = [
-            "import base64, numpy as np\n",
+            "import os, base64, numpy as np\n",
             "try:\n",
+            "    import kagglehub\n",
+            f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
+            f"    onnx_path = os.path.join(onnx_dir, '{stem}.onnx') if onnx_dir else '{stem}.onnx'\n",
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "\n",
-            f"    onnx_path = '{meta.pascal_name}.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
             "    inputs = {f'tf_{tf}': np.random.randn(1, 168, 14).astype(np.float16) for tf in [1, 5, 15, 60, 240, 1440]}\n",
@@ -130,13 +146,15 @@ def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     else:
         h, w = meta.input_size
         source = [
-            "import base64, numpy as np\n",
+            "import os, base64, numpy as np\n",
             "try:\n",
+            "    import kagglehub\n",
+            f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
+            f"    onnx_path = os.path.join(onnx_dir, '{stem}.onnx') if onnx_dir else '{stem}.onnx'\n",
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "    from PIL import Image\n",
             "\n",
-            f"    onnx_path = '{meta.pascal_name}.onnx'\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",

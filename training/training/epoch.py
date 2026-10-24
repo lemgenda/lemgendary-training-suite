@@ -94,8 +94,25 @@ def train_one_epoch(
         setattr(ctx, "_resumed_train_step_handled", True)
         print(f"[RESUME] Fast-forwarding {resume_step} completed batches in Epoch {epoch}...", flush=True)
 
+        acc = getattr(ctx.resume_state, "train_accumulators", {})
+        if acc:
+            total_loss = float(acc.get("total_loss", 0.0))
+            total_grad_norm = float(acc.get("total_grad_norm", 0.0))
+            step_count = int(acc.get("step_count", resume_step))
+        else:
+            step_count = resume_step
+
+    ff_interval = max(1, min(500, resume_step // 20)) if resume_step > 0 else 100
+
     for batch_idx, batch in enumerate(ctx.train_loader):
         if batch_idx < resume_step:
+            if (batch_idx + 1) % ff_interval == 0 or (batch_idx + 1) == resume_step:
+                ff_pct = ((batch_idx + 1) / max(1, num_batches)) * 100.0
+                print(
+                    f"  [FAST-FORWARD] [BATCH {batch_idx + 1:>{len(str(num_batches))}}/{num_batches}] "
+                    f"({ff_pct:.1f}%) Skipping processed training batches...",
+                    flush=True,
+                )
             continue
 
         if cancel_check is not None and cancel_check():
@@ -103,9 +120,11 @@ def train_one_epoch(
 
         inputs, targets, task_idx = _unpack_batch(batch, device)
 
+        raw_loss: Any
         with autocast_ctx:
-            if hasattr(ctx.model, "train_step"):
-                loss_dict = ctx.model.train_step(inputs)
+            train_step_fn = getattr(ctx.model, "train_step", None)
+            if callable(train_step_fn):
+                loss_dict = train_step_fn(inputs)
                 raw_loss = loss_dict["loss"] if isinstance(loss_dict, dict) else loss_dict
             elif task_idx is not None:
                 preds = ctx.model(inputs)
@@ -142,6 +161,11 @@ def train_one_epoch(
         # Intra-epoch progress check (15 min interval, strictly bounded to [5%, 50%])
         if ctx.lifecycle_manager is not None:
             raw_m = ctx.raw_model if ctx.raw_model is not None else ctx.model
+            train_acc_snapshot = {
+                "total_loss": total_loss,
+                "total_grad_norm": total_grad_norm,
+                "step_count": step_count,
+            }
             ctx.lifecycle_manager.check_and_save_progress(
                 epoch=epoch,
                 phase="train",
@@ -154,11 +178,12 @@ def train_one_epoch(
                     "optimizer_state": ctx.optimizer.state_dict(),
                     "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
                     "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
+                    "train_accumulators": dict(train_acc_snapshot),
                 },
             )
 
         now = time.time()
-        is_warmup = (batch_idx + 1) in (1, 2, 5, 10)
+        is_warmup = (batch_idx + 1) in (1, 2, 5, 10) or (step_count - resume_step in (1, 2, 5, 10))
         time_elapsed_since_log = now - last_log_time
         is_periodic = ((batch_idx + 1) % log_interval == 0) or ((batch_idx + 1) == num_batches)
         is_heartbeat = (time_elapsed_since_log >= 8.0 and (batch_idx + 1) > 10)
@@ -168,7 +193,8 @@ def train_one_epoch(
             batch_loss = float(raw_loss.item())
             cur_lr = float(ctx.optimizer.param_groups[0]["lr"])
             elapsed_batch = now - start_time
-            rate = (batch_idx + 1) / max(0.001, elapsed_batch)
+            processed_in_session = max(1, (batch_idx + 1) - resume_step)
+            rate = processed_in_session / max(0.001, elapsed_batch)
             rate_str = f"{rate:.2f} it/s" if rate >= 1.0 else f"{1.0 / max(1e-4, rate):.1f} s/it"
 
             if num_batches > 0:
@@ -183,7 +209,7 @@ def train_one_epoch(
                     f"  [BATCH {batch_idx + 1:>{len(str(num_batches))}}/{num_batches}] "
                     f"({pct:.2f}%) "
                     f"Loss: {batch_loss:.4f} | "
-                    f"AvgLoss: {total_loss / step_count:.4f} | "
+                    f"AvgLoss: {total_loss / max(1, step_count):.4f} | "
                     f"LR: {cur_lr:.6f} | "
                     f"{rate_str} | "
                     f"{eta_str} | "
@@ -194,7 +220,7 @@ def train_one_epoch(
                 print(
                     f"  [BATCH {batch_idx + 1}] "
                     f"Loss: {batch_loss:.4f} | "
-                    f"AvgLoss: {total_loss / step_count:.4f} | "
+                    f"AvgLoss: {total_loss / max(1, step_count):.4f} | "
                     f"LR: {cur_lr:.6f} | "
                     f"{rate_str} | "
                     f"{elapsed_batch:.1f}s",

@@ -17,7 +17,13 @@ from typing import Any
 import yaml
 from models.factory import get_model
 
-from training.checkpoint import CheckpointRecoveryEngine, MetricVault, ResumeState, safe_load_checkpoint
+from training.checkpoint import (
+    CheckpointRecoveryEngine,
+    MetricVault,
+    ResumeState,
+    parse_resume_state,
+    safe_load_checkpoint,
+)
 from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
 from training.data import build_train_loader
@@ -439,34 +445,18 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         ckpt_candidate = discovered.get("progress") or discovered.get("latest") or discovered.get("best")
         if ckpt_candidate and ckpt_candidate.exists():
             loaded_data = safe_load_checkpoint(ckpt_candidate, map_location=device_info.device)
-            if loaded_data and "model_state" in loaded_data:
-                raw_model.load_state_dict(loaded_data["model_state"], strict=False)
-                opt_state = loaded_data.get("optimizer_state")
-                if opt_state:
-                    optimizer.load_state_dict(opt_state)
-                progress_meta = loaded_data.get("progress_metadata")
-                if isinstance(progress_meta, dict):
-                    is_intra = True
-                    phase = str(progress_meta.get("phase", "train"))
-                    iteration = int(progress_meta.get("step", loaded_data.get("iteration", 0)))
-                else:
-                    phase = str(loaded_data.get("phase", "train"))
-                    is_intra = bool(loaded_data.get("phase") == "train" and "step" in loaded_data)
-                    iteration = int(loaded_data.get("iteration", 0))
-
-                train_metrics = loaded_data.get("train_metrics") or loaded_data.get("current_metrics") or {}
-                resume_state = ResumeState(
-                    epoch=loaded_data.get("epoch", 0),
-                    iteration=iteration,
-                    model_state_dict=loaded_data["model_state"],
-                    optimizer_state_dict=loaded_data.get("optimizer_state"),
-                    scheduler_state_dict=loaded_data.get("scheduler_state"),
-                    best_score=loaded_data.get("best_score", 0.0),
-                    sota_achieved=loaded_data.get("sota_achieved", False),
-                    is_intra_epoch=is_intra,
-                    phase=phase,
-                    train_metrics=dict(train_metrics) if isinstance(train_metrics, dict) else {},
+            if loaded_data:
+                model_sd = (
+                    loaded_data.get("model_state")
+                    or loaded_data.get("model_state_dict")
+                    or loaded_data.get("state_dict")
                 )
+                if isinstance(model_sd, dict):
+                    raw_model.load_state_dict(model_sd, strict=False)
+                opt_state = loaded_data.get("optimizer_state") or loaded_data.get("optimizer_state_dict")
+                if isinstance(opt_state, dict):
+                    optimizer.load_state_dict(opt_state)
+                resume_state = parse_resume_state(loaded_data)
 
     scaler = create_grad_scaler(policy)
 

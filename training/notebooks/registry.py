@@ -4,7 +4,7 @@ Extracts model specifications, input dimensions, repository handles,
 and dataset manifold metadata into a structured ModelNotebookMeta record.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -32,10 +32,15 @@ class ModelNotebookMeta:
     primary_manifold: str
     k_username: str
     k_slug: str
-    k_handle: str
+    k_handle: str  # Primary handle (pytorch/default) for backward compatibility
     input_size: tuple[int, int]
     filename: str
     no_download: bool
+    handles: dict[str, str] = field(default_factory=dict)
+    handle_pytorch_default: str = ""
+    handle_pytorch_fp32: str = ""
+    handle_onnx_fp16: str = ""
+    handle_onnx_fp32: str = ""
 
 
 def resolve_model_metadata(
@@ -74,15 +79,30 @@ def resolve_model_metadata(
         + (["forex"] if is_forex else [])
     )
 
-    k_username = config.get("kaggle_username", "lemtreursi") if config else "lemtreursi"
-    slug_prefix = config.get("kaggle_slug_prefix", "lemgendary-") if config else "lemgendary-"
-    slug_suffix = config.get("kaggle_slug_suffix", "-checkpoints") if config else "-checkpoints"
+    # Resolve canonical Kaggle username and handles using SSOT variations
+    try:
+        from training.cloud.credentials import resolve_kaggle_credentials
+        user_cred, _ = resolve_kaggle_credentials()
+        k_username = user_cred or (config.get("kaggle_username", "lemtreursi") if config else "lemtreursi")
+    except Exception:
+        k_username = config.get("kaggle_username", "lemtreursi") if config else "lemtreursi"
 
-    k_slug = model_key.replace("_", "-")
-    if "nima-aesthetic" in k_slug:
-        k_slug = k_slug.replace("nima-aesthetic", "nima-aesthetics")
+    k_slug = model_info.get("kaggle_metadata", {}).get("slug") if isinstance(model_info.get("kaggle_metadata"), dict) else None
+    if not k_slug:
+        k_slug = model_key.replace("_", "-").lower()
 
-    k_handle = f"{k_username}/{slug_prefix}{k_slug}{slug_suffix}/pytorch/default"
+    from training.cloud.variations import ONNX_FP16, ONNX_FP32, PYTORCH_DEFAULT, PYTORCH_FP32
+    handle_pytorch_default = PYTORCH_DEFAULT.handle(k_username, k_slug)
+    handle_pytorch_fp32 = PYTORCH_FP32.handle(k_username, k_slug)
+    handle_onnx_fp16 = ONNX_FP16.handle(k_username, k_slug)
+    handle_onnx_fp32 = ONNX_FP32.handle(k_username, k_slug)
+    handles = {
+        PYTORCH_DEFAULT.key: handle_pytorch_default,
+        PYTORCH_FP32.key: handle_pytorch_fp32,
+        ONNX_FP16.key: handle_onnx_fp16,
+        ONNX_FP32.key: handle_onnx_fp32,
+    }
+    k_handle = handle_pytorch_default
 
     kaggle_ref = model_info.get("kaggle_ref", "")
     if not kaggle_ref:
@@ -136,6 +156,11 @@ def resolve_model_metadata(
         input_size=(h, w),
         filename=filename,
         no_download=no_download,
+        handles=handles,
+        handle_pytorch_default=handle_pytorch_default,
+        handle_pytorch_fp32=handle_pytorch_fp32,
+        handle_onnx_fp16=handle_onnx_fp16,
+        handle_onnx_fp32=handle_onnx_fp32,
     )
 
 

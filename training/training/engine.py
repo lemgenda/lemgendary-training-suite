@@ -104,7 +104,8 @@ def run_training(
                 f"(progress checkpoint captured during validation phase; skipping redundant training pass)...",
                 flush=True,
             )
-            train_metrics = dict(ctx.resume_state.train_metrics) if ctx.resume_state.train_metrics else {}
+            resume_tm = ctx.resume_state.train_metrics if ctx.resume_state is not None else {}
+            train_metrics = dict(resume_tm) if resume_tm else {}
             if "train_loss" not in train_metrics:
                 train_metrics["train_loss"] = float(train_metrics.get("loss", 0.0))
             if "epoch_time" not in train_metrics:
@@ -113,8 +114,10 @@ def run_training(
             print(f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for {ctx.model_name}...", flush=True)
 
             # Reseed sampler epoch if supported (e.g. RowGroupAwareSampler)
-            if hasattr(ctx.train_loader, "sampler") and hasattr(ctx.train_loader.sampler, "set_epoch"):
-                ctx.train_loader.sampler.set_epoch(epoch)
+            sampler = getattr(ctx.train_loader, "sampler", None)
+            set_epoch_fn = getattr(sampler, "set_epoch", None)
+            if callable(set_epoch_fn):
+                set_epoch_fn(epoch)
 
             # 2. Train one epoch
             train_metrics = train_one_epoch(ctx, epoch, cancel_check=cancel_check)

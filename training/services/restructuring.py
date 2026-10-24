@@ -121,7 +121,7 @@ class ModelTopologyRestructuringService:
                     leftover.unlink()
                     actions.append(f"Purged root binary artifact {leftover.name}")
 
-        # 5. Generate Kaggle model-metadata.json
+        # 5. Generate Kaggle model_metadata.yaml
         meta_file = self.metadata_service.write_metadata(model_key=model_key, output_dir=model_dir)
         actions.append(f"Generated {meta_file.name}")
 

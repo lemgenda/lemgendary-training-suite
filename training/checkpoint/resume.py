@@ -24,6 +24,8 @@ class ResumeState:
     is_intra_epoch: bool = False
     phase: str = "train"
     train_metrics: dict[str, Any] = field(default_factory=dict)
+    train_accumulators: dict[str, Any] = field(default_factory=dict)
+    val_accumulators: dict[str, Any] = field(default_factory=dict)
 
 
 def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
@@ -61,6 +63,8 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
         is_intra = bool(payload.get("phase") == "train" and "step" in payload)
 
     train_metrics = payload.get("train_metrics") or payload.get("current_metrics") or {}
+    train_accumulators = payload.get("train_accumulators") or {}
+    val_accumulators = payload.get("val_accumulators") or payload.get("val_metrics") or {}
 
     return ResumeState(
         epoch=epoch,
@@ -76,6 +80,8 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
         is_intra_epoch=is_intra,
         phase=phase,
         train_metrics=dict(train_metrics) if isinstance(train_metrics, dict) else {},
+        train_accumulators=dict(train_accumulators) if isinstance(train_accumulators, dict) else {},
+        val_accumulators=dict(val_accumulators) if isinstance(val_accumulators, dict) else {},
     )
 
 

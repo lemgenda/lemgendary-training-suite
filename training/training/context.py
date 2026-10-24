@@ -46,7 +46,7 @@ class TrainingContext:
     """
 
     model_name: str
-    model: torch.nn.Module
+    model: Any
     optimizer: torch.optim.Optimizer
     scheduler: Any
     criterion: Any
@@ -69,5 +69,6 @@ class TrainingContext:
     raw_model: torch.nn.Module | None = None
     parallel_strategy: Any | None = None
     lifecycle_manager: CheckpointLifecycleManager | None = None
+    last_train_metrics: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 

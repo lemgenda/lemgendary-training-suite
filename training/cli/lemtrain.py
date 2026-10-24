@@ -427,33 +427,69 @@ def sync_push(
         if failed > 0 and not dry_run and succeeded == 0:
             raise typer.Exit(code=1)
     else:
-        assert model is not None
-        if source_dir:
-            from training.kaggle_cloud_manager import push_kaggle_artifacts
-            typer.echo(f"[SYNC] Pushing artifacts for model '{model}' to Kaggle Models (legacy path)...")
-            ok = push_kaggle_artifacts(model_name=model, source_dir=source_dir, username=username)
-            if not ok:
-                typer.echo(f"[ERROR] Failed to push artifacts for '{model}'.")
-                raise typer.Exit(code=1)
-            typer.echo(f"[SUCCESS] Uploaded artifacts for '{model}' to Kaggle Models.")
+        if not model:
+            typer.echo("[ERROR] No target model specified. Provide a --model argument or use --all-models.", err=True)
+            raise typer.Exit(code=1)
+
+        typer.echo(f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {variation}, dry_run: {dry_run})...")
+        sync_mgr.ensure_model_metadata(model)
+        staged = staging_service.stage_variations(model)
+        if staged.staged_files:
+            typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
+        res = sync_mgr.push_model(
+            model_key=model,
+            variation=variation,
+            version_notes=version_notes,
+            dry_run=dry_run,
+        )
+        if res.success:
+            handles = [v.handle for v in res.variations.values() if v.success]
+            typer.echo(f"[SUCCESS] Model '{model}' pushed successfully -> {handles}")
         else:
-            typer.echo(f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {variation}, dry_run: {dry_run})...")
-            sync_mgr.ensure_model_metadata(model)
-            staged = staging_service.stage_variations(model)
-            if staged.staged_files:
-                typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
-            res = sync_mgr.push_model(
-                model_key=model,
-                variation=variation,
-                version_notes=version_notes,
-                dry_run=dry_run,
-            )
-            if res.success:
-                handles = [v.handle for v in res.variations.values() if v.success]
-                typer.echo(f"[SUCCESS] Model '{model}' pushed successfully -> {handles}")
+            typer.echo(f"[ERROR] Model push failed: {'; '.join(res.errors)}")
+            raise typer.Exit(code=1)
+
+
+@sync_app.command("pull")
+def sync_pull(
+    model: str = typer.Argument(..., help="Target model key to download from Kaggle Models Hub."),
+    variation: str = typer.Option("all", "--variation", "-v", help="Variation to pull ('all', 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32')."),
+    force_download: bool = typer.Option(False, "--force", "-f", help="Force re-download even if already present locally."),
+    username: Optional[str] = typer.Option(None, "--username", "-u", help="Optional Kaggle username override."),
+) -> None:
+    """Download model variation(s) from Kaggle Models Hub into canonical directories."""
+    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+    from training.cloud.variations import VARIATION_BY_KEY
+
+    sync_mgr = KaggleModelSyncManager(username=username)
+    vars_to_pull = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
+    total = len(vars_to_pull)
+
+    typer.echo(f"[START] Pulling {total} variation(s) for '{model}' from Kaggle Models Hub...")
+    succeeded = 0
+    failed = 0
+
+    for idx, var_key in enumerate(vars_to_pull, 1):
+        handle = sync_mgr.get_handle(model, var_key)
+        target_dir = sync_mgr.get_variation_dir(model, var_key)
+        typer.echo(f"[{idx}/{total}] Pulling variation [{var_key}] <- {handle}...")
+        try:
+            ok = sync_mgr.pull_variation(model_key=model, variation=var_key, force_download=force_download)
+            if ok:
+                succeeded += 1
+                typer.echo(f"  [SUCCESS] Downloaded to {target_dir}")
             else:
-                typer.echo(f"[ERROR] Model push failed: {'; '.join(res.errors)}")
-                raise typer.Exit(code=1)
+                failed += 1
+                typer.echo(f"  [ERROR] Pull returned false for {var_key}")
+        except Exception as e:
+            failed += 1
+            typer.echo(f"  [ERROR] Failed to pull {var_key}: {e}")
+
+    if succeeded == total:
+        typer.echo(f"[SUCCESS] Model '{model}' pulled successfully from Kaggle ({total} variations).")
+    else:
+        typer.echo(f"[ERROR] Pull incomplete for '{model}': {succeeded}/{total} succeeded.")
+        raise typer.Exit(code=1)
 
 
 @notebooks_app.command("list")
@@ -489,6 +525,10 @@ def notebooks_generate(
             if files:
                 typer.echo(f"  * {m}: {', '.join(files.keys())}")
     else:
+        if model is None:
+            typer.echo("[ERROR] Model string reference cannot be resolved.")
+            raise typer.Exit(code=1)
+
         typer.echo(f"[START] Generating {platform} notebooks for model '{model}'...")
         try:
             res = service.generate_notebooks(

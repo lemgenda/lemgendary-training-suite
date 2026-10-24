@@ -46,10 +46,18 @@ class TestIntegrationModels(unittest.TestCase):
             self.assertIn("Scientific Research", readme_text)
 
             # Verify metadata content
-            with open(meta_file, "r", encoding="utf-8") as f:
-                metadata = json.load(f)
-            self.assertEqual(metadata["licenseName"], "CC BY-NC 4.0")
-            self.assertFalse(metadata["isPrivate"])
+            self.assertEqual(meta_file.name, "model_metadata.yaml")
+            from training.cloud.model_metadata import ModelMetadata
+            metadata = ModelMetadata.load(meta_file)
+            self.assertEqual(metadata.model.license, "CC BY-NC 4.0")
+            self.assertFalse(metadata.model.is_private)
+
+            json_meta_file = out_dir / "model-metadata.json"
+            self.assertTrue(json_meta_file.exists())
+            with open(json_meta_file, "r", encoding="utf-8") as f:
+                json_data = json.load(f)
+            self.assertEqual(json_data["licenseName"], "CC BY-NC 4.0")
+            self.assertFalse(json_data["isPrivate"])
 
     def test_e2e_variation_staging_and_isolation(self) -> None:
         """Verify end-to-end variation staging and strict isolation audit."""
@@ -57,13 +65,17 @@ class TestIntegrationModels(unittest.TestCase):
             model_dir = Path(tmp_dir) / "LemGendaryModels" / "mirnet_exposure"
             model_dir.mkdir(parents=True)
 
-            # Create mock source exports
+            # Create mock source exports and checkpoints
             src_pt = model_dir / "LemGendaryMirNetExposure.pt"
             src_pt.write_bytes(b"dummy_pt_weights")
             src_fp32 = model_dir / "LemGendaryMirNetExposure_FP32.onnx"
             src_fp32.write_bytes(b"dummy_fp32_onnx")
             src_fp16 = model_dir / "LemGendaryMirNetExposure.onnx"
             src_fp16.write_bytes(b"dummy_fp16_onnx")
+
+            ckpt_dir = model_dir / "checkpoints"
+            ckpt_dir.mkdir(parents=True)
+            (ckpt_dir / "best.pth").write_bytes(b"dummy_best_checkpoint")
 
             staging_svc = VariationStagingService()
             staging_res = staging_svc.stage_variations(
@@ -85,7 +97,7 @@ class TestIntegrationModels(unittest.TestCase):
             validator = StrictIsolationValidator()
             report = validator.validate_all("mirnet_exposure", base_dir=model_dir)
             self.assertTrue(report.is_valid)
-            self.assertEqual(len(report.variations), 3)
+            self.assertEqual(len(report.variations), 4)
 
     def test_fastapi_docs_generate_endpoint(self) -> None:
         """Verify POST /api/models/{model_key}/docs/generate."""
