@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
 
 import torch
 
@@ -17,18 +16,8 @@ from training.cloud_sync import trigger_cloud_sync
 from training.telemetry import TelemetryEngine
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
+from training.training.summary import TrainingSummary
 from training.training.validation import validate_one_epoch
-
-
-@dataclass(frozen=True)
-class TrainingSummary:
-    """Summary record produced upon completion of training."""
-
-    model_name: str
-    final_epoch: int
-    best_metrics: dict[str, float]
-    total_time: float
-    status: str
 
 
 def run_training(

@@ -28,7 +28,7 @@ from data.yolo_config_gen import generate_yolo_yaml
 from training.cloud_sync import trigger_cloud_sync
 from training.export.universal_exporter import export_tri_format_yolo
 from training.telemetry import TelemetryEngine
-from training.training.engine import TrainingSummary
+from training.training.summary import TrainingSummary
 
 logger = logging.getLogger("lemtrain.governance.yolo")
 

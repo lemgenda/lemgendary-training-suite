@@ -14,7 +14,8 @@ import torch
 from torch.utils.data import DataLoader
 
 from training.checkpoint import CheckpointLifecycleManager, MetricVault, ResumeState
-from training.governance import SmartTrainingGovernor, SotaTracker
+from training.governance.governor import SmartTrainingGovernor
+from training.governance.sota import SotaTracker
 from training.hardware.discovery import DeviceInfo
 from training.hardware.policy import ExecutionPolicy
 from training.hardware.sentinel import SentinelGuard
