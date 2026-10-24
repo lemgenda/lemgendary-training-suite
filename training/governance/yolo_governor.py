@@ -607,7 +607,10 @@ class YOLOCurriculumGovernor:
         ckpt_dict: dict[str, Any] | None = None
         if candidate_ckpt and candidate_ckpt.name in ["last.pt", "best.pt", "progress.pth", "best.pth", "yolov8n.pt"]:
             try:
-                loaded = torch.load(str(candidate_ckpt), map_location="cpu")
+                try:
+                    loaded = torch.load(str(candidate_ckpt), map_location="cpu")
+                except Exception:
+                    loaded = torch.load(str(candidate_ckpt), map_location="cpu", weights_only=False)
                 if isinstance(loaded, dict) and "epoch" in loaded and loaded.get("optimizer") is not None:
                     ckpt_dict = loaded
             except Exception as exc:
@@ -786,6 +789,11 @@ class YOLOCurriculumGovernor:
                 completed_prior_epochs = max(
                     0, stage_start_epoch - csv_stage_epoch_counts.get((stage.resolution, frac_pct), 0)
                 )
+            elif not getattr(self.args, "clean", False) and csv_epochs > completed_prior_epochs:
+                # If resuming into an active run where historical epochs are logged in metrics.csv,
+                # anchor completed_prior_epochs to the true historical progress.
+                completed_prior_epochs = max(completed_prior_epochs, csv_epochs)
+                stage_start_epoch = completed_prior_epochs
 
             model = ultralytics.YOLO(current_weights_path)
             stage_epochs_recorded = 0

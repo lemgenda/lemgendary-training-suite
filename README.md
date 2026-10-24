@@ -10,11 +10,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.33-STABLE` |
+| **Version** | `v16.9.34-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.34 — YOLO PyTorch 2.6 Unpickling Resilience & Cumulative Historical Epoch Anchoring
+
+- **PyTorch 2.6 Unpickling Resilience Fallback (`training/governance/yolo_governor.py`)** — Added a resilient `torch.load` fallback handler with `weights_only=False` to safely load pickled Ultralytics `DetectionModel` checkpoint objects (`last.pt`, `best.pt`). In modern PyTorch 2.6 environments where `weights_only=True` is the default, standard unpickling fails with `UnpicklingError`, previously triggering null checkpoint dictionaries and premature stage fallback resets.
+- **Cumulative Historical Progress Anchoring (`training/governance/yolo_governor.py`)** — Hardened governor resumption to strictly anchor cumulative progress against physical telemetry metrics: `completed_prior_epochs = max(completed_prior_epochs, csv_epochs)`. Guarantees that when resuming active models with extensive historical training (such as epoch 271 logged in `LemGendaryModels/yolov8n/metrics.csv`), stage start epochs and global epoch counters continuously proceed forward without resetting to early curriculum stages.
+
+---
 
 ### v16.9.33 — Autonomous 15% Initial Manifold Fraction, Open-Ended Horizon & Checkpoint Loader Synchronization
 
