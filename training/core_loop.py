@@ -15,12 +15,16 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from data.dataset import MultiTaskDataset
+from data.forex_dataset import ForexDataset
+from data.forex_sampler import RowGroupAwareSampler
 from models.factory import get_model
+from torch.utils.data import DataLoader
 
 from training.checkpoint import (
+    CheckpointLifecycleManager,
     CheckpointRecoveryEngine,
     MetricVault,
-    ResumeState,
     parse_resume_state,
     safe_load_checkpoint,
 )
@@ -28,13 +32,22 @@ from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
 from training.data import build_train_loader
 from training.data import build_val_loader as canonical_build_val_loader
-from data.forex_sampler import RowGroupAwareSampler
+from training.data.instruction_dataset import InstructionDataset, collate_instruction_batch
+from training.doc_generator import build_model_readme
 from training.export import export_all
 from training.governance import SmartTrainingGovernor, SotaTracker
+from training.governance.yolo_governor import run_governed_yolo_training
 from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
+from training.hardware.probe import audit_hardware_vram
 from training.hardware.sentinel import SentinelGuard
 from training.losses import CombinedLoss, ForexDualLoss
+from training.notebook_generator import (
+    generate_colab_inference_notebook,
+    generate_colab_usage_notebook,
+    generate_inference_notebook,
+    generate_usage_notebook,
+)
 from training.parallel import build_parallel_strategy
 from training.training import (
     TrainingContext,
@@ -157,12 +170,12 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     project_root = get_project_root()
     config_path = project_root / "config.yaml"
 
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f) or {}
 
     unified_models_rel = config.get("unified_models", "models/unified_models.yaml")
     unified_models_path = project_root / unified_models_rel
-    with open(unified_models_path, "r", encoding="utf-8") as f:
+    with open(unified_models_path, encoding="utf-8") as f:
         unified_models_registry = yaml.safe_load(f) or {}
 
     model_key = args.model
@@ -172,7 +185,6 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     model_info = models_dict.get(model_key, {})
 
     # 1. Checkpoint Lifecycle Manager (Strict 4-tier governance under LemGendaryModels)
-    from training.checkpoint import CheckpointLifecycleManager
     lifecycle_manager = CheckpointLifecycleManager(
         model_name=model_key,
         project_root=project_root,
@@ -285,7 +297,6 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         elif isinstance(cfg_batch, str) and cfg_batch.strip().isdigit() and int(cfg_batch) > 0:
             resolved_batch = int(cfg_batch)
         else:
-            from training.hardware.probe import audit_hardware_vram
             resolved_batch = audit_hardware_vram(
                 model_key=model_key,
                 model_info=model_info,
@@ -311,7 +322,6 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     sample_fraction = getattr(governor.curriculum, "current_fraction", 1.0)
 
     if task_type == "forex":
-        from data.forex_dataset import ForexDataset
         _forex_shard_root = str(
             config.get("paths", {}).get("datasets_root", "../LemGendaryDatasets")
         )
@@ -347,7 +357,6 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             logger.debug("Forex val dataset failed: %s", forex_val_err)
             val_ds = None
     elif task_type in ("text_instruction", "llm"):
-        from training.data.instruction_dataset import InstructionDataset, collate_instruction_batch
         data_root = project_root.parent / "LemGendaryDatasets" / "LemGendizedAIHelperLemGend"
         train_jsonl = data_root / "ai_helper_train.jsonl"
         val_jsonl = data_root / "ai_helper_val.jsonl"
@@ -355,7 +364,6 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         train_ds = InstructionDataset(train_jsonl, tokenizer=tokenizer, max_length=2048)
         val_ds = InstructionDataset(val_jsonl, tokenizer=tokenizer, max_length=2048) if val_jsonl.exists() else None
     else:
-        from data.dataset import MultiTaskDataset
         train_ds = MultiTaskDataset(
             config,
             model_key=model_key,
@@ -379,10 +387,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
 
     collate_fn = None
     if task_type in ("text_instruction", "llm"):
-        from training.data.instruction_dataset import collate_instruction_batch
         collate_fn = collate_instruction_batch
 
-    from torch.utils.data import DataLoader
     if collate_fn is not None:
         train_loader = DataLoader(
             dataset=train_ds,
@@ -455,8 +461,40 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                     raw_model.load_state_dict(model_sd, strict=False)
                 opt_state = loaded_data.get("optimizer_state") or loaded_data.get("optimizer_state_dict")
                 if isinstance(opt_state, dict):
-                    optimizer.load_state_dict(opt_state)
+                    try:
+                        optimizer.load_state_dict(opt_state)
+                    except Exception as opt_err:
+                        logger.warning("Optimizer state could not be loaded cleanly: %s", opt_err)
+                sched_state = loaded_data.get("scheduler_state") or loaded_data.get("scheduler_state_dict")
+                if isinstance(sched_state, dict) and scheduler is not None:
+                    try:
+                        scheduler.load_state_dict(sched_state)
+                    except Exception as sched_err:
+                        logger.warning("Scheduler state could not be loaded cleanly: %s", sched_err)
+                gov_state = loaded_data.get("governor_state")
+                if isinstance(gov_state, dict) and hasattr(governor, "load_state"):
+                    try:
+                        governor.load_state(gov_state)
+                    except Exception as gov_err:
+                        logger.warning("Governor state could not be loaded cleanly: %s", gov_err)
+                if hasattr(sota_tracker, "best_quality"):
+                    saved_best = loaded_data.get("best_quality_score") or loaded_data.get("best_quality")
+                    if saved_best is not None:
+                        try:
+                            sota_tracker.best_quality = float(saved_best)
+                        except (ValueError, TypeError):
+                            pass
                 resume_state = parse_resume_state(loaded_data)
+
+    # If resuming from an existing checkpoint, ensure total_epochs allows further training
+    # rather than immediately terminating. Training must reach at least 30 epochs!
+    if resume_state is not None and resume_state.epoch > 0:
+        resumed_ep = resume_state.epoch
+        # If the user requested a specific additional budget or if total_epochs is already exceeded:
+        if resumed_ep >= total_epochs:
+            additional_epochs = int(args.epochs) if args.epochs else 30
+            total_epochs = resumed_ep + additional_epochs
+        total_epochs = max(total_epochs, 30)
 
     scaler = create_grad_scaler(policy)
 
@@ -502,8 +540,6 @@ def _run_yolo_native(
     and real-time telemetry synchronization while preserving native Ultralytics
     inner-loop optimizations.
     """
-    from training.governance.yolo_governor import run_governed_yolo_training
-
     return run_governed_yolo_training(
         args=args,
         config=config,
@@ -525,7 +561,7 @@ def main(raw_args: list[str] | None = None) -> None:
         load_secrets()
         project_root = get_project_root()
         config_path = project_root / "config.yaml"
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
         _run_yolo_native(args, config, project_root)
         return
@@ -546,8 +582,6 @@ def main(raw_args: list[str] | None = None) -> None:
 
         # Post-training documentation & notebooks
         try:
-            from training.doc_generator import build_model_readme
-
             readme_text = build_model_readme(
                 ctx.model_name,
                 ctx.config.get("unified_models", {}),
@@ -560,13 +594,6 @@ def main(raw_args: list[str] | None = None) -> None:
             print(f"[WARNING] Model README generation failed: {doc_err}")
 
         try:
-            from training.notebook_generator import (
-                generate_colab_inference_notebook,
-                generate_colab_usage_notebook,
-                generate_inference_notebook,
-                generate_usage_notebook,
-            )
-
             generate_inference_notebook(ctx.model_name, str(ctx.paths.export_dir))
             generate_usage_notebook(ctx.model_name, str(ctx.paths.export_dir))
             generate_colab_inference_notebook(ctx.model_name, str(ctx.paths.export_dir))

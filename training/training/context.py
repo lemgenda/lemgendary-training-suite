@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
 import torch
 from torch.utils.data import DataLoader
 
@@ -71,4 +72,5 @@ class TrainingContext:
     lifecycle_manager: CheckpointLifecycleManager | None = None
     last_train_metrics: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    _resumed_val_handled: bool = False
 

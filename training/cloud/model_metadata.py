@@ -24,6 +24,7 @@ _OWNER_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _PLACEHOLDER_OWNERS = {"", "INSERT_OWNER_SLUG_HERE"}
 
 _HEADER = (
+    "---\n"
     "# LemGendary Kaggle Models metadata (single source for the Kaggle model page).\n"
     "# Generated fields are rebuilt on every publish. To keep a manual edit, list its dotted\n"
     "# path under 'hand_edited' (for example: model.title, variations.pytorch/fp32.usage).\n"

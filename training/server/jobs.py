@@ -7,20 +7,30 @@ captures stdout/logging, and broadcasts events to WebSocket clients.
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
 import threading
 import time
-from typing import Any, Callable
 import uuid
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from typing import Any
 
+from kaggle.api.kaggle_api_extended import KaggleApi
+
+from training.cloud.credentials import resolve_kaggle_credentials
+from training.cloud.kaggle_hub import KaggleHubManager
+from training.cloud.kaggle_model_sync import KaggleModelSyncManager, ModelPushResult
+from training.cloud.variations import VARIATION_BY_KEY
+from training.export.staging import VariationStagingService
+from training.kaggle_cloud_manager import pull_kaggle_artifacts
+from training.kaggle_monitor import authenticate_kaggle_user, parse_kernel_logs
+from training.registry import get_model_registry
 from training.server.state import ServerState
 from training.services.eval_service import EvaluationService
 from training.services.export_service import ExportService
@@ -129,19 +139,19 @@ class _GlobalOutputTee:
         return getattr(self.original_stream, name)
 
 
-_stdout_tee: _GlobalOutputTee | None = None
-_stderr_tee: _GlobalOutputTee | None = None
+class _TeeRegistry:
+    stdout_tee: _GlobalOutputTee | None = None
+    stderr_tee: _GlobalOutputTee | None = None
 
 
 def _ensure_output_tees() -> tuple[_GlobalOutputTee, _GlobalOutputTee]:
-    global _stdout_tee, _stderr_tee
-    if _stdout_tee is None:
-        _stdout_tee = _GlobalOutputTee(sys.stdout)
-        sys.stdout = _stdout_tee  # type: ignore[assignment]
-    if _stderr_tee is None:
-        _stderr_tee = _GlobalOutputTee(sys.stderr)
-        sys.stderr = _stderr_tee  # type: ignore[assignment]
-    return _stdout_tee, _stderr_tee
+    if _TeeRegistry.stdout_tee is None:
+        _TeeRegistry.stdout_tee = _GlobalOutputTee(sys.stdout)
+        sys.stdout = _TeeRegistry.stdout_tee  # type: ignore[assignment]
+    if _TeeRegistry.stderr_tee is None:
+        _TeeRegistry.stderr_tee = _GlobalOutputTee(sys.stderr)
+        sys.stderr = _TeeRegistry.stderr_tee  # type: ignore[assignment]
+    return _TeeRegistry.stdout_tee, _TeeRegistry.stderr_tee
 
 
 class JobManager:
@@ -408,7 +418,19 @@ class JobManager:
             return
 
         self.state.update_job_status(job_id=job_id, status="completed", metrics=metrics)
-        self._broadcast_log(job_id, f"[SUCCESS] Training complete for '{summary.model_name}'. Status: {summary.status}")
+        if summary.status == "completed":
+            self._broadcast_log(
+                job_id,
+                f"[SUCCESS] Training fully complete for '{summary.model_name}' "
+                f"(Status: {summary.status}, Epochs: {summary.final_epoch}).",
+            )
+        else:
+            self._broadcast_log(
+                job_id,
+                f"[INFO] Training run finished for '{summary.model_name}' "
+                f"(Status: {summary.status}, Epochs: {summary.final_epoch}). "
+                "Model requires further epochs/curriculum to reach full completion.",
+            )
 
     def _execute_evaluation(
         self,
@@ -455,12 +477,6 @@ class JobManager:
         cancel_event: threading.Event,
     ) -> None:
         """Launch training on Kaggle Cloud, stream telemetry, and auto-pull checkpoints."""
-        import subprocess
-        from training.cloud.credentials import resolve_kaggle_credentials
-        from training.cloud.kaggle_hub import KaggleHubManager
-        from training.kaggle_cloud_manager import pull_kaggle_artifacts
-        from training.kaggle_monitor import authenticate_kaggle_user, parse_kernel_logs
-
         username_override = params.get("username")
         key_override = params.get("key")
         gpu = params.get("gpu", "T4")
@@ -473,11 +489,12 @@ class JobManager:
         api = authenticate_kaggle_user(user, key) if (user and key) else None
         if not api:
             try:
-                from kaggle.api.kaggle_api_extended import KaggleApi
                 api = KaggleApi()
                 api.authenticate()
             except Exception as e:
-                raise RuntimeError(f"Kaggle authentication failed: {e}. Please configure Kaggle username and API key.")
+                raise RuntimeError(
+                    f"Kaggle authentication failed: {e}. Please configure Kaggle username and API key."
+                ) from e
 
         mgr = KaggleHubManager(username=user, key=key)
         kernel_slug = mgr.get_kernel_slug(model_key)
@@ -494,6 +511,7 @@ class JobManager:
             res = subprocess.run(
                 ["kaggle", "kernels", "push", "-p", str(kernel_dir)],
                 capture_output=True,
+                check=False,
                 text=True,
                 timeout=60,
                 creationflags=cflags,
@@ -501,9 +519,12 @@ class JobManager:
             if res.returncode == 0:
                 self._broadcast_log(job_id, f"[KAGGLE] CLI push succeeded: {res.stdout.strip()}")
             else:
-                raise RuntimeError(f"CLI push failed: {res.stderr.strip()}")
+                raise RuntimeError(f"CLI push failed: {res.stderr.strip()}") from sdk_err
 
-        self._broadcast_log(job_id, f"[KAGGLE] Telemetry connected. Monitoring {kernel_slug} (Auto-pull: {auto_pull})...")
+        self._broadcast_log(
+            job_id,
+            f"[KAGGLE] Telemetry connected. Monitoring {kernel_slug} (Auto-pull: {auto_pull})...",
+        )
 
         printed_lines_count = 0
         last_status = "QUEUED"
@@ -513,7 +534,10 @@ class JobManager:
                 st = api.kernels_status(kernel_slug)
                 status_val = str(getattr(st, "status", st)).rsplit(".", maxsplit=1)[-1].upper()
                 if status_val != last_status:
-                    self._broadcast_log(job_id, f"[{time.strftime('%H:%M:%S')}] [KAGGLE STATUS] Cloud status: {status_val}")
+                    self._broadcast_log(
+                        job_id,
+                        f"[{time.strftime('%H:%M:%S')}] [KAGGLE STATUS] Cloud status: {status_val}",
+                    )
                     last_status = status_val
             except Exception:
                 status_val = last_status
@@ -527,9 +551,17 @@ class JobManager:
                     for line in new_lines:
                         self._broadcast_log(job_id, line)
                         if auto_pull and model_key:
-                            epoch_signal = re.search(r"epoch\s+\d+\s+complete|saving.*checkpoint|model version.*committed|\[sota\]", line, re.IGNORECASE)
+                            epoch_signal = re.search(
+                                r"epoch\s+\d+\s+complete|saving.*checkpoint|model version.*committed|\[sota\]",
+                                line,
+                                re.IGNORECASE,
+                            )
                             if epoch_signal:
-                                self._broadcast_log(job_id, f"[AUTO-PULL] Epoch milestone detected in logs. Syncing artifacts for {model_key}...")
+                                self._broadcast_log(
+                                    job_id,
+                                    f"[AUTO-PULL] Epoch milestone detected in logs. "
+                                    f"Syncing artifacts for {model_key}...",
+                                )
                                 try:
                                     pull_kaggle_artifacts(model_key, username=user)
                                 except Exception as pull_err:
@@ -541,16 +573,30 @@ class JobManager:
             if status_val in ["COMPLETE", "ERROR", "CANCELACK"]:
                 if status_val == "COMPLETE":
                     if auto_pull:
-                        self._broadcast_log(job_id, f"[SYNC] Cloud execution complete. Pulling final artifacts for {model_key}...")
+                        self._broadcast_log(
+                            job_id,
+                            f"[SYNC] Cloud execution complete. Pulling final artifacts for {model_key}...",
+                        )
                         try:
                             pull_kaggle_artifacts(model_key, username=user)
-                            self._broadcast_log(job_id, f"[SUCCESS] Final artifacts saved to LemGendaryModels/{model_key}!")
+                            self._broadcast_log(
+                                job_id,
+                                f"[SUCCESS] Final artifacts saved to LemGendaryModels/{model_key}!",
+                            )
                         except Exception as pe:
                             self._broadcast_log(job_id, f"[WARN] Artifact pull notice: {pe}")
-                    self.state.update_job_status(job_id=job_id, status="completed", metrics={"kaggle_status": "COMPLETE", "kernel_slug": kernel_slug})
+                    self.state.update_job_status(
+                        job_id=job_id,
+                        status="completed",
+                        metrics={"kaggle_status": "COMPLETE", "kernel_slug": kernel_slug},
+                    )
                     self._broadcast_log(job_id, f"[SUCCESS] Kaggle training completed successfully for {model_key}!")
                 else:
-                    self.state.update_job_status(job_id=job_id, status="failed", error_message=f"Kaggle kernel halted with status: {status_val}")
+                    self.state.update_job_status(
+                        job_id=job_id,
+                        status="failed",
+                        error_message=f"Kaggle kernel halted with status: {status_val}",
+                    )
                     self._broadcast_log(job_id, f"[ERROR] Kaggle cloud job ended with status: {status_val}")
                 return
 
@@ -558,7 +604,10 @@ class JobManager:
 
         if cancel_event.is_set():
             self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
-            self._broadcast_log(job_id, f"[CANCEL] Telemetry stream detached for {kernel_slug}. Remote kernel may continue running on Kaggle.")
+            self._broadcast_log(
+                job_id,
+                f"[CANCEL] Telemetry stream detached for {kernel_slug}. Remote kernel may continue running on Kaggle.",
+            )
 
     def _execute_kaggle_monitor(
         self,
@@ -568,11 +617,6 @@ class JobManager:
         cancel_event: threading.Event,
     ) -> None:
         """Stream live logs from an existing or active Kaggle kernel without pushing."""
-        from training.cloud.credentials import resolve_kaggle_credentials
-        from training.cloud.kaggle_hub import KaggleHubManager
-        from training.kaggle_cloud_manager import pull_kaggle_artifacts
-        from training.kaggle_monitor import authenticate_kaggle_user, parse_kernel_logs
-
         username_override = params.get("username")
         key_override = params.get("key")
         kernel_slug = params.get("kernel_slug")
@@ -588,11 +632,10 @@ class JobManager:
         api = authenticate_kaggle_user(user, key) if (user and key) else None
         if not api:
             try:
-                from kaggle.api.kaggle_api_extended import KaggleApi
                 api = KaggleApi()
                 api.authenticate()
             except Exception as e:
-                raise RuntimeError(f"Kaggle authentication failed: {e}")
+                raise RuntimeError(f"Kaggle authentication failed: {e}") from e
 
         printed_lines_count = 0
         last_status = "UNKNOWN"
@@ -602,7 +645,10 @@ class JobManager:
                 st = api.kernels_status(kernel_slug)
                 status_val = str(getattr(st, "status", st)).rsplit(".", maxsplit=1)[-1].upper()
                 if status_val != last_status:
-                    self._broadcast_log(job_id, f"[{time.strftime('%H:%M:%S')}] [KAGGLE STATUS] Cloud status: {status_val}")
+                    self._broadcast_log(
+                        job_id,
+                        f"[{time.strftime('%H:%M:%S')}] [KAGGLE STATUS] Cloud status: {status_val}",
+                    )
                     last_status = status_val
             except Exception:
                 status_val = last_status
@@ -616,9 +662,16 @@ class JobManager:
                     for line in new_lines:
                         self._broadcast_log(job_id, line)
                         if auto_pull and model_key:
-                            epoch_signal = re.search(r"epoch\s+\d+\s+complete|saving.*checkpoint|model version.*committed|\[sota\]", line, re.IGNORECASE)
+                            epoch_signal = re.search(
+                                r"epoch\s+\d+\s+complete|saving.*checkpoint|model version.*committed|\[sota\]",
+                                line,
+                                re.IGNORECASE,
+                            )
                             if epoch_signal:
-                                self._broadcast_log(job_id, f"[AUTO-PULL] Checkpoint milestone detected. Syncing {model_key}...")
+                                self._broadcast_log(
+                                    job_id,
+                                    f"[AUTO-PULL] Checkpoint milestone detected. Syncing {model_key}...",
+                                )
                                 try:
                                     pull_kaggle_artifacts(model_key, username=user)
                                 except Exception as pull_err:
@@ -629,14 +682,21 @@ class JobManager:
 
             if status_val in ["COMPLETE", "ERROR", "CANCELACK"]:
                 if status_val == "COMPLETE" and auto_pull and model_key:
-                    self._broadcast_log(job_id, f"[SYNC] Cloud run completed. Pulling final artifacts for {model_key}...")
+                    self._broadcast_log(
+                        job_id,
+                        f"[SYNC] Cloud run completed. Pulling final artifacts for {model_key}...",
+                    )
                     try:
                         pull_kaggle_artifacts(model_key, username=user)
                         self._broadcast_log(job_id, f"[SUCCESS] Final artifacts saved to LemGendaryModels/{model_key}!")
                     except Exception as pe:
                         self._broadcast_log(job_id, f"[WARN] Pull notice: {pe}")
 
-                self.state.update_job_status(job_id=job_id, status="completed" if status_val == "COMPLETE" else "failed", metrics={"kaggle_status": status_val, "kernel_slug": kernel_slug})
+                self.state.update_job_status(
+                    job_id=job_id,
+                    status="completed" if status_val == "COMPLETE" else "failed",
+                    metrics={"kaggle_status": status_val, "kernel_slug": kernel_slug},
+                )
                 self._broadcast_log(job_id, f"[TERMINAL] Job ended with status: {status_val}")
                 return
 
@@ -644,7 +704,7 @@ class JobManager:
 
         if cancel_event.is_set():
             self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
-            self._broadcast_log(job_id, f"[CANCEL] Disconnected from telemetry stream.")
+            self._broadcast_log(job_id, "[CANCEL] Disconnected from telemetry stream.")
 
     def _execute_test_all(
         self,
@@ -653,9 +713,6 @@ class JobManager:
         cancel_event: threading.Event,
     ) -> None:
         """Execute fleet diagnostic pass across all models using tools/train_all.py."""
-        import subprocess
-        import sys
-
         train_all_script = self.project_root / "tools" / "train_all.py"
         epochs = str(params.get("epochs", 1))
         env = str(params.get("env", "local"))
@@ -736,23 +793,27 @@ class JobManager:
         model_key: str,
         variation: str,
         version_notes: str | None,
+        *,
         dry_run: bool,
         cancel_event: threading.Event,
         prefix: str = "",
     ) -> Any:
         """Stage, then push each variation one by one, emitting progress lines and summary logs."""
-        from training.cloud.variations import VARIATION_BY_KEY, VARIATIONS
-        from training.export.staging import VariationStagingService
-
         sync_mgr.ensure_model_metadata(model_key)
         staging_res = VariationStagingService().stage_variations(model_key)
         if staging_res.staged_files:
             staged_names = [f.name for f in staging_res.staged_files.values()]
-            self._broadcast_log(job_id, f"{prefix}[STAGING] Staged {len(staged_names)} files for '{model_key}': {staged_names}")
+            self._broadcast_log(
+                job_id,
+                f"{prefix}[STAGING] Staged {len(staged_names)} files for '{model_key}': {staged_names}",
+            )
 
         variations = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
-        from training.cloud.kaggle_model_sync import ModelPushResult
-        result = ModelPushResult(model_key=model_key, success=True, isolation_report=sync_mgr.validate_isolation(model_key))
+        result = ModelPushResult(
+            model_key=model_key,
+            success=True,
+            isolation_report=sync_mgr.validate_isolation(model_key),
+        )
         total = len(variations)
 
         # 1. Push all variations with progress
@@ -767,7 +828,12 @@ class JobManager:
                 job_id,
                 f"{prefix}[UPLOAD] [Step {i}/{total}] PUSHING {model_key} [{var}] -> {handle} ({pct_start}%)",
             )
-            var_res = sync_mgr.push_variation(model_key=model_key, variation=var, version_notes=version_notes, dry_run=dry_run)
+            var_res = sync_mgr.push_variation(
+                model_key=model_key,
+                variation=var,
+                version_notes=version_notes,
+                dry_run=dry_run,
+            )
             result.variations[var] = var_res
             pct_done = int((i / total) * 100)
             if var_res.success:
@@ -794,10 +860,16 @@ class JobManager:
 
         # 3. Emit exact 2 clean summary log entries on success
         if result.success and (not result.metadata_sync_result or not result.metadata_sync_result.get("errors")):
-            self._broadcast_log(job_id, f"{prefix}[SUCCESS] Model {model_key} pushed successfully to Kaggle ({total} variations)")
+            self._broadcast_log(
+                job_id,
+                f"{prefix}[SUCCESS] Model {model_key} pushed successfully to Kaggle ({total} variations)",
+            )
             self._broadcast_log(job_id, f"{prefix}[SUCCESS] Kaggle metadata was successfully updated for {model_key}")
         elif result.errors:
-            self._broadcast_log(job_id, f"{prefix}[ERROR] Kaggle publish failed for {model_key}: {'; '.join(result.errors)}")
+            self._broadcast_log(
+                job_id,
+                f"{prefix}[ERROR] Kaggle publish failed for {model_key}: {'; '.join(result.errors)}",
+            )
 
         return result
 
@@ -809,13 +881,17 @@ class JobManager:
         cancel_event: threading.Event,
     ) -> None:
         """Push all 4 variations of a single model to Kaggle Models Hub with live telemetry."""
-        from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-
         variation = params.get("variation", "all")
         dry_run = params.get("dry_run", False)
         sync_mgr = KaggleModelSyncManager(username=params.get("username"))
         res = self._push_model_with_telemetry(
-            job_id, sync_mgr, model_key, variation, params.get("version_notes"), dry_run, cancel_event
+            job_id,
+            sync_mgr,
+            model_key,
+            variation,
+            params.get("version_notes"),
+            dry_run=dry_run,
+            cancel_event=cancel_event,
         )
         if res.success and (not res.metadata_sync_result or not res.metadata_sync_result.get("errors")):
             self.state.update_job_status(job_id=job_id, status="completed", metrics=res.to_dict())
@@ -830,9 +906,6 @@ class JobManager:
         cancel_event: threading.Event,
     ) -> None:
         """Execute fleet synchronization pushing all registered models to Kaggle Models Hub."""
-        from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-        from training.registry import get_model_registry
-
         variation = params.get("variation", "all")
         version_notes = params.get("version_notes")
         dry_run = params.get("dry_run", False)
@@ -842,7 +915,8 @@ class JobManager:
         total_models = len(models)
         self._broadcast_log(
             job_id,
-            f"[KAGGLE-PUSH-ALL] Commencing fleet push for {total_models} models (Variation: '{variation}', DryRun: {dry_run})...",
+            f"[KAGGLE-PUSH-ALL] Commencing fleet push for {total_models} models "
+            f"(Variation: '{variation}', DryRun: {dry_run})...",
         )
 
         sync_mgr = KaggleModelSyncManager()
@@ -853,7 +927,11 @@ class JobManager:
 
         for idx, model_spec in enumerate(models, 1):
             if cancel_event.is_set():
-                self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
+                self.state.update_job_status(
+                    job_id=job_id,
+                    status="cancelled",
+                    error_message="Cancelled by user request",
+                )
                 self._broadcast_log(job_id, f"[CANCEL] Fleet push cancelled before processing '{model_spec.key}'.")
                 return
 
@@ -866,10 +944,19 @@ class JobManager:
 
             try:
                 push_res = self._push_model_with_telemetry(
-                    job_id, sync_mgr, model_key, variation, version_notes, dry_run, cancel_event, prefix="  "
+                    job_id,
+                    sync_mgr,
+                    model_key,
+                    variation,
+                    version_notes,
+                    dry_run=dry_run,
+                    cancel_event=cancel_event,
+                    prefix="  ",
                 )
 
-                if push_res.success and (not push_res.metadata_sync_result or not push_res.metadata_sync_result.get("errors")):
+                if push_res.success and (
+                    not push_res.metadata_sync_result or not push_res.metadata_sync_result.get("errors")
+                ):
                     successful_count += 1
                 else:
                     failed_count += 1
@@ -893,7 +980,8 @@ class JobManager:
         self.state.update_job_status(job_id=job_id, status=overall_status, metrics=metrics)
         self._broadcast_log(
             job_id,
-            f"[COMPLETED] Kaggle fleet push finished: {successful_count} succeeded, {failed_count} skipped/failed out of {total_models} models (100%).",
+            f"[COMPLETED] Kaggle fleet push finished: {successful_count} succeeded, "
+            f"{failed_count} skipped/failed out of {total_models} models (100%).",
         )
 
     def _execute_kaggle_pull(
@@ -904,9 +992,6 @@ class JobManager:
         cancel_event: threading.Event,
     ) -> None:
         """Download all 4 model variations from Kaggle Models Hub with live telemetry."""
-        from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-        from training.cloud.variations import VARIATION_BY_KEY
-
         variation = params.get("variation", "all")
         force_download = params.get("force_download", False)
 
@@ -914,7 +999,10 @@ class JobManager:
         vars_to_pull = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
         total = len(vars_to_pull)
 
-        self._broadcast_log(job_id, f"[DOWNLOAD] Pulling {total} variation(s) for '{model_key}' from Kaggle Models Hub...")
+        self._broadcast_log(
+            job_id,
+            f"[DOWNLOAD] Pulling {total} variation(s) for '{model_key}' from Kaggle Models Hub...",
+        )
 
         success_count = 0
         errors: list[str] = []

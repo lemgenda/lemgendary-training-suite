@@ -6,13 +6,15 @@ SOTA tracking, atomic checkpointing, rollback recovery, and cloud sync triggers.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+
 import torch
 
-from training.checkpoint import safe_atomic_save
+from training.checkpoint import CheckpointLifecycleManager
 from training.cloud_sync import trigger_cloud_sync
+from training.telemetry import TelemetryEngine
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
 from training.training.validation import validate_one_epoch
@@ -61,8 +63,11 @@ def run_training(
         else:
             start_epoch = ctx.resume_state.epoch + 1
 
+    # Ensure total_epochs is never lower than start_epoch
+    if ctx.total_epochs < start_epoch:
+        ctx.total_epochs = max(30, start_epoch + 10)
+
     if ctx.lifecycle_manager is None:
-        from training.checkpoint import CheckpointLifecycleManager
         sota_targets = ctx.model_info.get("sota_targets", {})
         ctx.lifecycle_manager = CheckpointLifecycleManager(
             model_name=ctx.model_name,
@@ -98,7 +103,7 @@ def run_training(
         )
 
         if is_resuming_val:
-            setattr(ctx, "_resumed_val_handled", True)
+            ctx._resumed_val_handled = True
             print(
                 f"\n[RESUME] Resuming directly into validation pass for {ctx.model_name} at Epoch {epoch} "
                 f"(progress checkpoint captured during validation phase; skipping redundant training pass)...",
@@ -158,7 +163,8 @@ def run_training(
         if "psnr" in combined_metrics:
             val_info += f" | PSNR: {combined_metrics['psnr']:.2f}dB | SSIM: {combined_metrics.get('ssim', 0.0):.4f}"
         if "dir_acc" in combined_metrics:
-            val_info += f" | DirAcc: {combined_metrics['dir_acc']:.2f}% | WinRate: {combined_metrics.get('win_rate', 0.0):.2f}%"
+            win_rate = combined_metrics.get("win_rate", 0.0)
+            val_info += f" | DirAcc: {combined_metrics['dir_acc']:.2f}% | WinRate: {win_rate:.2f}%"
         sota_star = " [NEW BEST]" if is_best else ""
         print(
             f"[EPOCH {epoch}/{ctx.total_epochs} COMPLETE] "
@@ -235,8 +241,6 @@ def run_training(
 
         # Standard LemGendary Telemetry Engine export (metrics.csv)
         if ctx.lifecycle_manager is not None:
-            from training.telemetry import TelemetryEngine
-
             is_forex = (
                 ctx.model_info.get("category") == "forex"
                 or ctx.model_info.get("task_type") == "forex"
@@ -307,10 +311,43 @@ def run_training(
                 print(f"[WARNING] Telemetry epoch callback failed: {cb_err}")
 
     total_elapsed = time.time() - total_start_time
+    last_epoch_executed = ctx.total_epochs if start_epoch <= ctx.total_epochs else max(0, start_epoch - 1)
+
+    # Determine resolution ladder and max rung
+    is_forex = (
+        ctx.model_info.get("category") == "forex"
+        or ctx.model_info.get("task_type") == "forex"
+        or ctx.model_name == "forex_predictor"
+    )
+    opt_cfg = ctx.model_info.get("optimization", {})
+    if is_forex:
+        res_ladder = opt_cfg.get("res_ladder") or [1, 5, 15, 60, 240, 1440]
+        target_res = max(res_ladder) if res_ladder else 1440
+        ladder_passed = (
+            getattr(ctx.args, "fold", 1) >= 6
+            or (getattr(ctx.governor, "current_res", 0) >= 1440)
+        )
+    else:
+        res_ladder = opt_cfg.get("res_ladder") or [256, 384, 512]
+        target_res = max(res_ladder) if res_ladder else (ctx.model_info.get("resolution") or 512)
+        curr_res = getattr(ctx.governor, "current_res", 0)
+        ladder_passed = curr_res >= target_res
+
+    curr_data_frac = getattr(ctx.governor, "current_fraction", 0.0)
+    data_fraction_passed = curr_data_frac >= 0.999
+
+    # Strict LemGendary Invariant:
+    # Training should NEVER be declared complete if it didn't reach 100% data fraction
+    # on max resolution and hasn't trained for at least 30 epochs!
+    if last_epoch_executed >= 30 and ladder_passed and data_fraction_passed:
+        final_status = "completed"
+    else:
+        final_status = "partially_trained"
+
     return TrainingSummary(
         model_name=ctx.model_name,
-        final_epoch=ctx.total_epochs,
+        final_epoch=last_epoch_executed,
         best_metrics=best_metrics,
         total_time=total_elapsed,
-        status="completed",
+        status=final_status,
     )

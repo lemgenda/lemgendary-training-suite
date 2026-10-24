@@ -8,7 +8,9 @@ never hardcoded. Regeneration rebuilds generated fields and preserves any field 
 
 from __future__ import annotations
 
+import json
 import logging
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +24,6 @@ from training.cloud.model_metadata import (
 )
 from training.cloud.variations import (
     ONNX_FP16,
-    ONNX_FP32,
     PYTORCH_DEFAULT,
     PYTORCH_FP32,
     VARIATIONS,
@@ -162,7 +163,6 @@ class KaggleMetadataService:
         # Write canonical model-metadata.json in same folder
         json_path = yaml_path.parent / "model-metadata.json"
         with open(json_path, "w", encoding="utf-8") as f:
-            import json
             json.dump(metadata.kaggle_model_payload(), f, indent=2)
 
         logger.info("Wrote Kaggle model metadata: %s and %s", yaml_path, json_path)
@@ -201,7 +201,9 @@ class KaggleMetadataService:
 
     @staticmethod
     def _build_description(spec: ModelSpecification, owner: str, slug: str, dataset_urls: list[str]) -> str:
-        lines: list[str] = [spec.description or spec.name, ""]
+        raw_desc = spec.description or spec.name
+        wrapped_desc = textwrap.fill(raw_desc, width=120) if len(raw_desc) > 120 else raw_desc
+        lines: list[str] = [wrapped_desc, ""]
         lines.append(f"**Architecture:** {spec.architecture_type}")
         lines.append(f"**Category:** {spec.category}")
         if dataset_urls:
@@ -217,7 +219,12 @@ class KaggleMetadataService:
         if ref and ref.title:
             lines.append("")
             citation = f"{ref.authors} ({ref.year}). {ref.title}. {ref.venue}".strip()
-            lines.append(f"**Reference:** {citation} {ref.link}".strip())
+            full_ref = f"**Reference:** {citation} {ref.link}".strip()
+            if len(full_ref) > 120:
+                wrapped_ref = textwrap.fill(full_ref, width=120, break_long_words=False, break_on_hyphens=False)
+                lines.append(wrapped_ref)
+            else:
+                lines.append(full_ref)
         return "\n".join(lines).strip() + "\n"
 
     @staticmethod

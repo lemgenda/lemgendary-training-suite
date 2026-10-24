@@ -25,16 +25,18 @@ import csv
 import logging
 import shutil
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import torch
-import torch.nn as nn
+import yaml
+from torch import nn
 
-from training.checkpoint.manager import safe_atomic_save
+from training.checkpoint.manager import safe_atomic_save, safe_load_checkpoint
+from training.checkpoint.preflight_generator import generate_preflight_assets
+from training.doc_generator import build_model_readme
 from training.export.universal_exporter import (
-    export_tri_format_pytorch,
-    export_tri_format_yolo,
     export_universal_model,
     get_model_hub_dir,
 )
@@ -92,7 +94,7 @@ CANONICAL_METRIC_ALIASES: dict[str, str] = {
 
 def normalize_metric_name(name: str) -> str:
     """Normalize metric key to canonical lower-cased snake_case representation."""
-    cleaned = str(name).strip().lower().replace("-", "_")
+    cleaned = name.strip().lower().replace("-", "_")
     unscored = cleaned.replace("_", "")
     return CANONICAL_METRIC_ALIASES.get(cleaned, CANONICAL_METRIC_ALIASES.get(unscored, cleaned))
 
@@ -205,6 +207,16 @@ class CheckpointLifecycleManager:
 
         # Initialize vault tracking from sota_targets or existing metrics.csv
         self._initialize_vault_history()
+        if self.best_path.exists():
+            try:
+                best_data = safe_load_checkpoint(self.best_path)
+                if isinstance(best_data, dict):
+                    saved_q = best_data.get("best_quality_score") or best_data.get("quality_score")
+                    if saved_q is not None:
+                        q_val = float(saved_q)
+                        self.best_quality_score = max(self.best_quality_score, q_val)
+            except Exception as e:
+                logger.debug("Failed reading best.pth quality score: %s", e)
 
         # Pre-flight asset generation (README and cloud notebooks before Epoch 1)
         self.run_preflight(force=False)
@@ -212,8 +224,6 @@ class CheckpointLifecycleManager:
     def run_preflight(self, force: bool = False) -> dict[str, Path]:
         """Generate pre-flight deployment documentation and cloud training notebooks."""
         try:
-            from training.checkpoint.preflight_generator import generate_preflight_assets
-
             assets = generate_preflight_assets(self.model_name, self.root, force=force)
             logger.info("Pre-flight assets verified for %s: %s", self.model_name, list(assets.keys()))
             return assets
@@ -227,7 +237,7 @@ class CheckpointLifecycleManager:
             return
 
         try:
-            with open(self.metrics_csv_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(self.metrics_csv_path, encoding="utf-8", errors="ignore") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     # Quality score baseline
@@ -235,8 +245,7 @@ class CheckpointLifecycleManager:
                         if row.get(q_key):
                             try:
                                 q_val = float(row[q_key])
-                                if q_val > self.best_quality_score:
-                                    self.best_quality_score = q_val
+                                self.best_quality_score = max(self.best_quality_score, q_val)
                             except ValueError:
                                 pass
 
@@ -254,9 +263,8 @@ class CheckpointLifecycleManager:
                                     elif lower_better:
                                         if val < cur:
                                             self.vault_bests[target_key] = val
-                                    else:
-                                        if val > cur:
-                                            self.vault_bests[target_key] = val
+                                    elif val > cur:
+                                        self.vault_bests[target_key] = val
                                 except ValueError:
                                     pass
         except OSError as exc:
@@ -351,6 +359,7 @@ class CheckpointLifecycleManager:
         epoch: int,
         quality_score: float,
         payload: dict[str, Any],
+        *,
         model: nn.Module | Any | None = None,
         dummy_input: torch.Tensor | None = None,
         is_yolo: bool = False,
@@ -489,19 +498,15 @@ class CheckpointLifecycleManager:
         """Update LemGendaryModels/[ModelName]/README.md with current best metrics."""
         readme_path = self.model_hub_dir / "README.md"
         try:
-            import yaml
-
-            from training.doc_generator import build_model_readme
-
             config_path = self.root / "config.yaml"
             unified_dict = {}
             if config_path.exists():
-                with open(config_path, "r", encoding="utf-8") as f:
+                with open(config_path, encoding="utf-8") as f:
                     cfg = yaml.safe_load(f) or {}
                 rel_u = cfg.get("unified_models", "unified_models_v2.yaml")
                 u_path = self.root / rel_u
                 if u_path.exists():
-                    with open(u_path, "r", encoding="utf-8") as uf:
+                    with open(u_path, encoding="utf-8") as uf:
                         unified_dict = yaml.safe_load(uf) or {}
 
             readme_content = build_model_readme(

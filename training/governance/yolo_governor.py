@@ -10,18 +10,22 @@ from __future__ import annotations
 
 import argparse
 import csv
-from dataclasses import dataclass
 import json
 import logging
-from pathlib import Path
+import math
 import shutil
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import torch
+import ultralytics
 import yaml
-
 from data.yolo_config_gen import generate_yolo_yaml
+
+from training.cloud_sync import trigger_cloud_sync
 from training.export.universal_exporter import export_tri_format_yolo
 from training.telemetry import TelemetryEngine
 from training.training.engine import TrainingSummary
@@ -60,7 +64,7 @@ def is_amp_supported_for_device(device_arg: str) -> bool:
         if device_arg.isdigit():
             device_index = int(device_arg)
         elif "," in device_arg:
-            first_dev = device_arg.split(",")[0].strip()
+            first_dev = device_arg.split(",", maxsplit=1)[0].strip()
             if first_dev.isdigit():
                 device_index = int(first_dev)
 
@@ -81,8 +85,8 @@ def is_amp_supported_for_device(device_arg: str) -> bool:
 def compute_safe_batch_size(
     imgsz: int,
     vram_gb: float,
-    requested_batch: Optional[int] = None,
-    opt_config: Optional[Dict[str, Any]] = None,
+    requested_batch: int | None = None,
+    opt_config: dict[str, Any] | None = None,
 ) -> int:
     """Calculate maximum safe physical batch size from first-principles VRAM arithmetic.
 
@@ -135,7 +139,6 @@ def compute_safe_batch_size(
     if available_mb <= 0 or per_sample_mb <= 0:
         max_safe = batch_min
     else:
-        import math
         max_safe = max(batch_min, min(batch_max, math.floor(available_mb / per_sample_mb)))
 
     # Power-of-2 quantisation improves GPU utilisation (not strictly required)
@@ -154,7 +157,7 @@ def _build_gradual_fractions(
     start: float,
     step_min: float = 0.15,
     step_max: float = 0.20,
-) -> List[float]:
+) -> list[float]:
     """Build fractions from start to 1.0 where every increment is between step_min and step_max."""
     if start >= 0.99:
         return [1.0]
@@ -168,14 +171,14 @@ def _build_gradual_fractions(
         steps -= 1
     fractions = [round(start + i * (span / steps), 2) for i in range(steps)]
     fractions.append(1.0)
-    return sorted(list(set(fractions)))
+    return sorted(set(fractions))
 
 
 def get_fractions_for_resolution(
     resolution: int,
     is_lowest_rung: bool,
-    opt_config: Optional[Dict[str, Any]] = None,
-) -> List[float]:
+    opt_config: dict[str, Any] | None = None,
+) -> list[float]:
     """Generate gradual fraction progression in configurable step increments up to 100%.
 
     Step bounds are read from opt_config keys fraction_step_min / fraction_step_max
@@ -203,13 +206,14 @@ def get_fractions_for_resolution(
 
 
 def build_ladder_curriculum(
-    res_ladder: List[int],
+    res_ladder: list[int],
     total_epochs: int,
     vram_gb: float,
-    requested_batch: Optional[int],
-    opt_config: Dict[str, Any],
-    start_resolution: Optional[int] = None,
-) -> List[YOLOLadderStage]:
+    requested_batch: int | None,
+    opt_config: dict[str, Any],
+    *,
+    start_resolution: int | None = None,
+) -> list[YOLOLadderStage]:
     """Construct deterministic multi-stage resolution ladder curriculum.
 
     Implements gradual intra-resolution fraction progression in 15%-20% increments:
@@ -220,7 +224,7 @@ def build_ladder_curriculum(
     This prevents overfitting and breaks performance plateaus when scaling across spatial rungs.
     """
     opt_config = opt_config or {}
-    rungs = sorted(list(set(res_ladder))) if res_ladder else [320, 480, 640]
+    rungs = sorted(set(res_ladder)) if res_ladder else [320, 480, 640]
 
     if start_resolution is not None and start_resolution in rungs:
         rungs = [r for r in rungs if r >= start_resolution]
@@ -230,7 +234,7 @@ def build_ladder_curriculum(
     patience_base = int(opt_config.get("plateau_patience", 10))
     lowest_ladder_res = min(res_ladder) if res_ladder else 320
 
-    stage_specs: List[Tuple[int, float]] = []
+    stage_specs: list[tuple[int, float]] = []
     for rung in rungs:
         is_lowest = (rung == lowest_ladder_res)
         fracs = get_fractions_for_resolution(rung, is_lowest, opt_config)
@@ -246,8 +250,8 @@ def build_ladder_curriculum(
     if diff != 0:
         epoch_allocations[-1] = max(1, epoch_allocations[-1] + diff)
 
-    stages: List[YOLOLadderStage] = []
-    for idx, ((res, frac), ep_budget) in enumerate(zip(stage_specs, epoch_allocations)):
+    stages: list[YOLOLadderStage] = []
+    for idx, ((res, frac), ep_budget) in enumerate(zip(stage_specs, epoch_allocations, strict=True)):
         safe_batch = compute_safe_batch_size(
             imgsz=res,
             vram_gb=vram_gb,
@@ -275,10 +279,10 @@ class YOLOCurriculumGovernor:
     def __init__(
         self,
         args: argparse.Namespace,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         project_root: Path,
-        on_epoch_end: Optional[Callable[[int, Dict[str, float]], None]] = None,
-        cancel_check: Optional[Callable[[], bool]] = None,
+        on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> None:
         self.args = args
         self.config = config
@@ -290,12 +294,15 @@ class YOLOCurriculumGovernor:
         unified_models_path = project_root / unified_models_rel
         registry = {}
         if unified_models_path.exists():
-            with open(unified_models_path, "r", encoding="utf-8") as f:
+            with open(unified_models_path, encoding="utf-8") as f:
                 registry = yaml.safe_load(f) or {}
 
-        self.model_info: Dict[str, Any] = registry.get("yolov8n", {})
-        self.opt_config: Dict[str, Any] = self.model_info.get("optimization", {})
-        self.sota_targets: Dict[str, float] = self.model_info.get(
+        self.model_info: dict[str, Any] = registry.get("yolov8n", {})
+        merged_opt = dict(self.model_info.get("optimization", {}))
+        if isinstance(config.get("optimization"), dict):
+            merged_opt.update(config["optimization"])
+        self.opt_config: dict[str, Any] = merged_opt
+        self.sota_targets: dict[str, float] = self.model_info.get(
             "sota_targets",
             {"map50": 0.54, "map50_95": 0.39},
         )
@@ -327,7 +334,7 @@ class YOLOCurriculumGovernor:
         self.telemetry = TelemetryEngine(export_dir=str(self.models_hub_dir), task_type="yolo")
         self.telemetry.validate_and_initialize_csv()
 
-        self.best_overall_metrics: Dict[str, float] = {"map50": 0.0, "map50_95": 0.0}
+        self.best_overall_metrics: dict[str, float] = {"map50": 0.0, "map50_95": 0.0}
         self.sota_achieved = False
         self.best_sota_quality = 0.0
         self.best_export_quality = 0.0
@@ -383,8 +390,7 @@ class YOLOCurriculumGovernor:
             return
 
         try:
-            from ultralytics import YOLO
-            export_model = YOLO(str(source_weights))
+            export_model = ultralytics.YOLO(str(source_weights))
             export_tri_format_yolo(
                 trainer=export_model,
                 model_key="yolov8n",
@@ -400,7 +406,7 @@ class YOLOCurriculumGovernor:
         resolution: int,
         fraction: float = 1.0,
         stage_index: int = 1,
-        global_epoch: Optional[int] = None,
+        global_epoch: int | None = None,
     ) -> None:
         """Mirror stage checkpoints to canonical LemGendaryModels/yolov8n/checkpoints/.
 
@@ -506,9 +512,12 @@ class YOLOCurriculumGovernor:
                 logger.debug("Non-fatal curriculum state save error: %s", state_err)
 
         # Automated Cloud Sync Trigger if operating under remote environment
-        if global_epoch is not None and getattr(self.args, "auto_sync", False) and getattr(self.args, "env", "local") == "kaggle":
+        if (
+            global_epoch is not None
+            and getattr(self.args, "auto_sync", False)
+            and getattr(self.args, "env", "local") == "kaggle"
+        ):
             try:
-                from training.cloud_sync import trigger_cloud_sync
                 trigger_cloud_sync("yolov8n", global_epoch, self.config)
             except Exception as sync_err:
                 logger.debug("Non-fatal cloud sync trigger error: %s", sync_err)
@@ -535,13 +544,6 @@ class YOLOCurriculumGovernor:
     def run(self) -> TrainingSummary:
         """Execute full curriculum-governed multi-stage training pipeline."""
         start_time = time.time()
-        try:
-            from ultralytics import YOLO
-        except ImportError as exc:
-            raise RuntimeError(
-                "Ultralytics is required for yolov8n training. Install it with: pip install ultralytics"
-            ) from exc
-
         device_arg = self._resolve_devices()
         vram_gb = self._resolve_vram_gb()
         is_amp_safe = is_amp_supported_for_device(device_arg)
@@ -551,7 +553,11 @@ class YOLOCurriculumGovernor:
             raise RuntimeError("generate_yolo_yaml returned None - no datasets configured for yolov8n.")
 
         total_epochs = int(self.args.epochs or self.model_info.get("epochs", 300))
-        requested_batch = int(self.args.batch_size) if (self.args.batch_size and self.args.batch_size != "auto") else None
+        requested_batch = (
+            int(self.args.batch_size)
+            if (self.args.batch_size and self.args.batch_size != "auto")
+            else None
+        )
         res_ladder = self.opt_config.get("res_ladder", [320, 480, 640])
         start_res = getattr(self.args, "resolution", None)
 
@@ -582,7 +588,7 @@ class YOLOCurriculumGovernor:
                         pass
 
         # Discover candidate checkpoint exclusively from LemGendaryModels hub
-        candidate_ckpt: Optional[Path] = None
+        candidate_ckpt: Path | None = None
         if not getattr(self.args, "clean", False):
             for c in [
                 self.models_hub_ckpt_dir / "last.pt",
@@ -598,7 +604,7 @@ class YOLOCurriculumGovernor:
         current_weights_path = str(candidate_ckpt) if candidate_ckpt else "yolov8n.pt"
 
         # Inspect candidate checkpoint metadata
-        ckpt_dict: Optional[Dict[str, Any]] = None
+        ckpt_dict: dict[str, Any] | None = None
         if candidate_ckpt and candidate_ckpt.name in ["last.pt", "best.pt", "progress.pth", "best.pth", "yolov8n.pt"]:
             try:
                 loaded = torch.load(str(candidate_ckpt), map_location="cpu")
@@ -611,11 +617,11 @@ class YOLOCurriculumGovernor:
         csv_epochs = 0
         last_csv_res = None
         last_csv_frac = None
-        csv_stage_epoch_counts: Dict[Tuple[int, int], int] = {}
+        csv_stage_epoch_counts: dict[tuple[int, int], int] = {}
         metrics_csv_path = Path(self.telemetry.metrics_csv_path)
         if metrics_csv_path.exists() and not getattr(self.args, "clean", False):
             try:
-                with open(metrics_csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                with open(metrics_csv_path, encoding="utf-8", errors="ignore") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
                         ep = row.get("Epoch")
@@ -632,10 +638,8 @@ class YOLOCurriculumGovernor:
                                 csv_stage_epoch_counts[key] = csv_stage_epoch_counts.get(key, 0) + 1
                         m50 = float(row.get("mAP50", 0.0) or 0.0)
                         m95 = float(row.get("mAP50-95", 0.0) or 0.0)
-                        if m50 > self.best_overall_metrics["map50"]:
-                            self.best_overall_metrics["map50"] = m50
-                        if m95 > self.best_overall_metrics["map50_95"]:
-                            self.best_overall_metrics["map50_95"] = m95
+                        self.best_overall_metrics["map50"] = max(self.best_overall_metrics["map50"], m50)
+                        self.best_overall_metrics["map50_95"] = max(self.best_overall_metrics["map50_95"], m95)
                         if (self.models_hub_dir / "yolov8n.pt").exists():
                             self.best_export_quality = max(self.best_export_quality, (m95 * 0.7) + (m50 * 0.3))
             except Exception as e:
@@ -653,8 +657,12 @@ class YOLOCurriculumGovernor:
         ckpt_imgsz = int(ckpt_dict.get("train_args", {}).get("imgsz", 0)) if ckpt_dict else 0
         ckpt_fraction = float(ckpt_dict.get("train_args", {}).get("fraction", 1.0)) if ckpt_dict else 1.0
         max_ladder_res = max(s.resolution for s in curriculum_stages) if curriculum_stages else 640
+        last_completed_res = 0
+        last_completed_frac = 0.0
 
         for stage in curriculum_stages:
+            last_completed_res = stage.resolution
+            last_completed_frac = stage.fraction
             frac_pct = round(stage.fraction * 100)
             # Stage output goes to LemGendaryModels/yolov8n/runs/ — not the project root
             stage_dir = self.runs_dir / f"stage{stage.stage_index}_{stage.resolution}px_f{frac_pct}"
@@ -686,7 +694,8 @@ class YOLOCurriculumGovernor:
             if stage_already_complete and not getattr(self.args, "clean", False):
                 print(
                     f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] {stage.resolution}px rung @ "
-                    f"{frac_pct}% data manifold already completed ({prior_stage_epochs} epochs). Skipping to next ladder stage.",
+                    f"{frac_pct}% data manifold already completed ({prior_stage_epochs} epochs). "
+                    f"Skipping to next ladder stage.",
                     flush=True,
                 )
                 completed_prior_epochs += prior_stage_epochs
@@ -711,21 +720,23 @@ class YOLOCurriculumGovernor:
                         if reduced_batch < stage.batch_size:
                             print(
                                 f"\n[GOVERNOR] [SAWTOOTH SENTINEL] High VRAM pressure detected "
-                                f"({vram_pct * 100:.1f}% >= {pressure_thresh * 100:.0f}%). Dynamically reducing batch size: "
-                                f"{stage.batch_size} -> {reduced_batch}\n",
+                                f"({vram_pct * 100:.1f}% >= {pressure_thresh * 100:.0f}%). "
+                                f"Dynamically reducing batch size: {stage.batch_size} -> {reduced_batch}\n",
                                 flush=True,
                             )
                             stage.batch_size = reduced_batch
                     # 2. Dynamic Headroom Promotion: scale up if VRAM utilization was low
                     elif peak_bytes > 0 and vram_pct < headroom_thresh:
-                        safe_limit = compute_safe_batch_size(stage.resolution, vram_gb, requested_batch, self.opt_config)
+                        safe_limit = compute_safe_batch_size(
+                            stage.resolution, vram_gb, requested_batch, self.opt_config
+                        )
                         if safe_limit > stage.batch_size:
                             promoted_batch = min(safe_limit, max(stage.batch_size * 2, safe_limit))
                             if promoted_batch > stage.batch_size:
                                 print(
                                     f"\n[GOVERNOR] [SAWTOOTH DYNAMIC] Abundant VRAM headroom detected "
-                                    f"({vram_pct * 100:.1f}% < {headroom_thresh * 100:.0f}% used). Dynamically scaling batch size: "
-                                    f"{stage.batch_size} -> {promoted_batch}\n",
+                                    f"({vram_pct * 100:.1f}% < {headroom_thresh * 100:.0f}% used). "
+                                    f"Dynamically scaling batch size: {stage.batch_size} -> {promoted_batch}\n",
                                     flush=True,
                                 )
                                 stage.batch_size = promoted_batch
@@ -745,7 +756,8 @@ class YOLOCurriculumGovernor:
             ):
                 stage_resume = True
                 print(
-                    f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] Resuming {stage.resolution}px rung from epoch "
+                    f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] "
+                    f"Resuming {stage.resolution}px rung from epoch "
                     f"global epoch {ckpt_epoch + 2} | Batch Size: {stage.batch_size} | "
                     f"Data Fraction: {frac_pct}% | Checkpoint: {Path(current_weights_path).name}",
                     flush=True,
@@ -759,10 +771,12 @@ class YOLOCurriculumGovernor:
                 if local_last.exists():
                     current_weights_path = str(local_last)
             else:
+                ckpt_name = Path(current_weights_path).name
                 print(
-                    f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] Launching {stage.resolution}px rung | "
+                    f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] "
+                    f"Launching {stage.resolution}px rung | "
                     f"Batch Size: {stage.batch_size} (Sawtooth Guard) | Data Fraction: {frac_pct}% | "
-                    f"Advance Rule: plateau/overfit (no epoch budget) | Starting Weights: {Path(current_weights_path).name}",
+                    f"Advance Rule: plateau/overfit (no epoch budget) | Starting Weights: {ckpt_name}",
                     flush=True,
                 )
 
@@ -773,7 +787,7 @@ class YOLOCurriculumGovernor:
                     0, stage_start_epoch - csv_stage_epoch_counts.get((stage.resolution, frac_pct), 0)
                 )
 
-            model = YOLO(current_weights_path)
+            model = ultralytics.YOLO(current_weights_path)
             stage_epochs_recorded = 0
             recorded_stage_epochs = set()
             rung_patience = int(self.opt_config.get("rung_plateau_patience", 5))
@@ -782,42 +796,63 @@ class YOLOCurriculumGovernor:
             # Fraction progression step bounds (configurable from opt_config)
             _frac_step_min = float(self.opt_config.get("fraction_step_min", 0.15))
             _frac_step_max = float(self.opt_config.get("fraction_step_max", 0.20))
-            plateau_state: Dict[str, float] = {"best": -1.0, "stall": 0}
+            plateau_state: dict[str, float] = {"best": -1.0, "stall": 0}
 
-            def on_pretrain_routine_end(trainer: Any) -> None:
-                trainer.start_epoch = stage_start_epoch
-                trainer.epochs = total_epochs
-                if stage_resume and ckpt_dict:
-                    try:
-                        trainer._load_checkpoint_state(ckpt_dict)
-                    except Exception as load_err:
-                        logger.debug("Failed restoring checkpoint state in on_pretrain_routine_end: %s", load_err)
-                if hasattr(trainer, "scheduler") and trainer.scheduler:
-                    trainer.scheduler.last_epoch = trainer.start_epoch - 1
-                if hasattr(trainer, "validator") and trainer.validator:
-                    trainer.validator.get_desc = lambda: f"{'Validation':>15}"
+            def make_pretrain_routine_end(
+                _start_epoch: int,
+                _stage_resume: bool,
+                _ckpt_dict: Any,
+            ) -> Callable[[Any], None]:
+                def on_pretrain_routine_end(trainer: Any) -> None:
+                    trainer.start_epoch = _start_epoch
+                    trainer.epochs = total_epochs
+                    if _stage_resume and _ckpt_dict:
+                        try:
+                            trainer._load_checkpoint_state(_ckpt_dict)
+                        except Exception as load_err:
+                            logger.debug("Failed restoring checkpoint state in on_pretrain_routine_end: %s", load_err)
+                    if hasattr(trainer, "scheduler") and trainer.scheduler:
+                        trainer.scheduler.last_epoch = trainer.start_epoch - 1
+                    if hasattr(trainer, "validator") and trainer.validator:
+                        trainer.validator.get_desc = lambda: f"{'Validation':>15}"
+                return on_pretrain_routine_end
 
-            def on_train_epoch_start(trainer: Any) -> None:
-                curr_global = int(getattr(trainer, "epoch", 0)) + 1
-                # Epoch count is not a stage boundary: keep the global ceiling ahead of training
-                if curr_global + 1 >= int(getattr(trainer, "epochs", total_epochs)):
-                    trainer.epochs = int(trainer.epochs) + 100
-                rung_ep = curr_global - completed_prior_epochs
-                print(
-                    f"\n[GOVERNOR] >>> Global Epoch {curr_global}/{int(trainer.epochs)} | "
-                    f"Stage {stage.stage_index}/{len(curriculum_stages)} "
-                    f"({stage.resolution}px @ {frac_pct}% data | Rung Epoch {rung_ep} | "
-                    f"Plateau Watch {int(plateau_state['stall'])}/{rung_patience})",
-                    flush=True,
-                )
+            def make_train_epoch_start(
+                _cur_stage: YOLOLadderStage,
+                _prior_epochs: int,
+                _frac_pct: int,
+                _p_state: dict[str, float],
+                _patience: int,
+            ) -> Callable[[Any], None]:
+                def on_train_epoch_start(trainer: Any) -> None:
+                    curr_global = int(getattr(trainer, "epoch", 0)) + 1
+                    # Epoch count is not a stage boundary: keep the global ceiling ahead of training
+                    if curr_global + 1 >= int(getattr(trainer, "epochs", total_epochs)):
+                        trainer.epochs = int(trainer.epochs) + 100
+                    rung_ep = curr_global - _prior_epochs
+                    print(
+                        f"\n[GOVERNOR] >>> Global Epoch {curr_global}/{int(trainer.epochs)} | "
+                        f"Stage {_cur_stage.stage_index}/{len(curriculum_stages)} "
+                        f"({_cur_stage.resolution}px @ {_frac_pct}% data | Rung Epoch {rung_ep} | "
+                        f"Plateau Watch {int(_p_state['stall'])}/{_patience})",
+                        flush=True,
+                    )
+                return on_train_epoch_start
 
             def create_epoch_callback(
                 current_stage: YOLOLadderStage,
                 prior_epochs: int,
+                p_state: dict[str, float],
+                target_stage_dir: Path,
+                recorded_epochs_set: set[int],
+                *,
+                min_epochs: int,
+                patience: int,
+                min_delta: float,
             ) -> Callable[[Any], None]:
-                stage_loss_history: List[float] = []
-                stage_val_loss_history: List[float] = []
-                stage_map_history: List[float] = []
+                stage_loss_history: list[float] = []
+                stage_val_loss_history: list[float] = []
+                stage_map_history: list[float] = []
                 rescued_overfitting: bool = False
 
                 def on_fit_epoch_end(trainer: Any) -> None:
@@ -828,9 +863,9 @@ class YOLOCurriculumGovernor:
                         raise InterruptedError("Training cancelled by user request.")
                     try:
                         curr_global = int(getattr(trainer, "epoch", 0)) + 1
-                        if curr_global in recorded_stage_epochs:
+                        if curr_global in recorded_epochs_set:
                             return
-                        recorded_stage_epochs.add(curr_global)
+                        recorded_epochs_set.add(curr_global)
 
                         global_epoch = curr_global
                         stage_epochs_recorded = curr_global - prior_epochs
@@ -882,8 +917,9 @@ class YOLOCurriculumGovernor:
                             stress=0.0,
                         )
 
+                        max_epochs_disp = int(getattr(trainer, "epochs", total_epochs))
                         print(
-                            f"\n[GOVERNOR] [EPOCH {global_epoch}/{int(getattr(trainer, 'epochs', total_epochs))} SUMMARY] "
+                            f"\n[GOVERNOR] [EPOCH {global_epoch}/{max_epochs_disp} SUMMARY] "
                             f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} "
                             f"(Box: {box_loss:.4f}, Cls: {cls_loss:.4f}, Dfl: {dfl_loss:.4f}) | "
                             f"mAP50: {map50:.4f} | mAP50-95: {map50_95:.4f}",
@@ -892,7 +928,7 @@ class YOLOCurriculumGovernor:
 
                         # Synchronize checkpoints and metrics CSV to checkpoints and documentation models hub
                         self._synchronize_checkpoints(
-                            stage_dir,
+                            target_stage_dir,
                             current_stage.resolution,
                             fraction=current_stage.fraction,
                             stage_index=current_stage.stage_index,
@@ -921,27 +957,32 @@ class YOLOCurriculumGovernor:
                         stage_val_loss_history.append(val_loss)
                         stage_map_history.append(map50)
 
-                        if quality > plateau_state["best"] + rung_min_delta:
-                            plateau_state["best"] = quality
-                            plateau_state["stall"] = 0
+                        if quality > p_state["best"] + min_delta:
+                            p_state["best"] = quality
+                            p_state["stall"] = 0
                         else:
-                            plateau_state["stall"] += 1
+                            p_state["stall"] += 1
 
                         if (
-                            stage_epochs_recorded >= rung_min_epochs
-                            and plateau_state["stall"] >= rung_patience
+                            stage_epochs_recorded >= min_epochs
+                            and p_state["stall"] >= patience
                         ):
                             print(
                                 f"\n[GOVERNOR] [PLATEAU DETECTED] No quality improvement for "
-                                f"{int(plateau_state['stall'])} epochs at {current_stage.resolution}px @ "
-                                f"{current_stage.fraction*100:.0f}% data (best quality {plateau_state['best']:.4f}). "
+                                f"{int(p_state['stall'])} epochs at {current_stage.resolution}px @ "
+                                f"{current_stage.fraction*100:.0f}% data (best quality {p_state['best']:.4f}). "
                                 f"Advancing to next ladder stage.",
                                 flush=True,
                             )
                             if hasattr(trainer, "stop"):
                                 trainer.stop = True
 
-                        if stage_epochs_recorded >= rung_min_epochs and len(stage_loss_history) >= 4 and not rescued_overfitting:
+                        can_check_overfit = (
+                            stage_epochs_recorded >= min_epochs
+                            and len(stage_loss_history) >= 4
+                            and not rescued_overfitting
+                        )
+                        if can_check_overfit:
                             train_trend = stage_loss_history[-1] - stage_loss_history[-3]
                             val_trend = stage_val_loss_history[-1] - stage_val_loss_history[-3]
                             val_consecutive_rise = (
@@ -961,8 +1002,9 @@ class YOLOCurriculumGovernor:
                             if is_overfitting:
                                 rescued_overfitting = True
                                 print(
-                                    f"\n[GOVERNOR] [OVERFITTING RESCUE] Overfitting attractor detected on data manifold "
-                                    f"({current_stage.fraction*100:.0f}% @ {current_stage.resolution}px rung). "
+                                    f"\n[GOVERNOR] [OVERFITTING RESCUE] Overfitting attractor detected on "
+                                    f"data manifold ({current_stage.fraction*100:.0f}% @ "
+                                    f"{current_stage.resolution}px rung). "
                                     f"Train Trend: {train_trend:+.4f} | Val Trend: {val_trend:+.4f}. "
                                     f"Halting stage early to expand dataset manifold and introduce sample variety!",
                                     flush=True,
@@ -1027,15 +1069,33 @@ class YOLOCurriculumGovernor:
             model.add_callback("on_val_start", on_val_start)
             model.add_callback("on_val_batch_start", on_val_batch_start)
             model.add_callback("on_val_batch_end", on_val_batch_end)
-            model.add_callback("on_pretrain_routine_end", on_pretrain_routine_end)
-            model.add_callback("on_train_epoch_start", on_train_epoch_start)
-            model.add_callback("on_fit_epoch_end", create_epoch_callback(stage, completed_prior_epochs))
+            model.add_callback(
+                "on_pretrain_routine_end",
+                make_pretrain_routine_end(stage_start_epoch, stage_resume, ckpt_dict),
+            )
+            model.add_callback(
+                "on_train_epoch_start",
+                make_train_epoch_start(stage, completed_prior_epochs, frac_pct, plateau_state, rung_patience),
+            )
+            model.add_callback(
+                "on_fit_epoch_end",
+                create_epoch_callback(
+                    stage,
+                    completed_prior_epochs,
+                    plateau_state,
+                    stage_dir,
+                    recorded_stage_epochs,
+                    min_epochs=rung_min_epochs,
+                    patience=rung_patience,
+                    min_delta=rung_min_delta,
+                ),
+            )
             model.add_callback(
                 "on_model_save",
                 lambda trainer, _res=stage.resolution: self._export_if_new_best(trainer, _res),
             )
 
-            train_kwargs: Dict[str, Any] = {
+            train_kwargs: dict[str, Any] = {
                 "data": yolo_yaml,
                 "epochs": total_epochs,
                 "imgsz": stage.resolution,
@@ -1100,20 +1160,25 @@ class YOLOCurriculumGovernor:
                     stage_index=stage.stage_index,
                     global_epoch=completed_prior_epochs + stage_epochs_recorded,
                 )
+                ckpt_name = Path(current_weights_path).name
                 print(
-                    f"[GOVERNOR] [STAGE {stage.stage_index} COMPLETE] Advanced checkpoint: {Path(current_weights_path).name}",
+                    f"[GOVERNOR] [STAGE {stage.stage_index} COMPLETE] Advanced checkpoint: {ckpt_name}",
                     flush=True,
                 )
             else:
-                logger.warning("Stage %d weights could not be located; retaining previous checkpoint.", stage.stage_index)
+                logger.warning(
+                    "Stage %d weights could not be located; retaining previous checkpoint.", stage.stage_index
+                )
 
             completed_prior_epochs += stage_epochs_recorded
             ckpt_dict = None  # Reset so subsequent ladder rungs start fresh with new resolution
 
             if self.sota_achieved:
+                map50_val = self.best_overall_metrics["map50"]
+                map50_95_val = self.best_overall_metrics["map50_95"]
                 print(
                     f"[GOVERNOR] [SOTA ATTAINED] Targets met on {max_ladder_res}px full manifold! "
-                    f"mAP50={self.best_overall_metrics['map50']:.4f}, mAP50-95={self.best_overall_metrics['map50_95']:.4f}. Concluding early.",
+                    f"mAP50={map50_val:.4f}, mAP50-95={map50_95_val:.4f}. Concluding early.",
                     flush=True,
                 )
                 break
@@ -1157,7 +1222,8 @@ class YOLOCurriculumGovernor:
                         reduced = max(2, ext_batch // 2)
                         if reduced < ext_batch:
                             print(
-                                f"\n[GOVERNOR] [SAWTOOTH SENTINEL] VRAM pressure ({vram_pct * 100:.1f}% >= {pressure_thresh * 100:.0f}%). "
+                                f"\n[GOVERNOR] [SAWTOOTH SENTINEL] VRAM pressure "
+                                f"({vram_pct * 100:.1f}% >= {pressure_thresh * 100:.0f}%). "
                                 f"Downscaling extension batch size: {ext_batch} -> {reduced}\n",
                                 flush=True,
                             )
@@ -1168,7 +1234,8 @@ class YOLOCurriculumGovernor:
                             promoted = min(safe_limit, max(ext_batch * 2, safe_limit))
                             if promoted > ext_batch:
                                 print(
-                                    f"\n[GOVERNOR] [SAWTOOTH DYNAMIC] VRAM headroom ({vram_pct * 100:.1f}% < {headroom_thresh * 100:.0f}% used). "
+                                    f"\n[GOVERNOR] [SAWTOOTH DYNAMIC] VRAM headroom "
+                                    f"({vram_pct * 100:.1f}% < {headroom_thresh * 100:.0f}% used). "
                                     f"Promoting extension batch size: {ext_batch} -> {promoted}\n",
                                     flush=True,
                                 )
@@ -1195,43 +1262,58 @@ class YOLOCurriculumGovernor:
             ext_start_epoch = completed_prior_epochs
             ext_total_epochs = max(total_epochs, ext_start_epoch + 100)
 
-            model = YOLO(current_weights_path)
+            model = ultralytics.YOLO(current_weights_path)
             ext_stage_epochs_recorded = 0
             ext_recorded_epochs = set()
 
-            def on_ext_pretrain_routine_end(trainer: Any) -> None:
-                trainer.start_epoch = ext_start_epoch
-                trainer.epochs = ext_total_epochs
-                if hasattr(trainer, "scheduler") and trainer.scheduler:
-                    trainer.scheduler.last_epoch = trainer.start_epoch - 1
-                if hasattr(trainer, "validator") and trainer.validator:
-                    trainer.validator.get_desc = lambda: f"{'Validation':>15}"
+            def make_ext_pretrain_routine_end(
+                _start_ep: int,
+                _tot_ep: int,
+            ) -> Callable[[Any], None]:
+                def on_ext_pretrain_routine_end(trainer: Any) -> None:
+                    trainer.start_epoch = _start_ep
+                    trainer.epochs = _tot_ep
+                    if hasattr(trainer, "scheduler") and trainer.scheduler:
+                        trainer.scheduler.last_epoch = trainer.start_epoch - 1
+                    if hasattr(trainer, "validator") and trainer.validator:
+                        trainer.validator.get_desc = lambda: f"{'Validation':>15}"
+                return on_ext_pretrain_routine_end
 
-            def on_ext_train_epoch_start(trainer: Any) -> None:
-                curr_global = int(getattr(trainer, "epoch", 0)) + 1
-                if curr_global + 1 >= int(getattr(trainer, "epochs", ext_total_epochs)):
-                    trainer.epochs = int(trainer.epochs) + 100
-                ext_ep = curr_global - ext_start_epoch
-                print(
-                    f"\n[GOVERNOR] >>> Global Epoch {curr_global}/{int(trainer.epochs)} | "
-                    f"SOTA Extension Cycle {extension_cycle} "
-                    f"({top_res}px @ 100% data | Ext Epoch {ext_ep})",
-                    flush=True,
-                )
+            def make_ext_train_epoch_start(
+                _start_ep: int,
+                _tot_ep: int,
+                _cycle: int,
+            ) -> Callable[[Any], None]:
+                def on_ext_train_epoch_start(trainer: Any) -> None:
+                    curr_global = int(getattr(trainer, "epoch", 0)) + 1
+                    if curr_global + 1 >= int(getattr(trainer, "epochs", _tot_ep)):
+                        trainer.epochs = int(trainer.epochs) + 100
+                    ext_ep = curr_global - _start_ep
+                    print(
+                        f"\n[GOVERNOR] >>> Global Epoch {curr_global}/{int(trainer.epochs)} | "
+                        f"SOTA Extension Cycle {_cycle} "
+                        f"({top_res}px @ 100% data | Ext Epoch {ext_ep})",
+                        flush=True,
+                    )
+                return on_ext_train_epoch_start
 
             def create_ext_callback(
                 current_stage: YOLOLadderStage,
+                _start_ep: int,
+                _tot_ep: int,
+                target_ext_dir: Path,
+                recorded_set: set[int],
             ) -> Callable[[Any], None]:
                 def on_ext_epoch_end(trainer: Any) -> None:
                     nonlocal ext_stage_epochs_recorded
                     try:
                         curr_global = int(getattr(trainer, "epoch", 0)) + 1
-                        if curr_global in ext_recorded_epochs:
+                        if curr_global in recorded_set:
                             return
-                        ext_recorded_epochs.add(curr_global)
+                        recorded_set.add(curr_global)
 
                         global_epoch = curr_global
-                        ext_stage_epochs_recorded = curr_global - ext_start_epoch
+                        ext_stage_epochs_recorded = curr_global - _start_ep
 
                         raw_metrics = getattr(trainer, "metrics", {}) or {}
                         map50 = float(raw_metrics.get("metrics/mAP50(B)", 0.0))
@@ -1280,8 +1362,9 @@ class YOLOCurriculumGovernor:
                             stress=0.0,
                         )
 
+                        max_ext_epochs_disp = int(getattr(trainer, "epochs", _tot_ep))
                         print(
-                            f"\n[GOVERNOR] [SOTA EXT EPOCH {global_epoch}/{int(getattr(trainer, 'epochs', ext_total_epochs))} SUMMARY] "
+                            f"\n[GOVERNOR] [SOTA EXT EPOCH {global_epoch}/{max_ext_epochs_disp} SUMMARY] "
                             f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} "
                             f"(Box: {box_loss:.4f}, Cls: {cls_loss:.4f}, Dfl: {dfl_loss:.4f}) | "
                             f"mAP50: {map50:.4f} | mAP50-95: {map50_95:.4f}",
@@ -1289,7 +1372,7 @@ class YOLOCurriculumGovernor:
                         )
 
                         self._synchronize_checkpoints(
-                            ext_dir,
+                            target_ext_dir,
                             current_stage.resolution,
                             fraction=current_stage.fraction,
                             stage_index=current_stage.stage_index,
@@ -1327,10 +1410,31 @@ class YOLOCurriculumGovernor:
 
                 return on_ext_epoch_end
 
-            model.add_callback("on_train_batch_end", on_train_batch_end)
-            model.add_callback("on_pretrain_routine_end", on_ext_pretrain_routine_end)
-            model.add_callback("on_train_epoch_start", on_ext_train_epoch_start)
-            model.add_callback("on_fit_epoch_end", create_ext_callback(ext_stage))
+            def on_ext_train_batch_end(trainer: Any) -> None:
+                if self.cancel_check is not None and self.cancel_check():
+                    if hasattr(trainer, "stop"):
+                        trainer.stop = True
+                    raise InterruptedError("Training cancelled by user request.")
+
+            model.add_callback("on_train_batch_end", on_ext_train_batch_end)
+            model.add_callback(
+                "on_pretrain_routine_end",
+                make_ext_pretrain_routine_end(ext_start_epoch, ext_total_epochs),
+            )
+            model.add_callback(
+                "on_train_epoch_start",
+                make_ext_train_epoch_start(ext_start_epoch, ext_total_epochs, extension_cycle),
+            )
+            model.add_callback(
+                "on_fit_epoch_end",
+                create_ext_callback(
+                    ext_stage,
+                    ext_start_epoch,
+                    ext_total_epochs,
+                    ext_dir,
+                    ext_recorded_epochs,
+                ),
+            )
             model.add_callback(
                 "on_model_save",
                 lambda trainer, _res=ext_stage.resolution: self._export_if_new_best(trainer, _res),
@@ -1368,7 +1472,10 @@ class YOLOCurriculumGovernor:
                 )
 
             if self.cancel_check is not None and self.cancel_check():
-                print(f"[GOVERNOR] Cancellation signal detected in extension cycle {extension_cycle}. Halting.", flush=True)
+                print(
+                    f"[GOVERNOR] Cancellation signal detected in extension cycle {extension_cycle}. Halting.",
+                    flush=True,
+                )
                 return TrainingSummary(
                     model_name="yolov8n",
                     final_epoch=completed_prior_epochs,
@@ -1390,6 +1497,8 @@ class YOLOCurriculumGovernor:
                     global_epoch=completed_prior_epochs + ext_stage_epochs_recorded,
                 )
 
+            last_completed_res = top_res
+            last_completed_frac = 1.0
             completed_prior_epochs += ext_stage_epochs_recorded
             extension_cycle += 1
 
@@ -1402,27 +1511,42 @@ class YOLOCurriculumGovernor:
             shutil.copy2(final_best_source, hub_ckpt_dir / "best.pth")
 
         if final_best_source.exists():
-            print("[GOVERNOR] Training complete. Packaging final production artifacts (PyTorch & ONNX) to LemGendaryModels/yolov8n...", flush=True)
+            print(
+                "[GOVERNOR] Training complete. Packaging final production artifacts "
+                "(PyTorch & ONNX) to LemGendaryModels/yolov8n...",
+                flush=True,
+            )
             self._export_sota_models(final_best_source, resolution=640)
 
         total_time = round(time.time() - start_time, 2)
         print(f"[SUCCESS] Governed YOLOv8n multi-stage training finished in {total_time}s.", flush=True)
+
+        # Authoritative invariant check:
+        # Minimum 30 epochs (or SOTA convergence attained), max resolution ladder rung (640), and 100% data fraction
+        res_ladder = self.opt_config.get("res_ladder", [320, 480, 640])
+        max_ladder_res = max(res_ladder) if res_ladder else 640
+        yolo_completed = (
+            (completed_prior_epochs >= 30 or getattr(self, "sota_achieved", False))
+            and last_completed_res >= max_ladder_res
+            and last_completed_frac >= 0.999
+        )
+        final_yolo_status = "completed" if yolo_completed else "partially_trained"
 
         return TrainingSummary(
             model_name="yolov8n",
             final_epoch=completed_prior_epochs,
             best_metrics=self.best_overall_metrics,
             total_time=total_time,
-            status="completed",
+            status=final_yolo_status,
         )
 
 
 def run_governed_yolo_training(
     args: argparse.Namespace,
-    config: Dict[str, Any],
+    config: dict[str, Any],
     project_root: Path,
-    on_epoch_end: Optional[Callable[[int, Dict[str, float]], None]] = None,
-    cancel_check: Optional[Callable[[], bool]] = None,
+    on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> TrainingSummary:
     """Entry point for governed YOLOv8n training dispatch."""
     governor = YOLOCurriculumGovernor(

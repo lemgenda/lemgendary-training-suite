@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 from typing import Any
 
@@ -249,26 +250,29 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
 
         if chosen_csv is not None:
             try:
-                import csv
-                with open(chosen_csv, "r", encoding="utf-8", errors="ignore") as f:
+                with open(chosen_csv, encoding="utf-8", errors="ignore") as f:
                         reader = csv.DictReader(f)
                         for row in reader:
                             ep_val = row.get("Epoch") or row.get("epoch")
                             if ep_val:
                                 try:
                                     ep_num = int(ep_val)
-                                    if ep_num > csv_epochs:
-                                        csv_epochs = ep_num
+                                    csv_epochs = max(csv_epochs, ep_num)
                                 except ValueError:
                                     pass
 
-                            res_val = row.get("Res") or row.get("res") or row.get("resolution") or row.get("Resolution") or row.get("imgsz")
+                            res_val = (
+                                row.get("Res")
+                                or row.get("res")
+                                or row.get("resolution")
+                                or row.get("Resolution")
+                                or row.get("imgsz")
+                            )
                             if res_val:
                                 try:
                                     res_num = int(float(res_val))
                                     latest_res = res_num
-                                    if res_num > csv_max_res:
-                                        csv_max_res = res_num
+                                    csv_max_res = max(csv_max_res, res_num)
                                 except ValueError:
                                     pass
 
@@ -277,12 +281,16 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                                 try:
                                     fold_num = int(fold_val)
                                     latest_fold = fold_num
-                                    if fold_num > csv_max_fold:
-                                        csv_max_fold = fold_num
+                                    csv_max_fold = max(csv_max_fold, fold_num)
                                 except ValueError:
                                     pass
 
-                            data_val = row.get("Data") or row.get("data") or row.get("sample_fraction") or row.get("Data_Fraction")
+                            data_val = (
+                                row.get("Data")
+                                or row.get("data")
+                                or row.get("sample_fraction")
+                                or row.get("Data_Fraction")
+                            )
                             if data_val:
                                 try:
                                     clean_d = data_val.replace("%", "").strip()
@@ -290,13 +298,12 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                                     if d_num > 1.0:
                                         d_num = d_num / 100.0
                                     latest_data = d_num
-                                    if d_num > csv_max_data:
-                                        csv_max_data = d_num
+                                    csv_max_data = max(csv_max_data, d_num)
                                 except ValueError:
                                     pass
 
                             # Collect all recognized metrics for model domain
-                            for ykey, (col_name, is_lower, _lbl, is_fx_col) in METRIC_REGISTRY.items():
+                            for ykey, (col_name, _is_lower, _lbl, is_fx_col) in METRIC_REGISTRY.items():
                                 if is_forex != is_fx_col:
                                     continue
                                 if row.get(col_name):
@@ -382,17 +389,22 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             b_val = s["achieved"]
             if b_val is None and has_checkpoint and s["key"] == primary_sota_key:
                 b_val = s["target"]
+            passed_sota = (
+                b_val is not None
+                and s["target"] is not None
+                and ((b_val <= float(s["target"])) if s["lower_is_better"] else (b_val >= float(s["target"])))
+            )
             best_metrics_details.append({
                 "key": s["key"],
                 "label": s["label"],
                 "value": b_val,
                 "target": s["target"],
                 "lower_is_better": s["lower_is_better"],
-                "passed": s["passed"] or (b_val is not None and s["target"] is not None and ((b_val <= float(s["target"])) if s["lower_is_better"] else (b_val >= float(s["target"])))),
+                "passed": s["passed"] or passed_sota,
             })
 
         known_metric_keys = {s["key"] for s in sota_details}
-        for ykey, (col_name, is_low, lbl, is_fx_col) in METRIC_REGISTRY.items():
+        for ykey, (_col_name, is_low, lbl, is_fx_col) in METRIC_REGISTRY.items():
             if is_forex != is_fx_col or ykey in known_metric_keys:
                 continue
             if csv_metrics_history.get(ykey):
@@ -431,7 +443,12 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
 
         # Active ladder resolution rung
         if is_forex:
-            active_ladder_val = latest_fold if latest_fold is not None else (csv_max_fold if csv_max_fold > 0 else (res_ladder[0] if res_ladder else 1))
+            ladder_default = res_ladder[0] if res_ladder else 1
+            active_ladder_val = (
+                latest_fold
+                if latest_fold is not None
+                else (csv_max_fold if csv_max_fold > 0 else ladder_default)
+            )
             active_res = active_ladder_val
             ladder_passed = (csv_max_fold >= 6) or (csv_max_res >= 1440)
         else:
@@ -444,29 +461,24 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             else:
                 active_res = target_res
 
-            # If model has checkpoint and SOTA is reached, it completed through the target resolution
-            if sota_reached and has_checkpoint:
-                if csv_max_res < (target_res or 512):
-                    csv_max_res = target_res or 512
-                if active_res < (target_res or 512):
-                    active_res = target_res or 512
-                if csv_max_data < 1.0:
-                    csv_max_data = 1.0
-                if latest_data is None or latest_data < 1.0:
-                    latest_data = 1.0
-
-            ladder_passed = (csv_max_res >= target_res) if target_res is not None else (completed_epochs > 0)
+            ladder_passed = (csv_max_res >= target_res) if target_res is not None else (completed_epochs >= 30)
 
         # Current contiguous data fraction on active rung
-        curr_data = latest_data if latest_data is not None else (1.0 if (sota_reached and has_checkpoint) else (csv_max_data if csv_max_data > 0 else 0.0))
-        data_fraction_passed = (curr_data >= 0.99 and ladder_passed) or (sota_reached and has_checkpoint)
+        curr_data = latest_data if latest_data is not None else (csv_max_data if csv_max_data > 0 else 0.0)
+        data_fraction_passed = curr_data >= 0.999 and ladder_passed
 
         # Authoritative criteria:
         # A model is FULLY TRAINED if and only if:
-        # 1. It has passed the entire resolution ladder (or confluence horizon)
-        # 2. It has trained with 100% data fraction (Data >= 1.0)
-        # 3. Model weights have reached or exceeded ALL SOTA values set in unified_models_v2.yaml
-        is_fully_trained = sota_reached and ladder_passed and data_fraction_passed
+        # 1. It has trained for at least 30 epochs (completed_epochs >= 30)
+        # 2. It has passed the entire resolution ladder (or confluence horizon)
+        # 3. It has trained with 100% data fraction (Data >= 1.0)
+        # 4. Model weights have reached or exceeded ALL SOTA values set in unified_models_v2.yaml
+        is_fully_trained = (
+            completed_epochs >= 30
+            and sota_reached
+            and ladder_passed
+            and data_fraction_passed
+        )
 
         if is_fully_trained:
             training_status = "fully_trained"
@@ -476,6 +488,27 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             training_status = "weights_ready"
         else:
             training_status = "initializing"
+
+        default_lr = 0.01 if model_key == "yolov8n" else (0.0001 if is_forex else 0.0002)
+        resolved_lr = (
+            float(info["learning_rate"])
+            if isinstance(info.get("learning_rate"), (int, float))
+            else default_lr
+        )
+        default_bs = 16 if model_key == "yolov8n" else (128 if is_forex else 8)
+        resolved_bs = (
+            int(info["batch_size"])
+            if isinstance(info.get("batch_size"), (int, float))
+            else default_bs
+        )
+        default_ep = 300 if model_key == "yolov8n" else (50 if is_forex else 30)
+        resolved_ep = int(info.get("epochs") or default_ep)
+
+        max_res_completed = (
+            csv_max_res
+            if csv_max_res > 0
+            else (csv_max_fold if is_forex and csv_max_fold > 0 else active_res)
+        )
 
         results.append({
             "model_key": model_key,
@@ -499,7 +532,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             "is_forex": is_forex,
             "ladder_passed": ladder_passed,
             "active_res": active_res,
-            "max_res_completed": csv_max_res if csv_max_res > 0 else (csv_max_fold if is_forex and csv_max_fold > 0 else active_res),
+            "max_res_completed": max_res_completed,
             "target_res": target_res,
             "data_fraction_completed": round(curr_data, 2),
             "data_fraction_passed": data_fraction_passed,
@@ -519,9 +552,9 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             "training_status": training_status,
             "status": info.get("status", "VALIDATED"),
             "authoritative_status": info.get("status", "VALIDATED"),
-            "learning_rate": float(info.get("learning_rate", 0.0002)) if isinstance(info.get("learning_rate"), (int, float)) else (0.01 if model_key == "yolov8n" else 0.0001 if is_forex else 0.0002),
-            "batch_size": int(info["batch_size"]) if isinstance(info.get("batch_size"), (int, float)) else (16 if model_key == "yolov8n" else 128 if is_forex else 8),
-            "default_epochs": int(info.get("epochs") or (300 if model_key == "yolov8n" else 50 if is_forex else 30)),
+            "learning_rate": resolved_lr,
+            "batch_size": resolved_bs,
+            "default_epochs": resolved_ep,
             "description": info.get("description", "").strip(),
         })
 
