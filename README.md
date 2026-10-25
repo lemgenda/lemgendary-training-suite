@@ -11,11 +11,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.36-STABLE` |
+| **Version** | `v16.9.37-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.37 — Non-Blocking Hardware Telemetry Caching & Sidecar Health Resilience
+
+- **Device Discovery Caching (`training/hardware/discovery.py`)** — Fixed health probe timeout hangs where `discover_device` invoked `torch.cuda.synchronize()` on every `/api/health` poll. Under active GPU training load (e.g. forward/backward passes on `UNetBackbone` or spatial convolutions), synchronous CUDA barrier calls blocked the server thread waiting for GPU compute kernels to finish, exceeding the desktop GUI's 2-second timeout and falsely presenting the training suite service (:8200) as offline (red indicator). Implemented process-level device discovery caching (`_CACHED_DEVICE_INFO`), performing the physical hardware probe once on initialization and returning cached hardware descriptors instantly on subsequent telemetry queries.
+- **Asynchronous Telemetry Offloading (`training/server/routes/health.py`, `training/server/routes/gui.py`)** — Refactored `get_health()` and `get_gui_state()` to execute blocking hardware queries and judicial audits inside default thread pool executors (`run_in_executor`), preserving sub-10ms event loop responsiveness during multi-gigabyte model training runs.
+
+---
 
 ### v16.9.36 — NVIDIA GeForce GTX 16xx Hardware cuDNN FP16 NaN Remediation
 

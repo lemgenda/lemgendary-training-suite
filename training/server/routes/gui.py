@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 from pathlib import Path
 from typing import Any
@@ -38,14 +39,15 @@ def _get_root(request: Request) -> Path:
 
 
 @router.get("/state")
-def get_gui_state(request: Request) -> dict[str, Any]:
+async def get_gui_state(request: Request) -> dict[str, Any]:
     """Retrieve unified state snapshot for Desktop GUI dashboard."""
     root = _get_root(request)
     state = request.app.state.server_state
     audit_svc = AuditService(project_root=root)
     train_svc = TrainingService(project_root=root)
 
-    system_info = audit_svc.audit_system()
+    loop = asyncio.get_running_loop()
+    system_info = await loop.run_in_executor(None, audit_svc.audit_system)
     presets = train_svc.load_presets()
     active_jobs = state.list_jobs(status="running", limit=10)
     pending_jobs = state.list_jobs(status="pending", limit=10)

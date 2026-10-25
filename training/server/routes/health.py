@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Any
 from fastapi import APIRouter
@@ -14,9 +15,10 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health")
 @router.head("/health")
-def get_health() -> dict[str, Any]:
+async def get_health() -> dict[str, Any]:
     """Return health status, daemon version, and hardware accelerator profile."""
-    device_info = discover_device()
+    loop = asyncio.get_running_loop()
+    device_info = await loop.run_in_executor(None, discover_device)
     return {
         "status": "ok",
         "service": "lemgendary-training-suite",

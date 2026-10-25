@@ -23,12 +23,17 @@ class DeviceInfo:
     is_cpu: bool
 
 
+_CACHED_DEVICE_INFO: dict[str | None, DeviceInfo] = {}
+
+
 def discover_device(force_device: str | None = None) -> DeviceInfo:
     """
     Probe host hardware and select the optimal execution accelerator.
     
     Checks CUDA, Apple Silicon (MPS), Intel XPU, DirectML, and falls back to CPU.
     """
+    if force_device in _CACHED_DEVICE_INFO:
+        return _CACHED_DEVICE_INFO[force_device]
     if force_device:
         dev = torch.device(force_device)
         dev_type = dev.type
@@ -37,7 +42,7 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
         names = [torch.cuda.get_device_name(i) for i in range(count)] if is_cuda else [str(dev)]
         vram = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) if is_cuda else 0.0
         cap = torch.cuda.get_device_capability(0) if is_cuda else (0, 0)
-        return DeviceInfo(
+        info = DeviceInfo(
             device=dev,
             device_type=dev_type,
             device_count=count,
@@ -48,6 +53,8 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             is_mps=dev_type == "mps",
             is_cpu=dev_type == "cpu",
         )
+        _CACHED_DEVICE_INFO[force_device] = info
+        return info
 
     # 1. CUDA Accelerators
     if torch.cuda.is_available():
@@ -77,7 +84,7 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             "Discovered %d CUDA GPU(s): %s (Compute sm_%d%d) | Total VRAM: %.1f GB",
             count, ", ".join(names), cap[0], cap[1], vram
         )
-        return DeviceInfo(
+        info = DeviceInfo(
             device=device,
             device_type="cuda",
             device_count=count,
@@ -88,11 +95,13 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             is_mps=False,
             is_cpu=False,
         )
+        _CACHED_DEVICE_INFO[force_device] = info
+        return info
 
     # 2. Apple Silicon (Metal)
     if hasattr(torch, "mps") and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         logger.info("Discovered Apple Silicon Metal (MPS) acceleration.")
-        return DeviceInfo(
+        info = DeviceInfo(
             device=torch.device("mps"),
             device_type="mps",
             device_count=1,
@@ -103,13 +112,15 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             is_mps=True,
             is_cpu=False,
         )
+        _CACHED_DEVICE_INFO[force_device] = info
+        return info
 
     # 3. Intel ARC / XPU
     if hasattr(torch, "xpu") and torch.xpu.is_available():
         count = torch.xpu.device_count()
         names = [torch.xpu.get_device_name(i) for i in range(count)]
         logger.info("Discovered %d Intel XPU accelerator(s): %s", count, ", ".join(names))
-        return DeviceInfo(
+        info = DeviceInfo(
             device=torch.device("xpu"),
             device_type="xpu",
             device_count=count,
@@ -120,11 +131,13 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             is_mps=False,
             is_cpu=False,
         )
+        _CACHED_DEVICE_INFO[force_device] = info
+        return info
 
     # 4. Microsoft DirectML
     if hasattr(torch, "dml") and getattr(torch, "dml").is_available():
         logger.info("Discovered Microsoft DirectML acceleration.")
-        return DeviceInfo(
+        info = DeviceInfo(
             device=torch.device("dml"),
             device_type="dml",
             device_count=1,
@@ -135,10 +148,12 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             is_mps=False,
             is_cpu=False,
         )
+        _CACHED_DEVICE_INFO[force_device] = info
+        return info
 
     # 5. CPU Fallback
     logger.warning("No GPU/NPU accelerator discovered. Defaulting to CPU execution.")
-    return DeviceInfo(
+    info = DeviceInfo(
         device=torch.device("cpu"),
         device_type="cpu",
         device_count=1,
@@ -149,3 +164,5 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
         is_mps=False,
         is_cpu=True,
     )
+    _CACHED_DEVICE_INFO[force_device] = info
+    return info
