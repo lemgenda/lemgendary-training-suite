@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 -->
 # LemGendary Model Training Suite
 
 > Industrial-standard training, evaluation, export, and telemetry orchestration suite for Vision, Restoration, and Financial Time-Series deep learning models.
@@ -10,11 +11,17 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.35-STABLE` |
+| **Version** | `v16.9.36-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.36 — NVIDIA GeForce GTX 16xx Hardware cuDNN FP16 NaN Remediation
+
+- **Turing Non-Tensor-Core Hardware cuDNN Bug Remediation (`training/hardware/policy.py`)** — Resolved the issue where validation passes on local devices exhibited `ValLoss: nan` and `AvgValLoss: nan` while training loss remained clean. On NVIDIA GeForce GTX 16xx series GPUs (TU116 / TU117 Turing architectures without Tensor Cores, such as GTX 1650, GTX 1660, GTX 1630), batched spatial 2D convolutions (`batch_size >= 2`) at 512x512 resolution trigger a known driver/cuDNN accumulator underflow/overflow bug under FP16 autocast. Added hardware inspection in `apply_hardware_policy` to detect GTX 16xx architectures and automatically enforce full Float32 precision (`amp_enabled = False`), permanently preventing validation metric corruption.
+
+---
 
 ### v16.9.35 — Dynamic Horizon Runway Extension & Telemetry 1-Indexed Epoch Synchronization
 

@@ -64,7 +64,18 @@ def apply_hardware_policy(
         amp_enabled = False
         logger.info("AMP disabled for Forex model '%s' (FP16 overflow prevention).", model_key)
     elif is_cuda:
-        amp_enabled = hw_cfg.get("amp_enabled", True)
+        # Detect NVIDIA GeForce GTX 16xx series (TU116/TU117 Turing chips without Tensor Cores)
+        # These architectures have a well-documented hardware/driver cuDNN bug that produces NaNs
+        # in FP16 batched 2D convolutions (e.g. batch_size >= 2 at 512x512).
+        gpu_name = torch.cuda.get_device_name(0).lower()
+        is_gtx16xx = any(tag in gpu_name for tag in ("gtx 1660", "gtx 1650", "gtx 1630"))
+
+        if is_gtx16xx:
+            amp_enabled = False
+            logger.info("AMP disabled on %s to prevent known Turing non-Tensor-Core FP16 convolution NaNs.", gpu_name)
+        else:
+            amp_enabled = hw_cfg.get("amp_enabled", True)
+
         # Check for BF16 support on sm_80+
         use_bf16 = hw_cfg.get("use_bf16", False) and device_info.capability[0] >= 8 and torch.cuda.is_bf16_supported()
         amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
