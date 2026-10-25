@@ -10,11 +10,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.34-STABLE` |
+| **Version** | `v16.9.35-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.35 — Dynamic Horizon Runway Extension & Telemetry 1-Indexed Epoch Synchronization
+
+- **Dynamic Total Epoch Horizon Extension (`training/governance/yolo_governor.py`)** — Resolved the static denominator inversion where Ultralytics formatted `266/150` during resumed training past initial presets. Replaced static epoch budgets with a dynamic horizon ceiling: `stage_total_epochs = max(total_epochs, stage_start_epoch + 100)`. Injected dynamic runway extension into `make_train_epoch_start` and `make_pretrain_routine_end`, guaranteeing that `trainer.epochs` expands ahead of current global iterations by at least 100 epochs throughout long-running runs.
+- **Strict Checkpoint vs. Telemetry Epoch Anchor Parity (`training/governance/yolo_governor.py`)** — Fixed stage resumption priority where candidate checkpoints with older internal epoch counters (such as `last.pt` at epoch 264) superseded physical historical progress recorded in `metrics.csv` (270 rows). Enforced authoritative anchoring: `stage_start_epoch = max(stage_start_epoch, csv_epochs)` and `completed_prior_epochs = max(completed_prior_epochs, csv_epochs)`, ensuring execution launches strictly from the next unrecorded epoch (e.g. 271).
+- **Telemetry 1-Indexed Epoch Offset Fix (`training/governance/yolo_governor.py`)** — Fixed an off-by-one index subtraction bug where `on_fit_epoch_end` called `self.telemetry.write_epoch_row(epoch=global_epoch - 1)`. Because `write_epoch_row` treats the epoch argument as the authoritative 1-indexed epoch key, this offset caused finished epochs (e.g. epoch 275) to overwrite the preceding line (`274`) in `metrics.csv`. Standardized the invocation to `epoch=global_epoch`.
+
+---
 
 ### v16.9.34 — YOLO PyTorch 2.6 Unpickling Resilience & Cumulative Historical Epoch Anchoring
 

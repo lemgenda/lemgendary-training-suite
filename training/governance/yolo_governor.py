@@ -758,10 +758,11 @@ class YOLOCurriculumGovernor:
                 and not getattr(self.args, "clean", False)
             ):
                 stage_resume = True
+                resume_target_epoch = max(ckpt_epoch + 2, csv_epochs + 1)
                 print(
                     f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] "
-                    f"Resuming {stage.resolution}px rung from epoch "
-                    f"global epoch {ckpt_epoch + 2} | Batch Size: {stage.batch_size} | "
+                    f"Resuming {stage.resolution}px rung from "
+                    f"global epoch {resume_target_epoch} | Batch Size: {stage.batch_size} | "
                     f"Data Fraction: {frac_pct}% | Checkpoint: {Path(current_weights_path).name}",
                     flush=True,
                 )
@@ -789,11 +790,15 @@ class YOLOCurriculumGovernor:
                 completed_prior_epochs = max(
                     0, stage_start_epoch - csv_stage_epoch_counts.get((stage.resolution, frac_pct), 0)
                 )
-            elif not getattr(self.args, "clean", False) and csv_epochs > completed_prior_epochs:
-                # If resuming into an active run where historical epochs are logged in metrics.csv,
-                # anchor completed_prior_epochs to the true historical progress.
+
+            # Always anchor against metrics.csv historical progress if metrics.csv is further ahead than checkpoint
+            if not getattr(self.args, "clean", False) and csv_epochs > 0:
+                if csv_epochs > stage_start_epoch:
+                    stage_start_epoch = csv_epochs
                 completed_prior_epochs = max(completed_prior_epochs, csv_epochs)
-                stage_start_epoch = completed_prior_epochs
+
+            # Keep total_epochs ceiling dynamically ahead of stage_start_epoch
+            stage_total_epochs = max(total_epochs, stage_start_epoch + 100)
 
             model = ultralytics.YOLO(current_weights_path)
             stage_epochs_recorded = 0
@@ -810,10 +815,11 @@ class YOLOCurriculumGovernor:
                 _start_epoch: int,
                 _stage_resume: bool,
                 _ckpt_dict: Any,
+                _stage_total: int,
             ) -> Callable[[Any], None]:
                 def on_pretrain_routine_end(trainer: Any) -> None:
                     trainer.start_epoch = _start_epoch
-                    trainer.epochs = total_epochs
+                    trainer.epochs = max(_stage_total, _start_epoch + 100)
                     if _stage_resume and _ckpt_dict:
                         try:
                             trainer._load_checkpoint_state(_ckpt_dict)
@@ -831,11 +837,12 @@ class YOLOCurriculumGovernor:
                 _frac_pct: int,
                 _p_state: dict[str, float],
                 _patience: int,
+                _stage_total: int,
             ) -> Callable[[Any], None]:
                 def on_train_epoch_start(trainer: Any) -> None:
                     curr_global = int(getattr(trainer, "epoch", 0)) + 1
                     # Epoch count is not a stage boundary: keep the global ceiling ahead of training
-                    if curr_global + 1 >= int(getattr(trainer, "epochs", total_epochs)):
+                    if curr_global + 1 >= int(getattr(trainer, "epochs", _stage_total)):
                         trainer.epochs = int(trainer.epochs) + 100
                     rung_ep = curr_global - _prior_epochs
                     print(
@@ -915,7 +922,7 @@ class YOLOCurriculumGovernor:
                         }
 
                         self.telemetry.write_epoch_row(
-                            epoch=global_epoch - 1,
+                            epoch=global_epoch,
                             train_loss=train_loss,
                             val_loss=val_loss,
                             lr=lr_val,
@@ -1079,11 +1086,13 @@ class YOLOCurriculumGovernor:
             model.add_callback("on_val_batch_end", on_val_batch_end)
             model.add_callback(
                 "on_pretrain_routine_end",
-                make_pretrain_routine_end(stage_start_epoch, stage_resume, ckpt_dict),
+                make_pretrain_routine_end(stage_start_epoch, stage_resume, ckpt_dict, stage_total_epochs),
             )
             model.add_callback(
                 "on_train_epoch_start",
-                make_train_epoch_start(stage, completed_prior_epochs, frac_pct, plateau_state, rung_patience),
+                make_train_epoch_start(
+                    stage, completed_prior_epochs, frac_pct, plateau_state, rung_patience, stage_total_epochs
+                ),
             )
             model.add_callback(
                 "on_fit_epoch_end",
@@ -1105,7 +1114,7 @@ class YOLOCurriculumGovernor:
 
             train_kwargs: dict[str, Any] = {
                 "data": yolo_yaml,
-                "epochs": total_epochs,
+                "epochs": stage_total_epochs,
                 "imgsz": stage.resolution,
                 "device": device_arg,
                 "batch": stage.batch_size,
@@ -1361,7 +1370,7 @@ class YOLOCurriculumGovernor:
                         }
 
                         self.telemetry.write_epoch_row(
-                            epoch=global_epoch - 1,
+                            epoch=global_epoch,
                             train_loss=train_loss,
                             val_loss=val_loss,
                             lr=lr_val,
