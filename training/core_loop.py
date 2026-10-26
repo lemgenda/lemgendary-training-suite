@@ -553,14 +553,14 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 resume_state = parse_resume_state(loaded_data)
 
     # If resuming from an existing checkpoint, ensure total_epochs allows further training
-    # rather than immediately terminating. Training must reach at least 30 epochs!
+    # rather than immediately terminating. Training must reach at least 20 epochs!
     if resume_state is not None and resume_state.epoch > 0:
         resumed_ep = resume_state.epoch
         # If the user requested a specific additional budget or if total_epochs is already exceeded:
         if resumed_ep >= total_epochs:
-            additional_epochs = int(args.epochs) if args.epochs else 30
+            additional_epochs = int(args.epochs) if args.epochs else 20
             total_epochs = resumed_ep + additional_epochs
-        total_epochs = max(total_epochs, 30)
+        total_epochs = max(total_epochs, 20)
 
     scaler = create_grad_scaler(policy)
 

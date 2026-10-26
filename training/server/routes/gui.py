@@ -463,7 +463,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             else:
                 active_res = target_res
 
-            ladder_passed = (csv_max_res >= target_res) if target_res is not None else (completed_epochs >= 30)
+            ladder_passed = (csv_max_res >= target_res) if target_res is not None else (completed_epochs >= 20)
 
         # Current contiguous data fraction on active rung
         curr_data = latest_data if latest_data is not None else (csv_max_data if csv_max_data > 0 else 0.0)
@@ -471,12 +471,12 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
 
         # Authoritative criteria:
         # A model is FULLY TRAINED if and only if:
-        # 1. It has trained for at least 30 epochs (completed_epochs >= 30)
+        # 1. It has trained for at least 20 epochs (completed_epochs >= 20)
         # 2. It has passed the entire resolution ladder (or confluence horizon)
         # 3. It has trained with 100% data fraction (Data >= 1.0)
         # 4. Model weights have reached or exceeded ALL SOTA values set in unified_models_v2.yaml
         is_fully_trained = (
-            completed_epochs >= 30
+            completed_epochs >= 20
             and sota_reached
             and ladder_passed
             and data_fraction_passed

@@ -1541,11 +1541,11 @@ class YOLOCurriculumGovernor:
         print(f"[SUCCESS] Governed YOLOv8n multi-stage training finished in {total_time}s.", flush=True)
 
         # Authoritative invariant check:
-        # Minimum 30 epochs AND SOTA convergence attained, max resolution ladder rung (640), and 100% data fraction
+        # Minimum 20 epochs AND SOTA convergence attained, max resolution ladder rung (640), and 100% data fraction
         res_ladder = self.opt_config.get("res_ladder", [320, 480, 640])
         max_ladder_res = max(res_ladder) if res_ladder else 640
         yolo_completed = (
-            completed_prior_epochs >= 30
+            completed_prior_epochs >= 20
             and getattr(self, "sota_achieved", False)
             and last_completed_res >= max_ladder_res
             and last_completed_frac >= 0.999

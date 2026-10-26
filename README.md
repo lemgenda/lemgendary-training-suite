@@ -85,6 +85,12 @@
 
 ---
 
+### v16.9.34 — 20-Epoch Minimum Convergence Floor Calibration Across All Governance & Server Engines
+
+- **Standardized Minimum Epoch Floor ($\ge 20$)** — Calibrated the authoritative Pillar 4 convergence floor from 30 epochs down to 20 epochs across all governance and verification engines (`training/training/engine.py`, `training/governance/yolo_governor.py`, `training/server/routes/gui.py`, `training/hub_readme_generator.py`, and `training/core_loop.py`). Models achieving multi-metric SOTA targets at 100% data fraction and highest resolution rung transition to `FULLY TRAINED` upon completing 20 epochs.
+
+---
+
 ### v16.9.33 — Autonomous 15% Initial Manifold Fraction, Open-Ended Horizon & Checkpoint Loader Synchronization
 
 - **Universal 15% Initial Data Fraction Protocol** — Standardized all model training pipelines to initiate training from 15% data fraction (`0.15`) on the lowest ladder rung (`res_ladder[0]`), progressing through gradual intra-resolution expansion (`15% -> 35% -> 55% -> 75% -> 100%`). Synchronized `training/governance/curriculum.py` (`CurriculumState.current_fraction = 0.15`), `training/governance/yolo_governor.py`, and `unified_models_v2.yaml`.

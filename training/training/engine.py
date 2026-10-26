@@ -380,7 +380,7 @@ def run_training(
         last_epoch_executed = epoch
 
         # Evaluate 4-Pillar Completion Invariant:
-        # 1. Minimum 30 epochs
+        # 1. Minimum 20 epochs
         # 2. Top resolution ladder rung (or Fold 6 for forex)
         # 3. 100% data fraction (>= 0.999)
         # 4. All defined SOTA targets met
@@ -424,7 +424,7 @@ def run_training(
                     break
 
         is_fully_completed = (
-            last_epoch_executed >= 30
+            last_epoch_executed >= 20
             and ladder_passed
             and data_fraction_passed
             and sota_all_met

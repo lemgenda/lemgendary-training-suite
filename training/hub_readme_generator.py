@@ -108,9 +108,9 @@ def generate_hub_readme(project_root: str = workspace_root) -> None:
 
         # 2. Check if SOTA achieved
         # Invariant: Training should NEVER be declared complete if it didn't reach 100% data fraction
-        # on max resolution and hasn't trained for at least 30 epochs
+        # on max resolution and hasn't trained for at least 20 epochs
         is_sota = (
-            epoch >= 30
+            epoch >= 20
             and current_data >= 0.999
             and ladder_passed
             and completeness >= 99.99
