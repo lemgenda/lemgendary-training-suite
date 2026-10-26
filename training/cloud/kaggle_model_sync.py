@@ -137,7 +137,10 @@ class KaggleModelSyncManager:
             return dist_dir / variation_key
 
         if variation is PYTORCH_DEFAULT:
-            return dist_dir / PYTORCH_DEFAULT.payload_dir
+            payload_dir = dist_dir / PYTORCH_DEFAULT.payload_dir
+            if payload_dir.exists():
+                return payload_dir
+            return model_dir
         elif variation is PYTORCH_FP32:
             return dist_dir / "pytorch"
         elif variation is ONNX_FP32:
@@ -231,11 +234,39 @@ class KaggleModelSyncManager:
             var_obj = VARIATION_BY_KEY[variation]
             notes = version_notes or f"Production SOTA Release: {model_key} [{var_obj.label}]"
             logger.info("Uploading %s variation to Kaggle Models Hub: %s ...", variation, handle)
-            kagglehub.model_upload(
-                handle=handle,
-                local_model_dir=str(variation_dir),
-                version_notes=notes,
-            )
+
+            # If uploading PYTORCH_DEFAULT from the canonical model_dir, upload via a clean transient staging
+            # directory containing strictly checkpoints/, README.md, and metrics.csv to guarantee isolation.
+            upload_dir = variation_dir
+            temp_staging_dir = None
+            if variation == PYTORCH_DEFAULT.key and variation_dir == self.get_model_dir(model_key):
+                import tempfile
+                temp_staging_dir = tempfile.TemporaryDirectory()
+                temp_path = Path(temp_staging_dir.name)
+                temp_ckpt_dir = temp_path / "checkpoints"
+                temp_ckpt_dir.mkdir(parents=True, exist_ok=True)
+                src_ckpts = variation_dir / "checkpoints"
+                if src_ckpts.exists():
+                    import shutil
+                    for pth in src_ckpts.glob("*.pth"):
+                        shutil.copy2(pth, temp_ckpt_dir / pth.name)
+                for root_f in ("README.md", "metrics.csv"):
+                    src_f = variation_dir / root_f
+                    if src_f.exists():
+                        import shutil
+                        shutil.copy2(src_f, temp_path / root_f)
+                upload_dir = temp_path
+
+            try:
+                kagglehub.model_upload(
+                    handle=handle,
+                    local_model_dir=str(upload_dir),
+                    version_notes=notes,
+                )
+            finally:
+                if temp_staging_dir is not None:
+                    temp_staging_dir.cleanup()
+
             logger.info("[OK] Successfully uploaded %s to Kaggle Models Hub", handle)
             return VariationPushResult(
                 variation=variation,
@@ -344,17 +375,33 @@ class KaggleModelSyncManager:
             force_download=force_download,
         )
 
-        # For pytorch/default, also mirror checkpoints into model root checkpoints/ directory
+        # For pytorch/default, ensure checkpoints and metrics.csv land in canonical model_root,
+        # and eliminate duplicate staging directories so there is strictly one source of truth.
         if variation == PYTORCH_DEFAULT.key:
             model_root = self.get_model_dir(model_key)
             src_ckpt_dir = target_dir / "checkpoints"
             dst_ckpt_dir = model_root / "checkpoints"
-            if src_ckpt_dir.exists() and src_ckpt_dir != dst_ckpt_dir:
+            if src_ckpt_dir.exists() and src_ckpt_dir.resolve() != dst_ckpt_dir.resolve():
                 dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
                 for f in src_ckpt_dir.iterdir():
                     if f.is_file():
                         import shutil
-                        shutil.copy2(f, dst_ckpt_dir / f.name)
+                        dest_f = dst_ckpt_dir / f.name
+                        if not dest_f.exists() or f.stat().st_size != dest_f.stat().st_size:
+                            shutil.copy2(f, dest_f)
+            # Check metrics.csv and README.md in downloaded target_dir
+            for rf_name in ("metrics.csv", "README.md"):
+                src_rf = target_dir / rf_name
+                dst_rf = model_root / rf_name
+                if src_rf.exists() and src_rf.resolve() != dst_rf.resolve():
+                    import shutil
+                    if not dst_rf.exists() or src_rf.stat().st_size != dst_rf.stat().st_size:
+                        shutil.copy2(src_rf, dst_rf)
+
+            # Purge duplicate dist/kaggle/pytorch_default directory to prevent dual files on disk
+            if target_dir.exists() and target_dir.resolve() != model_root.resolve():
+                import shutil
+                shutil.rmtree(target_dir, ignore_errors=True)
 
         return bool(downloaded_path)
 

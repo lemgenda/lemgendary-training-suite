@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.38-STABLE` |
+| **Version** | `v16.9.39-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.39 — Single Source of Truth & Duplicate Artifact Elimination Across Cloud/Local Training
+
+- **Single Canonical Location Enforcement (`training/export/staging.py`)** — Refactored `VariationStagingService` so that `pytorch/default` points directly to canonical model root paths (`LemGendaryModels/<model_key>/checkpoints` and `LemGendaryModels/<model_key>/metrics.csv`). Terminated redundant physical file copies into `dist/kaggle/pytorch_default/`, recovering 3.3 GB of duplicate checkpoint weights and eliminating dual `metrics.csv` files across all 23 production models.
+- **Kaggle Models Hub Pull Direct Route & Staging Purge (`training/cloud/kaggle_model_sync.py`)** — Hardened `pull_variation` to unpack incoming `pytorch/default` payloads directly into the model's canonical root (`checkpoints/` and `metrics.csv`) while immediately removing intermediate/duplicate download directories. Ensures seamless bidirectional transitions between Kaggle/Colab and local training with zero disk bifurcation.
+- **Transient Upload Packaging (`training/cloud/kaggle_model_sync.py`, `training/notebooks/cells/sync.py`)** — Updated `push_variation` and cloud notebook sync cells to isolate `pytorch/default` via transient in-memory/temporary directory staging during Kaggle API upload, ensuring published model variations meet Kaggle's packaging structure without leaving persistent duplicate directories on disk.
+- **Strict Isolation Fallback Audit (`training/export/validation.py`)** — Updated `StrictIsolationValidator.validate_all` to validate `pytorch/default` directly against the canonical model root directory when `dist/kaggle/pytorch_default` is absent, guaranteeing 100% test passing and strict binary isolation across all 4 distribution variations.
+
+---
 
 ### v16.9.38 — Universal SOTA Quality Score Parity & Telemetry Restoration Reconciliation
 

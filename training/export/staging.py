@@ -79,7 +79,6 @@ class VariationStagingService:
         onnx_fp32_dir = dist_dir / "onnx_fp32"
         onnx_fp16_dir = dist_dir / "onnx_fp16"
 
-        pytorch_default_dir.mkdir(parents=True, exist_ok=True)
         pytorch_fp32_dir.mkdir(parents=True, exist_ok=True)
         onnx_fp32_dir.mkdir(parents=True, exist_ok=True)
         onnx_fp16_dir.mkdir(parents=True, exist_ok=True)
@@ -116,31 +115,23 @@ class VariationStagingService:
             shutil.move(str(src), str(dest))
 
         # ---------------------------------------------------------------------
-        # 1. Stage PyTorch Default (checkpoints/ + README.md + metrics.csv)
+        # 1. PyTorch Default (canonical hub_dir checkpoints/ + README.md + metrics.csv)
         # ---------------------------------------------------------------------
-        dest_ckpts_dir = pytorch_default_dir / "checkpoints"
-        dest_ckpts_dir.mkdir(parents=True, exist_ok=True)
-
+        # The canonical location is hub_dir itself. We avoid duplicating checkpoints
+        # and metrics.csv on disk to preserve single source of truth and save disk space.
         src_ckpts_dir = hub_dir / "checkpoints"
         if src_ckpts_dir.exists() and src_ckpts_dir.is_dir():
             for pth in src_ckpts_dir.glob("*.pth"):
-                target_pth = dest_ckpts_dir / pth.name
-                _safe_copy(pth, target_pth)
-                staged[f"default_ckpt_{pth.name}"] = target_pth
+                staged[f"default_ckpt_{pth.name}"] = pth
 
         for root_file_name in ("README.md", "metrics.csv"):
             rf = hub_dir / root_file_name
             if rf.exists() and rf.is_file():
-                target_rf = pytorch_default_dir / root_file_name
-                _safe_copy(rf, target_rf)
-                staged[f"default_{root_file_name}"] = target_rf
+                staged[f"default_{root_file_name}"] = rf
 
-        # Purge any metadata, .pt, or .onnx files from pytorch_default
-        for child in pytorch_default_dir.iterdir():
-            if child.is_file():
-                if any(bad in child.name.lower() for bad in ("model-metadata", "model_metadata", ".pt", ".onnx")):
-                    child.unlink()
-                    logger.debug("Purged forbidden file from pytorch_default: %s", child.name)
+        # If a legacy pytorch_default directory exists, purge duplicate files from it
+        if pytorch_default_dir.exists():
+            shutil.rmtree(pytorch_default_dir, ignore_errors=True)
 
         # ---------------------------------------------------------------------
         # 2. Stage PyTorch FP32 (.pt)

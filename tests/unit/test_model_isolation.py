@@ -100,5 +100,31 @@ class TestModelIsolation(unittest.TestCase):
             self.assertEqual(len(report.variations), 4)
 
 
+    def test_validate_all_single_source_of_truth(self) -> None:
+        """Verify validate_all passes when pytorch/default is directly in model root checkpoints without duplicates."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            model_root = Path(tmp_dir)
+            (model_root / "checkpoints").mkdir(parents=True)
+            (model_root / "checkpoints" / "best.pth").write_bytes(b"pth")
+            (model_root / "metrics.csv").write_text("epoch,loss\n1,0.5\n", encoding="utf-8")
+            (model_root / "README.md").write_text("# Model Docs\n", encoding="utf-8")
+
+            dist_kaggle = model_root / "dist" / "kaggle"
+            (dist_kaggle / "pytorch").mkdir(parents=True)
+            (dist_kaggle / "onnx_fp32").mkdir(parents=True)
+            (dist_kaggle / "onnx_fp16").mkdir(parents=True)
+
+            (dist_kaggle / "pytorch" / "ModelA.pt").write_bytes(b"pt")
+            (dist_kaggle / "onnx_fp32" / "ModelA_FP32.onnx").write_bytes(b"onnx32")
+            (dist_kaggle / "onnx_fp16" / "ModelA.onnx").write_bytes(b"onnx16")
+
+            # Notice: dist/kaggle/pytorch_default does NOT exist!
+            self.assertFalse((dist_kaggle / "pytorch_default").exists())
+
+            report = self.validator.validate_all("ModelA", base_dir=tmp_dir)
+            self.assertTrue(report.is_valid, msg=f"Validation failed: {report.all_errors}")
+            self.assertEqual(len(report.variations), 4)
+
+
 if __name__ == "__main__":
     unittest.main()

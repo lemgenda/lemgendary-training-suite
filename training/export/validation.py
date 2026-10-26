@@ -271,16 +271,19 @@ class StrictIsolationValidator:
 
         for variation in VARIATIONS:
             var_dir = dist_kaggle / variation.payload_dir
-            # Fallback check for legacy folder names if publish payload dir not yet populated
+            # Fallback check for legacy folder names or canonical model root for pytorch/default
             if not var_dir.exists():
-                legacy_mapping = {
-                    PYTORCH_FP32.key: dist_kaggle / "pytorch",
-                    ONNX_FP32.key: dist_kaggle / "onnx_fp32",
-                    ONNX_FP16.key: dist_kaggle / "onnx_fp16",
-                }
-                fallback_dir = legacy_mapping.get(variation.key)
-                if fallback_dir and fallback_dir.exists():
-                    var_dir = fallback_dir
+                if variation.key == PYTORCH_DEFAULT.key and (model_hub_dir / "checkpoints").exists():
+                    var_dir = model_hub_dir
+                else:
+                    legacy_mapping = {
+                        PYTORCH_FP32.key: dist_kaggle / "pytorch",
+                        ONNX_FP32.key: dist_kaggle / "onnx_fp32",
+                        ONNX_FP16.key: dist_kaggle / "onnx_fp16",
+                    }
+                    fallback_dir = legacy_mapping.get(variation.key)
+                    if fallback_dir and fallback_dir.exists():
+                        var_dir = fallback_dir
 
             var_rep = self.validate_variation(variation.key, var_dir, model_key)
             overall_report.variations[variation.key] = var_rep
