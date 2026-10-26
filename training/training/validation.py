@@ -17,6 +17,11 @@ from training.training.amp import compute_ssim_gpu, get_autocast_context
 from training.training.context import TrainingContext
 from training.training.epoch import _unpack_batch
 
+try:
+    from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+except ImportError:
+    LearnedPerceptualImagePatchSimilarity = None
+
 
 def _compute_psnr(mse: float, max_val: float = 1.0) -> float:
     """Compute Peak Signal-to-Noise Ratio from Mean Squared Error."""
@@ -80,6 +85,9 @@ def validate_one_epoch(
     total_loss = 0.0
     total_ssim = 0.0
     total_mse = 0.0
+    total_lpips = 0.0
+    lpips_count = 0
+    lpips_metric_module: Any = None
     has_image_metrics = False
     has_forex_metrics = False
     total_forex_samples = 0
@@ -270,6 +278,32 @@ def validate_one_epoch(
                 except Exception:
                     pass
 
+                # LPIPS perceptual evaluation
+                sota_cfg = ctx.model_info.get("sota_targets", {})
+                if "lpips" in sota_cfg and LearnedPerceptualImagePatchSimilarity is not None:
+                    if lpips_metric_module is None:
+                        try:
+                            lpips_metric_module = LearnedPerceptualImagePatchSimilarity(
+                                net_type="vgg",
+                                normalize=False,
+                            ).to(device)
+                            lpips_metric_module.eval()
+                            for p_param in lpips_metric_module.parameters():
+                                p_param.requires_grad = False
+                        except Exception:
+                            lpips_metric_module = False
+
+                    if lpips_metric_module not in (None, False):
+                        try:
+                            p_scaled = torch.clamp(eval_pred, 0.0, 1.0) * 2.0 - 1.0
+                            t_scaled = torch.clamp(eval_target, 0.0, 1.0) * 2.0 - 1.0
+                            with torch.autocast(device_type=device.type, enabled=True):
+                                batch_lpips = float(lpips_metric_module(p_scaled, t_scaled).item())
+                            total_lpips += batch_lpips
+                            lpips_count += 1
+                        except Exception:
+                            pass
+
             # Check for Forex / Directional predictions and targets
             dir_logits, mag_preds, dir_targets, mag_targets = _extract_forex_tensors(preds, targets)
             if dir_logits is not None and dir_targets is not None:
@@ -336,6 +370,8 @@ def validate_one_epoch(
         avg_mse = total_mse / step_count
         results["psnr"] = _compute_psnr(avg_mse)
         results["ssim"] = total_ssim / step_count
+        if lpips_count > 0:
+            results["lpips"] = total_lpips / lpips_count
 
     if has_forex_metrics and total_forex_samples > 0:
         dir_acc = (correct_forex_samples / max(1, total_forex_samples)) * 100.0

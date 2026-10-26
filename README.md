@@ -11,11 +11,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.37-STABLE` |
+| **Version** | `v16.9.38-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.38 — Universal SOTA Quality Score Parity & Telemetry Restoration Reconciliation
+
+- **Telemetry SOTA Quality Score Integration (`training/training/engine.py`)** — Resolved the issue where model training loops defaulted to the heuristic fallback `max(0.0, 100.0 - val_loss)` (e.g. recording `99.9950`), completely bypassing SOTA target weighting. Integrated `TelemetryEngine.compute_quality_score` into the core training engine, mathematically evaluating weighted multi-metric SOTA targets across vision, restoration, and financial architectures.
+- **Perceptual LPIPS Validation Extraction (`training/training/validation.py`)** — Integrated on-the-fly LPIPS perceptual evaluation via `LearnedPerceptualImagePatchSimilarity` directly into the deterministic evaluation loop for restoration pipelines targeting LPIPS.
+- **Physical `metrics.csv` Legacy Reconciliation** — Recomputed and reconciled `Quality_Score` columns across all historical model runs in `LemGendaryModels/` (`ffanet_outdoor`, `ffanet_indoor`, `codeformer`, `film_restorer`), guaranteeing exact parity with `TelemetryEngine.compute_quality_score`. Synchronized the live ecosystem training matrix and model cards.
+
+---
 
 ### v16.9.37 — Non-Blocking Hardware Telemetry Caching & Sidecar Health Resilience
 

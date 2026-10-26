@@ -146,7 +146,26 @@ def run_training(
         # 4. SOTA evaluation
         current_loss = float(combined_metrics.get("val_loss", 0.0))
         train_loss = float(combined_metrics.get("train_loss", 0.0))
-        current_quality = float(combined_metrics.get("quality_score", max(0.0, 100.0 - current_loss)))
+
+        is_forex = (
+            ctx.model_info.get("category") == "forex"
+            or ctx.model_info.get("task_type") == "forex"
+            or ctx.model_name == "forex_predictor"
+        )
+        task_type_str = "forex" if is_forex else str(ctx.model_info.get("dataset_type", "image"))
+        sota_targets = ctx.model_info.get("sota_targets", {})
+
+        if "quality_score" in combined_metrics:
+            current_quality = float(combined_metrics["quality_score"])
+        elif sota_targets:
+            dummy_telemetry = TelemetryEngine(".", task_type="forex" if is_forex else "image")
+            computed_qs, _ = dummy_telemetry.compute_quality_score(combined_metrics, sota_targets, task_type_str)
+            current_quality = float(computed_qs)
+            combined_metrics["quality_score"] = current_quality
+        else:
+            current_quality = max(0.0, 100.0 - current_loss)
+            combined_metrics["quality_score"] = current_quality
+
         is_best = ctx.sota_tracker.record_epoch(
             current_quality=current_quality,
             current_loss=current_loss,
@@ -276,7 +295,7 @@ def run_training(
         if hasattr(ctx.governor, "audit_epoch"):
             try:
                 best_q = float(ctx.sota_tracker.best_quality)
-                f_chg, r_chg, lr_chg, t_chg, c_chg, b_chg, stop_trig, gov_msg = ctx.governor.audit_epoch(
+                f_chg, r_chg, lr_chg, _t_chg, _c_chg, _b_chg, _stop_trig, gov_msg = ctx.governor.audit_epoch(
                     current_quality=current_quality,
                     best_quality=best_q,
                     epochs_no_improve=epochs_no_improve,
@@ -301,7 +320,8 @@ def run_training(
                             fraction=new_frac if f_chg else None,
                             stress=stress_val,
                         )
-                        curr_batch = int(getattr(ctx.governor.curriculum, "current_batch", ctx.train_loader.batch_size or 16))
+                        fallback_batch = ctx.train_loader.batch_size or 16
+                        curr_batch = int(getattr(ctx.governor.curriculum, "current_batch", fallback_batch))
                         curr_sampler = getattr(ctx.train_loader, "sampler", None)
                         ctx.train_loader = rebuild_train_loader(
                             old_loader=ctx.train_loader,
