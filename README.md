@@ -11,11 +11,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.40-STABLE` |
+| **Version** | `v16.9.41-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.41 — Universal Checkpoint Resumption & Highest-Epoch Anchor Across All Trained Models
+
+- **Highest-Epoch Checkpoint Selection (`training/core_loop.py`)** — Resolved a potential rollback vulnerability across all 23 production models where `progress.pth` was hardcoded ahead of `latest.pth` and `best.pth`. In long-running models with pre-existing intra-epoch snapshots (e.g. `mirnet_exposure`, `nima_aesthetic_pro`, `nima_authenticity`), an older `progress.pth` from early epochs could supersede `latest.pth`, threatening up to dozens of epochs of completed training. Refactored candidate selection in `build_training_context` to dynamically inspect checkpoint metadata (`torch.load`) across `("latest", "best", "progress", "latest_epoch")` and strictly select the candidate with the highest completed epoch and latest modification timestamp.
+- **Automated Stale Progress Checkpoint Purge (`training/checkpoint/lifecycle_manager.py`)** — Added automated lifecycle initialization cleanup in `CheckpointLifecycleManager`: whenever `latest.pth` represents an epoch greater than or equal to `progress.pth`, the stale intra-epoch snapshot is immediately purged from `checkpoints/`, guaranteeing zero checkpoint collision and eliminating phantom rollbacks.
+- **Master Workspace Checkpoint Audit** — Scanned all 23 model checkpoints under `LemGendaryModels/`. Purged obsolete `progress.pth` files from `mirnet_exposure` (progress ep 41 vs latest ep 49), `nima_aesthetic_pro` (progress ep 47 vs latest ep 52), and `nima_authenticity` (progress ep 28 vs latest ep 30), while preserving active intra-epoch snapshots in active models (`ffanet_indoor`, `ffanet_outdoor`, `film_restorer`, `nima_aesthetic_mobile`).
+
+---
 
 ### v16.9.40 — Forex Walk-Forward 6-Fold Cross-Validation & Fractional Subsampling Elimination
 

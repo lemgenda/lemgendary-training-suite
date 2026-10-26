@@ -448,7 +448,27 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         )
         candidate_roots = recovery_engine.find_candidate_roots(model_key, config=config)
         discovered = recovery_engine.discover_checkpoints(candidate_roots, model_key)
-        ckpt_candidate = discovered.get("progress") or discovered.get("latest") or discovered.get("best")
+        # Select the candidate checkpoint with the highest epoch to guarantee no loss of progress
+        best_candidate: Path | None = None
+        best_cand_epoch = -1
+        best_cand_mtime = 0.0
+
+        for cand_key in ("latest", "best", "progress", "latest_epoch"):
+            cand_p = discovered.get(cand_key)
+            if cand_p and cand_p.exists():
+                try:
+                    c_data = safe_load_checkpoint(cand_p, map_location="cpu")
+                    c_ep = int(c_data.get("epoch", 0)) if isinstance(c_data, dict) else 0
+                    c_mt = cand_p.stat().st_mtime
+                    if c_ep > best_cand_epoch or (c_ep == best_cand_epoch and c_mt > best_cand_mtime):
+                        best_candidate = cand_p
+                        best_cand_epoch = c_ep
+                        best_cand_mtime = c_mt
+                except Exception:
+                    if best_candidate is None:
+                        best_candidate = cand_p
+
+        ckpt_candidate = best_candidate
         if ckpt_candidate and ckpt_candidate.exists():
             loaded_data = safe_load_checkpoint(ckpt_candidate, map_location=device_info.device)
             if loaded_data:

@@ -200,6 +200,19 @@ class CheckpointLifecycleManager:
         self.latest_path = self.checkpoints_dir / "latest.pth"
         self.best_path = self.checkpoints_dir / "best.pth"
 
+        # Automated safeguard: Purge stale progress.pth if latest.pth represents an equal or newer epoch
+        if self.progress_path.exists() and self.latest_path.exists():
+            try:
+                p_meta = safe_load_checkpoint(self.progress_path, map_location="cpu")
+                l_meta = safe_load_checkpoint(self.latest_path, map_location="cpu")
+                p_ep = int(p_meta.get("epoch", 0)) if isinstance(p_meta, dict) else 0
+                l_ep = int(l_meta.get("epoch", 0)) if isinstance(l_meta, dict) else 0
+                if l_ep >= p_ep:
+                    self.progress_path.unlink()
+                    logger.info("Purged obsolete progress checkpoint %s (progress ep %d <= latest ep %d)", self.progress_path, p_ep, l_ep)
+            except Exception as clean_err:
+                logger.debug("Progress checkpoint clean check notice: %s", clean_err)
+
         # Tracking state
         self.last_progress_save_time = time.time()
         self.best_quality_score: float = float("-inf")
