@@ -120,6 +120,10 @@ METRIC_REGISTRY: dict[str, tuple[str, bool, str, bool]] = {
     "max_drawdown": ("MaxDD", True, "Max DD (%)", True),
     "tp_mae": ("TP_MAE", True, "TP MAE", True),
     "sl_mae": ("SL_MAE", True, "SL MAE", True),
+    # LLM / Causal Assistant Benchmarks
+    "eval_loss": ("Eval_Loss", True, "Eval Loss", False),
+    "perplexity": ("Perplexity", True, "Perplexity", False),
+    "token_accuracy": ("Token_Accuracy", False, "Token Accuracy (%)", False),
 }
 
 
@@ -219,6 +223,8 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                     ("auc", "AUC-ROC", False),
                     ("ssim", "SSIM", False),
                     ("map_easy", "mAP Easy", False),
+                    ("eval_loss", "Eval Loss", True),
+                    ("perplexity", "Perplexity", True),
                 ]
                 for k, lbl, is_low in vision_priority:
                     if k in sota:

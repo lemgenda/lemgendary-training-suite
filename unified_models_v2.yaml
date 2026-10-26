@@ -1606,6 +1606,10 @@ ai_helper_lemgend:
     - gate_proj
     - up_proj
     - down_proj
+  sota_targets:
+    eval_loss: 1.15
+    perplexity: 3.15
+    token_accuracy: 72.5
   kaggle_metadata:
     slug: ai-helper-lemgend
     title: LemGendary AI Studio Assistant (Causal LLM)

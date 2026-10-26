@@ -85,9 +85,10 @@
 
 ---
 
-### v16.9.34 — 20-Epoch Minimum Convergence Floor Calibration Across All Governance & Server Engines
+### v16.9.34 — 20-Epoch Minimum Convergence Floor Calibration & LLM SOTA Benchmark Specification
 
 - **Standardized Minimum Epoch Floor ($\ge 20$)** — Calibrated the authoritative Pillar 4 convergence floor from 30 epochs down to 20 epochs across all governance and verification engines (`training/training/engine.py`, `training/governance/yolo_governor.py`, `training/server/routes/gui.py`, `training/hub_readme_generator.py`, and `training/core_loop.py`). Models achieving multi-metric SOTA targets at 100% data fraction and highest resolution rung transition to `FULLY TRAINED` upon completing 20 epochs.
+- **AI Helper Causal LLM SOTA Targets** — Defined explicit SOTA benchmark targets for `ai_helper_lemgend` in `unified_models_v2.yaml` and registered domain metrics in `training/server/routes/gui.py` (`eval_loss <= 1.15`, `perplexity <= 3.15`, and `token_accuracy >= 72.5%`), resolving "Pending" status on the AI Studio GUI manifold card. Updated `LemGendaryModels/ai_helper_lemgend/README.md`.
 
 ---
 
