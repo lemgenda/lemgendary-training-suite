@@ -536,8 +536,15 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             "active_res": active_res,
             "max_res_completed": max_res_completed,
             "target_res": target_res,
-            "data_fraction_completed": round(curr_data, 2),
-            "data_fraction_passed": data_fraction_passed,
+            "active_fold": active_res if is_forex else None,
+            "total_folds": 6 if is_forex else None,
+            "fold_years_label": (
+                f"{2019}-{2019 + min(active_res, 6)} -> {2019 + min(active_res, 6) + 1}"
+                if is_forex and isinstance(active_res, int) and active_res >= 1
+                else None
+            ),
+            "data_fraction_completed": 1.0 if is_forex else round(curr_data, 2),
+            "data_fraction_passed": True if is_forex else data_fraction_passed,
             "checkpoint_exists": has_checkpoint,
             "is_fully_trained": is_fully_trained,
             "preferred_parallel": info.get("preferred_parallel", "single"),

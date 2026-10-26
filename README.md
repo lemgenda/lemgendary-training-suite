@@ -11,11 +11,26 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.39-STABLE` |
+| **Version** | `v16.9.40-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.40 — Forex Walk-Forward 6-Fold Cross-Validation & Fractional Subsampling Elimination
+
+- **Forex Fractional Subsampling Elimination (`training/governance/governor.py`, `training/core_loop.py`, `unified_models_v2.yaml`)** — Eliminated vision-style fractional downsampling (`15% -> 30%`) from financial time-series training. Walk-forward cross-validation in quantitative trading requires 100% of historical market data within each fold's expanding training window to maintain chronological temporal integrity. Configured `initial_fraction = 1.0` and `fraction_increment = 0.0` in `unified_models_v2.yaml`, enforced `initial_fraction = 1.0` and disabled fraction decay in `SmartTrainingGovernor`, and guaranteed `ForexDataset` initialization always receives `sample_fraction = 1.0`.
+- **Temporal Walk-Forward 6-Fold Cross-Validation Contract (`data/forex_dataset.py`, `training/train_forex_curriculum.py`)** — Standardized the 6-fold expanding window curriculum spanning 2019 through 2026:
+  - Fold 1: Train 2019, 2020 | Validate 2021
+  - Fold 2: Train 2019, 2020, 2021 | Validate 2022
+  - Fold 3: Train 2019, 2020, 2021, 2022 | Validate 2023
+  - Fold 4: Train 2019, 2020, 2021, 2022, 2023 | Validate 2024
+  - Fold 5: Train 2019, 2020, 2021, 2022, 2023, 2024 | Validate 2025
+  - Fold 6: Train 2019, 2020, 2021, 2022, 2023, 2024, 2025 | Validate 2026
+- **GUI Walk-Forward Fold Display (`ModelManifoldCard.tsx`, `gui.py`, `types.ts`)** — Replaced the generic `"Data Fraction"` row with **`"Walk-Forward Fold"`** for `forex_predictor` in the desktop GUI cockpit. The row displays the active fold progression alongside the exact temporal training and validation year windows (e.g. `Fold 1 / 6 (2019-2020 -> 2021)`).
+- **Physical Telemetry Reconciliation (`LemGendaryModels/forex_predictor/metrics.csv`)** — Corrected legacy `Data` column entries from `0.30` to `1.00`, establishing 100% data fraction parity with governor state and walk-forward execution.
+
+---
 
 ### v16.9.39 — Single Source of Truth & Duplicate Artifact Elimination Across Cloud/Local Training
 

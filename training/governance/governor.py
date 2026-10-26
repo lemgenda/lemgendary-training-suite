@@ -81,10 +81,19 @@ class SmartTrainingGovernor:
         self.sharpening_rate: float = gov_cfg.get("sharpening_cooling_rate", 0.98)
 
         # Fraction and batch setup
-        initial_fraction = model_info.get("sample_fraction") or opt.get(
-            "initial_fraction",
-            manifold_defaults.get("initial_fraction", 0.15),
+        is_forex_model = (
+            model_info.get("category") == "forex"
+            or model_info.get("task_type") == "forex"
+            or model_info.get("dataset_type") == "forex"
+            or model_info.get("filename") == "ForexPredictor"
         )
+        if is_forex_model:
+            initial_fraction = 1.0
+        else:
+            initial_fraction = model_info.get("sample_fraction") or opt.get(
+                "initial_fraction",
+                manifold_defaults.get("initial_fraction", 0.15),
+            )
         self.curriculum.current_fraction = float(initial_fraction)
 
         batch_val = model_info.get("batch_size", 16)
@@ -256,7 +265,7 @@ class SmartTrainingGovernor:
 
     @current_res.setter
     def current_res(self, value: int) -> None:
-        self.curriculum.current_res = int(value)
+        self.curriculum.current_res = value
 
     @property
     def res_ladder(self) -> list[int]:
@@ -272,7 +281,7 @@ class SmartTrainingGovernor:
 
     @current_batch.setter
     def current_batch(self, value: int) -> None:
-        self.curriculum.current_batch = int(value)
+        self.curriculum.current_batch = value
 
     @property
     def current_acc(self) -> int:
@@ -280,7 +289,7 @@ class SmartTrainingGovernor:
 
     @current_acc.setter
     def current_acc(self, value: int) -> None:
-        self.curriculum.current_acc = int(value)
+        self.curriculum.current_acc = value
 
     @property
     def target_effective_batch(self) -> int:
@@ -288,7 +297,7 @@ class SmartTrainingGovernor:
 
     @target_effective_batch.setter
     def target_effective_batch(self, value: int) -> None:
-        self.curriculum.target_effective_batch = int(value)
+        self.curriculum.target_effective_batch = value
 
     @property
     def fraction_increment(self) -> float:
@@ -344,7 +353,7 @@ class SmartTrainingGovernor:
 
     @recovery_streak.setter
     def recovery_streak(self, value: int) -> None:
-        self.sota.recovery_streak = int(value)
+        self.sota.recovery_streak = value
 
     @property
     def consecutive_rollbacks(self) -> int:
@@ -352,7 +361,7 @@ class SmartTrainingGovernor:
 
     @consecutive_rollbacks.setter
     def consecutive_rollbacks(self, value: int) -> None:
-        self.sota.consecutive_rollbacks = int(value)
+        self.sota.consecutive_rollbacks = value
 
     @property
     def rollback_history(self) -> dict[int, int]:
@@ -368,7 +377,7 @@ class SmartTrainingGovernor:
 
     @gate_relaxation_epochs.setter
     def gate_relaxation_epochs(self, value: int) -> None:
-        self.sota.gate_relaxation_epochs = int(value)
+        self.sota.gate_relaxation_epochs = value
 
     @property
     def sota_resolution(self) -> int | None:
@@ -384,7 +393,7 @@ class SmartTrainingGovernor:
 
     @breakout_lock.setter
     def breakout_lock(self, value: int) -> None:
-        self.sota.breakout_lock = int(value)
+        self.sota.breakout_lock = value
 
     @property
     def history(self) -> list[tuple[float, float | None, float | None]]:
@@ -408,7 +417,7 @@ class SmartTrainingGovernor:
 
     @stabilization_epochs.setter
     def stabilization_epochs(self, value: int) -> None:
-        self.sota.stabilization_epochs = int(value)
+        self.sota.stabilization_epochs = value
 
     @property
     def cooldown_remaining(self) -> int:
@@ -416,7 +425,7 @@ class SmartTrainingGovernor:
 
     @cooldown_remaining.setter
     def cooldown_remaining(self, value: int) -> None:
-        self.sota.cooldown_remaining = int(value)
+        self.sota.cooldown_remaining = value
 
     @property
     def current_stress(self) -> float:
@@ -432,7 +441,7 @@ class SmartTrainingGovernor:
 
     @max_stress_stuck_epochs.setter
     def max_stress_stuck_epochs(self, value: int) -> None:
-        self.sota.max_stress_stuck_epochs = int(value)
+        self.sota.max_stress_stuck_epochs = value
 
     @property
     def plateau_patience(self) -> int:
@@ -440,7 +449,7 @@ class SmartTrainingGovernor:
 
     @plateau_patience.setter
     def plateau_patience(self, value: int) -> None:
-        self.sota.plateau_patience = int(value)
+        self.sota.plateau_patience = value
 
     @property
     def loop_breaker_enabled(self) -> bool:
@@ -448,7 +457,7 @@ class SmartTrainingGovernor:
 
     @loop_breaker_enabled.setter
     def loop_breaker_enabled(self, value: bool) -> None:
-        self.sota.loop_breaker_enabled = bool(value)
+        self.sota.loop_breaker_enabled = value
 
     @property
     def loop_breaker_threshold(self) -> int:
@@ -456,7 +465,7 @@ class SmartTrainingGovernor:
 
     @loop_breaker_threshold.setter
     def loop_breaker_threshold(self, value: int) -> None:
-        self.sota.loop_breaker_threshold = int(value)
+        self.sota.loop_breaker_threshold = value
 
     @property
     def loop_breaker_strategy(self) -> str:
@@ -464,7 +473,7 @@ class SmartTrainingGovernor:
 
     @loop_breaker_strategy.setter
     def loop_breaker_strategy(self, value: str) -> None:
-        self.sota.loop_breaker_strategy = str(value)
+        self.sota.loop_breaker_strategy = value
 
     # -------------------------------------------------------------------------
     # Core Autonomous Operations
@@ -916,7 +925,7 @@ class SmartTrainingGovernor:
                     self.stabilization_epochs = 1
                     self.best_quality = current_quality
             elif phase == "DEEPENING" and self.current_res is not None and self.current_res in self.res_ladder:
-                current_idx = self.res_ladder.index(int(self.current_res))
+                current_idx = self.res_ladder.index(self.current_res)
                 next_res = self.res_ladder[current_idx + 1]
 
                 if self.best_quality < self.target_quality_score * 0.80 and self.target_quality_score > 1.0:
@@ -1153,7 +1162,9 @@ class SmartTrainingGovernor:
             raw_res = state.get("input_size", self.current_res)
             self.current_res = int(raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res)
 
-            if self.task_type == "forex" and self.epoch_count <= 2:
+            if self.task_type == "forex":
+                self.current_fraction = 1.0
+            elif self.epoch_count <= 2:
                 opt_cfg = self.model_info.get("optimization", {})
                 init_frac = float(opt_cfg.get("initial_fraction", 0.15))
                 saved_frac = float(state.get("sample_fraction", 1.0))

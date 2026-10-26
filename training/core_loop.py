@@ -342,7 +342,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             pairs=_forex_pairs,
             active_timeframes=_forex_timeframes,
             is_train=True,
-            sample_fraction=sample_fraction,
+            sample_fraction=1.0,
             fold=_forex_fold,
         )
         try:
