@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.41-STABLE` |
+| **Version** | `v16.9.42-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.42 — Multi-Task SOTA Metric Ingestion & Perceptual Telemetry Synchronization
+
+- **Perceptual LPIPS FP32 Precision Guard (`training/training/validation.py`)** — Resolved the root cause behind 0.0000 LPIPS entries in `LemGendaryModels/mirnet_lowlight/metrics.csv`. TorchMetrics VGG feature extractors under mixed precision / autocast on edge Turing GPUs triggered silent exceptions in try/except blocks, causing `lpips_count` to remain 0. Enforced strict Float32 scaling (`p_scaled.float()`, `t_scaled.float()`) evaluated outside half-precision autocast blocks with detailed diagnostics logging.
+- **Frechet Inception Distance (FID) Feature Accumulation (`training/training/validation.py`)** — Integrated `torchmetrics.image.fid.FrechetInceptionDistance(feature=64)` into the validation pass for all 11 restoration architectures defining `fid` in `sota_targets` (`mirnet_lowlight`, `mirnet_exposure`, `film_restorer`, `codeformer`, `ffanet_indoor`, `ffanet_outdoor`, `mprnet_deraining`, `nafnet_debluring`, `nafnet_denoising`, `professional_multitask_restoration`, `ultrazoom`). Accumulates real and reconstructed validation feature distributions across batches and calculates final FID at the validation epoch boundary.
+- **Fleet-Wide SOTA Metric Parity Across All 23 Architectures** — Standardized deterministic evaluation logic across all model categories: PSNR, SSIM, LPIPS, and FID for Vision Restoration; PLCC, SRCC, and Rank Margin for NIMA Quality models; Direction Accuracy, Win Rate, Profit Factor, Sharpe Ratio, Sortino Ratio, Max Drawdown, TP MAE, SL MAE, and Direction Entropy for Forex; Mean Intersection over Union (mIoU) for ParseNet; mAP50, mAP50-95, and mAP difficulty scores for YOLO and RetinaFace; Categorical Accuracy for NSFW and Authenticity; and Mean Absolute Error (MAE) for UPN parameter prediction.
+- **Unified Telemetry Logging & Epoch Summaries (`training/training/engine.py`)** — Added LPIPS, FID, and PLCC to canonical epoch completion summaries in `training/training/engine.py`, ensuring synchronized reporting across terminal logs, `metrics.csv`, and the Desktop GUI.
+
+---
 
 ### v16.9.41 — Universal Checkpoint Resumption & Highest-Epoch Anchor Across All Trained Models
 

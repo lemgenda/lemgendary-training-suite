@@ -96,15 +96,16 @@ class StrictIsolationValidator:
         dirs = [p for p in entries if p.is_dir()]
         report.files_found = [p.name for p in entries]
 
-        # 1. Reject rogue metadata, .pt or .onnx files
-        forbidden_substrings = ("model-metadata", "model_metadata", ".pt", ".onnx")
+        # 1. Reject rogue .pt or .onnx binary files (and metadata files if staged in isolated subfolder)
+        is_hub_root = (variation_dir / "checkpoints").exists() and (variation_dir / "dist").exists()
+        forbidden_substrings = (".pt", ".onnx") if is_hub_root else ("model-metadata", "model_metadata", ".pt", ".onnx")
         for f in files:
             for forb in forbidden_substrings:
                 if forb in f.name.lower():
                     report.is_valid = False
                     report.errors.append(
                         f"Forbidden artifact '{f.name}' in pytorch/default. "
-                        f"Binary .pt/.onnx models and metadata files must NOT be in default checkpoints variation."
+                        f"Binary .pt/.onnx models must NOT be in default checkpoints variation."
                     )
 
         # 2. Checkpoints directory presence

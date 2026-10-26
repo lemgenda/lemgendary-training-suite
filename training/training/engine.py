@@ -178,6 +178,12 @@ def run_training(
         val_info = f"ValLoss: {current_loss:.4f}"
         if "psnr" in combined_metrics:
             val_info += f" | PSNR: {combined_metrics['psnr']:.2f}dB | SSIM: {combined_metrics.get('ssim', 0.0):.4f}"
+            if "lpips" in combined_metrics:
+                val_info += f" | LPIPS: {combined_metrics['lpips']:.4f}"
+            if "fid" in combined_metrics:
+                val_info += f" | FID: {combined_metrics['fid']:.2f}"
+        if "plcc" in combined_metrics:
+            val_info += f" | PLCC: {combined_metrics['plcc']:.4f} | SRCC: {combined_metrics.get('srcc', 0.0):.4f}"
         if "dir_acc" in combined_metrics:
             win_rate = combined_metrics.get("win_rate", 0.0)
             val_info += f" | DirAcc: {combined_metrics['dir_acc']:.2f}% | WinRate: {win_rate:.2f}%"

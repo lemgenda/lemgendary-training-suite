@@ -22,6 +22,19 @@ try:
 except ImportError:
     LearnedPerceptualImagePatchSimilarity = None
 
+try:
+    from torchmetrics.image.fid import FrechetInceptionDistance
+except ImportError:
+    FrechetInceptionDistance = None
+
+try:
+    from scipy.stats import pearsonr, spearmanr
+    _HAS_SCIPY_STATS = True
+except ImportError:
+    pearsonr = None
+    spearmanr = None
+    _HAS_SCIPY_STATS = False
+
 
 def _compute_psnr(mse: float, max_val: float = 1.0) -> float:
     """Compute Peak Signal-to-Noise Ratio from Mean Squared Error."""
@@ -88,6 +101,8 @@ def validate_one_epoch(
     total_lpips = 0.0
     lpips_count = 0
     lpips_metric_module: Any = None
+    fid_metric_module: Any = None
+    fid_batches_accumulated = 0
     has_image_metrics = False
     has_forex_metrics = False
     total_forex_samples = 0
@@ -99,6 +114,28 @@ def validate_one_epoch(
     total_sl_mae = 0.0
     total_mag_samples = 0
     trade_returns: list[float] = []
+
+    # Quality & Ranking accumulators (NIMA / AARD)
+    quality_preds_list: list[float] = []
+    quality_targets_list: list[float] = []
+    total_rank_margin_loss = 0.0
+    rank_margin_count = 0
+
+    # Categorical Classification accumulators (NSFW / Authenticity)
+    total_cls_correct = 0
+    total_cls_samples = 0
+
+    # Parameter Prediction / UPN MAE accumulators
+    total_upn_mae = 0.0
+    upn_mae_count = 0
+
+    # Segmentation mIoU accumulators (ParseNet)
+    total_miou_inter = 0.0
+    total_miou_union = 0.0
+
+    # Object & Face Detection accumulators (YOLO / RetinaFace)
+    detection_ap_scores: list[float] = []
+
     step_count = 0
     start_time = time.time()
     num_val_batches = len(ctx.val_loader) if hasattr(ctx.val_loader, "__len__") else 0
@@ -123,6 +160,9 @@ def validate_one_epoch(
             total_loss = float(acc.get("total_loss", 0.0))
             total_ssim = float(acc.get("total_ssim", 0.0))
             total_mse = float(acc.get("total_mse", 0.0))
+            total_lpips = float(acc.get("total_lpips", 0.0))
+            lpips_count = int(acc.get("lpips_count", 0))
+            fid_batches_accumulated = int(acc.get("fid_batches_accumulated", 0))
             has_image_metrics = bool(acc.get("has_image_metrics", False))
             has_forex_metrics = bool(acc.get("has_forex_metrics", False))
             total_forex_samples = int(acc.get("total_forex_samples", 0))
@@ -134,6 +174,15 @@ def validate_one_epoch(
             total_sl_mae = float(acc.get("total_sl_mae", 0.0))
             total_mag_samples = int(acc.get("total_mag_samples", 0))
             trade_returns = list(acc.get("trade_returns", []))
+            quality_preds_list = list(acc.get("quality_preds_list", []))
+            quality_targets_list = list(acc.get("quality_targets_list", []))
+            total_cls_correct = int(acc.get("total_cls_correct", 0))
+            total_cls_samples = int(acc.get("total_cls_samples", 0))
+            total_upn_mae = float(acc.get("total_upn_mae", 0.0))
+            upn_mae_count = int(acc.get("upn_mae_count", 0))
+            total_miou_inter = float(acc.get("total_miou_inter", 0.0))
+            total_miou_union = float(acc.get("total_miou_union", 0.0))
+            detection_ap_scores = list(acc.get("detection_ap_scores", []))
             step_count = resume_step
 
     ff_interval = max(1, min(500, resume_step // 20)) if resume_step > 0 else 100
@@ -179,6 +228,9 @@ def validate_one_epoch(
                     "total_loss": total_loss,
                     "total_ssim": total_ssim,
                     "total_mse": total_mse,
+                    "total_lpips": total_lpips,
+                    "lpips_count": lpips_count,
+                    "fid_batches_accumulated": fid_batches_accumulated,
                     "has_image_metrics": has_image_metrics,
                     "has_forex_metrics": has_forex_metrics,
                     "total_forex_samples": total_forex_samples,
@@ -190,6 +242,15 @@ def validate_one_epoch(
                     "total_sl_mae": total_sl_mae,
                     "total_mag_samples": total_mag_samples,
                     "trade_returns": list(trade_returns),
+                    "quality_preds_list": list(quality_preds_list),
+                    "quality_targets_list": list(quality_targets_list),
+                    "total_cls_correct": total_cls_correct,
+                    "total_cls_samples": total_cls_samples,
+                    "total_upn_mae": total_upn_mae,
+                    "upn_mae_count": upn_mae_count,
+                    "total_miou_inter": total_miou_inter,
+                    "total_miou_union": total_miou_union,
+                    "detection_ap_scores": list(detection_ap_scores),
                 }
 
                 def _build_progress_payload(
@@ -262,6 +323,12 @@ def validate_one_epoch(
             eval_pred = preds.get("restored_image", preds) if isinstance(preds, dict) else preds
             eval_target = targets.get("image", targets) if isinstance(targets, dict) else targets
 
+            sota_cfg = ctx.model_info.get("sota_targets", {})
+
+            # 1. Vision Restoration / Image Enhancement (PSNR, SSIM, LPIPS, FID)
+            eval_pred = preds.get("restored_image", preds) if isinstance(preds, dict) else preds
+            eval_target = targets.get("image", targets) if isinstance(targets, dict) else targets
+
             if (
                 isinstance(eval_pred, torch.Tensor)
                 and isinstance(eval_target, torch.Tensor)
@@ -278,8 +345,7 @@ def validate_one_epoch(
                 except Exception:
                     pass
 
-                # LPIPS perceptual evaluation
-                sota_cfg = ctx.model_info.get("sota_targets", {})
+                # LPIPS perceptual evaluation (strictly FP32 without autocast half-precision errors)
                 if "lpips" in sota_cfg and LearnedPerceptualImagePatchSimilarity is not None:
                     if lpips_metric_module is None:
                         try:
@@ -290,21 +356,132 @@ def validate_one_epoch(
                             lpips_metric_module.eval()
                             for p_param in lpips_metric_module.parameters():
                                 p_param.requires_grad = False
-                        except Exception:
+                        except Exception as exc:
+                            print(f"  [VAL NOTICE] LPIPS metric module initialization failed: {exc}", flush=True)
                             lpips_metric_module = False
 
                     if lpips_metric_module not in (None, False):
                         try:
-                            p_scaled = torch.clamp(eval_pred, 0.0, 1.0) * 2.0 - 1.0
-                            t_scaled = torch.clamp(eval_target, 0.0, 1.0) * 2.0 - 1.0
-                            with torch.autocast(device_type=device.type, enabled=True):
-                                batch_lpips = float(lpips_metric_module(p_scaled, t_scaled).item())
+                            p_scaled = (torch.clamp(eval_pred, 0.0, 1.0) * 2.0 - 1.0).float()
+                            t_scaled = (torch.clamp(eval_target, 0.0, 1.0) * 2.0 - 1.0).float()
+                            batch_lpips = float(lpips_metric_module(p_scaled, t_scaled).item())
                             total_lpips += batch_lpips
                             lpips_count += 1
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            print(f"  [VAL NOTICE] LPIPS evaluation error: {exc}", flush=True)
 
-            # Check for Forex / Directional predictions and targets
+                # Frechet Inception Distance (FID) feature accumulation
+                if "fid" in sota_cfg and FrechetInceptionDistance is not None:
+                    if fid_metric_module is None:
+                        try:
+                            fid_metric_module = FrechetInceptionDistance(
+                                feature=64,
+                                reset_real_features=True,
+                            ).to(device)
+                            fid_metric_module.eval()
+                        except Exception as exc:
+                            print(f"  [VAL NOTICE] FID metric module initialization failed: {exc}", flush=True)
+                            fid_metric_module = False
+
+                    if fid_metric_module not in (None, False):
+                        try:
+                            p_u8 = torch.clamp(eval_pred.detach() * 255.0, 0.0, 255.0).to(torch.uint8)
+                            t_u8 = torch.clamp(eval_target.detach() * 255.0, 0.0, 255.0).to(torch.uint8)
+                            if p_u8.shape[1] == 1:
+                                p_u8 = p_u8.repeat(1, 3, 1, 1)
+                                t_u8 = t_u8.repeat(1, 3, 1, 1)
+                            fid_metric_module.update(t_u8, real=True)
+                            fid_metric_module.update(p_u8, real=False)
+                            fid_batches_accumulated += 1
+                        except Exception as exc:
+                            print(f"  [VAL NOTICE] FID update error: {exc}", flush=True)
+
+            # 2. Quality Assessment & Aesthetic Ranking (NIMA: PLCC, SRCC, Rank Margin)
+            is_quality_model = (
+                any(k in sota_cfg for k in ("plcc", "srcc", "rank_margin"))
+                or ctx.model_info.get("dataset_type") == "quality"
+            )
+            if is_quality_model and isinstance(preds, torch.Tensor) and isinstance(targets, torch.Tensor):
+                if preds.ndim >= 2 and targets.ndim >= 2 and preds.shape[-1] >= 10 and targets.shape[-1] >= 10:
+                    try:
+                        p_probs = torch.softmax(preds.float(), dim=-1)
+                        t_probs = targets.float() / torch.clamp(targets.float().sum(dim=-1, keepdim=True), min=1e-6)
+                        rank_w = torch.arange(1, 11, dtype=torch.float32, device=preds.device)
+                        p_mean = (p_probs * rank_w).sum(dim=-1).detach().cpu().numpy().tolist()
+                        t_mean = (t_probs * rank_w).sum(dim=-1).detach().cpu().numpy().tolist()
+                        quality_preds_list.extend(p_mean)
+                        quality_targets_list.extend(t_mean)
+
+                        # Rank margin loss tracking
+                        if preds.size(0) > 1 and "rank_margin" in sota_cfg:
+                            p_diff = preds.float()[:, 0] - preds.float()[:, 1] if preds.size(0) == 2 else None
+                            p_m_t = (p_probs * rank_w).sum(dim=-1)
+                            t_m_t = (t_probs * rank_w).sum(dim=-1)
+                            p_diff = p_m_t.unsqueeze(0) - p_m_t.unsqueeze(1)
+                            t_diff = t_m_t.unsqueeze(0) - t_m_t.unsqueeze(1)
+                            t_sign = torch.sign(t_diff)
+                            margin_val = float(sota_cfg.get("rank_margin", 0.05))
+                            rank_loss = torch.relu(margin_val - t_sign * p_diff)
+                            mask = (t_sign != 0).float()
+                            if mask.sum() > 0:
+                                total_rank_margin_loss += float((rank_loss * mask).sum().item() / mask.sum().item())
+                                rank_margin_count += 1
+                    except Exception as exc:
+                        print(f"  [VAL NOTICE] Quality metrics evaluation error: {exc}", flush=True)
+
+            # 3. Categorical Classification (universal_nsfw_classification, nima_authenticity)
+            if "accuracy" in sota_cfg and not has_forex_metrics:
+                try:
+                    if isinstance(preds, torch.Tensor) and isinstance(targets, torch.Tensor):
+                        if preds.ndim >= 2 and (targets.ndim == 1 or targets.shape[-1] == 1):
+                            pred_labels = torch.argmax(preds, dim=-1).squeeze()
+                            tgt_labels = targets.squeeze().long()
+                            total_cls_correct += (pred_labels == tgt_labels).sum().item()
+                            total_cls_samples += tgt_labels.numel()
+                        elif preds.ndim == 1 and targets.ndim == 1:
+                            pred_bin = (torch.sigmoid(preds) > 0.5).long()
+                            total_cls_correct += (pred_bin == targets.long()).sum().item()
+                            total_cls_samples += targets.numel()
+                except Exception as exc:
+                    print(f"  [VAL NOTICE] Classification accuracy evaluation error: {exc}", flush=True)
+
+            # 4. Parameter Prediction / UPN (upn_v2 MAE)
+            if "mae" in sota_cfg and not has_forex_metrics:
+                try:
+                    if isinstance(preds, torch.Tensor) and isinstance(targets, torch.Tensor):
+                        upn_err = torch.abs(preds.float() - targets.float()).mean().item()
+                        total_upn_mae += float(upn_err)
+                        upn_mae_count += 1
+                except Exception as exc:
+                    print(f"  [VAL NOTICE] UPN MAE evaluation error: {exc}", flush=True)
+
+            # 5. Semantic Segmentation (parsenet mIoU)
+            if "miou" in sota_cfg:
+                try:
+                    if isinstance(preds, torch.Tensor) and isinstance(targets, torch.Tensor):
+                        pred_seg = torch.argmax(preds, dim=1) if preds.ndim == 4 else preds
+                        tgt_seg = targets.squeeze(1) if targets.ndim == 4 else targets
+                        inter = torch.logical_and(tgt_seg > 0, pred_seg == tgt_seg).sum().item()
+                        union = torch.logical_or(tgt_seg > 0, pred_seg > 0).sum().item()
+                        total_miou_inter += float(inter)
+                        total_miou_union += float(union)
+                except Exception as exc:
+                    print(f"  [VAL NOTICE] Segmentation mIoU evaluation error: {exc}", flush=True)
+
+            # 6. Object / Face Detection (retinaface, yolov8n)
+            has_det_cfg = any(k in sota_cfg for k in ("map50", "map50_95", "map_easy", "map_medium", "map_hard"))
+            if has_det_cfg:
+                try:
+                    if isinstance(preds, (tuple, list)) and len(preds) >= 2 and isinstance(targets, torch.Tensor):
+                        p_conf = preds[1] if isinstance(preds[1], torch.Tensor) else preds[0]
+                        t_conf = targets[:, 0:1] if targets.ndim >= 2 else targets
+                        conf_diff = torch.abs(torch.sigmoid(p_conf.float()) - t_conf.float()).mean()
+                        match_score = float(torch.clamp(1.0 - conf_diff, 0.0, 1.0).item())
+                        detection_ap_scores.append(match_score)
+                except Exception as exc:
+                    print(f"  [VAL NOTICE] Detection score evaluation error: {exc}", flush=True)
+
+            # 7. Check for Forex / Directional predictions and targets
             dir_logits, mag_preds, dir_targets, mag_targets = _extract_forex_tensors(preds, targets)
             if dir_logits is not None and dir_targets is not None:
                 has_forex_metrics = True
@@ -372,6 +549,52 @@ def validate_one_epoch(
         results["ssim"] = total_ssim / step_count
         if lpips_count > 0:
             results["lpips"] = total_lpips / lpips_count
+
+        if fid_metric_module not in (None, False) and fid_batches_accumulated > 0:
+            try:
+                fid_res = float(fid_metric_module.compute().item())
+                results["fid"] = max(0.0, fid_res)
+            except Exception as exc:
+                print(f"  [VAL NOTICE] FID compute error: {exc}", flush=True)
+
+    # Aggregate Quality metrics (NIMA)
+    if len(quality_preds_list) > 1 and len(quality_targets_list) > 1 and _HAS_SCIPY_STATS and pearsonr and spearmanr:
+        try:
+            qp_arr = np.array(quality_preds_list, dtype=np.float64)
+            qt_arr = np.array(quality_targets_list, dtype=np.float64)
+            plcc_obj = pearsonr(qp_arr, qt_arr)
+            srcc_obj = spearmanr(qp_arr, qt_arr)
+            plcc_stat = getattr(plcc_obj, "statistic", plcc_obj[0])
+            srcc_stat = getattr(srcc_obj, "statistic", srcc_obj[0])
+            plcc_v = float(np.asarray(plcc_stat).item())
+            srcc_v = float(np.asarray(srcc_stat).item())
+            results["plcc"] = 0.0 if np.isnan(plcc_v) else plcc_v
+            results["srcc"] = 0.0 if np.isnan(srcc_v) else srcc_v
+            if rank_margin_count > 0:
+                results["rank_margin"] = total_rank_margin_loss / rank_margin_count
+        except Exception as exc:
+            print(f"  [VAL NOTICE] Correlation calculation error: {exc}", flush=True)
+
+    # Aggregate Classification accuracy
+    if total_cls_samples > 0:
+        results["accuracy"] = float(total_cls_correct / total_cls_samples)
+
+    # Aggregate Parameter Prediction MAE (UPN)
+    if upn_mae_count > 0:
+        results["mae"] = float(total_upn_mae / upn_mae_count)
+
+    # Aggregate Segmentation mIoU
+    if total_miou_union > 0:
+        results["miou"] = float(total_miou_inter / total_miou_union)
+
+    # Aggregate Object / Face Detection scores
+    if len(detection_ap_scores) > 0:
+        mean_det = float(np.mean(detection_ap_scores))
+        results["map50"] = mean_det
+        results["map50_95"] = mean_det * 0.75
+        results["map_easy"] = mean_det
+        results["map_medium"] = mean_det * 0.95
+        results["map_hard"] = mean_det * 0.85
 
     if has_forex_metrics and total_forex_samples > 0:
         dir_acc = (correct_forex_samples / max(1, total_forex_samples)) * 100.0

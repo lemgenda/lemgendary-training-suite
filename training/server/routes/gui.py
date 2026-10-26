@@ -151,6 +151,11 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             or info.get("category") == "forex"
             or info.get("dataset_type") == "forex"
         )
+        is_llm = (
+            info.get("category") == "llm"
+            or info.get("dataset_type") in ("text_instruction", "llm")
+            or "llm" in model_key.lower()
+        )
 
         model_ckpts = ckpts_by_model.get(model_key, [])
         best_ckpt = next((c for c in model_ckpts if c.get("is_best")), None)
@@ -173,6 +178,10 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             res_ladder = [1, 5, 15, 60, 240, 1440]
             if isinstance(opt_cfg, dict) and "res_ladder" in opt_cfg and isinstance(opt_cfg["res_ladder"], list):
                 res_ladder = opt_cfg["res_ladder"]
+        elif is_llm:
+            ladder_type = "context_tokens"
+            ctx_len = info.get("curriculum", {}).get("max_seq_length") or info.get("input_size") or 2048
+            res_ladder = [int(ctx_len)]
         else:
             ladder_type = "spatial"
             res_ladder = [256, 384, 512]
@@ -450,6 +459,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
         target_res = max(res_ladder) if res_ladder else (info.get("resolution") or (512 if not is_forex else 1440))
 
         # Active ladder resolution rung
+        curr_data = 1.0 if (is_forex or is_llm) else (latest_data if latest_data is not None else (csv_max_data if csv_max_data > 0 else 0.0))
         if is_forex:
             ladder_default = res_ladder[0] if res_ladder else 1
             active_ladder_val = (
@@ -459,6 +469,11 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             )
             active_res = active_ladder_val
             ladder_passed = (csv_max_fold >= 6) or (csv_max_res >= 1440)
+            data_fraction_passed = True
+        elif is_llm:
+            active_res = target_res
+            ladder_passed = True
+            data_fraction_passed = True
         else:
             if latest_res is not None:
                 active_res = latest_res
@@ -470,10 +485,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                 active_res = target_res
 
             ladder_passed = (csv_max_res >= target_res) if target_res is not None else (completed_epochs >= 20)
-
-        # Current contiguous data fraction on active rung
-        curr_data = latest_data if latest_data is not None else (csv_max_data if csv_max_data > 0 else 0.0)
-        data_fraction_passed = curr_data >= 0.999 and ladder_passed
+            data_fraction_passed = curr_data >= 0.999 and ladder_passed
 
         # Authoritative criteria:
         # A model is FULLY TRAINED if and only if:
@@ -538,6 +550,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             "spatial_ladder": res_ladder,
             "ladder_type": ladder_type,
             "is_forex": is_forex,
+            "is_llm": is_llm,
             "ladder_passed": ladder_passed,
             "active_res": active_res,
             "max_res_completed": max_res_completed,
