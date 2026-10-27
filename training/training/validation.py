@@ -360,7 +360,7 @@ def validate_one_epoch(
                             print(f"  [VAL NOTICE] LPIPS metric module initialization failed: {exc}", flush=True)
                             lpips_metric_module = False
 
-                    if lpips_metric_module not in (None, False):
+                    if lpips_metric_module is not None and lpips_metric_module is not False:
                         try:
                             p_scaled = (torch.clamp(eval_pred, 0.0, 1.0) * 2.0 - 1.0).float()
                             t_scaled = (torch.clamp(eval_target, 0.0, 1.0) * 2.0 - 1.0).float()
@@ -383,7 +383,7 @@ def validate_one_epoch(
                             print(f"  [VAL NOTICE] FID metric module initialization failed: {exc}", flush=True)
                             fid_metric_module = False
 
-                    if fid_metric_module not in (None, False):
+                    if fid_metric_module is not None and fid_metric_module is not False:
                         try:
                             p_u8 = torch.clamp(eval_pred.detach() * 255.0, 0.0, 255.0).to(torch.uint8)
                             t_u8 = torch.clamp(eval_target.detach() * 255.0, 0.0, 255.0).to(torch.uint8)
@@ -550,7 +550,7 @@ def validate_one_epoch(
         if lpips_count > 0:
             results["lpips"] = total_lpips / lpips_count
 
-        if fid_metric_module not in (None, False) and fid_batches_accumulated > 0:
+        if fid_metric_module is not None and fid_metric_module is not False and fid_batches_accumulated > 0:
             try:
                 fid_res = float(fid_metric_module.compute().item())
                 results["fid"] = max(0.0, fid_res)
