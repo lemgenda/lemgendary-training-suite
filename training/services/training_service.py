@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import yaml
 
-from training.core_loop import build_training_context
-from training.training.engine import TrainingSummary, run_training
 from training.utils.paths import get_project_root
+
+if TYPE_CHECKING:
+    from training.training.engine import TrainingSummary
 
 
 class TrainingService:
@@ -143,6 +144,9 @@ class TrainingService:
             )
 
         # 4. Construct deterministic TrainingContext
+        from training.core_loop import build_training_context
+        from training.training.engine import run_training
+
         ctx = build_training_context(args)
 
         # 5. Run training coordinator

@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from transformers import LlavaNextForConditionalGeneration, Blip2ForConditionalGeneration, BitsAndBytesConfig
 
 class LLaVA_v1_5(nn.Module):
     """
@@ -9,6 +8,7 @@ class LLaVA_v1_5(nn.Module):
     """
     def __init__(self, checkpoint=None, **kwargs):
         super().__init__()
+        from transformers import LlavaNextForConditionalGeneration, BitsAndBytesConfig
         model_id = "llava-hf/llava-v1.6-vicuna-7b-hf"
         
         # 2026: SOTA 4-bit Quantization for VRAM seating
@@ -59,6 +59,7 @@ class BLIP_2(nn.Module):
     """
     def __init__(self, checkpoint=None, **kwargs):
         super().__init__()
+        from transformers import Blip2ForConditionalGeneration, BitsAndBytesConfig
         model_id = "Salesforce/blip2-opt-2.7b"
         
         bnb_config = BitsAndBytesConfig(

@@ -10,6 +10,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
+from typing import Any
 from collections.abc import AsyncGenerator
 from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -141,4 +142,20 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
     return application
 
 
-app = create_app()
+_cached_app: FastAPI | None = None
+
+
+def get_app() -> FastAPI:
+    """Return singleton FastAPI app instance, creating it lazily if not yet initialized."""
+    global _cached_app
+    if _cached_app is None:
+        _cached_app = create_app()
+    return _cached_app
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily instantiate module-level app when requested by ASGI servers."""
+    if name == "app":
+        return get_app()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+

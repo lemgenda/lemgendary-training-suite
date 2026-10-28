@@ -12,21 +12,19 @@ import subprocess
 import sys
 from typing import Any
 
-from training.cloud.credentials import resolve_kaggle_credentials
-from training.cloud.kaggle_hub import KaggleHubManager
-from training.cloud.manager import CloudSyncError
-
 logger = logging.getLogger("lemtrain.kaggle_cloud_manager")
 
 
 def get_kernel_slug(model_name: str, username: str) -> str:
     """Generate standardized Kaggle kernel slug."""
+    from training.cloud.kaggle_hub import KaggleHubManager
     mgr = KaggleHubManager(username=username)
     return mgr.get_kernel_slug(model_name)
 
 
 def create_cloud_kernel_bundle(model_name: str, username: str, gpu: str = "T4") -> Path:
     """Package a standalone Kaggle kernel bundle containing metadata and execution script."""
+    from training.cloud.kaggle_hub import KaggleHubManager
     mgr = KaggleHubManager(username=username)
     return mgr.create_cloud_kernel_bundle(model_name, gpu=gpu)
 
@@ -39,6 +37,8 @@ def launch_kaggle_training(
     gpu: str = "T4",
 ) -> bool:
     """Pushes and launches a training kernel to Kaggle GPU Cloud headlessly."""
+    from training.cloud.credentials import resolve_kaggle_credentials
+    from training.cloud.kaggle_hub import KaggleHubManager
     user, _ = resolve_kaggle_credentials(override_user=username, override_key=key)
     mgr = KaggleHubManager(username=user, key=key, config=config)
     kernel_dir = mgr.create_cloud_kernel_bundle(model_name, gpu=gpu)
@@ -78,6 +78,8 @@ def launch_kaggle_training(
 
 def monitor_kaggle_training(model_name: str, username: str | None = None, poll_interval: int = 5) -> None:
     """Stream status and logs from Kaggle for specified model kernel."""
+    from training.cloud.credentials import resolve_kaggle_credentials
+    from training.cloud.kaggle_hub import KaggleHubManager
     user, _ = resolve_kaggle_credentials(override_user=username)
     mgr = KaggleHubManager(username=user)
     slug = mgr.get_kernel_slug(model_name)
@@ -175,6 +177,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
     if args.action == "setup_auth":
+        from training.cloud.credentials import resolve_kaggle_credentials
         u, _ = resolve_kaggle_credentials()
         logger.info("Authentication verified for Kaggle user: %s", u)
     elif args.action == "launch":
@@ -194,6 +197,7 @@ def main() -> None:
             key=args.key,
         )
     elif args.action == "status":
+        from training.cloud.credentials import resolve_kaggle_credentials
         u, _ = resolve_kaggle_credentials(override_user=args.username)
         slug = get_kernel_slug(args.model, u)
         try:

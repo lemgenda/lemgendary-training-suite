@@ -160,17 +160,21 @@ def resolve_kaggle_credentials(
 
     # User home ~/.kaggle/kaggle.json fallback (supporting utf-8-sig, utf-16, utf-8)
     user_kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
-    if not (k_user and k_key) and user_kaggle_json.exists():
-        for enc in ("utf-8-sig", "utf-8", "utf-16", "latin-1"):
-            try:
-                creds = json.loads(user_kaggle_json.read_text(encoding=enc))
-                if not k_user:
-                    k_user = creds.get("username", "")
-                if not k_key:
-                    k_key = creds.get("key", "")
-                break
-            except (OSError, ValueError, UnicodeError) as e:
-                logger.debug("Failed parsing ~/.kaggle/kaggle.json with %s: %s", enc, e)
+    if not (k_user and k_key):
+        try:
+            if user_kaggle_json.exists():
+                for enc in ("utf-8-sig", "utf-8", "utf-16", "latin-1"):
+                    try:
+                        creds = json.loads(user_kaggle_json.read_text(encoding=enc))
+                        if not k_user:
+                            k_user = creds.get("username", "")
+                        if not k_key:
+                            k_key = creds.get("key", "")
+                        break
+                    except (OSError, ValueError) as e:
+                        logger.debug("Failed parsing ~/.kaggle/kaggle.json with %s: %s", enc, e)
+        except OSError as e:
+            logger.debug("Could not access ~/.kaggle/kaggle.json: %s", e)
 
     # Project .kaggle_token fallback
     project_root = get_project_root()

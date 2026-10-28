@@ -414,7 +414,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         time_vals = df['time'].tolist()
         hours = [pd.Timestamp(t).hour for t in time_vals]
     elif isinstance(df.index, pd.DatetimeIndex):
-        hours = [int(h) for h in df.index.hour]
+        hours = [h for h in df.index.hour]
     else:
         hours = [0.0] * len(df)
     hour_norm = np.asarray(hours, dtype=np.float64) / 23.0 * 2.0 * np.pi
