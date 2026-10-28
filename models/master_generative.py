@@ -15,8 +15,8 @@ class StableDiffusionXL(nn.Module):
         # Load sub-components for training
         vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae")
         unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet")
-        assert isinstance(vae, nn.Module)
-        assert isinstance(unet, nn.Module)
+        if vae is None or unet is None or not isinstance(vae, nn.Module) or not isinstance(unet, nn.Module):
+            raise RuntimeError(f"Failed to load VAE or UNet sub-components from {model_id}")
         self.vae: nn.Module = vae
         self.unet: nn.Module = unet
         self.noise_scheduler = DDPMScheduler.from_pretrained(model_id, subfolder="scheduler")
@@ -48,7 +48,8 @@ class Flux1_Master(nn.Module):
                 torch_dtype=torch.bfloat16,
                 low_cpu_mem_usage=True,
             )
-            assert isinstance(base_transformer, nn.Module)
+            if base_transformer is None or not isinstance(base_transformer, nn.Module):
+                raise RuntimeError(f"Failed to load base Flux transformer from {model_id}")
 
             # 2. Inject LoRA Adapter (v2026 Optimization)
             lora_config = LoraConfig(
@@ -61,7 +62,8 @@ class Flux1_Master(nn.Module):
             self.transformer: nn.Module = get_peft_model(base_transformer, lora_config)
             
             vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae")
-            assert isinstance(vae, nn.Module)
+            if vae is None or not isinstance(vae, nn.Module):
+                raise RuntimeError(f"Failed to load Flux VAE from {model_id}")
             self.vae: nn.Module = vae
             self.vae.requires_grad_(False)
             

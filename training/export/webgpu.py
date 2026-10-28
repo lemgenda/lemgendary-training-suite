@@ -27,21 +27,29 @@ def export_webgpu_onnx(
 
     logger.info("Exporting WebGPU ONNX payload to %s (opset=%d, shape=%s)...", out_file, opset, dummy_input_shape)
 
-    inner_mod = getattr(model, "module", None)
-    model_to_export: nn.Module = inner_mod if isinstance(inner_mod, nn.Module) else model
-    model_to_export.eval()
+    model_to_export: nn.Module
+    if hasattr(model, "module") and isinstance(getattr(model, "module"), nn.Module):
+        model_to_export = getattr(model, "module")
+    elif isinstance(model, nn.Module):
+        model_to_export = model
+    else:
+        model_to_export = model
 
     device = torch.device("cpu")
-    try:
-        device = next(model_to_export.parameters()).device
-    except StopIteration:
-        pass
+    if isinstance(model_to_export, nn.Module):
+        model_to_export.eval()
+        try:
+            device = next(model_to_export.parameters()).device
+        except StopIteration:
+            pass
 
     dummy_input = torch.randn(dummy_input_shape, device=device)
 
     buf = io.StringIO()
     try:
         with redirect_stdout(buf), redirect_stderr(buf):
+            if not isinstance(model_to_export, nn.Module):
+                return False
             torch.onnx.export(
                 model_to_export,
                 (dummy_input,),

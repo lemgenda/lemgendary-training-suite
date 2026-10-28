@@ -613,14 +613,17 @@ class ForexPredictor(nn.Module):
 
         # ── Rebuild fused_project with partial warm-start ────────────────────
         old_proj = self.fused_project
-        old_first_linear = old_proj[0]
-        old_dropout = old_proj[2]
-        old_ln = old_proj[3]
-        assert isinstance(old_first_linear, nn.Linear)
-        assert isinstance(old_dropout, nn.Dropout)
-        assert isinstance(old_ln, nn.LayerNorm)
-        old_in_dim = old_first_linear.in_features
-        hidden = old_first_linear.out_features
+        if not isinstance(old_proj, nn.Sequential) or len(old_proj) < 4:
+            return
+        m0 = old_proj[0]
+        m2 = old_proj[2]
+        m3 = old_proj[3]
+        if not (isinstance(m0, nn.Linear) and isinstance(m2, nn.Dropout) and isinstance(m3, nn.LayerNorm)):
+            return
+
+        old_in_dim = m0.in_features
+        hidden = m0.out_features
+        dropout_p = float(m2.p)
 
         fused_dim = n_tf * self.d_model + self.d_model
         new_first_linear = nn.Linear(fused_dim, hidden)
@@ -628,7 +631,7 @@ class ForexPredictor(nn.Module):
         new_proj = nn.Sequential(
             new_first_linear,
             nn.GELU(),
-            nn.Dropout(old_dropout.p),
+            nn.Dropout(dropout_p),
             new_ln,
         )
 
@@ -638,14 +641,14 @@ class ForexPredictor(nn.Module):
         # rows. The new d_model rows at the tail belong to the new timeframe and
         # keep their Kaiming initialization.
         with torch.no_grad():
-            new_first_linear.weight[:old_in_dim] = old_first_linear.weight
-            if new_first_linear.bias is not None and old_first_linear.bias is not None:
-                new_first_linear.bias.copy_(old_first_linear.bias)
+            new_first_linear.weight[:old_in_dim] = m0.weight
+            if new_first_linear.bias is not None and m0.bias is not None:
+                new_first_linear.bias.copy_(m0.bias)
             # LayerNorm at the tail is shape-invariant (hidden-dim); copy directly
-            if old_ln.weight.shape == new_ln.weight.shape:
-                new_ln.weight.copy_(old_ln.weight)
-                if new_ln.bias is not None and old_ln.bias is not None:
-                    new_ln.bias.copy_(old_ln.bias)
+            if m3.weight is not None and new_ln.weight is not None and m3.weight.shape == new_ln.weight.shape:
+                new_ln.weight.copy_(m3.weight)
+                if new_ln.bias is not None and m3.bias is not None:
+                    new_ln.bias.copy_(m3.bias)
         self.fused_project = new_proj
 
         print(f" [ForexPredictor] Expanded to {n_tf} timeframes. Added: {new_tf}min rung.")

@@ -44,11 +44,18 @@ def export_llm_tri_format(
 
     exported_files: dict[str, Path] = {}
 
-    inner_mod = getattr(model, "module", None)
-    model_to_export: nn.Module = inner_mod if isinstance(inner_mod, nn.Module) else model
-    model_to_export.eval()
+    model_to_export: nn.Module
+    if hasattr(model, "module") and isinstance(getattr(model, "module"), nn.Module):
+        model_to_export = getattr(model, "module")
+    elif isinstance(model, nn.Module):
+        model_to_export = model
+    else:
+        model_to_export = model
+
     device = torch.device("cpu")
-    model_to_export.to(device)
+    if isinstance(model_to_export, nn.Module):
+        model_to_export.eval()
+        model_to_export.to(device)
 
     binary_stem = "AIHelperLemGend"
 
@@ -56,8 +63,9 @@ def export_llm_tri_format(
     pt_path = pytorch_dir / f"{binary_stem}.pt"
     logger.info("Saving standalone PyTorch LLM weights to %s...", pt_path)
     try:
-        torch.save(model_to_export.state_dict(), str(pt_path))
-        exported_files["pt"] = pt_path
+        if isinstance(model_to_export, nn.Module):
+            torch.save(model_to_export.state_dict(), str(pt_path))
+            exported_files["pt"] = pt_path
     except Exception as exc:
         logger.error("Failed saving PyTorch LLM weights to %s: %s", pt_path, exc)
 
@@ -69,11 +77,12 @@ def export_llm_tri_format(
         dummy_input = torch.randint(1, 1000, (1, 16), dtype=torch.long, device=device)
         dummy_mask = torch.ones((1, 16), dtype=torch.long, device=device)
 
-        torch.onnx.export(
-            model_to_export,
-            (dummy_input, dummy_mask),
-            str(fp32_onnx_path),
-            input_names=["input_ids", "attention_mask"],
+        if isinstance(model_to_export, nn.Module):
+            torch.onnx.export(
+                model_to_export,
+                (dummy_input, dummy_mask),
+                str(fp32_onnx_path),
+                input_names=["input_ids", "attention_mask"],
             output_names=["logits"],
             dynamic_axes={
                 "input_ids": {0: "batch", 1: "sequence"},

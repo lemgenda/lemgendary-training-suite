@@ -411,11 +411,10 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     # Session encoding: cyclical hour-of-day (works for both datetime index and 'time' column)
     if 'time' in df.columns:
-        dt_col: Any = pd.to_datetime(df['time'], utc=True)
-        hours: Any = dt_col.dt.hour
+        time_vals = df['time'].tolist()
+        hours = [pd.Timestamp(t).hour for t in time_vals]
     elif isinstance(df.index, pd.DatetimeIndex):
-        idx_dt: Any = df.index
-        hours = idx_dt.hour
+        hours = [int(h) for h in df.index.hour]
     else:
         hours = [0.0] * len(df)
     hour_norm = np.asarray(hours, dtype=np.float64) / 23.0 * 2.0 * np.pi
@@ -609,11 +608,11 @@ def build_windows(df: pd.DataFrame, seq_len: int, max_samples: int = 50000, stri
 
     # Build Unix timestamp array for precise multi-timeframe alignment
     if 'time' in df.columns:
-        ts_dt: Any = pd.to_datetime(df['time'], utc=True)
-        ts_arr = np.asarray(
-            ts_dt.astype(np.int64) // 10**9,
-            dtype=np.int64
-        )
+        raw_dt = pd.to_datetime(df['time'], utc=True)
+        if isinstance(raw_dt, pd.DatetimeIndex):
+            ts_arr = np.asarray(raw_dt.astype(np.int64) // 10**9, dtype=np.int64)
+        else:
+            ts_arr = np.asarray([int(t.timestamp()) if hasattr(t, 'timestamp') else 0 for t in raw_dt], dtype=np.int64)
     else:
         ts_arr = np.arange(len(df), dtype=np.int64)
 

@@ -139,25 +139,17 @@ class NAFNet(nn.Module):
 
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
             x = x.contiguous()
-            assert isinstance(up, nn.ConvTranspose2d)
-            # [HOTFIX] T4 DataParallel misaligned address fix.
-            # self.ending.bias (size 3) causes DataParallel's broadcast coalesce buffer to shift
-            # all subsequent parameters off 16-byte alignment. cuDNN conv_transpose2d strictly requires 
-            # 16-byte aligned weight pointers on Turing GPUs, causing a hard crash.
-            # We explicitly re-allocate the weights here via clone() to guarantee PyTorch's 256-byte alignment.
-            is_w_unaligned = False
-            is_b_unaligned = False
-            try:
-                is_w_unaligned = (up.weight.data_ptr() % 16 != 0)
-                if up.bias is not None:
-                    is_b_unaligned = (up.bias.data_ptr() % 16 != 0)
-            except RuntimeError:
-                pass # FakeTensor during ONNX/FX tracing
-            
-            w = up.weight.clone() if is_w_unaligned else up.weight
-            b = up.bias.clone() if (is_b_unaligned and up.bias is not None) else up.bias
-            pad = up.padding if isinstance(up.padding, tuple) else 0
-            x = F.conv_transpose2d(x, w, b, stride=up.stride, padding=pad, output_padding=up.output_padding, groups=up.groups, dilation=up.dilation)
+            if isinstance(up, nn.ConvTranspose2d):
+                try:
+                    w = up.weight
+                    b = up.bias
+                    if isinstance(w, torch.Tensor) and w.data_ptr() % 16 != 0:
+                        w.data = w.data.clone()
+                    if isinstance(b, torch.Tensor) and b.data_ptr() % 16 != 0:
+                        b.data = b.data.clone()
+                except RuntimeError:
+                    pass  # FakeTensor during ONNX/FX tracing
+            x = up(x)
             x = x + enc_skip
             x = decoder(x)
 
