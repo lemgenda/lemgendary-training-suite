@@ -83,7 +83,7 @@ def _safe_from_numpy(arr: np.ndarray) -> torch.Tensor:
     return torch.from_numpy(np.array(arr, dtype=np.float32, copy=True))
 
 
-class ParquetRowGroupCache:  # pylint: disable=too-few-public-methods
+class ParquetRowGroupCache:
     """
     Process-safe LRU cache for Parquet row groups.
 

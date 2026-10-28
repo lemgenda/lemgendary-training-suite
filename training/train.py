@@ -1,5 +1,4 @@
 # 2026: Environment Linter Sync
-# pylint: disable=duplicate-code
 import sys
 import os
 

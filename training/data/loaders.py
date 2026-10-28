@@ -23,6 +23,7 @@ def build_train_loader(
     device: torch.device | None = None,
     env: str = "local",
     config: dict[str, Any] | None = None,
+    collate_fn: Any | None = None,
 ) -> DataLoader[Any]:
     """Construct a standardized training DataLoader with hardware-tuned worker topology."""
     dev = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -57,6 +58,9 @@ def build_train_loader(
         "pin_memory": pin,
         "drop_last": drop_last,
     }
+
+    if collate_fn is not None:
+        kwargs["collate_fn"] = collate_fn
 
     if sampler is not None:
         kwargs["sampler"] = sampler
@@ -152,9 +156,13 @@ def rebuild_train_loader(
     device: torch.device | None = None,
     env: str = "local",
     config: dict[str, Any] | None = None,
+    collate_fn: Any | None = None,
 ) -> DataLoader[Any]:
     """Safely dispose of previous DataLoader worker processes and return a fresh DataLoader."""
+    inherited_collate = collate_fn
     if old_loader is not None:
+        if inherited_collate is None:
+            inherited_collate = getattr(old_loader, "collate_fn", None)
         dispose_loader(old_loader)
 
     return build_train_loader(
@@ -170,4 +178,5 @@ def rebuild_train_loader(
         device=device,
         env=env,
         config=config,
+        collate_fn=inherited_collate,
     )

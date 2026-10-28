@@ -9,29 +9,14 @@ import torch
 # Master handler for SOTA metric tracking, Quality Score math, and CSV validation
 # ==============================================================================
 
-# --- 2026 Resilience: Extended Mathematical Governance ---
-METRIC_WEIGHTS = {
-    'plcc': 50, 'srcc': 50, 'psnr': 10, 'ssim': 40,
-    'lpips': 40, 'fid': 1, 'map50': 100, 'map50_95': 100,
-    'rank_margin': 20, 'accuracy': 100, 'mae': 100,
-    # [2026: SOTA Expansion Targets]
-    'miou': 100, 'map_medium': 100, 'map_hard': 100, 'accuracy_vqa': 100,
-    # Forex: dir_acc and win_rate are the primary learning signal -- heavily weighted
-    'dir_acc': 5.0, 'win_rate': 5.0, 'profit_factor': 10.0,
-    'sharpe_ratio': 10.0, 'sortino_ratio': 10.0, 'max_drawdown': 1.0,
-    'tp_mae': 1.0, 'sl_mae': 1.0, 'dir_entropy': 2.0,
-}
+from training.governance.metrics import (
+    DEFAULT_METRIC_DIRECTIONS,
+    DEFAULT_METRIC_WEIGHTS,
+)
 
-METRIC_DIRECTIONS = {
-    'plcc': True, 'srcc': True, 'psnr': True, 'ssim': True,
-    'lpips': False, 'fid': False, 'map50': True, 'map50_95': True,
-    'rank_margin': False, 'accuracy': True, 'mae': False,
-    # [2026: SOTA Expansion Targets]
-    'miou': True, 'map_medium': True, 'map_hard': True, 'accuracy_vqa': True,
-    'dir_acc': True, 'win_rate': True, 'profit_factor': True,
-    'sharpe_ratio': True, 'sortino_ratio': True, 'max_drawdown': False,
-    'tp_mae': False, 'sl_mae': False, 'dir_entropy': False,
-}
+# --- 2026 Resilience: Extended Mathematical Governance (SSOT Delegation) ---
+METRIC_WEIGHTS = DEFAULT_METRIC_WEIGHTS
+METRIC_DIRECTIONS = DEFAULT_METRIC_DIRECTIONS
 
 class TelemetryEngine:
     def __init__(self, export_dir: str, task_type: str = "image"):

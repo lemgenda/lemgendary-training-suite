@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from pathlib import Path
 from typing import Any
 
@@ -27,10 +28,13 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
         jsonl_path: str | Path,
         tokenizer: Any | None = None,
         max_length: int = 2048,
+        sample_fraction: float = 1.0,
     ) -> None:
         self.jsonl_path = Path(jsonl_path)
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.sample_fraction = float(sample_fraction)
+        self.all_samples: list[dict[str, Any]] = []
         self.samples: list[dict[str, Any]] = []
 
         if not self.jsonl_path.exists():
@@ -41,22 +45,47 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
                 line_str = line.strip()
                 if line_str:
                     try:
-                        self.samples.append(json.loads(line_str))
+                        self.all_samples.append(json.loads(line_str))
                     except json.JSONDecodeError as exc:
                         logger.warning("Skipping corrupted JSON line: %s", exc)
 
+        self._apply_sample_fraction()
+
         logger.info(
-            "Loaded %d instruction samples from %s (max_length=%d)",
+            "Loaded %d/%d instruction samples from %s (fraction=%.2f, max_length=%d)",
             len(self.samples),
+            len(self.all_samples),
             self.jsonl_path.name,
+            self.sample_fraction,
             self.max_length,
         )
+
+    def _apply_sample_fraction(self) -> None:
+        """Apply deterministic curriculum sample fraction slicing to ``self.all_samples`` in-memory."""
+        self.samples = list(self.all_samples)
+        if self.sample_fraction < 1.0 and self.samples:
+            rng = random.Random(42)
+            rng.shuffle(self.samples)
+            target_count = max(1, int(len(self.samples) * self.sample_fraction))
+            self.samples = self.samples[:target_count]
+
+    def update_strategy(
+        self,
+        size: Any = None,
+        fraction: float | None = None,
+        stress: float | None = None,
+    ) -> None:
+        """Dynamic curriculum scaling for instruction datasets."""
+        _ = (size, stress)
+        if fraction is not None:
+            self.sample_fraction = float(fraction)
+            self._apply_sample_fraction()
 
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        sample = self.samples[idx]
+    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
+        sample = self.samples[index]
         messages = sample.get("messages", [])
 
         if self.tokenizer is None:

@@ -1,21 +1,19 @@
-# pylint: disable=no-member,too-few-public-methods,too-many-return-statements
 import logging
 import os
 import multiprocessing
 import math
 import random
-import warnings
-import yaml  # pyre-ignore
-import torch  # pyre-ignore
-from torchvision import transforms  # pyre-ignore
-import cv2  # pyre-ignore
-import numpy as np  # pyre-ignore
-from PIL import Image, ImageFile, ImageFilter  # pyre-ignore
+import yaml
+import torch
+from torchvision import transforms
+import cv2
+import numpy as np
+from PIL import Image, ImageFile, ImageFilter
 Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
 import json
 import shutil
 from typing import Any
-from torch.utils.data import Dataset  # pyre-ignore
+from torch.utils.data import Dataset
 
 
 import io
@@ -56,7 +54,7 @@ class MultiTaskDataset(Dataset):
             else:
                 self.data_root = os.path.normpath(os.path.join(workspace_root, self.data_root))
         
-        ImageFile.LOAD_TRUNCATED_IMAGES = True # type: ignore # Shield against corrupt JPG headers
+        setattr(ImageFile, "LOAD_TRUNCATED_IMAGES", True)  # Shield against corrupt JPG headers
         
         unified_models_path = os.path.join(os.path.dirname(__file__), "..", config["unified_models"])
         with open(unified_models_path, 'r') as f:
@@ -81,8 +79,7 @@ class MultiTaskDataset(Dataset):
         
         self.nima_scores = {}
         if self.model_key == "nima_authenticity":
-            import json
-            for ds_name, ds_path in self.path_cache.items():
+            for _ds_name, ds_path in self.path_cache.items():
                 idx_path = os.path.join(ds_path, "index.json")
                 if os.path.exists(idx_path):
                     try:
@@ -90,8 +87,8 @@ class MultiTaskDataset(Dataset):
                             data = json.load(f)
                         for item in data:
                             self.nima_scores[item['name']] = item.get('nima_score', 0.0)
-                    except:
-                        pass
+                    except (OSError, ValueError, KeyError, TypeError) as nima_err:
+                        logger.debug("Failed loading NIMA index from %s: %s", idx_path, nima_err)
         
         self.build_transforms()
 
@@ -225,12 +222,16 @@ class MultiTaskDataset(Dataset):
         if not self.all_samples:
             self._try_load_container_samples(loaded_paths)
 
+        self._apply_sample_fraction()
+
+    def _apply_sample_fraction(self) -> None:
+        """Apply deterministic curriculum sample fraction slicing to ``self.all_samples`` in-memory."""
         self.samples = list(self.all_samples)
-        if self.is_train and self.sample_fraction < 1.0:
-            import random
-            random.seed(42) # Deterministic sampling
-            random.shuffle(self.samples)
-            self.samples = self.samples[:max(1, int(len(self.samples) * self.sample_fraction))]
+        if self.is_train and self.sample_fraction < 1.0 and self.samples:
+            rng = random.Random(42)
+            rng.shuffle(self.samples)
+            target_count = max(1, int(len(self.samples) * float(self.sample_fraction)))
+            self.samples = self.samples[:target_count]
 
     def build_transforms(self):
         # 2026 Resilience: LANCZOS is superior for Aesthetic/Quality manifolds
@@ -640,7 +641,6 @@ class MultiTaskDataset(Dataset):
                     # ParseNet: load from masks/
                     mask_path = self._get_split_path(ds_path, "masks", fname)
                     if os.path.exists(mask_path):
-                        import numpy as np
                         mask = Image.open(mask_path).convert('L')
                         random.seed(seed)
                         torch.manual_seed(seed)
@@ -732,21 +732,24 @@ class MultiTaskDataset(Dataset):
             
             label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
             if os.path.exists(label_path):
-                with open(label_path, 'r') as f:
+                with open(label_path, 'r', encoding='utf-8') as f:
                     try:
                         score = [float(x) for x in f.read().split()]
-                        if len(score) < 10: score = score + [0.0] * (10 - len(score))
+                        if len(score) < 10:
+                            score = score + [0.0] * (10 - len(score))
                         return img_tensor, torch.tensor(score[:10], dtype=torch.float32), "quality"
-                    except: pass
+                    except (ValueError, TypeError) as lbl_err:
+                        logger.debug("Invalid quality label in %s: %s", label_path, lbl_err)
             return img_tensor, torch.zeros(10), "quality"
         elif self.task_type == "classification":
             label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
             if os.path.exists(label_path):
-                with open(label_path, 'r') as f:
+                with open(label_path, 'r', encoding='utf-8') as f:
                     try:
                         class_idx = int(float(f.read().strip()))
                         return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
-                    except: pass
+                    except (ValueError, TypeError) as cls_err:
+                        logger.debug("Invalid classification label in %s: %s", label_path, cls_err)
             parent_dir = os.path.dirname(fname)
             if parent_dir:
                 class_candidate = os.path.basename(parent_dir)
@@ -759,13 +762,12 @@ class MultiTaskDataset(Dataset):
                             c_lines = [line.strip() for line in cf if line.strip()]
                         if class_candidate in c_lines:
                             return img_tensor, torch.tensor(c_lines.index(class_candidate), dtype=torch.long), "classification"
-                    except Exception:
-                        pass
+                    except OSError as cf_err:
+                        logger.debug("Failed reading classes file %s: %s", classes_file, cf_err)
             return img_tensor, torch.tensor(0, dtype=torch.long), "classification"
         elif self.task_type == "segmentation":
             mask_path = self._get_split_path(ds_path, "masks", fname)
             if os.path.exists(mask_path):
-                import numpy as np
                 mask = Image.open(mask_path).convert('L') # Usually masks are grayscale labels
                 random.seed(seed)
                 torch.manual_seed(seed)
@@ -779,14 +781,15 @@ class MultiTaskDataset(Dataset):
             label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
             target = torch.zeros(15, dtype=torch.float32)
             if os.path.exists(label_path):
-                with open(label_path, 'r') as f:
+                with open(label_path, 'r', encoding='utf-8') as f:
                     try:
                         parts = f.read().split()
                         if len(parts) >= 15:
                             target[0] = 1.0 # confidence
                             for i in range(14):
                                 target[i+1] = float(parts[i+1])
-                    except: pass
+                    except (ValueError, TypeError) as fd_err:
+                        logger.debug("Invalid face detection label in %s: %s", label_path, fd_err)
             return img_tensor, target, "face_detection"
             
         return img_tensor, torch.zeros(1), self.task_type
@@ -805,10 +808,13 @@ class MultiTaskDataset(Dataset):
             rebuild = True
         if rebuild:
             self.build_transforms()
-            
+
         if fraction is not None:
-            self.sample_fraction = fraction
-            self._load_manifest(self.config)
+            self.sample_fraction = float(fraction)
+            if self.all_samples:
+                self._apply_sample_fraction()
+            else:
+                self._load_manifest(self.config)
 
     def get_distribution(self):
         """Task 9.3: Analyze label manifold for stratified balancing."""

@@ -12,24 +12,28 @@ import torch.nn.functional as F
 # This monkey-patch reallocates unaligned weights on the fly to restore alignment.
 
 _orig_conv2d_forward = nn.Conv2d.forward
-def _aligned_conv2d_forward(self, input):  # pylint: disable=redefined-builtin
+
+
+def _aligned_conv2d_forward(self, x):
     is_unaligned = False
     try:
         is_unaligned = (self.weight.data_ptr() % 16 != 0)
     except RuntimeError:
-        pass # FakeTensor during ONNX/FX tracing
+        pass  # FakeTensor during ONNX/FX tracing
     if is_unaligned:
         w = self.weight.clone()
         b = self.bias.clone() if self.bias is not None else None
-        
+
         if self.padding_mode != 'zeros':
-            return F.conv2d(F.pad(input, self._reversed_padding_repeated_twice, mode=self.padding_mode),
+            return F.conv2d(F.pad(x, self._reversed_padding_repeated_twice, mode=self.padding_mode),
                             w, b, self.stride,
                             _pair(0), self.dilation, self.groups)
-        return F.conv2d(input, w, b, self.stride,
+        return F.conv2d(x, w, b, self.stride,
                         self.padding, self.dilation, self.groups)
-    return _orig_conv2d_forward(self, input)
-nn.Conv2d.forward = _aligned_conv2d_forward  # type: ignore
+    return _orig_conv2d_forward(self, x)
+
+
+setattr(nn.Conv2d, "forward", _aligned_conv2d_forward)
 
 # ==========================================
 # 1. NAFNet (Nonlinear Activation Free Network)
@@ -135,6 +139,7 @@ class NAFNet(nn.Module):
 
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
             x = x.contiguous()
+            assert isinstance(up, nn.ConvTranspose2d)
             # [HOTFIX] T4 DataParallel misaligned address fix.
             # self.ending.bias (size 3) causes DataParallel's broadcast coalesce buffer to shift
             # all subsequent parameters off 16-byte alignment. cuDNN conv_transpose2d strictly requires 
@@ -151,7 +156,8 @@ class NAFNet(nn.Module):
             
             w = up.weight.clone() if is_w_unaligned else up.weight
             b = up.bias.clone() if (is_b_unaligned and up.bias is not None) else up.bias
-            x = F.conv_transpose2d(x, w, b, stride=up.stride, padding=up.padding, output_padding=up.output_padding, groups=up.groups, dilation=up.dilation)
+            pad = up.padding if isinstance(up.padding, tuple) else 0
+            x = F.conv_transpose2d(x, w, b, stride=up.stride, padding=pad, output_padding=up.output_padding, groups=up.groups, dilation=up.dilation)
             x = x + enc_skip
             x = decoder(x)
 

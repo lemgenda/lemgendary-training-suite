@@ -8,6 +8,7 @@ model inference, and trade execution signals with sub-5ms latency verification.
 import os
 import sys
 import time
+import unittest
 import torch
 import numpy as np
 import pandas as pd
@@ -18,6 +19,7 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from data.mt5_pipeline import (
+    FEATURES,
     TITAN_PAIRS,
     PAIR_INDEX,
     TIMEFRAME_LOOKBACK,
@@ -27,7 +29,11 @@ from data.mt5_pipeline import (
     disconnect_mt5,
     download_bars,
 )
-from models.forex_predictor import ForexPredictor, DIRECTION_CLASSES
+from models.forex_predictor import (
+    DIRECTION_CLASSES,
+    FOREX_FEATURES_PER_BAR,
+    ForexPredictor,
+)
 
 
 def generate_synthetic_candles(n_bars: int = 600) -> pd.DataFrame:
@@ -80,13 +86,19 @@ def test_multi_timeframe_live_pipeline():
 
         df_ind = compute_indicators(raw_df)
         df_norm = normalize_ohlcv(df_ind)
-        features = df_norm[["open", "high", "low", "close", "volume", "rsi", "macd", "macd_signal", "atr", "bb_width"]].values[-seq_len:]
-        tf_inputs[tf] = torch.from_numpy(np.array(features, copy=True)).float().unsqueeze(0) # [1, seq_len, 10]
+        features = df_norm[FEATURES].values[-seq_len:]
+        tf_inputs[tf] = torch.from_numpy(np.array(features, copy=True)).float().unsqueeze(0)  # [1, seq_len, 14]
         print(f"    [OK] Timeframe {tf}m Tensor Built: Shape {list(tf_inputs[tf].shape)}", flush=True)
 
     # 3. Model Instantiation & Forward Pass
     print("\n -> Instantiating ForexPredictor (4 Heads, Cross-Timeframe Fusion)...", flush=True)
-    model = ForexPredictor(active_timeframes=active_tfs, in_features=10, d_model=128, n_heads=4, n_layers=4)
+    model = ForexPredictor(
+        active_timeframes=active_tfs,
+        in_features=FOREX_FEATURES_PER_BAR,
+        d_model=128,
+        n_heads=4,
+        n_layers=4,
+    )
     model.eval()
 
     pair_tensor = torch.tensor([pair_id], dtype=torch.long)
@@ -111,7 +123,7 @@ def test_multi_timeframe_live_pipeline():
     print(f"    [LATENCY] Mean: {avg_lat:.2f} ms | P95: {p95_lat:.2f} ms | Sub-5ms Target: {'PASS' if avg_lat < 5.0 else 'EXCEEDED'}", flush=True)
 
     # 5. Output Signal Parsing
-    dir_logits = preds["direction"]
+    dir_logits = preds["direction_logits"]
     mag_preds = preds["magnitude"]
     probs = torch.softmax(dir_logits, dim=-1).squeeze().numpy()
     pred_dir_idx = int(np.argmax(probs))
@@ -133,7 +145,19 @@ def test_multi_timeframe_live_pipeline():
         disconnect_mt5()
 
     print(" [SUCCESS] All MT5 Inference & Latency assertions passed successfully.\n", flush=True)
+    return preds
+
+
+class TestMT5LiveInference(unittest.TestCase):
+    """Unit/Integration wrapper for MT5 multi-timeframe inference pipeline."""
+
+    def test_multi_timeframe_live_pipeline(self) -> None:
+        preds = test_multi_timeframe_live_pipeline()
+        self.assertIn("direction_logits", preds)
+        self.assertIn("magnitude", preds)
+        self.assertEqual(tuple(preds["direction_logits"].shape), (1, DIRECTION_CLASSES))
+        self.assertEqual(tuple(preds["magnitude"].shape), (1, 2))
 
 
 if __name__ == "__main__":
-    test_multi_timeframe_live_pipeline()
+    unittest.main()

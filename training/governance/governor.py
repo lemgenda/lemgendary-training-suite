@@ -58,7 +58,7 @@ class SmartTrainingGovernor:
         )
         self.manifold_maturity: int = opt.get(
             "manifold_maturity",
-            manifold_defaults.get("maturity_soak", 5),
+            manifold_defaults.get("maturity_soak", 3),
         )
         self.sota.plateau_patience = opt.get(
             "plateau_patience",
@@ -68,7 +68,7 @@ class SmartTrainingGovernor:
         self.plateau_priority: str = opt.get("plateau_priority", "data")
         self.curriculum.fraction_increment = opt.get(
             "fraction_increment",
-            manifold_defaults.get("fraction_increment", 0.15),
+            manifold_defaults.get("fraction_increment", 0.20),
         )
         self.cooling_factor: float = opt.get("cooling_factor", 0.5)
         self.clamp_range: list[float] = opt.get("clamp_range", [15.0, 45.0])
@@ -835,21 +835,11 @@ class SmartTrainingGovernor:
                     msg_parts.append(f"[SPATIAL RETREAT] Resetting to {self.current_res}px @ 100% Data Anchor")
 
             if not r_changed:
-                opt_cfg = self.model_info.get("optimization", {})
-                initial_frac = opt_cfg.get("initial_fraction", 0.15)
-                if self.current_fraction > initial_frac:
-                    prev_frac = max(initial_frac, round(self.current_fraction - self.fraction_increment, 2))
-                    if prev_frac < self.current_fraction:
-                        self.current_fraction = prev_frac
-                        f_changed = True
-                        msg_parts.append(f"[DATA RECOIL] Stepping back dataset fraction: {self.current_fraction*100:.0f}% @ {self.current_res}px")
-
                 self.lr_multiplier = self.cooling_factor
                 lr_changed = True
                 self.stabilization_epochs = self.stabilization_lock
                 self.cooldown_remaining = 5
-                if not f_changed:
-                    msg_parts.append(f"RECOIL: Retaining data fraction at {self.current_fraction*100:.0f}% | Cooling LR to stabilize manifold")
+                msg_parts.append(f"RECOIL: Retaining data fraction at {self.current_fraction*100:.0f}% | Cooling LR to stabilize manifold")
 
         elif sentinel_trigger_rate > 0.15:
             self.current_temp = min(1.2, self.current_temp * 1.2)
@@ -866,10 +856,25 @@ class SmartTrainingGovernor:
         propulsion_allowed = not should_retreat and self.cooldown_remaining == 0
         not_regressing = delta_q >= -self.min_delta
 
+        epochs_since_step = self.epoch_count - max(self.last_res_jump_epoch, self.last_action_epoch)
+        fraction_soak_complete = is_expanding and epochs_since_step >= max(1, self.manifold_maturity)
+        deepening_ready = (
+            phase == "DEEPENING"
+            and current_quality >= stride_threshold
+            and epochs_since_step >= max(1, self.manifold_maturity)
+        )
+
         trigger_propulsion = propulsion_allowed and (
             (is_overfitting and is_expanding)
             or is_plateaued
-            or (not_regressing and (is_flat_leg or (current_quality > stride_threshold and delta_q < self.min_delta)))
+            or (
+                not_regressing
+                and (
+                    is_flat_leg
+                    or fraction_soak_complete
+                    or deepening_ready
+                )
+            )
         )
 
         if self.jolt_window_remaining > 0:
@@ -908,7 +913,9 @@ class SmartTrainingGovernor:
                 self.last_jolt_epoch = self.epoch_count
                 msg_parts.append(f"JOLT: Breaking Plateau with Head-Differential Propulsion (Head: {self.head_lr_multiplier:.2f}x, Backbone: {self.lr_multiplier:.2f}x | {window_size}-Epoch Window)")
 
-            next_frac = min(1.0, self.current_fraction + self.fraction_increment)
+            next_frac = min(1.0, round(self.current_fraction + self.fraction_increment, 4))
+            if 1.0 - next_frac < 0.01:
+                next_frac = 1.0
             next_state = (self.current_res, round(next_frac, 2))
 
             if self.failure_log.get(str(next_state), 0) > 0:
@@ -920,6 +927,7 @@ class SmartTrainingGovernor:
             if phase in ("FOUNDATION", "EXPANSION"):
                 if self.current_fraction < 1.0:
                     self.current_fraction = next_frac
+                    self.last_action_epoch = self.epoch_count
                     f_changed = True
                     msg_parts.append(f"PROPULSION: Data -> {self.current_fraction*100:.0f}%")
                     self.stabilization_epochs = 1
@@ -935,13 +943,20 @@ class SmartTrainingGovernor:
                     msg_parts.append("RECOIL: Insufficient Quality for spatial jump. Cooling LR.")
                     self.stabilization_epochs = self.stabilization_lock
                 else:
+                    init_frac = float(
+                        self.model_info.get("optimization", {}).get(
+                            "initial_fraction",
+                            self.config.get("governor", {}).get("manifold", {}).get("initial_fraction", 0.15),
+                        )
+                    )
                     self.current_res = next_res
                     r_changed = b_changed = True
-                    self.current_fraction = 0.15
+                    self.current_fraction = init_frac
                     f_changed = True
                     self.last_res_jump_epoch = self.epoch_count
+                    self.last_action_epoch = self.epoch_count
                     self.spatial_lock_remaining = self.stabilization_lock
-                    msg_parts.append(f"SPATIAL JUMP: {next_res}px | Data Reset 15% | Lock: ON")
+                    msg_parts.append(f"SPATIAL JUMP: {next_res}px | Data Reset {init_frac*100:.0f}% | Lock: ON")
                     self.stabilization_epochs = self.stabilization_lock
             else:
                 if self.task_type == "forex":
@@ -1127,6 +1142,7 @@ class SmartTrainingGovernor:
             "cooldown_remaining": self.cooldown_remaining,
             "spatial_lock_remaining": self.spatial_lock_remaining,
             "last_res_jump_epoch": self.last_res_jump_epoch,
+            "last_action_epoch": self.last_action_epoch,
             "epoch_count": self.epoch_count,
             "best_quality": self.best_quality,
             "stress": self.current_stress,
@@ -1157,19 +1173,29 @@ class SmartTrainingGovernor:
         if not state:
             return
 
+        # Restore epoch counters and history first so curriculum checks have accurate state context
+        self.epoch_count = int(state.get("epoch_count", self.epoch_count))
+        self.last_res_jump_epoch = int(state.get("last_res_jump_epoch", 0))
+        self.last_action_epoch = int(state.get("last_action_epoch", self.last_res_jump_epoch))
+        self.history = list(state.get("history", []))
+
         if not preserve_curriculum:
-            self.current_fraction = float(state.get("sample_fraction", self.current_fraction))
+            raw_frac = float(state.get("sample_fraction", self.current_fraction))
+            self.current_fraction = 1.0 if (1.0 - raw_frac < 0.01) else round(raw_frac, 4)
             raw_res = state.get("input_size", self.current_res)
             self.current_res = int(raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res)
 
             if self.task_type == "forex":
                 self.current_fraction = 1.0
-            elif self.epoch_count <= 2:
+            elif "epoch_count" not in state and self.epoch_count == 0 and not self.history:
                 opt_cfg = self.model_info.get("optimization", {})
                 init_frac = float(opt_cfg.get("initial_fraction", 0.15))
                 saved_frac = float(state.get("sample_fraction", 1.0))
                 if saved_frac >= 0.99 and init_frac < 0.99:
-                    logger.info("Overriding legacy 100% fraction from checkpoint with configured: %.1f%%.", init_frac * 100.0)
+                    logger.info(
+                        "Overriding legacy 100%% fraction from unindexed checkpoint with configured: %.1f%%.",
+                        init_frac * 100.0,
+                    )
                     self.current_fraction = init_frac
 
             if self.current_res is not None and self.current_res not in self.res_ladder:
@@ -1216,13 +1242,10 @@ class SmartTrainingGovernor:
         self.current_acc = int(state.get("accumulation_steps", self.current_acc))
         self.stabilization_epochs = int(state.get("stabilization_epochs", 0))
         self.failure_log = dict(state.get("failure_log", {}))
-        self.history = list(state.get("history", []))
         self.thermal_floor = dict(state.get("thermal_floor", {}))
         self.cooldown_remaining = int(state.get("cooldown_remaining", 0))
         self.last_jolt_epoch = int(state.get("last_jolt_epoch", -10))
         self.spatial_lock_remaining = int(state.get("spatial_lock_remaining", 0))
-        self.last_res_jump_epoch = int(state.get("last_res_jump_epoch", 0))
-        self.epoch_count = int(state.get("epoch_count", self.epoch_count))
         self.best_quality = float(state.get("best_quality", self.best_quality))
         self.current_stress = float(state.get("stress", 0.0))
         self.max_stress_stuck_epochs = int(state.get("max_stress_stuck_epochs", 0))

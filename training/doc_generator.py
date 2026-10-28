@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml  # pyre-ignore
+import yaml
 
 
 def get_academic_reference(model_key: str) -> dict[str, str] | None:
@@ -32,12 +32,12 @@ def get_academic_reference(model_key: str) -> dict[str, str] | None:
 class _ModelPapersProxy(dict):
     """Backwards-compatible dictionary proxy delegating to SSOT ModelRegistryService."""
 
-    def get(self, key: str, default: Any = None) -> Any:
-        ref = get_academic_reference(key)
+    def get(self, key: Any, default: Any = None) -> Any:
+        ref = get_academic_reference(str(key))
         return ref if ref is not None else default
 
-    def __getitem__(self, key: str) -> Any:
-        ref = get_academic_reference(key)
+    def __getitem__(self, key: Any) -> Any:
+        ref = get_academic_reference(str(key))
         if ref is not None:
             return ref
         raise KeyError(key)

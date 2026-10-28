@@ -18,15 +18,13 @@ TODO (requires demo account):
 
 import os
 import sys
-
-# pylint: disable=no-member,too-many-return-statements,duplicate-code
+import importlib
 import argparse
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Any
-import warnings
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants (mirrors forex_predictor.py)
@@ -167,7 +165,7 @@ def connect_mt5(login: int | None = None, password: str | None = None, server: s
         api_key = os.environ.get("MT5_API_KEY")
 
     try:
-        import MetaTrader5 as mt5  # type: ignore[import-untyped]
+        mt5: Any = importlib.import_module("MetaTrader5")
     except ImportError:
         print(" [MT5] MetaTrader5 package not installed. Run: pip install MetaTrader5")
         print(" [MT5] NOTE: MT5 package is Windows-only and requires MT5 terminal installed.")
@@ -189,8 +187,8 @@ def connect_mt5(login: int | None = None, password: str | None = None, server: s
 
     # First try attaching directly to the running MT5 terminal session
     try:
-        if mt5.initialize():  # type: ignore
-            info = mt5.account_info()  # type: ignore
+        if mt5.initialize():
+            info = mt5.account_info()
             if info:
                 print(f" [MT5] Connected -> Account: {info.login} | Server: {info.server} | Balance: {info.balance} {info.currency}")
                 return True
@@ -203,15 +201,15 @@ def connect_mt5(login: int | None = None, password: str | None = None, server: s
         init_kwargs.update({"login": login, "password": password, "server": server})
 
     try:
-        if not mt5.initialize(**init_kwargs):  # type: ignore
-            err = mt5.last_error()  # type: ignore
+        if not mt5.initialize(**init_kwargs):
+            err = mt5.last_error()
             print(f" [MT5] Initialize failed: {err}")
             return False
     except Exception as e:
         print(f" [MT5] Initialize exception: {e}")
         return False
 
-    info = mt5.account_info()  # type: ignore
+    info = mt5.account_info()
     if info:
         print(f" [MT5] Connected -> Account: {info.login} | Server: {info.server} | Balance: {info.balance} {info.currency}")
         return True
@@ -223,8 +221,8 @@ def connect_mt5(login: int | None = None, password: str | None = None, server: s
 def disconnect_mt5():
     """Cleanly shut down the MT5 connection."""
     try:
-        import MetaTrader5 as mt5  # type: ignore[import-untyped]
-        mt5.shutdown()  # type: ignore
+        mt5: Any = importlib.import_module("MetaTrader5")
+        mt5.shutdown()
         print(" [MT5] Disconnected.")
     except Exception:
         pass
@@ -306,7 +304,7 @@ def download_bars(pair: str, timeframe_min: int, n_bars: int = 50000, start_date
         DataFrame with columns: time, open, high, low, close, volume
     """
     try:
-        import MetaTrader5 as mt5  # type: ignore[import-untyped]
+        mt5: Any = importlib.import_module("MetaTrader5")
         tf_attr = MT5_TIMEFRAMES.get(timeframe_min)
         if tf_attr is None:
             raise ValueError(f"Unsupported timeframe: {timeframe_min}min")
@@ -317,15 +315,15 @@ def download_bars(pair: str, timeframe_min: int, n_bars: int = 50000, start_date
             try:
                 dt_from = pd.to_datetime(start_date, utc=True).to_pydatetime()
                 dt_to = datetime.now(timezone.utc)
-                rates = mt5.copy_rates_range(pair, tf, dt_from, dt_to)  # type: ignore
+                rates = mt5.copy_rates_range(pair, tf, dt_from, dt_to)
             except Exception:
                 rates = None
 
         if rates is None or len(rates) == 0:
-            rates = mt5.copy_rates_from_pos(pair, tf, 0, n_bars)  # type: ignore
+            rates = mt5.copy_rates_from_pos(pair, tf, 0, n_bars)
 
         if rates is None or len(rates) == 0:
-            error = mt5.last_error()  # type: ignore
+            error = mt5.last_error()
             raise RuntimeError(f"No data returned for {pair} {timeframe_min}min: {error}")
 
         df = pd.DataFrame(rates)
@@ -413,11 +411,13 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     # Session encoding: cyclical hour-of-day (works for both datetime index and 'time' column)
     if 'time' in df.columns:
-        hours = pd.to_datetime(df['time'], utc=True).dt.hour
+        dt_col: Any = pd.to_datetime(df['time'], utc=True)
+        hours: Any = dt_col.dt.hour
     elif isinstance(df.index, pd.DatetimeIndex):
-        hours = df.index.hour  # type: ignore
+        idx_dt: Any = df.index
+        hours = idx_dt.hour
     else:
-        hours = pd.Series([0.0] * len(df))
+        hours = [0.0] * len(df)
     hour_norm = np.asarray(hours, dtype=np.float64) / 23.0 * 2.0 * np.pi
     df['session_sin'] = np.sin(hour_norm).tolist()
     df['session_cos'] = np.cos(hour_norm).tolist()
@@ -427,7 +427,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
                           np.asarray(df['low'],  dtype=np.float64),
                           np.asarray(df['close'], dtype=np.float64), 14)
     # ATR percentile: rolling 100-bar rank normalized to [0, 1]
-    atr_series = pd.Series(list(raw_atr), dtype=float)
+    atr_series = pd.Series(raw_atr.tolist())
     atr_pct = atr_series.rolling(100, min_periods=1).apply(
         lambda x: float(np.sum(x <= x[-1])) / float(len(x)), raw=True
     )
@@ -609,8 +609,9 @@ def build_windows(df: pd.DataFrame, seq_len: int, max_samples: int = 50000, stri
 
     # Build Unix timestamp array for precise multi-timeframe alignment
     if 'time' in df.columns:
+        ts_dt: Any = pd.to_datetime(df['time'], utc=True)
         ts_arr = np.asarray(
-            pd.to_datetime(df['time'], utc=True).astype(np.int64) // 10**9,
+            ts_dt.astype(np.int64) // 10**9,
             dtype=np.int64
         )
     else:
@@ -662,7 +663,7 @@ def save_shards(X, y_dir, y_mag, out_dir: str, pair: str, timeframe_min: int, sp
     print(f" [MT5Pipeline] Saved {len(X)} samples -> {shard_dir}")
 
 
-def load_shard(shard_dir: str, mmap_mode: Literal['c', 'r', 'r+', 'w+'] | None = None) -> tuple:
+def load_shard(shard_dir: str, mmap_mode: Any = None) -> tuple:
     """
     Load a shard from disk. Returns (X, y_dir, y_mag, timestamps) or (None, None, None, None) if not found.
     timestamps is optional — may be None if shard was built before v2.0.
@@ -675,10 +676,10 @@ def load_shard(shard_dir: str, mmap_mode: Literal['c', 'r', 'r+', 'w+'] | None =
     if not (os.path.exists(X_path) and os.path.exists(ydir_path) and os.path.exists(ymag_path)):
         return None, None, None, None
 
-    X          = np.load(X_path,    mmap_mode=mmap_mode)  # type: ignore
-    y_dir      = np.load(ydir_path, mmap_mode=mmap_mode)  # type: ignore
-    y_mag      = np.load(ymag_path, mmap_mode=mmap_mode)  # type: ignore
-    timestamps = np.load(ts_path,   mmap_mode=mmap_mode) if os.path.exists(ts_path) else None  # type: ignore
+    X          = np.load(X_path,    mmap_mode=mmap_mode)
+    y_dir      = np.load(ydir_path, mmap_mode=mmap_mode)
+    y_mag      = np.load(ymag_path, mmap_mode=mmap_mode)
+    timestamps = np.load(ts_path,   mmap_mode=mmap_mode) if os.path.exists(ts_path) else None
     return X, y_dir, y_mag, timestamps
 
 

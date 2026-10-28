@@ -9,19 +9,11 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+from data.forex_dataset import TIMEFRAME_LOOKBACK
+from models.forex_predictor import FOREX_FEATURES_PER_BAR
 from training.export.common import ExportError
 
 logger = logging.getLogger("lemtrain.export.mt5_signal")
-
-TIMEFRAME_LOOKBACK: dict[int, int] = {
-    1: 120,
-    5: 72,
-    15: 48,
-    60: 48,
-    240: 30,
-    1440: 30,
-}
-FOREX_FEATURES_PER_BAR = 12
 
 
 class _OnnxForexWrapper(nn.Module):
@@ -82,6 +74,7 @@ def export_forex_onnx_from_model(
             dynamic_axes=dynamic_axes,
             opset_version=opset,
             do_constant_folding=True,
+            dynamo=False,
         )
         logger.info("Forex ONNX export successful: %s", out_file)
         return out_file

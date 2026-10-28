@@ -26,7 +26,7 @@ def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
 
         try:
             items = os.listdir(curr)
-        except:
+        except OSError:
             continue
 
         for item in items:

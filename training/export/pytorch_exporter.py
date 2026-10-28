@@ -34,9 +34,9 @@ class PyTorchModelExporter(BaseModelExporter):
         if not resolved_spec:
             return model_key != "yolov8n" and "forex" not in model_key.lower() and "ai_helper" not in model_key.lower()
 
-        cat = str(resolved_spec.category or "").lower()
+        cat = (resolved_spec.category or "").lower()
         d_type = resolved_spec.dataset_type
-        d_types = [str(x).lower() for x in d_type] if isinstance(d_type, list) else [str(d_type or "").lower()]
+        d_types = [x.lower() for x in d_type] if isinstance(d_type, list) else [(d_type or "").lower()]
         if cat in ("llm",) or "text_instruction" in d_types or "forex" in d_types:
             return False
         if resolved_spec.key == "yolov8n" or resolved_spec.class_name == "YOLOv8n":
@@ -65,12 +65,21 @@ class PyTorchModelExporter(BaseModelExporter):
         opset: int = kwargs.get("opset", 17)
         in_names: list[str] = kwargs.get("input_names") or ["input"]
         out_names: list[str] = kwargs.get("output_names") or ["output"]
-        dyn_axes: dict[str, dict[int, str]] = kwargs.get("dynamic_axes") or {
-            in_names[0]: {0: "batch", 2: "height", 3: "width"},
-            out_names[0]: {0: "batch", 2: "height", 3: "width"},
-        }
+        default_axes = (
+            {
+                in_names[0]: {0: "batch", 2: "height", 3: "width"},
+                out_names[0]: {0: "batch", 2: "height", 3: "width"},
+            }
+            if dummy_input.ndim >= 4
+            else {
+                in_names[0]: {0: "batch"},
+                out_names[0]: {0: "batch"},
+            }
+        )
+        dyn_axes: dict[str, dict[int, str]] = kwargs.get("dynamic_axes") or default_axes
 
-        model_to_export = model.module if hasattr(model, "module") else model
+        inner_mod = getattr(model, "module", None)
+        model_to_export = inner_mod if isinstance(inner_mod, nn.Module) else model
         if isinstance(model_to_export, nn.Module):
             model_to_export.eval()
             device = next(model_to_export.parameters()).device
@@ -117,6 +126,7 @@ class PyTorchModelExporter(BaseModelExporter):
                     input_names=in_names,
                     output_names=out_names,
                     dynamic_axes=dyn_axes,
+                    dynamo=False,
                 )
 
             # Convert to external data sidecar
@@ -158,6 +168,7 @@ class PyTorchModelExporter(BaseModelExporter):
                     input_names=in_names,
                     output_names=out_names,
                     dynamic_axes=dyn_axes,
+                    dynamo=False,
                 )
 
             exported_files["onnx_fp16"] = fp16_onnx_path
@@ -183,6 +194,7 @@ class PyTorchModelExporter(BaseModelExporter):
                     input_names=in_names,
                     output_names=out_names,
                     dynamic_axes=dyn_axes,
+                    dynamo=False,
                 )
                 from onnxconverter_common import float16
 

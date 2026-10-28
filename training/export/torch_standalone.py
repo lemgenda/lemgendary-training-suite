@@ -23,8 +23,10 @@ def export_torch_standalone(
     out_file = Path(save_path).resolve()
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
-    model_to_save = model.module if hasattr(model, "module") else model
-    raw_model = getattr(model_to_save, "model", model_to_save)
+    inner_mod = getattr(model, "module", None)
+    model_to_save: nn.Module = inner_mod if isinstance(inner_mod, nn.Module) else model
+    sub_mod = getattr(model_to_save, "model", None)
+    raw_model: nn.Module = sub_mod if isinstance(sub_mod, nn.Module) else model_to_save
     raw_model.eval()
 
     save_payload: dict[str, Any] = {

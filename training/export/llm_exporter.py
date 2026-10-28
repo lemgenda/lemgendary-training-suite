@@ -44,7 +44,8 @@ def export_llm_tri_format(
 
     exported_files: dict[str, Path] = {}
 
-    model_to_export = model.module if hasattr(model, "module") else model
+    inner_mod = getattr(model, "module", None)
+    model_to_export: nn.Module = inner_mod if isinstance(inner_mod, nn.Module) else model
     model_to_export.eval()
     device = torch.device("cpu")
     model_to_export.to(device)
@@ -81,6 +82,7 @@ def export_llm_tri_format(
             },
             opset_version=17,
             do_constant_folding=True,
+            dynamo=False,
         )
 
         onnx_model = onnx.load(str(fp32_onnx_path))
@@ -118,9 +120,9 @@ class LLMModelExporter(BaseModelExporter):
         """Determines if the model is an instruction-tuned or causal LLM."""
         resolved_spec = self.resolve_spec(model_key, spec)
         if resolved_spec:
-            cat = str(resolved_spec.category or "").lower()
+            cat = (resolved_spec.category or "").lower()
             d_type = resolved_spec.dataset_type
-            d_types = [str(x).lower() for x in d_type] if isinstance(d_type, list) else [str(d_type or "").lower()]
+            d_types = [x.lower() for x in d_type] if isinstance(d_type, list) else [(d_type or "").lower()]
             return cat == "llm" or "text_instruction" in d_types or "llm" in resolved_spec.key.lower()
         return "llm" in model_key.lower() or "ai_helper" in model_key.lower()
 

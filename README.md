@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.42-STABLE` |
+| **Version** | `v16.9.43-STABLE` |
 | **Phase** | Post-Modernization S.O.L.I.D. Architecture Complete (Phases 0-14 Complete) |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.43 — Universal Curriculum Data Fraction Progression & Checkpoint Resumption Fidelity
+
+- **Checkpoint Resumption Fraction Preservation (`training/governance/governor.py`, `training/core_loop.py`)** — Fixed a state restoration ordering bug in `SmartTrainingGovernor.load_state()` where `self.epoch_count <= 2` was evaluated before restoring `self.epoch_count` from the checkpoint payload. Because `self.epoch_count` initialized to `0`, resuming any model at `1.0` (100%) data fraction (such as `mirnet_lowlight` at Epoch 198, which should have `1631` batches at `batch_size=8` across `13,054` samples) overwrote `sample_fraction` back to `initial_fraction = 0.15` (`1,958` samples / `244` batches). Restored `epoch_count`, `last_res_jump_epoch`, `last_action_epoch`, and `history` prior to legacy state checks, and added `metrics.csv` curriculum reconciliation in `build_training_context`.
+- **Steady-Improvement Data Fraction Progression Across All Models (`training/governance/governor.py`)** — Fixed curriculum stagnation where `trigger_propulsion` only advanced `current_fraction` when a model plateaued or overfit (`abs(delta_q) < min_delta`), leaving steadily improving models stuck at `0.15` data fraction for 100+ epochs. Added `fraction_soak_complete` (`is_expanding and epochs_since_step >= manifold_maturity`) and `deepening_ready` triggers so every model reliably progresses its data fraction (`0.15 -> 0.35 -> 0.55 -> 0.75 -> 1.00`) and spatial resolution ladder on schedule. Removed destructive `[DATA RECOIL]` fraction step-backs so `current_fraction` never regresses within a resolution rung.
+- **Post-Audit Checkpoint State Persistence (`training/training/engine.py`)** — Reordered epoch completion so `metrics.csv` records the active `pre_audit_gov_state` used during the completed epoch, while `latest.pth` and `best.pth` are serialized after `ctx.governor.audit_epoch()` runs, ensuring checkpoints always persist newly promoted curriculum fractions and resolutions.
+- **In-Memory Manifold Fraction Slicing (`data/dataset.py`, `training/data/instruction_dataset.py`, `training/data/loaders.py`)** — Updated `MultiTaskDataset.update_strategy()` and `InstructionDataset.update_strategy()` to slice `self.all_samples` deterministically in-memory using a local `random.Random(42)` instance without re-initializing `WebDatasetReader` container handles or mutating global RNG state.
+
+---
 
 ### v16.9.42 — Multi-Task SOTA Metric Ingestion & Perceptual Telemetry Synchronization
 

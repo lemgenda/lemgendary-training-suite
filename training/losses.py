@@ -304,7 +304,6 @@ class CombinedLoss(nn.Module):
                 print(f"[WARNING] [RESILIENCE] LPIPS failed to bind ({e}). Defaulting to pure L1.")
 
 
-    # pylint: disable=too-many-return-statements
     def forward(self, pred, target, task_idx=None):
         is_forex_pred = isinstance(pred, dict) and ("direction" in pred or "direction_logits" in pred)
         if self.task_type in ("forex", "forex_dual") or is_forex_pred:

@@ -147,10 +147,10 @@ class _TeeRegistry:
 def _ensure_output_tees() -> tuple[_GlobalOutputTee, _GlobalOutputTee]:
     if _TeeRegistry.stdout_tee is None:
         _TeeRegistry.stdout_tee = _GlobalOutputTee(sys.stdout)
-        sys.stdout = _TeeRegistry.stdout_tee  # type: ignore[assignment]
+        setattr(sys, "stdout", _TeeRegistry.stdout_tee)
     if _TeeRegistry.stderr_tee is None:
         _TeeRegistry.stderr_tee = _GlobalOutputTee(sys.stderr)
-        sys.stderr = _TeeRegistry.stderr_tee  # type: ignore[assignment]
+        setattr(sys, "stderr", _TeeRegistry.stderr_tee)
     return _TeeRegistry.stdout_tee, _TeeRegistry.stderr_tee
 
 

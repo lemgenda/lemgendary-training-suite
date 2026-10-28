@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 import time
-import psutil # pyre-ignore
+import psutil
 
 def prefetch():
     """

@@ -29,7 +29,7 @@ class ForexModelExporter(BaseModelExporter):
         resolved_spec = self.resolve_spec(model_key, spec)
         if resolved_spec:
             d_type = resolved_spec.dataset_type
-            d_types = [str(x).lower() for x in d_type] if isinstance(d_type, list) else [(d_type or "").lower()]
+            d_types = [x.lower() for x in d_type] if isinstance(d_type, list) else [(d_type or "").lower()]
             return "forex" in d_types or "forex" in resolved_spec.key.lower()
         return "forex" in model_key.lower()
 

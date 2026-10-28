@@ -33,7 +33,8 @@ def export_onnx(
     in_names = input_names or ["input"]
     out_names = output_names or ["output"]
 
-    model_to_export = model.module if hasattr(model, "module") else model
+    inner_mod = getattr(model, "module", None)
+    model_to_export: nn.Module = inner_mod if isinstance(inner_mod, nn.Module) else model
     model_to_export.eval()
 
     device = torch.device("cpu")
@@ -69,6 +70,7 @@ def export_onnx(
                 input_names=in_names,
                 output_names=out_names,
                 dynamic_axes=dynamic_axes,
+                dynamo=False,
             )
 
         if external_data:

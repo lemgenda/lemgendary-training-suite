@@ -1,8 +1,8 @@
-# pylint: disable=duplicate-code
 import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from training.losses import ForexDualLoss
 
 # [LemGendary Forex Suite v1.1 - SYNC_ID: FOREX_02]
 
@@ -87,40 +87,6 @@ def _select_valid_n_heads(d_model: int, n_tf: int, preferred: int) -> int:
         if h <= n_tf and d_model % h == 0:
             return h
     return 1
-
-
-class ForexDualLoss(nn.Module):
-    """
-    Combined Direction (Classification) + Magnitude (Pip Regression) Loss
-    with Anti-Hold Entropy Regularization.
-
-    NOTE (v1.1): The canonical ForexDualLoss used at training time lives in
-    `training/losses.py`. This local copy is retained for module self-containment
-    and mirrors the same max_pips ceiling (MAX_PIPS_CEILING = 100.0) as MagnitudeHead.
-    """
-    def __init__(self, mag_weight: float = 0.5, entropy_weight: float = 0.05):
-        super().__init__()
-        self.mag_weight = mag_weight
-        self.entropy_weight = entropy_weight
-        # Class weights: Penalize HOLD overconfidence, give higher importance to BUY / SELL
-        self.ce = nn.CrossEntropyLoss(weight=torch.tensor([1.2, 0.8, 1.2]))
-        self.smooth_l1 = nn.SmoothL1Loss()
-
-    def forward(self, preds: dict, targets: dict) -> torch.Tensor:
-        dir_logits = preds["direction"]
-        mag_preds = preds["magnitude"]
-
-        dir_targets = targets["direction"].to(dir_logits.device)
-        mag_targets = targets["magnitude"].to(mag_preds.device)
-
-        loss_dir = self.ce(dir_logits, dir_targets)
-        loss_mag = self.smooth_l1(mag_preds, mag_targets)
-
-        # Anti-Hold Entropy Regularization: penalize uniform or collapsed distributions
-        probs = F.softmax(dir_logits, dim=-1)
-        entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=-1).mean()
-
-        return loss_dir + self.mag_weight * loss_mag - self.entropy_weight * entropy
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -648,15 +614,22 @@ class ForexPredictor(nn.Module):
         # ── Rebuild fused_project with partial warm-start ────────────────────
         old_proj = self.fused_project
         old_first_linear = old_proj[0]
+        old_dropout = old_proj[2]
+        old_ln = old_proj[3]
+        assert isinstance(old_first_linear, nn.Linear)
+        assert isinstance(old_dropout, nn.Dropout)
+        assert isinstance(old_ln, nn.LayerNorm)
         old_in_dim = old_first_linear.in_features
         hidden = old_first_linear.out_features
 
         fused_dim = n_tf * self.d_model + self.d_model
+        new_first_linear = nn.Linear(fused_dim, hidden)
+        new_ln = nn.LayerNorm(hidden)
         new_proj = nn.Sequential(
-            nn.Linear(fused_dim, hidden),
+            new_first_linear,
             nn.GELU(),
-            nn.Dropout(old_proj[2].p),
-            nn.LayerNorm(hidden),
+            nn.Dropout(old_dropout.p),
+            new_ln,
         )
 
         # 2026 v1.1: Copy the old input-block weights into the new (wider) linear.
@@ -665,12 +638,14 @@ class ForexPredictor(nn.Module):
         # rows. The new d_model rows at the tail belong to the new timeframe and
         # keep their Kaiming initialization.
         with torch.no_grad():
-            new_proj[0].weight[:old_in_dim] = old_first_linear.weight
-            new_proj[0].bias.copy_(old_first_linear.bias)
+            new_first_linear.weight[:old_in_dim] = old_first_linear.weight
+            if new_first_linear.bias is not None and old_first_linear.bias is not None:
+                new_first_linear.bias.copy_(old_first_linear.bias)
             # LayerNorm at the tail is shape-invariant (hidden-dim); copy directly
-            if hasattr(old_proj[3], 'weight') and old_proj[3].weight.shape == new_proj[3].weight.shape:
-                new_proj[3].weight.copy_(old_proj[3].weight)
-                new_proj[3].bias.copy_(old_proj[3].bias)
+            if old_ln.weight.shape == new_ln.weight.shape:
+                new_ln.weight.copy_(old_ln.weight)
+                if new_ln.bias is not None and old_ln.bias is not None:
+                    new_ln.bias.copy_(old_ln.bias)
         self.fused_project = new_proj
 
         print(f" [ForexPredictor] Expanded to {n_tf} timeframes. Added: {new_tf}min rung.")

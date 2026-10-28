@@ -102,40 +102,7 @@ def export_onnx(
     model.load_state_dict(state_dict, strict=False)
     model.eval()
 
-    # Build dummy inputs for tracing
-    B = 1
-    in_feats = getattr(model, "in_features", FOREX_FEATURES_PER_BAR)
-    tf_inputs_dummy = {
-        tf: torch.zeros(B, TIMEFRAME_LOOKBACK[tf], in_feats)
-        for tf in active_timeframes
-    }
-    pair_dummy = torch.zeros(B, dtype=torch.long)
-
-    # ONNX tracing requires flat inputs — flatten tf_inputs dict to args
-    tf_keys       = [str(tf) for tf in active_timeframes]
-    flat_tf_list  = [tf_inputs_dummy[tf] for tf in active_timeframes]
-
-    class _OnnxWrapper(torch.nn.Module):
-        """Wrapper to accept flat positional args for ONNX tracing."""
-        def __init__(self, model, tf_keys):
-            super().__init__()
-            self.model   = model
-            self.tf_keys = tf_keys
-
-        def forward(self, *args):
-            pair_idx    = args[-1]
-            tf_tensors  = args[:-1]
-            tf_dict     = {int(k): t for k, t in zip(self.tf_keys, tf_tensors)}
-            out         = self.model(tf_dict, pair_idx)
-            return out["direction_logits"], out["magnitude"]
-
-    wrapper = _OnnxWrapper(model, tf_keys)
-    wrapper.eval()
-
-    input_names  = [f"tf_{tf}" for tf in active_timeframes] + ["pair_idx"]
-    output_names = ["direction_logits", "magnitude"]
-
-    # Export 1: FP32 ONNX
+    # Export 1: FP32 ONNX (delegated to training.export.mt5_signal SSOT)
     base_dir = os.path.dirname(out_path)
     base_stem = os.path.splitext(os.path.basename(out_path))[0]
     fp32_onnx_path = os.path.join(base_dir, f"{base_stem}_FP32.onnx") if not base_stem.endswith("_FP32") else out_path
@@ -143,15 +110,13 @@ def export_onnx(
     pt_path = os.path.join(base_dir, f"{base_stem.replace('_FP32', '')}.pt")
 
     print(f" [ONNX Export] Synthesizing FP32 ONNX model to: {fp32_onnx_path} (opset {opset})")
-    torch.onnx.export(
-        wrapper,
-        tuple(flat_tf_list) + (pair_dummy,),
-        fp32_onnx_path,
-        input_names   = input_names,
-        output_names  = output_names,
-        dynamic_axes  = {name: {0: "batch"} for name in input_names + output_names},
-        opset_version = opset,
-        do_constant_folding = True,
+    from training.export.mt5_signal import export_forex_onnx_from_model
+
+    export_forex_onnx_from_model(
+        model=model,
+        out_path=fp32_onnx_path,
+        active_timeframes=active_timeframes,
+        opset=opset,
     )
 
     try:

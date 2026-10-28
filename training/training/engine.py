@@ -12,6 +12,7 @@ from collections.abc import Callable
 
 import torch
 
+from data.forex_sampler import RowGroupAwareSampler
 from training.checkpoint import CheckpointLifecycleManager
 from training.cloud_sync import trigger_cloud_sync
 from training.data import rebuild_train_loader
@@ -197,7 +198,135 @@ def run_training(
             flush=True,
         )
 
-        # 5. Checkpoint serialization payload
+        # 5. Capture active governor state used during this epoch for telemetry and completion audit
+        pre_audit_gov_state = ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else {}
+        pre_audit_stress = float(
+            getattr(ctx.governor, "current_stress", getattr(ctx.governor, "stress", 0.0))
+        )
+
+        # 6. Vault recording and canonical telemetry export (records active epoch parameters)
+        ctx.vault.record_epoch(
+            epoch=epoch,
+            metrics=combined_metrics,
+            checkpoint_path=str(ctx.lifecycle_manager.best_path) if (is_best and ctx.lifecycle_manager) else None,
+        )
+        if ctx.paths.history_csv_path is not None:
+            ctx.vault.export_csv(ctx.paths.history_csv_path)
+
+        # Standard LemGendary Telemetry Engine export (metrics.csv)
+        if ctx.lifecycle_manager is not None:
+            is_forex = (
+                ctx.model_info.get("category") == "forex"
+                or ctx.model_info.get("task_type") == "forex"
+                or ctx.model_name == "forex_predictor"
+            )
+            task_type = "forex" if is_forex else "image"
+            export_dir = str(ctx.lifecycle_manager.model_hub_dir)
+            telemetry = TelemetryEngine(export_dir=export_dir, task_type=task_type)
+            quality_score = float(combined_metrics.get("quality_score", current_quality))
+            fold = int(getattr(ctx.args, "fold", 1) or 1)
+            phase = int(getattr(ctx.args, "phase", 1) or 1)
+            pairs_cfg = ctx.model_info.get("kwargs", {}).get("pairs", [])
+            num_pairs = len(pairs_cfg) if pairs_cfg else 16
+            telemetry.write_epoch_row(
+                epoch=epoch,
+                train_loss=train_loss,
+                val_loss=current_loss,
+                lr=float(combined_metrics.get("lr", 0.0)),
+                curr_metrics=combined_metrics,
+                quality_score=quality_score,
+                governor_state=pre_audit_gov_state,
+                stress=pre_audit_stress,
+                num_pairs=num_pairs,
+                phase=phase,
+                fold=fold,
+            )
+
+        if is_best:
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
+
+        # 7. Check governor directives (curriculum fraction/resolution promotion before saving checkpoints)
+        if hasattr(ctx.governor, "audit_epoch"):
+            try:
+                best_q = float(ctx.sota_tracker.best_quality)
+                f_chg, r_chg, lr_chg, _t_chg, _c_chg, _b_chg, _stop_trig, gov_msg = ctx.governor.audit_epoch(
+                    current_quality=current_quality,
+                    best_quality=best_q,
+                    epochs_no_improve=epochs_no_improve,
+                    regression_epochs=0,
+                    current_lr=combined_metrics.get("lr"),
+                    current_loss=current_loss,
+                    train_loss=train_loss,
+                    metrics_dict=combined_metrics,
+                )
+                if gov_msg:
+                    print(f"{gov_msg}", flush=True)
+
+                # Dynamic manifold scaling: update dataset and rebuild train_loader if fraction, resolution, or batch changed
+                if (f_chg or r_chg or _b_chg) and ctx.train_loader is not None:
+                    train_ds = getattr(ctx.train_loader, "dataset", None)
+                    if train_ds is not None and hasattr(train_ds, "update_strategy"):
+                        new_res = getattr(ctx.governor, "current_res", None)
+                        new_frac = getattr(ctx.governor, "current_fraction", None)
+                        stress_val = getattr(ctx.governor, "current_stress", None)
+                        train_ds.update_strategy(
+                            size=new_res if r_chg else None,
+                            fraction=new_frac if f_chg else None,
+                            stress=stress_val,
+                        )
+                        fallback_batch = ctx.train_loader.batch_size or 16
+                        curr_batch = int(getattr(ctx.governor.curriculum, "current_batch", fallback_batch))
+                        ctx.accumulation_steps = max(
+                            1, int(getattr(ctx.governor, "current_acc", ctx.accumulation_steps))
+                        )
+                        curr_sampler = getattr(ctx.train_loader, "sampler", None)
+                        if curr_sampler is not None and type(curr_sampler).__name__ == "RowGroupAwareSampler":
+                            curr_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+                        elif curr_sampler is not None and type(curr_sampler).__name__ in (
+                            "RandomSampler",
+                            "SequentialSampler",
+                        ):
+                            curr_sampler = None
+                        ctx.train_loader = rebuild_train_loader(
+                            old_loader=ctx.train_loader,
+                            dataset=train_ds,
+                            batch_size=curr_batch,
+                            sampler=curr_sampler,
+                            shuffle=(curr_sampler is None),
+                            num_workers=ctx.args.num_workers if hasattr(ctx.args, "num_workers") else None,
+                            device=ctx.device_info.device,
+                            env=getattr(ctx.args, "env", "local"),
+                            config=ctx.config,
+                        )
+                        print(
+                            f"[CURRICULUM] Updated train loader: {len(train_ds)} active samples "
+                            f"(fraction={float(new_frac or 1.0) * 100:.0f}%, res={new_res}, "
+                            f"batch_size={curr_batch}, total_batches={len(ctx.train_loader)})",
+                            flush=True,
+                        )
+                        logger.info(
+                            "Rebuilt train_loader on governor directive: res=%s, fraction=%s, batch_size=%d",
+                            str(new_res),
+                            str(new_frac),
+                            curr_batch,
+                        )
+
+                # Learning rate propulsion or cooling adjustments
+                if lr_chg and ctx.optimizer is not None:
+                    lr_mult = float(getattr(ctx.governor, "lr_multiplier", 1.0))
+                    for param_group in ctx.optimizer.param_groups:
+                        if "initial_lr" in param_group:
+                            param_group["lr"] = param_group["initial_lr"] * lr_mult
+                        else:
+                            param_group["lr"] = param_group.get("lr", 1e-4) * lr_mult
+                    logger.debug("Applied governor learning rate multiplier: %.3fx", lr_mult)
+
+            except Exception as gov_err:
+                print(f"[WARNING] Governor audit notice: {gov_err}")
+
+        # 8. Checkpoint serialization payload (persists post-audit governor state for next epoch resume)
         raw_model = ctx.raw_model if ctx.raw_model is not None else ctx.model
         model_state = raw_model.state_dict()
 
@@ -208,26 +337,36 @@ def run_training(
             "optimizer_state": ctx.optimizer.state_dict(),
             "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
             "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
+            "best_quality_score": float(ctx.sota_tracker.best_quality),
             "best_metrics": best_metrics,
             "current_metrics": combined_metrics,
         }
 
-        # 6. Lifecycle Management: Save latest.pth (and purge progress.pth)
         if ctx.lifecycle_manager is not None:
             ctx.lifecycle_manager.save_latest(epoch=epoch, payload=checkpoint_payload)
 
             if is_best:
                 # Prepare dummy input for ONNX export
-                raw_size = ctx.model_info.get("input_size", 256)
+                raw_size = ctx.model_info.get("input_size")
                 if isinstance(raw_size, list):
                     if len(raw_size) == 3:
-                        dummy_shape = (1, int(raw_size[0]), int(raw_size[1]), int(raw_size[2]))
+                        dummy_shape: tuple[int, ...] = (1, int(raw_size[0]), int(raw_size[1]), int(raw_size[2]))
                     elif len(raw_size) == 2:
                         dummy_shape = (1, 3, int(raw_size[0]), int(raw_size[1]))
+                    elif len(raw_size) == 1:
+                        dummy_shape = (1, int(raw_size[0]))
                     else:
                         dummy_shape = (1, 3, 256, 256)
                 elif isinstance(raw_size, int):
                     dummy_shape = (1, 3, raw_size, raw_size)
+                elif (
+                    ctx.train_loader is not None
+                    and hasattr(ctx.train_loader, "dataset")
+                    and hasattr(ctx.train_loader.dataset, "tensors")
+                    and len(getattr(ctx.train_loader.dataset, "tensors", ())) > 0
+                ):
+                    sample_tensor = getattr(ctx.train_loader.dataset, "tensors")[0]
+                    dummy_shape = (1, *[int(d) for d in sample_tensor.shape[1:]])
                 else:
                     dummy_shape = (1, 3, 256, 256)
                 dummy_input = torch.randn(*dummy_shape, device=ctx.device_info.device)
@@ -251,114 +390,6 @@ def run_training(
                 torch.save(checkpoint_payload, ctx.paths.best_checkpoint_path)
             if ctx.paths.history_csv_path is not None:
                 ctx.vault.export_csv(ctx.paths.history_csv_path)
-
-        # 7. Vault recording and canonical telemetry export
-        ctx.vault.record_epoch(
-            epoch=epoch,
-            metrics=combined_metrics,
-            checkpoint_path=str(ctx.lifecycle_manager.best_path) if (is_best and ctx.lifecycle_manager) else None,
-        )
-        if ctx.paths.history_csv_path is not None:
-            ctx.vault.export_csv(ctx.paths.history_csv_path)
-
-        # Standard LemGendary Telemetry Engine export (metrics.csv)
-        if ctx.lifecycle_manager is not None:
-            is_forex = (
-                ctx.model_info.get("category") == "forex"
-                or ctx.model_info.get("task_type") == "forex"
-                or ctx.model_name == "forex_predictor"
-            )
-            task_type = "forex" if is_forex else "image"
-            export_dir = str(ctx.lifecycle_manager.model_hub_dir)
-            telemetry = TelemetryEngine(export_dir=export_dir, task_type=task_type)
-            gov_state = ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else {}
-            stress = float(getattr(ctx.governor, "stress", 0.0))
-            quality_score = float(combined_metrics.get("quality_score", current_quality))
-            fold = int(getattr(ctx.args, "fold", 1) or 1)
-            phase = int(getattr(ctx.args, "phase", 1) or 1)
-            pairs_cfg = ctx.model_info.get("kwargs", {}).get("pairs", [])
-            num_pairs = len(pairs_cfg) if pairs_cfg else 16
-            telemetry.write_epoch_row(
-                epoch=epoch,
-                train_loss=train_loss,
-                val_loss=current_loss,
-                lr=float(combined_metrics.get("lr", 0.0)),
-                curr_metrics=combined_metrics,
-                quality_score=quality_score,
-                governor_state=gov_state,
-                stress=stress,
-                num_pairs=num_pairs,
-                phase=phase,
-                fold=fold,
-            )
-
-        if is_best:
-            epochs_no_improve = 0
-        else:
-            epochs_no_improve += 1
-
-        # 8. Check governor directives
-        if hasattr(ctx.governor, "audit_epoch"):
-            try:
-                best_q = float(ctx.sota_tracker.best_quality)
-                f_chg, r_chg, lr_chg, _t_chg, _c_chg, _b_chg, _stop_trig, gov_msg = ctx.governor.audit_epoch(
-                    current_quality=current_quality,
-                    best_quality=best_q,
-                    epochs_no_improve=epochs_no_improve,
-                    regression_epochs=0,
-                    current_lr=combined_metrics.get("lr"),
-                    current_loss=current_loss,
-                    train_loss=train_loss,
-                    metrics_dict=combined_metrics,
-                )
-                if gov_msg:
-                    print(f"{gov_msg}", flush=True)
-
-                # Dynamic manifold scaling: update dataset and rebuild train_loader if fraction or resolution changed
-                if (f_chg or r_chg) and ctx.train_loader is not None:
-                    train_ds = getattr(ctx.train_loader, "dataset", None)
-                    if train_ds is not None and hasattr(train_ds, "update_strategy"):
-                        new_res = getattr(ctx.governor, "current_res", None)
-                        new_frac = getattr(ctx.governor, "current_fraction", None)
-                        stress_val = getattr(ctx.governor, "current_stress", None)
-                        train_ds.update_strategy(
-                            size=new_res if r_chg else None,
-                            fraction=new_frac if f_chg else None,
-                            stress=stress_val,
-                        )
-                        fallback_batch = ctx.train_loader.batch_size or 16
-                        curr_batch = int(getattr(ctx.governor.curriculum, "current_batch", fallback_batch))
-                        curr_sampler = getattr(ctx.train_loader, "sampler", None)
-                        ctx.train_loader = rebuild_train_loader(
-                            old_loader=ctx.train_loader,
-                            dataset=train_ds,
-                            batch_size=curr_batch,
-                            sampler=curr_sampler,
-                            shuffle=(curr_sampler is None),
-                            num_workers=ctx.args.num_workers if hasattr(ctx.args, "num_workers") else None,
-                            device=ctx.device_info.device,
-                            env=getattr(ctx.args, "env", "local"),
-                            config=ctx.config,
-                        )
-                        logger.info(
-                            "Rebuilt train_loader on governor directive: res=%s, fraction=%s, batch_size=%d",
-                            str(new_res),
-                            str(new_frac),
-                            curr_batch,
-                        )
-
-                # Learning rate propulsion or cooling adjustments
-                if lr_chg and ctx.optimizer is not None:
-                    lr_mult = float(getattr(ctx.governor, "lr_multiplier", 1.0))
-                    for param_group in ctx.optimizer.param_groups:
-                        if "initial_lr" in param_group:
-                            param_group["lr"] = param_group["initial_lr"] * lr_mult
-                        else:
-                            param_group["lr"] = param_group.get("lr", 1e-4) * lr_mult
-                    logger.debug("Applied governor learning rate multiplier: %.3fx", lr_mult)
-
-            except Exception as gov_err:
-                print(f"[WARNING] Governor audit notice: {gov_err}")
 
         # 9. Cloud sync trigger if configured
         if getattr(ctx.args, "auto_sync", False) and getattr(ctx.args, "env", "local") == "kaggle":
@@ -388,7 +419,7 @@ def run_training(
         # Evaluate 4-Pillar Completion Invariant:
         # 1. Minimum 20 epochs
         # 2. Top resolution ladder rung (or Fold 6 for forex)
-        # 3. 100% data fraction (>= 0.999)
+        # 3. 100% data fraction (>= 0.999) during the completed epoch
         # 4. All defined SOTA targets met
         is_forex = (
             ctx.model_info.get("category") == "forex"
@@ -396,21 +427,33 @@ def run_training(
             or ctx.model_name == "forex_predictor"
         )
         opt_cfg = ctx.model_info.get("optimization", {})
+        executed_res = int(
+            pre_audit_gov_state.get(
+                "current_resolution",
+                pre_audit_gov_state.get("resolution", getattr(ctx.governor, "current_res", 0)),
+            )
+            or 0
+        )
+        executed_frac = float(
+            pre_audit_gov_state.get(
+                "sample_fraction",
+                pre_audit_gov_state.get("current_fraction", getattr(ctx.governor, "current_fraction", 0.0)),
+            )
+            or 0.0
+        )
         if is_forex:
-            res_ladder = opt_cfg.get("res_ladder") or [1, 5, 15, 60, 240, 1440]
+            res_ladder = opt_cfg.get("res_ladder") or getattr(ctx.governor, "res_ladder", None) or [1, 5, 15, 60, 240, 1440]
             target_res = max(res_ladder) if res_ladder else 1440
             ladder_passed = (
                 getattr(ctx.args, "fold", 1) >= 6
-                or (getattr(ctx.governor, "current_res", 0) >= 1440)
+                or executed_res >= target_res
             )
         else:
-            res_ladder = opt_cfg.get("res_ladder") or [256, 384, 512]
+            res_ladder = opt_cfg.get("res_ladder") or getattr(ctx.governor, "res_ladder", None) or [256, 384, 512]
             target_res = max(res_ladder) if res_ladder else (ctx.model_info.get("resolution") or 512)
-            curr_res = getattr(ctx.governor, "current_res", 0)
-            ladder_passed = curr_res >= target_res
+            ladder_passed = executed_res >= target_res
 
-        curr_data_frac = getattr(ctx.governor, "current_fraction", 0.0)
-        data_fraction_passed = curr_data_frac >= 0.999
+        data_fraction_passed = executed_frac >= 0.999
 
         sota_targets = ctx.model_info.get("sota_targets", {})
         sota_all_met = True
@@ -450,7 +493,7 @@ def run_training(
             ctx.total_epochs += extension_epochs
             print(
                 f"\n[GOVERNOR] [SOTA RUNWAY EXTENSION] Epoch ceiling reached ({epoch}) but full SOTA criteria "
-                f"not yet attained (Epochs>=30: {last_epoch_executed >= 30}, Ladder: {ladder_passed}, "
+                f"not yet attained (Epochs>=20: {last_epoch_executed >= 20}, Ladder: {ladder_passed}, "
                 f"Data: {data_fraction_passed}, SOTA: {sota_all_met}). Extending runway +{extension_epochs} epochs...",
                 flush=True,
             )

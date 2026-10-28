@@ -54,8 +54,8 @@ class SimpleDataset(torch.utils.data.Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, float]:
-        filename, target_mean = self.samples[idx]
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, float]:
+        filename, target_mean = self.samples[index]
         img_path = self.dataset_dir / filename
         img = Image.open(img_path).convert("RGB")
         img_tensor = self.transform(img)

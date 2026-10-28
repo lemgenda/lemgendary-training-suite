@@ -212,6 +212,61 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         self.assertEqual(new_gov.current_res, 384)
         self.assertEqual(new_gov.best_quality, 0.91)
 
+    def test_load_state_preserves_100_percent_fraction_on_resume(self) -> None:
+        gov = SmartTrainingGovernor(self.model_info)
+        gov.current_fraction = 1.0
+        gov.current_res = 256
+        gov.best_quality = 94.71
+        gov.epoch_count = 198
+        gov.last_action_epoch = 190
+        gov.history = [80.0, 85.0, 90.0, 94.71]
+
+        state = gov.get_state()
+        self.assertEqual(state["sample_fraction"], 1.0)
+        self.assertEqual(state["epoch_count"], 198)
+
+        resumed_gov = SmartTrainingGovernor(self.model_info)
+        resumed_gov.load_state(state)
+        self.assertEqual(resumed_gov.epoch_count, 198)
+        self.assertAlmostEqual(resumed_gov.current_fraction, 1.0)
+        self.assertEqual(resumed_gov.current_res, 256)
+
+    def test_steady_improvement_advances_data_fraction(self) -> None:
+        gov = SmartTrainingGovernor(self.model_info)
+        self.assertAlmostEqual(gov.current_fraction, 0.20)
+        fractions_seen = [gov.current_fraction]
+        resolutions_seen = [gov.current_res]
+        quality = 50.0
+        for _ in range(25):
+            quality += 1.5
+            gov.audit_epoch(
+                current_quality=quality,
+                best_quality=quality,
+                epochs_no_improve=0,
+                regression_epochs=0,
+                current_loss=0.1,
+                train_loss=0.1,
+            )
+            fractions_seen.append(gov.current_fraction)
+            resolutions_seen.append(gov.current_res)
+        self.assertAlmostEqual(max(fractions_seen), 1.0)
+        self.assertIn(384, resolutions_seen)
+
+    def test_recoil_never_steps_data_fraction_backwards(self) -> None:
+        gov = SmartTrainingGovernor(self.model_info)
+        gov.current_fraction = 0.80
+        gov.best_quality = 90.0
+        gov.epoch_count = 20
+        gov.audit_epoch(
+            current_quality=70.0,
+            best_quality=90.0,
+            epochs_no_improve=5,
+            regression_epochs=4,
+            current_loss=0.5,
+            train_loss=0.2,
+        )
+        self.assertGreaterEqual(gov.current_fraction, 0.80)
+
     def test_legacy_shim_compatibility(self) -> None:
         gov = LegacyGovernor(self.model_info)
         self.assertIsInstance(gov, SmartTrainingGovernor)

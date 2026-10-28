@@ -173,8 +173,10 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f) or {}
 
-    unified_models_rel = config.get("unified_models", "models/unified_models.yaml")
+    unified_models_rel = config.get("unified_models", "unified_models_v2.yaml")
     unified_models_path = project_root / unified_models_rel
+    if not unified_models_path.exists():
+        unified_models_path = project_root / "unified_models.yaml"
     with open(unified_models_path, encoding="utf-8") as f:
         unified_models_registry = yaml.safe_load(f) or {}
 
@@ -315,7 +317,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     # 8. Sentinels & Governance
     sentinel = SentinelGuard(device=device_info.device)
     governor = SmartTrainingGovernor(model_info=model_info, config=config)
-    governor.curriculum.current_batch = batch_size
+    governor.curriculum.update_batch_and_accumulation(batch_size)
     sota_tracker = SotaTracker()
     vault = MetricVault()
 
@@ -342,7 +344,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             pairs=_forex_pairs,
             active_timeframes=_forex_timeframes,
             is_train=True,
-            sample_fraction=1.0,
+            sample_fraction=sample_fraction,
             fold=_forex_fold,
         )
         try:
@@ -361,7 +363,12 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         train_jsonl = data_root / "ai_helper_train.jsonl"
         val_jsonl = data_root / "ai_helper_val.jsonl"
         tokenizer = getattr(raw_model, "tokenizer", None)
-        train_ds = InstructionDataset(train_jsonl, tokenizer=tokenizer, max_length=2048)
+        train_ds = InstructionDataset(
+            train_jsonl,
+            tokenizer=tokenizer,
+            max_length=2048,
+            sample_fraction=sample_fraction,
+        )
         val_ds = InstructionDataset(val_jsonl, tokenizer=tokenizer, max_length=2048) if val_jsonl.exists() else None
     else:
         train_ds = MultiTaskDataset(
@@ -491,10 +498,42 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                         scheduler.load_state_dict(sched_state)
                     except Exception as sched_err:
                         logger.warning("Scheduler state could not be loaded cleanly: %s", sched_err)
-                gov_state = loaded_data.get("governor_state")
-                if isinstance(gov_state, dict) and hasattr(governor, "load_state"):
+                gov_state = dict(loaded_data.get("governor_state") or {})
+                ckpt_epoch = int(loaded_data.get("epoch", 0) or 0)
+                if ckpt_epoch > 0:
+                    gov_state["epoch_count"] = max(int(gov_state.get("epoch_count", 0) or 0), ckpt_epoch)
+                if hasattr(governor, "load_state"):
                     try:
                         governor.load_state(gov_state)
+                        # Reconcile curriculum state against canonical metrics.csv if available
+                        if paths.models_hub_metrics_csv is not None and paths.models_hub_metrics_csv.exists():
+                            try:
+                                import csv
+
+                                with open(paths.models_hub_metrics_csv, "r", encoding="utf-8") as mf:
+                                    rows = list(csv.DictReader(mf))
+                                if rows:
+                                    curr_res_val = int(getattr(governor, "current_res", 256))
+                                    max_frac_at_res = float(getattr(governor, "current_fraction", sample_fraction))
+                                    max_quality_csv = float(getattr(governor, "best_quality", 0.0))
+                                    for r in rows:
+                                        try:
+                                            r_res = int(float(r.get("Res") or curr_res_val))
+                                            r_frac = float(r.get("Data") or 0.0)
+                                            r_qual = float(r.get("Quality_Score") or 0.0)
+                                            if r_res == curr_res_val and r_frac > max_frac_at_res:
+                                                max_frac_at_res = r_frac
+                                            if r_qual > max_quality_csv:
+                                                max_quality_csv = r_qual
+                                        except (ValueError, TypeError):
+                                            continue
+                                    if max_frac_at_res > float(getattr(governor, "current_fraction", 0.0)):
+                                        governor.current_fraction = min(1.0, max_frac_at_res)
+                                    if max_quality_csv > float(getattr(governor, "best_quality", 0.0)):
+                                        governor.best_quality = max_quality_csv
+                            except OSError as csv_err:
+                                logger.debug("Could not reconcile metrics.csv on resume: %s", csv_err)
+
                         # Synchronize train dataset and train DataLoader with restored governor state
                         rec_res = getattr(governor, "current_res", None)
                         rec_frac = getattr(governor, "current_fraction", None)
@@ -536,6 +575,13 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                     env=args.env,
                                     config=config,
                                 )
+                            total_ds_samples = len(getattr(train_ds, "all_samples", [])) or len(train_ds)
+                            print(
+                                f"[CURRICULUM] Active training manifold: {len(train_ds)}/{total_ds_samples} samples "
+                                f"({(rec_frac if rec_frac is not None else 1.0) * 100:.0f}% data fraction) | "
+                                f"Res: {rec_res}px | Batch: {curr_batch} | Total Batches: {len(train_loader)}",
+                                flush=True,
+                            )
                             logger.info(
                                 "Synchronized training dataset and loader with recovered governor state: res=%s, frac=%.2f",
                                 rec_res,
@@ -544,10 +590,14 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                     except Exception as gov_err:
                         logger.warning("Governor state could not be loaded cleanly: %s", gov_err)
                 if hasattr(sota_tracker, "best_quality"):
-                    saved_best = loaded_data.get("best_quality_score") or loaded_data.get("best_quality")
+                    saved_best = (
+                        loaded_data.get("best_quality_score")
+                        or loaded_data.get("best_quality")
+                        or getattr(governor, "best_quality", None)
+                    )
                     if saved_best is not None:
                         try:
-                            sota_tracker.best_quality = float(saved_best)
+                            sota_tracker.best_quality = max(float(sota_tracker.best_quality), float(saved_best))
                         except (ValueError, TypeError):
                             pass
                 resume_state = parse_resume_state(loaded_data)
@@ -563,6 +613,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         total_epochs = max(total_epochs, 20)
 
     scaler = create_grad_scaler(policy)
+    resolved_acc_steps = max(1, int(getattr(governor, "current_acc", 1)))
 
     return TrainingContext(
         model_name=model_key,
@@ -583,7 +634,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         model_info=model_info,
         args=args,
         total_epochs=total_epochs,
-        accumulation_steps=1,
+        accumulation_steps=resolved_acc_steps,
         scaler=scaler,
         resume_state=resume_state,
         raw_model=raw_model,
