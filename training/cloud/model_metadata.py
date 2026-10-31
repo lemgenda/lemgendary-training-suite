@@ -239,6 +239,11 @@ class ModelMetadata:
     def kaggle_model_payload(self) -> dict[str, Any]:
         """Return the document accepted by the Kaggle model create/update API."""
         m = self.model
+        prov = m.provenance_sources
+        if isinstance(prov, (list, tuple)):
+            prov_str = ", ".join(prov)
+        else:
+            prov_str = str(prov or "")
         payload: dict[str, Any] = {
             "ownerSlug": m.owner,
             "slug": m.slug,
@@ -248,7 +253,7 @@ class ModelMetadata:
             "description": m.description,
             "licenseName": m.license,
             "keywords": list(m.keywords),
-            "provenanceSources": list(m.provenance_sources),
+            "provenanceSources": prov_str,
         }
         if m.publish_time:
             payload["publishTime"] = m.publish_time

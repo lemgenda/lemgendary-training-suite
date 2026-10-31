@@ -176,6 +176,16 @@ def resolve_kaggle_credentials(
         except OSError as e:
             logger.debug("Could not access ~/.kaggle/kaggle.json: %s", e)
 
+    # Access token fallback (~/.kaggle/access_token)
+    access_token_file = Path.home() / ".kaggle" / "access_token"
+    if not k_key and access_token_file.exists():
+        try:
+            tok = access_token_file.read_text(encoding="utf-8").strip()
+            if tok:
+                k_key = tok
+        except OSError as e:
+            logger.debug("Could not read ~/.kaggle/access_token: %s", e)
+
     # Project .kaggle_token fallback
     project_root = get_project_root()
     token_file = project_root / ".kaggle_token"
@@ -196,6 +206,11 @@ def resolve_kaggle_credentials(
         os.environ["KAGGLE_USERNAME"] = k_user
     if k_key:
         os.environ["KAGGLE_KEY"] = k_key
+        if k_key.startswith("KGAT_"):
+            os.environ["KAGGLE_API_TOKEN"] = k_key
+        else:
+            # If a legacy key is active, clear any conflicting access token in env
+            os.environ.pop("KAGGLE_API_TOKEN", None)
 
     # Sync ~/.kaggle/kaggle.json in clean UTF-8 so CLI works seamlessly
     if k_user and k_key:

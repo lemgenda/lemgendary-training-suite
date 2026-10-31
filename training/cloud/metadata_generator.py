@@ -123,7 +123,7 @@ class KaggleMetadataService:
             slug=slug,
             title=title,
             subtitle=subtitle,
-            description=self._build_description(resolved, owner, slug, dataset_urls, whitepaper_url),
+            description=self._build_description(resolved, owner, slug, dataset_urls, whitepaper_url, keywords),
             is_private=False,
             license=license_name,
             keywords=keywords,
@@ -242,12 +242,18 @@ class KaggleMetadataService:
         slug: str,
         dataset_urls: list[str],
         whitepaper_url: str | None = None,
+        keywords: list[str] | None = None,
     ) -> str:
         raw_desc = spec.description or spec.name
         wrapped_desc = textwrap.fill(raw_desc, width=120) if len(raw_desc) > 120 else raw_desc
         lines: list[str] = [wrapped_desc, ""]
         lines.append(f"**Architecture:** {spec.architecture_type}")
         lines.append(f"**Category:** {spec.category}")
+        active_keywords: list[str] = list(keywords) if keywords else (
+            list(spec.kaggle_metadata.tags) if (spec.kaggle_metadata and spec.kaggle_metadata.tags) else []
+        )
+        if active_keywords:
+            lines.append(f"**Keywords / Tags:** {', '.join(active_keywords)}")
         if dataset_urls:
             lines.append("")
             lines.append("**Training data:**")

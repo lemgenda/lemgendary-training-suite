@@ -33,6 +33,9 @@ class KaggleApiSyncService:
     def _get_api(self) -> KaggleApi:
         """Authenticate and return KaggleApi client."""
         if self._api is None:
+            import os
+            if self.key and self.key.startswith("KGAT_"):
+                os.environ["KAGGLE_API_TOKEN"] = self.key
             api = KaggleApi()
             api.authenticate()
             self._api = api
@@ -50,27 +53,25 @@ class KaggleApiSyncService:
             "errors": [],
         }
 
-        # 1. Model-level metadata sync (create or update)
+        # 1. Model-level metadata sync (update first, fallback to create)
         with tempfile.TemporaryDirectory(prefix="kaggle_model_meta_") as tmp_dir:
             tmp_path = Path(tmp_dir)
             meta_json = tmp_path / "model-metadata.json"
             meta_json.write_text(json.dumps(metadata.kaggle_model_payload(), indent=2), encoding="utf-8")
 
             try:
-                # Try getting the model first to see if it exists
-                api.model_get(full_model_ref)
-                logger.info("Model '%s' exists on Kaggle. Updating metadata...", full_model_ref)
+                logger.info("Updating model-level metadata for '%s'...", full_model_ref)
                 api.model_update(str(tmp_path))
                 results["model"] = "updated"
                 logger.info("Model-level metadata updated for %s", full_model_ref)
-            except Exception as get_err:
-                logger.info("Model '%s' not found or update check failed (%s). Attempting create...", full_model_ref, get_err)
+            except Exception as update_err:
+                logger.info("model_update failed for '%s' (%s). Attempting model_create_new...", full_model_ref, update_err)
                 try:
                     create_res = api.model_create_new(str(tmp_path))
                     results["model"] = "created"
                     logger.info("Model created on Kaggle: %s", getattr(create_res, "url", full_model_ref))
                 except Exception as create_err:
-                    err_msg = f"Failed to create/update model {full_model_ref}: {create_err}"
+                    err_msg = f"Failed to create/update model {full_model_ref}: {update_err} | {create_err}"
                     logger.error(err_msg)
                     results["errors"].append(err_msg)
 

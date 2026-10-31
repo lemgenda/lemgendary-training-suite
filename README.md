@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.45-STABLE` |
+| **Version** | `v16.9.46-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.46 — Kaggle Models API Card Synchronization, String Provenance Serialization & Access Token Alignment
+
+- **Kaggle Model Card Schema Serialization (`training/cloud/model_metadata.py`)** — Resolved `TypeError: provenance_sources must be of type str` in `kagglesdk.models.types.model_api_service`. Transformed `provenanceSources` in `ModelMetadata.kaggle_model_payload()` from `list[str]` to a clean comma-separated `str` conforming strictly to Kaggle REST/gRPC API constraints.
+- **Model-Level API Synchronization Inversion (`training/cloud/kaggle_api_sync.py`)** — Re-architected `KaggleApiSyncService.sync_metadata()` to call `api.model_update()` as the primary execution path, safely falling back to `api.model_create_new()` only if the model is absent. Eliminates premature 409 conflict aborts during post-upload metadata synchronization.
+- **Unified Access Token Discovery & Environment Sync (`training/cloud/credentials.py`)** — Enhanced `resolve_kaggle_credentials()` to read active access tokens directly from `~/.kaggle/access_token`. Automatically binds active tokens (`KGAT_...`) to `os.environ["KAGGLE_API_TOKEN"]` and clears conflicting stale tokens when legacy keys are selected, ensuring `KaggleHttpClient` always authenticates successfully.
+- **Model Card Keyword Search Indexing & Pyrefly Diagnostic Remediation (`training/cloud/metadata_generator.py`)** — Added explicit `**Keywords / Tags:**` header to model card markdown descriptions for full-text search indexing across Kaggle Models Hub. Resolved Pyrefly typing diagnostics (`missing-attribute`, `bad-argument-type`) by aligning attribute lookup to `spec.kaggle_metadata.tags` with strict `list[str]` type narrowing. Verified with Pyright (0 errors, 0 warnings).
+
+---
 
 ### v16.9.45 — Kaggle Metadata Enrichment, Whitepaper Citations & Variation File Descriptions
 
