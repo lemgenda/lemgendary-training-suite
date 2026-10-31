@@ -105,4 +105,61 @@ class KaggleApiSyncService:
                         logger.info("Instance metadata update deferred until binary presence for %s (%s)", instance_ref, upd_err)
                         results["variations"][var_key] = "deferred"
 
+        # 3. Synchronize default collaborators (editors) via Kaggle IAM API
+        default_editors = ["lemgenda", "shyning123", "kuznetsovr"]
+        try:
+            from kagglesdk.security.types.iam_service import (
+                GetIamPolicyRequest,
+                SetIamPolicyRequest,
+                KaggleResourceId,
+                IamPolicyBinding,
+                Principal,
+                UserPrincipal,
+            )
+            KaggleResourceType = KaggleResourceId.__init__.__globals__["KaggleResourceType"]
+            CanonicalRole = IamPolicyBinding.__init__.__globals__["CanonicalRole"]
+
+            m_obj = api.model_get(full_model_ref)
+            if hasattr(m_obj, "id") and m_obj.id:
+                with api.build_kaggle_client() as kaggle_client:
+                    iam_svc = kaggle_client.security.iam_client
+                    g_req = GetIamPolicyRequest()
+                    res_id = KaggleResourceId()
+                    res_id.type = KaggleResourceType.KAGGLE_RESOURCE_TYPE_MODELS
+                    res_id.id = m_obj.id
+                    g_req.resource_id = res_id
+                    current_policy = iam_svc.get_iam_policy(g_req)
+
+                    principals: list[Principal | None] = []
+                    for uname in default_editors:
+                        p = Principal()
+                        u = UserPrincipal()
+                        u.user_name = uname
+                        p.user = u
+                        principals.append(p)
+
+                    editor_binding: IamPolicyBinding | None = None
+                    existing_bindings: list[IamPolicyBinding | None] = list(current_policy.bindings) if current_policy.bindings else []
+                    for b in existing_bindings:
+                        if b is not None and b.role == CanonicalRole.CANONICAL_ROLE_EDITOR:
+                            editor_binding = b
+                            break
+                    if not editor_binding:
+                        editor_binding = IamPolicyBinding()
+                        editor_binding.role = CanonicalRole.CANONICAL_ROLE_EDITOR
+                        existing_bindings.append(editor_binding)
+                        current_policy.bindings = existing_bindings
+
+                    editor_binding.members = principals
+
+                    s_req = SetIamPolicyRequest()
+                    s_req.resource_id = res_id
+                    s_req.policy = current_policy
+                    iam_svc.set_iam_policy(s_req)
+                    logger.info("Synchronized collaborators for %s: %s", full_model_ref, default_editors)
+                    results["collaborators"] = default_editors
+        except Exception as iam_err:
+            logger.warning("Collaborator synchronization skipped or failed for %s: %s", full_model_ref, iam_err)
+            results["collaborators_error"] = str(iam_err)
+
         return results

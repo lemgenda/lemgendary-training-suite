@@ -846,17 +846,16 @@ class JobManager:
                 result.errors.append(f"[{var}] {var_res.error}")
                 self._broadcast_log(job_id, f"{prefix}[ERROR] {model_key} [{var}]: {var_res.error}")
 
-        # 2. Sync metadata via API if variations succeeded
-        if result.success or dry_run:
-            try:
-                sync_meta_res = sync_mgr.sync_kaggle_metadata(model_key, dry_run=dry_run)
-                result.metadata_sync_result = sync_meta_res
-                if sync_meta_res.get("errors"):
-                    result.errors.extend(sync_meta_res["errors"])
-            except Exception as meta_exc:
-                err_str = f"Metadata synchronization error: {meta_exc}"
-                result.errors.append(err_str)
-                self._broadcast_log(job_id, f"{prefix}[ERROR] {model_key} metadata sync: {err_str}")
+        # 2. Sync metadata via API unconditionally (ensures model card & instance docs are published)
+        try:
+            sync_meta_res = sync_mgr.sync_kaggle_metadata(model_key, dry_run=dry_run)
+            result.metadata_sync_result = sync_meta_res
+            if sync_meta_res.get("errors"):
+                result.errors.extend(sync_meta_res["errors"])
+        except Exception as meta_exc:
+            err_str = f"Metadata synchronization error: {meta_exc}"
+            result.errors.append(err_str)
+            self._broadcast_log(job_id, f"{prefix}[ERROR] {model_key} metadata sync: {err_str}")
 
         # 3. Emit exact 2 clean summary log entries on success
         if result.success and (not result.metadata_sync_result or not result.metadata_sync_result.get("errors")):

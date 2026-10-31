@@ -335,17 +335,16 @@ class KaggleModelSyncManager:
                 if var_res.error:
                     push_result.errors.append(f"[{var}] {var_res.error}")
 
-        # 3. Synchronize Kaggle Metadata via REST API
-        if push_result.success or dry_run:
-            try:
-                sync_meta_res = self.sync_kaggle_metadata(model_key, dry_run=dry_run)
-                push_result.metadata_sync_result = sync_meta_res
-                if sync_meta_res.get("errors"):
-                    push_result.errors.extend(sync_meta_res["errors"])
-            except Exception as meta_exc:
-                err_str = f"Metadata synchronization error: {meta_exc}"
-                logger.error(err_str)
-                push_result.errors.append(err_str)
+        # 3. Synchronize Kaggle Metadata via REST API (always sync regardless of upload outcome)
+        try:
+            sync_meta_res = self.sync_kaggle_metadata(model_key, dry_run=dry_run)
+            push_result.metadata_sync_result = sync_meta_res
+            if sync_meta_res.get("errors"):
+                push_result.errors.extend(sync_meta_res["errors"])
+        except Exception as meta_exc:
+            err_str = f"Metadata synchronization error: {meta_exc}"
+            logger.error(err_str)
+            push_result.errors.append(err_str)
 
         return push_result
 

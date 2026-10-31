@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.48-STABLE` |
+| **Version** | `v16.9.49-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.49 — Unconditional Metadata Push, Fleet Collaborator Provisioning & Pyrefly Diagnostics Elimination
+
+- **Unconditional Model Card & Instance Metadata Synchronization (`training/server/jobs.py`, `training/cloud/kaggle_model_sync.py`)** — Fixed metadata sync skipping when pressing "Push Model" in the GUI. Previously, if binary uploads were partial, skipped, or missing staged artifacts, the metadata sync was bypassed (`if result.success:`), leaving the Kaggle Model card blank (usability 1.33). Made metadata synchronization unconditional across both the server job dispatcher and CLI synchronization pipelines.
+- **Automated Fleet Collaborator IAM Synchronization (`training/cloud/kaggle_api_sync.py`)** — Integrated Kaggle IAM API (`kagglesdk.security.services.iam_service`) into `KaggleApiSyncService`. Automatically synchronizes authorized ecosystem editors (`lemgenda`, `shyning123`, `kuznetsovr`) to all Kaggle models via `get_iam_policy` / `set_iam_policy` with `CANONICAL_ROLE_EDITOR` bindings whenever metadata is synced.
+- **Fleet Verification & Live Model Card Sync** — Synchronized live metadata, base model variation hierarchies, and collaborators across all existing Kaggle models (`ffanet_indoor`, `codeformer`, `film_restorer`, `nima_aesthetic_mobile`, `universal_nsfw_classification`, and `forex_predictor`), achieving full completeness scoring.
+- **Zero Diagnostics Verification (`training/cloud/metadata_generator.py`)** — Eliminated VS Code / Pyrefly problems (`Argument 'object' is not assignable to parameter 'iterable'` and missing `keywords` attribute) by strictly typing keyword fallbacks against `KaggleModelMetadata.tags`. Clean 0 errors / 0 warnings across Pyright.
+
+---
 
 ### v16.9.48 — Kaggle Cloud Training Pipeline Hardening, Dynamic DDP Dual-GPU Launch & Fleet Notebook Generation
 

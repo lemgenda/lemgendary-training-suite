@@ -257,9 +257,11 @@ class KaggleMetadataService:
         lines: list[str] = [wrapped_desc, ""]
         lines.append(f"**Architecture:** {spec.architecture_type}")
         lines.append(f"**Category:** {spec.category}")
-        active_keywords: list[str] = list(keywords) if keywords else (
-            list(spec.kaggle_metadata.tags) if (spec.kaggle_metadata and spec.kaggle_metadata.tags) else []
-        )
+        active_keywords: list[str] = []
+        if keywords:
+            active_keywords = list(keywords)
+        elif spec.kaggle_metadata and spec.kaggle_metadata.tags:
+            active_keywords = list(spec.kaggle_metadata.tags)
         if active_keywords:
             lines.append(f"**Keywords / Tags:** {', '.join(active_keywords)}")
         if dataset_urls:
