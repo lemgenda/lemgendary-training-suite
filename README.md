@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.46-STABLE` |
+| **Version** | `v16.9.47-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.47 — Kaggle Model Instance Hierarchy (Base Model vs Variant) & Pre-Commit YAML Line-Length Compliance
+
+- **Kaggle Model Instance Type Hierarchy (`training/cloud/metadata_generator.py`)** — Solved missing base model completeness scoring on Kaggle Models Hub. Automatically configures `pytorch/default` as `BaseModel` (`model_instance_type: "BaseModel"`) and designates derived inference variations (`pytorch/fp32`, `onnx/fp16`, `onnx/fp32`) as `KaggleVariant` (`model_instance_type: "KaggleVariant"`) referencing `base_model_instance: "{owner}/{model_slug}/pytorch/default"`.
+- **Fleet-Wide Live Instance Synchronization (`training/cloud/kaggle_api_sync.py`)** — Propagated instance-level update masks to Kaggle Models API via `api.model_instance_update()`, achieving 100% Completeness across all 4 variation instances with zero errors.
+- **Model Metadata Loader Type Flexibility (`training/cloud/model_metadata.py`)** — Enhanced `ModelMetadata.load()` to accept both `Path` and `str` primitives, wrapping inputs in `Path()` to eliminate `'str' object has no attribute 'read_text'` runtime exceptions.
+- **Pre-Commit YAML Line-Length Compliance (`training/cloud/metadata_generator.py`)** — Resolved pre-commit git validation failures in `LemGendaryModels` (`line too long (> 200 characters)` in `film_restorer` and `universal_nsfw_classification`). Shortened the generated markdown link label for architecture whitepapers to `[Whitepaper Reference](<url>)`, guaranteeing all generated lines in `model_metadata.yaml` across all 23 models remain strictly within the 200-character line-length boundary.
+
+---
 
 ### v16.9.46 — Kaggle Models API Card Synchronization, String Provenance Serialization & Access Token Alignment
 

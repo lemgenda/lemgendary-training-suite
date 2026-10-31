@@ -228,11 +228,12 @@ class ModelMetadata:
         return path
 
     @classmethod
-    def load(cls, path: Path) -> ModelMetadata:
+    def load(cls, path: Path | str) -> ModelMetadata:
         """Load a model_metadata.yaml file."""
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        p = Path(path)
+        doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         if not isinstance(doc, dict):
-            raise MetadataValidationError(path.parent.name, ["top-level YAML document must be a mapping"])
+            raise MetadataValidationError(p.parent.name, ["top-level YAML document must be a mapping"])
         return cls.from_dict(doc)
 
     # ------------------------------------------------------------------ Kaggle payloads

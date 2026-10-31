@@ -132,13 +132,21 @@ class KaggleMetadataService:
         )
 
         variations: dict[str, VariationSection] = {}
+        base_handle = f"{owner}/{slug}/pytorch/default"
         for variation in VARIATIONS:
+            is_base = variation is PYTORCH_DEFAULT
+            instance_type = "BaseModel" if is_base else "KaggleVariant"
+            base_inst = "" if is_base else base_handle
+
             variations[variation.key] = VariationSection(
                 overview=self._variation_overview(resolved, variation),
                 usage=self._variation_usage(owner, slug, stem, variation),
                 license=license_name,
-                fine_tunable=variation is PYTORCH_DEFAULT,
+                fine_tunable=is_base,
                 training_data=list(dataset_urls),
+                model_instance_type=instance_type,
+                base_model_instance=base_inst,
+                external_base_model_url="",
                 version_notes=f"{resolved.name} - {variation.label} release",
             )
 
@@ -269,7 +277,7 @@ class KaggleMetadataService:
         lines.append("")
         lines.append("### Citations & Technical Documentation")
         if resolved_whitepaper:
-            lines.append(f"- **Architecture Whitepaper:** [{resolved_whitepaper}]({resolved_whitepaper})")
+            lines.append(f"- **Architecture Whitepaper:** [Whitepaper Reference]({resolved_whitepaper})")
 
         ref = spec.academic_reference
         if ref and ref.title:
