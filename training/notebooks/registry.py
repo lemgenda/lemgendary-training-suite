@@ -41,6 +41,7 @@ class ModelNotebookMeta:
     handle_pytorch_fp32: str = ""
     handle_onnx_fp16: str = ""
     handle_onnx_fp32: str = ""
+    preferred_parallel: str = ""
 
 
 def resolve_model_metadata(
@@ -127,6 +128,7 @@ def resolve_model_metadata(
     no_download = bool(config.get("notebook_no_download", False)) if config else False
 
     filename = model_info.get("filename", model_key)
+    preferred_parallel = str(model_info.get("preferred_parallel", "") or "")
     size_raw = model_info.get("input_size", [3, 256, 256])
     if isinstance(size_raw, list):
         if len(size_raw) == 3:
@@ -161,6 +163,7 @@ def resolve_model_metadata(
         handle_pytorch_fp32=handle_pytorch_fp32,
         handle_onnx_fp16=handle_onnx_fp16,
         handle_onnx_fp32=handle_onnx_fp32,
+        preferred_parallel=preferred_parallel,
     )
 
 

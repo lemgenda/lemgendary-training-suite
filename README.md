@@ -11,11 +11,21 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.47-STABLE` |
+| **Version** | `v16.9.48-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.48 — Kaggle Cloud Training Pipeline Hardening, Dynamic DDP Dual-GPU Launch & Fleet Notebook Generation
+
+- **Dynamic Dual-GPU DDP Dispatch in Cloud Training Notebooks (`training/notebooks/cells/sync.py`)** — Upgraded the cloud training execution cell across all Kaggle notebooks to dynamically detect multi-GPU environments at runtime (`torch.cuda.device_count() > 1`). For eligible models (`preferred_parallel == "ddp"`), automatically switches the launch command from single-process `train.py` to `tools/launch_ddp.py` (wrapping `torchrun --nproc_per_node=2`), unlocking dual-T4 distributed acceleration with zero manual configuration.
+- **Model Registry Parallel Strategy Propagation (`training/notebooks/registry.py`)** — Added `preferred_parallel` to `ModelNotebookMeta`, propagating the architectural parallel classification from `unified_models_v2.yaml` into notebook cell generation logic.
+- **Notebook Builder Robust Registry Fallback (`training/notebooks/builders/kaggle.py`, `colab.py`)** — Hardened `generate_inference_notebook()` to load the unified model registry via `load_registry()` if omitted, preventing unpopulated metadata and resolving Pyright type-narrowing diagnostics.
+- **SSOT Kaggle Checkpoint Recovery Handle Alignment (`training/checkpoint/recovery.py`)** — Aligned `CheckpointRecoveryEngine`'s KaggleHub model probe handle directly with canonical format `f"{k_user}/{k_slug}/pytorch/default"`, removing legacy prefix/suffix bloat and ensuring remote checkpoint discovery succeeds without fallback timeouts.
+- **Fleet-Wide Kaggle Notebook Generation** — Re-generated and verified all 23 Kaggle training notebooks across `LemGendaryModels/<ModelName>/notebooks/`, auto-synchronized to `kaggle_training/` and dataset manifolds.
+
+---
 
 ### v16.9.47 — Kaggle Model Instance Hierarchy (Base Model vs Variant) & Pre-Commit YAML Line-Length Compliance
 

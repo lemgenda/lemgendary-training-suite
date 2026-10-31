@@ -194,11 +194,22 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
         env_flag = "colab"
 
     launch_msg = "Forex Curriculum Orchestrator" if meta.is_forex else "Training Matrix"
-    cmd_line = (
-        "cmd = [sys.executable, '-u', '-m', 'training.train_forex_curriculum']\n"
-        if meta.is_forex
-        else f"cmd = [sys.executable, '-u', 'training/train.py', '--model', '{meta.model_key}', '--env', '{env_flag}', '--auto_sync']\n"
-    )
+    cmd_dispatch = [
+        "is_forex = " + str(meta.is_forex) + "\n",
+        f"model_key = '{meta.model_key}'\n",
+        f"preferred_parallel = '{meta.preferred_parallel}'\n",
+        "import torch\n",
+        "num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0\n",
+        "use_ddp = (num_gpus > 1) and (preferred_parallel == 'ddp' or (preferred_parallel != 'single' and not is_forex and 'yolo' not in model_key.lower()))\n",
+        "\n",
+        "if is_forex:\n",
+        "    cmd = [sys.executable, '-u', '-m', 'training.train_forex_curriculum']\n",
+        "elif use_ddp and os.path.exists('tools/launch_ddp.py'):\n",
+        '    print(f"[DDP] Dual-GPU acceleration detected ({num_gpus} GPUs). Launching multi-process DDP via tools/launch_ddp.py...")\n',
+        f"    cmd = [sys.executable, '-u', 'tools/launch_ddp.py', '--model', '{meta.model_key}', '--env', '{env_flag}', '--auto_sync']\n",
+        "else:\n",
+        f"    cmd = [sys.executable, '-u', 'training/train.py', '--model', '{meta.model_key}', '--env', '{env_flag}', '--auto_sync']\n",
+    ]
 
     if target == "kaggle":
         exec_lines = [
@@ -253,8 +264,7 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
         "    pass\n",
         "\n",
         f"print(f'[LAUNCH] [NUCLEAR] Initiating {launch_msg} for {meta.model_key}...')\n",
-        cmd_line,
-    ] + exec_lines
+    ] + cmd_dispatch + exec_lines
     return make_code_cell(source)
 
 

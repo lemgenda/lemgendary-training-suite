@@ -54,7 +54,11 @@ def generate_inference_notebook(
     else:
         actual_model_key = model_key
         actual_export_dir = str(export_dir)
-        meta = resolve_model_metadata(actual_model_key, unified_models_registry, config)
+        reg = unified_models_registry if isinstance(unified_models_registry, dict) else None
+        if not reg:
+            from ..registry import load_registry
+            reg = load_registry(config=config)
+        meta = resolve_model_metadata(actual_model_key, reg, config)
 
     # Enforce standard model topology: notebooks/ subfolder
     if Path(actual_export_dir).name != "notebooks":

@@ -92,9 +92,7 @@ class CheckpointRecoveryEngine:
                 k_slug = model_name.replace("_", "-")
                 if "nima-aesthetic" in k_slug:
                     k_slug = k_slug.replace("nima-aesthetic", "nima-aesthetics")
-                prefix = cfg.get("kaggle_slug_prefix", "lemgendary-")
-                suffix = cfg.get("kaggle_slug_suffix", "-checkpoints")
-                k_handle = f"{k_user}/{prefix}{k_slug}{suffix}/pytorch/default"
+                k_handle = f"{k_user}/{k_slug}/pytorch/default"
 
                 model_download_fn = getattr(kh_mod, "model_download", None)
                 if callable(model_download_fn):
