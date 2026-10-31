@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.44-STABLE` |
+| **Version** | `v16.9.45-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.45 — Kaggle Metadata Enrichment, Whitepaper Citations & Variation File Descriptions
+
+- **Kaggle Metadata Whitepaper Citations (`training/cloud/metadata_generator.py`)** — Implemented `resolve_whitepaper_url()` mapping every registered model to its published architectural whitepaper on GitHub Pages (`https://lemgenda.github.io/ai-training-whitepapers/papers/<doc>.html`). Injected a dedicated `### Citations & Technical Documentation` section into Kaggle model descriptions (`model_metadata.yaml` and `model-metadata.json`) containing direct whitepaper URLs and academic literature citations. Appended whitepaper URLs to model `provenance_sources`.
+- **Model Card Literature & Whitepaper Synchronization (`training/doc_generator.py`)** — Extended `ModelDocumentationService.generate_readme()` so that model-level `README.md` includes the official GitHub Pages architecture whitepaper link alongside IEEE/arXiv academic references in `## Scientific Research & Reference Paper`.
+- **Variation File & Runtime Descriptions (`training/cloud/metadata_generator.py`)** — Enriched `_variation_overview()` to provide explicit file descriptions and runtime purposes for all pushed files across all 4 isolated variations: PyTorch default (`best.pth`, `latest.pth`, `metrics.csv`, `README.md`), PyTorch FP32 (`[ModelName].pt`), ONNX FP16 (`[ModelName].onnx`), and ONNX FP32 (`[ModelName]_FP32.onnx` + `.onnx.data`).
+- **Synchronized Docs & Meta Trigger (`training/server/routes/models.py`)** — Unified `POST /api/models/{model_key}/docs/generate` ("Docs & Meta" button) and `KaggleModelSyncManager.push_model` ("Push Model" button) to regenerate and publish authoritative metadata with full citations and file descriptions.
+
+---
 
 ### v16.9.44 — Senior Developer Suite Audit, Pyrefly Diagnostic Remediation & Zero-Suppression Hardening
 

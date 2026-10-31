@@ -212,12 +212,16 @@ class WebDatasetReader:
                     parsed_json = json.loads(json_path.read_text(encoding="utf-8"))
                     meta["json"] = parsed_json
                     if label is None and isinstance(parsed_json, dict):
-                        label = (
-                            parsed_json.get("distribution")
-                            or parsed_json.get("scores")
-                            or parsed_json.get("label")
-                            or parsed_json.get("score")
-                        )
+                        nima_data = parsed_json.get("nima_scores")
+                        if isinstance(nima_data, dict):
+                            label = nima_data.get("distribution") or nima_data.get("scores") or nima_data.get("mean_score")
+                        if label is None:
+                            label = (
+                                parsed_json.get("distribution")
+                                or parsed_json.get("scores")
+                                or parsed_json.get("label")
+                                or parsed_json.get("score")
+                            )
                 except Exception:
                     pass
 
@@ -277,12 +281,16 @@ class WebDatasetReader:
                     parsed_json = json.loads(json_extracted.read().decode("utf-8"))
                     meta["json"] = parsed_json
                     if label is None and isinstance(parsed_json, dict):
-                        label = (
-                            parsed_json.get("distribution")
-                            or parsed_json.get("scores")
-                            or parsed_json.get("label")
-                            or parsed_json.get("score")
-                        )
+                        nima_data = parsed_json.get("nima_scores")
+                        if isinstance(nima_data, dict):
+                            label = nima_data.get("distribution") or nima_data.get("scores") or nima_data.get("mean_score")
+                        if label is None:
+                            label = (
+                                parsed_json.get("distribution")
+                                or parsed_json.get("scores")
+                                or parsed_json.get("label")
+                                or parsed_json.get("score")
+                            )
                 except Exception:
                     pass
 

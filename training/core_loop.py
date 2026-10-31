@@ -276,7 +276,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     if loss_fn_name == "forex_dual" or task_type in ("forex", "forex_dual") or args.model == "forex_predictor":
         criterion = ForexDualLoss()
     else:
-        criterion = CombinedLoss(task_type=task_type)
+        criterion = CombinedLoss(task_type=task_type, stabilizers=model_info.get("stabilizers"))
+    criterion.to(device_info.device)
 
     # 7. Data Loaders
     raw_batch = args.batch_size

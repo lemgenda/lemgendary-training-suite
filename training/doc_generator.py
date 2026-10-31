@@ -358,6 +358,16 @@ graph TD
 
     if not paper:
         paper = MODEL_PAPERS.get(model_key)
+
+    whitepaper_link_line = ""
+    try:
+        from training.cloud.metadata_generator import resolve_whitepaper_url
+        wp_url = resolve_whitepaper_url(model_key)
+        if wp_url:
+            whitepaper_link_line = f"- **Ecosystem Architecture Whitepaper**: [{wp_url}]({wp_url})\n"
+    except Exception:
+        pass
+
     if paper:
         paper_section = f"""## Scientific Research & Reference Paper
 
@@ -365,11 +375,16 @@ graph TD
 - **Authors**: {paper['authors']}
 - **Publication**: {paper['venue']} ({paper['year']})
 - **Canonical Source / Link**: [{paper['link']}]({paper['link']})
-
+{whitepaper_link_line}
 ```bibtex
 {paper['bibtex']}
 ```
 
+"""
+    elif whitepaper_link_line:
+        paper_section = f"""## Technical Whitepaper & Reference Documentation
+
+{whitepaper_link_line}
 """
     else:
         paper_section = ""

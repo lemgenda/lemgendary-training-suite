@@ -36,6 +36,38 @@ logger = logging.getLogger("lemtrain.cloud.metadata")
 
 DEFAULT_LICENSE = "CC BY-NC 4.0"
 _DEFAULT_SUBTITLE_PREFIX = "Authoritative checkpoint for"
+DOCS_BASE_URL = "https://lemgenda.github.io/ai-training-whitepapers"
+
+
+def resolve_whitepaper_url(model_key: str) -> str:
+    """Resolve the published GitHub Pages HTML URL for a given model's technical whitepaper."""
+    try:
+        project_root = get_project_root()
+        docs_dir = (project_root.parent / "lemgendary-docs").resolve()
+        caps_path = docs_dir / "canonical_capabilities.yaml"
+        manifest_path = docs_dir / "manifest" / "documents.json"
+
+        if caps_path.exists() and manifest_path.exists():
+            import yaml
+            caps = yaml.safe_load(caps_path.read_text(encoding="utf-8")) or {}
+            models = caps.get("models", [])
+            target_model = next((m for m in models if m.get("id") == model_key), None)
+
+            if target_model:
+                whitepaper_ref = target_model.get("evidence", {}).get("whitepaper", "")
+                md_filename = Path(whitepaper_ref).name
+
+                docs_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                for doc in docs_manifest.get("documents", []):
+                    doc_md_filename = Path(doc.get("md_path", "")).name
+                    if doc_md_filename == md_filename or (
+                        model_key == "ai_helper_lemgend" and doc.get("id") == "foundation-llm"
+                    ):
+                        return f"{DOCS_BASE_URL}/{doc.get('html_path')}"
+    except Exception as exc:
+        logger.debug("Could not resolve whitepaper URL for %s: %s", model_key, exc)
+
+    return f"{DOCS_BASE_URL}/index.html"
 
 
 class KaggleMetadataService:
@@ -79,6 +111,10 @@ class KaggleMetadataService:
         if ref and ref.link and ref.link not in sources:
             sources.append(ref.link)
 
+        whitepaper_url = resolve_whitepaper_url(model_key)
+        if whitepaper_url and whitepaper_url not in sources:
+            sources.append(whitepaper_url)
+
         dataset_urls = self._dataset_urls(resolved)
         stem = resolved.filename or model_key
 
@@ -87,7 +123,7 @@ class KaggleMetadataService:
             slug=slug,
             title=title,
             subtitle=subtitle,
-            description=self._build_description(resolved, owner, slug, dataset_urls),
+            description=self._build_description(resolved, owner, slug, dataset_urls, whitepaper_url),
             is_private=False,
             license=license_name,
             keywords=keywords,
@@ -200,7 +236,13 @@ class KaggleMetadataService:
         return urls
 
     @staticmethod
-    def _build_description(spec: ModelSpecification, owner: str, slug: str, dataset_urls: list[str]) -> str:
+    def _build_description(
+        spec: ModelSpecification,
+        owner: str,
+        slug: str,
+        dataset_urls: list[str],
+        whitepaper_url: str | None = None,
+    ) -> str:
         raw_desc = spec.description or spec.name
         wrapped_desc = textwrap.fill(raw_desc, width=120) if len(raw_desc) > 120 else raw_desc
         lines: list[str] = [wrapped_desc, ""]
@@ -215,32 +257,51 @@ class KaggleMetadataService:
         lines.append("**Variations:**")
         for variation in VARIATIONS:
             lines.append(f"- `{variation.handle(owner, slug)}` - {variation.label}")
+
+        # Citations & Academic / Technical Whitepaper References
+        resolved_whitepaper = whitepaper_url or resolve_whitepaper_url(spec.key)
+        lines.append("")
+        lines.append("### Citations & Technical Documentation")
+        if resolved_whitepaper:
+            lines.append(f"- **Architecture Whitepaper:** [{resolved_whitepaper}]({resolved_whitepaper})")
+
         ref = spec.academic_reference
         if ref and ref.title:
-            lines.append("")
             citation = f"{ref.authors} ({ref.year}). {ref.title}. {ref.venue}".strip()
-            full_ref = f"**Reference:** {citation} {ref.link}".strip()
+            full_ref = f"- **Academic Reference:** {citation} {ref.link}".strip()
             if len(full_ref) > 120:
                 wrapped_ref = textwrap.fill(full_ref, width=120, break_long_words=False, break_on_hyphens=False)
                 lines.append(wrapped_ref)
             else:
                 lines.append(full_ref)
+        elif not resolved_whitepaper:
+            lines.append(f"- **Documentation Hub:** [{DOCS_BASE_URL}]({DOCS_BASE_URL})")
+
         return "\n".join(lines).strip() + "\n"
 
     @staticmethod
     def _variation_overview(spec: ModelSpecification, variation: KaggleVariation) -> str:
+        stem = spec.filename or spec.key
         if variation is PYTORCH_DEFAULT:
             return (
                 f"Training checkpoints for {spec.name} (best.pth, latest.pth) with the model README and "
-                "training metrics. Use for evaluation, resuming training or fine-tuning."
+                "training metrics.csv. Includes complete fine-tuning state and architecture telemetry for evaluation, "
+                "resuming training, or transfer learning."
             )
         if variation is PYTORCH_FP32:
-            return f"Production PyTorch FP32 weights (.pt) for {spec.name}. Ready for inference."
+            return (
+                f"Production PyTorch FP32 standalone TorchScript weight binary ({stem}.pt) for {spec.name}. "
+                "Optimized for direct CPU and CUDA server inference without external dependencies."
+            )
         if variation is ONNX_FP16:
-            return f"ONNX half-precision (FP16) export of {spec.name} for low-latency, low-memory inference."
+            return (
+                f"ONNX half-precision (FP16) computational graph ({stem}.onnx) for {spec.name}. "
+                "Engineered for high-throughput, low-latency, and low-VRAM edge inference via ONNX Runtime with TensorRT or CUDA Execution Providers."
+            )
         return (
-            f"ONNX full-precision (FP32) export of {spec.name}. The .onnx file and its external "
-            ".data weights file must stay in the same directory."
+            f"ONNX full-precision (FP32) computational graph ({stem}_FP32.onnx) for {spec.name}. "
+            "Engineered for high-precision validation and broad hardware compatibility. "
+            "Note: The .onnx graph and its external weights tensor file (.onnx.data) must reside in the same runtime directory."
         )
 
     @staticmethod
