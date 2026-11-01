@@ -16,6 +16,7 @@ _RUNTIME_ENV_FALLBACK: dict[str, str] = {
     }
 
 _BLOCKED_RUNTIME_ENV: set[str] = {
+    "PYTORCH_CUDA_ALLOC_CONF",
     "CUDA_FORCE_PTX_JIT",
     "TORCH_CUDA_ARCH_LIST",
     "CUDA_CACHE_PATH",
