@@ -11,11 +11,17 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.55-STABLE` |
+| **Version** | `v16.9.56-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.56 - Kaggle Hub Checkpoint Preservation, Rank 0 Cloud Sync Gating & Staging Protection
+
+- **Rank 0 Cloud Sync Gating (`training/cloud_sync.py`)** - Gated `trigger_cloud_sync` strictly to Rank 0 (`os.environ.get("RANK", "0") == "0"`). Under multi-GPU DDP training on Kaggle/Colab, both Rank 0 and Rank 1 previously attempted simultaneous background uploads to Kaggle Model Hub, causing racing write conditions, HTTP 400 Bad Request collisions, and corrupted upload sessions.
+- **Defensive Checkpoint & Metrics Staging (`training/cloud/kaggle_hub.py`)** - Fixed missing `.pth` checkpoint weights in Kaggle Hub model version uploads. Checkpoint staging now traverses the source model directory, defensively asserts that all checkpoint binaries (`best.pth`, `latest.pth`, `vault_*.pth`) and telemetry logs (`README.md`, `metrics.csv`, `history.csv`) exist in the upload staging folder prior to triggering `kagglehub.model_upload()`.
+- **Transient Staging Directory Isolation (`training/checkpoint/lifecycle_manager.py`)** - Hardened `canonicalize_checkpoints()` to ignore `.kaggle_upload_stage` and `.export_staging` directories. Prevents the lifecycle manager from treating transient upload copies as duplicate checkpoints or unlinking them during active cloud publishing phases.
 
 ### v16.9.55 — Governor Data Fraction Soak Cooldown Hardening, DDP Batch Calibration & Rank 0 Output Gating
 

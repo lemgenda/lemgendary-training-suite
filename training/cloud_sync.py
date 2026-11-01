@@ -98,6 +98,11 @@ def trigger_cloud_sync(
     is_mid_epoch: bool = False,
 ) -> None:
     """Entry point for training loop to trigger background or synchronous sync."""
+    # Under DDP, strictly gate cloud synchronization to Rank 0 to prevent concurrent upload collisions
+    if os.environ.get("RANK", "0") != "0":
+        logger.debug("Skipping cloud sync on non-zero rank (%s)", os.environ.get("RANK"))
+        return
+
     global _active_sync_thread
     manager = CloudSyncManager(model_name, epoch, config, is_mid_epoch=is_mid_epoch)
 

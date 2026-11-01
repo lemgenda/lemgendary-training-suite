@@ -126,6 +126,11 @@ def canonicalize_checkpoints(model_hub_dir: Path, checkpoints_dir: Path) -> list
         if not pth.is_file():
             continue
 
+        # Strictly ignore transient staging directories
+        pth_resolved_parents = pth.resolve().parents
+        if any(parent.name in (".kaggle_upload_stage", ".export_staging") for parent in pth_resolved_parents):
+            continue
+
         name_lower = pth.name.lower()
 
         # Determine target canonical filename

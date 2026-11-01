@@ -109,6 +109,8 @@ sys.exit(res.returncode)
 
             # Copy or hardlink contents
             for item in src_dir.iterdir():
+                if item.name == ".kaggle_upload_stage":
+                    continue
                 dst = staging_dir / item.name
                 if item.name.lower() == "checkpoints" and item.is_dir():
                     dst.mkdir(parents=True, exist_ok=True)
@@ -118,11 +120,26 @@ sys.exit(res.returncode)
                                 os.link(f, dst / f.name)
                             except OSError:
                                 shutil.copy2(f, dst / f.name)
-                elif item.name != ".kaggle_upload_stage":
-                    if item.is_dir():
-                        shutil.copytree(item, dst)
-                    elif item.is_file():
-                        shutil.copy2(item, dst)
+                elif item.is_dir():
+                    shutil.copytree(item, dst)
+                elif item.is_file():
+                    shutil.copy2(item, dst)
+
+            # Defensive validation: ensure essential checkpoints and metrics are staged if available
+            checkpoints_staging = staging_dir / "checkpoints"
+            if not checkpoints_staging.exists():
+                src_ckpts = src_dir / "checkpoints"
+                if src_ckpts.exists() and src_ckpts.is_dir():
+                    checkpoints_staging.mkdir(parents=True, exist_ok=True)
+                    for f in src_ckpts.glob("*.pth"):
+                        if f.is_file():
+                            shutil.copy2(f, checkpoints_staging / f.name)
+
+            for meta_file in ("README.md", "metrics.csv", "history.csv"):
+                src_meta = src_dir / meta_file
+                dst_meta = staging_dir / meta_file
+                if src_meta.exists() and src_meta.is_file() and not dst_meta.exists():
+                    shutil.copy2(src_meta, dst_meta)
 
             # Dynamic import of kagglehub
             try:
