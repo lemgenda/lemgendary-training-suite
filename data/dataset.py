@@ -491,10 +491,23 @@ class MultiTaskDataset(Dataset):
         img_tensor = self.transform(img)
 
         if self.task_type in ("restoration", "enhancement", "face"):
+            model_info = self.unified_models.get(self.model_key, {})
+            needs_syn = getattr(self, "needs_synthesis", False) or model_info.get("needs_synthesis", False)
+
             if target_img is not None:
                 random.seed(seed)
                 torch.manual_seed(seed)
                 target_tensor = self.transform(target_img)
+            elif needs_syn or self.task_type in ("restoration", "face"):
+                # Clean sample loaded from container; synthesize realistic degradation on-the-fly for inputs
+                clean_target = img
+                degraded_input = synthesize_degradation(clean_target)
+                random.seed(seed)
+                torch.manual_seed(seed)
+                target_tensor = self.transform(clean_target)
+                random.seed(seed)
+                torch.manual_seed(seed)
+                img_tensor = self.transform(degraded_input)
             else:
                 random.seed(seed)
                 torch.manual_seed(seed)

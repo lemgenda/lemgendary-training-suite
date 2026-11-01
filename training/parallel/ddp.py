@@ -45,12 +45,15 @@ class DistributedDataParallelStrategy(ParallelStrategy):
             if torch.cuda.is_available():
                 torch.cuda.set_device(self._local_rank)
 
-            dist.init_process_group(
-                backend=backend,
-                rank=self._rank,
-                world_size=self._world_size,
-                timeout=datetime.timedelta(seconds=1800),
-            )
+            init_kwargs = {
+                "backend": backend,
+                "rank": self._rank,
+                "world_size": self._world_size,
+                "timeout": datetime.timedelta(seconds=1800),
+            }
+            if torch.cuda.is_available():
+                init_kwargs["device_id"] = torch.device(f"cuda:{self._local_rank}")
+            dist.init_process_group(**init_kwargs)
             self._initialized = True
             logger.info(
                 "DDP process group initialized: backend=%s rank=%d/%d (local_rank=%d)",

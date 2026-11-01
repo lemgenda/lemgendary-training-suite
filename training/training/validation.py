@@ -412,6 +412,7 @@ def validate_one_epoch(
                             fid_metric_module = FrechetInceptionDistance(
                                 feature=64,
                                 reset_real_features=True,
+                                sync_on_compute=False,
                             ).to(device)
                             fid_metric_module.eval()
                         except Exception as exc:

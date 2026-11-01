@@ -6,6 +6,7 @@ forward passes under AMP autocast, gradient accumulation, and telemetry collecti
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import time
 from typing import Any
 import torch
@@ -144,15 +145,21 @@ def train_one_epoch(
                 or (batch_idx + 1) == len(ctx.train_loader)
             )
 
+            # In multi-GPU DDP, suppress all-reduce on micro-batches before the update step boundary
+            bwd_ctx = nullcontext()
+            if not is_update_step and ctx.parallel_strategy is not None and hasattr(ctx.parallel_strategy, "backward_context"):
+                bwd_ctx = ctx.parallel_strategy.backward_context(ctx.accumulation_steps)
+
             # Scale loss, compute backward, and collect gradient norm at step boundary
-            grad_norm = safe_backward(
-                loss=scaled_loss,
-                optimizer=ctx.optimizer,
-                scaler=ctx.scaler,
-                max_norm=1.0,
-                model=ctx.model,
-                should_unscale=is_update_step,
-            )
+            with bwd_ctx:
+                grad_norm = safe_backward(
+                    loss=scaled_loss,
+                    optimizer=ctx.optimizer,
+                    scaler=ctx.scaler,
+                    max_norm=1.0,
+                    model=ctx.model,
+                    should_unscale=is_update_step,
+                )
         except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
             if "out of memory" in str(oom_err).lower() or isinstance(oom_err, torch.cuda.OutOfMemoryError):
                 if ctx.optimizer is not None:

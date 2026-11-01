@@ -1,3 +1,4 @@
+import os
 """Unified DataLoader factory functions and lifecycle management."""
 
 import logging
@@ -131,6 +132,11 @@ def build_val_loader(
         "pin_memory": pin,
         "drop_last": False,
     }
+
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if world_size > 1:
+        from torch.utils.data.distributed import DistributedSampler
+        kwargs["sampler"] = DistributedSampler(dataset, shuffle=False)
 
     if workers > 0:
         kwargs["worker_init_fn"] = dataloader_worker_init_fn

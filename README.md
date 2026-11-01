@@ -17,6 +17,14 @@
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
 
+### v16.9.58 - Multi-GPU DDP Collective Alignment, Validation Sampler & Container Degradation
+
+- **Distributed Validation DataLoader Alignment (`training/data/loaders.py`)** - Resolved the root cause of the 30-minute NCCL watchdog timeout (`Watchdog caught collective operation timeout: WorkNCCL(SeqNum=2993, OpType=ALLREDUCE)`). In multi-GPU DDP, validation DataLoaders previously lacked a `DistributedSampler`, causing rank sample counts to diverge. `build_val_loader` now automatically assigns a non-shuffling `DistributedSampler` whenever `WORLD_SIZE > 1`.
+- **TorchMetrics DDP Sync Isolation (`training/training/validation.py`)** - Explicitly set `sync_on_compute=False` on `FrechetInceptionDistance`. Prevents internal metric modules from launching uncoordinated global all-reduces during distributed evaluation.
+- **DDP Gradient Accumulation All-Reduce Suppression (`training/training/epoch.py`)** - Wrapped `safe_backward` in `ctx.parallel_strategy.backward_context()` (`model.no_sync()`) on micro-batches before the accumulation boundary, preventing redundant all-reduce synchronization across ranks and eliminating deadlocks during stepped gradient accumulation.
+- **On-The-Fly Degradation for Container WebDatasets (`data/dataset.py`)** - Fixed zero loss flatlining (`TrainLoss: 0.0000`, `ValLoss: 0.0000`) for all restoration and enhancement models (`needs_synthesis=True`). When WebDataset shards supply clean high-resolution face/image samples without separate degraded ground truth, `_getitem_container` dynamically synthesizes realistic degradation on-the-fly (`synthesize_degradation(clean_target)`), providing real training gradients across all architectures.
+- **DDP Device Context Binding (`training/parallel/ddp.py`)** - Explicitly provided `device_id` to `dist.init_process_group()`, eliminating the PyTorch 2.x / Python 3.13 `c10d` logger barrier warning.
+
 ### v16.9.57 - Notebook Generator Matrix Hardening & Universal Staging Alignment
 
 - **SSOT Environment & Allocator Hardening (`lemgendary-env-manager/requirements/runtime_env.yaml`, `training/notebooks/cells/env.py`)** - Commented out `PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True` in `runtime_env.yaml` and added `PYTORCH_CUDA_ALLOC_CONF` to `_BLOCKED_RUNTIME_ENV` in `cells/env.py`. This guarantees that neither standalone nor dataset-compiler generated notebooks re-inject virtual memory mapping fragmentation flags into Cell 1/Hardware Sentinel.
