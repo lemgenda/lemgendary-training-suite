@@ -17,15 +17,18 @@ from training.training.context import TrainingContext
 def _unpack_batch(batch: Any, device: torch.device) -> tuple[Any, Any, Any]:
     """Unpack batch into inputs, targets, and optional task indicators."""
     if isinstance(batch, (tuple, list)):
-        if len(batch) >= 3:
-            inputs, targets, task_idx = batch[0], batch[1], batch[2]
-        elif len(batch) == 2:
-            inputs, targets = batch[0], batch[1]
+        batch_seq = list(batch)
+        if len(batch_seq) >= 3:
+            inputs, targets, task_idx = batch_seq[0], batch_seq[1], batch_seq[2]
+        elif len(batch_seq) == 2:
+            inputs, targets = batch_seq[0], batch_seq[1]
+            task_idx = None
+        elif len(batch_seq) == 1:
+            inputs = batch_seq[0]
+            targets = batch_seq[0]
             task_idx = None
         else:
-            inputs = batch[0]
-            targets = batch[0]
-            task_idx = None
+            inputs, targets, task_idx = None, None, None
     elif isinstance(batch, dict):
         inputs = batch.get("inputs", batch.get("image", batch.get("features", batch)))
         targets = batch.get("targets", batch.get("target", batch.get("label", inputs)))
@@ -154,6 +157,10 @@ def train_one_epoch(
             if "out of memory" in str(oom_err).lower() or isinstance(oom_err, torch.cuda.OutOfMemoryError):
                 if ctx.optimizer is not None:
                     ctx.optimizer.zero_grad(set_to_none=True)
+
+            # Periodic cache clearing to prevent virtual address fragmentation on <=16GB GPUs
+            if (batch_idx + 1) % 50 == 0 and torch.cuda.is_available():
+                torch.cuda.empty_cache()
                 if hasattr(ctx.governor, "handle_oom"):
                     curr_b = getattr(ctx.train_loader, "batch_size", 16) or 16
                     new_b, new_acc = ctx.governor.handle_oom(current_batch=curr_b)

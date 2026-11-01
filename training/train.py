@@ -3,7 +3,7 @@ import sys
 import os
 
 if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ and sys.platform != "win32":
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:128"
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:64"
 
 # --- Hyper-Verbose Path Defense (2026 Specialization) ---
 script_dir = os.path.dirname(os.path.abspath(__file__))

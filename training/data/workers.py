@@ -62,7 +62,10 @@ def compute_worker_topology(
         # Time-series datasets stream efficiently from memory/mmap; multi-process adds IPC overhead
         num_workers = 0
     elif env in {"kaggle", "colab"}:
-        num_workers = 4
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        # In multi-GPU DDP on Kaggle (2 GPUs), 4 workers per process spawns 8 total workers,
+        # exhausting shared memory and RAM. Cap to 2 workers per process in DDP.
+        num_workers = 2 if world_size > 1 else 4
     elif sys.platform == "win32":
         # Windows multi-process PyTorch spawns via freeze_support; restrict to 2 if ample RAM
         num_workers = 2 if ram_gb >= 16.0 else 0
@@ -89,7 +92,8 @@ def compute_worker_topology(
 
     pin_memory = dev.type == "cuda"
     persistent_workers = num_workers > 0 and ram_gb >= 16.0 and sys.platform != "win32"
-    prefetch_factor = 8 if num_workers > 0 else None
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    prefetch_factor = (2 if (env in {"kaggle", "colab"} or world_size > 1) else 4) if num_workers > 0 else None
 
     logger.info(
         "Worker topology computed: train_workers=%d, val_workers=%d, persistent=%s, pin_mem=%s, prefetch=%s",

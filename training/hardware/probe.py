@@ -270,9 +270,9 @@ def audit_hardware_vram(
     # on <=16GB GPUs require strict headroom at >=384px to prevent virtual memory mapping OOM
     if is_restoration and vram_gb < 16.5:
         if max(h, w) >= 512:
-            final_batch = min(final_batch, 2)
+            final_batch = min(final_batch, 1 if is_ddp else 2)
         elif max(h, w) >= 384:
-            final_batch = min(final_batch, 4)
+            final_batch = min(final_batch, 2 if is_ddp else 4)
 
     # Multi-GPU Host RAM Guard
     if mode == "val" and (is_kaggle or sys_ram_gb < 35.0):

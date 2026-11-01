@@ -175,7 +175,7 @@ def main() -> None:
     env.setdefault("NCCL_DEBUG", "WARN")
 
     # Anti-fragmentation and expandable memory segments allocation
-    env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True,max_split_size_mb:128")
+    env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True,max_split_size_mb:64")
 
     result = subprocess.call(torchrun_cmd, env=env)
     sys.exit(result)
