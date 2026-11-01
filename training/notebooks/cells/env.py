@@ -13,8 +13,7 @@ _RUNTIME_ENV_FALLBACK: dict[str, str] = {
     "PYTHONUTF8": "1",
     "PYTHONUNBUFFERED": "1",
     "PYTHONIOENCODING": "utf-8",
-    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-}
+    }
 
 _BLOCKED_RUNTIME_ENV: set[str] = {
     "CUDA_FORCE_PTX_JIT",
@@ -63,7 +62,7 @@ def _load_runtime_env() -> dict[str, str]:
             result[str(name)] = str(spec["value"])
 
     result = {k: v for k, v in result.items() if k not in _BLOCKED_RUNTIME_ENV}
-    result.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    # Default standard allocator
 
     return result if result else dict(_RUNTIME_ENV_FALLBACK)
 

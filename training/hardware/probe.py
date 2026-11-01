@@ -267,12 +267,15 @@ def audit_hardware_vram(
             final_batch = final_batch * gpu_count
 
     # Heavy restoration and face models (CodeFormer, ParseNet, FilmRestorer, NAFNet, MPRNet)
-    # on <=16GB GPUs require strict headroom at >=384px to prevent virtual memory mapping OOM
+    # On <=16GB GPUs (e.g. Tesla T4), physical batch size is calibrated to ensure ample headroom for
+    # intermediate UNet activations, optimizer states, and NCCL communication buffers:
+    # - >= 512px: capped to 2 (peak VRAM ~6.6 GiB)
+    # - >= 384px: capped to 4 (peak VRAM ~3.3 GiB, leaving >11 GiB of clean headroom)
     if is_restoration and vram_gb < 16.5:
         if max(h, w) >= 512:
-            final_batch = min(final_batch, 1 if is_ddp else 2)
+            final_batch = min(final_batch, 2)
         elif max(h, w) >= 384:
-            final_batch = min(final_batch, 2 if is_ddp else 4)
+            final_batch = min(final_batch, 4)
 
     # Multi-GPU Host RAM Guard
     if mode == "val" and (is_kaggle or sys_ram_gb < 35.0):
