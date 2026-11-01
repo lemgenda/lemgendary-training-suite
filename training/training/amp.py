@@ -38,11 +38,22 @@ def safe_backward(
     scaler: Any | None = None,
     max_norm: float | None = None,
     model: torch.nn.Module | None = None,
+    should_unscale: bool = True,
 ) -> float:
     """Perform a backward pass with optional AMP scaling, gradient unscaling, and clipping.
 
+    Args:
+        loss: Scaled loss tensor.
+        optimizer: PyTorch optimizer.
+        scaler: GradScaler instance (if AMP active).
+        max_norm: Maximum gradient norm for clipping.
+        model: Model containing parameters.
+        should_unscale: Whether to unscale gradients and clip norm on this step.
+            When using gradient accumulation, this must be False until the optimizer
+            update step boundary to comply with PyTorch GradScaler constraints.
+
     Returns:
-        float: Gradient norm after clipping (or 0.0 if not computed).
+        float: Gradient norm after clipping (or 0.0 if not computed/deferred).
     """
     if scaler is not None:
         scaler.scale(loss).backward()
@@ -50,9 +61,14 @@ def safe_backward(
         loss.backward()
 
     grad_norm = 0.0
-    if model is not None and max_norm is not None and max_norm > 0:
+    if should_unscale and model is not None and max_norm is not None and max_norm > 0:
         if scaler is not None:
-            scaler.unscale_(optimizer)
+            # Check if this optimizer has already been unscaled in this step
+            try:
+                scaler.unscale_(optimizer)
+            except RuntimeError as err:
+                if "already been called" not in str(err):
+                    raise err
         norm_tensor = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
         if isinstance(norm_tensor, torch.Tensor):
             grad_norm = float(norm_tensor.item())

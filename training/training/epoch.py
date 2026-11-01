@@ -136,13 +136,19 @@ def train_one_epoch(
 
                 scaled_loss = raw_loss / max(1, ctx.accumulation_steps)
 
-            # Scale loss, compute backward, and collect gradient norm
+            is_update_step = (
+                (accumulated_steps + 1) % ctx.accumulation_steps == 0
+                or (batch_idx + 1) == len(ctx.train_loader)
+            )
+
+            # Scale loss, compute backward, and collect gradient norm at step boundary
             grad_norm = safe_backward(
                 loss=scaled_loss,
                 optimizer=ctx.optimizer,
                 scaler=ctx.scaler,
                 max_norm=1.0,
                 model=ctx.model,
+                should_unscale=is_update_step,
             )
         except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
             if "out of memory" in str(oom_err).lower() or isinstance(oom_err, torch.cuda.OutOfMemoryError):
