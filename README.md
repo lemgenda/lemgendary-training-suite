@@ -19,10 +19,9 @@
 
 ### v16.9.57 - Notebook Generator Matrix Hardening & Universal Staging Alignment
 
-- **SSOT Environment & Allocator Hardening (lemgendary-env-manager/requirements/runtime_env.yaml, 	raining/notebooks/cells/env.py)** - Commented out PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True in 
-untime_env.yaml and added PYTORCH_CUDA_ALLOC_CONF to _BLOCKED_RUNTIME_ENV in cells/env.py. This guarantees that neither standalone nor dataset-compiler generated notebooks re-inject virtual memory mapping fragmentation flags into Cell 1/Hardware Sentinel.
-- **Universal Exporter Alignment in Cell 8 (	raining/notebooks/cells/sync.py)** - Corrected the embedded SOTA export invocation in uild_push_cell() from non-existent UniversalExporter().export_all_for_model() to canonical export_all(model_key, output_dir=local_path). Added history.csv alongside README.md and metrics.csv to ensure training curve telemetry is preserved in Kaggle Hub releases.
-- **Global Notebook Matrix Regeneration (	raining/notebook_generator.py)** - Re-synchronized all 96 Kaggle and Colab training and usage notebooks across the 24+ model architectures and dataset manifolds.
+- **SSOT Environment & Allocator Hardening (`lemgendary-env-manager/requirements/runtime_env.yaml`, `training/notebooks/cells/env.py`)** - Commented out `PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True` in `runtime_env.yaml` and added `PYTORCH_CUDA_ALLOC_CONF` to `_BLOCKED_RUNTIME_ENV` in `cells/env.py`. This guarantees that neither standalone nor dataset-compiler generated notebooks re-inject virtual memory mapping fragmentation flags into Cell 1/Hardware Sentinel.
+- **Universal Exporter Alignment in Cell 8 (`training/notebooks/cells/sync.py`)** - Corrected the embedded SOTA export invocation in `build_push_cell()` from non-existent `UniversalExporter().export_all_for_model()` to canonical `export_all(model_key, output_dir=local_path)`. Added `history.csv` alongside `README.md` and `metrics.csv` to ensure training curve telemetry is preserved in Kaggle Hub releases.
+- **Global Notebook Matrix Regeneration (`training/notebook_generator.py`)** - Re-synchronized all 96 Kaggle and Colab training and usage notebooks across the 24+ model architectures and dataset manifolds.
 
 ### v16.9.56 - Kaggle Hub Checkpoint Preservation, Rank 0 Cloud Sync Gating & Staging Protection
 
