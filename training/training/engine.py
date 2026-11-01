@@ -5,6 +5,7 @@ SOTA tracking, atomic checkpointing, rollback recovery, and cloud sync triggers.
 """
 
 from __future__ import annotations
+import os
 
 import logging
 import time
@@ -114,7 +115,8 @@ def run_training(
             if "epoch_time" not in train_metrics:
                 train_metrics["epoch_time"] = 0.0
         else:
-            print(f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for {ctx.model_name}...", flush=True)
+            if os.environ.get("RANK", "0") == "0":
+                print(f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for {ctx.model_name}...", flush=True)
 
             # Reseed sampler epoch if supported (e.g. RowGroupAwareSampler)
             sampler = getattr(ctx.train_loader, "sampler", None)

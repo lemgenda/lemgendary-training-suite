@@ -239,9 +239,11 @@ def audit_hardware_vram(
 
     gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
     gpu_count = torch.cuda.device_count() if device.type == "cuda" else 1
+    is_ddp = os.environ.get("RANK") is not None or int(os.environ.get("WORLD_SIZE", "1")) > 1
     is_dataparallel = isinstance(model, torch.nn.DataParallel) or (hasattr(model, "module") and gpu_count > 1)
 
-    if gpu_count > 1:
+    # In DDP each process operates on a single device, so batch must NEVER be multiplied by gpu_count
+    if gpu_count > 1 and not is_ddp:
         if is_dataparallel:
             if max(h, w) >= 512 or is_restoration:
                 final_batch = min(final_batch, 4 if is_restoration else 8)
@@ -252,6 +254,14 @@ def audit_hardware_vram(
                     final_batch -= 1
         else:
             final_batch = final_batch * gpu_count
+
+    # Heavy restoration and face models (CodeFormer, ParseNet, FilmRestorer, NAFNet, MPRNet)
+    # on <=16GB GPUs require strict headroom at >=384px to prevent virtual memory mapping OOM
+    if is_restoration and vram_gb < 16.5:
+        if max(h, w) >= 512:
+            final_batch = min(final_batch, 2)
+        elif max(h, w) >= 384:
+            final_batch = min(final_batch, 4)
 
     # Multi-GPU Host RAM Guard
     if mode == "val" and (is_kaggle or sys_ram_gb < 35.0):

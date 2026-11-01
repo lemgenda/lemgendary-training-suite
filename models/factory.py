@@ -133,7 +133,8 @@ def get_model(model_key, config=None):
         )
 
     if model_class_name in _MODEL_REGISTRY:
-        print(f" [FACTORY] Instantiating {model_class_name} for key: {model_key}")
+        if os.environ.get("RANK", "0") == "0":
+            print(f" [FACTORY] Instantiating {model_class_name} for key: {model_key}")
         cls = _MODEL_REGISTRY[model_class_name]
         kwargs = kwargs or {}
         try:

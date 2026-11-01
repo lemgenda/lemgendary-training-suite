@@ -8,6 +8,7 @@ All other models use the universal TrainingContext path.
 """
 
 from __future__ import annotations
+import os
 
 import argparse
 import logging
@@ -577,12 +578,13 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                     config=config,
                                 )
                             total_ds_samples = len(getattr(train_ds, "all_samples", [])) or len(train_ds)
-                            print(
-                                f"[CURRICULUM] Active training manifold: {len(train_ds)}/{total_ds_samples} samples "
-                                f"({(rec_frac if rec_frac is not None else 1.0) * 100:.0f}% data fraction) | "
-                                f"Res: {rec_res}px | Batch: {curr_batch} | Total Batches: {len(train_loader)}",
-                                flush=True,
-                            )
+                            if os.environ.get("RANK", "0") == "0":
+                                print(
+                                    f"[CURRICULUM] Active training manifold: {len(train_ds)}/{total_ds_samples} samples "
+                                    f"({(rec_frac if rec_frac is not None else 1.0) * 100:.0f}% data fraction) | "
+                                    f"Res: {rec_res}px | Batch: {curr_batch} | Total Batches: {len(train_loader)}",
+                                    flush=True,
+                                )
                             logger.info(
                                 "Synchronized training dataset and loader with recovered governor state: res=%s, frac=%.2f",
                                 rec_res,
@@ -672,7 +674,8 @@ def main(raw_args: list[str] | None = None) -> None:
     parser = build_cli_parser()
     args = parser.parse_args(raw_args)
 
-    print("[BOOT] LemGendary Training Suite initiating...", flush=True)
+    if os.environ.get("RANK", "0") == "0":
+        print("[BOOT] LemGendary Training Suite initiating...", flush=True)
 
     # Intercept yolov8n before building TrainingContext — it uses the Ultralytics native trainer.
     if args.model == "yolov8n":

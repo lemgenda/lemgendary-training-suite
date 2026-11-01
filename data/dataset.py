@@ -197,9 +197,11 @@ class MultiTaskDataset(Dataset):
             resolver = ManifoldResolver(env=self.env, config=config)
             attached_manifolds = resolver.scan_kaggle_input_manifolds()
             if attached_manifolds:
-                print(f"\n[KAGGLE] Auto-discovered {len(attached_manifolds)} attached dataset manifold(s) in /kaggle/input:")
+                if os.environ.get("RANK", "0") == "0":
+                    print(f"\n[KAGGLE] Auto-discovered {len(attached_manifolds)} attached dataset manifold(s) in /kaggle/input:")
+                    for m_path in attached_manifolds:
+                        print(f"  -> {m_path}")
                 for m_path in attached_manifolds:
-                    print(f"  -> {m_path}")
                     m_str = str(m_path)
                     loaded_paths.add(m_str)
                     ds_key = m_path.name
@@ -323,7 +325,8 @@ class MultiTaskDataset(Dataset):
                     type(reader).__name__,
                     count,
                 )
-                print(f"[CONTAINER] Resolved {type(reader).__name__} for '{ds_name}': {count} samples ({self.split} split)")
+                if os.environ.get("RANK", "0") == "0":
+                    print(f"[CONTAINER] Resolved {type(reader).__name__} for '{ds_name}': {count} samples ({self.split} split)")
             except (FileNotFoundError, OSError, ValueError) as exc:
                 logger.debug("Container reader failed for '%s': %s", ds_name, exc)
                 if self.split == "train":
