@@ -173,3 +173,23 @@ def validate_model_variations(model_key: str, request: Request) -> dict[str, Any
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed validating variations for '{model_key}': {e}")
+
+
+@router.post("/{model_key}/soup")
+def blend_model_soup(model_key: str, request: Request) -> dict[str, Any]:
+    """Blend specialized vault checkpoints using Pareto Model Soup."""
+    from training.export.soup import create_pareto_model_soup
+    root = _get_root(request)
+    ckpt_dir = root / "LemGendaryModels" / model_key / "checkpoints"
+    if not ckpt_dir.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Checkpoint directory not found for model: {model_key}",
+        )
+    out_path = ckpt_dir / "best_soup.pth"
+    res = create_pareto_model_soup(ckpt_dir, output_path=out_path)
+    return {
+        "model_key": model_key,
+        "success": res is not None,
+        "soup_checkpoint": str(out_path) if res is not None else None,
+    }

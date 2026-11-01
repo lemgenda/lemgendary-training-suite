@@ -410,7 +410,7 @@ def validate_one_epoch(
                     if fid_metric_module is None:
                         try:
                             fid_metric_module = FrechetInceptionDistance(
-                                feature=64,
+                                feature=2048,
                                 reset_real_features=True,
                                 sync_on_compute=False,
                             ).to(device)
@@ -426,8 +426,12 @@ def validate_one_epoch(
                             if p_u8.shape[1] == 1:
                                 p_u8 = p_u8.repeat(1, 3, 1, 1)
                                 t_u8 = t_u8.repeat(1, 3, 1, 1)
-                            fid_metric_module.update(t_u8, real=True)
-                            fid_metric_module.update(p_u8, real=False)
+                            chunk_size = 2
+                            for c_idx in range(0, p_u8.size(0), chunk_size):
+                                p_chunk = p_u8[c_idx:c_idx + chunk_size]
+                                t_chunk = t_u8[c_idx:c_idx + chunk_size]
+                                fid_metric_module.update(t_chunk, real=True)
+                                fid_metric_module.update(p_chunk, real=False)
                             fid_batches_accumulated += 1
                         except Exception as exc:
                             print(f"  [VAL NOTICE] FID update error: {exc}", flush=True)

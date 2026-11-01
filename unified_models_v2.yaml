@@ -185,7 +185,7 @@ nima_aesthetic_mobile:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.1
+    fraction_increment: 0.20
     plateau_patience: 8
     cooling_factor: 0.85
     plateau_priority: data
@@ -267,7 +267,7 @@ nima_aesthetic_efficientnet:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.1
+    fraction_increment: 0.20
     plateau_patience: 8
     cooling_factor: 0.85
     plateau_priority: data
@@ -349,7 +349,7 @@ nima_aesthetic_pro:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     plateau_patience: 6
     cooling_factor: 0.85
     plateau_priority: data
@@ -434,7 +434,7 @@ nima_technical:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     plateau_patience: 4
     cooling_factor: 0.85
     plateau_priority: data
@@ -509,7 +509,7 @@ nima_authenticity:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.2
+    fraction_increment: 0.20
     plateau_patience: 6
     cooling_factor: 0.85
     res_ladder:
@@ -573,7 +573,7 @@ upn_v2:
     enabled: true
     absolute_patience: 15
     initial_fraction: 0.15
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     plateau_patience: 4
     cooling_factor: 0.85
     target_effective_batch: 64
@@ -637,7 +637,7 @@ film_restorer:
     enabled: true
     absolute_patience: 15
     target_effective_batch: 32
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     plateau_patience: 8
     cooling_factor: 0.8
     res_ladder:
@@ -694,7 +694,7 @@ codeformer:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.1
+    fraction_increment: 0.20
     plateau_patience: 12
     cooling_factor: 0.7
     plateau_priority: data
@@ -764,7 +764,7 @@ parsenet:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.25
+    fraction_increment: 0.20
     plateau_patience: 8
     plateau_priority: data
     res_ladder:
@@ -829,7 +829,7 @@ ffanet_indoor:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
@@ -895,7 +895,7 @@ ffanet_outdoor:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
@@ -960,7 +960,7 @@ mirnet_lowlight:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
@@ -1025,7 +1025,7 @@ mirnet_exposure:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
@@ -1090,7 +1090,7 @@ mprnet_deraining:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
@@ -1277,7 +1277,7 @@ yolov8n:
     fraction_step_min: 0.15
     fraction_step_max: 0.2
     high_fidelity_fraction: 0.7
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     enabled: true
     plateau_patience: 10
     absolute_patience: 15
@@ -1350,7 +1350,7 @@ professional_multitask_restoration:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     plateau_patience: 15
     cooling_factor: 0.8
     plateau_priority: resolution
@@ -1417,7 +1417,7 @@ ultrazoom:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.15
+    fraction_increment: 0.20
     plateau_patience: 10
     plateau_priority: resolution
     res_ladder:
@@ -1481,7 +1481,7 @@ universal_nsfw_classification:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.2
+    fraction_increment: 0.20
     plateau_patience: 6
     cooling_factor: 0.85
     plateau_priority: data
@@ -1539,7 +1539,7 @@ retinaface:
     high_fidelity_fraction: 0.7
     enabled: true
     absolute_patience: 15
-    fraction_increment: 0.25
+    fraction_increment: 0.20
     plateau_patience: 10
     plateau_priority: data
     res_ladder:

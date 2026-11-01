@@ -12,6 +12,7 @@ _SECRET_MAPPING = [
     ("SUITE_PAT", ".SUITE_PAT"),
     ("SATURN_PAT", ".SATURN_PAT"),
     ("GOOGLE_DRIVE", ".GOOGLE_DRIVE"),
+    ("GOOGLE_DRIVE_JSON", ".GOOGLE_DRIVE_JSON"),
     ("KAGGLE_KEY", ".kaggle_token"),
     ("KAGGLE_USERNAME", ".kaggle_users"),
 ]

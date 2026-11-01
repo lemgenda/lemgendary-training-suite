@@ -86,7 +86,10 @@ class CloudSyncManager:
         try:
             return self.gdrive_mgr.sync(self.model_name, self.epoch, self.model_dir)
         except CloudSyncError as exc:
-            logger.warning("Google Drive sync notice: %s", exc)
+            if getattr(exc, "code", "") == "GDRIVE_UNCONFIGURED":
+                logger.info("Google Drive sync skipped: %s", exc)
+            else:
+                logger.warning("Google Drive sync notice: %s", exc)
             return False
 
 

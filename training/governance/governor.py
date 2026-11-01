@@ -855,23 +855,8 @@ class SmartTrainingGovernor:
             proven_threshold = max(85.0 if self.task_type == "quality" else 0.85, self.target_quality_score * 0.75)
             is_proven_manifold = self.best_quality >= proven_threshold
 
-            can_spatial_retreat = (
-                self.epoch_count - self.last_res_jump_epoch < 8
-                and self.breakout_lock == 0
-                and not is_proven_manifold
-            )
-
-            if can_spatial_retreat and self.current_res in self.res_ladder:
-                res_idx = self.res_ladder.index(self.current_res)
-                if res_idx > 0:
-                    self.current_res = self.res_ladder[res_idx - 1]
-                    self.current_fraction = 1.0
-                    r_changed = f_changed = True
-                    self.lr_multiplier = self.cooling_factor
-                    lr_changed = True
-                    self.stabilization_epochs = self.stabilization_lock
-                    self.cooldown_remaining = 5
-                    msg_parts.append(f"[SPATIAL RETREAT] Resetting to {self.current_res}px @ 100% Data Anchor")
+            # Monotonic ratchet: Spatial resolution and data fraction retreat strictly forbidden in production
+            can_spatial_retreat = False
 
             if not r_changed:
                 self.lr_multiplier = self.cooling_factor

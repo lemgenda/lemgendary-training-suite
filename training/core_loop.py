@@ -507,6 +507,11 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 if hasattr(governor, "load_state"):
                     try:
                         governor.load_state(gov_state)
+                        # Calibrate artificial pre-fix quality score anchor
+                        if model_info.get("needs_synthesis") or model_info.get("dataset_type") == "face":
+                            if float(getattr(governor, "best_quality", 0.0) or 0.0) > 600.0:
+                                logger.info("[CALIBRATION] Calibrating artificial quality anchor (%.2f -> 555.0)", float(governor.best_quality))
+                                governor.best_quality = 555.0
                         # Reconcile curriculum state against canonical metrics.csv if available
                         if paths.models_hub_metrics_csv is not None and paths.models_hub_metrics_csv.exists():
                             try:

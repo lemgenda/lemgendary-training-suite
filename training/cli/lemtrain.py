@@ -56,6 +56,31 @@ def is_sidecar_online(port: int = SIDECAR_PORT) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+@app.command("soup")
+def soup(
+    model: str = typer.Argument(..., help="Model key to blend vault checkpoints for."),
+    weights: Optional[str] = typer.Option(None, "--weights", "-w", help="Comma-separated weights (0.6,0.4)"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output filename or path"),
+) -> None:
+    """Blend specialized vault checkpoints using Pareto Model Soup."""
+    from training.export.soup import create_pareto_model_soup
+    from training.utils.paths import get_project_root
+    model_dir = get_project_root() / "LemGendaryModels" / model
+    ckpt_dir = model_dir / "checkpoints"
+    if not ckpt_dir.exists():
+        typer.echo(f"[ERROR] Checkpoint directory not found at {ckpt_dir}")
+        raise typer.Exit(1)
+
+    parsed_weights = [float(x.strip()) for x in weights.split(",")] if weights else None
+    out_path = Path(output) if output else (ckpt_dir / "best_soup.pth")
+
+    soup_state = create_pareto_model_soup(ckpt_dir, weights=parsed_weights, output_path=out_path)
+    if soup_state is not None:
+        typer.echo(f"[SUCCESS] Pareto Model Soup created at {out_path}")
+    else:
+        typer.echo("[NOTICE] Vault checkpoints not available for blending.")
+
+
 @app.command("version")
 def version() -> None:
     """Show LemGendary Training Suite version."""

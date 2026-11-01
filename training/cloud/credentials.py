@@ -229,8 +229,8 @@ def resolve_gdrive_credentials(override_token: str | None = None) -> str | None:
     """Resolve Google Drive access credentials using precedence.
 
     1. Explicit override token
-    2. Local file .GOOGLE_DRIVE
-    3. Environment variable GOOGLE_DRIVE
+    2. Local file .GOOGLE_DRIVE or .GOOGLE_DRIVE_JSON
+    3. Environment variable GOOGLE_DRIVE or GOOGLE_DRIVE_JSON
     4. Structured secrets from config loader
     """
     if override_token and override_token.strip():
@@ -239,6 +239,10 @@ def resolve_gdrive_credentials(override_token: str | None = None) -> str | None:
     token = get_secret("GOOGLE_DRIVE")
     if token and token.strip():
         return token.strip()
+
+    json_cred = get_secret("GOOGLE_DRIVE_JSON")
+    if json_cred and json_cred.strip():
+        return json_cred.strip()
 
     return None
 

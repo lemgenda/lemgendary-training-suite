@@ -50,7 +50,7 @@ class CurriculumState:
         new_frac = min(1.0, round(self.current_fraction + self.fraction_increment, 4))
         if new_frac > self.current_fraction:
             old_frac = self.current_fraction
-            self.current_fraction = new_frac
+            self.current_fraction = max(self.current_fraction, new_frac)
             logger.info("Expanded curriculum sample fraction: %.1f%% -> %.1f%%", old_frac * 100.0, new_frac * 100.0)
             return True
 
