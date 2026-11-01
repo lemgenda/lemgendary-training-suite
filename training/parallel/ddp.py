@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import AbstractContextManager, nullcontext
-from typing import Any
+from typing import Any, cast
 import torch
 import torch.nn as nn
 from training.parallel.base import ParallelStrategy, generic_prepare_batch
@@ -84,7 +84,7 @@ class DistributedDataParallelStrategy(ParallelStrategy):
             self._local_rank,
             self._world_size,
         )
-        return self._wrapped
+        return cast(Any, self._wrapped)
 
     def cleanup(self) -> None:
         """Tear down the distributed process group on exit."""

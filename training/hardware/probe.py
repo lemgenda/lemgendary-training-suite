@@ -68,7 +68,8 @@ def audit_hardware_vram(
                 free_gb = 0.0
                 per_device = 16
 
-            final_batch = per_device * gpu_count if gpu_count > 1 else per_device
+            is_ddp = os.environ.get("RANK") is not None or int(os.environ.get("WORLD_SIZE", "1")) > 1
+            final_batch = per_device * gpu_count if (gpu_count > 1 and not is_ddp) else per_device
             if mode == "val":
                 final_batch *= 2
 
@@ -80,10 +81,19 @@ def audit_hardware_vram(
         )
         return final_batch
 
-    # Vision / Restoration Models
-    is_restoration = any(
-        x in model_key.lower()
-        for x in ["nafnet", "mprnet", "mirnet", "ffanet", "codeformer", "film_restorer", "parsenet"]
+    # Vision / Restoration Models - Full 24-Model Coverage
+    category = str(model_info.get("category", "")).lower()
+    dataset_type = str(model_info.get("dataset_type", "")).lower()
+    is_restoration = (
+        category in ["restoration", "face"]
+        or dataset_type in ["restoration", "face", "segmentation", "super_resolution"]
+        or any(
+            x in model_key.lower()
+            for x in [
+                "nafnet", "mprnet", "mirnet", "ffanet", "codeformer",
+                "film_restorer", "parsenet", "ultrazoom", "multitask", "retinaface"
+            ]
+        )
     )
 
     if device.type != "cuda":
@@ -93,8 +103,9 @@ def audit_hardware_vram(
         return int(fallback_val) if fallback_val is not None else 16
 
     # Pre-flight CUDA check
+    cast_device: Any = device
     try:
-        test_tensor = torch.ones(1, device=device) + 1.0
+        test_tensor = torch.ones(1, device=cast_device) + 1.0
         torch.cuda.synchronize()
         del test_tensor
     except Exception as exc:
@@ -139,9 +150,9 @@ def audit_hardware_vram(
     # Warmup pass
     try:
         if "diffusion" in model_key.lower():
-            dummy = {"pixel_values": torch.randn(1, 3, h, w, device=device)}
+            dummy = {"pixel_values": torch.randn(1, 3, h, w, device=cast_device)}
         else:
-            dummy = torch.randn(1, 3, h, w, device=device)
+            dummy = torch.randn(1, 3, h, w, device=cast_device)
 
         model.eval() if mode == "val" else model.train()
         out = model(dummy)
@@ -163,9 +174,9 @@ def audit_hardware_vram(
 
     try:
         if "diffusion" in model_key.lower():
-            dummy_input: Any = {"pixel_values": torch.randn(1, 3, h, w, device=device)}
+            dummy_input: Any = {"pixel_values": torch.randn(1, 3, h, w, device=cast_device)}
         else:
-            dummy_input = torch.randn(1, 3, h, w, device=device)
+            dummy_input = torch.randn(1, 3, h, w, device=cast_device)
 
         if mode == "train":
             model.train()
