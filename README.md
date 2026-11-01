@@ -11,11 +11,46 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.50-STABLE` |
+| **Version** | `v16.9.54-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.54 — Governor On-The-Fly Active OOM Mitigation, DataLoader SIGINT Isolation & Anti-Fragmentation Memory Allocation
+
+- **Governor Active On-The-Fly OOM Mitigation (`training/governance/governor.py`, `training/governance/curriculum.py`)** — Added active, on-the-fly OOM recovery directly into the Governor (`handle_oom()` and `throttle_on_oom()`). When a GPU memory spike or `OutOfMemoryError` is intercepted during training or validation, the governor immediately purges CUDA cache and garbage collection, halves the physical batch size, doubles accumulation steps to keep effective batch size constant, activates spatial resolution locks, and seamlessly resumes training without aborting or crashing the job.
+- **Micro-Batched Perceptual Metric Isolation (`training/training/validation.py`)** — Streamlined LPIPS validation to evaluate 1 image per micro-batch under torch inference mode with dedicated Governor OOM intervention fallback, eliminating the 2.00 GiB VRAM allocation spike on dual-T4 GPUs.
+- **DataLoader Child Worker Signal Isolation (`training/data/workers.py`, `training/data/loaders.py`)** — Fixed `DataLoader worker exited unexpectedly with exit code 130` and `_MultiProcessingDataLoaderIter.__del__` exceptions on SIGINT termination. Registered `dataloader_worker_init_fn` across all training and validation DataLoaders to ignore `SIGINT` (`signal.SIG_IGN`) in child worker processes, allowing the main process to handle termination cleanly and shut down worker queues without broken-pipe exceptions.
+- **Anti-Fragmentation PyTorch Caching Allocator (`training/train.py`, `tools/launch_ddp.py`, `training/notebooks/cells/env.py`, `lemgendary-env-manager/requirements/runtime_env.yaml`)** — Enhanced `PYTORCH_CUDA_ALLOC_CONF` to include `max_split_size_mb:128` alongside `expandable_segments:True`. Prevents the CUDA caching allocator from failing expandable segments memory mapping on multi-GPU Kaggle runs when allocating small contiguous blocks (e.g., 20 MiB).
+- **DDP Unused Parameters Warning Elimination (`training/parallel/ddp.py`)** — Fully eliminated PyTorch DDP reducer warnings (`find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass...`). The flag now strictly defaults to `False` for all models unless explicitly required by multi-branch configurations, eliminating unnecessary autograd graph traversal overhead.
+
+---
+
+### v16.9.53 — Dependency Resolver Co-Dependent Pair Resolution, LPIPS Micro-Batching & Multi-GPU Signal Termination Isolation
+
+- **Co-Dependent Package Pair Lockstep Resolution (`lemgendary-env-manager/env_manager/dependency_resolver.py`)** — Resolved the deadlock where tightly coupled twin packages (`pydantic` and `pydantic-core`) blocked each other from safe automatic upgrades due to strict mutual equality constraints (`pydantic==2.14.2` requires `pydantic-core==2.50.2` while `pydantic 2.14.1` requires `pydantic-core==2.50.1`). Implemented co-dependent group awareness in Stage 1 reverse dependency validation: if a companion package is also candidate for upgrade, it is excluded from the single-package blocker check, permitting them to be validated and upgraded together in the constraint-preserving dry run. Successfully upgraded `pydantic` to `2.14.2` and `pydantic-core` to `2.50.2` across the suite.
+- **Validation VRAM Guard & LPIPS Micro-Batching (`training/training/validation.py`)** — Fixed CUDA out-of-memory errors during multi-GPU validation passes on Kaggle (`Tried to allocate 2.00 GiB. GPU 1 has 1.49 GiB free`). Added proactive VRAM cache clearing (`torch.cuda.empty_cache()`) before entering validation loops and chunked perceptual metric (LPIPS) evaluations into micro-batches of $\le 2$ images per forward pass, with dedicated CUDA OOM exception handling and recovery cache evacuation.
+- **Adaptive DDP Parameter Traversal (`training/parallel/ddp.py`)** — Optimized `DistributedDataParallel` parameter synchronization. Replaced static `find_unused_parameters=True` with configuration-driven activation (`find_unused_parameters=bool(self.config.get("find_unused_parameters", False))`). Eliminates PyTorch graph traversal warnings and reduces communication overhead for single-trunk vision architectures like CodeFormer and FFANet.
+- **Multi-Process Signal Exit Isolation (`training/utils/interrupt.py`)** — Guarded SIGINT and SIGTERM emergency checkpoint sync strictly to Rank 0 and `MainProcess` with re-entrancy prevention (`_EXITING` latch). Prevents worker process death signal cascades, duplicate sync execution, and broken pipe trace dumps when terminating cloud DDP runs.
+
+---
+
+### v16.9.52 — Kaggle API Token Authorization & Collaborators IAM Binding Typing Alignment
+
+- **Pyrefly Type Alignment & None-Safety for IAM Policy Bindings (`training/cloud/kaggle_api_sync.py`)** — Fixed two Pyrefly diagnostic errors (`Object of class 'NoneType' has no attribute 'append'` on Ln 152 and `Unnecessary 'int()' call; argument is already of type 'int'` on Ln 129). Explicitly typed `existing_bindings` as `list[IamPolicyBinding | None]` with non-null checks when searching for `CANONICAL_ROLE_EDITOR`, ensured `m_obj.id` is sanitized to `int(m_obj.id)` matching Kaggle Protobuf specification, and eliminated None-safety warnings under Pyright and Pyrefly with 0 errors.
+- **Kaggle REST API Bearer Token Environment Persistence (`training/cloud/kaggle_api_sync.py`)** — Resolved the HTTP 401 Client Error ("Unauthorized for url: /v1/models.ModelApiService/UpdateModel") encountered during model and instance metadata synchronization. The Kaggle API client relies on the active `KAGGLE_API_TOKEN` environment variable for model metadata mutation endpoints. Enhanced `_get_api()` to verify and dynamically inject `os.environ["KAGGLE_API_TOKEN"] = self.key` on every API acquisition, ensuring credentials from `.secrets.yaml` or `resolve_kaggle_credentials()` authenticate seamlessly.
+- **Fleet Collaborator Synchronization & Live Verification** — Verified automatic collaborator synchronization (`lemgenda`, `shyning123`, `kuznetsovr`) via `set_iam_policy` and verified live model metadata provenance synchronization (including architecture whitepaper URLs, arXiv links, and technical citations) across Kaggle Models Hub.
+
+---
+
+### v16.9.51 — Single-Line In-Place Epoch Progress Logging & Outdated Kaggle Package Pin Upgrade
+
+- **Single-Line In-Place Progress Telemetry (`training/training/epoch.py`, `training/training/validation.py`)** — Overhauled batch progress output during training and validation epochs. Replaced multi-hundred line console flooding with in-place carriage return updates (`\r` with width padding and `end=""`), reserving newline emissions strictly for the final batch and epoch summaries. In multi-GPU DDP mode, progress output is gated strictly to Rank 0 to prevent interleaved duplicate logging between ranks.
+- **Kaggle CLI Package Pin Modernization (`requirements.txt`, `lemgendary-env-manager/requirements/requirements-training.txt`, `requirements-datasets.txt`)** — Upgraded the pinned `kaggle==2.2.4` dependency to `kaggle>=2.2.5`. This completely eliminates the `Warning: Looks like you're using an outdated kaggle version (installed: 2.2.4), please consider upgrading to the latest version (2.2.5)` banner triggered by Kaggle REST API response version checks.
+- **Automated Cloud Environment Provisioning Upgrade (`training/notebooks/cells/deps.py`)** — Enhanced `build_install_cell()` to explicitly invoke `--upgrade 'kaggle>=2.2.5'` during the initial setup cell execution in Kaggle and Colab notebooks, ensuring cloud instances immediately run on the latest API client before repository imports or DDP launches.
+
+---
 
 ### v16.9.50 — Multi-GPU DDP NCCL Watchdog Hardening, DistributedSampler Integration & Rank 0 Lifecycle Gating
 

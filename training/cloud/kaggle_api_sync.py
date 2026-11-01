@@ -34,11 +34,16 @@ class KaggleApiSyncService:
         """Authenticate and return KaggleApi client."""
         if self._api is None:
             import os
+            # Ensure official Kaggle API client uses active Bearer API token
             if self.key and self.key.startswith("KGAT_"):
                 os.environ["KAGGLE_API_TOKEN"] = self.key
             api = KaggleApi()
             api.authenticate()
             self._api = api
+        else:
+            import os
+            if self.key and self.key.startswith("KGAT_"):
+                os.environ["KAGGLE_API_TOKEN"] = self.key
         return self._api
 
     def sync_metadata(self, metadata: ModelMetadata) -> dict[str, Any]:
@@ -139,7 +144,11 @@ class KaggleApiSyncService:
                         principals.append(p)
 
                     editor_binding: IamPolicyBinding | None = None
-                    existing_bindings: list[IamPolicyBinding | None] = list(current_policy.bindings) if current_policy.bindings else []
+                    existing_bindings: list[IamPolicyBinding | None] = (
+                        list(current_policy.bindings)
+                        if current_policy.bindings is not None
+                        else []
+                    )
                     for b in existing_bindings:
                         if b is not None and b.role == CanonicalRole.CANONICAL_ROLE_EDITOR:
                             editor_binding = b
@@ -148,8 +157,8 @@ class KaggleApiSyncService:
                         editor_binding = IamPolicyBinding()
                         editor_binding.role = CanonicalRole.CANONICAL_ROLE_EDITOR
                         existing_bindings.append(editor_binding)
-                        current_policy.bindings = existing_bindings
 
+                    current_policy.bindings = existing_bindings
                     editor_binding.members = principals
 
                     s_req = SetIamPolicyRequest()

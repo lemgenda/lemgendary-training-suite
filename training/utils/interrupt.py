@@ -54,12 +54,23 @@ def register_emergency_sync(handler: Callable[[], None]) -> None:
     _EMERGENCY_SYNC_HANDLER = handler
 
 
+_EXITING: bool = False
+
 def graceful_exit(signum: int, frame: Any) -> None:
     """Signal handler executing emergency sync before termination."""
+    global _EXITING
+    if _EXITING:
+        return
+    _EXITING = True
+
     sig_name = signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
     logger.warning("Signal %s detected! Initiating graceful exit protocol...", sig_name)
 
-    if _EMERGENCY_SYNC_HANDLER is not None:
+    # Only rank 0 / MainProcess runs emergency remote sync
+    import multiprocessing
+    is_main = multiprocessing.current_process().name == "MainProcess"
+    rank_env = os.environ.get("RANK", "0")
+    if is_main and rank_env in ("0", "") and _EMERGENCY_SYNC_HANDLER is not None:
         try:
             logger.info("Executing registered emergency checkpoint sync...")
             _EMERGENCY_SYNC_HANDLER()

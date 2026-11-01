@@ -478,6 +478,41 @@ class SmartTrainingGovernor:
     # -------------------------------------------------------------------------
     # Core Autonomous Operations
     # -------------------------------------------------------------------------
+    def handle_oom(self, current_batch: int | None = None, min_batch: int = 1) -> tuple[int, int]:
+        """Governor active on-the-fly OOM recovery intervention.
+
+        1. Immediately purges CUDA memory cache and triggers garbage collection.
+        2. Throttles physical batch size and doubles accumulation steps to preserve effective batch.
+        3. Locks spatial resolution ladder to prevent premature resolution jumps.
+        4. Logs actionable diagnostic telemetry.
+
+        Returns:
+            Tuple of (new_batch, new_accumulation_steps).
+        """
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.empty_cache()
+            except RuntimeError:
+                pass
+
+        if current_batch is not None and current_batch > 0:
+            self.curriculum.current_batch = current_batch
+
+        new_batch, new_acc = self.curriculum.throttle_on_oom(min_batch=min_batch)
+        self.spatial_lock_remaining = max(self.spatial_lock_remaining, 5)
+        self.stabilization_epochs = max(self.stabilization_epochs, 3)
+
+        logger.warning(
+            "[GOVERNOR] [ACTIVE OOM INTERVENTION] VRAM physical ceiling encountered. "
+            "Downscaled physical batch to %d, adjusted accumulation to %d. Spatial jump locked for %d epochs.",
+            new_batch,
+            new_acc,
+            self.spatial_lock_remaining,
+        )
+        return new_batch, new_acc
+
     def suggest_batch_growth(
         self,
         current_batch: int,

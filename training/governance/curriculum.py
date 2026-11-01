@@ -56,6 +56,24 @@ class CurriculumState:
 
         return False
 
+    def throttle_on_oom(self, min_batch: int = 1) -> tuple[int, int]:
+        """Halve physical batch size and double gradient accumulation on OOM.
+
+        Preserves target effective batch while drastically dropping peak activation memory.
+        Returns (new_batch, new_acc).
+        """
+        old_batch = self.current_batch
+        new_batch = max(min_batch, self.current_batch // 2)
+        self.update_batch_and_accumulation(new_batch)
+        logger.warning(
+            "Curriculum OOM Throttling: batch size reduced %d -> %d, accumulation adjusted to %d (effective batch=%d)",
+            old_batch,
+            self.current_batch,
+            self.current_acc,
+            self.current_batch * self.current_acc,
+        )
+        return self.current_batch, self.current_acc
+
     def update_batch_and_accumulation(self, new_batch: int) -> None:
         """Adjust batch size and gradient accumulation to preserve target effective batch."""
         self.current_batch = max(1, new_batch)

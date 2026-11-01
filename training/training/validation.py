@@ -187,6 +187,9 @@ def validate_one_epoch(
 
     ff_interval = max(1, min(500, resume_step // 20)) if resume_step > 0 else 100
 
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     with torch.no_grad():
         for batch_idx, batch in enumerate(ctx.val_loader):
             if batch_idx < resume_step:
@@ -205,18 +208,31 @@ def validate_one_epoch(
             inputs, targets, task_idx = _unpack_batch(batch, device)
 
             loss: Any
-            with autocast_ctx:
-                eval_step_fn = getattr(ctx.model, "eval_step", None)
-                if callable(eval_step_fn):
-                    val_out = eval_step_fn(inputs)
-                    loss = val_out["loss"] if isinstance(val_out, dict) else val_out
-                    preds = val_out.get("preds", inputs) if isinstance(val_out, dict) else inputs
-                elif task_idx is not None:
-                    preds = ctx.model(inputs)
-                    loss = ctx.criterion(preds, targets, task_idx)
-                else:
-                    preds = ctx.model(inputs)
-                    loss = ctx.criterion(preds, targets)
+            try:
+                with autocast_ctx:
+                    eval_step_fn = getattr(ctx.model, "eval_step", None)
+                    if callable(eval_step_fn):
+                        val_out = eval_step_fn(inputs)
+                        loss = val_out["loss"] if isinstance(val_out, dict) else val_out
+                        preds = val_out.get("preds", inputs) if isinstance(val_out, dict) else inputs
+                    elif task_idx is not None:
+                        preds = ctx.model(inputs)
+                        loss = ctx.criterion(preds, targets, task_idx)
+                    else:
+                        preds = ctx.model(inputs)
+                        loss = ctx.criterion(preds, targets)
+            except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
+                if "out of memory" in str(oom_err).lower() or isinstance(oom_err, torch.cuda.OutOfMemoryError):
+                    if hasattr(ctx.governor, "handle_oom"):
+                        ctx.governor.handle_oom()
+                    else:
+                        import gc
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    print(f"\n  [VAL WARNING] VRAM OOM intercepted on val batch {batch_idx + 1}. Cache evacuated and recovered.", flush=True)
+                    continue
+                raise oom_err
 
             total_loss += float(loss.item())
             step_count += 1
@@ -283,13 +299,19 @@ def validate_one_epoch(
             is_periodic = (step_count % log_interval == 0) or (step_count == num_val_batches)
             is_heartbeat = (time_elapsed_since_log >= 8.0 and step_count > 10)
 
-            if is_warmup or is_periodic or is_heartbeat:
+            import torch.distributed as dist
+            is_main_proc = not (dist.is_available() and dist.is_initialized() and dist.get_rank() != 0)
+
+            if is_main_proc and (is_warmup or is_periodic or is_heartbeat):
                 last_log_time = now
                 batch_loss = float(loss.item())
                 elapsed_batch = now - start_time
                 processed_in_session = max(1, step_count - resume_step)
                 rate = processed_in_session / max(0.001, elapsed_batch)
                 rate_str = f"{rate:.2f} it/s" if rate >= 1.0 else f"{1.0 / max(1e-4, rate):.1f} s/it"
+
+                is_last_val = step_count == num_val_batches
+                end_char = "\n" if is_last_val else ""
 
                 if num_val_batches > 0:
                     pct = (step_count / num_val_batches) * 100.0
@@ -299,25 +321,25 @@ def validate_one_epoch(
                     eta_h, eta_m = divmod(eta_m, 60)
                     eta_str = f"ETA {eta_h}h{eta_m:02d}m" if eta_h > 0 else f"ETA {eta_m:02d}m{eta_sec:02d}s"
 
-                    print(
-                        f"  [VAL BATCH {step_count:>{len(str(num_val_batches))}}/{num_val_batches}] "
+                    line = (
+                        f"\r  [VAL BATCH {step_count:>{len(str(num_val_batches))}}/{num_val_batches}] "
                         f"({pct:.2f}%) "
                         f"ValLoss: {batch_loss:.4f} | "
                         f"AvgValLoss: {total_loss / step_count:.4f} | "
                         f"{rate_str} | "
                         f"{eta_str} | "
-                        f"{elapsed_batch:.1f}s",
-                        flush=True,
+                        f"{elapsed_batch:.1f}s"
                     )
+                    print(line.ljust(110), end=end_char, flush=True)
                 else:
-                    print(
-                        f"  [VAL BATCH {step_count}] "
+                    line = (
+                        f"\r  [VAL BATCH {step_count}] "
                         f"ValLoss: {batch_loss:.4f} | "
                         f"AvgValLoss: {total_loss / step_count:.4f} | "
                         f"{rate_str} | "
-                        f"{elapsed_batch:.1f}s",
-                        flush=True,
+                        f"{elapsed_batch:.1f}s"
                     )
+                    print(line.ljust(90), end=end_char, flush=True)
 
             # Check if outputs and targets are 4D image tensors [B, C, H, W] for PSNR/SSIM
             eval_pred = preds.get("restored_image", preds) if isinstance(preds, dict) else preds
@@ -362,13 +384,26 @@ def validate_one_epoch(
 
                     if lpips_metric_module is not None and lpips_metric_module is not False:
                         try:
+                            # Evaluate LPIPS with micro-batching (1 image per forward) and explicit cache clearing
                             p_scaled = (torch.clamp(eval_pred, 0.0, 1.0) * 2.0 - 1.0).float()
                             t_scaled = (torch.clamp(eval_target, 0.0, 1.0) * 2.0 - 1.0).float()
-                            batch_lpips = float(lpips_metric_module(p_scaled, t_scaled).item())
+                            b_sz = p_scaled.size(0)
+                            micro_chunk = 1
+                            chunk_lpips_sum = 0.0
+                            for m_idx in range(0, b_sz, micro_chunk):
+                                p_chunk = p_scaled[m_idx : m_idx + micro_chunk]
+                                t_chunk = t_scaled[m_idx : m_idx + micro_chunk]
+                                chunk_lpips_sum += float(lpips_metric_module(p_chunk, t_chunk).item()) * p_chunk.size(0)
+                            batch_lpips = chunk_lpips_sum / max(1, b_sz)
                             total_lpips += batch_lpips
                             lpips_count += 1
                         except Exception as exc:
                             print(f"  [VAL NOTICE] LPIPS evaluation error: {exc}", flush=True)
+                            if hasattr(ctx.governor, "handle_oom"):
+                                ctx.governor.handle_oom()
+                            else:
+                                if torch.cuda.is_available():
+                                    torch.cuda.empty_cache()
 
                 # Frechet Inception Distance (FID) feature accumulation
                 if "fid" in sota_cfg and FrechetInceptionDistance is not None:

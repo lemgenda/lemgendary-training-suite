@@ -5,7 +5,7 @@ from typing import Any
 import torch
 from torch.utils.data import DataLoader, Dataset, Sampler
 
-from training.data.workers import compute_worker_topology, dispose_loader
+from training.data.workers import compute_worker_topology, dispose_loader, dataloader_worker_init_fn
 
 logger = logging.getLogger("lemtrain.loaders")
 
@@ -58,6 +58,9 @@ def build_train_loader(
         "pin_memory": pin,
         "drop_last": drop_last,
     }
+
+    if workers > 0:
+        kwargs["worker_init_fn"] = dataloader_worker_init_fn
 
     if collate_fn is not None:
         kwargs["collate_fn"] = collate_fn
@@ -128,6 +131,9 @@ def build_val_loader(
         "pin_memory": pin,
         "drop_last": False,
     }
+
+    if workers > 0:
+        kwargs["worker_init_fn"] = dataloader_worker_init_fn
 
     if workers > 0:
         val_res = getattr(dataset, "size", (256, 256))

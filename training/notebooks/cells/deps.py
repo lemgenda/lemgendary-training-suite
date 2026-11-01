@@ -60,7 +60,7 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "if req_path:\n",
             "    print(f'[ENV] Manifest: {req_path}')\n",
             "    res = subprocess.run(\n",
-            "        [sys.executable, '-m', 'pip', 'install', '-q',\n",
+            "        [sys.executable, '-m', 'pip', 'install', '-q', '--upgrade', 'kaggle>=2.2.5',\n",
             "         '--extra-index-url', torch_index,\n",
             "         '--upgrade-strategy', 'only-if-needed',\n",
             "         '-r', req_path],\n",

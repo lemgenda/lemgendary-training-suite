@@ -143,3 +143,17 @@ def dispose_loader(loader: Any) -> None:
             torch.cuda.empty_cache()
         except RuntimeError as exc:
             logger.debug("Error releasing CUDA cache during loader disposal: %s", exc)
+
+
+def dataloader_worker_init_fn(worker_id: int) -> None:
+    """Worker initialization to prevent DataLoader child processes from intercepting SIGINT.
+
+    By ignoring SIGINT in workers, the main process handles the user interruption
+    signal cleanly, preventing 'RuntimeError: DataLoader worker exited unexpectedly with exit code 130'
+    and BrokenPipeError during shutdown.
+    """
+    import signal
+    try:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+    except Exception:
+        pass

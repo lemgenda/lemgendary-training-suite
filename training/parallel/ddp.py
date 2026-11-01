@@ -69,14 +69,14 @@ class DistributedDataParallelStrategy(ParallelStrategy):
                 self.raw_model,
                 device_ids=[self._local_rank],
                 output_device=self._local_rank,
-                find_unused_parameters=True,
+                find_unused_parameters=bool(self.config.get("find_unused_parameters", False)) if hasattr(self, "config") and isinstance(self.config, dict) else False,
             )
         else:
             # CPU fallback (Gloo backend).
             self.raw_model.to(self.device)
             self._wrapped = nn.parallel.DistributedDataParallel(
                 self.raw_model,
-                find_unused_parameters=True,
+                find_unused_parameters=bool(self.config.get("find_unused_parameters", False)) if hasattr(self, "config") and isinstance(self.config, dict) else False,
             )
         logger.info(
             "DDP model wrapped: rank=%d local_rank=%d world_size=%d",

@@ -121,28 +121,45 @@ def train_one_epoch(
         inputs, targets, task_idx = _unpack_batch(batch, device)
 
         raw_loss: Any
-        with autocast_ctx:
-            train_step_fn = getattr(ctx.model, "train_step", None)
-            if callable(train_step_fn):
-                loss_dict = train_step_fn(inputs)
-                raw_loss = loss_dict["loss"] if isinstance(loss_dict, dict) else loss_dict
-            elif task_idx is not None:
-                preds = ctx.model(inputs)
-                raw_loss = ctx.criterion(preds, targets, task_idx)
-            else:
-                preds = ctx.model(inputs)
-                raw_loss = ctx.criterion(preds, targets)
+        try:
+            with autocast_ctx:
+                train_step_fn = getattr(ctx.model, "train_step", None)
+                if callable(train_step_fn):
+                    loss_dict = train_step_fn(inputs)
+                    raw_loss = loss_dict["loss"] if isinstance(loss_dict, dict) else loss_dict
+                elif task_idx is not None:
+                    preds = ctx.model(inputs)
+                    raw_loss = ctx.criterion(preds, targets, task_idx)
+                else:
+                    preds = ctx.model(inputs)
+                    raw_loss = ctx.criterion(preds, targets)
 
-            scaled_loss = raw_loss / max(1, ctx.accumulation_steps)
+                scaled_loss = raw_loss / max(1, ctx.accumulation_steps)
 
-        # Scale loss, compute backward, and collect gradient norm
-        grad_norm = safe_backward(
-            loss=scaled_loss,
-            optimizer=ctx.optimizer,
-            scaler=ctx.scaler,
-            max_norm=1.0,
-            model=ctx.model,
-        )
+            # Scale loss, compute backward, and collect gradient norm
+            grad_norm = safe_backward(
+                loss=scaled_loss,
+                optimizer=ctx.optimizer,
+                scaler=ctx.scaler,
+                max_norm=1.0,
+                model=ctx.model,
+            )
+        except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
+            if "out of memory" in str(oom_err).lower() or isinstance(oom_err, torch.cuda.OutOfMemoryError):
+                if ctx.optimizer is not None:
+                    ctx.optimizer.zero_grad(set_to_none=True)
+                if hasattr(ctx.governor, "handle_oom"):
+                    curr_b = getattr(ctx.train_loader, "batch_size", 16) or 16
+                    new_b, new_acc = ctx.governor.handle_oom(current_batch=curr_b)
+                    ctx.accumulation_steps = new_acc
+                else:
+                    import gc
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                print(f"\n  [TRAIN WARNING] VRAM OOM intercepted on batch {batch_idx + 1}. Governor active mitigation applied.", flush=True)
+                continue
+            raise oom_err
 
         total_loss += float(raw_loss.item())
         total_grad_norm += grad_norm
@@ -188,7 +205,11 @@ def train_one_epoch(
         is_periodic = ((batch_idx + 1) % log_interval == 0) or ((batch_idx + 1) == num_batches)
         is_heartbeat = (time_elapsed_since_log >= 8.0 and (batch_idx + 1) > 10)
 
-        if is_warmup or is_periodic or is_heartbeat:
+        # In multi-GPU DDP, only rank 0 prints progress
+        import torch.distributed as dist
+        is_main_proc = not (dist.is_available() and dist.is_initialized() and dist.get_rank() != 0)
+
+        if is_main_proc and (is_warmup or is_periodic or is_heartbeat):
             last_log_time = now
             batch_loss = float(raw_loss.item())
             cur_lr = float(ctx.optimizer.param_groups[0]["lr"])
@@ -196,6 +217,9 @@ def train_one_epoch(
             processed_in_session = max(1, (batch_idx + 1) - resume_step)
             rate = processed_in_session / max(0.001, elapsed_batch)
             rate_str = f"{rate:.2f} it/s" if rate >= 1.0 else f"{1.0 / max(1e-4, rate):.1f} s/it"
+
+            is_last_batch = (batch_idx + 1) == num_batches
+            end_char = "\n" if is_last_batch else ""
 
             if num_batches > 0:
                 pct = ((batch_idx + 1) / num_batches) * 100.0
@@ -205,28 +229,31 @@ def train_one_epoch(
                 eta_h, eta_m = divmod(eta_m, 60)
                 eta_str = f"ETA {eta_h}h{eta_m:02d}m" if eta_h > 0 else f"ETA {eta_m:02d}m{eta_sec:02d}s"
 
-                print(
-                    f"  [BATCH {batch_idx + 1:>{len(str(num_batches))}}/{num_batches}] "
+                line = (
+                    f"\r  [BATCH {batch_idx + 1:>{len(str(num_batches))}}/{num_batches}] "
                     f"({pct:.2f}%) "
                     f"Loss: {batch_loss:.4f} | "
                     f"AvgLoss: {total_loss / max(1, step_count):.4f} | "
                     f"LR: {cur_lr:.6f} | "
                     f"{rate_str} | "
                     f"{eta_str} | "
-                    f"{elapsed_batch:.1f}s",
-                    flush=True,
+                    f"{elapsed_batch:.1f}s"
                 )
+                print(line.ljust(110), end=end_char, flush=True)
             else:
-                print(
-                    f"  [BATCH {batch_idx + 1}] "
+                line = (
+                    f"\r  [BATCH {batch_idx + 1}] "
                     f"Loss: {batch_loss:.4f} | "
                     f"AvgLoss: {total_loss / max(1, step_count):.4f} | "
                     f"LR: {cur_lr:.6f} | "
                     f"{rate_str} | "
-                    f"{elapsed_batch:.1f}s",
-                    flush=True,
+                    f"{elapsed_batch:.1f}s"
                 )
+                print(line.ljust(90), end=end_char, flush=True)
 
+    import torch.distributed as dist
+    if not (dist.is_available() and dist.is_initialized() and dist.get_rank() != 0):
+        print(flush=True)
     elapsed = time.time() - start_time
     avg_loss = total_loss / max(1, step_count)
     avg_grad_norm = total_grad_norm / max(1, step_count)
