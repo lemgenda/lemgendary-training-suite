@@ -299,19 +299,20 @@ class CheckpointLifecycleManager:
             return False
         """Evaluate and conditionally persist progress.pth checkpoint.
 
-        Strict guardrails:
+        Guardrails:
         1. At least min_progress_interval_sec (15 min) elapsed since last progress save.
-        2. Progress within current phase is strictly bounded between 5% and 50%:
-           0.05 <= (step / total_steps) <= 0.50.
-        Never saved below 5% or above 50% regardless of elapsed time.
+        2. Progress within current phase is bounded:
+           0.02 <= (step / total_steps) <= 0.98.
+        Avoids saving during initial warmup (<2%) or immediately before epoch completion (>98%).
         """
         if total_steps <= 0:
             return False
 
         progress_fraction = step / float(total_steps)
 
-        # Strict bounds enforcement: [5%, 50%]
-        if progress_fraction < 0.05 or progress_fraction > 0.50:
+        # Progress checkpoint bounds enforcement: save across 2% to 98% of phase
+        # Avoids saving during initial warmup (<2%) or immediately before latest.pth (>98%)
+        if progress_fraction < 0.02 or progress_fraction > 0.98:
             return False
 
         now = time.time()

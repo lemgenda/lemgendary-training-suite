@@ -11,11 +11,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.54-STABLE` |
+| **Version** | `v16.9.55-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.55 — Governor Data Fraction Soak Cooldown Hardening & Progress Checkpoint Cadence Regularization
+
+- **Governor Data Fraction Soak & Cooldown Enforcement (`training/governance/governor.py`)** — Resolved rapid, premature data fraction escalation during training (e.g. progressing through 15% -> 25% -> 35% -> 45% every epoch without stabilization). In the governor's curriculum progression logic, `is_flat_leg` previously bypassed `fraction_soak_complete`, triggering immediate data expansion every single epoch when loss deltas were small, while `self.stabilization_epochs` was set to only 1 epoch. Enforced strict soak requirements (`fraction_soak_complete = is_expanding and epochs_since_step >= max(3, self.manifold_maturity)`), prevented flat training legs from short-circuiting data fraction expansion, and bound both `stabilization_epochs` and `cooldown_remaining` to `max(3, self.manifold_maturity)` (minimum 3 full epochs of soak/cooldown at each fraction percentage) to guarantee model weights stabilize on each dataset slice.
+- **Progress Checkpoint Cadence Regularization (`training/checkpoint/lifecycle_manager.py`)** — Resolved checkpoint starvation during local training runs where intra-epoch progress checkpoints (`progress.pth`) were only saved once or skipped entirely. Removed the legacy `progress_fraction > 0.50` upper bound that rejected checkpoints in the second half of every epoch, widened progress bounds to `0.02 <= progress_fraction <= 0.98` (protecting warmup and epoch boundary saves), and ensured periodic 15-minute saves trigger reliably and predictably across the entire training and validation passes.
+
+---
 
 ### v16.9.54 — Governor On-The-Fly Active OOM Mitigation, DataLoader SIGINT Isolation & Anti-Fragmentation Memory Allocation
 

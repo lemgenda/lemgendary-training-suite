@@ -892,20 +892,21 @@ class SmartTrainingGovernor:
         not_regressing = delta_q >= -self.min_delta
 
         epochs_since_step = self.epoch_count - max(self.last_res_jump_epoch, self.last_action_epoch)
-        fraction_soak_complete = is_expanding and epochs_since_step >= max(1, self.manifold_maturity)
+        min_soak = max(3, self.manifold_maturity)
+        fraction_soak_complete = is_expanding and epochs_since_step >= min_soak
         deepening_ready = (
             phase == "DEEPENING"
             and current_quality >= stride_threshold
-            and epochs_since_step >= max(1, self.manifold_maturity)
+            and epochs_since_step >= min_soak
         )
 
         trigger_propulsion = propulsion_allowed and (
             (is_overfitting and is_expanding)
-            or is_plateaued
+            or (is_plateaued and (fraction_soak_complete or not is_expanding))
             or (
                 not_regressing
                 and (
-                    is_flat_leg
+                    (is_flat_leg and not is_expanding)
                     or fraction_soak_complete
                     or deepening_ready
                 )
@@ -965,7 +966,9 @@ class SmartTrainingGovernor:
                     self.last_action_epoch = self.epoch_count
                     f_changed = True
                     msg_parts.append(f"PROPULSION: Data -> {self.current_fraction*100:.0f}%")
-                    self.stabilization_epochs = 1
+                    cooldown_soak = max(3, self.manifold_maturity)
+                    self.stabilization_epochs = cooldown_soak
+                    self.cooldown_remaining = cooldown_soak
                     self.best_quality = current_quality
             elif phase == "DEEPENING" and self.current_res is not None and self.current_res in self.res_ladder:
                 current_idx = self.res_ladder.index(self.current_res)
