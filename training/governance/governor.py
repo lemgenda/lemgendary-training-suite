@@ -475,6 +475,10 @@ class SmartTrainingGovernor:
     def loop_breaker_strategy(self, value: str) -> None:
         self.sota.loop_breaker_strategy = value
 
+    def update_batch_and_accumulation(self, new_batch: int) -> None:
+        """Dynamically update current batch size and recompute accumulation steps."""
+        self.curriculum.update_batch_and_accumulation(new_batch)
+
     # -------------------------------------------------------------------------
     # Core Autonomous Operations
     # -------------------------------------------------------------------------

@@ -399,8 +399,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         collate_fn = collate_instruction_batch
 
     if collate_fn is not None:
-        train_loader = DataLoader(
-            dataset=train_ds,
+        train_loader = DataLoader[Any](
+            dataset=train_ds,  # type: ignore[arg-type]
             batch_size=batch_size,
             shuffle=True,
             collate_fn=collate_fn,
@@ -544,17 +544,33 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                 train_ds.update_strategy(size=rec_res, fraction=rec_frac)
                             elif hasattr(train_ds, "sample_fraction") and rec_frac is not None:
                                 setattr(train_ds, "sample_fraction", rec_frac)
-                            # Rebuild train loader with the restored dataset state
-                            curr_batch = getattr(governor, "current_batch", batch_size)
-                            if collate_fn is not None:
-                                train_loader = DataLoader(
-                                    dataset=train_ds,
-                                    batch_size=curr_batch,
-                                    shuffle=True,
-                                    collate_fn=collate_fn,
-                                    drop_last=False,
+                            # Re-audit hardware safety limit for the restored resolution
+                            hw_safe_batch = audit_hardware_vram(
+                                model_key=model_key,
+                                model_info=model_info,
+                                config=config,
+                                device=device_info.device,
+                                model=model,
+                                res_override=rec_res,
+                                mode="train",
+                                sample_fraction=rec_frac if rec_frac is not None else 1.0,
+                                fold=getattr(args, "fold", None),
+                                pairs=getattr(args, "pairs", None) or model_info.get("pairs"),
+                            )
+                            restored_batch = int(getattr(governor, "current_batch", batch_size))
+                            curr_batch = min(restored_batch, hw_safe_batch)
+                            if curr_batch != restored_batch:
+                                logger.warning(
+                                    "[RESUME CLAMP] Clamped restored batch %d -> %d to prevent OOM on current hardware at res %s",
+                                    restored_batch,
+                                    curr_batch,
+                                    rec_res,
                                 )
-                            elif task_type == "forex":
+                                if hasattr(governor, "update_batch_and_accumulation"):
+                                    governor.update_batch_and_accumulation(curr_batch)
+
+                            # Rebuild train loader with the restored dataset state
+                            if task_type == "forex":
                                 train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
                                 train_loader = rebuild_train_loader(
                                     old_loader=train_loader,
