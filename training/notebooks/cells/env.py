@@ -13,7 +13,7 @@ _RUNTIME_ENV_FALLBACK: dict[str, str] = {
     "PYTHONUTF8": "1",
     "PYTHONUNBUFFERED": "1",
     "PYTHONIOENCODING": "utf-8",
-    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True,max_split_size_mb:128",
+    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
 }
 
 _BLOCKED_RUNTIME_ENV: set[str] = {
