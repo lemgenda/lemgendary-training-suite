@@ -33,13 +33,14 @@ class KaggleHubManager:
         self.key = resolved_key
 
     def get_handle(self, model_name: str) -> str:
-        """Construct standard Kaggle model handle: <user>/lemgendary-<model>-checkpoints/pytorch/default."""
-        model_slug = model_name.replace("_", "-")
-        if "nima-aesthetic" in model_slug:
+        """Construct standard Kaggle model handle: <user>/<model_slug>/pytorch/default."""
+        model_slug = model_name.replace("_", "-").lower()
+        if "nima-aesthetic" in model_slug and "nima-aesthetics" not in model_slug:
             model_slug = model_slug.replace("nima-aesthetic", "nima-aesthetics")
 
-        slug_prefix = self.config.get("kaggle_slug_prefix", "lemgendary-")
-        slug_suffix = self.config.get("kaggle_slug_suffix", "-checkpoints")
+        # Allow explicit prefix/suffix overrides if configured, defaulting to canonical model slug
+        slug_prefix = self.config.get("kaggle_slug_prefix", "")
+        slug_suffix = self.config.get("kaggle_slug_suffix", "")
         return f"{self.username}/{slug_prefix}{model_slug}{slug_suffix}/pytorch/default"
 
     def get_kernel_slug(self, model_name: str) -> str:

@@ -74,11 +74,11 @@ class TestKaggleHubManager(unittest.TestCase):
     def test_handle_generation(self) -> None:
         mgr = KaggleHubManager(username="tester")
         handle = mgr.get_handle("mirnet_exposure")
-        self.assertEqual(handle, "tester/lemgendary-mirnet-exposure-checkpoints/pytorch/default")
+        self.assertEqual(handle, "tester/mirnet-exposure/pytorch/default")
 
         # NIMA aesthetic normalization
         nima_handle = mgr.get_handle("nima_aesthetic")
-        self.assertEqual(nima_handle, "tester/lemgendary-nima-aesthetics-checkpoints/pytorch/default")
+        self.assertEqual(nima_handle, "tester/nima-aesthetics/pytorch/default")
 
     def test_create_cloud_kernel_bundle(self) -> None:
         mgr = KaggleHubManager(username="tester")
