@@ -161,12 +161,18 @@ def main() -> None:
         "--parallel", "ddp",
     ] + train_argv
 
-    # Ensure PYTHONPATH includes project root so imports resolve under torchrun.
+    # Ensure PYTHONPATH includes project root and tune NCCL parameters for multi-GPU resilience.
     env = os.environ.copy()
     pythonpath = env.get("PYTHONPATH", "")
     project_root_str = str(project_root)
     if project_root_str not in pythonpath:
         env["PYTHONPATH"] = f"{project_root_str}{os.pathsep}{pythonpath}".rstrip(os.pathsep)
+
+    # Harden NCCL distributed runtime against watchdog false-positives and hangs
+    env.setdefault("TORCH_NCCL_ASYNC_ERROR_HANDLING", "1")
+    env.setdefault("TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC", "1800")
+    env.setdefault("TORCH_NCCL_ENABLE_MONITORING", "1")
+    env.setdefault("NCCL_DEBUG", "WARN")
 
     result = subprocess.call(torchrun_cmd, env=env)
     sys.exit(result)

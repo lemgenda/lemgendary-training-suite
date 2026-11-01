@@ -11,11 +11,21 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.49-STABLE` |
+| **Version** | `v16.9.50-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.50 — Multi-GPU DDP NCCL Watchdog Hardening, DistributedSampler Integration & Rank 0 Lifecycle Gating
+
+- **Explicit CUDA Device Binding & Timeout Configuration (`training/parallel/ddp.py`)** — Fixed the critical multi-GPU hang and watchdog timeout (`ProcessGroupNCCL watchdog got stuck for 480 seconds... exitcode -6 / SIGABRT`) during dual-GPU DDP training on Kaggle/cloud nodes. Explicitly binds each worker process to its assigned GPU via `torch.cuda.set_device(self._local_rank)` prior to `dist.init_process_group` and model tensor allocations, extended initialization timeout to 1800 seconds, and configured `find_unused_parameters=True` for robust gradient synchronization across complex multi-branch architectures (such as CodeFormer).
+- **Environment Watchdog Hardening (`tools/launch_ddp.py`)** — Injected resilient NCCL environment defaults into the `torchrun` execution wrapper (`TORCH_NCCL_ASYNC_ERROR_HANDLING=1`, `TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800`, `TORCH_NCCL_ENABLE_MONITORING=1`, `NCCL_DEBUG=WARN`) to eliminate false-positive watchdog aborts during initialization or heavy checkpoint operations.
+- **Automated DistributedSampler Sharding (`training/data/loaders.py`, `training/training/engine.py`)** — Resolved sample synchronization divergence between GPU ranks. When running in an active distributed environment (`dist.is_initialized() and world_size > 1`), `build_train_loader` automatically binds a `DistributedSampler(dataset, shuffle=shuffle)`. Furthermore, dynamically updates and reshuffles the sampler across curriculum and resolution transitions in `engine.py`.
+- **Rank 0 Lifecycle & Checkpoint Write Gating (`training/checkpoint/lifecycle_manager.py`)** — Guarded pre-flight asset generation (`run_preflight`) and checkpoint write operations (`check_and_save_progress`, `save_latest`, `save_best`, `check_and_save_vault`) strictly to Rank 0 (`dist.get_rank() == 0`). Non-zero ranks return early, eliminating concurrent file contention, redundant disk IO, and locked-file race conditions on cloud filesystems.
+- **Lazy Ultralytics Module Loading (`training/governance/yolo_governor.py`)** — Converted eager top-level `import ultralytics` into scoped local imports inside YOLO-specific methods, ensuring non-YOLO architectures (such as CodeFormer, FFANet, NAFNet) initialize with zero Ultralytics settings banner output or telemetry leakage.
+
+---
 
 ### v16.9.49 — Unconditional Metadata Push, Fleet Collaborator Provisioning & Pyrefly Diagnostics Elimination
 

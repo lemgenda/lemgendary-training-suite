@@ -284,6 +284,9 @@ def run_training(
                         curr_sampler = getattr(ctx.train_loader, "sampler", None)
                         if curr_sampler is not None and type(curr_sampler).__name__ == "RowGroupAwareSampler":
                             curr_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+                        elif curr_sampler is not None and type(curr_sampler).__name__ == "DistributedSampler":
+                            from torch.utils.data.distributed import DistributedSampler
+                            curr_sampler = DistributedSampler(train_ds, shuffle=True)
                         elif curr_sampler is not None and type(curr_sampler).__name__ in (
                             "RandomSampler",
                             "SequentialSampler",

@@ -32,6 +32,7 @@ class DistributedDataParallelStrategy(ParallelStrategy):
         self._initialized = False
 
     def setup(self) -> nn.Module:
+        import datetime
         import torch.distributed as dist
 
         if not dist.is_initialized():
@@ -41,37 +42,42 @@ class DistributedDataParallelStrategy(ParallelStrategy):
             os.environ.setdefault("MASTER_ADDR", master_addr)
             os.environ.setdefault("MASTER_PORT", master_port)
 
+            if torch.cuda.is_available():
+                torch.cuda.set_device(self._local_rank)
+
             dist.init_process_group(
                 backend=backend,
                 rank=self._rank,
                 world_size=self._world_size,
+                timeout=datetime.timedelta(seconds=1800),
             )
             self._initialized = True
             logger.info(
-                "DDP process group initialized: backend=%s rank=%d/%d",
+                "DDP process group initialized: backend=%s rank=%d/%d (local_rank=%d)",
                 backend,
                 self._rank,
                 self._world_size,
+                self._local_rank,
             )
 
         # Move model to the correct GPU for this rank before wrapping.
         if torch.cuda.is_available():
+            torch.cuda.set_device(self._local_rank)
             local_device = torch.device(f"cuda:{self._local_rank}")
             self.raw_model.to(local_device)
             self._wrapped = nn.parallel.DistributedDataParallel(
                 self.raw_model,
                 device_ids=[self._local_rank],
                 output_device=self._local_rank,
-                find_unused_parameters=False,
+                find_unused_parameters=True,
             )
         else:
             # CPU fallback (Gloo backend).
             self.raw_model.to(self.device)
             self._wrapped = nn.parallel.DistributedDataParallel(
                 self.raw_model,
-                find_unused_parameters=False,
+                find_unused_parameters=True,
             )
-
         logger.info(
             "DDP model wrapped: rank=%d local_rank=%d world_size=%d",
             self._rank,

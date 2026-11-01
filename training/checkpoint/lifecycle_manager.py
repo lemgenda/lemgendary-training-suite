@@ -235,7 +235,10 @@ class CheckpointLifecycleManager:
         self.run_preflight(force=False)
 
     def run_preflight(self, force: bool = False) -> dict[str, Path]:
-        """Generate pre-flight deployment documentation and cloud training notebooks."""
+        """Generate pre-flight deployment documentation and cloud training notebooks (Rank 0 only)."""
+        import torch.distributed as dist
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return {}
         try:
             assets = generate_preflight_assets(self.model_name, self.root, force=force)
             logger.info("Pre-flight assets verified for %s: %s", self.model_name, list(assets.keys()))
@@ -291,6 +294,9 @@ class CheckpointLifecycleManager:
         total_steps: int,
         payload_builder: Callable[[], dict[str, Any]],
     ) -> bool:
+        import torch.distributed as dist
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return False
         """Evaluate and conditionally persist progress.pth checkpoint.
 
         Strict guardrails:
@@ -347,7 +353,10 @@ class CheckpointLifecycleManager:
         return success
 
     def save_latest(self, epoch: int, payload: dict[str, Any]) -> bool:
-        """Save latest.pth at epoch completion and immediately purge progress.pth."""
+        """Save latest.pth at epoch completion and immediately purge progress.pth (Rank 0 only)."""
+        import torch.distributed as dist
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return True
         success = safe_atomic_save(payload, self.latest_path)
         if not success:
             logger.error("Failed saving latest checkpoint at epoch %d", epoch)
@@ -378,7 +387,10 @@ class CheckpointLifecycleManager:
         is_yolo: bool = False,
         yolo_trainer: Any | None = None,
     ) -> bool:
-        """Save best.pth, invoke universal tri-format export, and refresh README."""
+        """Save best.pth, invoke universal tri-format export, and refresh README (Rank 0 only)."""
+        import torch.distributed as dist
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return False
         if quality_score <= self.best_quality_score:
             return False
 
@@ -422,6 +434,9 @@ class CheckpointLifecycleManager:
         metrics: dict[str, float],
         payload: dict[str, Any],
     ) -> list[str]:
+        import torch.distributed as dist
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return []
         """Check all target metrics against historical vault milestones.
 
         For each metric defined in sota_targets, if the current epoch sets a new

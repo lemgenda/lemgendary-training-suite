@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import ultralytics
 import yaml
 from data.yolo_config_gen import generate_yolo_yaml
 
@@ -390,6 +389,7 @@ class YOLOCurriculumGovernor:
             return
 
         try:
+            import ultralytics
             export_model = ultralytics.YOLO(str(source_weights))
             export_tri_format_yolo(
                 trainer=export_model,
@@ -800,6 +800,7 @@ class YOLOCurriculumGovernor:
             # Keep total_epochs ceiling dynamically ahead of stage_start_epoch
             stage_total_epochs = max(total_epochs, stage_start_epoch + 100)
 
+            import ultralytics
             model = ultralytics.YOLO(current_weights_path)
             stage_epochs_recorded = 0
             recorded_stage_epochs = set()
@@ -1280,6 +1281,7 @@ class YOLOCurriculumGovernor:
             ext_start_epoch = completed_prior_epochs
             ext_total_epochs = max(total_epochs, ext_start_epoch + 100)
 
+            import ultralytics
             model = ultralytics.YOLO(current_weights_path)
             ext_stage_epochs_recorded = 0
             ext_recorded_epochs = set()

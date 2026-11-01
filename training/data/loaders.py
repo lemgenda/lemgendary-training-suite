@@ -65,7 +65,13 @@ def build_train_loader(
     if sampler is not None:
         kwargs["sampler"] = sampler
     else:
-        kwargs["shuffle"] = shuffle
+        # Automatically use DistributedSampler when running multi-GPU DDP
+        import torch.distributed as dist
+        if dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1:
+            from torch.utils.data.distributed import DistributedSampler
+            kwargs["sampler"] = DistributedSampler(dataset, shuffle=shuffle)
+        else:
+            kwargs["shuffle"] = shuffle
 
     if workers > 0:
         kwargs["prefetch_factor"] = prefetch_factor or topology.prefetch_factor or 4
