@@ -17,6 +17,7 @@ from data.forex_sampler import RowGroupAwareSampler
 from training.checkpoint import CheckpointLifecycleManager
 from training.cloud_sync import trigger_cloud_sync
 from training.data import rebuild_train_loader
+from training.epoch_budget import EpochAction, EpochBudgetConfig, EpochBudgetPolicy, StopReason
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS
 from training.telemetry import TelemetryEngine
 from training.training.context import TrainingContext
@@ -77,8 +78,13 @@ def run_training(
 
     epoch = start_epoch
     last_epoch_executed = 0
+    budget_policy = EpochBudgetPolicy(
+        total_epochs=ctx.total_epochs,
+        config=EpochBudgetConfig.from_config(ctx.config),
+    )
+    stop_reason: StopReason | None = None
 
-    while True:
+    while stop_reason is None:
         if cancel_check is not None and cancel_check():
             print(f"[CANCEL] Training aborted at epoch {epoch} by user cancellation.", flush=True)
             return TrainingSummary(
@@ -250,10 +256,12 @@ def run_training(
             epochs_no_improve += 1
 
         # 7. Check governor directives (curriculum fraction/resolution promotion before saving checkpoints)
+        governor_early_stop = False
+        governor_reports_improvement = False
         if hasattr(ctx.governor, "audit_epoch"):
             try:
                 best_q = float(ctx.sota_tracker.best_quality)
-                f_chg, r_chg, lr_chg, _t_chg, _c_chg, _b_chg, _stop_trig, gov_msg = ctx.governor.audit_epoch(
+                f_chg, r_chg, lr_chg, _t_chg, _c_chg, _b_chg, stop_trig, gov_msg = ctx.governor.audit_epoch(
                     current_quality=current_quality,
                     best_quality=best_q,
                     epochs_no_improve=epochs_no_improve,
@@ -265,6 +273,8 @@ def run_training(
                 )
                 if gov_msg:
                     print(f"{gov_msg}", flush=True)
+                governor_early_stop = bool(stop_trig)
+                governor_reports_improvement = not governor_early_stop
 
                 # Dynamic manifold scaling: update dataset and rebuild train_loader if fraction, resolution, or batch changed
                 if (f_chg or r_chg or _b_chg) and ctx.train_loader is not None:
@@ -484,29 +494,36 @@ def run_training(
             and sota_all_met
         )
 
-        if is_fully_completed:
+        decision = budget_policy.decide(
+            epoch,
+            converged=is_fully_completed,
+            early_stop=governor_early_stop,
+            governor_reports_improvement=governor_reports_improvement,
+        )
+        ctx.total_epochs = decision.total_epochs
+        if decision.action is EpochAction.STOP:
+            stop_reason = decision.stop_reason
+            reason_label = stop_reason.value if stop_reason is not None else "stop"
             print(
-                f"\n[SUCCESS] [CONVERGENCE ATTAINED] Model {ctx.model_name} satisfied all SOTA targets "
-                f"at 100% data fraction on top ladder resolution ({last_epoch_executed} epochs). Concluding.",
+                f"\n[STOP] [{reason_label}] "
+                f"{ctx.model_name}: {decision.message} (Epochs>=20: {last_epoch_executed >= 20}, "
+                f"Ladder: {ladder_passed}, Data: {data_fraction_passed}, SOTA: {sota_all_met}).",
                 flush=True,
             )
-            break
-
-        # Open-Ended Horizon: If static epoch budget reached but SOTA targets not met, extend runway!
-        if epoch >= ctx.total_epochs:
-            extension_epochs = int(opt_cfg.get("extension_epochs", 10))
-            ctx.total_epochs += extension_epochs
+            logger.info("Training loop stopped for %s: %s", ctx.model_name, decision.message)
+        elif decision.action is EpochAction.EXTEND:
             print(
-                f"\n[GOVERNOR] [SOTA RUNWAY EXTENSION] Epoch ceiling reached ({epoch}) but full SOTA criteria "
-                f"not yet attained (Epochs>=20: {last_epoch_executed >= 20}, Ladder: {ladder_passed}, "
-                f"Data: {data_fraction_passed}, SOTA: {sota_all_met}). Extending runway +{extension_epochs} epochs...",
+                f"\n[GOVERNOR] [BUDGET EXTENSION] {ctx.model_name}: {decision.message} "
+                f"(Epochs>=20: {last_epoch_executed >= 20}, Ladder: {ladder_passed}, "
+                f"Data: {data_fraction_passed}, SOTA: {sota_all_met}).",
                 flush=True,
             )
+            logger.info("Epoch budget extended for %s: %s", ctx.model_name, decision.message)
 
         epoch += 1
 
     total_elapsed = time.time() - total_start_time
-    final_status = "completed" if is_fully_completed else "partially_trained"
+    final_status = "completed" if stop_reason is StopReason.CONVERGED else "partially_trained"
 
     return TrainingSummary(
         model_name=ctx.model_name,
@@ -514,4 +531,5 @@ def run_training(
         best_metrics=best_metrics,
         total_time=total_elapsed,
         status=final_status,
+        stop_reason=stop_reason.value if stop_reason is not None else "",
     )

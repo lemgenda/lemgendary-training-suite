@@ -11,11 +11,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.64-STABLE` |
+| **Version** | `v16.9.65-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.65 - Bounded Epoch Loop & Honoured Early Stop
+
+- **Epoch Budget Policy (`training/epoch_budget.py`)**: new torch-free `EpochBudgetPolicy` decides after each epoch whether to continue, extend or stop. Stop reasons: `converged` (4-pillar completion), `early_stop` (governor signal), `budget_reached`, `extension_limit`. Fixes review finding D-01.
+- **Engine (`training/training/engine.py`)**: replaced `while True` with a loop that ends on a policy stop. The governor's early-stop flag from `audit_epoch` is now honoured. Every stop and every extension is printed and logged with its reason. `TrainingSummary` gains `stop_reason`.
+- **Opt-in Budget Extension (`config.yaml`)**: new `training_budget` section with `extension_epochs: 10` and `max_extension_epochs: 0`. The epoch budget is a hard cap by default. When `max_extension_epochs` is above 0, the budget is extended only while the governor reports improvement, and never beyond that ceiling. The per-model `optimization.extension_epochs` is no longer read by the engine (YOLO governor unchanged).
+- **Resume (`training/core_loop.py`)**: removed the hidden 20-epoch floor on resumed runs; the configured budget is honoured. A `--epochs 1` / `test-all` smoke run now stops after one epoch.
+- **Tests (`tests/unit/test_epoch_budget.py`)**: 15 torch-free tests (budget reached, early stop, convergence, bounded extension, no extension without improvement, 1-epoch run, shipped config is a hard cap).
 
 ### v16.9.64 - Browser Origin Guard & Closed CORS Allow-List
 

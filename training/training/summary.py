@@ -14,3 +14,5 @@ class TrainingSummary:
     best_metrics: dict[str, float]
     total_time: float
     status: str
+    stop_reason: str = ""
+    """Why the epoch loop ended (see ``training.epoch_budget.StopReason``); empty when cancelled."""

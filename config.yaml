@@ -78,6 +78,16 @@ defaults:
   epochs: 300
   patience: 100
 
+# --- Epoch Budget Governance (TS D-01) ---
+# The epoch budget (--epochs, model `epochs`, or defaults.epochs) is a hard cap.
+# Training also stops when the governor signals early stop or all completion
+# criteria are met. Budget extensions are opt-in: when the budget is spent and
+# the governor still reports improvement, add `extension_epochs` at a time, up
+# to `max_extension_epochs` in total. max_extension_epochs: 0 disables them.
+training_budget:
+  extension_epochs: 10
+  max_extension_epochs: 0
+
 # --- Security & Stealth ---
 security:
   mask_tokens: true
