@@ -1,4 +1,4 @@
-﻿"""LemGendary Model Training Suite Universal Trainer (Facade).
+"""LemGendary Model Training Suite Universal Trainer (Facade).
 
 Backward-compatible entry point delegating runtime execution, optimization,
 AMP management, and validation to the modular training.training subpackage.
@@ -324,6 +324,9 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     vault = MetricVault()
 
     sample_fraction = getattr(governor.curriculum, "current_fraction", 1.0)
+    if task_type in ("text_instruction", "llm") or model_info.get("category") == "llm":
+        sample_fraction = 1.0
+        governor.curriculum.current_fraction = 1.0
 
     if task_type == "forex":
         _forex_shard_root = str(
@@ -568,6 +571,9 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                         # Synchronize train dataset and train DataLoader with restored governor state
                         rec_res = getattr(governor, "current_res", None)
                         rec_frac = getattr(governor, "current_fraction", None)
+                        if task_type in ("text_instruction", "llm") or model_info.get("category") == "llm":
+                            rec_frac = 1.0
+                            governor.current_fraction = 1.0
                         if rec_frac is not None or rec_res is not None:
                             if hasattr(train_ds, "update_strategy"):
                                 train_ds.update_strategy(size=rec_res, fraction=rec_frac)

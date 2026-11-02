@@ -87,7 +87,12 @@ class SmartTrainingGovernor:
             or model_info.get("dataset_type") == "forex"
             or model_info.get("filename") == "ForexPredictor"
         )
-        if is_forex_model:
+        is_llm_model = (
+            model_info.get("category") == "llm"
+            or model_info.get("task_type") in ("text_instruction", "llm")
+            or model_info.get("dataset_type") in ("text_instruction", "llm")
+        )
+        if is_forex_model or is_llm_model:
             initial_fraction = 1.0
         else:
             initial_fraction = model_info.get("sample_fraction") or opt.get(
@@ -1212,7 +1217,7 @@ class SmartTrainingGovernor:
             raw_res = state.get("input_size", self.current_res)
             self.current_res = int(raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res)
 
-            if self.task_type == "forex":
+            if self.task_type in ("forex", "llm", "text_instruction") or self.model_info.get("category") == "llm":
                 self.current_fraction = 1.0
             elif "epoch_count" not in state and self.epoch_count == 0 and not self.history:
                 opt_cfg = self.model_info.get("optimization", {})

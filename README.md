@@ -1,4 +1,4 @@
-﻿<!-- markdownlint-disable MD013 -->
+<!-- markdownlint-disable MD013 -->
 # LemGendary Model Training Suite
 
 > Industrial-standard training, evaluation, export, and telemetry orchestration suite for Vision, Restoration, and Financial Time-Series deep learning models.
@@ -17,21 +17,27 @@
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
 
-### v16.9.61 - Causal LLM Dictionary Batch Unpacking & Native Step Execution
+### v16.9.63 - 100% Manifold Fraction Enforcement for Causal LLM Instruction Tuning
+
+- **Curriculum & Governor LLM Data Fraction Lock (    raining/governance/governor.py,     raining/core_loop.py)**:
+  - Enforced 100% active manifold training data fraction (initial_fraction = 1.0) for all LLM and text instruction models across SmartTrainingGovernor initialization, resume state restoration, and core_loop.py execution.
+  - Prevents resolution ladder curriculum subsampling (e.g., 15% / 138 samples) from starving LLM instruction tuning of diverse domain conversational pairs.
 
 ### v16.9.62 - Validation DataLoader Collation Fix for Variable-Length LLM Sequences
 
-- **uild_val_loader Padding-Aware Collation ( raining/data/loaders.py)**:
-  - Added collate_fn parameter to uild_val_loader so LLM instruction datasets are padded consistently during validation, fixing `RuntimeError: stack expects each tensor to be equal size` that crashed Epoch 1 validation.
-- **core_loop.py Collate Propagation ( raining/core_loop.py)**:
-  - Passed collate_fn=collate_fn to canonical_build_val_loader when  ask_type is `text_instruction` or `llm`, ensuring both train and val DataLoaders use collate_instruction_batch.
+- **uild_val_loader Padding-Aware Collation (    raining/data/loaders.py)**:
+  - Added collate_fn parameter to uild_val_loader so LLM instruction datasets are padded dynamically during validation batches, resolving RuntimeError: stack expects each tensor to be equal size during validation passes.
+- **core_loop.py Collate Propagation (    raining/core_loop.py)**:
+  - Propagated collate_fn=collate_fn to canonical_build_val_loader whenever     ask_type is     ext_instruction or llm, ensuring uniform token padding across train and validation DataLoaders.
 
-- **Generic Causal LLM Native Training Steps (`models/generic_causal_llm.py`)**:
-  - Implemented `train_step(batch)` and `eval_step(batch)` methods in `GenericCausalLLM` / `AIHelperLemGend` to natively unpack collated dictionary batches containing `input_ids`, `attention_mask`, and `labels`.
-  - Resolved `TypeError: embedding(): argument 'indices' (position 2) must be Tensor, not dict` in the training loop when fine-tuning transformer instruction datasets.
-  - Added dictionary unpacking fallback directly inside `forward()` for backward compatibility.
+### v16.9.61 - Causal LLM Dictionary Batch Unpacking & Native Step Execution
+
+- **Generic Causal LLM Native Training Steps (models/generic_causal_llm.py)**:
+  - Implemented     rain_step(batch) and eval_step(batch) methods in GenericCausalLLM / AIHelperLemGend to natively unpack collated dictionary batches containing input_ids, ttention_mask, and labels.
+  - Resolved TypeError: embedding(): argument 'indices' (position 2) must be Tensor, not dict in the training loop when fine-tuning transformer instruction datasets.
+  - Added dictionary unpacking fallback directly inside orward() for backward compatibility.
 - **Hardware-Aware Batch Size & Gradient Accumulation Tuning**:
-  - Configured optimal micro-batch size (`batch_size: 2`) with gradient accumulation (`accumulation_steps: 16-24`) for `ai_helper_lemgend`, allowing stable QLoRA training on 4GB VRAM GPUs (GTX 1650).
+  - Configured optimal micro-batch size (atch_size: 2) with gradient accumulation (ccumulation_steps: 16-24) for i_helper_lemgend, allowing stable QLoRA training on 4GB VRAM GPUs (GTX 1650).
 
 ### v16.9.60 - Universal Causal LLM Fine-Tuning & In-Process Test Orchestrator
 
