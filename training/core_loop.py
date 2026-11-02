@@ -323,11 +323,12 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     sota_tracker = SotaTracker()
     vault = MetricVault()
 
-    sample_fraction = getattr(governor.curriculum, "current_fraction", 1.0)
-    if task_type in ("text_instruction", "llm") or model_info.get("category") == "llm":
-        sample_fraction = 1.0
-        governor.curriculum.current_fraction = 1.0
-
+    sample_fraction = (
+        getattr(governor.curriculum, "current_fraction", None)
+        or model_info.get("sample_fraction")
+        or model_info.get("curriculum", {}).get("data_fraction")
+        or 1.0
+    )
     if task_type == "forex":
         _forex_shard_root = str(
             config.get("paths", {}).get("datasets_root", "../LemGendaryDatasets")
@@ -572,8 +573,13 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                         rec_res = getattr(governor, "current_res", None)
                         rec_frac = getattr(governor, "current_fraction", None)
                         if task_type in ("text_instruction", "llm") or model_info.get("category") == "llm":
-                            rec_frac = 1.0
-                            governor.current_fraction = 1.0
+                            configured_llm_frac = (
+                                model_info.get("sample_fraction")
+                                or model_info.get("curriculum", {}).get("data_fraction")
+                                or 1.0
+                            )
+                            rec_frac = float(configured_llm_frac)
+                            governor.current_fraction = float(configured_llm_frac)
                         if rec_frac is not None or rec_res is not None:
                             if hasattr(train_ds, "update_strategy"):
                                 train_ds.update_strategy(size=rec_res, fraction=rec_frac)
@@ -630,12 +636,20 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                 )
                             total_ds_samples = len(getattr(train_ds, "all_samples", [])) or len(train_ds)
                             if os.environ.get("RANK", "0") == "0":
-                                print(
-                                    f"[CURRICULUM] Active training manifold: {len(train_ds)}/{total_ds_samples} samples "
-                                    f"({(rec_frac if rec_frac is not None else 1.0) * 100:.0f}% data fraction) | "
-                                    f"Res: {rec_res}px | Batch: {curr_batch} | Total Batches: {len(train_loader)}",
-                                    flush=True,
-                                )
+                                if task_type in ("text_instruction", "llm") or model_info.get("category") == "llm":
+                                    ctx_len = rec_res or model_info.get("input_size", 2048)
+                                    print(
+                                        f"[CURRICULUM] Active LLM instruction manifold: {len(train_ds)} samples (100% data fraction) | "
+                                        f"Context: {ctx_len} tokens | Batch: {curr_batch} | Total Batches: {len(train_loader)}",
+                                        flush=True,
+                                    )
+                                else:
+                                    print(
+                                        f"[CURRICULUM] Active training manifold: {len(train_ds)}/{total_ds_samples} samples "
+                                        f"({(rec_frac if rec_frac is not None else 1.0) * 100:.0f}% data fraction) | "
+                                        f"Res: {rec_res}px | Batch: {curr_batch} | Total Batches: {len(train_loader)}",
+                                        flush=True,
+                                    )
                             logger.info(
                                 "Synchronized training dataset and loader with recovered governor state: res=%s, frac=%.2f",
                                 rec_res,

@@ -17,17 +17,26 @@
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
 
+### v16.9.64 - LLM Hardware VRAM Probing, Clean Telemetry & ONNX Warning Suppression
+
+- **Hardware VRAM Probe LLM Calibration (    training/hardware/probe.py)**:
+  - Added empirical VRAM safety boundaries for Causal LLM architectures (~1.5B parameters, 2048 sequence length) dynamically tuning micro-batch size and accumulation steps to prevent OOM on 4GB VRAM hardware.
+- **LLM-Specific Manifold Telemetry Formatting (    training/core_loop.py)**:
+  - Formatted active training manifold telemetry specifically for language models, rendering context window tokens and 100% data fraction instead of image spatial resolutions and ladder subsampling.
+- **Universal ONNX Export Tracer Warning Filtering (    training/export/llm_exporter.py)**:
+  - Temporarily disabled KV-cache (use_cache=False) and filtered PyTorch symbolic tracer warnings (TracerWarning, UserWarning) during ONNX graph tracing of Hugging Face causal models.
+
 ### v16.9.63 - 100% Manifold Fraction Enforcement for Causal LLM Instruction Tuning
 
-- **Curriculum & Governor LLM Data Fraction Lock (    raining/governance/governor.py,     raining/core_loop.py)**:
+- **Curriculum & Governor LLM Data Fraction Lock (    training/governance/governor.py,     training/core_loop.py)**:
   - Enforced 100% active manifold training data fraction (initial_fraction = 1.0) for all LLM and text instruction models across SmartTrainingGovernor initialization, resume state restoration, and core_loop.py execution.
   - Prevents resolution ladder curriculum subsampling (e.g., 15% / 138 samples) from starving LLM instruction tuning of diverse domain conversational pairs.
 
 ### v16.9.62 - Validation DataLoader Collation Fix for Variable-Length LLM Sequences
 
-- **uild_val_loader Padding-Aware Collation (    raining/data/loaders.py)**:
+- **uild_val_loader Padding-Aware Collation (    training/data/loaders.py)**:
   - Added collate_fn parameter to uild_val_loader so LLM instruction datasets are padded dynamically during validation batches, resolving RuntimeError: stack expects each tensor to be equal size during validation passes.
-- **core_loop.py Collate Propagation (    raining/core_loop.py)**:
+- **core_loop.py Collate Propagation (    training/core_loop.py)**:
   - Propagated collate_fn=collate_fn to canonical_build_val_loader whenever     ask_type is     ext_instruction or llm, ensuring uniform token padding across train and validation DataLoaders.
 
 ### v16.9.61 - Causal LLM Dictionary Batch Unpacking & Native Step Execution

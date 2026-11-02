@@ -48,6 +48,8 @@ logger = logging.getLogger("lemtrain.checkpoint.lifecycle")
 LOWER_IS_BETTER_METRICS: set[str] = {
     "loss",
     "val_loss",
+    "eval_loss",
+    "perplexity",
     "train_loss",
     "lpips",
     "fid",
@@ -64,6 +66,13 @@ LOWER_IS_BETTER_METRICS: set[str] = {
 }
 
 CANONICAL_METRIC_ALIASES: dict[str, str] = {
+    "evalloss": "eval_loss",
+    "eval_loss": "eval_loss",
+    "valloss": "eval_loss",
+    "val_loss": "eval_loss",
+    "perplexity": "perplexity",
+    "tokenaccuracy": "token_accuracy",
+    "token_accuracy": "token_accuracy",
     "diracc": "dir_acc",
     "dir_acc": "dir_acc",
     "winrate": "win_rate",
@@ -90,7 +99,6 @@ CANONICAL_METRIC_ALIASES: dict[str, str] = {
     "map50_95": "map50_95",
     "map50-95": "map50_95",
 }
-
 
 def normalize_metric_name(name: str) -> str:
     """Normalize metric key to canonical lower-cased snake_case representation."""

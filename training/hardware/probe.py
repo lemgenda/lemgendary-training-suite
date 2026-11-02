@@ -28,6 +28,45 @@ def audit_hardware_vram(
     the optimal batch size within hardware memory safety bounds.
     """
     is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
+    is_llm = (
+        model_info.get("category") == "llm"
+        or model_info.get("dataset_type") in ("text_instruction", "llm")
+        or "llm" in model_key.lower()
+        or "ai_helper" in model_key.lower()
+    )
+    if is_llm:
+        configured_batch = model_info.get("batch_size", "auto")
+        seq_len = int(res_override or model_info.get("input_size", 2048))
+        gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
+        vram_gb = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) if torch.cuda.is_available() else 0.0
+        free_gb = 0.0
+        if torch.cuda.is_available():
+            try:
+                free_vram_probe, _ = torch.cuda.mem_get_info(0)
+                free_gb = free_vram_probe / (1024**3)
+            except Exception:
+                free_gb = 0.0
+
+        if isinstance(configured_batch, int) and configured_batch > 0:
+            final_batch = configured_batch if mode == "train" else configured_batch * 2
+        else:
+            if torch.cuda.is_available() and free_gb > 0:
+                # Dynamic transformer activation estimation scaled linearly with sequence length
+                sample_gb = (seq_len / 2048.0) * 0.45
+                usable_gb = max(0.2, free_gb * 0.70)
+                dyn_batch = max(1, int(usable_gb // sample_gb))
+                import math
+                pow2_batch = 2 ** int(math.floor(math.log2(dyn_batch))) if dyn_batch >= 1 else 1
+                final_batch = max(1, min(pow2_batch, 32))
+            else:
+                final_batch = 2 if mode == "train" else 4
+
+        logger.info(
+            "LLM Dynamic Hardware Probe: %s (Free: %.1fGB / Total: %.1fGB) | Mode: %s | Batch: %d | SeqLen: %d",
+            gpu_name, free_gb, vram_gb, mode.capitalize(), final_batch, seq_len
+        )
+        return max(1, final_batch)
+
 
     if is_forex:
         configured_batch = model_info.get("batch_size", "auto")

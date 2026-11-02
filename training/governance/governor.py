@@ -92,19 +92,25 @@ class SmartTrainingGovernor:
             or model_info.get("task_type") in ("text_instruction", "llm")
             or model_info.get("dataset_type") in ("text_instruction", "llm")
         )
-        if is_forex_model or is_llm_model:
-            initial_fraction = 1.0
-        else:
-            initial_fraction = model_info.get("sample_fraction") or opt.get(
-                "initial_fraction",
-                manifold_defaults.get("initial_fraction", 0.15),
-            )
+        curriculum_cfg = model_info.get("curriculum", {})
+        initial_fraction = (
+            model_info.get("sample_fraction")
+            or curriculum_cfg.get("data_fraction")
+            or opt.get("initial_fraction")
+            or (1.0 if (is_forex_model or is_llm_model) else manifold_defaults.get("initial_fraction", 0.15))
+        )
         self.curriculum.current_fraction = float(initial_fraction)
 
-        batch_val = model_info.get("batch_size", 16)
-        self.curriculum.current_batch = int(batch_val) if batch_val and batch_val != "auto" else 16
-        self.curriculum.current_acc = 1
+        # Batch size and dynamic gradient accumulation resolved from config or calculated
+        batch_val = model_info.get("batch_size")
+        resolved_batch = int(batch_val) if isinstance(batch_val, int) and batch_val > 0 else (2 if is_llm_model else 16)
+        self.curriculum.current_batch = resolved_batch
 
+        configured_acc = model_info.get("accumulation_steps") or curriculum_cfg.get("accumulation_steps")
+        if configured_acc is not None:
+            self.curriculum.current_acc = max(1, int(configured_acc))
+        else:
+            self.curriculum.update_batch_and_accumulation(resolved_batch)
         raw_size = model_info.get("input_size") or 224
         current_res = raw_size[1] if isinstance(raw_size, (list, tuple)) else raw_size
         try:

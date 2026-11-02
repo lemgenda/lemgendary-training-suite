@@ -129,6 +129,9 @@ def validate_one_epoch(
     total_upn_mae = 0.0
     upn_mae_count = 0
 
+    # Causal LLM Token Accuracy accumulators
+    total_llm_correct_tokens = 0
+    total_llm_valid_tokens = 0
     # Segmentation mIoU accumulators (ParseNet)
     total_miou_inter = 0.0
     total_miou_union = 0.0
@@ -235,6 +238,20 @@ def validate_one_epoch(
                 raise oom_err
 
             total_loss += float(loss.item())
+            # Causal LLM Token Accuracy Evaluation
+            if is_llm_model:
+                try:
+                    if isinstance(preds, torch.Tensor) and preds.dim() == 3:
+                        labels = inputs.get("labels") if isinstance(inputs, dict) else targets
+                        if isinstance(labels, torch.Tensor):
+                            shift_preds = preds[..., :-1, :].argmax(dim=-1)
+                            shift_targets = labels[..., 1:]
+                            mask = shift_targets != -100
+                            if mask.any():
+                                total_llm_correct_tokens += int((shift_preds[mask] == shift_targets[mask]).sum().item())
+                                total_llm_valid_tokens += int(mask.sum().item())
+                except Exception as exc:
+                    print(f"  [VAL NOTICE] LLM token accuracy evaluation error: {exc}", flush=True)
             step_count += 1
 
             # Intra-epoch progress check during validation (15 min interval, strictly bounded to [5%, 50%])
@@ -589,12 +606,17 @@ def validate_one_epoch(
         or "llm" in getattr(ctx, "model_name", "").lower()
         or getattr(ctx.model, "__class__", type(None)).__name__ in ("GenericCausalLLM", "AIHelperLemGend")
     )
-    if is_llm_model and avg_loss < 20.0:
-        import math
-        try:
-            results["perplexity"] = float(math.exp(avg_loss))
-        except OverflowError:
-            results["perplexity"] = 9999.0
+    if is_llm_model:
+        results["eval_loss"] = avg_loss
+        results["val_loss"] = avg_loss
+        if total_llm_valid_tokens > 0:
+            results["token_accuracy"] = round((total_llm_correct_tokens / total_llm_valid_tokens) * 100.0, 4)
+        if avg_loss < 20.0:
+            import math
+            try:
+                results["perplexity"] = round(float(math.exp(avg_loss)), 4)
+            except OverflowError:
+                results["perplexity"] = 9999.0
 
     if has_image_metrics and step_count > 0:
         avg_mse = total_mse / step_count
