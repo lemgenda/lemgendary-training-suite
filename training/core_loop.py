@@ -362,8 +362,11 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             val_ds = None
     elif task_type in ("text_instruction", "llm"):
         data_root = project_root.parent / "LemGendaryDatasets" / "LemGendizedAIHelperLemGend"
-        train_jsonl = data_root / "ai_helper_train.jsonl"
-        val_jsonl = data_root / "ai_helper_val.jsonl"
+        train_jsonl = data_root / "data" / "ai_helper_train.jsonl"
+        val_jsonl = data_root / "data" / "ai_helper_val.jsonl"
+        if not train_jsonl.exists():
+            train_jsonl = data_root / "ai_helper_train.jsonl"
+            val_jsonl = data_root / "ai_helper_val.jsonl"
         tokenizer = getattr(raw_model, "tokenizer", None)
         train_ds = InstructionDataset(
             train_jsonl,
