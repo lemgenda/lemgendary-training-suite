@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.60-STABLE` |
+| **Version** | `v16.9.61-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.61 - Causal LLM Dictionary Batch Unpacking & Native Step Execution
+
+- **Generic Causal LLM Native Training Steps (`models/generic_causal_llm.py`)**:
+  - Implemented `train_step(batch)` and `eval_step(batch)` methods in `GenericCausalLLM` / `AIHelperLemGend` to natively unpack collated dictionary batches containing `input_ids`, `attention_mask`, and `labels`.
+  - Resolved `TypeError: embedding(): argument 'indices' (position 2) must be Tensor, not dict` in the training loop when fine-tuning transformer instruction datasets.
+  - Added dictionary unpacking fallback directly inside `forward()` for backward compatibility.
+- **Hardware-Aware Batch Size & Gradient Accumulation Tuning**:
+  - Configured optimal micro-batch size (`batch_size: 2`) with gradient accumulation (`accumulation_steps: 16-24`) for `ai_helper_lemgend`, allowing stable QLoRA training on 4GB VRAM GPUs (GTX 1650).
 
 ### v16.9.60 - Universal Causal LLM Fine-Tuning & In-Process Test Orchestrator
 

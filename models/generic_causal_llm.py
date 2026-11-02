@@ -119,12 +119,17 @@ class GenericCausalLLM(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
+        input_ids: Any = None,
         attention_mask: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
         **kwargs: Any,
     ) -> dict[str, torch.Tensor]:
-        """Forward pass supporting both HF model structure and mock testing."""
+        """Forward pass supporting dict batch unpacking, HF model structure, and mock testing."""
+        if isinstance(input_ids, dict):
+            labels = input_ids.get("labels", labels)
+            attention_mask = input_ids.get("attention_mask", attention_mask)
+            input_ids = input_ids.get("input_ids")
+
         if hasattr(self, "embed") and hasattr(self, "lm_head"):
             # Mock pathway for tests
             h = self.embed(input_ids)
@@ -146,6 +151,24 @@ class GenericCausalLLM(nn.Module):
         return {
             "loss": outputs.loss,
             "logits": outputs.logits,
+        }
+
+    def train_step(self, batch: Any) -> dict[str, torch.Tensor]:
+        """Unified training step handling dictionary batches seamlessly."""
+        if isinstance(batch, dict):
+            return self.forward(
+                input_ids=batch.get("input_ids"),
+                attention_mask=batch.get("attention_mask"),
+                labels=batch.get("labels"),
+            )
+        return self.forward(batch)
+
+    def eval_step(self, batch: Any) -> dict[str, Any]:
+        """Unified validation step handling dictionary batches seamlessly."""
+        out = self.train_step(batch)
+        return {
+            "loss": out["loss"],
+            "preds": out.get("logits", out["loss"]),
         }
 
 
