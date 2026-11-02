@@ -26,6 +26,7 @@ from training.server.routes import (
     jobs as jobs_route,
     models as models_route,
     notebooks as notebooks_route,
+    soup as soup_route,
     training as training_route,
     ws as ws_route,
 )
@@ -126,6 +127,7 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
     application.include_router(config_route.router, prefix="/api", dependencies=dependencies)
     application.include_router(jobs_route.router, prefix="/api", dependencies=dependencies)
     application.include_router(models_route.router, prefix="/api", dependencies=dependencies)
+    application.include_router(soup_route.router, prefix="/api", dependencies=dependencies)
     application.include_router(notebooks_route.router, prefix="/api", dependencies=dependencies)
     application.include_router(training_route.router, prefix="/api", dependencies=dependencies)
     application.include_router(datasets_route.router, prefix="/api", dependencies=dependencies)

@@ -84,6 +84,32 @@ class TestLemTrainCLI(unittest.TestCase):
         self.assertIn("[KAGGLE]", result.output)
         self.assertIn("[GITHUB]", result.output)
 
+    def test_cli_soup_calls_shared_service(self) -> None:
+        """Verify `soup` delegates to training.model_soup.blend_model_soup with parsed options."""
+        from pathlib import Path
+        from unittest import mock
+
+        from training.model_soup import SoupResult
+
+        result_obj = SoupResult("m", [Path("vault_psnr.pth"), Path("vault_lpips.pth")], [0.6, 0.4], Path("best_soup.pth"))
+        with mock.patch("training.model_soup.blend_model_soup", return_value=result_obj) as svc:
+            result = runner.invoke(app, ["soup", "m", "--donors", "psnr,lpips", "--weights", "0.6,0.4"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(svc.call_args.kwargs["donors"], ["psnr", "lpips"])
+        self.assertEqual(svc.call_args.kwargs["weights"], [0.6, 0.4])
+
+    def test_cli_soup_missing_checkpoints_exit_1(self) -> None:
+        """Verify `soup` exits 1 when the service reports missing checkpoints."""
+        from unittest import mock
+
+        from training.model_soup import SoupCheckpointsMissing
+
+        err = SoupCheckpointsMissing("Missing vault checkpoints: vault_lpips.pth", ["vault_lpips.pth"])
+        with mock.patch("training.model_soup.blend_model_soup", side_effect=err):
+            result = runner.invoke(app, ["soup", "m"])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("vault_lpips.pth", result.output)
+
 
 if __name__ == "__main__":
     unittest.main()

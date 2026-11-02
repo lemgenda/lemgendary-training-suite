@@ -65,26 +65,37 @@ def is_sidecar_online(port: int = SIDECAR_PORT) -> bool:
 @app.command("soup")
 def soup(
     model: str = typer.Argument(..., help="Model key to blend vault checkpoints for."),
+    donors: str | None = typer.Option(
+        None, "--donors", "-d", help="Comma-separated vault metrics (psnr,lpips). Default: every vault_*.pth."
+    ),
     weights: Optional[str] = typer.Option(None, "--weights", "-w", help="Comma-separated weights (0.6,0.4)"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output filename or path"),
 ) -> None:
     """Blend specialized vault checkpoints using Pareto Model Soup."""
-    from training.export.soup import create_pareto_model_soup
+    from training.model_soup import SoupError, blend_model_soup
     from training.utils.paths import get_project_root
-    model_dir = get_project_root() / "LemGendaryModels" / model
-    ckpt_dir = model_dir / "checkpoints"
-    if not ckpt_dir.exists():
-        typer.echo(f"[ERROR] Checkpoint directory not found at {ckpt_dir}")
-        raise typer.Exit(1)
 
-    parsed_weights = [float(x.strip()) for x in weights.split(",")] if weights else None
-    out_path = Path(output) if output else (ckpt_dir / "best_soup.pth")
+    parsed_donors = [x.strip() for x in donors.split(",") if x.strip()] if donors else None
+    try:
+        parsed_weights = [float(x.strip()) for x in weights.split(",")] if weights else None
+    except ValueError as exc:
+        typer.echo(f"[ERROR] Invalid --weights value '{weights}': {exc}")
+        raise typer.Exit(1) from exc
 
-    soup_state = create_pareto_model_soup(ckpt_dir, weights=parsed_weights, output_path=out_path)
-    if soup_state is not None:
-        typer.echo(f"[SUCCESS] Pareto Model Soup created at {out_path}")
-    else:
-        typer.echo("[NOTICE] Vault checkpoints not available for blending.")
+    try:
+        result = blend_model_soup(
+            model,
+            project_root=get_project_root(),
+            donors=parsed_donors,
+            weights=parsed_weights,
+            output=output,
+        )
+    except SoupError as exc:
+        typer.echo(f"[ERROR] {exc}")
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"[INFO] Donors: {', '.join(p.name for p in result.donors)}")
+    typer.echo(f"[SUCCESS] Pareto Model Soup created at {result.output_path}")
 
 
 @app.command("version")

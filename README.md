@@ -11,11 +11,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.65-STABLE` |
+| **Version** | `v16.9.66-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.66 - Working Pareto Model Soup CLI & API
+
+- **Soup Service (`training/model_soup.py`)**: new torch-free `blend_model_soup()` used by both `lemtrain soup` and `POST /api/models/{model_key}/soup`. It reads the models hub from `config.yaml` `paths.checkpoints_root` (default `../LemGendaryModels`, the sibling repo; absolute values are refused), resolves `<hub>/<model>/checkpoints/vault_*.pth` and passes the list of files to `create_pareto_model_soup`. Fixes review finding D-02 (a folder was passed instead of a file list, and the wrong `LemGendaryModels` folder inside the suite was searched).
+- **Donors & Weights**: by default every `vault_*.pth` is blended (sorted by name). Optional donors (`psnr`, `lpips`, ...) pick specific vaults; optional weights must match the donor count and be non-negative. Missing folder or vault files give a clear error listing what is missing; fewer than two donors, bad weights or unsafe names are rejected.
+- **API Route (`training/server/routes/soup.py`)**: the soup endpoint moved out of `routes/models.py` (removing the undefined `status` name, ruff F821, that turned the 404 into HTTP 500). Missing checkpoints return 404, fewer than two donors or invalid input return 422. An optional JSON body `{donors, weights}` is accepted; an empty body still works, so the GUI `blendModelSoup` call is unchanged. The response keeps `model_key`, `success` and `soup_checkpoint` and adds `donors` and `weights`.
+- **CLI (`lemtrain soup`)**: new `--donors` option; missing checkpoints, too few donors and bad `--weights` exit with code 1 and a clear message.
+- **Tests (`tests/unit/test_model_soup_service.py`, `tests/unit/test_cli.py`)**: 20 torch-free tests (config-driven hub, two vaults resolve to two files, missing and single-vault errors, unsafe names, route status codes with the soup function mocked, CLI and route use the same service) plus two CLI runner tests for the full environment.
 
 ### v16.9.65 - Bounded Epoch Loop & Honoured Early Stop
 
