@@ -1,12 +1,13 @@
-import os
-"""Unified DataLoader factory functions and lifecycle management."""
+﻿"""Unified DataLoader factory functions and lifecycle management."""
 
 import logging
+import os
 from typing import Any
+
 import torch
 from torch.utils.data import DataLoader, Dataset, Sampler
 
-from training.data.workers import compute_worker_topology, dispose_loader, dataloader_worker_init_fn
+from training.data.workers import compute_worker_topology, dataloader_worker_init_fn, dispose_loader
 
 logger = logging.getLogger("lemtrain.loaders")
 
@@ -100,6 +101,7 @@ def build_val_loader(
     env: str = "local",
     is_constrained: bool = False,
     config: dict[str, Any] | None = None,
+    collate_fn: Any | None = None,
 ) -> DataLoader[Any]:
     """Construct a standardized validation DataLoader with conservative worker overhead."""
     dev = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -150,6 +152,8 @@ def build_val_loader(
             kwargs["prefetch_factor"] = 4
         else:
             kwargs["prefetch_factor"] = 6
+    if collate_fn is not None:
+        kwargs["collate_fn"] = collate_fn
 
     logger.debug(
         "Building validation DataLoader: batch_size=%d, num_workers=%d, pin_memory=%s",

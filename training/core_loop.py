@@ -1,4 +1,4 @@
-"""LemGendary Model Training Suite Universal Trainer (Facade).
+﻿"""LemGendary Model Training Suite Universal Trainer (Facade).
 
 Backward-compatible entry point delegating runtime execution, optimization,
 AMP management, and validation to the modular training.training subpackage.
@@ -199,7 +199,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     policy = apply_hardware_policy(model_key, model_info, device_info, config)
 
 
-    # 2. Directory structure — exclusively under LemGendaryModels
+    # 2. Directory structure â€” exclusively under LemGendaryModels
     # Training suite project is code-only; all artifacts, checkpoints, exports, and metrics go to LemGendaryModels
     models_hub_dir = (project_root.parent / "LemGendaryModels" / model_key).resolve()
     models_hub_checkpoint_dir = models_hub_dir / "checkpoints"
@@ -240,7 +240,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     raw_model = get_model(model_key, model_info)
     raw_model.to(device_info.device)
 
-    # Parallel strategy wrapping — pass model_info so preferred_parallel is honored.
+    # Parallel strategy wrapping â€” pass model_info so preferred_parallel is honored.
     parallel_strategy = build_parallel_strategy(
         name=args.parallel,
         model=raw_model,
@@ -464,6 +464,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 device=device_info.device,
                 env=args.env,
                 config=config,
+                collate_fn=collate_fn,
             )
         except Exception:
             val_loader = None
@@ -721,7 +722,7 @@ def main(raw_args: list[str] | None = None) -> None:
     if os.environ.get("RANK", "0") == "0":
         print("[BOOT] LemGendary Training Suite initiating...", flush=True)
 
-    # Intercept yolov8n before building TrainingContext — it uses the Ultralytics native trainer.
+    # Intercept yolov8n before building TrainingContext â€” it uses the Ultralytics native trainer.
     if args.model == "yolov8n":
         load_secrets()
         project_root = get_project_root()
