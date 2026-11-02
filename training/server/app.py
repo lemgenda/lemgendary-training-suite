@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 from collections.abc import AsyncGenerator
 from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.security.api_key import APIKeyHeader
 
@@ -30,13 +29,14 @@ from training.server.routes import (
     training as training_route,
     ws as ws_route,
 )
+from training.server.security import AUTH_TOKEN_HEADER, install_security
 from training.server.state import ServerState
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.server")
 
 security_bearer = HTTPBearer(auto_error=False)
-security_header = APIKeyHeader(name="X-LemTrain-Token", auto_error=False)
+security_header = APIKeyHeader(name=AUTH_TOKEN_HEADER, auto_error=False)
 
 
 async def verify_auth_token(
@@ -116,14 +116,8 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
     application.state.job_manager = job_manager
     application.state.enforce_auth = enforce_auth
 
-    # CORS configuration
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # Closed CORS allow-list plus browser-origin guard (outermost middleware).
+    install_security(application)
 
     # Attach route modules
     dependencies = [Depends(verify_auth_token)] if enforce_auth else []

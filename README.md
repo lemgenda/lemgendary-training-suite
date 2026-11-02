@@ -11,11 +11,24 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.61-STABLE` |
+| **Version** | `v16.9.64-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.64 - Browser Origin Guard & Closed CORS Allow-List
+
+- **Origin Guard Middleware (`training.server.security`)**:
+  - New `origin_guard_middleware` refuses (HTTP 403) any request whose `Origin` is not an AI Studio GUI origin (`tauri://localhost`, `http://tauri.localhost`, `https://tauri.localhost`, `http://localhost:1420`, `http://127.0.0.1:1420`).
+  - Browser requests using `POST`, `PUT`, `PATCH` or `DELETE` must send `X-LemGendary-Client: ai-studio-gui`; the custom header forces a CORS preflight and blocks cross-site form posts.
+  - WebSocket handshakes from foreign origins are refused. Requests without `Origin` (CLI, scripts, tests) are unaffected.
+- **Closed CORS Policy (`training.server.app`)**:
+  - Replaced `allow_origins=["*"]` with credentials by `install_security()`: the allow-list above, explicit methods, explicit headers (`Content-Type`, `Authorization`, `X-LemTrain-Token`, `X-LemGendary-Client`) and `allow_credentials=False`. Addresses the CORS part of review finding D-05; the optional token check keeps working behind the guard. `lemtrain serve` still binds `127.0.0.1` by default.
+- **Light Package Import (`training.server`)**: `JobManager` and `ServerState` are now resolved lazily, so `training.server.security` imports without torch or kaggle.
+- **Secret Files (D-11)**: `.GOOGLE_DRIVE_JSON`, `.secrets.yaml`, `.mt5_credentials` and `.kaggle/` added to `.gitignore` next to the existing token entries.
+- **Test Dependencies**: added `pytest==9.2.0` and `httpx2==2.16.0` (required by the FastAPI test client) to `requirements.txt`.
+- **Tests (`tests/unit/test_security.py`, `tests/unit/test_server.py`)**: 18 torch-free tests covering allowed and foreign origins, write header rules, CORS preflight, WebSocket handshakes and the app wiring (checked statically), plus one real-app test of the guard and the token check behind it.
 
 ### v16.9.63 - 100% Manifold Fraction Enforcement for Causal LLM Instruction Tuning
 

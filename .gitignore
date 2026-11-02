@@ -13,6 +13,11 @@ tmp/
 kaggle.json
 .kaggle_token
 .kaggle_users
+.kaggle/
+# MetaTrader 5 credentials
+.mt5_credentials
+# Workspace secrets registry
+.secrets.yaml
 #GitHub PAT
 .SUITE_PAT
 .GITHUB_PAT
@@ -20,6 +25,7 @@ kaggle.json
 .SATURN_PAT
 # Google API tokens
 .GOOGLE_DRIVE
+.GOOGLE_DRIVE_JSON
 GoogleDriveCredentials.json
 *credentials*.json
 *Credentials*.json

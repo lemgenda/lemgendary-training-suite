@@ -10,6 +10,7 @@ import tempfile
 from typing import Any
 import unittest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 import yaml
 
 from training.server.app import create_app
@@ -218,6 +219,33 @@ class TestServerSubsystem(unittest.TestCase):
             # Protected endpoint with valid custom header returns 200
             resp = client.get("/api/presets", headers={"X-LemTrain-Token": valid_token})
             self.assertEqual(resp.status_code, 200)
+
+    def test_origin_guard_on_real_app(self) -> None:
+        """Verify the real app refuses foreign origins and keeps the token check."""
+        app = create_app(project_root=self.root, enforce_auth=True)
+        valid_token = self.server_state.get_or_create_token()
+        gui_origin = "http://tauri.localhost"
+        foreign_origin = "https://evil.example"
+
+        with TestClient(app) as client:
+            resp = client.post("/api/train", headers={"Origin": foreign_origin})
+            self.assertEqual(resp.status_code, 403)
+
+            resp = client.get("/api/presets", headers={"Origin": gui_origin})
+            self.assertEqual(resp.status_code, 401)
+            self.assertEqual(resp.headers.get("access-control-allow-origin"), gui_origin)
+
+            resp = client.get(
+                "/api/presets",
+                headers={"Origin": gui_origin, "X-LemTrain-Token": valid_token},
+            )
+            self.assertEqual(resp.status_code, 200)
+
+            with (
+                self.assertRaises(WebSocketDisconnect),
+                client.websocket_connect("/api/ws/logs", headers={"Origin": foreign_origin}) as ws,
+            ):
+                ws.receive_text()
 
 
 if __name__ == "__main__":
