@@ -382,9 +382,6 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             # Fallback to root or default ai_helper files
             train_jsonl = data_root / "data" / "ai_helper_train.jsonl"
             val_jsonl = data_root / "data" / "ai_helper_val.jsonl"
-            if not train_jsonl.exists():
-                train_jsonl = data_root / "ai_helper_train.jsonl"
-                val_jsonl = data_root / "ai_helper_val.jsonl"
 
         tokenizer = getattr(raw_model, "tokenizer", None)
         train_ds = InstructionDataset(

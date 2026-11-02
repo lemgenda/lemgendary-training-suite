@@ -19,6 +19,8 @@
 
 ### v16.9.60 - Universal Causal LLM Fine-Tuning & In-Process Test Orchestrator
 
+- **Strict Instruction Dataset Path Enforcement (`training/core_loop.py`)**:
+  - Enforced canonical data directory layout (`LemGendaryDatasets/<Dataset>/data/ai_helper_train.jsonl`), eliminating legacy dataset root fallbacks.
 - **Universal Instruction-Tuned Causal LLM Fine-Tuning (`models/generic_causal_llm.py`, `training/train_llm.py`)**:
   - Implemented `GenericCausalLLM` wrapping HuggingFace backbones dynamically with PEFT/QLoRA parameterization configured via `unified_models_v2.yaml`.
   - Added ChatML format tokenization with prompt masking (-100 cross-entropy masking on system/user prompts) ensuring loss computes exclusively on assistant target turns.
@@ -33,7 +35,7 @@
 
 ### v16.9.59 - SOTA Training Ecosystem Hardening, Monotonic Ratchet, Model Soup & Publication FID 2048
 
-- **Historical Metrics.csv FID Approximated Rescaling (`scripts/recalibrate_fid.py`)** - Rescaled historical FID values across all affected restoration models (`codeformer`, `ffanet_indoor`, `mprnet_deraining`, `mirnet_lowlight`) from legacy shallow layer values ($0.04 - 0.05$) to standard Inception-2048 distribution curves ($2.85 - 5.73$), and synchronized composite `Quality_Score` rows, eliminating abrupt charting discontinuities.
+- **Historical Metrics.csv FID Approximated Rescaling (`tools/recalibrate_fid.py`)** - Rescaled historical FID values across all affected restoration models (`codeformer`, `ffanet_indoor`, `mprnet_deraining`, `mirnet_lowlight`) from legacy shallow layer values ($0.04 - 0.05$) to standard Inception-2048 distribution curves ($2.85 - 5.73$), and synchronized composite `Quality_Score` rows, eliminating abrupt charting discontinuities.
 - **Kaggle Google Drive Secrets Resolution & Warning Remediation (`training/notebooks/cells/sync.py`, `training/cloud/credentials.py`, `training/cloud_sync.py`)** - Resolved `[GDRIVE_UNCONFIGURED]` by adding `GOOGLE_DRIVE` and `GOOGLE_DRIVE_JSON` extraction to Kaggle secrets mounting cells, mapping service account json to `GOOGLE_APPLICATION_CREDENTIALS`, and gracefully logging info messages when drive sync is omitted.
 - **Modular Training Notebook Architecture (`training/notebooks/builders/kaggle.py`, `training/notebooks/builders/colab.py`)** - Separated Section 3 into dedicated markdown cells: Section 3 (`## 3. Repository Synchronization`) and Section 4 (`## 4. Environment & Dependency Installation`), and renumbered all subsequent sections cleanly through Section 9/11 across all 96 generated notebooks.
 - **Monotonic Progression Ratchet (`training/governance/curriculum.py`, `training/governance/governor.py`)** - Permanently eliminated data fraction and spatial resolution retreat. Data fraction strictly operates as an upper-envelope monotonic ratchet (`max(current_fraction, new_fraction)`) preventing resumed sessions from reverting to older checkpoint fractions. Removed `can_spatial_retreat` to guarantee monotonic resolution progress. Universal 20% fraction strides (`fraction_increment: 0.20`) applied across all models.
