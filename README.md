@@ -11,11 +11,17 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.67-STABLE` |
+| **Version** | `v16.9.68-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.68 - OpenAPI Contract Regenerated From the Live App
+
+- **Export Tool (`tools/export_openapi.py`)**: new script that builds the sidecar app with `create_app` and writes `openapi.json` deterministically (app key order, 2-space indent, UTF-8, LF, trailing newline). `--check` exits 1 when the committed file drifts. The app's `ServerState` is pointed at a temporary directory, so the export never creates `.lemtrain_server` in the project. It needs the full training stack (`torch`, `kaggle`, `onnx`, ...) because the app imports it.
+- **`openapi.json` regenerated**: 19 to 40 HTTP operations (39 paths; `/api/health` has GET and HEAD), now equal to every HTTP route the app serves. Adds the 16 GUI-called endpoints listed in review section 7.2 (Kaggle, LLM, evaluate/export, notebooks, soup, variations, docs, export staging) and the other missing routes. The two WebSocket routes (`/api/ws/...`) are not part of OpenAPI.
+- **Drift Test (`tests/unit/test_openapi_contract.py`)**: fails when `openapi.json` differs from the live app or when an app operation is missing from it. Skips with the import error as the reason when the training stack is not installed.
 
 ### v16.9.67 - Measured FID Only, Honest Completion & Pair-Rule Ratchet
 

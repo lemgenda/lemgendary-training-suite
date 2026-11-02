@@ -28,6 +28,28 @@
             }
           }
         }
+      },
+      "head": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Get Health",
+        "description": "Return health status, daemon version, and hardware accelerator profile.",
+        "operationId": "get_health_api_health_head",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Health Api Health Head"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/config": {
@@ -474,6 +496,361 @@
         }
       }
     },
+    "/api/models/{model_key}/docs/generate": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Generate Model Docs",
+        "description": "Regenerate authoritative README.md and Kaggle model_metadata.yaml for model.",
+        "operationId": "generate_model_docs_api_models__model_key__docs_generate_post",
+        "parameters": [
+          {
+            "name": "model_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Generate Model Docs Api Models  Model Key  Docs Generate Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/{model_key}/export/stage": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Stage Model Variations",
+        "description": "Stage exported model binaries into canonical isolated Kaggle variation subdirectories.",
+        "operationId": "stage_model_variations_api_models__model_key__export_stage_post",
+        "parameters": [
+          {
+            "name": "model_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Stage Model Variations Api Models  Model Key  Export Stage Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/{model_key}/variations/validate": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Validate Model Variations",
+        "description": "Validate strict binary isolation across all Kaggle variation directories.",
+        "operationId": "validate_model_variations_api_models__model_key__variations_validate_get",
+        "parameters": [
+          {
+            "name": "model_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Validate Model Variations Api Models  Model Key  Variations Validate Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/{model_key}/soup": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Blend Model Soup Route",
+        "description": "Blend specialized vault checkpoints using Pareto Model Soup.",
+        "operationId": "blend_model_soup_route_api_models__model_key__soup_post",
+        "parameters": [
+          {
+            "name": "model_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SoupRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Blend Model Soup Route Api Models  Model Key  Soup Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notebooks/models": {
+      "get": {
+        "tags": [
+          "notebooks"
+        ],
+        "summary": "List Notebook Models",
+        "description": "List all models registered and available for notebook generation.",
+        "operationId": "list_notebook_models_api_notebooks_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "title": "Response List Notebook Models Api Notebooks Models Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notebooks/generate": {
+      "post": {
+        "tags": [
+          "notebooks"
+        ],
+        "summary": "Generate Notebooks Endpoint",
+        "description": "Generate Jupyter training, inference, and usage notebooks for a specified model.",
+        "operationId": "generate_notebooks_endpoint_api_notebooks_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotebookGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Generate Notebooks Endpoint Api Notebooks Generate Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notebooks/generate-all": {
+      "post": {
+        "tags": [
+          "notebooks"
+        ],
+        "summary": "Refresh All Notebooks Endpoint",
+        "description": "Batch generate Jupyter notebooks for all models in the unified models registry.",
+        "operationId": "refresh_all_notebooks_endpoint_api_notebooks_generate_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotebookRefreshAllRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Refresh All Notebooks Endpoint Api Notebooks Generate All Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notebooks/refresh-all": {
+      "post": {
+        "tags": [
+          "notebooks"
+        ],
+        "summary": "Refresh All Notebooks Endpoint",
+        "description": "Batch generate Jupyter notebooks for all models in the unified models registry.",
+        "operationId": "refresh_all_notebooks_endpoint_api_notebooks_refresh_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotebookRefreshAllRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Refresh All Notebooks Endpoint Api Notebooks Refresh All Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/training/train": {
       "post": {
         "tags": [
@@ -589,6 +966,519 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Enqueue Export Api Training Export Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/unit-test-all": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Enqueue Unit Test All",
+        "description": "Enqueue single-epoch diagnostic pass across all fleet models.",
+        "operationId": "enqueue_unit_test_all_api_training_unit_test_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitTestAllRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Enqueue Unit Test All Api Training Unit Test All Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/kaggle/status": {
+      "get": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Get Kaggle Status",
+        "description": "Check Kaggle credentials configuration and authentication status.",
+        "operationId": "get_kaggle_status_api_training_kaggle_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Kaggle Status Api Training Kaggle Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/kaggle/kernels": {
+      "get": {
+        "tags": [
+          "training"
+        ],
+        "summary": "List Kaggle Kernels",
+        "description": "List recent and active Kaggle kernels for authenticated user.",
+        "operationId": "list_kaggle_kernels_api_training_kaggle_kernels_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response List Kaggle Kernels Api Training Kaggle Kernels Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/kaggle/train": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Launch Kaggle Train",
+        "description": "Enqueue and launch Kaggle cloud training with live WebSocket telemetry.",
+        "operationId": "launch_kaggle_train_api_training_kaggle_train_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KaggleTrainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Launch Kaggle Train Api Training Kaggle Train Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/kaggle/monitor": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Monitor Kaggle Kernel",
+        "description": "Connect live WebSocket telemetry to an active Kaggle kernel.",
+        "operationId": "monitor_kaggle_kernel_api_training_kaggle_monitor_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KaggleMonitorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Monitor Kaggle Kernel Api Training Kaggle Monitor Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/kaggle/pull": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Pull Kaggle Model Artifacts",
+        "description": "Enqueue a job that downloads all 4 model variations from Kaggle Models Hub.",
+        "operationId": "pull_kaggle_model_artifacts_api_training_kaggle_pull_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KagglePullRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Pull Kaggle Model Artifacts Api Training Kaggle Pull Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/kaggle/push": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Push Kaggle Model Artifacts",
+        "description": "Enqueue a job staging and pushing all 4 variations of one model to Kaggle Models.",
+        "operationId": "push_kaggle_model_artifacts_api_training_kaggle_push_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KagglePushRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Push Kaggle Model Artifacts Api Training Kaggle Push Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/kaggle/push-model": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Push Kaggle Model Variations",
+        "description": "Publish validated isolated model variation(s) to Kaggle Models Hub.",
+        "operationId": "push_kaggle_model_variations_api_training_kaggle_push_model_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KagglePushModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Push Kaggle Model Variations Api Training Kaggle Push Model Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/kaggle/push-all": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Push All Kaggle Models",
+        "description": "Enqueue background fleet synchronization to push all models to Kaggle Models Hub.",
+        "operationId": "push_all_kaggle_models_api_training_kaggle_push_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KagglePushAllRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Push All Kaggle Models Api Training Kaggle Push All Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/llm/train": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Enqueue Llm Training",
+        "description": "Enqueue background QLoRA instruction tuning job for assistant LLM.",
+        "operationId": "enqueue_llm_training_api_training_llm_train_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMTrainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Enqueue Llm Training Api Training Llm Train Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/llm/export": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Enqueue Llm Export",
+        "description": "Enqueue background tri-format export job for an LLM.",
+        "operationId": "enqueue_llm_export_api_training_llm_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Enqueue Llm Export Api Training Llm Export Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training/unit-test-run": {
+      "post": {
+        "tags": [
+          "training"
+        ],
+        "summary": "Run Unit Tests",
+        "description": "Execute unit test suite in-process and return structured test outcome.",
+        "operationId": "run_unit_tests_api_training_unit_test_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitTestsRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Run Unit Tests Api Training Unit Test Run Post"
                 }
               }
             }
@@ -867,6 +1757,409 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "KaggleMonitorRequest": {
+        "properties": {
+          "kernel_slug": {
+            "type": "string",
+            "title": "Kernel Slug",
+            "description": "Kaggle kernel slug (e.g. username/kernel-slug)"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Optional associated model key for auto-pull"
+          },
+          "auto_pull": {
+            "type": "boolean",
+            "title": "Auto Pull",
+            "description": "Enable auto-pull on epoch completion",
+            "default": false
+          },
+          "poll_interval": {
+            "type": "integer",
+            "title": "Poll Interval",
+            "description": "Telemetry poll interval in seconds",
+            "default": 5
+          }
+        },
+        "type": "object",
+        "required": [
+          "kernel_slug"
+        ],
+        "title": "KaggleMonitorRequest",
+        "description": "Payload for connecting to active Kaggle kernel stream."
+      },
+      "KagglePullRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Target model key"
+          },
+          "variation": {
+            "type": "string",
+            "title": "Variation",
+            "description": "Variation to pull ('all', 'pytorch', 'pytorch_fp32', 'onnx_fp16', 'onnx_fp32')",
+            "default": "all"
+          },
+          "force_download": {
+            "type": "boolean",
+            "title": "Force Download",
+            "description": "Force re-download even if cached version is current",
+            "default": false
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username",
+            "description": "Optional Kaggle username override"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "KagglePullRequest",
+        "description": "Payload for downloading model variations from Kaggle Models Hub."
+      },
+      "KagglePushAllRequest": {
+        "properties": {
+          "variation": {
+            "type": "string",
+            "title": "Variation",
+            "description": "Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')",
+            "default": "all"
+          },
+          "version_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Notes",
+            "description": "Optional release version notes"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "description": "Validate payload and isolation without publishing to Kaggle",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "KagglePushAllRequest",
+        "description": "Payload for staging and pushing all registered models to Kaggle Models Hub."
+      },
+      "KagglePushModelRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Target model key"
+          },
+          "variation": {
+            "type": "string",
+            "title": "Variation",
+            "description": "Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')",
+            "default": "all"
+          },
+          "version_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Notes",
+            "description": "Optional release version notes"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "description": "Validate payload and isolation without publishing to Kaggle",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "KagglePushModelRequest",
+        "description": "Payload for pushing validated isolated variations to Kaggle Models Hub."
+      },
+      "KagglePushRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Target model key"
+          },
+          "source_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Dir",
+            "description": "Optional custom source directory"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username",
+            "description": "Optional Kaggle username override"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "KagglePushRequest",
+        "description": "Payload for uploading model checkpoints to Kaggle Models."
+      },
+      "KaggleTrainRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Target model key"
+          },
+          "gpu": {
+            "type": "string",
+            "title": "Gpu",
+            "description": "Kaggle accelerator ('T4', 'P100', 'None')",
+            "default": "T4"
+          },
+          "auto_pull": {
+            "type": "boolean",
+            "title": "Auto Pull",
+            "description": "Auto-pull checkpoints to LemGendaryModels per epoch",
+            "default": true
+          },
+          "poll_interval": {
+            "type": "integer",
+            "title": "Poll Interval",
+            "description": "Telemetry poll interval in seconds",
+            "default": 5
+          }
+        },
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "KaggleTrainRequest",
+        "description": "Payload for launching Kaggle cloud training."
+      },
+      "LLMExportRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Target LLM model key",
+            "default": "ai_helper_lemgend"
+          },
+          "checkpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint",
+            "description": "Path to checkpoint file"
+          },
+          "output_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Dir",
+            "description": "Output directory for exported binaries"
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targets",
+            "description": "Target export formats (e.g. ['adapter', 'merged', 'gguf'])"
+          }
+        },
+        "type": "object",
+        "title": "LLMExportRequest",
+        "description": "Payload for compiling and exporting tri-format LLM binaries."
+      },
+      "LLMTrainRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Target LLM model key",
+            "default": "ai_helper_lemgend"
+          },
+          "epochs": {
+            "type": "integer",
+            "title": "Epochs",
+            "description": "Training epochs",
+            "default": 3
+          },
+          "batch_size": {
+            "type": "integer",
+            "title": "Batch Size",
+            "description": "Per-device micro batch size",
+            "default": 2
+          },
+          "lr": {
+            "type": "number",
+            "title": "Lr",
+            "description": "Learning rate",
+            "default": 0.0002
+          },
+          "max_seq_length": {
+            "type": "integer",
+            "title": "Max Seq Length",
+            "description": "Context window maximum token length",
+            "default": 2048
+          },
+          "env": {
+            "type": "string",
+            "title": "Env",
+            "description": "Training environment ('local', 'kaggle', 'colab')",
+            "default": "local"
+          }
+        },
+        "type": "object",
+        "title": "LLMTrainRequest",
+        "description": "Payload for dispatching QLoRA instruction fine-tuning for assistant LLM."
+      },
+      "NotebookGenerateRequest": {
+        "properties": {
+          "model_key": {
+            "type": "string",
+            "title": "Model Key",
+            "description": "Target model key (e.g. nima_aesthetic_mobile)"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform",
+            "description": "Execution platform: 'kaggle', 'colab', or 'all'",
+            "default": "all"
+          },
+          "kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kinds",
+            "description": "Notebook kinds: ['training', 'inference', 'usage'] (defaults to all)"
+          },
+          "output_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Dir",
+            "description": "Custom target export directory"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_key"
+        ],
+        "title": "NotebookGenerateRequest",
+        "description": "Payload for generating notebooks for a single model."
+      },
+      "NotebookRefreshAllRequest": {
+        "properties": {
+          "platform": {
+            "type": "string",
+            "title": "Platform",
+            "description": "Execution platform: 'kaggle', 'colab', or 'all'",
+            "default": "all"
+          },
+          "kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kinds",
+            "description": "Notebook kinds: ['training', 'inference', 'usage'] (defaults to all)"
+          },
+          "output_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Dir",
+            "description": "Custom target export directory"
+          }
+        },
+        "type": "object",
+        "title": "NotebookRefreshAllRequest",
+        "description": "Payload for generating notebooks for all registered models."
+      },
       "QuickTrainRequest": {
         "properties": {
           "model_key": {
@@ -927,6 +2220,31 @@
             "title": "Env",
             "description": "Execution environment ('local', 'kaggle', 'colab')",
             "default": "local"
+          },
+          "ladder_stage": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ladder Stage",
+            "description": "Selected spatial ladder resolution or timeframe minute stage"
+          },
+          "enable_sawtooth": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Sawtooth",
+            "description": "Enable Sawtooth VRAM Governor memory guard",
+            "default": true
           }
         },
         "type": "object",
@@ -935,6 +2253,41 @@
         ],
         "title": "QuickTrainRequest",
         "description": "Payload for quick train trigger."
+      },
+      "SoupRequest": {
+        "properties": {
+          "donors": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Donors"
+          },
+          "weights": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weights"
+          }
+        },
+        "type": "object",
+        "title": "SoupRequest",
+        "description": "Optional soup parameters. An empty body blends every vault checkpoint uniformly."
       },
       "TrainRequest": {
         "properties": {
@@ -1023,6 +2376,44 @@
         "title": "TrainRequest",
         "description": "Payload for submitting training job."
       },
+      "UnitTestAllRequest": {
+        "properties": {
+          "epochs": {
+            "type": "integer",
+            "title": "Epochs",
+            "description": "Diagnostic epochs per model (default: 1)",
+            "default": 1
+          },
+          "env": {
+            "type": "string",
+            "title": "Env",
+            "description": "Execution environment ('local', 'kaggle')",
+            "default": "local"
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "description": "Force re-train even if SOTA checkpoint exists",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "UnitTestAllRequest",
+        "description": "Payload for submitting single-epoch diagnostic unit test across all registered models."
+      },
+      "UnitTestsRunRequest": {
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "title": "Pattern",
+            "description": "Test discovery file pattern",
+            "default": "test_*.py"
+          }
+        },
+        "type": "object",
+        "title": "UnitTestsRunRequest",
+        "description": "Payload for executing unit test suites."
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -1081,6 +2472,10 @@
     {
       "name": "models",
       "description": "Model registry, parameters, and architecture audit."
+    },
+    {
+      "name": "notebooks",
+      "description": "Jupyter training, inference, and usage notebook generation."
     },
     {
       "name": "training",
