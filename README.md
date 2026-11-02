@@ -11,11 +11,25 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.56-STABLE` |
+| **Version** | `v16.9.60-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete — Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.60 - Universal Causal LLM Fine-Tuning & In-Process Test Orchestrator
+
+- **Universal Instruction-Tuned Causal LLM Fine-Tuning (`models/generic_causal_llm.py`, `training/train_llm.py`)**:
+  - Implemented `GenericCausalLLM` wrapping HuggingFace backbones dynamically with PEFT/QLoRA parameterization configured via `unified_models_v2.yaml`.
+  - Added ChatML format tokenization with prompt masking (-100 cross-entropy masking on system/user prompts) ensuring loss computes exclusively on assistant target turns.
+  - Implemented dynamic dataset manifold discovery supporting both standalone JSONL files and directory shards (`data/*_train.jsonl`).
+  - Added tri-format deployment export pipeline generating standalone QLoRA adapters, merged FP16 PyTorch safetensors, and ONNX/GGUF edge matrices.
+- **REST API & CLI In-Process Test Orchestration**:
+  - Added `POST /api/training/unit-test-run` executing in-process unit test suites matching custom file patterns via Python standard unittest test discovery.
+  - Added `POST /api/training/unit-test-all` enqueuing 1-epoch diagnostic smoke passes across all 23 neural architectures.
+  - Added CLI test dispatch command `python cli.py test [--pattern test_*.py]`.
+- **Bijective Documentation Synchronization**:
+  - Synchronized `PAPER_TRAINING_SUITE.md` and `training-suite-master.html` with Section 7 "Universal Instruction-Tuned Causal LLM Fine-Tuning & Dynamic Dataset Ingestion".
 
 ### v16.9.59 - SOTA Training Ecosystem Hardening, Monotonic Ratchet, Model Soup & Publication FID 2048
 

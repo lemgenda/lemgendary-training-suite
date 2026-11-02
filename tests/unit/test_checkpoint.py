@@ -168,21 +168,21 @@ class TestCheckpointSubsystem(unittest.TestCase):
 
         dummy_payload = {"epoch": 1, "state": "test"}
 
-        # 1. Progress bounds test: < 5% rejected
+        # 1. Progress bounds test: < 2% rejected
         saved_low = mgr.check_and_save_progress(
-            epoch=1, phase="train", step=2, total_steps=100, payload_builder=lambda: dict(dummy_payload)
+            epoch=1, phase="train", step=1, total_steps=100, payload_builder=lambda: dict(dummy_payload)
         )
         self.assertFalse(saved_low)
         self.assertFalse(mgr.progress_path.exists())
 
-        # 2. Progress bounds test: > 50% rejected
+        # 2. Progress bounds test: > 98% rejected
         saved_high = mgr.check_and_save_progress(
-            epoch=1, phase="train", step=60, total_steps=100, payload_builder=lambda: dict(dummy_payload)
+            epoch=1, phase="train", step=99, total_steps=100, payload_builder=lambda: dict(dummy_payload)
         )
         self.assertFalse(saved_high)
         self.assertFalse(mgr.progress_path.exists())
 
-        # 3. Progress bounds test: within [5%, 50%] (e.g. 25%) accepted
+        # 3. Progress bounds test: within [2%, 98%] (e.g. 25%) accepted
         saved_valid = mgr.check_and_save_progress(
             epoch=1, phase="train", step=25, total_steps=100, payload_builder=lambda: dict(dummy_payload)
         )

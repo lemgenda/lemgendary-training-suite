@@ -17,6 +17,10 @@ import urllib.error
 import urllib.request
 import typer
 
+_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 from training.server.state import ServerState
 from training.services.audit_service import AuditService
 from training.services.checkpoint_service import CheckpointService
@@ -38,6 +42,7 @@ audit_app = typer.Typer(name="audit", help="System resources, model topology, an
 sync_app = typer.Typer(name="sync", help="Cloud storage synchronization and provider telemetry.")
 server_app = typer.Typer(name="server", help="FastAPI sidecar daemon process management.")
 notebooks_app = typer.Typer(name="notebooks", help="Jupyter training, inference, and usage notebook generation.")
+llm_app = typer.Typer(name="llm", help="Causal LLM instruction tuning and tri-format export operations.")
 
 app.add_typer(checkpoints_app, name="checkpoints")
 app.add_typer(presets_app, name="presets")
@@ -45,6 +50,7 @@ app.add_typer(audit_app, name="audit")
 app.add_typer(sync_app, name="sync")
 app.add_typer(server_app, name="server")
 app.add_typer(notebooks_app, name="notebooks")
+app.add_typer(llm_app, name="llm")
 
 SIDECAR_PORT = 8200
 
@@ -675,3 +681,74 @@ def server_openapi(
 
 if __name__ == "__main__":
     app()
+
+# ??? LLM Operations Sub-Commands ?????????????????????????????????????????????
+@llm_app.command("train")
+def llm_train(
+    model: str = typer.Argument("ai_helper_lemgend", help="LLM model key (e.g. ai_helper_lemgend, test_llm)."),
+    epochs: Optional[int] = typer.Option(None, "--epochs", "-e", help="Total training epochs."),
+    batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Per-device micro-batch size."),
+    lr: Optional[float] = typer.Option(None, "--lr", help="Learning rate for LoRA adapters."),
+    max_seq_length: Optional[int] = typer.Option(2048, "--max-seq-length", help="Maximum sequence context length."),
+    preset: Optional[str] = typer.Option(None, "--preset", "-p", help="Canonical preset profile from presets.yaml."),
+    env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."),
+    clean: bool = typer.Option(False, "--clean", help="Wipe local checkpoints and start fresh."),
+    auto_sync: bool = typer.Option(False, "--auto-sync", help="Enable cloud checkpoint synchronization."),
+) -> None:
+    """Launch instruction fine-tuning for any causal LLM architecture."""
+    if is_sidecar_online():
+        typer.echo(f"[INFO] Detected active LemGendary Sidecar Daemon on port {SIDECAR_PORT}.")
+
+    typer.echo(f"[START] Initiating LLM training run for model '{model}' (env={env})...")
+    service = TrainingService()
+    summary = service.train(
+        model_key=model,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        preset=preset,
+        env=env,
+        clean=clean,
+        auto_sync=auto_sync,
+    )
+    typer.echo(f"[COMPLETE] Final training status: {summary.status} at epoch {summary.final_epoch}")
+
+
+@llm_app.command("export")
+def llm_export(
+    model: str = typer.Argument("ai_helper_lemgend", help="LLM model key to export."),
+    checkpoint: Optional[str] = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
+    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="Target directory for binaries."),
+    target: Optional[List[str]] = typer.Option(None, "--target", "-t", help="Target formats ('qlora_adapter', 'merged_safetensors', 'gguf_fp16')."),
+) -> None:
+    """Compile and export tri-format binaries for an LLM."""
+    typer.echo(f"[EXPORT] Compiling tri-format LLM export targets for '{model}'...")
+    service = ExportService()
+    results = service.export(
+        model_key=model,
+        checkpoint_path=checkpoint,
+        output_dir=output_dir,
+        targets=target,
+    )
+    typer.echo("[SUCCESS] LLM Artifacts exported:")
+    for tgt, path in results.items():
+        typer.echo(f"  [{tgt}] -> {path}")
+
+@app.command("test")
+def test_unit(
+    pattern: str = typer.Option("test_*.py", "--pattern", "-p", help="Test file pattern to execute (e.g. 'test_llm*.py')."),
+) -> None:
+    """Run unit test suites for the Model Training Suite in-process using unittest."""
+    import unittest
+    project_root = Path(__file__).resolve().parent.parent.parent
+    tests_dir = project_root / "tests" / "unit"
+    typer.echo(f"[TEST] Running Training Suite unit tests in {tests_dir} (pattern: {pattern})...")
+    loader = unittest.TestLoader()
+    suite = loader.discover(str(tests_dir), pattern=pattern)
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    if not result.wasSuccessful():
+        typer.echo(f"[FAIL] Unit tests failed ({len(result.failures)} failures, {len(result.errors)} errors)")
+        raise typer.Exit(1)
+    typer.echo(f"[SUCCESS] All {result.testsRun} unit tests passed successfully!")
+

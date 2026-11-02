@@ -99,10 +99,11 @@ def _populate_registry():
 
     # 4. Causal Assistant Language Models
     try:
-        from models.ai_helper_llm import AIHelperLemGend
+        from models.generic_causal_llm import GenericCausalLLM, AIHelperLemGend
+        _MODEL_REGISTRY["GenericCausalLLM"] = GenericCausalLLM
         _MODEL_REGISTRY["AIHelperLemGend"] = AIHelperLemGend
     except Exception as llm_err:
-        logger.debug("AIHelperLemGend unavailable: %s", llm_err)
+        logger.debug("Causal LLMs unavailable: %s", llm_err)
 
 
 def get_model(model_key, config=None):
@@ -114,14 +115,14 @@ def get_model(model_key, config=None):
     unified_name = config.get("unified_models", "unified_models_v2.yaml") if config else "unified_models_v2.yaml"
     unified_models_path = os.path.join(project_root, unified_name)
 
-    model_class_name = None
-    kwargs = {}
+    model_class_name = config.get("class_name") if isinstance(config, dict) else None
+    kwargs = config.get("kwargs", {}) if isinstance(config, dict) else {}
     if os.path.exists(unified_models_path):
         with open(unified_models_path, "r") as f:
             unified = yaml.safe_load(f)
             if model_key in unified:
-                model_class_name = unified[model_key].get("class_name")
-                kwargs = unified[model_key].get("kwargs", {})
+                model_class_name = unified[model_key].get("class_name", model_class_name)
+                kwargs = unified[model_key].get("kwargs", kwargs)
 
     # YOLO models are delegated to the Ultralytics native trainer via core_loop._run_yolo_native().
     # Reaching this point means the bypass in core_loop.main() was skipped, which is a bug.

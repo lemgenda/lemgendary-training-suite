@@ -583,6 +583,19 @@ def validate_one_epoch(
         "val_time": elapsed,
     }
 
+    # Causal LLM Perplexity evaluation
+    is_llm_model = (
+        getattr(ctx, "model_name", "").lower().startswith("ai_helper")
+        or "llm" in getattr(ctx, "model_name", "").lower()
+        or getattr(ctx.model, "__class__", type(None)).__name__ in ("GenericCausalLLM", "AIHelperLemGend")
+    )
+    if is_llm_model and avg_loss < 20.0:
+        import math
+        try:
+            results["perplexity"] = float(math.exp(avg_loss))
+        except OverflowError:
+            results["perplexity"] = 9999.0
+
     if has_image_metrics and step_count > 0:
         avg_mse = total_mse / step_count
         results["psnr"] = _compute_psnr(avg_mse)

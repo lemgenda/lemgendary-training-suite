@@ -106,6 +106,11 @@ PHASES: List[PhaseDef] = [
         "datasets": ["vision_language_master_manifold"],
         "models": ["vlm_llava", "vlm_blip2"],
     },
+    {
+        "name": "Phase 6: Foundation & Causal Assistant Intelligence",
+        "datasets": ["LemGendizedAIHelperLemGend", "LemGendizedTestLLM"],
+        "models": ["ai_helper_lemgend", "test_llm"],
+    },
 ]
 
 

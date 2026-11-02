@@ -286,3 +286,50 @@ def enqueue_llm_training(payload: LLMTrainRequest, request: Request) -> dict[str
         "config": params,
     }
 
+class LLMExportRequest(BaseModel):
+    """Payload for compiling and exporting tri-format LLM binaries."""
+    model: str = Field("ai_helper_lemgend", description="Target LLM model key")
+    checkpoint: Optional[str] = Field(None, description="Path to checkpoint file")
+    output_dir: Optional[str] = Field(None, description="Output directory for exported binaries")
+    targets: Optional[list[str]] = Field(None, description="Target export formats (e.g. ['adapter', 'merged', 'gguf'])")
+
+
+@router.post("/llm/export")
+def enqueue_llm_export(payload: LLMExportRequest, request: Request) -> dict[str, Any]:
+    """Enqueue background tri-format export job for an LLM."""
+    manager = request.app.state.job_manager
+    params = payload.model_dump()
+    job_id = manager.submit_job(job_type="export", model_key=payload.model, params=params)
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "message": f"LLM export job enqueued for {payload.model}",
+        "config": params,
+    }
+
+
+class UnitTestsRunRequest(BaseModel):
+    """Payload for executing unit test suites."""
+    pattern: str = Field("test_*.py", description="Test discovery file pattern")
+
+
+@router.post("/unit-test-run")
+def run_unit_tests(payload: UnitTestsRunRequest) -> dict[str, Any]:
+    """Execute unit test suite in-process and return structured test outcome."""
+    import unittest
+    from training.utils.paths import get_project_root
+    project_root = get_project_root()
+    tests_dir = project_root / "tests" / "unit"
+    loader = unittest.TestLoader()
+    suite = loader.discover(str(tests_dir), pattern=payload.pattern)
+    runner = unittest.TextTestRunner(verbosity=1)
+    result = runner.run(suite)
+    return {
+        "status": "passed" if result.wasSuccessful() else "failed",
+        "tests_run": result.testsRun,
+        "failures_count": len(result.failures),
+        "errors_count": len(result.errors),
+        "failures": [str(f[0]) for f in result.failures],
+        "errors": [str(e[0]) for e in result.errors],
+    }
+

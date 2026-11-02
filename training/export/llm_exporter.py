@@ -57,7 +57,11 @@ def export_llm_tri_format(
         model_to_export.eval()
         model_to_export.to(device)
 
-    binary_stem = "AIHelperLemGend"
+    stem_map = {
+        "ai_helper_lemgend": "AIHelperLemGend",
+        "test_llm": "TestLLM",
+    }
+    binary_stem = stem_map.get(model_key, "".join(part.title() for part in model_key.split("_")))
 
     # 1. PyTorch Standalone Binary (.pt)
     pt_path = pytorch_dir / f"{binary_stem}.pt"

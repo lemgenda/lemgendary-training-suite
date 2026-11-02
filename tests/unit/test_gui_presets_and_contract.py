@@ -1,4 +1,4 @@
-"""Unit tests for Phase 13: Canonical Presets & Desktop GUI Integration (Gate 13).
+"""Unit tests for Canonical Presets & Desktop GUI Integration.
 
 Verifies:
 - Frozen OpenAPI 3.1.0 schema specification contract.
@@ -25,7 +25,7 @@ from training.server.state import ServerState
 from training.utils.paths import get_project_root
 
 
-class TestPhase13OpenAPIAndContract(unittest.TestCase):
+class TestOpenAPIAndContract(unittest.TestCase):
     """Verify OpenAPI 3.1 contract and schema freezing."""
 
     def setUp(self) -> None:
@@ -78,7 +78,7 @@ class TestPhase13OpenAPIAndContract(unittest.TestCase):
             self.assertIn("/api/gui/quick-train", data.get("paths", {}))
 
 
-class TestPhase13DesktopGUIAndPresets(unittest.TestCase):
+class TestDesktopGUIAndPresets(unittest.TestCase):
     """Verify Desktop GUI routes and canonical presets execution."""
 
     def setUp(self) -> None:
@@ -212,7 +212,7 @@ class TestPhase13DesktopGUIAndPresets(unittest.TestCase):
         self.assertIn("Invalid preset", resp.json()["detail"])
 
 
-class TestPhase13CLIExport(unittest.TestCase):
+class TestCLIExportAndContract(unittest.TestCase):
     """Verify CLI export functionality for OpenAPI schema."""
 
     def test_cli_server_openapi_export(self) -> None:

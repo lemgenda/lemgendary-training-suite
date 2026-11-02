@@ -361,20 +361,43 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             logger.debug("Forex val dataset failed: %s", forex_val_err)
             val_ds = None
     elif task_type in ("text_instruction", "llm"):
-        data_root = project_root.parent / "LemGendaryDatasets" / "LemGendizedAIHelperLemGend"
-        train_jsonl = data_root / "data" / "ai_helper_train.jsonl"
-        val_jsonl = data_root / "data" / "ai_helper_val.jsonl"
+        # Resolve dataset folder dynamically from model_info or fallback to LemGendizedAIHelperLemGend
+        declared_datasets = model_info.get("datasets", [])
+        dataset_name = declared_datasets[0] if declared_datasets else "LemGendizedAIHelperLemGend"
+        data_root = project_root.parent / "LemGendaryDatasets" / dataset_name
+
+        train_jsonl = data_root / "data" / f"{model_key}_train.jsonl"
+        val_jsonl = data_root / "data" / f"{model_key}_val.jsonl"
+
         if not train_jsonl.exists():
-            train_jsonl = data_root / "ai_helper_train.jsonl"
-            val_jsonl = data_root / "ai_helper_val.jsonl"
+            # Check for generic *_train.jsonl candidates in data/
+            candidates_train = list((data_root / "data").glob("*_train.jsonl")) if (data_root / "data").exists() else []
+            candidates_val = list((data_root / "data").glob("*_val.jsonl")) if (data_root / "data").exists() else []
+            if candidates_train:
+                train_jsonl = candidates_train[0]
+            if candidates_val:
+                val_jsonl = candidates_val[0]
+
+        if not train_jsonl.exists():
+            # Fallback to root or default ai_helper files
+            train_jsonl = data_root / "data" / "ai_helper_train.jsonl"
+            val_jsonl = data_root / "data" / "ai_helper_val.jsonl"
+            if not train_jsonl.exists():
+                train_jsonl = data_root / "ai_helper_train.jsonl"
+                val_jsonl = data_root / "ai_helper_val.jsonl"
+
         tokenizer = getattr(raw_model, "tokenizer", None)
         train_ds = InstructionDataset(
             train_jsonl,
             tokenizer=tokenizer,
-            max_length=2048,
+            max_length=int(model_info.get("input_size", 2048)),
             sample_fraction=sample_fraction,
         )
-        val_ds = InstructionDataset(val_jsonl, tokenizer=tokenizer, max_length=2048) if val_jsonl.exists() else None
+        val_ds = InstructionDataset(
+            val_jsonl,
+            tokenizer=tokenizer,
+            max_length=int(model_info.get("input_size", 2048)),
+        ) if val_jsonl.exists() else None
     else:
         train_ds = MultiTaskDataset(
             config,
