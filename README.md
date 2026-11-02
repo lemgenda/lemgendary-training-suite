@@ -11,11 +11,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.66-STABLE` |
+| **Version** | `v16.9.67-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.67 - Measured FID Only, Honest Completion & Pair-Rule Ratchet
+
+- **Removed `tools/recalibrate_fid.py`**: the tool rewrote `metrics.csv` FID values with formulas (for example `fid * 45 + lpips * 26`, a fixed `2.78` for epoch 2) and recomputed `Quality_Score`. That broke the Chart & Metrics Governance and Publication-Grade FID rules. Fixes review finding D-03. **Known gap**: `metrics.csv` rows already rewritten by the tool (the v16.9.x "FID Approximated Rescaling" entry below: `codeformer`, `ffanet_indoor`, `mprnet_deraining`, `mirnet_lowlight`) are not measured values. They must be re-evaluated from the checkpoints with real Inception FID (`feature=2048`, chunks of at most 2) or excluded from charts. No re-evaluation tool exists yet.
+- **4-Pillar Completion (`training/training/engine.py`)**: the resolution and data pillars now read the pre-audit governor state through the keys `get_state()` writes (`input_size`, `sample_fraction`, shared constants in `training/ratchet.py`). The old lookup used keys that are never written (`current_resolution`, `resolution`) and fell back to the post-audit resolution, so a 384 px epoch that triggered a jump to 512 px could be reported complete. A missing key now counts as 0, so it can never pass. Fixes review finding D-04.
+- **Monotonic Ratchet, pair rule (`training/ratchet.py`, `training/governance/governor.py`)**: new torch-free `check_transition` enforces: resolution never decreases; within one resolution step the data fraction never decreases; the fraction may reset when the resolution steps up. Every governor transition (data propulsion, spatial jump, SOTA forced jump, loop-breaker breakout, VRAM veto) goes through `_commit_rung`, which raises `RatchetViolation` on a backward step.
+- **Ratchet violations fixed**: `veto_resolution_jump` could lower the resolution (for example 512 to 384); it now only anchors at or above the current resolution. `load_state` lowered a saved 100% fraction to the configured initial fraction for checkpoints without `epoch_count`; the saved fraction is now restored as-is.
+- **Tests (`tests/unit/test_ratchet.py`)**: 15 torch-free tests (simulated run obeys the pair rule, backward steps rejected, governor transitions routed through `_commit_rung`, `get_state` uses the canonical keys, completion fails below the top rung or with legacy/missing keys). `tests/test_vram_safety_governor.py` now expects the veto to refuse a retreat.
 
 ### v16.9.66 - Working Pareto Model Soup CLI & API
 

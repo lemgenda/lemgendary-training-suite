@@ -11,6 +11,7 @@ from training.governance.curriculum import CurriculumState
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS, DEFAULT_METRIC_WEIGHTS, MetricRegistry
 from training.governance.sota import SotaTracker
 from training.governance.thermal import ThermalState
+from training.ratchet import FRACTION_STATE_KEY, RESOLUTION_STATE_KEY, Rung, check_transition, expand_fraction
 
 logger = logging.getLogger("lemtrain.governance.governor")
 
@@ -252,6 +253,19 @@ class SmartTrainingGovernor:
                 if target_score <= 1.0 and self.task_type == "quality":
                     target_score *= 100.0
                 self.sota.target_quality_score = target_score
+
+    def _commit_rung(self, new_res: int, new_frac: float) -> None:
+        """Move the curriculum to ``(new_res, new_frac)`` under the pair rule.
+
+        Raises ``RatchetViolation`` if the move would lower the resolution, or
+        lower the fraction without a resolution step-up.
+        """
+        check_transition(
+            Rung(int(self.current_res), float(self.current_fraction)),
+            Rung(int(new_res), float(new_frac)),
+        )
+        self.current_res = int(new_res)
+        self.current_fraction = float(new_frac)
 
     # -------------------------------------------------------------------------
     # Delegated Properties
@@ -675,8 +689,7 @@ class SmartTrainingGovernor:
             current_idx = self.res_ladder.index(self.current_res) if self.current_res in self.res_ladder else -1
             if 0 <= current_idx < len(self.res_ladder) - 1:
                 next_res = self.res_ladder[current_idx + 1]
-                self.current_res = next_res
-                self.current_fraction = 0.5
+                self._commit_rung(next_res, 0.5)
                 self.last_res_jump_epoch = self.epoch_count
                 self.spatial_lock_remaining = self.stabilization_lock
                 self.stabilization_epochs = self.stabilization_lock
@@ -943,9 +956,7 @@ class SmartTrainingGovernor:
                 self.last_jolt_epoch = self.epoch_count
                 msg_parts.append(f"JOLT: Breaking Plateau with Head-Differential Propulsion (Head: {self.head_lr_multiplier:.2f}x, Backbone: {self.lr_multiplier:.2f}x | {window_size}-Epoch Window)")
 
-            next_frac = min(1.0, round(self.current_fraction + self.fraction_increment, 4))
-            if 1.0 - next_frac < 0.01:
-                next_frac = 1.0
+            next_frac = expand_fraction(self.current_fraction, self.fraction_increment)
             next_state = (self.current_res, round(next_frac, 2))
 
             if self.failure_log.get(str(next_state), 0) > 0:
@@ -956,7 +967,7 @@ class SmartTrainingGovernor:
 
             if phase in ("FOUNDATION", "EXPANSION"):
                 if self.current_fraction < 1.0:
-                    self.current_fraction = next_frac
+                    self._commit_rung(self.current_res, next_frac)
                     self.last_action_epoch = self.epoch_count
                     f_changed = True
                     msg_parts.append(f"PROPULSION: Data -> {self.current_fraction*100:.0f}%")
@@ -981,9 +992,8 @@ class SmartTrainingGovernor:
                             self.config.get("governor", {}).get("manifold", {}).get("initial_fraction", 0.15),
                         )
                     )
-                    self.current_res = next_res
+                    self._commit_rung(next_res, init_frac)
                     r_changed = b_changed = True
-                    self.current_fraction = init_frac
                     f_changed = True
                     self.last_res_jump_epoch = self.epoch_count
                     self.last_action_epoch = self.epoch_count
@@ -1100,8 +1110,12 @@ class SmartTrainingGovernor:
         return max(0.15, min(0.5, target_pct))
 
     def veto_resolution_jump(self, fallback_res: int, reason: str = "VRAM physical ceiling") -> None:
-        """Lock training to fallback_res and prevent higher resolution attempts."""
-        self.current_res = fallback_res
+        """Anchor training at fallback_res and prevent higher resolution attempts.
+
+        The veto stops a pending jump; it never retreats. A fallback below the
+        current resolution raises ``RatchetViolation`` (Monotonic Ratchet).
+        """
+        self._commit_rung(fallback_res, self.current_fraction)
         self.spatial_lock_remaining = 10
         self.stabilization_epochs = 10
         if self.res_ladder:
@@ -1137,10 +1151,9 @@ class SmartTrainingGovernor:
         if result.get("breakout_triggered"):
             new_res = result.get("new_res")
             if new_res is not None:
-                self.current_res = new_res
+                self._commit_rung(new_res, 0.15)
                 if self.current_res not in self.res_ladder:
                     self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
-                self.current_fraction = 0.15
                 logger.info(
                     "Breakout promoted resolution %dpx -> %dpx with retreat protection.",
                     res_before,
@@ -1158,8 +1171,8 @@ class SmartTrainingGovernor:
     def get_state(self) -> dict[str, Any]:
         """Serialize complete governor state for checkpoint persistence."""
         return {
-            "sample_fraction": self.current_fraction,
-            "input_size": self.current_res,
+            FRACTION_STATE_KEY: self.current_fraction,
+            RESOLUTION_STATE_KEY: self.current_res,
             "softmax_temp": self.current_temp,
             "logit_clamp": self.current_clamp,
             "lr_multiplier": self.lr_multiplier,
@@ -1212,28 +1225,20 @@ class SmartTrainingGovernor:
         self.history = list(state.get("history", []))
 
         if not preserve_curriculum:
-            raw_frac = float(state.get("sample_fraction", self.current_fraction))
+            raw_frac = float(state.get(FRACTION_STATE_KEY, self.current_fraction))
             self.current_fraction = 1.0 if (1.0 - raw_frac < 0.01) else round(raw_frac, 4)
-            raw_res = state.get("input_size", self.current_res)
+            raw_res = state.get(RESOLUTION_STATE_KEY, self.current_res)
             self.current_res = int(raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res)
 
+            # The saved fraction is restored as-is: lowering it at the same
+            # resolution would break the Monotonic Ratchet (pair rule).
             if self.task_type in ("forex", "llm", "text_instruction") or self.model_info.get("category") == "llm":
                 self.current_fraction = 1.0
-            elif "epoch_count" not in state and self.epoch_count == 0 and not self.history:
-                opt_cfg = self.model_info.get("optimization", {})
-                init_frac = float(opt_cfg.get("initial_fraction", 0.15))
-                saved_frac = float(state.get("sample_fraction", 1.0))
-                if saved_frac >= 0.99 and init_frac < 0.99:
-                    logger.info(
-                        "Overriding legacy 100%% fraction from unindexed checkpoint with configured: %.1f%%.",
-                        init_frac * 100.0,
-                    )
-                    self.current_fraction = init_frac
 
             if self.current_res is not None and self.current_res not in self.res_ladder:
                 self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
         else:
-            raw_res = state.get("input_size", self.current_res)
+            raw_res = state.get(RESOLUTION_STATE_KEY, self.current_res)
             self.sota_resolution = int(raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res)
 
         self.current_temp = max(self.min_temp, float(state.get("softmax_temp", self.current_temp)))

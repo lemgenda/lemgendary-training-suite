@@ -19,6 +19,7 @@ from training.cloud_sync import trigger_cloud_sync
 from training.data import rebuild_train_loader
 from training.epoch_budget import EpochAction, EpochBudgetConfig, EpochBudgetPolicy, StopReason
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS
+from training.ratchet import FULL_FRACTION_THRESHOLD, executed_rung, top_resolution_reached
 from training.telemetry import TelemetryEngine
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
@@ -442,20 +443,10 @@ def run_training(
             or ctx.model_name == "forex_predictor"
         )
         opt_cfg = ctx.model_info.get("optimization", {})
-        executed_res = int(
-            pre_audit_gov_state.get(
-                "current_resolution",
-                pre_audit_gov_state.get("resolution", getattr(ctx.governor, "current_res", 0)),
-            )
-            or 0
-        )
-        executed_frac = float(
-            pre_audit_gov_state.get(
-                "sample_fraction",
-                pre_audit_gov_state.get("current_fraction", getattr(ctx.governor, "current_fraction", 0.0)),
-            )
-            or 0.0
-        )
+        # Read the rung this epoch actually trained at (pre-audit state, the
+        # keys get_state() writes). Never fall back to the post-audit governor:
+        # a spatial jump during the audit must not count as training there.
+        executed_res, executed_frac = executed_rung(pre_audit_gov_state)
         if is_forex:
             res_ladder = opt_cfg.get("res_ladder") or getattr(ctx.governor, "res_ladder", None) or [1, 5, 15, 60, 240, 1440]
             target_res = max(res_ladder) if res_ladder else 1440
@@ -465,10 +456,9 @@ def run_training(
             )
         else:
             res_ladder = opt_cfg.get("res_ladder") or getattr(ctx.governor, "res_ladder", None) or [256, 384, 512]
-            target_res = max(res_ladder) if res_ladder else (ctx.model_info.get("resolution") or 512)
-            ladder_passed = executed_res >= target_res
+            ladder_passed = top_resolution_reached(executed_res, res_ladder)
 
-        data_fraction_passed = executed_frac >= 0.999
+        data_fraction_passed = executed_frac >= FULL_FRACTION_THRESHOLD
 
         sota_targets = ctx.model_info.get("sota_targets", {})
         sota_all_met = True

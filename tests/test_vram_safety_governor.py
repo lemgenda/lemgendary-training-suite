@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from training.optimization_engine import SmartTrainingGovernor
 from training.model_registry import audit_hardware_vram
+from training.ratchet import RatchetViolation
 
 class DummyRestorationModel(nn.Module):
     def __init__(self):
@@ -49,12 +50,28 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
             }
         }
         gov = SmartTrainingGovernor(model_info)
-        gov.current_res = 512
+        gov.current_res = 384
         gov.veto_resolution_jump(384, reason="Test VRAM Dry-Run OOM")
         self.assertEqual(gov.current_res, 384)
         self.assertTrue(gov.spatial_lock_remaining > 0)
         self.assertTrue(gov.stabilization_epochs > 0)
         self.assertTrue(all(r <= 384 for r in gov.res_ladder))
+
+    def test_governor_veto_never_retreats_resolution(self):
+        model_info = {
+            "name": "test_mprnet",
+            "dataset_type": "restoration",
+            "input_size": 256,
+            "batch_size": "auto",
+            "optimization": {
+                "res_ladder": [256, 384, 512]
+            }
+        }
+        gov = SmartTrainingGovernor(model_info)
+        gov.current_res = 512
+        with self.assertRaises(RatchetViolation):
+            gov.veto_resolution_jump(384, reason="Test VRAM Dry-Run OOM")
+        self.assertEqual(gov.current_res, 512)
 
     def test_audit_hardware_vram_cpu_fallback(self):
         model_info = {
