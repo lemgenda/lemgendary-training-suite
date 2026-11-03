@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.81-STABLE` |
+| **Version** | `v16.9.82-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.82 - MT5 Pipeline Split into Terminal and Feature Modules
+
+- **`data/mt5_pipeline.py`** (1,027 lines) is split by responsibility. The code moved verbatim.
+  - `mt5_pipeline.py` (443): the walk-forward fold matrix, window building, shard I/O, the download pipeline and the CLI.
+  - `mt5_terminal.py` (287): MetaTrader 5 connection lifecycle, bar download and synthetic mock bars.
+  - `mt5_features.py` (344): the feature lists, indicators, OHLCV normalization and TP/SL direction labels with per-pair spreads.
+- `export/mt5_signal.py` and `tests/test_mt5_live_inference.py` now import from the new modules.
+- **Tests**: 260 passed.
 
 ### v16.9.81 - YOLO Curriculum Governor Split and run() Decomposition
 

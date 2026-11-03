@@ -33,13 +33,15 @@ import numpy as np
 import torch
 
 from data.forex_spec import PAIR_INDEX, TIMEFRAME_LOOKBACK, TIMEFRAME_RUNGS
-from data.mt5_pipeline import (
+from data.mt5_features import (
     PRICE_INDICATOR_FEATURES,
     compute_indicators,
+    normalize_ohlcv,
+)
+from data.mt5_terminal import (
     connect_mt5,
     disconnect_mt5,
     download_bars,
-    normalize_ohlcv,
 )
 from models.forex_predictor import (
     ForexPredictor,
