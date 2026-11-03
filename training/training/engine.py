@@ -15,7 +15,7 @@ import torch
 from torch.utils.data.distributed import DistributedSampler
 
 from data.forex_sampler import RowGroupAwareSampler
-from training.checkpoint import CheckpointLifecycleManager
+from training.checkpoint import CheckpointLifecycleManager, ExportSource
 from training.cloud_sync import trigger_cloud_sync
 from training.data import rebuild_train_loader
 from training.data.loaders import LoaderPlacement, TrainLoaderOptions, WorkerOverrides
@@ -456,8 +456,7 @@ def run_training(
                     epoch=epoch,
                     quality_score=current_quality,
                     payload=checkpoint_payload,
-                    model=raw_model,
-                    dummy_input=dummy_input,
+                    export=ExportSource(model=raw_model, dummy_input=dummy_input),
                 )
 
             # Check and save vault milestones

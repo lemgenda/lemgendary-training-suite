@@ -2,6 +2,7 @@
 
 from training.checkpoint.lifecycle_manager import (
     CheckpointLifecycleManager,
+    ExportSource,
     canonicalize_checkpoints,
 )
 from training.checkpoint.manager import (
@@ -27,6 +28,7 @@ __all__ = [
     "CheckpointLifecycleManager",
     "CheckpointRecoveryEngine",
     "CheckpointSaveError",
+    "ExportSource",
     "MetricRecord",
     "MetricVault",
     "ResumeState",

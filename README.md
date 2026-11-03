@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.102-STABLE`
+- **Version**: `v16.9.103-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,27 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.103 - Checkpoint Lifecycle Manager Split into Steps
+
+- **`training/checkpoint/lifecycle_manager.py`**: `canonicalize_checkpoints`
+  calls `_in_staging_dir`, `_canonical_checkpoint_name`, `_move_to_canonical`
+  and `_purge_duplicate`. The metrics.csv baseline scan reads each row with
+  `_absorb_quality_row` and `_absorb_vault_row`; `check_and_save_vault` uses
+  `_vault_metric_value` and `_save_vault`. Both share `_is_improvement` for the
+  better-than-previous rule. `save_best(..., *, export=ExportSource(...))` and
+  `export_tri_format(source)` take one `ExportSource` (model, dummy input,
+  YOLO flag and trainer) instead of four arguments; the one caller,
+  `training/training/engine.py`, is updated and `ExportSource` is exported from
+  `training.checkpoint`. Design-check findings in the file: 8 -> 1 (the 14
+  instance attributes stay; tests and the engine read the path attributes).
+- **Behaviour is unchanged**: an old-vs-new comparison ran 1,500 random
+  model hub trees on disk (legacy and canonical checkpoint names, staging
+  folders, duplicates, unreadable checkpoints, metrics.csv files with aliases
+  and non-numeric cells, failing moves and deletes) through both versions:
+  canonicalization actions, manager state, vault and best saves, export and
+  README calls, printed lines, log records and the resulting files were
+  identical.
 
 ### v16.9.102 - ForexPredictor Forward and Timeframe Expansion Split
 
