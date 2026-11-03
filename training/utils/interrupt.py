@@ -102,8 +102,12 @@ def graceful_exit(signum: int, _frame: Any) -> None:
 def silent_worker_excepthook(
     exc_type: type[BaseException], exc_value: BaseException, exc_traceback: Any
 ) -> None:
-    """Quiet excepthook for multiprocessing workers to prevent SIGINT trace dump spam."""
+    """Excepthook for multiprocessing workers: shutdown errors get one line, not a traceback.
+
+    Interrupts and closed pipes are expected when a worker is stopped; they are still logged.
+    """
     if issubclass(exc_type, (KeyboardInterrupt, EOFError, BrokenPipeError, ConnectionResetError)):
+        logger.info("Worker stopped: %s: %s", exc_type.__name__, exc_value)
         return
     sys.__excepthook__(exc_type, exc_value, exc_traceback)
 

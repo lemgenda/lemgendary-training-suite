@@ -218,6 +218,15 @@ Models are categorized across three operational domains:
   - Target Manifold: `LemGendizedForexUniverse`
   - Recommended Accelerator: P100
   - Target SOTA Metrics: Dir Acc: 58.5%, Win Rate: 56.0%, PF: 1.65, Sharpe: 1.85
+- `ai_helper_lemgend`: LemGendary AI Studio Assistant (Causal LLM)
+  - Domain: Image Generation & Multimodal (language assistant)
+  - Category: `llm`
+  - Dataset Type: `text_instruction`
+  - Architecture & Backbone: Causal Decoder Transformer (QLoRA on
+    Qwen2.5-Coder-1.5B-Instruct)
+  - Context Length: 2048 tokens
+  - Target Manifold: `LemGendizedAIHelperLemGend`
+  - Target SOTA Metrics: Eval Loss: 1.15, Perplexity: 3.15, Token Acc: 72.5%
 
 ---
 
