@@ -62,6 +62,119 @@ DIRECTION_LABELS = {0: "SELL", 1: "HOLD", 2: "BUY"}
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _load_forex_model(checkpoint_path: str, active_timeframes: list) -> ForexPredictor:
+    """Rebuild a ForexPredictor from a checkpoint (DataParallel prefixes stripped)."""
+    print(f" [ONNX Export] Loading checkpoint: {checkpoint_path}")
+    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+
+    # Reconstruct model from checkpoint kwargs or defaults
+    model_kwargs = ckpt.get("model_kwargs", {})
+    model_kwargs["active_timeframes"] = active_timeframes
+    model = ForexPredictor(**model_kwargs)
+
+    state_dict = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
+    # Strip DataParallel prefix if present
+    state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
+    model.load_state_dict(state_dict, strict=False)
+    model.eval()
+    return model
+
+
+def _export_paths(out_path: str) -> tuple[str, str, str]:
+    """FP32 ONNX, FP16 ONNX and ``.pt`` paths next to ``out_path`` (``_FP32`` aware)."""
+    base_dir = os.path.dirname(out_path)
+    base_stem = os.path.splitext(os.path.basename(out_path))[0]
+    fp32_onnx_path = (
+        os.path.join(base_dir, f"{base_stem}_FP32.onnx")
+        if not base_stem.endswith("_FP32")
+        else out_path
+    )
+    fp16_onnx_path = (
+        out_path
+        if not base_stem.endswith("_FP32")
+        else os.path.join(base_dir, f"{base_stem.replace('_FP32', '')}.onnx")
+    )
+    pt_path = os.path.join(base_dir, f"{base_stem.replace('_FP32', '')}.pt")
+    return fp32_onnx_path, fp16_onnx_path, pt_path
+
+
+def _simplify_onnx(fp32_onnx_path: str) -> None:
+    """Simplify the FP32 model in place with onnxsim when it is installed."""
+    try:
+        onnx = load_onnx()
+        onnxsim = load_onnxsim()
+    except ImportError as e:
+        logger.info("onnxsim simplification skipped (dependency missing): %s", e)
+        print(f" [ONNX Export] onnxsim skipped: {e}")
+    else:
+        try:
+            model_onnx = onnx.load(fp32_onnx_path)
+            model_simplified, check = onnxsim.simplify(model_onnx)
+            if check:
+                onnx.save(model_simplified, fp32_onnx_path)
+                print(" [ONNX Export] Model simplified successfully via onnxsim.")
+        except (OSError, RuntimeError, ValueError, onnx.checker.ValidationError) as e:
+            logger.warning(
+                "onnxsim simplification of %s failed; keeping unsimplified model: %s",
+                fp32_onnx_path,
+                e,
+            )
+            print(f" [ONNX Export] onnxsim skipped: {e}")
+
+
+def _save_fp16(fp32_onnx_path: str, fp16_onnx_path: str) -> None:
+    """Convert to FP16 with embedded weights; copy the FP32 model when that fails."""
+    fp16_error: Exception | None = None
+    try:
+        onnx = load_onnx()
+        float16 = load_onnx_float16()
+    except ImportError as e:
+        fp16_error = e
+    else:
+        try:
+            model_fp32 = onnx.load(fp32_onnx_path)
+            model_fp16 = float16.convert_float_to_float16(model_fp32, keep_io_types=True)
+            onnx.save(model_fp16, fp16_onnx_path)
+            print(" [ONNX Export] [OK] FP16 embedded weights ONNX model saved.")
+        except (OSError, RuntimeError, ValueError, TypeError) as e:
+            fp16_error = e
+    if fp16_error is not None:
+        logger.warning(
+            "FP16 conversion failed; copying FP32 model to %s: %s", fp16_onnx_path, fp16_error
+        )
+        print(f" [ONNX Export] FP16 conversion fallback: copying FP32 -> {fp16_onnx_path}")
+        shutil.copy2(fp32_onnx_path, fp16_onnx_path)
+
+
+def _detach_fp32_weights(fp32_onnx_path: str) -> None:
+    """Detach FP32 weights into external sidecar file (.onnx.data)."""
+    base_dir = os.path.dirname(fp32_onnx_path)
+    try:
+        onnx = load_onnx()
+
+        fp32_filename = os.path.basename(fp32_onnx_path)
+        sidecar_filename = f"{fp32_filename}.data"
+        sidecar_path = os.path.join(base_dir, sidecar_filename)
+        if os.path.exists(sidecar_path):
+            os.remove(sidecar_path)
+
+        onnx_model_fp32 = onnx.load(fp32_onnx_path)
+        onnx.external_data_helper.convert_model_to_external_data(
+            onnx_model_fp32,
+            all_tensors_to_one_file=True,
+            location=sidecar_filename,
+            size_threshold=1024,
+        )
+        onnx.save(onnx_model_fp32, fp32_onnx_path)
+        print(f" [ONNX Export] [OK] Detached FP32 weights to external sidecar: {sidecar_filename}")
+    except ImportError as e:
+        logger.info("External data detachment skipped (onnx missing): %s", e)
+        print(f" [ONNX Export] External data detachment skipped: {e}")
+    except (OSError, ValueError, RuntimeError) as e:
+        logger.warning("External data detachment for %s failed: %s", fp32_onnx_path, e)
+        print(f" [ONNX Export] External data detachment skipped: {e}")
+
+
 def export_onnx(
     checkpoint_path: str,
     out_path: str | None = None,
@@ -90,34 +203,10 @@ def export_onnx(
         base = os.path.splitext(checkpoint_path)[0]
         out_path = base + ".onnx"
 
-    print(f" [ONNX Export] Loading checkpoint: {checkpoint_path}")
-    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-
-    # Reconstruct model from checkpoint kwargs or defaults
-    model_kwargs = ckpt.get("model_kwargs", {})
-    model_kwargs["active_timeframes"] = active_timeframes
-    model = ForexPredictor(**model_kwargs)
-
-    state_dict = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
-    # Strip DataParallel prefix if present
-    state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
-    model.load_state_dict(state_dict, strict=False)
-    model.eval()
+    model = _load_forex_model(checkpoint_path, active_timeframes)
 
     # Export 1: FP32 ONNX (delegated to training.export.mt5_signal SSOT)
-    base_dir = os.path.dirname(out_path)
-    base_stem = os.path.splitext(os.path.basename(out_path))[0]
-    fp32_onnx_path = (
-        os.path.join(base_dir, f"{base_stem}_FP32.onnx")
-        if not base_stem.endswith("_FP32")
-        else out_path
-    )
-    fp16_onnx_path = (
-        out_path
-        if not base_stem.endswith("_FP32")
-        else os.path.join(base_dir, f"{base_stem.replace('_FP32', '')}.onnx")
-    )
-    pt_path = os.path.join(base_dir, f"{base_stem.replace('_FP32', '')}.pt")
+    fp32_onnx_path, fp16_onnx_path, pt_path = _export_paths(out_path)
 
     print(f" [ONNX Export] Synthesizing FP32 ONNX model to: {fp32_onnx_path} (opset {opset})")
     export_forex_onnx_from_model(
@@ -127,75 +216,13 @@ def export_onnx(
         opset=opset,
     )
 
-    try:
-        onnx = load_onnx()
-        onnxsim = load_onnxsim()
-    except ImportError as e:
-        logger.info("onnxsim simplification skipped (dependency missing): %s", e)
-        print(f" [ONNX Export] onnxsim skipped: {e}")
-    else:
-        try:
-            model_onnx = onnx.load(fp32_onnx_path)
-            model_simplified, check = onnxsim.simplify(model_onnx)
-            if check:
-                onnx.save(model_simplified, fp32_onnx_path)
-                print(" [ONNX Export] Model simplified successfully via onnxsim.")
-        except (OSError, RuntimeError, ValueError, onnx.checker.ValidationError) as e:
-            logger.warning(
-                "onnxsim simplification of %s failed; keeping unsimplified model: %s",
-                fp32_onnx_path,
-                e,
-            )
-            print(f" [ONNX Export] onnxsim skipped: {e}")
+    _simplify_onnx(fp32_onnx_path)
 
     # Export 2: FP16 ONNX with embedded weights
     print(f" [ONNX Export] Synthesizing production FP16 ONNX model to: {fp16_onnx_path}")
-    fp16_error: Exception | None = None
-    try:
-        onnx = load_onnx()
-        float16 = load_onnx_float16()
-    except ImportError as e:
-        fp16_error = e
-    else:
-        try:
-            model_fp32 = onnx.load(fp32_onnx_path)
-            model_fp16 = float16.convert_float_to_float16(model_fp32, keep_io_types=True)
-            onnx.save(model_fp16, fp16_onnx_path)
-            print(" [ONNX Export] [OK] FP16 embedded weights ONNX model saved.")
-        except (OSError, RuntimeError, ValueError, TypeError) as e:
-            fp16_error = e
-    if fp16_error is not None:
-        logger.warning(
-            "FP16 conversion failed; copying FP32 model to %s: %s", fp16_onnx_path, fp16_error
-        )
-        print(f" [ONNX Export] FP16 conversion fallback: copying FP32 -> {fp16_onnx_path}")
-        shutil.copy2(fp32_onnx_path, fp16_onnx_path)
+    _save_fp16(fp32_onnx_path, fp16_onnx_path)
 
-    # Detach FP32 weights into external sidecar file (.onnx.data)
-    try:
-        onnx = load_onnx()
-
-        fp32_filename = os.path.basename(fp32_onnx_path)
-        sidecar_filename = f"{fp32_filename}.data"
-        sidecar_path = os.path.join(base_dir, sidecar_filename)
-        if os.path.exists(sidecar_path):
-            os.remove(sidecar_path)
-
-        onnx_model_fp32 = onnx.load(fp32_onnx_path)
-        onnx.external_data_helper.convert_model_to_external_data(
-            onnx_model_fp32,
-            all_tensors_to_one_file=True,
-            location=sidecar_filename,
-            size_threshold=1024,
-        )
-        onnx.save(onnx_model_fp32, fp32_onnx_path)
-        print(f" [ONNX Export] [OK] Detached FP32 weights to external sidecar: {sidecar_filename}")
-    except ImportError as e:
-        logger.info("External data detachment skipped (onnx missing): %s", e)
-        print(f" [ONNX Export] External data detachment skipped: {e}")
-    except (OSError, ValueError, RuntimeError) as e:
-        logger.warning("External data detachment for %s failed: %s", fp32_onnx_path, e)
-        print(f" [ONNX Export] External data detachment skipped: {e}")
+    _detach_fp32_weights(fp32_onnx_path)
 
     # Export 3: Standalone PyTorch FP32 model object (.pt)
     print(f" [ONNX Export] Saving standalone PyTorch FP32 model to: {pt_path}")

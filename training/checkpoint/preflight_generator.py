@@ -11,8 +11,10 @@ import argparse
 import csv
 import logging
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 
@@ -63,6 +65,111 @@ def _load_registry_and_config(project_root: Path) -> tuple[dict[str, Any], dict[
     return reg_data, cfg
 
 
+def _prepare_hub_dir(root: Path, model_key: str) -> tuple[Path, Path]:
+    """Create ``LemGendaryModels/<model_key>`` and its folders; return (hub dir, notebooks)."""
+    hub_dir = (root.parent / "LemGendaryModels" / model_key).resolve()
+    hub_dir.mkdir(parents=True, exist_ok=True)
+    (hub_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+    nb_dir = hub_dir / "notebooks"
+    nb_dir.mkdir(parents=True, exist_ok=True)
+    (hub_dir / "visualizations").mkdir(parents=True, exist_ok=True)
+
+    # Clean up legacy training directory if empty
+    legacy_training_dir = hub_dir / "training"
+    if legacy_training_dir.exists():
+        try:
+            if not any(legacy_training_dir.iterdir()):
+                legacy_training_dir.rmdir()
+        except OSError as rm_err:
+            logger.debug("Could not remove legacy training dir %s: %s", legacy_training_dir, rm_err)
+    return hub_dir, nb_dir
+
+
+def _last_metrics(hub_dir: Path, model_key: str) -> tuple[int, dict[str, Any]]:
+    """Epochs trained and the last ``metrics.csv`` row (0 and {} without one)."""
+    epochs_trained = 0
+    metrics: dict[str, Any] = {}
+    metrics_csv = hub_dir / "metrics.csv"
+    if metrics_csv.exists():
+        try:
+            with open(metrics_csv, "r", encoding="utf-8") as cf:
+                reader = list(csv.DictReader(cf))
+                if reader:
+                    last_ep = reader[-1].get("Epoch")
+                    if last_ep and str(last_ep).isdigit():
+                        epochs_trained = int(last_ep) + 1
+                    else:
+                        epochs_trained = len(reader)
+                    metrics = reader[-1]
+        except (OSError, csv.Error, ValueError) as exc:
+            logger.debug("Metrics parsing notice for %s: %s", model_key, exc)
+    return epochs_trained, metrics
+
+
+class _NotebookKind(NamedTuple):
+    """One generated notebook: result key (also the file suffix), log wording and level."""
+
+    key: str
+    label: str
+    level: int
+    from_return: bool
+    """True: the generator returns the written path; False: check the expected path."""
+
+
+_KAGGLE_TRAINING = _NotebookKind("kaggle_training", "Kaggle training", logging.WARNING, True)
+_COLAB_TRAINING = _NotebookKind("colab_training", "Colab training", logging.WARNING, True)
+_KAGGLE_USAGE = _NotebookKind("kaggle_usage", "Kaggle usage", logging.DEBUG, False)
+_COLAB_USAGE = _NotebookKind("colab_usage", "Colab usage", logging.DEBUG, False)
+
+
+@dataclass
+class _PreflightRun:
+    """Notebook generation for one model into ``nb_dir``."""
+
+    model_key: str
+    nb_dir: Path
+    registry: dict[str, Any]
+    config: dict[str, Any]
+    force: bool
+    assets: dict[str, Path] = field(default_factory=dict)
+
+    def notebook(self, kind: _NotebookKind, generate: Callable[..., Any]) -> None:
+        """Generate one notebook unless it exists (or ``force``); record the written path."""
+        path = self.nb_dir / f"{self.model_key}_{kind.key}.ipynb"
+        if not (self.force or not path.exists()):
+            return
+        try:
+            out_nb = generate(
+                model_key=self.model_key,
+                export_dir=str(self.nb_dir),
+                unified_models_registry=self.registry,
+                config=self.config,
+            )
+            if kind.from_return:
+                if out_nb and Path(out_nb).exists():
+                    self.assets[kind.key] = Path(out_nb)
+            elif path.exists():
+                self.assets[kind.key] = path
+        except PREFLIGHT_ERRORS as exc:
+            logger.log(
+                kind.level,
+                "%s notebook generation notice for %s: %s",
+                kind.label,
+                self.model_key,
+                exc,
+            )
+
+
+def _purge_root_notebooks(hub_dir: Path) -> None:
+    """Purge any stale duplicate notebooks from hub_dir root."""
+    for stray_nb in hub_dir.glob("*.ipynb"):
+        try:
+            stray_nb.unlink()
+            logger.info("Purged stray root notebook: %s", stray_nb)
+        except OSError as unlink_err:
+            logger.debug("Could not purge stray root notebook %s: %s", stray_nb, unlink_err)
+
+
 def generate_preflight_assets(
     model_key: str,
     project_root: Path | None = None,
@@ -86,45 +193,14 @@ def generate_preflight_assets(
         dict[str, Path]: Dictionary mapping artifact identifier to generated Path.
     """
     root = (project_root or get_project_root()).resolve()
-    hub_dir = (root.parent / "LemGendaryModels" / model_key).resolve()
-    hub_dir.mkdir(parents=True, exist_ok=True)
-    (hub_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
-    nb_dir = hub_dir / "notebooks"
-    nb_dir.mkdir(parents=True, exist_ok=True)
-    (hub_dir / "visualizations").mkdir(parents=True, exist_ok=True)
-
-    # Clean up legacy training directory if empty
-    legacy_training_dir = hub_dir / "training"
-    if legacy_training_dir.exists():
-        try:
-            if not any(legacy_training_dir.iterdir()):
-                legacy_training_dir.rmdir()
-        except OSError as rm_err:
-            logger.debug("Could not remove legacy training dir %s: %s", legacy_training_dir, rm_err)
-
+    hub_dir, nb_dir = _prepare_hub_dir(root, model_key)
     registry, config = _load_registry_and_config(root)
-    generated_assets: dict[str, Path] = {}
+    run = _PreflightRun(model_key, nb_dir, registry, config, force)
 
     # 1. Model README.md
     readme_path = hub_dir / "README.md"
     if force or not readme_path.exists():
-        epochs_trained = 0
-        metrics: dict[str, Any] = {}
-        metrics_csv = hub_dir / "metrics.csv"
-        if metrics_csv.exists():
-            try:
-                with open(metrics_csv, "r", encoding="utf-8") as cf:
-                    reader = list(csv.DictReader(cf))
-                    if reader:
-                        last_ep = reader[-1].get("Epoch")
-                        if last_ep and str(last_ep).isdigit():
-                            epochs_trained = int(last_ep) + 1
-                        else:
-                            epochs_trained = len(reader)
-                        metrics = reader[-1]
-            except (OSError, csv.Error, ValueError) as exc:
-                logger.debug("Metrics parsing notice for %s: %s", model_key, exc)
-
+        epochs_trained, metrics = _last_metrics(hub_dir, model_key)
         content = build_model_readme(
             model_key=model_key,
             unified_models=registry,
@@ -133,76 +209,16 @@ def generate_preflight_assets(
         )
         readme_path.write_text(content, encoding="utf-8")
         logger.info("Generated pre-flight README: %s", readme_path)
-    generated_assets["readme"] = readme_path
+    run.assets["readme"] = readme_path
 
-    # 2. Kaggle Training Notebook
-    kaggle_train_path = nb_dir / f"{model_key}_kaggle_training.ipynb"
-    if force or not kaggle_train_path.exists():
-        try:
-            out_nb = generate_training_notebook(
-                model_key=model_key,
-                export_dir=str(nb_dir),
-                unified_models_registry=registry,
-                config=config,
-            )
-            if out_nb and Path(out_nb).exists():
-                generated_assets["kaggle_training"] = Path(out_nb)
-        except PREFLIGHT_ERRORS as exc:
-            logger.warning("Kaggle training notebook generation notice for %s: %s", model_key, exc)
+    # 2-4. Kaggle / Colab training notebooks, then the standalone usage notebooks
+    run.notebook(_KAGGLE_TRAINING, generate_training_notebook)
+    run.notebook(_COLAB_TRAINING, generate_colab_training_notebook)
+    run.notebook(_KAGGLE_USAGE, generate_usage_notebook)
+    run.notebook(_COLAB_USAGE, generate_colab_usage_notebook)
 
-    # 3. Google Colab Training Notebook
-    colab_train_path = nb_dir / f"{model_key}_colab_training.ipynb"
-    if force or not colab_train_path.exists():
-        try:
-            out_colab = generate_colab_training_notebook(
-                model_key=model_key,
-                export_dir=str(nb_dir),
-                unified_models_registry=registry,
-                config=config,
-            )
-            if out_colab and Path(out_colab).exists():
-                generated_assets["colab_training"] = Path(out_colab)
-        except PREFLIGHT_ERRORS as exc:
-            logger.warning("Colab training notebook generation notice for %s: %s", model_key, exc)
-
-    # 4. Usage Notebooks (Kaggle & Colab Standalone Inference)
-    kaggle_usage_nb = nb_dir / f"{model_key}_kaggle_usage.ipynb"
-    if force or not kaggle_usage_nb.exists():
-        try:
-            generate_usage_notebook(
-                model_key=model_key,
-                export_dir=str(nb_dir),
-                unified_models_registry=registry,
-                config=config,
-            )
-            if kaggle_usage_nb.exists():
-                generated_assets["kaggle_usage"] = kaggle_usage_nb
-        except PREFLIGHT_ERRORS as exc:
-            logger.debug("Kaggle usage notebook generation notice for %s: %s", model_key, exc)
-
-    colab_usage_nb = nb_dir / f"{model_key}_colab_usage.ipynb"
-    if force or not colab_usage_nb.exists():
-        try:
-            generate_colab_usage_notebook(
-                model_key=model_key,
-                export_dir=str(nb_dir),
-                unified_models_registry=registry,
-                config=config,
-            )
-            if colab_usage_nb.exists():
-                generated_assets["colab_usage"] = colab_usage_nb
-        except PREFLIGHT_ERRORS as exc:
-            logger.debug("Colab usage notebook generation notice for %s: %s", model_key, exc)
-
-    # Purge any stale duplicate notebooks from hub_dir root
-    for stray_nb in hub_dir.glob("*.ipynb"):
-        try:
-            stray_nb.unlink()
-            logger.info("Purged stray root notebook: %s", stray_nb)
-        except OSError as unlink_err:
-            logger.debug("Could not purge stray root notebook %s: %s", stray_nb, unlink_err)
-
-    return generated_assets
+    _purge_root_notebooks(hub_dir)
+    return run.assets
 
 
 def generate_all_preflight_assets(

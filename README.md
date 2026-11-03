@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.117-STABLE`
+- **Version**: `v16.9.118-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,14 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.118 - Pre-flight Asset and MT5 ONNX Export Steps
+
+- **Refactor**: `generate_preflight_assets` uses `_prepare_hub_dir`,
+  `_last_metrics` and a `_PreflightRun` that generates each notebook kind
+  from a `_NotebookKind` row; `export/mt5_signal.export_onnx` splits into
+  load, path, simplify, FP16 and sidecar helpers. Same files, results,
+  logs and output. Removes 6 design findings.
 
 ### v16.9.117 - Kaggle Metadata Sync, Judicial Audit and Exporter Steps
 
