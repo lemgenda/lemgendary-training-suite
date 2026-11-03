@@ -161,6 +161,10 @@ class EpochBudgetPolicy:
             )
         return self._at_budget(epoch, governor_reports_improvement)
 
+    def remaining_extension_epochs(self) -> int:
+        """Extension epochs still allowed under ``max_extension_epochs`` (may be <= 0)."""
+        return self.config.max_extension_epochs - self.extension_used
+
     def _at_budget(self, epoch: int, governor_reports_improvement: bool) -> EpochDecision:
         """Stop at the budget, or extend it while the governor reports improvement."""
         if not self.config.extensions_enabled:
@@ -168,7 +172,7 @@ class EpochBudgetPolicy:
                 StopReason.BUDGET_REACHED,
                 f"epoch budget of {self.total_epochs} reached (budget extensions disabled)",
             )
-        remaining = self.config.max_extension_epochs - self.extension_used
+        remaining = self.remaining_extension_epochs()
         if remaining <= 0:
             return self._stop(
                 StopReason.EXTENSION_LIMIT,

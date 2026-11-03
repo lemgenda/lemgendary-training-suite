@@ -8,24 +8,120 @@ logger = logging.getLogger("lemtrain.checkpoint.resume")
 
 
 @dataclass
-class ResumeState:
-    """Typed container encapsulating all recoverable state from a training checkpoint."""
+class ResumeProgress:
+    """Where in the epoch the checkpoint was taken."""
 
-    epoch: int
     iteration: int
-    model_state_dict: dict[str, Any]
+    is_intra_epoch: bool = False
+    phase: str = "train"
+
+
+@dataclass
+class ResumeOptimStates:
+    """Optimizer, LR scheduler and AMP scaler state dicts (``None`` when absent)."""
+
     optimizer_state_dict: dict[str, Any] | None = None
     scheduler_state_dict: dict[str, Any] | None = None
     scaler_state_dict: dict[str, Any] | None = None
+
+
+@dataclass
+class ResumeGovernance:
+    """Governor snapshot and quality history."""
+
     governor_state: dict[str, Any] = field(default_factory=dict)
     sota_achieved: bool = False
     best_score: float | None = None
     metric_history: list[dict[str, Any]] = field(default_factory=list)
-    is_intra_epoch: bool = False
-    phase: str = "train"
+
+
+@dataclass
+class ResumeAccumulators:
+    """Partial-epoch metrics and running accumulators for train and validation."""
+
     train_metrics: dict[str, Any] = field(default_factory=dict)
     train_accumulators: dict[str, Any] = field(default_factory=dict)
     val_accumulators: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ResumeState:
+    """Typed container encapsulating all recoverable state from a training checkpoint.
+
+    The grouped fields stay readable flat (``state.iteration``, ``state.train_metrics``...).
+    """
+
+    epoch: int
+    model_state_dict: dict[str, Any]
+    progress: ResumeProgress
+    optim: ResumeOptimStates = field(default_factory=ResumeOptimStates)
+    governance: ResumeGovernance = field(default_factory=ResumeGovernance)
+    accumulators: ResumeAccumulators = field(default_factory=ResumeAccumulators)
+
+    @property
+    def iteration(self) -> int:
+        """``progress.iteration``."""
+        return self.progress.iteration
+
+    @property
+    def is_intra_epoch(self) -> bool:
+        """``progress.is_intra_epoch``."""
+        return self.progress.is_intra_epoch
+
+    @property
+    def phase(self) -> str:
+        """``progress.phase``."""
+        return self.progress.phase
+
+    @property
+    def optimizer_state_dict(self) -> dict[str, Any] | None:
+        """``optim.optimizer_state_dict``."""
+        return self.optim.optimizer_state_dict
+
+    @property
+    def scheduler_state_dict(self) -> dict[str, Any] | None:
+        """``optim.scheduler_state_dict``."""
+        return self.optim.scheduler_state_dict
+
+    @property
+    def scaler_state_dict(self) -> dict[str, Any] | None:
+        """``optim.scaler_state_dict``."""
+        return self.optim.scaler_state_dict
+
+    @property
+    def governor_state(self) -> dict[str, Any]:
+        """``governance.governor_state``."""
+        return self.governance.governor_state
+
+    @property
+    def sota_achieved(self) -> bool:
+        """``governance.sota_achieved``."""
+        return self.governance.sota_achieved
+
+    @property
+    def best_score(self) -> float | None:
+        """``governance.best_score``."""
+        return self.governance.best_score
+
+    @property
+    def metric_history(self) -> list[dict[str, Any]]:
+        """``governance.metric_history``."""
+        return self.governance.metric_history
+
+    @property
+    def train_metrics(self) -> dict[str, Any]:
+        """``accumulators.train_metrics``."""
+        return self.accumulators.train_metrics
+
+    @property
+    def train_accumulators(self) -> dict[str, Any]:
+        """``accumulators.train_accumulators``."""
+        return self.accumulators.train_accumulators
+
+    @property
+    def val_accumulators(self) -> dict[str, Any]:
+        """``accumulators.val_accumulators``."""
+        return self.accumulators.val_accumulators
 
 
 def _model_state(payload: dict[str, Any]) -> dict[str, Any]:
@@ -83,20 +179,28 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
 
     return ResumeState(
         epoch=int(payload.get("epoch", 0)),
-        iteration=iteration,
         model_state_dict=_model_state(payload),
-        optimizer_state_dict=_dict_or_none(_first(payload, "optimizer_state_dict", "optimizer")),
-        scheduler_state_dict=_dict_or_none(_first(payload, "scheduler_state_dict", "scheduler")),
-        scaler_state_dict=_dict_or_none(_first(payload, "scaler_state_dict", "scaler")),
-        governor_state=gov_state if isinstance(gov_state, dict) else {},
-        sota_achieved=bool(payload.get("sota_achieved", False)),
-        best_score=float(best_score) if isinstance(best_score, (int, float)) else None,
-        metric_history=history,
-        is_intra_epoch=is_intra,
-        phase=phase,
-        train_metrics=_dict_copy(_first(payload, "train_metrics", "current_metrics")),
-        train_accumulators=_dict_copy(payload.get("train_accumulators")),
-        val_accumulators=_dict_copy(_first(payload, "val_accumulators", "val_metrics")),
+        progress=ResumeProgress(iteration=iteration, is_intra_epoch=is_intra, phase=phase),
+        optim=ResumeOptimStates(
+            optimizer_state_dict=_dict_or_none(
+                _first(payload, "optimizer_state_dict", "optimizer")
+            ),
+            scheduler_state_dict=_dict_or_none(
+                _first(payload, "scheduler_state_dict", "scheduler")
+            ),
+            scaler_state_dict=_dict_or_none(_first(payload, "scaler_state_dict", "scaler")),
+        ),
+        governance=ResumeGovernance(
+            governor_state=gov_state if isinstance(gov_state, dict) else {},
+            sota_achieved=bool(payload.get("sota_achieved", False)),
+            best_score=float(best_score) if isinstance(best_score, (int, float)) else None,
+            metric_history=history,
+        ),
+        accumulators=ResumeAccumulators(
+            train_metrics=_dict_copy(_first(payload, "train_metrics", "current_metrics")),
+            train_accumulators=_dict_copy(payload.get("train_accumulators")),
+            val_accumulators=_dict_copy(_first(payload, "val_accumulators", "val_metrics")),
+        ),
     )
 
 

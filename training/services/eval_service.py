@@ -66,7 +66,32 @@ class EvaluationService:
 
         ctx = build_training_context(args)
 
-        # 2. If explicit checkpoint provided, load weights
+        # 2. Load the explicit checkpoint, or the best discovered one
+        resolved_ckpt = self.load_weights(ctx, model_key, checkpoint_path, env)
+
+        # 3. Execute validation pass
+        metrics = validate_one_epoch(ctx, epoch=1)
+
+        result: dict[str, Any] = {
+            "model_key": model_key,
+            "checkpoint_path": str(resolved_ckpt) if resolved_ckpt else None,
+            "metrics": metrics,
+            "device": str(ctx.device_info.device),
+        }
+        return result
+
+    def load_weights(
+        self,
+        ctx: Any,
+        model_key: str,
+        checkpoint_path: Path | str | None = None,
+        env: str = "local",
+    ) -> Path | None:
+        """Load checkpoint weights into ``ctx.model`` (non-strict) and return the path used.
+
+        An explicit ``checkpoint_path`` wins; otherwise the best/latest/progress checkpoint
+        found by :class:`CheckpointRecoveryEngine` is used. ``None`` when nothing was found.
+        """
         resolved_ckpt: Path | None = None
         if checkpoint_path is not None:
             resolved_ckpt = Path(checkpoint_path).resolve()
@@ -96,14 +121,4 @@ class EvaluationService:
                 ckpt_data = safe_load_checkpoint(resolved_ckpt, map_location=ctx.device_info.device)
                 if ckpt_data and "model_state" in ckpt_data:
                     ctx.model.load_state_dict(ckpt_data["model_state"], strict=False)
-
-        # 3. Execute validation pass
-        metrics = validate_one_epoch(ctx, epoch=1)
-
-        result: dict[str, Any] = {
-            "model_key": model_key,
-            "checkpoint_path": str(resolved_ckpt) if resolved_ckpt else None,
-            "metrics": metrics,
-            "device": str(ctx.device_info.device),
-        }
-        return result
+        return resolved_ckpt

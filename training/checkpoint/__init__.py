@@ -17,6 +17,7 @@ from training.checkpoint.preflight_generator import (
 )
 from training.checkpoint.recovery import CheckpointRecoveryEngine
 from training.checkpoint.resume import (
+    ResumeProgress,
     ResumeState,
     parse_resume_state,
     scale_resume_progress,
@@ -31,6 +32,7 @@ __all__ = [
     "ExportSource",
     "MetricRecord",
     "MetricVault",
+    "ResumeProgress",
     "ResumeState",
     "audit_disk_space",
     "canonicalize_checkpoints",

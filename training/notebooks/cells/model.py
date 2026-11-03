@@ -18,7 +18,7 @@ def build_hub_prep_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
     source = [
         "import os\n",
         f"hub_root = '{hub_root}'\n",
-        f"model_key = '{meta.model_key}'\n",
+        f"model_key = '{meta.identity.model_key}'\n",
         "model_dir = os.path.join(hub_root, model_key)\n",
         "ckpt_dir = os.path.join(model_dir, 'checkpoints')\n",
         "nb_dir = os.path.join(model_dir, 'notebooks')\n",
@@ -44,7 +44,7 @@ def build_checkpoint_recovery_cell(
     if target == "kaggle":
         source = [
             "import os, shutil\n",
-            f"model_key = '{meta.model_key}'\n",
+            f"model_key = '{meta.identity.model_key}'\n",
             "print(f'[RECOVERY] Deep-searching for {model_key} checkpoints...')\n",
             "hub_root = '/kaggle/working/LemGendaryModels'\n",
             "model_hub_dir = os.path.join(hub_root, model_key)\n",
@@ -73,7 +73,7 @@ def build_checkpoint_recovery_cell(
             "found_ckpts = []\n",
             "try:\n",
             "    import kagglehub\n",
-            f"    kh_dl = kagglehub.model_download('{meta.k_handle}')\n",
+            f"    kh_dl = kagglehub.model_download('{meta.kaggle.pytorch_default}')\n",
             "    if kh_dl and os.path.exists(kh_dl):\n",
             "        print(f'   -> [KAGGLEHUB] Dynamic latest model version resolved: {kh_dl}')\n",
             "        for root_d, _, files in os.walk(kh_dl):\n",
@@ -182,7 +182,7 @@ def build_checkpoint_recovery_cell(
     else:
         source = [
             "import os, shutil\n",
-            f"model_key = '{meta.model_key}'\n",
+            f"model_key = '{meta.identity.model_key}'\n",
             "print(f'[RECOVERY] Deep-searching for {model_key} checkpoints...')\n",
             "hub_root = '/content/LemGendaryModels'\n",
             "model_hub_dir = os.path.join(hub_root, model_key)\n",
@@ -310,7 +310,7 @@ def build_stealth_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
     )
     source = [
         "import os, base64, torch, shutil\n",
-        f"model_key = '{meta.model_key}'\n",
+        f"model_key = '{meta.identity.model_key}'\n",
         f"hub_root = '{hub_root}'\n",
         "model_hub_dir = os.path.join(hub_root, model_key)\n",
         "ckpt_hub_dir = os.path.join(model_hub_dir, 'checkpoints')\n",

@@ -242,7 +242,7 @@ def training_preamble_cells(
     return [
         make_markdown_cell(
             [
-                f"# LemGendary Master Execution: {meta.pascal_name} (v16.2.9 {edition})\n",
+                f"# LemGendary Master Execution: {meta.identity.pascal_name} (v16.2.9 {edition})\n",
                 (
                     "This unified notebook handles environment synchronization and automated "
                     "cloud training.\n"
@@ -312,7 +312,7 @@ def write_usage_notebook(
     cells = [
         make_markdown_cell(
             [
-                f"# LemGendary SOTA Usage: {meta.pascal_name}\n",
+                f"# LemGendary SOTA Usage: {meta.identity.pascal_name}\n",
                 "Implementation guide for production-grade model integration.\n",
             ]
         ),

@@ -38,17 +38,18 @@ def _model_errors(m: Any) -> list[str]:
         errors.append("model.owner must be a resolved Kaggle username")
     if not _SLUG_RE.match(m.slug):
         errors.append(f"model.slug '{m.slug}' must be lowercase letters, digits and hyphens")
-    if not m.title.strip():
+    if not m.text.title.strip():
         errors.append("model.title is required")
-    if not m.subtitle.strip():
+    if not m.text.subtitle.strip():
         errors.append("model.subtitle is required")
-    if not m.description.strip():
+    if not m.text.description.strip():
         errors.append("model.description is required")
-    if m.is_private:
+    pub = m.publishing
+    if pub.is_private:
         errors.append("model.is_private must be false (models are published as public)")
-    if not m.license.strip():
+    if not pub.license.strip():
         errors.append("model.license is required")
-    if m.publish_time is not None and not re.match(r"^\d{4}-\d{2}-\d{2}$", m.publish_time):
+    if pub.publish_time is not None and not re.match(r"^\d{4}-\d{2}-\d{2}$", pub.publish_time):
         errors.append("model.publish_time must be YYYY-MM-DD")
     return errors
 
@@ -65,7 +66,7 @@ def _variation_errors(variations: dict[str, Any]) -> list[str]:
             errors.append(f"variations.{variation.key}.overview is required")
         if not v.usage.strip():
             errors.append(f"variations.{variation.key}.usage is required")
-        if not v.license.strip():
+        if not v.licensing.license.strip():
             errors.append(f"variations.{variation.key}.license is required")
     for key in variations:
         if key not in VARIATION_BY_KEY:
@@ -83,14 +84,18 @@ class MetadataValidationError(ValueError):
 
 
 @dataclass
-class ModelSection:
-    """Kaggle Model level metadata."""
+class ModelText:
+    """Human-readable texts of a Kaggle Model."""
 
-    owner: str
-    slug: str
     title: str
     subtitle: str
     description: str
+
+
+@dataclass
+class ModelPublishing:
+    """Visibility, license and provenance of a Kaggle Model."""
+
     is_private: bool = False
     license: str = "CC BY-NC 4.0"
     keywords: list[str] = field(default_factory=list)
@@ -99,17 +104,41 @@ class ModelSection:
 
 
 @dataclass
-class VariationSection:
-    """Kaggle Model Instance (variation) metadata."""
+class ModelSection:
+    """Kaggle Model level metadata (serialized flat as the ``model`` mapping)."""
 
-    overview: str
-    usage: str
+    owner: str
+    slug: str
+    text: ModelText
+    publishing: ModelPublishing = field(default_factory=ModelPublishing)
+
+
+@dataclass
+class VariationLicensing:
+    """License, fine-tunability and training data of one variation."""
+
     license: str = "CC BY-NC 4.0"
     fine_tunable: bool = False
     training_data: list[str] = field(default_factory=list)
+
+
+@dataclass
+class VariationLineage:
+    """How a variation relates to its base model instance."""
+
     model_instance_type: str = "Unspecified"
     base_model_instance: str = ""
     external_base_model_url: str = ""
+
+
+@dataclass
+class VariationSection:
+    """Kaggle Model Instance (variation) metadata (serialized flat per variation key)."""
+
+    overview: str
+    usage: str
+    licensing: VariationLicensing = field(default_factory=VariationLicensing)
+    lineage: VariationLineage = field(default_factory=VariationLineage)
     version_notes: str = ""
 
 
@@ -149,20 +178,21 @@ class ModelMetadata:
     def to_dict(self) -> dict[str, Any]:
         """Return the YAML document structure."""
         m = self.model
+        pub = m.publishing
         doc: dict[str, Any] = {
             "model_key": self.model_key,
             "hand_edited": list(self.hand_edited),
             "model": {
                 "owner": m.owner,
                 "slug": m.slug,
-                "title": m.title,
-                "subtitle": m.subtitle,
-                "description": m.description,
-                "is_private": m.is_private,
-                "license": m.license,
-                "keywords": list(m.keywords),
-                "provenance_sources": list(m.provenance_sources),
-                "publish_time": m.publish_time,
+                "title": m.text.title,
+                "subtitle": m.text.subtitle,
+                "description": m.text.description,
+                "is_private": pub.is_private,
+                "license": pub.license,
+                "keywords": list(pub.keywords),
+                "provenance_sources": list(pub.provenance_sources),
+                "publish_time": pub.publish_time,
             },
             "variations": {},
         }
@@ -173,12 +203,12 @@ class ModelMetadata:
             doc["variations"][variation.key] = {
                 "overview": v.overview,
                 "usage": v.usage,
-                "license": v.license,
-                "fine_tunable": v.fine_tunable,
-                "training_data": list(v.training_data),
-                "model_instance_type": v.model_instance_type,
-                "base_model_instance": v.base_model_instance,
-                "external_base_model_url": v.external_base_model_url,
+                "license": v.licensing.license,
+                "fine_tunable": v.licensing.fine_tunable,
+                "training_data": list(v.licensing.training_data),
+                "model_instance_type": v.lineage.model_instance_type,
+                "base_model_instance": v.lineage.base_model_instance,
+                "external_base_model_url": v.lineage.external_base_model_url,
                 "version_notes": v.version_notes,
             }
         return doc
@@ -191,15 +221,19 @@ class ModelMetadata:
         model = ModelSection(
             owner=str(raw_model.get("owner", "")),
             slug=str(raw_model.get("slug", "")),
-            title=str(raw_model.get("title", "")),
-            subtitle=str(raw_model.get("subtitle", "")),
-            description=str(raw_model.get("description", "")),
-            is_private=bool(raw_model.get("is_private", False)),
-            license=str(raw_model.get("license", "CC BY-NC 4.0")),
-            keywords=[str(k) for k in raw_model.get("keywords") or []],
-            provenance_sources=[str(s) for s in raw_model.get("provenance_sources") or []],
-            publish_time=(
-                str(raw_model["publish_time"]) if raw_model.get("publish_time") else None
+            text=ModelText(
+                title=str(raw_model.get("title", "")),
+                subtitle=str(raw_model.get("subtitle", "")),
+                description=str(raw_model.get("description", "")),
+            ),
+            publishing=ModelPublishing(
+                is_private=bool(raw_model.get("is_private", False)),
+                license=str(raw_model.get("license", "CC BY-NC 4.0")),
+                keywords=[str(k) for k in raw_model.get("keywords") or []],
+                provenance_sources=[str(s) for s in raw_model.get("provenance_sources") or []],
+                publish_time=(
+                    str(raw_model["publish_time"]) if raw_model.get("publish_time") else None
+                ),
             ),
         )
         variations: dict[str, VariationSection] = {}
@@ -207,12 +241,16 @@ class ModelMetadata:
             variations[str(key)] = VariationSection(
                 overview=str(raw.get("overview", "")),
                 usage=str(raw.get("usage", "")),
-                license=str(raw.get("license", "CC BY-NC 4.0")),
-                fine_tunable=bool(raw.get("fine_tunable", False)),
-                training_data=[str(t) for t in raw.get("training_data") or []],
-                model_instance_type=str(raw.get("model_instance_type", "Unspecified")),
-                base_model_instance=str(raw.get("base_model_instance", "")),
-                external_base_model_url=str(raw.get("external_base_model_url", "")),
+                licensing=VariationLicensing(
+                    license=str(raw.get("license", "CC BY-NC 4.0")),
+                    fine_tunable=bool(raw.get("fine_tunable", False)),
+                    training_data=[str(t) for t in raw.get("training_data") or []],
+                ),
+                lineage=VariationLineage(
+                    model_instance_type=str(raw.get("model_instance_type", "Unspecified")),
+                    base_model_instance=str(raw.get("base_model_instance", "")),
+                    external_base_model_url=str(raw.get("external_base_model_url", "")),
+                ),
                 version_notes=str(raw.get("version_notes", "")),
             )
         return cls(
@@ -255,7 +293,8 @@ class ModelMetadata:
     def kaggle_model_payload(self) -> dict[str, Any]:
         """Return the document accepted by the Kaggle model create/update API."""
         m = self.model
-        prov = m.provenance_sources
+        pub = m.publishing
+        prov = pub.provenance_sources
         if isinstance(prov, (list, tuple)):
             prov_str = ", ".join(prov)
         else:
@@ -263,16 +302,16 @@ class ModelMetadata:
         payload: dict[str, Any] = {
             "ownerSlug": m.owner,
             "slug": m.slug,
-            "title": m.title,
-            "subtitle": m.subtitle,
-            "isPrivate": m.is_private,
-            "description": m.description,
-            "licenseName": m.license,
-            "keywords": list(m.keywords),
+            "title": m.text.title,
+            "subtitle": m.text.subtitle,
+            "isPrivate": pub.is_private,
+            "description": m.text.description,
+            "licenseName": pub.license,
+            "keywords": list(pub.keywords),
             "provenanceSources": prov_str,
         }
-        if m.publish_time:
-            payload["publishTime"] = m.publish_time
+        if pub.publish_time:
+            payload["publishTime"] = pub.publish_time
         return payload
 
     def kaggle_instance_payload(self, variation_key: str) -> dict[str, Any]:
@@ -286,12 +325,12 @@ class ModelMetadata:
             "framework": variation.framework,
             "overview": v.overview,
             "usage": v.usage,
-            "licenseName": v.license,
-            "fineTunable": v.fine_tunable,
-            "trainingData": list(v.training_data),
-            "modelInstanceType": v.model_instance_type,
-            "baseModelInstance": v.base_model_instance,
-            "externalBaseModelUrl": v.external_base_model_url,
+            "licenseName": v.licensing.license,
+            "fineTunable": v.licensing.fine_tunable,
+            "trainingData": list(v.licensing.training_data),
+            "modelInstanceType": v.lineage.model_instance_type,
+            "baseModelInstance": v.lineage.base_model_instance,
+            "externalBaseModelUrl": v.lineage.external_base_model_url,
         }
 
     # ------------------------------------------------------------------ merge support

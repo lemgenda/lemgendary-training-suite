@@ -26,7 +26,7 @@ import logging
 import shutil
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -228,6 +228,42 @@ class ExportSource:
         return self.yolo_trainer if self.is_yolo else self.model
 
 
+@dataclass(frozen=True)
+class LifecyclePaths:
+    """Authoritative per-model locations under ``LemGendaryModels/[ModelName]``."""
+
+    model_hub_dir: Path
+    checkpoints_dir: Path
+    visualizations_dir: Path
+    metrics_csv_path: Path
+    progress_path: Path
+    latest_path: Path
+    best_path: Path
+
+    @classmethod
+    def for_hub(cls, model_hub_dir: Path) -> LifecyclePaths:
+        """Resolve the checkpoint, visualization and metrics paths of one model hub dir."""
+        checkpoints_dir = (model_hub_dir / "checkpoints").resolve()
+        return cls(
+            model_hub_dir=model_hub_dir,
+            checkpoints_dir=checkpoints_dir,
+            visualizations_dir=(model_hub_dir / "visualizations").resolve(),
+            metrics_csv_path=(model_hub_dir / "metrics.csv").resolve(),
+            progress_path=checkpoints_dir / "progress.pth",
+            latest_path=checkpoints_dir / "latest.pth",
+            best_path=checkpoints_dir / "best.pth",
+        )
+
+
+@dataclass
+class LifecycleTracking:
+    """Mutable save-cadence and best-score state of one lifecycle manager."""
+
+    last_progress_save_time: float
+    best_quality_score: float = float("-inf")
+    vault_bests: dict[str, float] = field(default_factory=dict)
+
+
 class CheckpointLifecycleManager:
     """Universal Checkpoint Lifecycle Manager enforcing strict governance rules."""
 
@@ -244,35 +280,27 @@ class CheckpointLifecycleManager:
         self.min_progress_interval_sec = min_progress_interval_sec
 
         # Authoritative paths under LemGendaryModels/[ModelName]
-        self.model_hub_dir = get_model_hub_dir(model_name, self.root)
-        self.checkpoints_dir = (self.model_hub_dir / "checkpoints").resolve()
-        self.visualizations_dir = (self.model_hub_dir / "visualizations").resolve()
-        self.metrics_csv_path = (self.model_hub_dir / "metrics.csv").resolve()
-
-        self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
-        self.visualizations_dir.mkdir(parents=True, exist_ok=True)
+        self.paths = LifecyclePaths.for_hub(get_model_hub_dir(model_name, self.root))
+        self.paths.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        self.paths.visualizations_dir.mkdir(parents=True, exist_ok=True)
 
         # Enforce canonical naming: rename legacy checkpoints if canonical missing, purge redundant
         # duplicates
-        canonicalize_checkpoints(self.model_hub_dir, self.checkpoints_dir)
-
-        self.progress_path = self.checkpoints_dir / "progress.pth"
-        self.latest_path = self.checkpoints_dir / "latest.pth"
-        self.best_path = self.checkpoints_dir / "best.pth"
+        canonicalize_checkpoints(self.paths.model_hub_dir, self.paths.checkpoints_dir)
 
         # Automated safeguard: Purge stale progress.pth if latest.pth represents an equal or newer
         # epoch
-        if self.progress_path.exists() and self.latest_path.exists():
+        if self.paths.progress_path.exists() and self.paths.latest_path.exists():
             try:
-                p_meta = safe_load_checkpoint(self.progress_path, map_location="cpu")
-                l_meta = safe_load_checkpoint(self.latest_path, map_location="cpu")
+                p_meta = safe_load_checkpoint(self.paths.progress_path, map_location="cpu")
+                l_meta = safe_load_checkpoint(self.paths.latest_path, map_location="cpu")
                 p_ep = int(p_meta.get("epoch", 0)) if isinstance(p_meta, dict) else 0
                 l_ep = int(l_meta.get("epoch", 0)) if isinstance(l_meta, dict) else 0
                 if l_ep >= p_ep:
-                    self.progress_path.unlink()
+                    self.paths.progress_path.unlink()
                     logger.info(
                         "Purged obsolete progress checkpoint %s (progress ep %d <= latest ep %d)",
-                        self.progress_path,
+                        self.paths.progress_path,
                         p_ep,
                         l_ep,
                     )
@@ -280,25 +308,55 @@ class CheckpointLifecycleManager:
                 logger.debug("Progress checkpoint clean check notice: %s", clean_err)
 
         # Tracking state
-        self.last_progress_save_time = time.time()
-        self.best_quality_score: float = float("-inf")
-        self.vault_bests: dict[str, float] = {}
+        self.tracking = LifecycleTracking(last_progress_save_time=time.time())
 
         # Initialize vault tracking from sota_targets or existing metrics.csv
         self._initialize_vault_history()
-        if self.best_path.exists():
+        if self.paths.best_path.exists():
             try:
-                best_data = safe_load_checkpoint(self.best_path)
+                best_data = safe_load_checkpoint(self.paths.best_path)
                 if isinstance(best_data, dict):
                     saved_q = best_data.get("best_quality_score") or best_data.get("quality_score")
                     if saved_q is not None:
                         q_val = float(saved_q)
-                        self.best_quality_score = max(self.best_quality_score, q_val)
+                        self.tracking.best_quality_score = max(
+                            self.tracking.best_quality_score, q_val
+                        )
             except (*CHECKPOINT_LOAD_ERRORS, TypeError) as e:
                 logger.debug("Failed reading best.pth quality score: %s", e)
 
         # Pre-flight asset generation (README and cloud notebooks before Epoch 1)
         self.run_preflight(force=False)
+
+    @property
+    def model_hub_dir(self) -> Path:
+        """``paths.model_hub_dir`` (read-only)."""
+        return self.paths.model_hub_dir
+
+    @property
+    def checkpoints_dir(self) -> Path:
+        """``paths.checkpoints_dir`` (read-only)."""
+        return self.paths.checkpoints_dir
+
+    @property
+    def metrics_csv_path(self) -> Path:
+        """``paths.metrics_csv_path`` (read-only)."""
+        return self.paths.metrics_csv_path
+
+    @property
+    def progress_path(self) -> Path:
+        """``paths.progress_path`` (read-only)."""
+        return self.paths.progress_path
+
+    @property
+    def latest_path(self) -> Path:
+        """``paths.latest_path`` (read-only)."""
+        return self.paths.latest_path
+
+    @property
+    def best_path(self) -> Path:
+        """``paths.best_path`` (read-only)."""
+        return self.paths.best_path
 
     def run_preflight(self, force: bool = False) -> dict[str, Path]:
         """Generate pre-flight README docs and cloud training notebooks (Rank 0 only)."""
@@ -316,11 +374,11 @@ class CheckpointLifecycleManager:
 
     def _initialize_vault_history(self) -> None:
         """Scan existing metrics.csv to establish historical baselines for vault targets."""
-        if not self.metrics_csv_path.exists():
+        if not self.paths.metrics_csv_path.exists():
             return
 
         try:
-            with open(self.metrics_csv_path, encoding="utf-8", errors="ignore") as f:
+            with open(self.paths.metrics_csv_path, encoding="utf-8", errors="ignore") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     self._absorb_quality_row(row)
@@ -334,7 +392,7 @@ class CheckpointLifecycleManager:
             if row.get(q_key):
                 try:
                     q_val = float(row[q_key])
-                    self.best_quality_score = max(self.best_quality_score, q_val)
+                    self.tracking.best_quality_score = max(self.tracking.best_quality_score, q_val)
                 except ValueError as q_err:
                     logger.debug(
                         "Skipping non-numeric %s value %r in metrics.csv: %s",
@@ -356,8 +414,8 @@ class CheckpointLifecycleManager:
                 except ValueError as v_err:
                     logger.debug("Skipping non-numeric %s value %r in metrics.csv: %s", k, v, v_err)
                     continue
-                if _is_improvement(val, self.vault_bests.get(target_key), lower_better):
-                    self.vault_bests[target_key] = val
+                if _is_improvement(val, self.tracking.vault_bests.get(target_key), lower_better):
+                    self.tracking.vault_bests[target_key] = val
 
     def check_and_save_progress(
         self,
@@ -388,7 +446,7 @@ class CheckpointLifecycleManager:
             return False
 
         now = time.time()
-        elapsed = now - self.last_progress_save_time
+        elapsed = now - self.tracking.last_progress_save_time
         if elapsed < self.min_progress_interval_sec:
             return False
 
@@ -403,13 +461,13 @@ class CheckpointLifecycleManager:
             "timestamp": now,
         }
 
-        success = safe_atomic_save(payload, self.progress_path)
+        success = safe_atomic_save(payload, self.paths.progress_path)
         if success:
-            self.last_progress_save_time = now
+            self.tracking.last_progress_save_time = now
             logger.info(
                 "Saved intra-epoch progress checkpoint to %s (Epoch %d, %s phase, step %d/%d = "
                 "%.1f%%)",
-                self.progress_path,
+                self.paths.progress_path,
                 epoch,
                 phase,
                 step,
@@ -419,39 +477,39 @@ class CheckpointLifecycleManager:
             print(
                 f"[PROGRESS] Intra-epoch checkpoint captured: Epoch {epoch} ({phase} "
                 f"{progress_fraction * 100.0:.1f}%) "
-                f"to {self.progress_path.name}",
+                f"to {self.paths.progress_path.name}",
                 flush=True,
             )
         else:
             # Back off for 60 seconds on failure so subsequent 1-second batch iterations do not
             # hammer locked files
-            self.last_progress_save_time = now - self.min_progress_interval_sec + 60.0
+            self.tracking.last_progress_save_time = now - self.min_progress_interval_sec + 60.0
         return success
 
     def save_latest(self, epoch: int, payload: dict[str, Any]) -> bool:
         """Save latest.pth at epoch completion and immediately purge progress.pth (Rank 0 only)."""
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return True
-        success = safe_atomic_save(payload, self.latest_path)
+        success = safe_atomic_save(payload, self.paths.latest_path)
         if not success:
             logger.error("Failed saving latest checkpoint at epoch %d", epoch)
             return False
 
-        logger.info("Saved latest checkpoint to %s (Epoch %d)", self.latest_path, epoch)
+        logger.info("Saved latest checkpoint to %s (Epoch %d)", self.paths.latest_path, epoch)
 
         # Immediate action: purge progress.pth upon saving latest.pth
-        if self.progress_path.exists():
+        if self.paths.progress_path.exists():
             try:
-                self.progress_path.unlink()
+                self.paths.progress_path.unlink()
                 logger.info(
                     "Purged intra-epoch progress checkpoint %s after saving latest.pth",
-                    self.progress_path,
+                    self.paths.progress_path,
                 )
             except OSError as unlink_err:
                 logger.debug("Failed unlinking progress checkpoint: %s", unlink_err)
 
         # Reset 15-minute timer for upcoming epoch
-        self.last_progress_save_time = time.time()
+        self.tracking.last_progress_save_time = time.time()
         return True
 
     def save_best(
@@ -465,28 +523,28 @@ class CheckpointLifecycleManager:
         """Save best.pth, invoke universal tri-format export, and refresh README (Rank 0 only)."""
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return False
-        if quality_score <= self.best_quality_score:
+        if quality_score <= self.tracking.best_quality_score:
             return False
 
-        self.best_quality_score = quality_score
+        self.tracking.best_quality_score = quality_score
         payload["best_quality_score"] = quality_score
         payload["best_epoch"] = epoch
 
-        success = safe_atomic_save(payload, self.best_path)
+        success = safe_atomic_save(payload, self.paths.best_path)
         if not success:
             logger.error("Failed saving best checkpoint at epoch %d", epoch)
             return False
 
         logger.info(
             "Saved new best checkpoint to %s (Epoch %d, Quality Score: %.4f)",
-            self.best_path,
+            self.paths.best_path,
             epoch,
             quality_score,
         )
         print(
             f"[SOTA] New best checkpoint achieved at Epoch {epoch} (Quality Score: "
             f"{quality_score:.4f}). "
-            f"Persisted to {self.best_path.name}",
+            f"Persisted to {self.paths.best_path.name}",
             flush=True,
         )
 
@@ -519,9 +577,9 @@ class CheckpointLifecycleManager:
             if val is None:
                 continue
 
-            prev_best = self.vault_bests.get(target_key)
+            prev_best = self.tracking.vault_bests.get(target_key)
             if _is_improvement(val, prev_best, is_lower_better(target_key)):
-                self.vault_bests[target_key] = val
+                self.tracking.vault_bests[target_key] = val
                 achieved_vaults.append(target_key)
                 self._save_vault(target_key, val, epoch, payload)
 
@@ -531,7 +589,7 @@ class CheckpointLifecycleManager:
         """Write vault_[metric].pth for a new milestone."""
         vault_metric_clean = target_key.lower().strip().replace("-", "_")
         vault_filename = f"vault_{vault_metric_clean}.pth"
-        vault_path = self.checkpoints_dir / vault_filename
+        vault_path = self.paths.checkpoints_dir / vault_filename
         vault_payload = dict(payload)
         vault_payload["vault_metric"] = target_key
         vault_payload["vault_score"] = val
@@ -562,8 +620,8 @@ class CheckpointLifecycleManager:
             exported, _ = export_universal_model(
                 model_key=self.model_name,
                 model=source.target(),
-                output_dir=self.model_hub_dir,
-                checkpoint_path=self.best_path if self.best_path.exists() else None,
+                output_dir=self.paths.model_hub_dir,
+                checkpoint_path=self.paths.best_path if self.paths.best_path.exists() else None,
                 dummy_input=source.dummy_input,
                 stage_dist=True,
             )
@@ -574,7 +632,7 @@ class CheckpointLifecycleManager:
 
     def refresh_readme(self, epoch: int, best_metrics: dict[str, float]) -> None:
         """Update LemGendaryModels/[ModelName]/README.md with current best metrics."""
-        readme_path = self.model_hub_dir / "README.md"
+        readme_path = self.paths.model_hub_dir / "README.md"
         try:
             config_path = self.root / "config.yaml"
             unified_dict = {}

@@ -12,9 +12,11 @@ from .base import make_code_cell
 
 def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     """Build the PyTorch standalone model inference code cell."""
-    stem = meta.filename or meta.pascal_name
-    pt_handle = meta.handle_pytorch_fp32 or f"{meta.k_username}/{meta.k_slug}/pytorch/fp32"
-    if meta.is_forex:
+    stem = meta.identity.filename or meta.identity.pascal_name
+    pt_handle = (
+        meta.kaggle.pytorch_fp32 or f"{meta.kaggle.username}/{meta.kaggle.slug}/pytorch/fp32"
+    )
+    if meta.identity.is_forex:
         source = [
             "import os, base64\n",
             "try:\n",
@@ -82,9 +84,9 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
 
 def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     """Build the ONNX FP32 external-weight model inference code cell."""
-    stem = meta.filename or meta.pascal_name
-    onnx_handle = meta.handle_onnx_fp32 or f"{meta.k_username}/{meta.k_slug}/onnx/fp32"
-    if meta.is_forex:
+    stem = meta.identity.filename or meta.identity.pascal_name
+    onnx_handle = meta.kaggle.onnx_fp32 or f"{meta.kaggle.username}/{meta.kaggle.slug}/onnx/fp32"
+    if meta.identity.is_forex:
         source = [
             "import os, base64, numpy as np\n",
             "try:\n",
@@ -141,9 +143,9 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
 
 def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     """Build the ONNX FP16 embedded model inference code cell."""
-    stem = meta.filename or meta.pascal_name
-    onnx_handle = meta.handle_onnx_fp16 or f"{meta.k_username}/{meta.k_slug}/onnx/fp16"
-    if meta.is_forex:
+    stem = meta.identity.filename or meta.identity.pascal_name
+    onnx_handle = meta.kaggle.onnx_fp16 or f"{meta.kaggle.username}/{meta.kaggle.slug}/onnx/fp16"
+    if meta.identity.is_forex:
         source = [
             "import os, base64, numpy as np\n",
             "try:\n",

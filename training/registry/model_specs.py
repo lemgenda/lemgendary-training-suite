@@ -47,33 +47,132 @@ class KaggleModelMetadata:
 
 
 @dataclass(frozen=True)
-class ModelSpecification:
-    """Authoritative model specification combining architecture, training, and hub metadata."""
+class ModelProfile:
+    """Descriptive classification of a model."""
 
-    key: str
     status: str
-    name: str
     class_name: str
     category: str
-    filename: str
+    architecture_type: str
+    description: str
+    dataset_type: str
+
+
+@dataclass(frozen=True)
+class TrainingDefaults:
+    """Checkpoint name, data and default hyperparameters of a model."""
+
     checkpoint: str
     input_size: Any
     batch_size: Any
     learning_rate: float
     loss_fn: str
-    dataset_type: str
-    architecture_type: str
-    description: str
     datasets: list[str] = field(default_factory=list)
     canonical_format: str = "webdataset"
+
+
+@dataclass(frozen=True)
+class HubMetadata:
+    """Kaggle Models Hub metadata and academic citation of a model."""
+
     kaggle_metadata: KaggleModelMetadata | None = None
     academic_reference: AcademicReference | None = None
+
+
+@dataclass(frozen=True)
+class ModelSpecification:
+    """Authoritative model specification combining architecture, training, and hub metadata.
+
+    The grouped fields stay readable flat (``spec.category``, ``spec.kaggle_metadata``...).
+    """
+
+    key: str
+    name: str
+    filename: str
+    profile: ModelProfile
+    training: TrainingDefaults
+    hub: HubMetadata = field(default_factory=HubMetadata)
     raw_config: dict[str, Any] = field(default_factory=dict)
 
     @property
     def canonical_binary_name(self) -> str:
         """Standardized binary stem without extension."""
         return f"LemGendary{self.filename}"
+
+    @property
+    def status(self) -> str:
+        """``profile.status``."""
+        return self.profile.status
+
+    @property
+    def class_name(self) -> str:
+        """``profile.class_name``."""
+        return self.profile.class_name
+
+    @property
+    def category(self) -> str:
+        """``profile.category``."""
+        return self.profile.category
+
+    @property
+    def architecture_type(self) -> str:
+        """``profile.architecture_type``."""
+        return self.profile.architecture_type
+
+    @property
+    def description(self) -> str:
+        """``profile.description``."""
+        return self.profile.description
+
+    @property
+    def dataset_type(self) -> str:
+        """``profile.dataset_type``."""
+        return self.profile.dataset_type
+
+    @property
+    def checkpoint(self) -> str:
+        """``training.checkpoint``."""
+        return self.training.checkpoint
+
+    @property
+    def input_size(self) -> Any:
+        """``training.input_size``."""
+        return self.training.input_size
+
+    @property
+    def batch_size(self) -> Any:
+        """``training.batch_size``."""
+        return self.training.batch_size
+
+    @property
+    def learning_rate(self) -> float:
+        """``training.learning_rate``."""
+        return self.training.learning_rate
+
+    @property
+    def loss_fn(self) -> str:
+        """``training.loss_fn``."""
+        return self.training.loss_fn
+
+    @property
+    def datasets(self) -> list[str]:
+        """``training.datasets``."""
+        return self.training.datasets
+
+    @property
+    def canonical_format(self) -> str:
+        """``training.canonical_format``."""
+        return self.training.canonical_format
+
+    @property
+    def kaggle_metadata(self) -> KaggleModelMetadata | None:
+        """``hub.kaggle_metadata``."""
+        return self.hub.kaggle_metadata
+
+    @property
+    def academic_reference(self) -> AcademicReference | None:
+        """``hub.academic_reference``."""
+        return self.hub.academic_reference
 
 
 def _build_spec(
@@ -107,23 +206,26 @@ def _build_spec(
 
     spec = ModelSpecification(
         key=m_key,
-        status=raw_val.get("status", "ACTIVE"),
         name=raw_val.get("name", m_key),
-        class_name=raw_val.get("class_name", m_key),
-        category=raw_val.get("category", "restoration"),
         filename=raw_val.get("filename", m_key),
-        checkpoint=raw_val.get("checkpoint", f"{m_key}_best.pth"),
-        input_size=raw_val.get("input_size"),
-        batch_size=raw_val.get("batch_size", 16),
-        learning_rate=float(raw_val.get("learning_rate", 0.0001)),
-        loss_fn=raw_val.get("loss_fn", "l1"),
-        dataset_type=raw_val.get("dataset_type", "paired_image"),
-        architecture_type=raw_val.get("architecture_type", "Neural Network"),
-        description=raw_val.get("description", "").strip(),
-        datasets=list(raw_val.get("datasets", [])),
-        canonical_format=raw_val.get("canonical_format", "webdataset"),
-        kaggle_metadata=k_meta,
-        academic_reference=acad_ref,
+        profile=ModelProfile(
+            status=raw_val.get("status", "ACTIVE"),
+            class_name=raw_val.get("class_name", m_key),
+            category=raw_val.get("category", "restoration"),
+            architecture_type=raw_val.get("architecture_type", "Neural Network"),
+            description=raw_val.get("description", "").strip(),
+            dataset_type=raw_val.get("dataset_type", "paired_image"),
+        ),
+        training=TrainingDefaults(
+            checkpoint=raw_val.get("checkpoint", f"{m_key}_best.pth"),
+            input_size=raw_val.get("input_size"),
+            batch_size=raw_val.get("batch_size", 16),
+            learning_rate=float(raw_val.get("learning_rate", 0.0001)),
+            loss_fn=raw_val.get("loss_fn", "l1"),
+            datasets=list(raw_val.get("datasets", [])),
+            canonical_format=raw_val.get("canonical_format", "webdataset"),
+        ),
+        hub=HubMetadata(kaggle_metadata=k_meta, academic_reference=acad_ref),
         raw_config=raw_val,
     )
     return spec

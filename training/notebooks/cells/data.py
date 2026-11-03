@@ -15,15 +15,15 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
     if target == "kaggle":
         source = [
             "import os, re\n",
-            f"model_key = '{meta.model_key}'\n",
+            f"model_key = '{meta.identity.model_key}'\n",
             "target_dir = '/kaggle/working/LemGendaryDatasets'\n",
             "os.makedirs(target_dir, exist_ok=True)\n",
             "\n",
             "print(f'[DATA] Resolving manifolds for {model_key}...')\n",
             "found = []\n",
-            f"keys = {meta.ds_keys_repr}\n",
+            f"keys = {meta.dataset.ds_keys_repr}\n",
             "\n",
-            f"if {meta.is_forex} or any('forex' in k for k in keys):\n",
+            f"if {meta.identity.is_forex} or any('forex' in k for k in keys):\n",
             "    forex_composite_dir = os.path.join(target_dir, 'LemGendizedForexUniverse')\n",
             "    os.makedirs(forex_composite_dir, exist_ok=True)\n",
             "    forex_years_found = {}\n",
@@ -240,9 +240,9 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
     else:
         source = [
             "import os, subprocess, shutil, sys, re\n",
-            f"model_key = '{meta.model_key}'\n",
-            f"kaggle_repo = '{meta.clean_kaggle_repo}'\n",
-            f"primary_manifold = '{meta.primary_manifold}'\n",
+            f"model_key = '{meta.identity.model_key}'\n",
+            f"kaggle_repo = '{meta.dataset.clean_kaggle_repo}'\n",
+            f"primary_manifold = '{meta.dataset.primary_manifold}'\n",
             "target_dir = '/content/LemGendaryDatasets'\n",
             "os.makedirs(target_dir, exist_ok=True)\n",
             "dest_path = os.path.join(target_dir, primary_manifold)\n",
@@ -366,7 +366,7 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "if not is_ready:\n",
             "    os.makedirs(dest_path, exist_ok=True)\n",
             "    download_ok = False\n",
-            f"    _no_download = {meta.no_download}\n",
+            f"    _no_download = {meta.dataset.no_download}\n",
             "    if os.path.exists('/content/drive/MyDrive'):\n",
             "        print('[FALLBACK] Checking Google Drive for manifold...')\n",
             "        drive_cands = [\n",
@@ -449,7 +449,7 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
                 "    aliases = [primary_manifold.lower(), model_key.lower(), "
                 "model_key.replace('_', '-'), model_key.replace('_', '')]\n"
             ),
-            f"    if {meta.is_forex}:\n",
+            f"    if {meta.identity.is_forex}:\n",
             (
                 "        aliases.extend(['forex', 'lemgendizedforexuniverse', "
                 "'lemgendizedforexuniverselarge'])\n"
@@ -459,7 +459,7 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "        if not os.path.exists(a_path):\n",
             "            try: os.symlink(dest_path, a_path)\n",
             "            except Exception: pass\n",
-            f"    if {meta.is_forex}:\n",
+            f"    if {meta.identity.is_forex}:\n",
             "        forex_composite_dir = os.path.join(target_dir, 'LemGendizedForexUniverse')\n",
             "        os.makedirs(forex_composite_dir, exist_ok=True)\n",
             "        for item in os.listdir(dest_path):\n",
