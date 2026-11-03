@@ -45,6 +45,11 @@ def launch_kaggle_training(
 
     logger.info("Deploying kernel bundle %s to Kaggle with GPU %s...", slug, gpu)
 
+    return _push_via_sdk(kernel_dir) or _push_via_cli(kernel_dir)
+
+
+def _push_via_sdk(kernel_dir: Path) -> bool:
+    """Push the kernel bundle with the Kaggle Python SDK; False when it is unavailable/fails."""
     try:
         kaggle_mod = importlib.import_module("kaggle.api.kaggle_api_extended")
         api_cls = kaggle_mod.KaggleApi
@@ -55,7 +60,11 @@ def launch_kaggle_training(
         return True
     except (ImportError, AttributeError, *KAGGLE_API_ERRORS) as err:
         logger.warning("Kaggle Python SDK push notice: %s. Trying CLI fallback...", err)
+        return False
 
+
+def _push_via_cli(kernel_dir: Path) -> bool:
+    """Push the kernel bundle with the ``kaggle`` CLI."""
     try:
         cflags = (
             getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0

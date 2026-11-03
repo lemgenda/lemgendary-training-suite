@@ -30,6 +30,102 @@ class ManifoldInfo:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def _existing(path: Path, sub: str) -> Path | None:
+    return path / sub if (path / sub).exists() else None
+
+
+def _direct_lookup(root: Path, cand: str) -> Path | None:
+    """``root/cand`` (dir or container file), its ``forex`` subdir, or a case-insensitive match."""
+    direct = root / cand
+    if direct.exists() and (direct.is_dir() or direct.suffix in {".parquet", ".tar", ".data"}):
+        return direct
+
+    sub = direct / "forex"
+    if sub.exists() and sub.is_dir():
+        return sub
+
+    try:
+        for child in root.iterdir():
+            if child.name.lower() == cand.lower():
+                return child
+    except OSError as exc:
+        logger.debug("Failed listing directory %s: %s", root, exc)
+    return None
+
+
+def _simplify(name: str) -> str:
+    return name.lower().replace("-", "").replace("_", "").replace("lemgendized", "")
+
+
+def _match_attached(manifold_name: str, candidates: list[str], attached: list[Path]) -> Path:
+    """Pick the attached Kaggle manifold for ``manifold_name`` (exact, fuzzy, then first)."""
+    simplified_target = _simplify(manifold_name)
+    for suf in ["kaggleready", "large", "mini"]:
+        simplified_target = simplified_target.replace(suf, "")
+
+    # 1. Exact or candidate name match
+    for m in attached:
+        if m.name.lower() in [c.lower() for c in candidates]:
+            return m
+
+    # 2. Fuzzy name match against manifold or parent dataset slug
+    for m in attached:
+        if simplified_target and (
+            simplified_target in _simplify(m.name) or simplified_target in _simplify(m.parent.name)
+        ):
+            return m
+
+    # 3. Dynamic Fallback: Auto-bind attached Kaggle dataset manifold
+    fallback_m = attached[0]
+    logger.info(
+        "Auto-bound attached Kaggle dataset manifold '%s' for requested '%s'",
+        fallback_m,
+        manifold_name,
+    )
+    return fallback_m
+
+
+def _read_metadata(path: Path) -> tuple[dict[str, Any], Path | None]:
+    """Parse the first metadata file present (YAML or JSON); ``({}, None)`` when none is."""
+    for candidate_meta in ["dataset_info.yaml", "metadata.json", "index.json"]:
+        mf = path / candidate_meta
+        if mf.exists():
+            meta: dict[str, Any] = {}
+            try:
+                if candidate_meta.endswith((".yaml", ".yml")):
+                    meta = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
+                else:
+                    meta = json.loads(mf.read_text(encoding="utf-8"))
+            except (OSError, ValueError, yaml.YAMLError) as exc:
+                logger.warning("Failed parsing metadata file %s: %s", mf, exc)
+            return meta, mf
+    return {}, None
+
+
+def _detect_container(path: Path, meta: dict[str, Any]) -> str:
+    """Container type from metadata, else from the on-disk layout (default ``directory``)."""
+    container_type = "directory"
+    if "container" in meta and isinstance(meta["container"], dict):
+        container_type = meta["container"].get("primary", "directory")
+    elif meta.get("canonical_format"):
+        container_type = meta.get("canonical_format")
+    elif meta.get("format"):
+        container_type = meta.get("format")
+    elif (path / "shards").exists() or any(
+        f.suffix in (".tar", ".data") for f in path.iterdir() if f.is_file()
+    ):
+        container_type = "webdataset"
+    elif (path / "mds").exists() or (
+        (path / "index.json").exists() and not (path / "images").exists()
+    ):
+        container_type = "mds"
+    elif (path / "litdata").exists():
+        container_type = "litdata"
+    elif any(f.suffix == ".parquet" for f in path.iterdir() if f.is_file()):
+        container_type = "parquet"
+    return container_type
+
+
 class ManifoldResolver:
     """Resolve dataset manifold locations and container layouts on local, Colab, and Kaggle."""
 
@@ -216,22 +312,9 @@ class ManifoldResolver:
             if not root.exists():
                 continue
             for cand in candidates:
-                direct = root / cand
-                if direct.exists() and (
-                    direct.is_dir() or direct.suffix in {".parquet", ".tar", ".data"}
-                ):
-                    return direct
-
-                sub = direct / "forex"
-                if sub.exists() and sub.is_dir():
-                    return sub
-
-                try:
-                    for child in root.iterdir():
-                        if child.name.lower() == cand.lower():
-                            return child
-                except OSError as exc:
-                    logger.debug("Failed listing directory %s: %s", root, exc)
+                found = _direct_lookup(root, cand)
+                if found is not None:
+                    return found
 
         # Phase B: Kaggle /kaggle/input inspection (train on whichever datasets are attached)
         if (
@@ -243,47 +326,7 @@ class ManifoldResolver:
             if kaggle_input.exists():
                 attached_manifolds = self.scan_kaggle_input_manifolds(kaggle_input)
                 if attached_manifolds:
-                    simplified_target = (
-                        manifold_name.lower()
-                        .replace("-", "")
-                        .replace("_", "")
-                        .replace("lemgendized", "")
-                    )
-                    for suf in ["kaggleready", "large", "mini"]:
-                        simplified_target = simplified_target.replace(suf, "")
-
-                    # 1. Exact or candidate name match
-                    for m in attached_manifolds:
-                        if m.name.lower() in [c.lower() for c in candidates]:
-                            return m
-
-                    # 2. Fuzzy name match against manifold or parent dataset slug
-                    for m in attached_manifolds:
-                        name_norm = (
-                            m.name.lower()
-                            .replace("-", "")
-                            .replace("_", "")
-                            .replace("lemgendized", "")
-                        )
-                        parent_norm = (
-                            m.parent.name.lower()
-                            .replace("-", "")
-                            .replace("_", "")
-                            .replace("lemgendized", "")
-                        )
-                        if simplified_target and (
-                            simplified_target in name_norm or simplified_target in parent_norm
-                        ):
-                            return m
-
-                    # 3. Dynamic Fallback: Auto-bind attached Kaggle dataset manifold
-                    fallback_m = attached_manifolds[0]
-                    logger.info(
-                        "Auto-bound attached Kaggle dataset manifold '%s' for requested '%s'",
-                        fallback_m,
-                        manifold_name,
-                    )
-                    return fallback_m
+                    return _match_attached(manifold_name, candidates, attached_manifolds)
 
         return None
 
@@ -304,60 +347,22 @@ class ManifoldResolver:
         if not path.exists():
             raise FileNotFoundError(f"Manifold path does not exist: {path}")
 
-        meta: dict[str, Any] = {}
-        meta_file: Path | None = None
-        for candidate_meta in ["dataset_info.yaml", "metadata.json", "index.json"]:
-            mf = path / candidate_meta
-            if mf.exists():
-                meta_file = mf
-                try:
-                    if candidate_meta.endswith((".yaml", ".yml")):
-                        meta = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
-                    else:
-                        meta = json.loads(mf.read_text(encoding="utf-8"))
-                except (OSError, ValueError, yaml.YAMLError) as exc:
-                    logger.warning("Failed parsing metadata file %s: %s", mf, exc)
-                break
-
-        # Container type detection
-        container_type = "directory"
-        if "container" in meta and isinstance(meta["container"], dict):
-            container_type = meta["container"].get("primary", "directory")
-        elif meta.get("canonical_format"):
-            container_type = meta.get("canonical_format")
-        elif meta.get("format"):
-            container_type = meta.get("format")
-        elif (path / "shards").exists() or any(
-            f.suffix in (".tar", ".data") for f in path.iterdir() if f.is_file()
-        ):
-            container_type = "webdataset"
-        elif (path / "mds").exists() or (
-            (path / "index.json").exists() and not (path / "images").exists()
-        ):
-            container_type = "mds"
-        elif (path / "litdata").exists():
-            container_type = "litdata"
-        elif any(f.suffix == ".parquet" for f in path.iterdir() if f.is_file()):
-            container_type = "parquet"
+        meta, meta_file = _read_metadata(path)
+        container_type = _detect_container(path, meta)
 
         task_type = resolve_manifold_task(
             ManifoldLayout(path=path, name=name, container_type=container_type, metadata=meta)
         )
-
-        images_dir = path / "images" if (path / "images").exists() else None
-        targets_dir = path / "targets" if (path / "targets").exists() else None
-        masks_dir = path / "masks" if (path / "masks").exists() else None
-        labels_dir = path / "labels" if (path / "labels").exists() else None
 
         return ManifoldInfo(
             name=name,
             path=path,
             task_type=task_type,
             container_type=container_type,
-            images_dir=images_dir,
-            targets_dir=targets_dir,
-            masks_dir=masks_dir,
-            labels_dir=labels_dir,
+            images_dir=_existing(path, "images"),
+            targets_dir=_existing(path, "targets"),
+            masks_dir=_existing(path, "masks"),
+            labels_dir=_existing(path, "labels"),
             metadata_file=meta_file,
             metadata=meta,
         )

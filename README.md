@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.110-STABLE`
+- **Version**: `v16.9.111-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,16 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.111 - Smaller Functions in Manifolds, Ladder and Losses
+
+- **Refactor**: manifold lookup (`_direct_lookup`, `_match_attached`) and
+  inspection (`_read_metadata`, `_detect_container`); Forex composite score;
+  Kaggle kernel push via SDK then CLI; YOLO ladder epoch allocation and
+  Sawtooth decision (8,000 random budgets identical); Forex dual loss, quality
+  loss and face-detection loss helpers (1,500 seeded runs give identical
+  losses and gradients). Removes 9 too-many-locals and 2 too-many-branches
+  findings, plus the one too-many-return-statements.
 
 ### v16.9.110 - Smaller Functions in Cloud Sync, Containers and Training Setup
 

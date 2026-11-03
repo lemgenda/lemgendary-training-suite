@@ -66,6 +66,18 @@ DEFAULT_METRIC_WEIGHTS: dict[str, float] = {
 }
 
 
+def _forex_composite(metrics: dict[str, float]) -> float:
+    """Forex composite: direction accuracy, win rate, capped PF/Sharpe, minus drawdown."""
+    score = (
+        (metrics.get("dir_acc", 0.0) * 40.0)
+        + (metrics.get("win_rate", 0.0) * 30.0)
+        + (min(metrics.get("profit_factor", 0.0), 3.0) * 10.0)
+        + (min(metrics.get("sharpe_ratio", 0.0), 3.0) * 10.0)
+        - (metrics.get("max_drawdown", 0.0) * 20.0)
+    )
+    return round(score, 4)
+
+
 @dataclass
 class MetricDefinition:
     """Specification for an individual tracked metric."""
@@ -124,20 +136,7 @@ class MetricRegistry:
             return 0.0
 
         if task_type == "forex":
-            # Forex-specific composite formula
-            dir_acc = metrics.get("dir_acc", 0.0)
-            win_rate = metrics.get("win_rate", 0.0)
-            profit_factor = metrics.get("profit_factor", 0.0)
-            sharpe = metrics.get("sharpe_ratio", 0.0)
-            max_dd = metrics.get("max_drawdown", 0.0)
-            score = (
-                (dir_acc * 40.0)
-                + (win_rate * 30.0)
-                + (min(profit_factor, 3.0) * 10.0)
-                + (min(sharpe, 3.0) * 10.0)
-                - (max_dd * 20.0)
-            )
-            return round(score, 4)
+            return _forex_composite(metrics)
 
         # Vision composite score
         total_weighted_score = 0.0

@@ -64,6 +64,14 @@ def is_amp_supported_for_device(device_arg: str) -> bool:
         return False
 
 
+def _floor_pow2(n: int) -> int:
+    """Largest power of two <= ``n`` (1 for ``n`` < 2)."""
+    pow2 = 1
+    while pow2 * 2 <= n:
+        pow2 *= 2
+    return pow2
+
+
 def compute_safe_batch_size(
     imgsz: int,
     vram_gb: float,
@@ -112,8 +120,7 @@ def compute_safe_batch_size(
     batch_max: int = int(cfg.get("batch_max", 512))
 
     # Activation memory scales quadratically with spatial resolution
-    scale = (imgsz / 640.0) ** 2
-    per_sample_mb = per_sample_mb_640 * scale
+    per_sample_mb = per_sample_mb_640 * ((imgsz / 640.0) ** 2)
 
     total_budget_mb = vram_gb * 1024.0 * safety
     available_mb = total_budget_mb - static_mb
@@ -124,10 +131,7 @@ def compute_safe_batch_size(
         max_safe = max(batch_min, min(batch_max, math.floor(available_mb / per_sample_mb)))
 
     # Power-of-2 quantisation improves GPU utilisation (not strictly required)
-    pow2 = 1
-    while pow2 * 2 <= max_safe:
-        pow2 *= 2
-    max_safe = pow2
+    max_safe = _floor_pow2(max_safe)
 
     if requested_batch is not None and requested_batch > 0:
         return max(batch_min, min(requested_batch, max_safe))
@@ -203,6 +207,18 @@ class BatchBudget:
     opt_config: dict[str, Any]
 
 
+def _allocate_epochs(stage_specs: list[tuple[int, float]], total_epochs: int) -> list[int]:
+    """Split ``total_epochs`` over stages by weight (resolution x fraction), >= 1 each."""
+    lowest_res = min(s[0] for s in stage_specs)
+    weights = [(res / lowest_res) * frac for res, frac in stage_specs]
+    total_weight = sum(weights)
+    epoch_allocations = [max(1, round(total_epochs * (w / total_weight))) for w in weights]
+    diff = total_epochs - sum(epoch_allocations)
+    if diff != 0:
+        epoch_allocations[-1] = max(1, epoch_allocations[-1] + diff)
+    return epoch_allocations
+
+
 def build_ladder_curriculum(
     res_ladder: list[int],
     total_epochs: int,
@@ -230,41 +246,30 @@ def build_ladder_curriculum(
     patience_base = int(opt_config.get("plateau_patience", 10))
     lowest_ladder_res = min(res_ladder) if res_ladder else 320
 
-    stage_specs: list[tuple[int, float]] = []
-    for rung in rungs:
-        is_lowest = rung == lowest_ladder_res
-        fracs = get_fractions_for_resolution(rung, is_lowest, opt_config)
-        for f in fracs:
-            stage_specs.append((rung, f))
-
-    lowest_res = min(s[0] for s in stage_specs)
-    # Stage weights scale with spatial resolution and data manifold fraction
-    weights = [(res / lowest_res) * frac for res, frac in stage_specs]
-    total_weight = sum(weights)
-    epoch_allocations = [max(1, round(total_epochs * (w / total_weight))) for w in weights]
-    diff = total_epochs - sum(epoch_allocations)
-    if diff != 0:
-        epoch_allocations[-1] = max(1, epoch_allocations[-1] + diff)
+    stage_specs = [
+        (rung, f)
+        for rung in rungs
+        for f in get_fractions_for_resolution(rung, rung == lowest_ladder_res, opt_config)
+    ]
+    epoch_allocations = _allocate_epochs(stage_specs, total_epochs)
 
     stages: list[YOLOLadderStage] = []
     for idx, ((res, frac), ep_budget) in enumerate(
         zip(stage_specs, epoch_allocations, strict=True)
     ):
-        safe_batch = compute_safe_batch_size(
-            imgsz=res,
-            vram_gb=budget.vram_gb,
-            requested_batch=budget.requested_batch,
-            opt_config=opt_config,
-        )
-        stage_patience = max(5, patience_base + (idx * 2))
         stages.append(
             YOLOLadderStage(
                 stage_index=idx + 1,
                 resolution=res,
-                batch_size=safe_batch,
+                batch_size=compute_safe_batch_size(
+                    imgsz=res,
+                    vram_gb=budget.vram_gb,
+                    requested_batch=budget.requested_batch,
+                    opt_config=opt_config,
+                ),
                 fraction=frac,
                 target_epochs=ep_budget,
-                patience=stage_patience,
+                patience=max(5, patience_base + (idx * 2)),
             )
         )
 
@@ -284,6 +289,28 @@ class SawtoothMessages:
     probe_notice: str
 
 
+def _sawtooth_target(
+    batch: int, resolution: int, budget: BatchBudget, vram_pct: float, peak_bytes: int
+) -> tuple[int, str, float]:
+    """``(new_batch, kind, threshold)``; ``kind`` is ``pressure``, ``headroom`` or empty."""
+    opt_config = budget.opt_config
+    pressure_thresh = float(opt_config.get("sawtooth_vram_pressure_thresh", 0.90))
+    headroom_thresh = float(opt_config.get("sawtooth_vram_headroom_thresh", 0.60))
+    # 1. Sawtooth Pressure Sentinel: downscale if memory spiked dangerously
+    if vram_pct >= pressure_thresh:
+        new_batch = max(2, batch // 2)
+        if new_batch < batch:
+            return new_batch, "pressure", pressure_thresh
+    # 2. Dynamic Headroom Promotion: scale up if VRAM utilization was low
+    elif peak_bytes > 0 and vram_pct < headroom_thresh:
+        safe_limit = compute_safe_batch_size(
+            resolution, budget.vram_gb, budget.requested_batch, opt_config
+        )
+        if safe_limit > batch:
+            return min(safe_limit, max(batch * 2, safe_limit)), "headroom", headroom_thresh
+    return batch, "", 0.0
+
+
 def sawtooth_batch(
     batch: int,
     resolution: int,
@@ -298,30 +325,17 @@ def sawtooth_batch(
     default 0.90, and ``sawtooth_vram_headroom_thresh``, default 0.60). The CUDA peak counter
     is reset after every probe. Without CUDA the batch is returned unchanged.
     """
-    vram_gb, requested_batch, opt_config = budget.vram_gb, budget.requested_batch, budget.opt_config
-    if not (torch.cuda.is_available() and vram_gb > 0):
+    if not (torch.cuda.is_available() and budget.vram_gb > 0):
         return batch
     try:
         peak_bytes = torch.cuda.max_memory_allocated(0)
-        peak_gb = peak_bytes / (1024**3)
-        vram_pct = peak_gb / vram_gb
-        pressure_thresh = float(opt_config.get("sawtooth_vram_pressure_thresh", 0.90))
-        headroom_thresh = float(opt_config.get("sawtooth_vram_headroom_thresh", 0.60))
-        pct, new_batch, template, thresh = vram_pct * 100, batch, "", 0.0
-        # 1. Sawtooth Pressure Sentinel: downscale if memory spiked dangerously
-        if vram_pct >= pressure_thresh:
-            new_batch = max(2, batch // 2)
-            if new_batch < batch:
-                template, thresh = messages.pressure, pressure_thresh
-        # 2. Dynamic Headroom Promotion: scale up if VRAM utilization was low
-        elif peak_bytes > 0 and vram_pct < headroom_thresh:
-            safe_limit = compute_safe_batch_size(resolution, vram_gb, requested_batch, opt_config)
-            if safe_limit > batch:
-                new_batch = min(safe_limit, max(batch * 2, safe_limit))
-                template, thresh = messages.headroom, headroom_thresh
-        if template:
+        vram_pct = peak_bytes / (1024**3) / budget.vram_gb
+        new_batch, kind, thresh = _sawtooth_target(batch, resolution, budget, vram_pct, peak_bytes)
+        if kind:
             print(
-                template.format(pct=pct, thresh=thresh * 100, old=batch, new=new_batch),
+                getattr(messages, kind).format(
+                    pct=vram_pct * 100, thresh=thresh * 100, old=batch, new=new_batch
+                ),
                 flush=True,
             )
             batch = new_batch
