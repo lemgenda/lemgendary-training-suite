@@ -14,6 +14,7 @@ from training.doc_generator import ModelDocumentationService
 from training.export.staging import VariationStagingService
 from training.export.validation import StrictIsolationValidator
 from training.registry.kaggle_datasets import with_kaggle_dataset_refs
+from training.server.routes.registry_file import registry_path
 from training.services.audit_service import AuditService
 from training.utils.paths import get_project_root, get_workspace_root
 
@@ -24,14 +25,7 @@ router = APIRouter(prefix="/models", tags=["models"])
 
 def _load_registry(root: Path | None = None) -> dict[str, Any]:
     project_root = root or get_project_root()
-    cfg_path = project_root / "config.yaml"
-    cfg: dict[str, Any] = {}
-    if cfg_path.exists():
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-
-    reg_name = cfg.get("unified_models", "unified_models_v2.yaml")
-    reg_path = project_root / reg_name
+    reg_path = registry_path(project_root)
     if not reg_path.exists():
         return {}
 

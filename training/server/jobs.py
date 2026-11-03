@@ -14,6 +14,7 @@ import time
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -54,6 +55,16 @@ def _log_status(message: str) -> str:
     return "running"
 
 
+@dataclass
+class _LogFeed:
+    """WebSocket log subscribers, the loop that feeds them and the progress rate limit."""
+
+    job_subscribers: dict[str, set[asyncio.Queue[str]]] = field(default_factory=dict)
+    global_subscribers: set[asyncio.Queue[str]] = field(default_factory=set)
+    loop: asyncio.AbstractEventLoop | None = None
+    last_progress_broadcast: dict[str, float] = field(default_factory=dict)
+
+
 class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
     """Coordinates asynchronous execution of training, evaluation, and export tasks."""
 
@@ -64,16 +75,13 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
             max_workers=max_workers, thread_name_prefix="lemtrain-worker"
         )
         self._cancellation_events: dict[str, threading.Event] = {}
-        self._job_subscribers: dict[str, set[asyncio.Queue[str]]] = {}
-        self._global_subscribers: set[asyncio.Queue[str]] = set()
-        self._loop: asyncio.AbstractEventLoop | None = None
+        self._feed = _LogFeed()
         self._lock = threading.Lock()
-        self._stdout_tee, self._stderr_tee = _ensure_output_tees()
-        self._last_progress_broadcast: dict[str, float] = {}
+        self._tees = _ensure_output_tees()
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Register server event loop for threadsafe WebSocket broadcasting."""
-        self._loop = loop
+        self._feed.loop = loop
 
     def submit_job(
         self,
@@ -124,30 +132,30 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
         """Subscribe to real-time log feed for specific job."""
         q: asyncio.Queue[str] = asyncio.Queue()
         with self._lock:
-            if job_id not in self._job_subscribers:
-                self._job_subscribers[job_id] = set()
-            self._job_subscribers[job_id].add(q)
+            if job_id not in self._feed.job_subscribers:
+                self._feed.job_subscribers[job_id] = set()
+            self._feed.job_subscribers[job_id].add(q)
         return q
 
     def unsubscribe_job_logs(self, job_id: str, q: asyncio.Queue[str]) -> None:
         """Unsubscribe from job log feed."""
         with self._lock:
-            if job_id in self._job_subscribers:
-                self._job_subscribers[job_id].discard(q)
-                if not self._job_subscribers[job_id]:
-                    del self._job_subscribers[job_id]
+            if job_id in self._feed.job_subscribers:
+                self._feed.job_subscribers[job_id].discard(q)
+                if not self._feed.job_subscribers[job_id]:
+                    del self._feed.job_subscribers[job_id]
 
     def subscribe_global_logs(self) -> asyncio.Queue[str]:
         """Subscribe to global event log feed."""
         q: asyncio.Queue[str] = asyncio.Queue()
         with self._lock:
-            self._global_subscribers.add(q)
+            self._feed.global_subscribers.add(q)
         return q
 
     def unsubscribe_global_logs(self, q: asyncio.Queue[str]) -> None:
         """Unsubscribe from global event log feed."""
         with self._lock:
-            self._global_subscribers.discard(q)
+            self._feed.global_subscribers.discard(q)
 
     def _append_log_file(self, job_id: str, timestamp: str, message: str) -> None:
         """Append ``[timestamp] message`` to the job's log file (failures are logged)."""
@@ -167,10 +175,10 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
         # Rate-limit progress bar updates (max 10 Hz) to avoid overwhelming the UI/WebSocket
         if is_progress:
             now = time.monotonic()
-            last_broadcast = self._last_progress_broadcast.get(job_id, 0.0)
+            last_broadcast = self._feed.last_progress_broadcast.get(job_id, 0.0)
             if now - last_broadcast < 0.1:
                 return
-            self._last_progress_broadcast[job_id] = now
+            self._feed.last_progress_broadcast[job_id] = now
 
         # Classify status for compatible GUI telemetry display
         status = _log_status(message)
@@ -201,13 +209,14 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
         self._append_log_file(job_id, timestamp, message)
 
         # Threadsafe push to asyncio queues
-        if self._loop and self._loop.is_running():
+        loop = self._feed.loop
+        if loop and loop.is_running():
             with self._lock:
-                target_queues = list(self._job_subscribers.get(job_id, set())) + list(
-                    self._global_subscribers
+                target_queues = list(self._feed.job_subscribers.get(job_id, set())) + list(
+                    self._feed.global_subscribers
                 )
             for q in target_queues:
-                self._loop.call_soon_threadsafe(q.put_nowait, log_payload)
+                loop.call_soon_threadsafe(q.put_nowait, log_payload)
 
     def _run_job_worker(
         self,
@@ -228,10 +237,9 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
                 return
             self._broadcast_log(job_id, line)
 
-        if self._stdout_tee:
-            self._stdout_tee.register_thread(tid, _job_log_filter)
-        if self._stderr_tee:
-            self._stderr_tee.register_thread(tid, _job_log_filter)
+        for tee in self._tees:
+            if tee:
+                tee.register_thread(tid, _job_log_filter)
 
         try:
             if cancel_event.is_set():
@@ -256,10 +264,9 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
             self._broadcast_log(job_id, f"[ERROR] Execution failed: {exc}")
             raise
         finally:
-            if self._stdout_tee:
-                self._stdout_tee.unregister_thread(tid)
-            if self._stderr_tee:
-                self._stderr_tee.unregister_thread(tid)
+            for tee in self._tees:
+                if tee:
+                    tee.unregister_thread(tid)
             with self._lock:
                 self._cancellation_events.pop(job_id, None)
 
