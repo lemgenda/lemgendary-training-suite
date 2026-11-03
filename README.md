@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.120-STABLE`
+- **Version**: `v16.9.121-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,16 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.121 - Pylint Design Refactors
+
+- **Lint**: pylint with the repo `.pylintrc` reports 0 findings; the
+  four size-check disables are gone. Large functions (GUI stats, engine
+  loop, forex curriculum, hardware probe, governor) split into helpers;
+  wide classes group state into dataclasses (flat names kept as
+  properties where read outside); duplicates moved to shared helpers.
+  Serialized formats and `state_dict` keys unchanged; `_commit_rung`,
+  FID and Model Soup/SWA untouched.
 
 ### v16.9.120 - Pyright Clean
 

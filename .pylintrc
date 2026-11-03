@@ -5,13 +5,6 @@ load-plugins=
 jobs=1
 unsafe-load-any-extension=no
 
-[MESSAGES CONTROL]
-disable=
-    too-many-branches,
-    too-many-locals,
-    too-many-statements,
-    too-many-instance-attributes,
-
 [REPORTS]
 output-format=text
 reports=no
