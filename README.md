@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.68-STABLE` |
+| **Version** | `v16.9.69-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.69 - Green Test Suite & One Version Everywhere
+
+- **Checkpoint recovery (`training/checkpoint/recovery.py`)**: `import os` sat above the module docstring, so the module had no docstring. Moved it into the import block. `tests/unit/test_checkpoint.py` now resolves its temporary root: `find_candidate_roots` returns resolved paths, and on Windows the temp directory can be an 8.3 short path (`SANDI~1`), so the old fixture compared a short path with its long form and failed.
+- **YOLO governor (`training/governance/yolo_governor.py`)**: new `create_yolo_model` factory is the one place that imports `ultralytics` and builds `YOLO`. The three call sites (SOTA export, ladder stage, SOTA extension cycle) use it. The SOTA export and open-ended convergence tests patch this factory instead of `ultralytics.YOLO`, which needed the real (heavy, optional) package installed even though the tests replace it with a mock.
+- **MT5 inference test (`tests/test_mt5_live_inference.py`)**: skips through `pytest.importorskip("pandas")` when pandas is missing. pandas is only used by the optional MT5 Forex pipeline and is not a core `pyproject.toml` dependency.
+- **CLI and GUI-contract tests**: they failed to collect only because `typer`, a core `pyproject.toml` dependency, was missing from the test environment. No code change was needed.
+- **Version consistency**: `pyproject.toml`, `training/server/app.py` (FastAPI `version`), the `lemtrain version` command, `config.yaml` and the regenerated `openapi.json` now all say `16.9.69` (they said `16.2.9` and `16.0.0-nuclear`).
+- **Tests**: 260 passed, 0 failed, 0 collection errors (was 236 passed, 3 failed, 3 collection errors).
 
 ### v16.9.68 - OpenAPI Contract Regenerated From the Live App
 

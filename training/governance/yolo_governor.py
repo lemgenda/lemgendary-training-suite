@@ -32,6 +32,18 @@ from training.training.summary import TrainingSummary
 logger = logging.getLogger("lemtrain.governance.yolo")
 
 
+def create_yolo_model(weights: str | Path) -> Any:
+    """Instantiate an Ultralytics YOLO model (single construction seam for the governor).
+
+    ``ultralytics`` is a heavy optional runtime dependency, so it is imported lazily
+    here and nowhere else in this module; tests substitute this factory instead of
+    requiring the real package.
+    """
+    import ultralytics
+
+    return ultralytics.YOLO(str(weights))
+
+
 @dataclass
 class YOLOLadderStage:
     """Configuration for an individual curriculum resolution ladder stage."""
@@ -389,8 +401,7 @@ class YOLOCurriculumGovernor:
             return
 
         try:
-            import ultralytics
-            export_model = ultralytics.YOLO(str(source_weights))
+            export_model = create_yolo_model(str(source_weights))
             export_tri_format_yolo(
                 trainer=export_model,
                 model_key="yolov8n",
@@ -800,8 +811,7 @@ class YOLOCurriculumGovernor:
             # Keep total_epochs ceiling dynamically ahead of stage_start_epoch
             stage_total_epochs = max(total_epochs, stage_start_epoch + 100)
 
-            import ultralytics
-            model = ultralytics.YOLO(current_weights_path)
+            model = create_yolo_model(current_weights_path)
             stage_epochs_recorded = 0
             recorded_stage_epochs = set()
             rung_patience = int(self.opt_config.get("rung_plateau_patience", 5))
@@ -1281,8 +1291,7 @@ class YOLOCurriculumGovernor:
             ext_start_epoch = completed_prior_epochs
             ext_total_epochs = max(total_epochs, ext_start_epoch + 100)
 
-            import ultralytics
-            model = ultralytics.YOLO(current_weights_path)
+            model = create_yolo_model(current_weights_path)
             ext_stage_epochs_recorded = 0
             ext_recorded_epochs = set()
 

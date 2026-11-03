@@ -11,7 +11,11 @@ import time
 import unittest
 import torch
 import numpy as np
-import pandas as pd
+import pytest
+
+# pandas is an optional dependency of the MT5 Forex pipeline only (requirements.txt,
+# not the core pyproject dependency set); skip this module cleanly when absent.
+pd = pytest.importorskip("pandas")
 
 # Anchor root
 _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

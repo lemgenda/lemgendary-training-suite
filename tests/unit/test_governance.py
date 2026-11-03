@@ -465,7 +465,7 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
                 (output_dir / f"{model_key}.pt").write_bytes(fake_weight.read_bytes())
                 (output_dir / f"{model_key}.onnx").write_bytes(fake_onnx_source.read_bytes())
 
-            with patch("ultralytics.YOLO", return_value=mock_yolo_instance), \
+            with patch("training.governance.yolo_governor.create_yolo_model", return_value=mock_yolo_instance), \
                  patch("training.governance.yolo_governor.export_tri_format_yolo", side_effect=mock_tri_format):
                 governor._export_sota_models(fake_weight, resolution=640)
 
@@ -526,7 +526,7 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             fake_onnx.write_bytes(b"ONNXDATA")
             mock_yolo_instance.export.return_value = str(fake_onnx)
 
-            with patch("ultralytics.YOLO", return_value=mock_yolo_instance), \
+            with patch("training.governance.yolo_governor.create_yolo_model", return_value=mock_yolo_instance), \
                  patch("training.governance.yolo_governor.generate_yolo_yaml", return_value="mock.yaml"):
                 summary = governor.run()
 

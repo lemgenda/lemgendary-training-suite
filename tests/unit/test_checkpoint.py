@@ -24,7 +24,10 @@ class TestCheckpointSubsystem(unittest.TestCase):
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
+        # The recovery engine returns canonical (resolved) roots; on Windows the
+        # temp dir may be an 8.3 short path (e.g. ``SANDI~1``), so the fixture
+        # root must be canonical too for path-equality assertions to hold.
+        self.root = Path(self.temp_dir.name).resolve()
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
