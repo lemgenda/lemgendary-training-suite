@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.118-STABLE`
+- **Version**: `v16.9.119-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,15 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.119 - YOLO Config, Hub Restructuring and Checkpoint Listing Steps
+
+- **Refactor**: `generate_yolo_yaml` uses class-name, split-folder
+  (`_first_existing`) and fallback-config helpers;
+  `restructure_model` moves each relocation/purge step into a helper;
+  `CheckpointService.list_checkpoints` uses `_model_dirs`,
+  `_max_recorded_epoch`, `_checkpoint_files` and `_checkpoint_entry`.
+  Same configs, actions and listings. Removes 8 design findings.
 
 ### v16.9.118 - Pre-flight Asset and MT5 ONNX Export Steps
 

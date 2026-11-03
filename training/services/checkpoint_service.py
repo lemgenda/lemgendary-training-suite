@@ -21,6 +21,60 @@ from training.utils.paths import get_project_root
 logger = logging.getLogger("lemtrain.services.checkpoint_service")
 
 
+def _model_dirs(root: Path, model_key: str | None) -> list[tuple[str, Path]]:
+    """``(key, dir)`` of ``model_key`` below ``root``, or of every visible model folder."""
+    if model_key:
+        model_dir = root / model_key
+        return [(model_key, model_dir)] if model_dir.exists() else []
+    return [(d.name, d) for d in root.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))]
+
+
+def _max_recorded_epoch(csv_path: Path) -> int | None:
+    """Highest ``Epoch``/``epoch`` in metrics.csv (rows read before a bad cell count)."""
+    max_epoch_from_csv: int | None = None
+    if csv_path.exists():
+        try:
+            with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    ep_val = row.get("Epoch") or row.get("epoch")
+                    if ep_val:
+                        ep_num = int(ep_val)
+                        if max_epoch_from_csv is None or ep_num > max_epoch_from_csv:
+                            max_epoch_from_csv = ep_num
+        except (OSError, csv.Error, ValueError) as csv_err:
+            logger.warning("Could not parse recorded epochs from %s: %s", csv_path, csv_err)
+    return max_epoch_from_csv
+
+
+def _checkpoint_files(m_dir: Path) -> list[Path]:
+    """Checkpoint candidates of a model folder, in listing order (duplicates possible)."""
+    return (
+        list(m_dir.glob("*.pth"))
+        + list((m_dir / "checkpoints").glob("*.pth"))
+        + list((m_dir / "checkpoints").glob("*.pt"))
+        + list((m_dir / "dist" / "kaggle" / "pytorch").glob("*.pt"))
+        + list(m_dir.glob("*.pt"))
+    )
+
+
+def _checkpoint_entry(key: str, file_path: Path, max_epoch_from_csv: int | None) -> dict[str, Any]:
+    """Listing entry of one checkpoint file (epoch from the name, else from metrics.csv)."""
+    stat = file_path.stat()
+    epoch_match = re.search(r"epoch_(\d+)", file_path.name)
+    epoch = int(epoch_match.group(1)) if epoch_match else max_epoch_from_csv
+    is_best = "best" in file_path.name.lower() or file_path.suffix == ".pt"
+    return {
+        "model_key": key,
+        "filename": file_path.name,
+        "path": str(file_path),
+        "size_mb": round(stat.st_size / (1024 * 1024), 2),
+        "epoch": epoch,
+        "is_best": is_best,
+        "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+    }
+
+
 class CheckpointService:
     """Manages model checkpoint inspection, listing, and lifecycle pruning."""
 
@@ -58,78 +112,23 @@ class CheckpointService:
         Returns:
             list[dict[str, Any]]: Metadata list of discovered checkpoints.
         """
-        results: list[dict[str, Any]] = []
         target_dirs: list[tuple[str, Path]] = []
-
         if self.checkpoints_root.exists():
-            if model_key:
-                model_dir = self.checkpoints_root / model_key
-                if model_dir.exists():
-                    target_dirs.append((model_key, model_dir))
-            else:
-                for d in self.checkpoints_root.iterdir():
-                    if d.is_dir() and not d.name.startswith((".", "_")):
-                        target_dirs.append((d.name, d))
-
+            target_dirs.extend(_model_dirs(self.checkpoints_root, model_key))
         if self.hub_root and self.hub_root.exists():
-            if model_key:
-                hub_dir = self.hub_root / model_key
-                if hub_dir.exists():
-                    target_dirs.append((model_key, hub_dir))
-            else:
-                for d in self.hub_root.iterdir():
-                    if d.is_dir() and not d.name.startswith((".", "_")):
-                        target_dirs.append((d.name, d))
+            target_dirs.extend(_model_dirs(self.hub_root, model_key))
 
+        results: list[dict[str, Any]] = []
         seen_paths: set[str] = set()
-
         for key, m_dir in target_dirs:
             # Check for metrics.csv to determine recorded epochs
-            max_epoch_from_csv: int | None = None
-            csv_path = m_dir / "metrics.csv"
-            if csv_path.exists():
-                try:
-                    with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
-                        reader = csv.DictReader(f)
-                        for row in reader:
-                            ep_val = row.get("Epoch") or row.get("epoch")
-                            if ep_val:
-                                ep_num = int(ep_val)
-                                if max_epoch_from_csv is None or ep_num > max_epoch_from_csv:
-                                    max_epoch_from_csv = ep_num
-                except (OSError, csv.Error, ValueError) as csv_err:
-                    logger.warning("Could not parse recorded epochs from %s: %s", csv_path, csv_err)
-
-            candidates = (
-                list(m_dir.glob("*.pth"))
-                + list((m_dir / "checkpoints").glob("*.pth"))
-                + list((m_dir / "checkpoints").glob("*.pt"))
-                + list((m_dir / "dist" / "kaggle" / "pytorch").glob("*.pt"))
-                + list(m_dir.glob("*.pt"))
-            )
-
-            for file_path in candidates:
+            max_epoch_from_csv = _max_recorded_epoch(m_dir / "metrics.csv")
+            for file_path in _checkpoint_files(m_dir):
                 resolved_str = str(file_path.resolve())
                 if resolved_str in seen_paths:
                     continue
                 seen_paths.add(resolved_str)
-
-                stat = file_path.stat()
-                epoch_match = re.search(r"epoch_(\d+)", file_path.name)
-                epoch = int(epoch_match.group(1)) if epoch_match else max_epoch_from_csv
-                is_best = "best" in file_path.name.lower() or file_path.suffix == ".pt"
-
-                results.append(
-                    {
-                        "model_key": key,
-                        "filename": file_path.name,
-                        "path": str(file_path),
-                        "size_mb": round(stat.st_size / (1024 * 1024), 2),
-                        "epoch": epoch,
-                        "is_best": is_best,
-                        "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                    }
-                )
+                results.append(_checkpoint_entry(key, file_path, max_epoch_from_csv))
 
         return sorted(results, key=lambda x: (x["model_key"], x["filename"]))
 
