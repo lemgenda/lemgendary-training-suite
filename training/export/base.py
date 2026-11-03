@@ -65,8 +65,8 @@ class BaseModelExporter(ABC):
     ) -> dict[str, Path]:
         """Export model into framework variations and return mapped output paths.
 
-        Returns a dictionary mapping format keys (e.g. 'pt', 'onnx_fp32', 'onnx_fp32_data', 'onnx_fp16')
-        to their respective Path locations on disk.
+        Returns a dictionary mapping format keys (e.g. 'pt', 'onnx_fp32', 'onnx_fp32_data',
+        'onnx_fp16') to their respective Path locations on disk.
         """
 
     @abstractmethod

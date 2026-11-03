@@ -1,7 +1,10 @@
+"""Core image-restoration architectures (NAFNet, FFANet, MIRNet/MPRNet proxies, RDB, ESPCN, UPN)."""
+
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.nn.modules.utils import _pair
+from torchvision import models
 
 # ==========================================
 # 0. ALIGNMENT HOTFIX FOR DATAPARALLEL
@@ -14,7 +17,26 @@ from torch.nn.modules.utils import _pair
 _orig_conv2d_forward = nn.Conv2d.forward
 
 
+def _explicit_pad_widths(conv):
+    """Return F.pad widths (last dim first) equivalent to ``conv.padding``.
+
+    Mirrors how ``nn.Conv2d`` derives its padding for non-``zeros`` padding modes,
+    including the string forms ``"valid"`` and ``"same"``.
+    """
+    if isinstance(conv.padding, str):
+        if conv.padding == "valid":
+            return (0, 0, 0, 0)
+        widths = []
+        for dilation, kernel in zip(reversed(conv.dilation), reversed(conv.kernel_size)):
+            total = dilation * (kernel - 1)
+            left = total // 2
+            widths.extend((left, total - left))
+        return tuple(widths)
+    return tuple(p for p in reversed(conv.padding) for _ in range(2))
+
+
 def _aligned_conv2d_forward(self, x):
+    """Conv2d forward that re-allocates 16-byte-unaligned weights before calling cuDNN."""
     is_unaligned = False
     try:
         is_unaligned = self.weight.data_ptr() % 16 != 0
@@ -26,7 +48,7 @@ def _aligned_conv2d_forward(self, x):
 
         if self.padding_mode != "zeros":
             return F.conv2d(
-                F.pad(x, self._reversed_padding_repeated_twice, mode=self.padding_mode),
+                F.pad(x, _explicit_pad_widths(self), mode=self.padding_mode),
                 w,
                 b,
                 self.stride,
@@ -46,24 +68,32 @@ nn.Conv2d.forward = _aligned_conv2d_forward
 
 
 class SimpleGate(nn.Module):
+    """NAFNet gate: split channels in half and multiply the halves."""
+
     def forward(self, x):
+        """Return the elementwise product of the two channel halves of ``x``."""
         x1, x2 = x.chunk(2, dim=1)
         return (x1.contiguous() * x2.contiguous()).contiguous()
 
 
 class SimplifiedChannelAttention(nn.Module):
+    """NAFNet simplified channel attention (global pool + 1x1 conv)."""
+
     def __init__(self, c):
         super().__init__()
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.conv = nn.Conv2d(c, c, 1, 1, 0)
 
     def forward(self, x):
+        """Scale ``x`` by its pooled per-channel attention weights."""
         x = x.contiguous()
         return (x * self.conv(self.pool(x)).contiguous()).contiguous()
 
 
 class NAFBlock(nn.Module):
-    def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.0):
+    """NAFNet block: gated depthwise-conv branch and gated FFN with learned residual scales."""
+
+    def __init__(self, c, DW_Expand=2, FFN_Expand=2):
         super().__init__()
         dw_channel = c * DW_Expand
         self.conv1 = nn.Conv2d(
@@ -123,6 +153,7 @@ class NAFBlock(nn.Module):
         self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
 
     def forward(self, inp):
+        """Apply the conv and FFN sub-blocks with scaled residual connections."""
         x = inp
         x = self.norm1(x)
         x = self.conv1(x)
@@ -197,11 +228,12 @@ class NAFNet(nn.Module):
         self.padder_size = 2 ** len(self.encoders)
 
     def forward(self, inp):
+        """Restore ``inp``; pads to a multiple of the encoder stride and crops back afterwards."""
         inp = inp.contiguous()
-        B, C, H, W = inp.shape
+        height, width = inp.shape[-2:]
         # Pad to generic multiple
-        pad_h = (self.padder_size - H % self.padder_size) % self.padder_size
-        pad_w = (self.padder_size - W % self.padder_size) % self.padder_size
+        pad_h = (self.padder_size - height % self.padder_size) % self.padder_size
+        pad_w = (self.padder_size - width % self.padder_size) % self.padder_size
         inp_padded = F.pad(inp, (0, pad_w, 0, pad_h), "reflect")
 
         x = self.intro(inp_padded)
@@ -232,7 +264,7 @@ class NAFNet(nn.Module):
         x = self.ending(x)
         x = x + inp_padded
 
-        return x[:, :, :H, :W]
+        return x[:, :, :height, :width]
 
 
 # ==========================================
@@ -241,6 +273,8 @@ class NAFNet(nn.Module):
 
 
 class PALayer(nn.Module):
+    """FFANet pixel attention layer."""
+
     def __init__(self, channel):
         super().__init__()
         self.pa = nn.Sequential(
@@ -251,10 +285,13 @@ class PALayer(nn.Module):
         )
 
     def forward(self, x):
+        """Scale ``x`` by a per-pixel attention map."""
         return (x.contiguous() * self.pa(x).contiguous()).contiguous()
 
 
 class CALayer(nn.Module):
+    """FFANet channel attention layer."""
+
     def __init__(self, channel):
         super().__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
@@ -266,10 +303,13 @@ class CALayer(nn.Module):
         )
 
     def forward(self, x):
+        """Scale ``x`` by per-channel attention weights."""
         return (x.contiguous() * self.ca(self.avg_pool(x)).contiguous()).contiguous()
 
 
 class Block(nn.Module):
+    """FFANet residual block with channel and pixel attention."""
+
     def __init__(self, conv, dim, kernel_size):
         super().__init__()
         self.conv1 = conv(dim, dim, kernel_size, bias=True)
@@ -279,6 +319,7 @@ class Block(nn.Module):
         self.palayer = PALayer(dim)
 
     def forward(self, x):
+        """Apply conv-ReLU-conv, channel/pixel attention and the residual connection."""
         res = self.act1(self.conv1(x))
         res = res + x
         res = self.conv2(res)
@@ -302,6 +343,8 @@ class FFANet(nn.Module):
         self.conv2 = nn.Conv2d(dim, 3, 3, padding=1, bias=True)
 
     def make_group(self, blocks, dim):
+        """Build a group of ``blocks`` attention blocks of width ``dim``."""
+
         def default_conv(in_channels, out_channels, kernel_size, bias=True):
             return nn.Conv2d(
                 in_channels, out_channels, kernel_size, padding=(kernel_size // 2), bias=bias
@@ -311,6 +354,7 @@ class FFANet(nn.Module):
         return g
 
     def forward(self, x):
+        """Dehaze ``x`` by fusing the group outputs and adding a global residual."""
         x = x.contiguous()
         res = self.conv1(x)
         cat = []
@@ -324,6 +368,8 @@ class FFANet(nn.Module):
 
 
 class YOLOv8AnchorBasedHead(nn.Module):
+    """Anchor-based detection head producing YOLO-style predictions at stride 32."""
+
     def __init__(self, in_channels, num_classes=80, num_anchors=3):
         super().__init__()
         self.num_classes = num_classes
@@ -354,6 +400,7 @@ class YOLOv8AnchorBasedHead(nn.Module):
         self.pred = nn.Conv2d(256, out_channels, 1)
 
     def forward(self, x):
+        """Return raw anchor predictions of shape [B, A * (5 + num_classes), H, W]."""
         features = self.downsample(x)
         preds = self.pred(features)
         return preds
@@ -376,6 +423,8 @@ class BranchedFFANet(nn.Module):
         self.detection_head = YOLOv8AnchorBasedHead(dim, num_classes=num_classes)
 
     def make_group(self, blocks, dim):
+        """Build a group of ``blocks`` attention blocks of width ``dim``."""
+
         def default_conv(in_channels, out_channels, kernel_size, bias=True):
             return nn.Conv2d(
                 in_channels, out_channels, kernel_size, padding=(kernel_size // 2), bias=bias
@@ -385,6 +434,7 @@ class BranchedFFANet(nn.Module):
         return g
 
     def forward(self, x):
+        """Return the restored image and the detection-head predictions."""
         x = x.contiguous()
         res = self.conv1(x)
         cat = []
@@ -412,15 +462,18 @@ class BranchedFFANet(nn.Module):
 
 
 class CSFF(nn.Module):
+    """Cross-stage feature fusion: 1x1 conv of the current stage plus the previous stage."""
+
     def __init__(self, in_c):
         super().__init__()
         self.conv = nn.Conv2d(in_c, in_c, 1)
 
     def forward(self, x, prev):
+        """Fuse stage features ``x`` with the previous stage's ``prev``."""
         return self.conv(x) + prev
 
 
-class MPRNet_Proxy(nn.Module):
+class MPRNetProxy(nn.Module):
     """Cross-Stage Progressive Network Proxy for Deraining"""
 
     def __init__(self, in_c=3, out_c=3, channels=32, **kwargs):
@@ -434,6 +487,7 @@ class MPRNet_Proxy(nn.Module):
         self.stage2_dec = nn.Sequential(nn.Conv2d(channels, out_c, 3, 1, 1))
 
     def forward(self, x):
+        """Run both progressive stages, each refining the previous output residually."""
         x = x.contiguous()
         f1 = self.stage1_enc(x)
         out1 = self.stage1_dec(f1) + x
@@ -444,7 +498,7 @@ class MPRNet_Proxy(nn.Module):
         return out2
 
 
-class MIRNet_Proxy(nn.Module):
+class MIRNetProxy(nn.Module):
     """Multi-Scale Residual Network Proxy for Low-Light/Exposure"""
 
     def __init__(self, in_c=3, out_c=3, width=32, **kwargs):
@@ -458,6 +512,7 @@ class MIRNet_Proxy(nn.Module):
         self.outro = nn.Conv2d(width, out_c, 3, 1, 1)
 
     def forward(self, x):
+        """Fuse two receptive-field branches and add a global residual."""
         x = x.contiguous()
         feat = self.intro(x)
         b1 = self.branch1(feat)
@@ -472,6 +527,8 @@ class MIRNet_Proxy(nn.Module):
 
 
 class ResidualDenseBlock(nn.Module):
+    """Residual dense block with 0.2 residual scaling."""
+
     def __init__(self, channels):
         super().__init__()
         self.conv1 = nn.Conv2d(channels, 32, 3, padding=1)
@@ -480,6 +537,7 @@ class ResidualDenseBlock(nn.Module):
         self.lrelu = nn.LeakyReLU(0.2, inplace=True)
 
     def forward(self, x):
+        """Apply the densely connected convs and the scaled residual."""
         x1 = self.lrelu(self.conv1(x))
         x2 = self.lrelu(self.conv2(torch.cat((x, x1), 1)))
         x3 = self.conv3(torch.cat((x, x1, x2), 1))
@@ -496,6 +554,7 @@ class GenericRestorationModel(nn.Module):
         self.outro = nn.Conv2d(32, 3, 3, padding=1)
 
     def forward(self, x):
+        """Return ``x`` plus the predicted residual correction."""
         feat = self.intro(x)
         out = self.body(feat)
         return x + self.outro(out)
@@ -516,6 +575,7 @@ class UltraZoomModel(nn.Module):
         self.pixel_shuffle = nn.PixelShuffle(scale_factor)
 
     def forward(self, x):
+        """Upscale ``x`` by ``scale_factor`` via sub-pixel convolution."""
         feat = self.body(self.intro(x))
         return self.pixel_shuffle(feat)
 
@@ -546,13 +606,14 @@ class UniversalFilmRestorer(nn.Module):
         )
 
     def forward(self, x):
+        """Encode, refine in the bottleneck, decode and add the input back."""
         feat = self.encoder(x)
         feat = self.bottleneck(feat)
         out = self.decoder(feat)
         return out + x  # Global residual connection
 
 
-class UPN_v2_Model(nn.Module):
+class UPNv2Model(nn.Module):
     """Universal Parameter Predictor with MobileNetV3-Small backbone.
 
     Outputs 3 bounded parameters:
@@ -563,8 +624,6 @@ class UPN_v2_Model(nn.Module):
 
     def __init__(self, backbone="mobilenet_v3_small", **kwargs):
         super().__init__()
-        from torchvision import models
-
         if backbone == "cnn_lite":
             self.backbone = nn.Sequential(
                 nn.Conv2d(3, 16, 3, stride=2, padding=1),
@@ -585,6 +644,7 @@ class UPN_v2_Model(nn.Module):
         self.fc = nn.Linear(in_features, 3)  # deg, theta, conf
 
     def forward(self, x):
+        """Return [B, 3] tensor of (deg, theta, conf) with bounded activations."""
         feat = self.pool(self.backbone(x)).flatten(1)
         raw = self.fc(feat)
         # Bounded activation: deg∈[0,1], theta∈[0,π], conf∈[0,1]

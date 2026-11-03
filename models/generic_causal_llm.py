@@ -23,7 +23,6 @@ class GenericCausalLLM(nn.Module):
     def __init__(
         self,
         base_model_name_or_path: str = "Qwen/Qwen2.5-Coder-1.5B-Instruct",
-        checkpoint: str | None = None,
         use_lora: bool = True,
         lora_r: int = 16,
         lora_alpha: int = 32,
@@ -123,10 +122,11 @@ class GenericCausalLLM(nn.Module):
                     )
 
         except (ImportError, OSError, ValueError, RuntimeError) as exc:
-            # ImportError: transformers missing; OSError: weights/tokenizer not found or
-            # not downloadable; ValueError: unsupported config; RuntimeError: backend/device failure.
+            # ImportError: transformers missing; OSError: weights/tokenizer not found or not
+            # downloadable; ValueError: unsupported config; RuntimeError: backend/device failure.
             logger.warning(
-                "Could not initialize full transformers model (%s). Using lightweight mock for testing.",
+                "Could not initialize full transformers model (%s). "
+                "Using lightweight mock for testing.",
                 exc,
             )
             self._init_mock_model()

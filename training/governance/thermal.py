@@ -27,7 +27,7 @@ class ThermalState:
         return self.temperature
 
     def dampen_turbulence(self, gradient_norm: float, threshold: float = 10.0) -> bool:
-        """Temporarily boost temperature to soften sharp logits when excessive gradient volatility is detected."""
+        """Temporarily raise temperature to soften sharp logits on excessive gradient volatility."""
         if self.turbulence_dampening and gradient_norm > threshold:
             old_temp = self.temperature
             self.temperature = min(2.0, round(self.temperature * 1.25, 4))

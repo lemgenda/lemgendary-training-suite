@@ -11,11 +11,41 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.72-STABLE` |
+| **Version** | `v16.9.73-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.73 - Ruff Clean, Pylint Disables Down From 48 to 10
+
+- **Ruff**: 0 findings (798 at v16.9.69). **Pylint** scores 9.72/10, up from 9.11. `.pylintrc` removes 20 more `disable=` entries because the checks now pass: `attribute-defined-outside-init`, `broad-exception-caught`, `consider-using-with`, `expression-not-assigned`, `global-statement`, `invalid-name`, `line-too-long`, `missing-docstring`, `no-else-return`, `protected-access`, `redefined-outer-name`, `reimported`, `subprocess-run-check`, `superfluous-parens`, `unspecified-encoding`, `unused-argument`, `unused-import`, `unused-variable`, `wrong-import-order` and `wrong-import-position`. About 1,300 findings were fixed, including about 360 new docstrings and about 460 wrapped long lines. The generated notebook cell output is byte-identical.
+- **Disables that remain, and why**: `import-outside-toplevel` covers 41 deliberate lazy imports. They are optional or heavy packages (transformers, peft, diffusers, onnx, onnxsim, onnxruntime, onnxconverter-common, ultralytics, torchmetrics, streaming, kagglehub, kaggle, which reads credentials when imported, and pandas-ta), the lazy exports of `training.server`, and one circular-import break between `kaggle_model_sync` and `export.staging`. Moving them to module level would make every light import load the training stack or fail without the optional packages. The other nine disables are design-size checks (`too-many-locals`, `too-many-branches`, `too-many-statements`, `too-many-arguments`, `too-many-positional-arguments`, `too-many-instance-attributes`, `too-many-nested-blocks`, `too-many-lines`, `too-many-boolean-expressions`). Each one needs an SRP decomposition and is still open remediation work.
+- **Real bugs found by the linters and fixed**:
+  - `EvaluationService` called a `CheckpointRecoveryEngine(model_key=...)` constructor argument and a `find_best_checkpoint()` method that do not exist, so evaluation without `--checkpoint` crashed. It now ranks the discovered checkpoints best → latest → latest_epoch → progress.
+  - The OOM handler in `train_one_epoch` re-raised a real CUDA OOM unless the batch number was a multiple of 50, and on those batches it silently swallowed unrelated `RuntimeError`s. Now every OOM is mitigated and other errors propagate.
+  - `--reset-scheduler` now really skips restoring the scheduler state.
+  - The resume payload now fills `metric_history`, which was always empty.
+  - `lemtrain server openapi` imported a non-existent `app` name and now uses `get_app()`.
+  - `lemtrain` had a `__main__` block placed before the LLM commands; it was removed, and the `[project.scripts] lemtrain = "cli:main"` target now exists.
+  - `--source-dir` and `--output_dir` were ignored by Kaggle push and pull and now set the hub root. Push no longer accepts the unused `--output_dir`.
+  - `git_hub_sync` now uses its `remote_url` and `message` arguments and refuses a `src_dir` outside the hub repository.
+  - `mt5_pipeline --mode check` unpacked 3 values from `load_shard`, which returns 4.
+  - The variation validator ignored `expected_stem`; a name mismatch is now reported as a warning.
+- **Remaining broad handlers resolved**: the job worker logs, records the failure on the job, then re-raises. The epoch-callback and Ultralytics-callback guards, the fleet push and pull loops and the MT5 per-pair loop catch defined tuples of expected errors. Any other exception now propagates, which replaces the "boundaries kept" note under v16.9.70. The signal-handler emergency sync re-raises after logging, and a `finally` block still cleans up and exits with the signal code.
+- **Renames and API changes**:
+  - Model classes now use PascalCase: `MPRNetProxy`, `MIRNetProxy`, `UPNv2Model`, `RetinaFaceMobileNet`, `Flux1Master`, `LLaVAv15`, `BLIP2` and `NIMAModel`. The registry `class_name` keys in `unified_models_v2.yaml` (for example `NIMA_Model`) are unchanged.
+  - `YOLOCurriculumGovernor.synchronize_checkpoints` and `export_sota_models` are now public.
+  - `RowGroupAwareSampler.num_groups` was added.
+  - Unused parameters were removed from `audit_epoch`, from `run_download_pipeline` (`val_frac`; the CLI flag is kept and documented as ignored) and from `lemtrain llm train --max-seq-length`, which no training service parameter consumed.
+  - Non-dict checkpoints raise `CheckpointPayloadTypeError`, which subclasses both `TypeError` and `ValueError`.
+- **Script entry points**: the `sys.path` hacks were removed from `training/kaggle_monitor.py`, `training/doc_generator.py`, `export/mt5_signal.py` and `cli.py`, so run them as modules (`python -m training.kaggle_monitor`, `python -m export.mt5_signal`). `training/train.py` keeps its documented `sys.path` bootstrap for Kaggle kernels.
+- **Still reported by pylint** (not suppressed):
+  - 2 `protected-access` sites use third-party private APIs that have no public equivalent: `DataLoader._iterator` worker shutdown and Ultralytics `_load_checkpoint_state`.
+  - 11 `no-member` on `cv2` come from OpenCV 5's loader package, which pylint cannot introspect.
+  - 6 `import-error` come from optional packages missing from the test environment.
+  - Design findings: 13 `duplicate-code`, 11 `too-few-public-methods`, 11 `too-many-return-statements` and 1 `too-many-public-methods`.
+- **Tests**: 260 passed, 0 failed.
 
 ### v16.9.72 - One Formatter, 18 Pylint Disables Removed
 

@@ -6,6 +6,7 @@ ExportService, CloudSyncService, NotebookService, and AuditService.
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,8 +26,8 @@ class TestServicesLayer(unittest.TestCase):
     """Test suite for S.O.L.I.D. in-process services."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.root_path = Path(self.temp_dir.name)
+        self.root_path = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root_path)
 
         # Create dummy presets.yaml
         presets_data = {
@@ -47,9 +48,6 @@ class TestServicesLayer(unittest.TestCase):
         }
         with open(self.root_path / "presets.yaml", "w", encoding="utf-8") as f:
             yaml.safe_dump(presets_data, f)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def test_training_service_presets(self) -> None:
         """Verify TrainingService correctly parses and queries presets."""

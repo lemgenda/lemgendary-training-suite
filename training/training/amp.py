@@ -69,7 +69,7 @@ def safe_backward(
                 scaler.unscale_(optimizer)
             except RuntimeError as err:
                 if "already been called" not in str(err):
-                    raise err
+                    raise
         norm_tensor = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
         if isinstance(norm_tensor, torch.Tensor):
             grad_norm = float(norm_tensor.item())

@@ -1,13 +1,15 @@
 """Kaggle Models API synchronization service.
 
 Interacts directly with the Kaggle Models REST API via the kaggle package to create or update
-the model-level metadata and model-instance-level variation metadata (overview, usage, license, etc.).
+the model-level metadata and model-instance-level variation metadata (overview, usage,
+license, etc.).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -33,20 +35,13 @@ class KaggleApiSyncService:
 
     def _get_api(self) -> KaggleApi:
         """Authenticate and return KaggleApi client."""
+        # Ensure official Kaggle API client uses active Bearer API token
+        if self.key and self.key.startswith("KGAT_"):
+            os.environ["KAGGLE_API_TOKEN"] = self.key
         if self._api is None:
-            import os
-
-            # Ensure official Kaggle API client uses active Bearer API token
-            if self.key and self.key.startswith("KGAT_"):
-                os.environ["KAGGLE_API_TOKEN"] = self.key
             api = KaggleApi()
             api.authenticate()
             self._api = api
-        else:
-            import os
-
-            if self.key and self.key.startswith("KGAT_"):
-                os.environ["KAGGLE_API_TOKEN"] = self.key
         return self._api
 
     def sync_metadata(self, metadata: ModelMetadata) -> dict[str, Any]:
@@ -87,7 +82,10 @@ class KaggleApiSyncService:
                         "Model created on Kaggle: %s", getattr(create_res, "url", full_model_ref)
                     )
                 except KAGGLE_API_ERRORS as create_err:
-                    err_msg = f"Failed to create/update model {full_model_ref}: {update_err} | {create_err}"
+                    err_msg = (
+                        f"Failed to create/update model {full_model_ref}: "
+                        f"{update_err} | {create_err}"
+                    )
                     logger.error(err_msg)
                     results["errors"].append(err_msg)
 
@@ -119,7 +117,10 @@ class KaggleApiSyncService:
                     logger.info("Instance metadata updated for %s", instance_ref)
                 except KAGGLE_API_ERRORS as get_inst_err:
                     logger.info(
-                        "Variation '%s' not found (%s). It will be registered on upload or created.",
+                        (
+                            "Variation '%s' not found (%s). It will be registered on upload or "
+                            "created."
+                        ),
                         instance_ref,
                         get_inst_err,
                     )
@@ -128,7 +129,8 @@ class KaggleApiSyncService:
                         api.model_instance_update(str(tmp_path))
                         results["variations"][var_key] = "updated"
                     except KAGGLE_API_ERRORS as upd_err:
-                        # Variation instances are formally created when binaries are uploaded via kagglehub / instance create
+                        # Variation instances are formally created when binaries are
+                        # uploaded via kagglehub / instance create
                         logger.info(
                             "Instance metadata update deferred until binary presence for %s (%s)",
                             instance_ref,
@@ -148,8 +150,8 @@ class KaggleApiSyncService:
                 UserPrincipal,
             )
 
-            KaggleResourceType = KaggleResourceId.__init__.__globals__["KaggleResourceType"]
-            CanonicalRole = IamPolicyBinding.__init__.__globals__["CanonicalRole"]
+            resource_type_enum = KaggleResourceId.__init__.__globals__["KaggleResourceType"]
+            canonical_role_enum = IamPolicyBinding.__init__.__globals__["CanonicalRole"]
 
             m_obj = api.model_get(full_model_ref)
             if hasattr(m_obj, "id") and m_obj.id:
@@ -157,7 +159,7 @@ class KaggleApiSyncService:
                     iam_svc = kaggle_client.security.iam_client
                     g_req = GetIamPolicyRequest()
                     res_id = KaggleResourceId()
-                    res_id.type = KaggleResourceType.KAGGLE_RESOURCE_TYPE_MODELS
+                    res_id.type = resource_type_enum.KAGGLE_RESOURCE_TYPE_MODELS
                     res_id.id = m_obj.id
                     g_req.resource_id = res_id
                     current_policy = iam_svc.get_iam_policy(g_req)
@@ -175,12 +177,12 @@ class KaggleApiSyncService:
                         list(current_policy.bindings) if current_policy.bindings is not None else []
                     )
                     for b in existing_bindings:
-                        if b is not None and b.role == CanonicalRole.CANONICAL_ROLE_EDITOR:
+                        if b is not None and b.role == canonical_role_enum.CANONICAL_ROLE_EDITOR:
                             editor_binding = b
                             break
                     if not editor_binding:
                         editor_binding = IamPolicyBinding()
-                        editor_binding.role = CanonicalRole.CANONICAL_ROLE_EDITOR
+                        editor_binding.role = canonical_role_enum.CANONICAL_ROLE_EDITOR
                         existing_bindings.append(editor_binding)
 
                     current_policy.bindings = existing_bindings

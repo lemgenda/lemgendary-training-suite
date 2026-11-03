@@ -57,6 +57,7 @@ class GitHubSyncManager:
                 capture_output=True,
                 text=True,
                 timeout=120,
+                check=False,
                 creationflags=cflags,
             )
             stdout_masked = mask_secret(res.stdout, self.pat)
@@ -84,11 +85,24 @@ class GitHubSyncManager:
         src_dir: Path,
         branch: str = "main",
         max_retries: int = 3,
-        **kwargs: Any,
+        remote: str = "origin",
+        commit_message: str | None = None,
     ) -> bool:
-        """Stage, commit, and push model artifacts through an atomic rebase loop."""
+        """Stage, commit, and push model artifacts through an atomic rebase loop.
+
+        ``src_dir`` must live inside the hub repository, since the whole hub working tree is
+        staged and pushed to ``remote``/``branch``.
+        """
         if not (self.hub_root / ".git").exists():
             logger.info("Hub repository not initialized at %s. Skipping Git sync.", self.hub_root)
+            return False
+
+        if not src_dir.resolve().is_relative_to(self.hub_root.resolve()):
+            logger.warning(
+                "Source %s is outside hub repository %s; it cannot be synced via Git.",
+                src_dir,
+                self.hub_root,
+            )
             return False
 
         is_cloud = bool(
@@ -101,8 +115,8 @@ class GitHubSyncManager:
         # Metric merge-persistence: fetch remote updates
         metrics_file = self.hub_root / model_name / "metrics.csv"
         if metrics_file.exists():
-            self.run_git(["fetch", "origin"])
-            self.run_git(["rebase", f"origin/{branch}"])
+            self.run_git(["fetch", remote])
+            self.run_git(["rebase", f"{remote}/{branch}"])
 
         # Configure user identities
         self.run_git(["config", "user.email", "lem.treursic@gmail.com"])
@@ -117,12 +131,12 @@ class GitHubSyncManager:
             return True
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        commit_msg = f"SOTA Update: {model_name} | Epoch {epoch} | {timestamp}"
+        commit_msg = commit_message or f"SOTA Update: {model_name} | Epoch {epoch} | {timestamp}"
         self.run_git(["commit", "-m", commit_msg])
 
         for attempt in range(1, max_retries + 1):
             logger.info("Attempting atomic Git push (Try %d/%d)...", attempt, max_retries)
-            push_code, _, push_err = self.run_git(["push", "origin", branch])
+            push_code, _, push_err = self.run_git(["push", remote, branch])
             if push_code == 0:
                 logger.info(
                     "Successfully pushed manifold artifacts to GitHub (%s/%s).",
@@ -132,7 +146,7 @@ class GitHubSyncManager:
                 return True
 
             logger.warning("Push collision detected: %s. Rebase-syncing...", push_err.strip())
-            self.run_git(["pull", "--rebase", "-X", "theirs", "origin", branch])
+            self.run_git(["pull", "--rebase", "-X", "theirs", remote, branch])
 
         raise CloudSyncError(
             code="GIT_PUSH_EXHAUSTED",
@@ -140,7 +154,7 @@ class GitHubSyncManager:
             retryable=True,
         )
 
-    def pull(self, remote_identifier: str, dest_dir: Path, **kwargs: Any) -> bool:
+    def pull(self, remote_identifier: str, dest_dir: Path) -> bool:
         """Pull latest changes from remote Git repository."""
         dest_dir.mkdir(parents=True, exist_ok=True)
         if (dest_dir / ".git").exists():
@@ -166,6 +180,7 @@ class GitHubSyncManager:
                 capture_output=True,
                 text=True,
                 timeout=180,
+                check=False,
                 creationflags=cflags,
             )
             if res.returncode != 0:
@@ -195,6 +210,7 @@ class GitHubSyncManager:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                check=False,
                 creationflags=cflags,
             )
             git_installed = res.returncode == 0
@@ -215,6 +231,15 @@ def git_hub_sync(
     remote_url: str = "origin",
     message: str = "Automated model checkpoint update",
 ) -> bool:
-    """Synchronize repository path to GitHub model hub."""
+    """Synchronize repository path to GitHub model hub.
+
+    ``remote_url`` is the git remote (name or URL) to push to; ``message`` is the commit message.
+    """
     mgr = GitHubSyncManager(hub_root=Path(repo_path))
-    return mgr.sync(model_name="checkpoint", epoch=1, src_dir=Path(repo_path))
+    return mgr.sync(
+        model_name="checkpoint",
+        epoch=1,
+        src_dir=Path(repo_path),
+        remote=remote_url,
+        commit_message=message,
+    )

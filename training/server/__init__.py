@@ -4,7 +4,12 @@ Exports are resolved lazily so that light submodules (for example
 ``training.server.security``) import without the training stack.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from training.server.app import create_app
+    from training.server.jobs import JobManager
+    from training.server.state import ServerState
 
 __all__ = ["JobManager", "ServerState", "app", "create_app"]
 

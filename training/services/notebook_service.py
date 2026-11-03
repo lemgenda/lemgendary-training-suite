@@ -6,6 +6,7 @@ Coordinates automated Jupyter notebook generation for Kaggle and Colab cloud env
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 from training.notebooks import (
     generate_colab_inference_notebook,
@@ -22,8 +23,8 @@ from training.utils.paths import get_project_root
 class NotebookService:
     """Generates standalone execution notebooks for training, inference, and usage."""
 
-    SUPPORTED_PLATFORMS: list[str] = ["kaggle", "colab", "all"]
-    SUPPORTED_KINDS: list[str] = ["training", "inference", "usage"]
+    SUPPORTED_PLATFORMS: ClassVar[tuple[str, ...]] = ("kaggle", "colab", "all")
+    SUPPORTED_KINDS: ClassVar[tuple[str, ...]] = ("training", "inference", "usage")
 
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = project_root or get_project_root()
@@ -32,7 +33,7 @@ class NotebookService:
     def list_supported_models(self) -> list[str]:
         """Return list of model keys available for notebook synthesis."""
         registry = load_registry()
-        return sorted([k for k in registry.keys() if not k.startswith("_")])
+        return sorted([k for k in registry if not k.startswith("_")])
 
     def generate_notebooks(
         self,

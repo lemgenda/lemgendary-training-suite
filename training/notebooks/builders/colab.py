@@ -29,7 +29,7 @@ from ..cells.sync import (
     build_secrets_cell,
     build_training_cell,
 )
-from ..registry import resolve_model_metadata
+from ..registry import load_registry, resolve_model_metadata
 from .base import (
     sync_manifold_notebooks,
     sync_workspace_training_notebook,
@@ -42,17 +42,15 @@ def generate_colab_inference_notebook(
     export_dir: str | Path,
     unified_models_registry: Any = None,
     config: dict[str, Any] | None = None,
-    *extra_args: Any,
-    **extra_kwargs: Any,
 ) -> str | None:
     """Generate a nuclear-hardened training execution notebook for Google Colab."""
     is_legacy = isinstance(unified_models_registry, (str, Path)) and not isinstance(
         unified_models_registry, dict
     )
-    if extra_args or is_legacy:
+    if is_legacy:
         # Legacy call signature: (pascal_name, model_key, output_path)
         actual_model_key = str(export_dir)
-        target_path = Path(unified_models_registry if not extra_args else extra_args[0])
+        target_path = Path(unified_models_registry)
         actual_export_dir = str(target_path.parent)
         meta = resolve_model_metadata(actual_model_key, None, None)
     else:
@@ -60,8 +58,6 @@ def generate_colab_inference_notebook(
         actual_export_dir = str(export_dir)
         reg = unified_models_registry if isinstance(unified_models_registry, dict) else None
         if not reg:
-            from ..registry import load_registry
-
             reg = load_registry(config=config)
         meta = resolve_model_metadata(actual_model_key, reg, config)
 
@@ -81,8 +77,14 @@ def generate_colab_inference_notebook(
         "cells": [
             make_markdown_cell(
                 [
-                    f"# LemGendary Master Execution: {meta.pascal_name} (v16.2.9 Nuclear-Hardened Colab Edition)\n",
-                    "This unified notebook handles environment synchronization and automated cloud training.\n",
+                    (
+                        f"# LemGendary Master Execution: {meta.pascal_name} (v16.2.9 "
+                        "Nuclear-Hardened Colab Edition)\n"
+                    ),
+                    (
+                        "This unified notebook handles environment synchronization and automated "
+                        "cloud training.\n"
+                    ),
                 ]
             ),
             make_markdown_cell(
@@ -176,23 +178,31 @@ def generate_colab_usage_notebook(
             make_markdown_cell(
                 [
                     "## 1. PyTorch Standalone (FP32)\n",
-                    "Best for local research, further training, or high-fidelity Python backends. "
-                    "This format includes the full architecture definition.\n",
+                    (
+                        "Best for local research, further training, or high-fidelity Python "
+                        "backends. "
+                        "This format includes the full architecture definition.\n"
+                    ),
                 ]
             ),
             build_pth_cell(meta),
             make_markdown_cell(
                 [
                     "## 2. ONNX Matrix (FP32 + External Weights)\n",
-                    "Optimized for desktop deployment where precision is critical. "
-                    "Uses a decoupled `.data` file for stability.\n",
+                    (
+                        "Optimized for desktop deployment where precision is critical. "
+                        "Uses a decoupled `.data` file for stability.\n"
+                    ),
                 ]
             ),
             build_onnx_fp32_cell(meta),
             make_markdown_cell(
                 [
                     "## 3. ONNX Production (FP16 Embedded)\n",
-                    "Production-ready standalone matrix. Optimized for WebGPU, mobile, and low-latency edge inference.\n",
+                    (
+                        "Production-ready standalone matrix. Optimized for WebGPU, mobile, and "
+                        "low-latency edge inference.\n"
+                    ),
                 ]
             ),
             build_onnx_fp16_cell(meta),

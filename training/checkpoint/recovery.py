@@ -54,7 +54,7 @@ def _probe_kagglehub_checkpoints(kh_mod: Any, model_name: str, cfg: dict[str, An
 
 
 class CheckpointRecoveryEngine:
-    """Discovers and synchronizes model checkpoints across distributed cloud and local filesystems."""
+    """Discovers and synchronizes model checkpoints across cloud and local filesystems."""
 
     def __init__(
         self,
@@ -180,26 +180,31 @@ class CheckpointRecoveryEngine:
 
                 for entry in entries:
                     if entry.is_dir():
-                        # If inside generic 'checkpoints' root, do not traverse into unrelated model subdirs
+                        # If inside generic 'checkpoints' root, do not traverse into unrelated model
+                        # subdirs
                         dir_norm = entry.name.lower().replace("_", "").replace("-", "")
-                        if curr_dir.name.lower() == "checkpoints":
-                            if dir_norm != model_norm and not dir_norm.startswith(model_norm):
-                                continue
+                        if (
+                            curr_dir.name.lower() == "checkpoints"
+                            and dir_norm != model_norm
+                            and not dir_norm.startswith(model_norm)
+                        ):
+                            continue
                         queue.append((entry, depth + 1))
                         continue
 
                     if entry.is_file() and entry.suffix in {".pth", ".pt"}:
                         name_lower = entry.name.lower()
-                        # If file is directly inside checkpoints or mixed folder, ensure it belongs to this model
+                        # If file is directly inside checkpoints or mixed folder, ensure it belongs
+                        # to this model
                         parent_norm = entry.parent.name.lower().replace("_", "").replace("-", "")
                         entry_file_norm = name_lower.replace("_", "").replace("-", "")
+                        # Skip files whose parent dir and file name both fail to name this model
                         if (
                             parent_norm not in {model_norm, "checkpoints", "runs"}
                             and model_norm not in parent_norm
+                            and model_norm not in entry_file_norm
                         ):
-                            # If parent directory doesn't match model_name, skip unless file name itself specifies model
-                            if model_norm not in entry_file_norm:
-                                continue
+                            continue
 
                         if (
                             "latest" in name_lower or "last" in name_lower

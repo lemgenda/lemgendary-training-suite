@@ -14,13 +14,19 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 
+import torch
 import yaml
 from PIL import Image
+from torch import nn
 
+from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+from training.cloud.metadata_generator import KaggleMetadataService
 from training.data.containers import (
     DirectoryReader,
     WebDatasetReader,
@@ -29,17 +35,18 @@ from training.data.containers import (
 from training.data.containers import (
     Sample as TrainingSample,
 )
+from training.export.onnx import export_onnx
+from training.export.staging import VariationStagingService
+from training.export.torch_standalone import export_torch_standalone
+from training.export.validation import StrictIsolationValidator
 
 
 class TestDatasetToTrainingE2E(unittest.TestCase):
     """Verifies that datasets compiled to WebDataset/WebP are ingested by the training suite."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root)
 
     def test_webdataset_webp_pipeline_roundtrip(self) -> None:
         """Create a canonical WebDataset WebP manifold and load via training suite."""
@@ -74,7 +81,6 @@ class TestDatasetToTrainingE2E(unittest.TestCase):
         )
 
         # 3. Create WebDataset tar shard following compiler convention
-        import tarfile
 
         tar_path = shards_dir / "shard-00000.tar"
         with tarfile.open(tar_path, "w") as tf:
@@ -121,7 +127,7 @@ class TestDatasetToTrainingE2E(unittest.TestCase):
         reader.close()
 
     def test_webdataset_data_obfuscation_pipeline_roundtrip(self) -> None:
-        """Create a canonical WebDataset with obfuscated .data shards and load via training suite."""
+        """Create a WebDataset with obfuscated .data shards and load it via the training suite."""
         manifold_path = self.root / "LemGendizedRestorationDataE2E"
         shards_dir = manifold_path / "shards" / "train"
         shards_dir.mkdir(parents=True)
@@ -149,8 +155,6 @@ class TestDatasetToTrainingE2E(unittest.TestCase):
             yaml.safe_dump(ds_info, default_flow_style=False),
             encoding="utf-8",
         )
-
-        import tarfile
 
         data_path = shards_dir / "shard-00000.data"
         with tarfile.open(data_path, "w") as tf:
@@ -205,20 +209,10 @@ class TestMultiSidecarHealthMeshE2E(unittest.TestCase):
 
 
 class TestFullProductionPipelinePass(unittest.TestCase):
-    """End-to-end full production pipeline test: training -> checkpoint -> export -> stage -> metadata -> dry-run push."""
+    """End-to-end pipeline: train -> checkpoint -> export -> stage -> metadata -> push."""
 
     def test_full_pipeline_roundtrip(self) -> None:
         """Simulate training step -> checkpoint -> export -> stage -> metadata -> Kaggle payload."""
-        import torch
-        from torch import nn
-
-        from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-        from training.cloud.metadata_generator import KaggleMetadataService
-        from training.export.onnx import export_onnx
-        from training.export.staging import VariationStagingService
-        from training.export.torch_standalone import export_torch_standalone
-        from training.export.validation import StrictIsolationValidator
-
         with tempfile.TemporaryDirectory() as tmp_dir:
             model_hub_dir = Path(tmp_dir) / "LemGendaryModels" / "mirnet_exposure"
             model_hub_dir.mkdir(parents=True)

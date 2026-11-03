@@ -27,12 +27,19 @@ v2.1 Changes (retained):
   - Eliminated double-copy on the legacy .npy path.
 """
 
+import bisect
 import logging
 import os
+import re
+import subprocess
+import sys
+import zipfile
 from typing import Literal
 
 import numpy as np
+import pyarrow.parquet as pq
 import torch
+import yaml
 from torch.utils.data import Dataset
 
 logger = logging.getLogger("lemtrain.data.forex_dataset")
@@ -104,7 +111,7 @@ PAIR_PIP_SCALE = {
 
 
 def _safe_from_numpy(arr: np.ndarray) -> torch.Tensor:
-    """Safely convert a NumPy array to a float32 PyTorch tensor, ensuring it is writable and C-contiguous."""
+    """Convert a NumPy array to a writable, C-contiguous float32 PyTorch tensor."""
     if arr.dtype == np.float32 and arr.flags["C_CONTIGUOUS"] and arr.flags["WRITEABLE"]:
         return torch.from_numpy(arr)
     return torch.from_numpy(np.array(arr, dtype=np.float32, copy=True))
@@ -127,8 +134,6 @@ class ParquetRowGroupCache:
     """
 
     def __init__(self, parquet_path: str, max_cached_groups: int = 12):
-        import pyarrow.parquet as pq
-
         self.parquet_path = parquet_path
         self.max_cached = max_cached_groups
         self.pf = pq.ParquetFile(parquet_path)
@@ -166,8 +171,7 @@ class ParquetRowGroupCache:
         return decoded
 
     def get_row_features(self, global_row_idx: int) -> np.ndarray:
-        import bisect
-
+        """Return the decoded feature window for a global row, filling the LRU cache on a miss."""
         rg_idx = bisect.bisect_right(self.rg_starts, global_row_idx) - 1
         rg_offset = global_row_idx - self.rg_starts[rg_idx]
 
@@ -196,26 +200,26 @@ def load_shard(
     Supports both unchunked shards (X.npy) and chunked shards (X_chunk{c}.npy).
     """
     if chunk_idx is not None and chunk_idx >= 0:
-        X_path = os.path.join(shard_dir, f"X_chunk{chunk_idx}.npy")
+        x_path = os.path.join(shard_dir, f"X_chunk{chunk_idx}.npy")
         ydir_path = os.path.join(shard_dir, f"y_dir_chunk{chunk_idx}.npy")
         ymag_path = os.path.join(shard_dir, f"y_mag_chunk{chunk_idx}.npy")
         ts_path = os.path.join(shard_dir, f"timestamps_chunk{chunk_idx}.npy")
     else:
-        X_path = os.path.join(shard_dir, "X.npy")
+        x_path = os.path.join(shard_dir, "X.npy")
         ydir_path = os.path.join(shard_dir, "y_dir.npy")
         ymag_path = os.path.join(shard_dir, "y_mag.npy")
         ts_path = os.path.join(shard_dir, "timestamps.npy")
 
-    if not (os.path.exists(X_path) and os.path.exists(ydir_path) and os.path.exists(ymag_path)):
+    if not (os.path.exists(x_path) and os.path.exists(ydir_path) and os.path.exists(ymag_path)):
         return (None, None, None, None)
     try:
-        X = np.load(X_path, mmap_mode=mmap_mode)
+        x_data = np.load(x_path, mmap_mode=mmap_mode)
         y_dir = np.load(ydir_path, mmap_mode=mmap_mode)
         y_mag = np.load(ymag_path, mmap_mode=mmap_mode)
         timestamps = np.load(ts_path, mmap_mode=mmap_mode) if os.path.exists(ts_path) else None
-        return (X, y_dir, y_mag, timestamps)
+        return (x_data, y_dir, y_mag, timestamps)
     except (OSError, ValueError, EOFError) as e:
-        # np.load: OSError for unreadable files, ValueError/EOFError for corrupt or truncated arrays.
+        # np.load: OSError for unreadable files; ValueError/EOFError for corrupt/truncated arrays.
         logger.warning("Failed to load shard from %s (chunk: %s): %s", shard_dir, chunk_idx, e)
         print(f" [WARNING] Failed to load shard from {shard_dir} (chunk: {chunk_idx}): {e}")
         return (None, None, None, None)
@@ -243,8 +247,6 @@ class ForexDataset(Dataset):
         fold: int | None = None,
         spread_stress_pips: float = 0.0,
     ):
-        import yaml
-
         unified_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "unified_models_v2.yaml"
         )
@@ -261,8 +263,6 @@ class ForexDataset(Dataset):
                 )
 
         env = os.environ.get("ENV", "local")
-        import sys
-
         if "colab" in sys.modules or os.path.exists("/content"):
             env = "colab"
         elif os.path.exists("/kaggle"):
@@ -344,11 +344,9 @@ class ForexDataset(Dataset):
 
             if not resolved_roots and gdrive_ids:
                 print(
-                    f"\n[DATA] Local forex dataset not found. Attempting gdown from {len(gdrive_ids)} Google Drive IDs..."
+                    "\n[DATA] Local forex dataset not found. Attempting gdown from "
+                    f"{len(gdrive_ids)} Google Drive IDs..."
                 )
-                import subprocess
-                import zipfile
-
                 base_out = os.path.abspath(
                     os.path.join(
                         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -418,8 +416,6 @@ class ForexDataset(Dataset):
         self._index = []
         self._tf_map = {}
 
-        import re
-
         year_parquet_map = {}
         year_dirs_map = {}
 
@@ -465,9 +461,12 @@ class ForexDataset(Dataset):
                     full_p = os.path.join(root, sd)
                     if sd.endswith(".parquet") and os.path.isfile(full_p):
                         _register_parquet(full_p, sd)
-                    elif not sd.endswith(".zip") and os.path.isdir(full_p):
-                        if sd not in year_dirs_map:
-                            _register_dir(full_p, sd)
+                    elif (
+                        not sd.endswith(".zip")
+                        and os.path.isdir(full_p)
+                        and sd not in year_dirs_map
+                    ):
+                        _register_dir(full_p, sd)
             except OSError as exc:
                 logger.warning("Skipping unreadable forex root %s: %s", root, exc)
                 continue
@@ -546,8 +545,6 @@ class ForexDataset(Dataset):
                         )
                         rg_of_row[rg_start:rg_end] = rg_idx
 
-                    import pyarrow.parquet as pq
-
                     meta_tbl = pq.read_table(
                         p_path,
                         columns=[
@@ -623,8 +620,8 @@ class ForexDataset(Dataset):
                             if not os.path.isdir(tf_dir):
                                 continue
 
-                            X_path = os.path.join(tf_dir, "X.npy")
-                            if os.path.exists(X_path):
+                            x_path = os.path.join(tf_dir, "X.npy")
+                            if os.path.exists(x_path):
                                 key = (pair, tf, yr_name, -1)
                                 self._shard_paths[key] = (tf_dir, -1)
                                 tf_group_key = (pair, tf, yr_name)
@@ -632,10 +629,10 @@ class ForexDataset(Dataset):
                                     self._tf_map[tf_group_key] = []
                                 self._tf_map[tf_group_key].append(key)
 
-                                X, _, _, _ = load_shard(tf_dir, chunk_idx=None, mmap_mode="r")
-                                if X is not None:
-                                    length = len(X)
-                                    del X
+                                x_data, _, _, _ = load_shard(tf_dir, chunk_idx=None, mmap_mode="r")
+                                if x_data is not None:
+                                    length = len(x_data)
+                                    del x_data
                                     for row in range(length):
                                         self._index.append((p_idx, tf, key, row))
                             else:
@@ -659,10 +656,12 @@ class ForexDataset(Dataset):
                                             self._tf_map[tf_group_key] = []
                                         self._tf_map[tf_group_key].append(key)
 
-                                        X, _, _, _ = load_shard(tf_dir, chunk_idx=c, mmap_mode="r")
-                                        if X is not None:
-                                            length = len(X)
-                                            del X
+                                        x_data, _, _, _ = load_shard(
+                                            tf_dir, chunk_idx=c, mmap_mode="r"
+                                        )
+                                        if x_data is not None:
+                                            length = len(x_data)
+                                            del x_data
                                             for row in range(length):
                                                 self._index.append((p_idx, tf, key, row))
 
@@ -683,11 +682,11 @@ class ForexDataset(Dataset):
                     if self.split == "val":
                         shard_dir = os.path.join(pair_root, pair, str(tf), "folds", "val")
                         key = (pair, tf, "val", -1)
-                        X, y_dir, y_mag, _ts = load_shard(shard_dir, mmap_mode="r")
-                        if X is not None:
+                        x_data, y_dir, y_mag, _ts = load_shard(shard_dir, mmap_mode="r")
+                        if x_data is not None:
                             self._shard_paths[key] = (shard_dir, -1)
-                            length = len(X)
-                            del X, y_dir, y_mag, _ts
+                            length = len(x_data)
+                            del x_data, y_dir, y_mag, _ts
                             for row in range(length):
                                 self._index.append((p_idx, tf, key, row))
                     else:
@@ -696,11 +695,11 @@ class ForexDataset(Dataset):
                             fold_name = f"fold_{f}"
                             shard_dir = os.path.join(pair_root, pair, str(tf), "folds", fold_name)
                             key = (pair, tf, fold_name, -1)
-                            X, y_dir, y_mag, _ts = load_shard(shard_dir, mmap_mode="r")
-                            if X is not None:
+                            x_data, y_dir, y_mag, _ts = load_shard(shard_dir, mmap_mode="r")
+                            if x_data is not None:
                                 self._shard_paths[key] = (shard_dir, -1)
-                                length = len(X)
-                                del X, y_dir, y_mag, _ts
+                                length = len(x_data)
+                                del x_data, y_dir, y_mag, _ts
                                 for row in range(length):
                                     self._index.append((p_idx, tf, key, row))
 
@@ -722,12 +721,14 @@ class ForexDataset(Dataset):
         active_timeframes: list | None = None,
         size: float | tuple | None = None,
         stress: float | None = None,
-        **kwargs,
     ):
         """
         Governor hook: update sampling fraction or active timeframes mid-training.
-        Mirrors MultiTaskDataset.update_strategy() interface.
+        Mirrors MultiTaskDataset.update_strategy() interface; ``size`` is accepted for
+        that interface but ignored because forex windows have fixed per-timeframe lookbacks.
         """
+        if size is not None:
+            logger.debug("ForexDataset ignores size=%s (fixed per-timeframe lookbacks)", size)
         rebuild = False
         if active_timeframes is not None and active_timeframes != self.active_timeframes:
             self.active_timeframes = active_timeframes
@@ -767,9 +768,9 @@ class ForexDataset(Dataset):
             return self._alignment_cache[pair_key]
 
         _, _, _, prim_ts = self._get_shard_data(primary_key)
-        other_X, _, _, other_ts = self._get_shard_data(other_key)
+        other_x, _, _, other_ts = self._get_shard_data(other_key)
 
-        if other_X is None or len(other_X) == 0 or prim_ts is None or len(prim_ts) == 0:
+        if other_x is None or len(other_x) == 0 or prim_ts is None or len(prim_ts) == 0:
             self._alignment_cache[pair_key] = None
             return None
 
@@ -781,13 +782,13 @@ class ForexDataset(Dataset):
             and other_ts[-1] > other_ts[0]
         ):
             aligned = np.searchsorted(other_ts, prim_ts, side="right") - 1
-            aligned = np.clip(aligned, 0, len(other_X) - 1).astype(np.int64)
+            aligned = np.clip(aligned, 0, len(other_x) - 1).astype(np.int64)
         else:
             prim_tf = primary_key[1]
             other_tf = other_key[1]
             ratio = prim_tf / other_tf
             rows = np.arange(len(prim_ts), dtype=np.float64)
-            aligned = np.clip((rows * ratio).astype(np.int64), 0, len(other_X) - 1)
+            aligned = np.clip((rows * ratio).astype(np.int64), 0, len(other_x) - 1)
 
         self._alignment_cache[pair_key] = aligned
         return aligned
@@ -889,9 +890,7 @@ class ForexDataset(Dataset):
                     tf_inputs[other_tf] = torch.zeros(other_target_len, n_features)
                     continue
 
-                import bisect as _bisect
-
-                pos = _bisect.bisect_left(prim_rows, row)
+                pos = bisect.bisect_left(prim_rows, row)
                 if pos >= len(prim_rows) or int(prim_rows[pos]) != int(row):
                     tf_inputs[other_tf] = torch.zeros(other_target_len, n_features)
                     continue
@@ -924,10 +923,10 @@ class ForexDataset(Dataset):
         pair_name = str(key[0])
         yr_identifier = str(key[2]) if len(key) > 2 else ""
 
-        X, y_dir, y_mag, _ = self._get_shard_data(key)
+        x_data, y_dir, y_mag, _ = self._get_shard_data(key)
 
         target_len = TIMEFRAME_LOOKBACK.get(tf, 168)
-        raw_sample = self._fit_window(np.asarray(X[row]), target_len)
+        raw_sample = self._fit_window(np.asarray(x_data[row]), target_len)
 
         tf_inputs = {tf: _safe_from_numpy(raw_sample)}
 
@@ -943,8 +942,8 @@ class ForexDataset(Dataset):
 
             if candidate_keys:
                 other_key = candidate_keys[0]
-                other_X, _, _, _ = self._get_shard_data(other_key)
-                if other_X is None or len(other_X) == 0:
+                other_x, _, _, _ = self._get_shard_data(other_key)
+                if other_x is None or len(other_x) == 0:
                     tf_inputs[other_tf] = torch.zeros(other_target_len, n_features)
                     continue
 
@@ -953,9 +952,9 @@ class ForexDataset(Dataset):
                     aligned_row = int(alignment_map[row])
                 else:
                     ratio = tf / other_tf
-                    aligned_row = min(int(row * ratio), len(other_X) - 1)
+                    aligned_row = min(int(row * ratio), len(other_x) - 1)
 
-                other_sample = self._fit_window(np.asarray(other_X[aligned_row]), other_target_len)
+                other_sample = self._fit_window(np.asarray(other_x[aligned_row]), other_target_len)
                 tf_inputs[other_tf] = _safe_from_numpy(other_sample)
             else:
                 tf_inputs[other_tf] = torch.zeros(other_target_len, n_features)

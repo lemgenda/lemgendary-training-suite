@@ -17,6 +17,7 @@ TODO (requires demo account):
 """
 
 import argparse
+import ctypes
 import importlib
 import logging
 import os
@@ -233,16 +234,15 @@ def connect_mt5(
         print(" [MT5] NOTE: MT5 package is Windows-only and requires MT5 terminal installed.")
         return False
 
-    # Fast non-blocking check: Only attempt IPC attach if MT5 terminal is running or explicitly enabled
+    # Fast non-blocking check: only attempt IPC attach if the terminal runs or MT5_ENABLE=1
     if os.environ.get("MT5_ENABLE", "0") != "1":
         if sys.platform == "win32":
             try:
-                import ctypes
-
                 hwnd = ctypes.windll.user32.FindWindowW(None, "MetaTrader 5")
                 if not hwnd:
                     print(
-                        " [MT5] MetaTrader 5 terminal window not detected. Operating in offline/mock mode."
+                        " [MT5] MetaTrader 5 terminal window not detected. "
+                        "Operating in offline/mock mode."
                     )
                     return False
             except (AttributeError, OSError) as exc:
@@ -258,7 +258,8 @@ def connect_mt5(
             info = mt5.account_info()
             if info:
                 print(
-                    f" [MT5] Connected -> Account: {info.login} | Server: {info.server} | Balance: {info.balance} {info.currency}"
+                    f" [MT5] Connected -> Account: {info.login} | Server: {info.server} | "
+                    f"Balance: {info.balance} {info.currency}"
                 )
                 return True
     except (RuntimeError, OSError) as exc:
@@ -285,7 +286,8 @@ def connect_mt5(
     info = mt5.account_info()
     if info:
         print(
-            f" [MT5] Connected -> Account: {info.login} | Server: {info.server} | Balance: {info.balance} {info.currency}"
+            f" [MT5] Connected -> Account: {info.login} | Server: {info.server} | "
+            f"Balance: {info.balance} {info.currency}"
         )
         return True
 
@@ -377,7 +379,8 @@ def generate_mock_bars(
     volumes = np.random.randint(100, 5000, size=total_bars)
 
     print(
-        f" [MT5Pipeline] Synthesized {total_bars} bars for {pair} {timeframe_min}min (Spans {times[0].strftime('%Y-%m-%d')} -> {times[-1].strftime('%Y-%m-%d')})"
+        f" [MT5Pipeline] Synthesized {total_bars} bars for {pair} {timeframe_min}min "
+        f"(Spans {times[0].strftime('%Y-%m-%d')} -> {times[-1].strftime('%Y-%m-%d')})"
     )
     return pd.DataFrame(
         {
@@ -420,7 +423,8 @@ def download_bars(
                 dt_to = datetime.now(timezone.utc)
                 rates = mt5.copy_rates_range(pair, tf, dt_from, dt_to)
             except (ValueError, TypeError, RuntimeError) as exc:
-                # ValueError: unparseable start_date; TypeError/RuntimeError: MT5 rejected the range query.
+                # ValueError: unparseable start_date;
+                # TypeError/RuntimeError: MT5 rejected the range query.
                 logger.warning(
                     "copy_rates_range failed for %s %smin; falling back to copy_rates_from_pos: %s",
                     pair,
@@ -440,8 +444,11 @@ def download_bars(
         df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
         df["volume"] = df["tick_volume"]
         df = df[["time", "open", "high", "low", "close", "volume"]]
+        span_start = pd.Series(df["time"]).iloc[0].strftime("%Y-%m-%d")
+        span_end = pd.Series(df["time"]).iloc[-1].strftime("%Y-%m-%d")
         print(
-            f" [MT5] Downloaded {len(df)} bars for {pair} {timeframe_min}min (Spans {pd.Series(df['time']).iloc[0].strftime('%Y-%m-%d')} -> {pd.Series(df['time']).iloc[-1].strftime('%Y-%m-%d')})"
+            f" [MT5] Downloaded {len(df)} bars for {pair} {timeframe_min}min "
+            f"(Spans {span_start} -> {span_end})"
         )
         assert isinstance(df, pd.DataFrame)
         return df
@@ -489,11 +496,18 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     try:
         import pandas_ta_classic as ta
 
-        df_ta = df.copy()
-        df_ta.ta.rsi(length=14, append=True)
-        df_ta.ta.macd(fast=12, slow=26, signal=9, append=True)
-        df_ta.ta.atr(length=14, append=True)
-        df_ta.ta.bbands(length=20, std=2, append=True)
+        # Each indicator returns a Series/DataFrame (or None when there is too little data);
+        # pd.concat drops the None entries, matching the accessor's ``append=True`` behaviour.
+        df_ta = pd.concat(
+            [
+                df,
+                ta.rsi(df["close"], length=14),
+                ta.macd(df["close"], fast=12, slow=26, signal=9),
+                ta.atr(df["high"], df["low"], df["close"], length=14),
+                ta.bbands(df["close"], length=20, std=2),
+            ],
+            axis=1,
+        )
 
         rsi_col = next((c for c in df_ta.columns if c.upper().startswith("RSI_")), None)
         macd_col = next(
@@ -557,7 +571,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         time_vals = df["time"].tolist()
         hours = [pd.Timestamp(t).hour for t in time_vals]
     elif isinstance(df.index, pd.DatetimeIndex):
-        hours = [h for h in df.index.hour]
+        hours = list(df.index.hour)
     else:
         hours = [0.0] * len(df)
     hour_norm = np.asarray(hours, dtype=np.float64) / 23.0 * 2.0 * np.pi
@@ -749,8 +763,9 @@ def build_windows(
 ) -> tuple:
     """
     Slice the processed DataFrame into (features, direction, magnitude, timestamps) windows.
-    Uses memory-efficient preallocation and uniform strided sampling for ultra-dense timeframes (M1/M5)
-    to prevent multi-gigabyte RAM overflows while maintaining 100% historical multi-regime coverage.
+    Uses memory-efficient preallocation and uniform strided sampling for ultra-dense
+    timeframes (M1/M5) to prevent multi-gigabyte RAM overflows while maintaining 100%
+    historical multi-regime coverage.
 
     Args:
         df:          Processed DataFrame with FEATURES + direction/tp_pips/sl_pips columns.
@@ -763,7 +778,7 @@ def build_windows(
             X:          [N, seq_len, n_features]  float32
             y_dir:      [N]                        int64 direction class
             y_mag:      [N, 2]                     float32 (tp_pips, sl_pips)
-            timestamps: [N]                        int64 Unix timestamps (seconds) of each window's last bar
+            timestamps: [N]                        int64 Unix seconds of each window's last bar
     """
     available = [c for c in FEATURES if c in df.columns]
     feat_arr = np.asarray(df[available], dtype=np.float32)  # [T, F]
@@ -799,19 +814,19 @@ def build_windows(
     indices = np.arange(0, n_total, stride)
     num_samples = len(indices)
 
-    X = np.empty((num_samples, seq_len, len(available)), dtype=np.float32)
+    x_data = np.empty((num_samples, seq_len, len(available)), dtype=np.float32)
     for out_i, i in enumerate(indices):
-        X[out_i] = feat_arr[i : i + seq_len]
+        x_data[out_i] = feat_arr[i : i + seq_len]
 
     target_indices = indices + seq_len
     y_dir = dir_arr[target_indices]
     y_mag = np.stack([tp_arr[target_indices], sl_arr[target_indices]], axis=1)
     timestamps = ts_arr[target_indices]
-    return X, y_dir, y_mag, timestamps
+    return x_data, y_dir, y_mag, timestamps
 
 
 def save_shards(
-    X,
+    x_data,
     y_dir,
     y_mag,
     out_dir: str,
@@ -833,32 +848,34 @@ def save_shards(
     shard_dir = os.path.join(out_dir, pair, str(timeframe_min), split)
     os.makedirs(shard_dir, exist_ok=True)
 
-    np.save(os.path.join(shard_dir, "X.npy"), X)
+    np.save(os.path.join(shard_dir, "X.npy"), x_data)
     np.save(os.path.join(shard_dir, "y_dir.npy"), y_dir)
     np.save(os.path.join(shard_dir, "y_mag.npy"), y_mag)
     if timestamps is not None:
         np.save(os.path.join(shard_dir, "timestamps.npy"), timestamps)
-    print(f" [MT5Pipeline] Saved {len(X)} samples -> {shard_dir}")
+    print(f" [MT5Pipeline] Saved {len(x_data)} samples -> {shard_dir}")
 
 
 def load_shard(shard_dir: str, mmap_mode: Any = None) -> tuple:
     """
-    Load a shard from disk. Returns (X, y_dir, y_mag, timestamps) or (None, None, None, None) if not found.
+    Load a shard from disk.
+
+    Returns (X, y_dir, y_mag, timestamps), or (None, None, None, None) if not found.
     timestamps is optional — may be None if shard was built before v2.0.
     """
-    X_path = os.path.join(shard_dir, "X.npy")
+    x_path = os.path.join(shard_dir, "X.npy")
     ydir_path = os.path.join(shard_dir, "y_dir.npy")
     ymag_path = os.path.join(shard_dir, "y_mag.npy")
     ts_path = os.path.join(shard_dir, "timestamps.npy")
 
-    if not (os.path.exists(X_path) and os.path.exists(ydir_path) and os.path.exists(ymag_path)):
+    if not (os.path.exists(x_path) and os.path.exists(ydir_path) and os.path.exists(ymag_path)):
         return None, None, None, None
 
-    X = np.load(X_path, mmap_mode=mmap_mode)
+    x_data = np.load(x_path, mmap_mode=mmap_mode)
     y_dir = np.load(ydir_path, mmap_mode=mmap_mode)
     y_mag = np.load(ymag_path, mmap_mode=mmap_mode)
     timestamps = np.load(ts_path, mmap_mode=mmap_mode) if os.path.exists(ts_path) else None
-    return X, y_dir, y_mag, timestamps
+    return x_data, y_dir, y_mag, timestamps
 
 
 def build_walk_forward_folds(df: pd.DataFrame, seq_len: int, out_dir: str, pair: str, tf: int):
@@ -886,10 +903,11 @@ def build_walk_forward_folds(df: pd.DataFrame, seq_len: int, out_dir: str, pair:
         assert isinstance(fold_df, pd.DataFrame)
 
         if len(fold_df) > seq_len:
-            X, yd, ym, ts = build_windows(fold_df, seq_len)
-            save_shards(X, yd, ym, out_dir, pair, tf, split=f"folds/{fold_id}", timestamps=ts)
+            x_data, yd, ym, ts = build_windows(fold_df, seq_len)
+            save_shards(x_data, yd, ym, out_dir, pair, tf, split=f"folds/{fold_id}", timestamps=ts)
             print(
-                f"   [{fold_id.upper()}] Generated {pair}@{tf}min ({len(X)} samples) -> {fold_info['regime']}"
+                f"   [{fold_id.upper()}] Generated {pair}@{tf}min ({len(x_data)} samples) "
+                f"-> {fold_info['regime']}"
             )
 
 
@@ -904,7 +922,6 @@ def run_download_pipeline(
     out_dir: str,
     n_bars: int = 50000,
     start_date: str = "2019-01-01",
-    val_frac: float = 0.15,
     build_folds: bool = True,
     login: int | None = None,
     password: str | None = None,
@@ -946,8 +963,10 @@ def run_download_pipeline(
                     if build_folds:
                         build_walk_forward_folds(df, seq_len, out_dir, pair, tf)
 
-                except Exception as e:
+                except (RuntimeError, ValueError, KeyError, TypeError, IndexError, OSError) as e:
                     # Per-pair job boundary: one bad pair/timeframe must not abort the whole batch.
+                    # RuntimeError: MT5 returned no data; ValueError/KeyError/TypeError/IndexError:
+                    # malformed bars or indicator frames; OSError: shard write failure.
                     logger.exception("Pipeline failed for %s@%smin", pair, tf)
                     print(f" [MT5Pipeline] ERROR for {pair}@{tf}min: {e}")
                     continue
@@ -963,6 +982,7 @@ def run_download_pipeline(
 
 
 def main():
+    """CLI entrypoint: download/build forex shards or check existing ones."""
     parser = argparse.ArgumentParser(description="LemGendary MT5 Data Pipeline")
     parser.add_argument(
         "--mode",
@@ -994,7 +1014,10 @@ def main():
         help="Start date for historical coverage (default: 2019-01-01)",
     )
     parser.add_argument(
-        "--val_frac", type=float, default=0.15, help="Validation fraction (chronological split)"
+        "--val_frac",
+        type=float,
+        default=0.15,
+        help="Deprecated and ignored: validation data comes from the walk-forward fold layout.",
     )
     parser.add_argument(
         "--login",
@@ -1028,22 +1051,22 @@ def main():
             for tf in args.timeframes:
                 for split in ["train", "val"]:
                     shard_dir = os.path.join(args.out_dir, pair, str(tf), split)
-                    X, y_dir, y_mag = load_shard(shard_dir, mmap_mode="r")
-                    if X is not None:
-                        import numpy as np
-
+                    x_data, y_dir, y_mag, _timestamps = load_shard(shard_dir, mmap_mode="r")
+                    if x_data is not None:
                         corrupt = False
-                        for tensor, name in [(X, "X"), (y_dir, "y_dir"), (y_mag, "y_mag")]:
+                        for tensor, name in [(x_data, "X"), (y_dir, "y_dir"), (y_mag, "y_mag")]:
                             if tensor is not None and (
                                 np.isnan(tensor).any() or np.isinf(tensor).any()
                             ):
                                 print(
-                                    f"   [CORRUPT] {pair}/{tf}min/{split}: Tensor {name} contains NaN or Inf values!"
+                                    f"   [CORRUPT] {pair}/{tf}min/{split}: "
+                                    f"Tensor {name} contains NaN or Inf values!"
                                 )
                                 corrupt = True
                         if not corrupt:
                             print(
-                                f"   [OK] {pair}/{tf}min/{split}: {len(X)} samples pristine, shape {X.shape}"
+                                f"   [OK] {pair}/{tf}min/{split}: {len(x_data)} samples "
+                                f"pristine, shape {x_data.shape}"
                             )
                     else:
                         print(f"   [MISSING] {pair}/{tf}min/{split}: No shard found")
@@ -1057,7 +1080,6 @@ def main():
             out_dir=args.out_dir,
             n_bars=args.n_bars,
             start_date=args.start_date,
-            val_frac=args.val_frac,
             login=args.login,
             password=args.password,
             server=args.server,

@@ -1,3 +1,5 @@
+"""ForexPredictor: multi-timeframe causal-conv/attention model for FX direction and magnitude."""
+
 import logging
 
 import torch
@@ -168,12 +170,16 @@ class CausalConv1DBlock(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the causal conv block with optional stochastic depth; ``x`` is [B, C, T]."""
         # x: [B, C, T]
         residual = self.shortcut(x)
         # Stochastic depth: randomly drop entire block during training
-        if self.training and self.drop_path_rate > 0.0:
-            if torch.rand(1).item() < self.drop_path_rate:
-                return residual
+        if (
+            self.training
+            and self.drop_path_rate > 0.0
+            and torch.rand(1).item() < self.drop_path_rate
+        ):
+            return residual
         x = F.pad(x, (self.causal_pad, 0))  # Causal left-pad only
         x = self.conv(x)  # [B, out_channels, T]
         x = self.norm(x.transpose(1, 2)).transpose(1, 2)  # LayerNorm over channels
@@ -333,6 +339,7 @@ class DirectionHead(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Return direction logits of shape [B, 3]."""
         return self.head(x)  # [B, 3]
 
 
@@ -501,7 +508,7 @@ class ForexPredictor(nn.Module):
     def _init_weights(self):
         """Kaiming init for linear/conv layers, Xavier for embeddings."""
         for m in self.modules():
-            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
+            if isinstance(m, (nn.Linear, nn.Conv1d)):
                 nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
@@ -710,5 +717,6 @@ class ForexPredictor(nn.Module):
 
         print(f" [ForexPredictor] Expanded to {n_tf} timeframes. Added: {new_tf}min rung.")
         print(
-            f" [ForexPredictor] fused_project warm-started: old_in_dim={old_in_dim} -> new_in_dim={fused_dim}."
+            " [ForexPredictor] fused_project warm-started: "
+            f"old_in_dim={old_in_dim} -> new_in_dim={fused_dim}."
         )

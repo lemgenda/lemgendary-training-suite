@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable
 
 import torch
+from torch.utils.data.distributed import DistributedSampler
 
 from data.forex_sampler import RowGroupAwareSampler
 from training.checkpoint import CheckpointLifecycleManager
@@ -37,7 +38,8 @@ from training.training.validation import validate_one_epoch
 
 logger = logging.getLogger("lemtrain.engine")
 
-# Failure modes of a governor audit + dataset/loader rebuild (bad state values, missing attrs, CUDA/IO).
+# Failure modes of a governor audit + dataset/loader rebuild (bad state values, missing attrs,
+# CUDA/IO).
 _GOVERNOR_AUDIT_ERRORS: tuple[type[BaseException], ...] = (
     ValueError,
     TypeError,
@@ -46,6 +48,16 @@ _GOVERNOR_AUDIT_ERRORS: tuple[type[BaseException], ...] = (
     AttributeError,
     RuntimeError,
     OSError,
+)
+# Failure modes of the caller-supplied on_epoch_end telemetry callback (metric formatting,
+# log broadcast IO). Anything else is a bug and propagates.
+_EPOCH_CALLBACK_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    KeyError,
+    AttributeError,
 )
 # Failure modes of starting a cloud sync (manager construction, thread start, filesystem).
 _CLOUD_SYNC_ERRORS: tuple[type[BaseException], ...] = (
@@ -133,14 +145,16 @@ def run_training(
             and ctx.resume_state.is_intra_epoch
             and ctx.resume_state.phase == "val"
             and epoch == start_epoch
-            and not getattr(ctx, "_resumed_val_handled", False)
+            and not ctx.resumed_val_handled
         )
 
         if is_resuming_val:
-            ctx._resumed_val_handled = True
+            ctx.resumed_val_handled = True
             print(
-                f"\n[RESUME] Resuming directly into validation pass for {ctx.model_name} at Epoch {epoch} "
-                f"(progress checkpoint captured during validation phase; skipping redundant training pass)...",
+                f"\n[RESUME] Resuming directly into validation pass for {ctx.model_name} at Epoch "
+                f"{epoch} "
+                "(progress checkpoint captured during validation phase; skipping redundant "
+                "training pass)...",
                 flush=True,
             )
             resume_tm = ctx.resume_state.train_metrics if ctx.resume_state is not None else {}
@@ -152,7 +166,8 @@ def run_training(
         else:
             if os.environ.get("RANK", "0") == "0":
                 print(
-                    f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for {ctx.model_name}...",
+                    f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for "
+                    f"{ctx.model_name}...",
                     flush=True,
                 )
 
@@ -170,7 +185,8 @@ def run_training(
 
         if cancel_check is not None and cancel_check():
             print(
-                f"[CANCEL] Training aborted after epoch {epoch} training pass by user cancellation.",
+                f"[CANCEL] Training aborted after epoch {epoch} training pass by user "
+                "cancellation.",
                 flush=True,
             )
             return TrainingSummary(
@@ -223,13 +239,19 @@ def run_training(
         # Epoch summary logging
         val_info = f"ValLoss: {current_loss:.4f}"
         if "psnr" in combined_metrics:
-            val_info += f" | PSNR: {combined_metrics['psnr']:.2f}dB | SSIM: {combined_metrics.get('ssim', 0.0):.4f}"
+            val_info += (
+                f" | PSNR: {combined_metrics['psnr']:.2f}dB"
+                f" | SSIM: {combined_metrics.get('ssim', 0.0):.4f}"
+            )
             if "lpips" in combined_metrics:
                 val_info += f" | LPIPS: {combined_metrics['lpips']:.4f}"
             if "fid" in combined_metrics:
                 val_info += f" | FID: {combined_metrics['fid']:.2f}"
         if "plcc" in combined_metrics:
-            val_info += f" | PLCC: {combined_metrics['plcc']:.4f} | SRCC: {combined_metrics.get('srcc', 0.0):.4f}"
+            val_info += (
+                f" | PLCC: {combined_metrics['plcc']:.4f}"
+                f" | SRCC: {combined_metrics.get('srcc', 0.0):.4f}"
+            )
         if "dir_acc" in combined_metrics:
             win_rate = combined_metrics.get("win_rate", 0.0)
             val_info += f" | DirAcc: {combined_metrics['dir_acc']:.2f}% | WinRate: {win_rate:.2f}%"
@@ -294,19 +316,16 @@ def run_training(
         else:
             epochs_no_improve += 1
 
-        # 7. Check governor directives (curriculum fraction/resolution promotion before saving checkpoints)
+        # 7. Check governor directives (curriculum fraction/resolution promotion before saving
+        # checkpoints)
         governor_early_stop = False
         governor_reports_improvement = False
         if hasattr(ctx.governor, "audit_epoch"):
             try:
-                best_q = float(ctx.sota_tracker.best_quality)
                 f_chg, r_chg, lr_chg, _t_chg, _c_chg, _b_chg, stop_trig, gov_msg = (
                     ctx.governor.audit_epoch(
                         current_quality=current_quality,
-                        best_quality=best_q,
                         epochs_no_improve=epochs_no_improve,
-                        regression_epochs=0,
-                        current_lr=combined_metrics.get("lr"),
                         current_loss=current_loss,
                         train_loss=train_loss,
                         metrics_dict=combined_metrics,
@@ -317,7 +336,8 @@ def run_training(
                 governor_early_stop = bool(stop_trig)
                 governor_reports_improvement = not governor_early_stop
 
-                # Dynamic manifold scaling: update dataset and rebuild train_loader if fraction, resolution, or batch changed
+                # Dynamic manifold scaling: update dataset and rebuild train_loader if fraction,
+                # resolution, or batch changed
                 if (f_chg or r_chg or _b_chg) and ctx.train_loader is not None:
                     train_ds = getattr(ctx.train_loader, "dataset", None)
                     if train_ds is not None and hasattr(train_ds, "update_strategy"):
@@ -346,8 +366,6 @@ def run_training(
                             curr_sampler is not None
                             and type(curr_sampler).__name__ == "DistributedSampler"
                         ):
-                            from torch.utils.data.distributed import DistributedSampler
-
                             curr_sampler = DistributedSampler(train_ds, shuffle=True)
                         elif curr_sampler is not None and type(curr_sampler).__name__ in (
                             "RandomSampler",
@@ -374,7 +392,8 @@ def run_training(
                             flush=True,
                         )
                         logger.info(
-                            "Rebuilt train_loader on governor directive: res=%s, fraction=%s, batch_size=%d",
+                            "Rebuilt train_loader on governor directive: res=%s, fraction=%s, "
+                            "batch_size=%d",
                             str(new_res),
                             str(new_frac),
                             curr_batch,
@@ -395,7 +414,8 @@ def run_training(
                     "Governor audit or loader rebuild failed at epoch %d: %s", epoch, gov_err
                 )
 
-        # 8. Checkpoint serialization payload (persists post-audit governor state for next epoch resume)
+        # 8. Checkpoint serialization payload (persists post-audit governor state for next epoch
+        # resume)
         raw_model = ctx.raw_model if ctx.raw_model is not None else ctx.model
         model_state = raw_model.state_dict()
 
@@ -489,9 +509,9 @@ def run_training(
                     total_time=time.time() - total_start_time,
                     status="cancelled",
                 )
-            except Exception:
-                # Boundary: on_epoch_end is caller-supplied code; any failure is logged with traceback
-                # and must not abort training.
+            except _EPOCH_CALLBACK_ERRORS:
+                # Boundary: on_epoch_end is caller-supplied code; an expected failure is logged
+                # with traceback and must not abort training.
                 logger.exception("Telemetry epoch callback failed at epoch %d", epoch)
 
         last_epoch_executed = epoch

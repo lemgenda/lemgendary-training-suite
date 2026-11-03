@@ -45,9 +45,7 @@ class PyTorchModelExporter(BaseModelExporter):
         )
         if cat in ("llm",) or "text_instruction" in d_types or "forex" in d_types:
             return False
-        if resolved_spec.key == "yolov8n" or resolved_spec.class_name == "YOLOv8n":
-            return False
-        return True
+        return not (resolved_spec.key == "yolov8n" or resolved_spec.class_name == "YOLOv8n")
 
     def export(
         self,
@@ -185,7 +183,8 @@ class PyTorchModelExporter(BaseModelExporter):
             logger.info("Successfully exported FP16 integrated ONNX: %s", fp16_onnx_path.name)
         except EXPORT_ERRORS as exc:
             logger.warning(
-                "Direct FP16 torch.onnx.export failed for %s (%s). Falling back to onnxconverter...",
+                "Direct FP16 torch.onnx.export failed for %s (%s). Falling back to "
+                "onnxconverter...",
                 model_key,
                 exc,
             )
@@ -215,7 +214,8 @@ class PyTorchModelExporter(BaseModelExporter):
                     tmp_fp32.unlink()
                 exported_files["onnx_fp16"] = fp16_onnx_path
                 logger.info(
-                    "Successfully converted and saved FP16 ONNX model via onnxconverter fallback to %s",
+                    "Successfully converted and saved FP16 ONNX model via onnxconverter fallback "
+                    "to %s",
                     fp16_onnx_path,
                 )
             except EXPORT_ERRORS as fallback_exc:

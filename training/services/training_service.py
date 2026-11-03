@@ -10,16 +10,16 @@ import argparse
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
 
+from training.core_loop import _run_yolo_native, build_training_context
+from training.services.notebook_service import NotebookService
+from training.training.engine import TrainingSummary, run_training
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.services.training_service")
-
-if TYPE_CHECKING:
-    from training.training.engine import TrainingSummary
 
 
 class TrainingService:
@@ -88,10 +88,9 @@ class TrainingService:
         Returns:
             TrainingSummary: Completed run metrics and summary.
         """
-        # 0. Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds, and training dirs
+        # 0. Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds,
+        # and training dirs
         try:
-            from training.services.notebook_service import NotebookService
-
             nb_service = NotebookService(project_root=self.project_root)
             nb_service.generate_notebooks(model_key=model_key, platform="all")
         except (OSError, yaml.YAMLError, ValueError, KeyError, TypeError, AttributeError) as e:
@@ -138,8 +137,6 @@ class TrainingService:
             config_path = self.project_root / "config.yaml"
             with open(config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
-            from training.core_loop import _run_yolo_native
-
             return _run_yolo_native(
                 args,
                 config,
@@ -149,9 +146,6 @@ class TrainingService:
             )
 
         # 4. Construct deterministic TrainingContext
-        from training.core_loop import build_training_context
-        from training.training.engine import run_training
-
         ctx = build_training_context(args)
 
         # 5. Run training coordinator

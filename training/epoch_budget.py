@@ -175,7 +175,8 @@ class EpochBudgetPolicy:
         if not governor_reports_improvement:
             return self._stop(
                 StopReason.BUDGET_REACHED,
-                f"epoch budget of {self.total_epochs} reached and the governor does not report improvement",
+                f"epoch budget of {self.total_epochs} reached and the governor "
+                "does not report improvement",
             )
 
         step = min(self.config.extension_epochs, remaining)
@@ -186,8 +187,8 @@ class EpochBudgetPolicy:
             total_epochs=self.total_epochs,
             extension_used=self.extension_used,
             message=(
-                f"epoch budget reached at epoch {epoch}; governor reports improvement, extending by "
-                f"{step} epochs to {self.total_epochs} ({self.extension_used}/"
+                f"epoch budget reached at epoch {epoch}; governor reports improvement, "
+                f"extending by {step} epochs to {self.total_epochs} ({self.extension_used}/"
                 f"{self.config.max_extension_epochs} extension epochs used)"
             ),
         )

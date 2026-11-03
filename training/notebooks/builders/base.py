@@ -11,6 +11,8 @@ from typing import Any
 
 import yaml
 
+from ..registry import load_registry
+
 logger = logging.getLogger("lemtrain.notebooks.builders.base")
 
 
@@ -57,7 +59,8 @@ def write_notebook(content: dict[str, Any], output_path: str | Path) -> str | No
         logger.error("JSON validation/write failed for %s: %s", out_path, e)
         print(f"[ERROR] JSON Validation failed for {out_path.name}: {e}")
         print(
-            "[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings."
+            "[REMEDY] This usually means the generated notebook syntax is invalid. Check "
+            "'unified_models.yaml' for trailing commas or malformed strings."
         )
         return None
 
@@ -74,8 +77,6 @@ def sync_manifold_notebooks(
 
     if not unified_models_registry:
         try:
-            from ..registry import load_registry
-
             unified_models_registry = load_registry()
         except (ImportError, OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
             logger.warning(

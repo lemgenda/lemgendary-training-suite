@@ -68,7 +68,7 @@ class SotaTracker:
         current_res: int,
         res_ladder: list[int],
     ) -> dict[str, Any]:
-        """Record a rollback occurrence and trigger breakout or gate relaxation if threshold is met."""
+        """Record a rollback and trigger breakout or gate relaxation once the threshold is met."""
         result: dict[str, Any] = {
             "breakout_triggered": False,
             "strategy": None,
@@ -106,7 +106,8 @@ class SotaTracker:
                 result["new_res"] = target_res
                 result["reset_best"] = True
                 logger.warning(
-                    "Resolution-Regression Lock detected at %dpx! Promoting to %dpx with breakout protection.",
+                    "Resolution-Regression Lock detected at %dpx! Promoting to %dpx with "
+                    "breakout protection.",
                     current_res,
                     target_res,
                 )
@@ -115,7 +116,8 @@ class SotaTracker:
                 self.consecutive_rollbacks = 0
                 result["breakout_triggered"] = True
                 logger.warning(
-                    "Stagnation Rollback Lock detected at %dpx! Dynamic Gate Relaxation active for 6 epochs.",
+                    "Stagnation Rollback Lock detected at %dpx! Dynamic Gate Relaxation active "
+                    "for 6 epochs.",
                     res_key,
                 )
 

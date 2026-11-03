@@ -1,3 +1,5 @@
+"""Image quality/aesthetic (NIMA) and authenticity/classification models."""
+
 import torch
 from torch import nn
 from torchvision import models
@@ -6,12 +8,15 @@ from torchvision import models
 
 
 class SoftmaxWrapper(nn.Module):
+    """Wrap a model and apply a temperature-scaled softmax to its logits."""
+
     def __init__(self, inner_model, temperature=1.0):
         super().__init__()
         self.inner_model = inner_model
         self.temperature = temperature
 
     def forward(self, x):
+        """Return class probabilities of the wrapped model's logits."""
         logits = self.inner_model(x)
         return torch.nn.functional.softmax(logits / self.temperature, dim=1)
 
@@ -25,12 +30,13 @@ class GeMPooling(nn.Module):
         self.eps = eps
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply GeM pooling to ``x`` and return [B, C, 1, 1]."""
         return nn.functional.adaptive_avg_pool2d(x.clamp(min=self.eps).pow(self.p), (1, 1)).pow(
             1.0 / self.p
         )
 
 
-class NIMA_Model(nn.Module):
+class NIMAModel(nn.Module):
     """
     Nuclear-Hardened NIMA (Neural IMage Assessment).
     Implements Autonomous Temperature Sharpening, Spatial Statistical Pooling, and Logit Clamping.
@@ -89,6 +95,7 @@ class NIMA_Model(nn.Module):
         self.softmax_temp.data = torch.tensor(temp).to(self.softmax_temp.device)
 
     def forward(self, x):
+        """Return clamped logits over the 10 NIMA score bins."""
         x = self.features(x)
         if getattr(self, "backbone_name", "") == "swin_v2_t":
             # Swin outputs [B, H, W, C], pool2d needs [B, C, H, W]
@@ -135,6 +142,7 @@ class AuthenticityScorer(nn.Module):
             self.gem_pool = GeMPooling()
 
     def forward(self, x):
+        """Return clamped class logits using the configured pooling."""
         if self.pooling_type == "avg":
             logits = self.backbone(x)
             return torch.clamp(logits, -10.0, 10.0)

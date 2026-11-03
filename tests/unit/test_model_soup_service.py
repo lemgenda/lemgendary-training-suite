@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -30,8 +31,8 @@ class _SoupTree(unittest.TestCase):
     """Temp workspace: <tmp>/suite (project root) and sibling <tmp>/LemGendaryModels."""
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self.workspace = Path(self._tmp.name).resolve()
+        self.workspace = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.workspace)
         self.project_root = self.workspace / "suite"
         self.project_root.mkdir()
         (self.project_root / "config.yaml").write_text(
@@ -40,28 +41,31 @@ class _SoupTree(unittest.TestCase):
         self.ckpt_dir = self.workspace / "LemGendaryModels" / MODEL / "checkpoints"
         self.ckpt_dir.mkdir(parents=True)
 
-    def tearDown(self) -> None:
-        self._tmp.cleanup()
-
     def add_vaults(self, *metrics: str) -> None:
+        """Create empty vault checkpoints for the given metric names."""
         for m in metrics:
             (self.ckpt_dir / f"vault_{m}.pth").write_bytes(b"x")
 
 
 class TestSoupPathResolution(_SoupTree):
+    """Tests for models-root and vault checkpoint path resolution."""
+
     def test_models_root_comes_from_config(self) -> None:
+        """Verify the models root comes from config.yaml checkpoints_root."""
         (self.project_root / "config.yaml").write_text(
             'paths:\n  checkpoints_root: "../OtherModels"\n', encoding="utf-8"
         )
         self.assertEqual(resolve_models_root(self.project_root), self.workspace / "OtherModels")
 
     def test_models_root_defaults_to_sibling_repo_without_config(self) -> None:
+        """Verify the models root defaults to the sibling LemGendaryModels repo."""
         (self.project_root / "config.yaml").unlink()
         self.assertEqual(
             resolve_models_root(self.project_root), self.workspace / "LemGendaryModels"
         )
 
     def test_absolute_configured_root_is_rejected(self) -> None:
+        """Verify an absolute configured checkpoints_root is rejected."""
         (self.project_root / "config.yaml").write_text(
             f'paths:\n  checkpoints_root: "{self.workspace.as_posix()}"\n', encoding="utf-8"
         )
@@ -69,12 +73,14 @@ class TestSoupPathResolution(_SoupTree):
             resolve_models_root(self.project_root)
 
     def test_both_vaults_present_returns_two_files(self) -> None:
+        """Verify both requested vaults resolve in order."""
         self.add_vaults("psnr", "lpips")
         paths = resolve_vault_checkpoints(MODEL, self.project_root, ["psnr", "lpips"])
         self.assertEqual([p.name for p in paths], ["vault_psnr.pth", "vault_lpips.pth"])
         self.assertTrue(all(p.is_file() for p in paths))
 
     def test_default_discovers_all_vaults(self) -> None:
+        """Verify default discovery returns all vault_* checkpoints only."""
         self.add_vaults("psnr", "lpips", "ssim")
         (self.ckpt_dir / "best.pth").write_bytes(b"x")
         paths = resolve_vault_checkpoints(MODEL, self.project_root)
@@ -83,6 +89,7 @@ class TestSoupPathResolution(_SoupTree):
         )
 
     def test_missing_requested_vault_lists_it(self) -> None:
+        """Verify a missing requested vault is listed in the error."""
         self.add_vaults("psnr")
         with self.assertRaises(SoupCheckpointsMissing) as ctx:
             resolve_vault_checkpoints(MODEL, self.project_root, ["psnr", "lpips"])
@@ -90,15 +97,18 @@ class TestSoupPathResolution(_SoupTree):
         self.assertIn("vault_lpips.pth", str(ctx.exception))
 
     def test_missing_model_folder(self) -> None:
+        """Verify an unknown model folder raises SoupCheckpointsMissing."""
         with self.assertRaises(SoupCheckpointsMissing):
             resolve_vault_checkpoints("unknown_model", self.project_root)
 
     def test_no_vaults_is_missing(self) -> None:
+        """Verify having no vaults reports the default ones as missing."""
         with self.assertRaises(SoupCheckpointsMissing) as ctx:
             resolve_vault_checkpoints(MODEL, self.project_root)
         self.assertIn("vault_psnr.pth", ctx.exception.missing)
 
     def test_single_vault_is_invalid(self) -> None:
+        """Verify a single vault is an invalid soup request."""
         self.add_vaults("psnr")
         with self.assertRaises(SoupInvalidRequest):
             resolve_vault_checkpoints(MODEL, self.project_root)
@@ -106,6 +116,7 @@ class TestSoupPathResolution(_SoupTree):
             resolve_vault_checkpoints(MODEL, self.project_root, ["psnr"])
 
     def test_unsafe_names_are_rejected(self) -> None:
+        """Verify unsafe model and donor names are rejected."""
         with self.assertRaises(SoupInvalidRequest):
             resolve_vault_checkpoints("..", self.project_root)
         self.add_vaults("psnr", "lpips")
@@ -114,7 +125,10 @@ class TestSoupPathResolution(_SoupTree):
 
 
 class TestBlendService(_SoupTree):
+    """Tests for blend_model_soup orchestration."""
+
     def test_passes_file_list_to_soup_function(self) -> None:
+        """Verify the resolved file list is passed to the soup function."""
         self.add_vaults("psnr", "lpips")
         fn = mock.Mock(return_value={})
         result = blend_model_soup(
@@ -129,6 +143,7 @@ class TestBlendService(_SoupTree):
         self.assertEqual(result.output_path, self.ckpt_dir / "best_soup.pth")
 
     def test_bare_output_name_lands_in_checkpoints(self) -> None:
+        """Verify a bare output name is written into the checkpoints directory."""
         self.add_vaults("psnr", "lpips")
         result = blend_model_soup(
             MODEL, self.project_root, output="mix.pth", soup_function=mock.Mock()
@@ -136,6 +151,7 @@ class TestBlendService(_SoupTree):
         self.assertEqual(result.output_path, self.ckpt_dir / "mix.pth")
 
     def test_weight_count_mismatch_is_invalid(self) -> None:
+        """Verify a weight/donor count mismatch is an invalid request."""
         self.add_vaults("psnr", "lpips")
         fn = mock.Mock()
         with self.assertRaises(SoupInvalidRequest):
@@ -144,6 +160,8 @@ class TestBlendService(_SoupTree):
 
 
 class TestSoupRoute(_SoupTree):
+    """Tests for the soup REST route."""
+
     def setUp(self) -> None:
         super().setUp()
         app = FastAPI()
@@ -156,10 +174,12 @@ class TestSoupRoute(_SoupTree):
         self.addCleanup(patcher.stop)
 
     def post(self, body: dict[str, Any] | None = None) -> Any:
+        """POST to the soup route, with ``body`` as JSON when given."""
         url = f"/api/models/{MODEL}/soup"
         return self.client.post(url, json=body) if body is not None else self.client.post(url)
 
     def test_empty_body_blends_all_vaults(self) -> None:
+        """Verify an empty body blends all vaults."""
         self.add_vaults("psnr", "lpips")
         res = self.post()
         self.assertEqual(res.status_code, 200, res.text)
@@ -171,6 +191,7 @@ class TestSoupRoute(_SoupTree):
         self.assertEqual(len(self.soup_fn.call_args.args[0]), 2)
 
     def test_explicit_donors_and_weights(self) -> None:
+        """Verify explicit donors and weights are forwarded."""
         self.add_vaults("psnr", "lpips", "ssim")
         res = self.post({"donors": ["psnr", "lpips"], "weights": [0.7, 0.3]})
         self.assertEqual(res.status_code, 200, res.text)
@@ -178,6 +199,7 @@ class TestSoupRoute(_SoupTree):
         self.assertEqual(self.soup_fn.call_args.kwargs["weights"], [0.7, 0.3])
 
     def test_missing_checkpoints_return_404(self) -> None:
+        """Verify missing checkpoints return 404."""
         self.add_vaults("psnr")
         res = self.post({"donors": ["psnr", "lpips"]})
         self.assertEqual(res.status_code, 404)
@@ -185,10 +207,12 @@ class TestSoupRoute(_SoupTree):
         self.soup_fn.assert_not_called()
 
     def test_unknown_model_returns_404(self) -> None:
+        """Verify an unknown model returns 404."""
         res = self.client.post("/api/models/unknown_model/soup")
         self.assertEqual(res.status_code, 404)
 
     def test_single_checkpoint_returns_422(self) -> None:
+        """Verify a single checkpoint returns 422."""
         self.add_vaults("psnr")
         res = self.post()
         self.assertEqual(res.status_code, 422)
@@ -199,6 +223,7 @@ class TestCliUsesSharedService(unittest.TestCase):
     """lemtrain imports torch-backed services, so check the soup command's source instead."""
 
     def test_soup_command_delegates_to_service(self) -> None:
+        """Verify the CLI soup command delegates to the shared service."""
         src_path = Path(model_soup.__file__).resolve().parent / "cli" / "lemtrain.py"
         tree = ast.parse(src_path.read_text(encoding="utf-8"))
         fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "soup")
@@ -219,6 +244,7 @@ class TestCliUsesSharedService(unittest.TestCase):
         self.assertNotIn("LemGendaryModels", ast.unparse(fn))
 
     def test_route_delegates_to_service(self) -> None:
+        """Verify the REST route uses the shared blend service."""
         self.assertIs(soup_route.blend_model_soup, blend_model_soup)
 
 

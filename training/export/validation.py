@@ -40,6 +40,17 @@ class VariationValidationReport:
     warnings: list[str] = field(default_factory=list)
 
 
+def _warn_unexpected_names(
+    report: VariationValidationReport, binaries: list[Path], expected_name: str
+) -> None:
+    """Record a warning for each binary not named after the canonical model stem."""
+    for binary in binaries:
+        if binary.name != expected_name:
+            report.warnings.append(
+                f"Binary '{binary.name}' does not match the canonical name '{expected_name}'."
+            )
+
+
 @dataclass
 class IsolationReport:
     """Comprehensive isolation report for all model variations."""
@@ -66,7 +77,7 @@ class IsolationReport:
 
 
 class StrictIsolationValidator:
-    """Audits staged variation directories to guarantee strict binary isolation across all 4 variations."""
+    """Audits staged variation directories for strict binary isolation across all 4 variations."""
 
     ALLOWED_EXTENSIONS_BY_VARIATION: ClassVar[dict[str, set[str]]] = {
         PYTORCH_DEFAULT.key: {".md", ".csv", ".pth"},
@@ -101,10 +112,10 @@ class StrictIsolationValidator:
 
         entries = list(variation_dir.iterdir())
         files = [p for p in entries if p.is_file()]
-        dirs = [p for p in entries if p.is_dir()]
         report.files_found = [p.name for p in entries]
 
-        # 1. Reject rogue .pt or .onnx binary files (and metadata files if staged in isolated subfolder)
+        # 1. Reject rogue .pt or .onnx binary files (and metadata files if staged in isolated
+        # subfolder)
         is_hub_root = (variation_dir / "checkpoints").exists() and (variation_dir / "dist").exists()
         forbidden_substrings = (
             (".pt", ".onnx")
@@ -154,7 +165,8 @@ class StrictIsolationValidator:
             if f.suffix not in allowed_exts:
                 report.is_valid = False
                 report.errors.append(
-                    f"Foreign file detected in pytorch/fp32 variation: '{f.name}'. Only *.pt files are permitted."
+                    f"Foreign file detected in pytorch/fp32 variation: '{f.name}'. Only *.pt "
+                    "files are permitted."
                 )
 
         # 2. Check for expected binary
@@ -165,8 +177,10 @@ class StrictIsolationValidator:
         elif len(pt_files) > 1:
             report.is_valid = False
             report.errors.append(
-                f"Multiple .pt files detected in pytorch/fp32 variation: {[f.name for f in pt_files]}"
+                "Multiple .pt files detected in pytorch/fp32 variation: "
+                f"{[f.name for f in pt_files]}"
             )
+        _warn_unexpected_names(report, pt_files, f"{expected_stem}.pt")
 
         return report
 
@@ -207,6 +221,7 @@ class StrictIsolationValidator:
         if not onnx_files:
             report.is_valid = False
             report.errors.append("No .onnx file found in onnx/fp32 variation directory.")
+        _warn_unexpected_names(report, onnx_files, f"{expected_stem}_FP32.onnx")
 
         return report
 
@@ -235,7 +250,8 @@ class StrictIsolationValidator:
             elif f.suffix != ".onnx":
                 report.is_valid = False
                 report.errors.append(
-                    f"Foreign file detected in onnx/fp16 variation: '{f.name}'. Only *.onnx files are permitted."
+                    f"Foreign file detected in onnx/fp16 variation: '{f.name}'. Only *.onnx files "
+                    "are permitted."
                 )
 
         onnx_files = [f for f in files if f.suffix == ".onnx"]
@@ -247,6 +263,7 @@ class StrictIsolationValidator:
             report.errors.append(
                 f"Multiple .onnx files found in onnx/fp16 variation: {[f.name for f in onnx_files]}"
             )
+        _warn_unexpected_names(report, onnx_files, f"{expected_stem}.onnx")
 
         return report
 
@@ -260,18 +277,17 @@ class StrictIsolationValidator:
         expected_stem = self._resolve_stem(model_key)
         if variation_key == PYTORCH_DEFAULT.key:
             return self.validate_pytorch_default_variation(variation_dir)
-        elif variation_key == PYTORCH_FP32.key:
+        if variation_key == PYTORCH_FP32.key:
             return self.validate_pytorch_fp32_variation(variation_dir, expected_stem)
-        elif variation_key == ONNX_FP32.key:
+        if variation_key == ONNX_FP32.key:
             return self.validate_onnx_fp32_variation(variation_dir, expected_stem)
-        elif variation_key == ONNX_FP16.key:
+        if variation_key == ONNX_FP16.key:
             return self.validate_onnx_fp16_variation(variation_dir, expected_stem)
-        else:
-            rep = VariationValidationReport(
-                variation=variation_key, directory=variation_dir, is_valid=False
-            )
-            rep.errors.append(f"Unknown variation key: '{variation_key}'")
-            return rep
+        rep = VariationValidationReport(
+            variation=variation_key, directory=variation_dir, is_valid=False
+        )
+        rep.errors.append(f"Unknown variation key: '{variation_key}'")
+        return rep
 
     def validate_all(
         self,

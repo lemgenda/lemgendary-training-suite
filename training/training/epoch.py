@@ -6,12 +6,14 @@ forward passes under AMP autocast, gradient accumulation, and telemetry collecti
 
 from __future__ import annotations
 
+import gc
 import logging
 import time
 from contextlib import nullcontext
 from typing import Any
 
 import torch
+import torch.distributed as dist
 
 from training.training.amp import get_autocast_context, safe_backward
 from training.training.context import TrainingContext
@@ -102,10 +104,10 @@ def train_one_epoch(
         and ctx.resume_state.is_intra_epoch
         and ctx.resume_state.phase == "train"
         and ctx.resume_state.iteration > 0
-        and not getattr(ctx, "_resumed_train_step_handled", False)
+        and not ctx.resumed_train_step_handled
     ):
         resume_step = ctx.resume_state.iteration
-        ctx._resumed_train_step_handled = True
+        ctx.resumed_train_step_handled = True
         print(
             f"[RESUME] Fast-forwarding {resume_step} completed batches in Epoch {epoch}...",
             flush=True,
@@ -126,7 +128,8 @@ def train_one_epoch(
             if (batch_idx + 1) % ff_interval == 0 or (batch_idx + 1) == resume_step:
                 ff_pct = ((batch_idx + 1) / max(1, num_batches)) * 100.0
                 print(
-                    f"  [FAST-FORWARD] [BATCH {batch_idx + 1:>{len(str(num_batches))}}/{num_batches}] "
+                    "  [FAST-FORWARD] [BATCH "
+                    f"{batch_idx + 1:>{len(str(num_batches))}}/{num_batches}] "
                     f"({ff_pct:.1f}%) Skipping processed training batches...",
                     flush=True,
                 )
@@ -164,7 +167,7 @@ def train_one_epoch(
                 and ctx.parallel_strategy is not None
                 and hasattr(ctx.parallel_strategy, "backward_context")
             ):
-                bwd_ctx = ctx.parallel_strategy.backward_context(ctx.accumulation_steps)
+                bwd_ctx = ctx.parallel_strategy.backward_context()
 
             # Scale loss, compute backward, and collect gradient norm at step boundary
             with bwd_ctx:
@@ -177,31 +180,27 @@ def train_one_epoch(
                     should_unscale=is_update_step,
                 )
         except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
-            if "out of memory" in str(oom_err).lower() or isinstance(
-                oom_err, torch.cuda.OutOfMemoryError
-            ):
-                if ctx.optimizer is not None:
-                    ctx.optimizer.zero_grad(set_to_none=True)
-
-            # Periodic cache clearing to prevent virtual address fragmentation on <=16GB GPUs
-            if (batch_idx + 1) % 50 == 0 and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                if hasattr(ctx.governor, "handle_oom"):
-                    curr_b = getattr(ctx.train_loader, "batch_size", 16) or 16
-                    new_b, new_acc = ctx.governor.handle_oom(current_batch=curr_b)
-                    ctx.accumulation_steps = new_acc
-                else:
-                    import gc
-
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                print(
-                    f"\n  [TRAIN WARNING] VRAM OOM intercepted on batch {batch_idx + 1}. Governor active mitigation applied.",
-                    flush=True,
-                )
-                continue
-            raise oom_err
+            is_oom = isinstance(oom_err, torch.cuda.OutOfMemoryError) or (
+                "out of memory" in str(oom_err).lower()
+            )
+            if not is_oom:
+                raise
+            if ctx.optimizer is not None:
+                ctx.optimizer.zero_grad(set_to_none=True)
+            if hasattr(ctx.governor, "handle_oom"):
+                curr_b = getattr(ctx.train_loader, "batch_size", 16) or 16
+                _, new_acc = ctx.governor.handle_oom(current_batch=curr_b)
+                ctx.accumulation_steps = new_acc
+            else:
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            print(
+                f"\n  [TRAIN WARNING] VRAM OOM intercepted on batch {batch_idx + 1}. Governor "
+                "active mitigation applied.",
+                flush=True,
+            )
+            continue
 
         total_loss += float(raw_loss.item())
         total_grad_norm += grad_norm
@@ -219,6 +218,10 @@ def train_one_epoch(
 
             ctx.optimizer.zero_grad(set_to_none=True)
 
+        # Periodic cache clearing to prevent virtual address fragmentation on <=16GB GPUs
+        if (batch_idx + 1) % 50 == 0 and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         # Intra-epoch progress check (15 min interval, strictly bounded to [5%, 50%])
         if ctx.lifecycle_manager is not None:
             raw_m = ctx.raw_model if ctx.raw_model is not None else ctx.model
@@ -232,7 +235,7 @@ def train_one_epoch(
                 phase="train",
                 step=batch_idx + 1,
                 total_steps=num_batches,
-                payload_builder=lambda: {
+                payload_builder=lambda raw_m=raw_m, train_acc_snapshot=train_acc_snapshot: {
                     "epoch": epoch,
                     "model_name": ctx.model_name,
                     "model_state": raw_m.state_dict(),
@@ -248,13 +251,13 @@ def train_one_epoch(
             )
 
         now = time.time()
-        is_warmup = (batch_idx + 1) in (1, 2, 5, 10) or (step_count - resume_step in (1, 2, 5, 10))
+        batch_num = batch_idx + 1
+        is_warmup = batch_num in (1, 2, 5, 10) or step_count - resume_step in (1, 2, 5, 10)
         time_elapsed_since_log = now - last_log_time
-        is_periodic = ((batch_idx + 1) % log_interval == 0) or ((batch_idx + 1) == num_batches)
+        is_periodic = batch_num % log_interval == 0 or batch_num == num_batches
         is_heartbeat = time_elapsed_since_log >= 8.0 and (batch_idx + 1) > 10
 
         # In multi-GPU DDP, only rank 0 prints progress
-        import torch.distributed as dist
 
         is_main_proc = not (dist.is_available() and dist.is_initialized() and dist.get_rank() != 0)
 
@@ -301,8 +304,6 @@ def train_one_epoch(
                     f"{elapsed_batch:.1f}s"
                 )
                 print(line.ljust(90), end=end_char, flush=True)
-
-    import torch.distributed as dist
 
     if not (dist.is_available() and dist.is_initialized() and dist.get_rank() != 0):
         print(flush=True)

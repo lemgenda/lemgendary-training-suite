@@ -1,4 +1,4 @@
-"""Execution policy, AMP, cuDNN, and memory format configuration for LemGendary Model Training Suite."""
+"""Execution policy, AMP, cuDNN, and memory format configuration for LemGendary training."""
 
 import logging
 from dataclasses import dataclass
@@ -32,10 +32,10 @@ def apply_hardware_policy(
     device_info: DeviceInfo,
     config: dict[str, Any] | None = None,
 ) -> HardwarePolicyResult:
-    """
-    Apply global execution and mixed-precision policies based on accelerator capabilities and task domain.
+    """Apply execution and mixed-precision policies for the accelerator and task domain.
 
-    Forex tasks disable AMP by default due to high dynamic range / overflow risks in return distributions.
+    Forex tasks disable AMP by default due to high dynamic range / overflow risks in return
+    distributions.
     Vision and restoration models on CUDA sm_70+ utilize AMP FP16 and cuDNN benchmarking.
     """
     cfg = config or {}
@@ -100,7 +100,8 @@ def apply_hardware_policy(
         channels_last = hw_cfg.get("channels_last", True)
 
     logger.debug(
-        "Hardware policy applied for %s: AMP=%s (%s), cuDNN Benchmark=%s, TF32=%s, Channels-Last=%s",
+        "Hardware policy applied for %s: AMP=%s (%s), cuDNN Benchmark=%s, TF32=%s, "
+        "Channels-Last=%s",
         model_key,
         amp_enabled,
         amp_dtype,

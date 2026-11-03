@@ -6,10 +6,13 @@ Verifies CLI command dispatch, error handling, help documentation, and presets v
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from typer.testing import CliRunner
 
 from training.cli.lemtrain import app
+from training.model_soup import SoupCheckpointsMissing, SoupResult
 
 runner = CliRunner()
 
@@ -35,7 +38,7 @@ class TestLemTrainCLI(unittest.TestCase):
         """Verify version command."""
         result = runner.invoke(app, ["version"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("LemGendary Model Training Suite v16.9.72", result.output)
+        self.assertIn("LemGendary Model Training Suite v16.9.73", result.output)
 
     def test_cli_presets_list(self) -> None:
         """Verify presets list outputs registered profiles."""
@@ -87,11 +90,6 @@ class TestLemTrainCLI(unittest.TestCase):
 
     def test_cli_soup_calls_shared_service(self) -> None:
         """Verify `soup` delegates to training.model_soup.blend_model_soup with parsed options."""
-        from pathlib import Path
-        from unittest import mock
-
-        from training.model_soup import SoupResult
-
         result_obj = SoupResult(
             "m",
             [Path("vault_psnr.pth"), Path("vault_lpips.pth")],
@@ -108,10 +106,6 @@ class TestLemTrainCLI(unittest.TestCase):
 
     def test_cli_soup_missing_checkpoints_exit_1(self) -> None:
         """Verify `soup` exits 1 when the service reports missing checkpoints."""
-        from unittest import mock
-
-        from training.model_soup import SoupCheckpointsMissing
-
         err = SoupCheckpointsMissing(
             "Missing vault checkpoints: vault_lpips.pth", ["vault_lpips.pth"]
         )

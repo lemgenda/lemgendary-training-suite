@@ -14,7 +14,7 @@ logger = logging.getLogger("lemtrain.dataset_delegate")
 
 
 class DatasetCompilerDelegate:
-    """Provides typed resolution of compiled manifolds and metadata from LemGendary Dataset Compiler Suite."""
+    """Typed resolution of compiled manifolds and metadata from the LemGendary Dataset Compiler."""
 
     def __init__(self, workspace_root: Path | None = None, sidecar_port: int = 8100) -> None:
         self.workspace_root = workspace_root or get_workspace_root()

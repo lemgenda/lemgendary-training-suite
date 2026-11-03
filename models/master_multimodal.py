@@ -1,3 +1,5 @@
+"""Transformers-backed multimodal wrappers (LLaVA, BLIP-2) with 4-bit QLoRA."""
+
 import logging
 
 import torch
@@ -6,13 +8,13 @@ from torch import nn
 logger = logging.getLogger("lemtrain.models.master_multimodal")
 
 
-class LLaVA_v1_5(nn.Module):
+class LLaVAv15(nn.Module):
     """
     LemGendary LLaVA v1.5 Master Wrapper (v2.0 Hardened).
     Implements 4-bit Quantization and LoRA for Phase 5 Multimodal Training.
     """
 
-    def __init__(self, checkpoint=None, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__()
         from transformers import BitsAndBytesConfig, LlavaNextForConditionalGeneration
 
@@ -50,6 +52,7 @@ class LLaVA_v1_5(nn.Module):
             print("[WARNING] [RESILIENCE] PEFT not found. LLaVA remains in Standard mode.")
 
     def forward(self, input_ids, attention_mask=None, pixel_values=None, labels=None):
+        """Delegate to the wrapped LLaVA model."""
         return self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -58,13 +61,13 @@ class LLaVA_v1_5(nn.Module):
         )
 
 
-class BLIP_2(nn.Module):
+class BLIP2(nn.Module):
     """
     LemGendary BLIP-2 Master Wrapper (v2.0 Hardened).
     Implements QLoRA for efficient cross-modal reasoning.
     """
 
-    def __init__(self, checkpoint=None, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__()
         from transformers import BitsAndBytesConfig, Blip2ForConditionalGeneration
 
@@ -99,6 +102,7 @@ class BLIP_2(nn.Module):
             logger.warning("PEFT not installed; BLIP-2 running without QLoRA adapters: %s", exc)
 
     def forward(self, input_ids, attention_mask=None, pixel_values=None, labels=None):
+        """Delegate to the wrapped BLIP-2 model."""
         return self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,

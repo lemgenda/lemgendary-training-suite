@@ -17,6 +17,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
@@ -45,7 +46,7 @@ class TestOpenAPIAndContract(unittest.TestCase):
         self.assertEqual(data.get("openapi"), "3.1.0")
         info = data.get("info", {})
         self.assertEqual(info.get("title"), "LemGendary Model Training Suite Sidecar API")
-        self.assertEqual(info.get("version"), "16.9.72")
+        self.assertEqual(info.get("version"), "16.9.73")
 
         paths = data.get("paths", {})
         required_paths = [
@@ -86,8 +87,7 @@ class TestDesktopGUIAndPresets(unittest.TestCase):
     """Verify Desktop GUI routes and canonical presets execution."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
+        self.root = Path(tempfile.mkdtemp())
         real_root = get_project_root()
 
         # Copy canonical presets.yaml and unified_models_v2.yaml
@@ -97,7 +97,10 @@ class TestDesktopGUIAndPresets(unittest.TestCase):
 
         self.state = ServerState(project_root=self.root)
         self.app = create_app(project_root=self.root, enforce_auth=False)
-        self.app.state.job_manager._run_job_worker = lambda *args, **kwargs: None
+        # Stub the background worker so submitted jobs never start a real training run.
+        worker_patch = mock.patch.object(self.app.state.job_manager, "_run_job_worker")
+        worker_patch.start()
+        self.addCleanup(worker_patch.stop)
         self.client = TestClient(self.app)
 
     def tearDown(self) -> None:
@@ -105,9 +108,9 @@ class TestDesktopGUIAndPresets(unittest.TestCase):
             self.app.state.job_manager.shutdown()
         self.client.close()
         try:
-            self.temp_dir.cleanup()
+            shutil.rmtree(self.root)
         except OSError as exc:
-            _log.warning("Temp dir cleanup failed for %s: %s", self.temp_dir.name, exc)
+            _log.warning("Temp dir cleanup failed for %s: %s", self.root, exc)
 
     def test_gui_state_snapshot(self) -> None:
         """Verify GET /api/gui/state returns unified dashboard snapshot."""

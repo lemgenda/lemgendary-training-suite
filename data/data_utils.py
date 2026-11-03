@@ -1,3 +1,5 @@
+"""Dataset acquisition helpers: disk-space checks and Kaggle dataset recovery."""
+
 import logging
 import os
 import shutil
@@ -18,7 +20,8 @@ def check_disk_space(required_bytes, target_path):
 
     if free_bytes < needed_with_buffer:
         print(
-            f"[WARNING] [LOW DISK] Available: {free_bytes / (1024**3):.1f}GB | Needed: {needed_with_buffer / (1024**3):.1f}GB"
+            f"[WARNING] [LOW DISK] Available: {free_bytes / (1024**3):.1f}GB | "
+            f"Needed: {needed_with_buffer / (1024**3):.1f}GB"
         )
         return False
     return True
@@ -58,7 +61,7 @@ def _handle_kaggle(ds_name, data_dir, config, ref):
         # Inject Kaggle authentication from local token to prevent 403 errors
         token_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".kaggle_token")
         if os.path.exists(token_path):
-            with open(token_path, "r") as f:
+            with open(token_path, "r", encoding="utf-8") as f:
                 token = f.read().strip()
             token = token.removeprefix("KGAT_")
             os.environ["KAGGLE_USERNAME"] = username
@@ -95,6 +98,6 @@ def _handle_kaggle(ds_name, data_dir, config, ref):
         print(f"[OK] [DATA] {ds_name} successfully synchronized to manifold.")
         return True
     except acquisition_errors as e:
-        logger.error("Acquisition failed for %s: %s", ds_name, e, exc_info=True)
+        logger.exception("Acquisition failed for %s", ds_name)
         print(f"[ERROR] [DATA ERROR] Acquisition failed for {ds_name}: {e}")
         return False

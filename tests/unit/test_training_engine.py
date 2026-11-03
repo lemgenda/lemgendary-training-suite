@@ -40,6 +40,7 @@ class SimpleModel(nn.Module):
         self.fc2 = nn.Linear(4, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the two linear layers with a ReLU in between."""
         return self.fc2(torch.relu(self.fc1(x)))
 
 
@@ -59,7 +60,7 @@ class TestTrainingEngine(unittest.TestCase):
         )
 
     def test_optimizer_and_scheduler_builders(self) -> None:
-        """Verify optimizer and scheduler factories construct proper parameter groups and schedules."""
+        """Verify optimizer/scheduler factories build proper parameter groups and schedules."""
         model = SimpleModel()
         config = {
             "optimizer": {"type": "adamw", "lr": 1e-3, "weight_decay": 0.05},
@@ -210,14 +211,17 @@ class TestTrainingEngine(unittest.TestCase):
             self.assertTrue(len(summary.best_metrics) > 0)
 
     def test_validate_one_epoch_forex(self) -> None:
-        """Verify validate_one_epoch computes directional and pip regression metrics for Forex models."""
+        """Verify validate_one_epoch computes direction and pip-regression metrics for Forex."""
 
         class MockForexModel(nn.Module):
+            """Forex model stub that always predicts BUY with fixed magnitudes."""
+
             def __init__(self) -> None:
                 super().__init__()
                 self.fc = nn.Linear(8, 3)
 
             def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+                """Return constant BUY direction logits and magnitude predictions."""
                 bs = x.shape[0]
                 dir_logits = torch.zeros(bs, 3)
                 dir_logits[:, 2] = 2.0  # Predict BUY
@@ -228,7 +232,10 @@ class TestTrainingEngine(unittest.TestCase):
                 }
 
         model = MockForexModel()
-        criterion = lambda p, t: torch.tensor(0.25)
+
+        def criterion(_preds, _targets):
+            return torch.tensor(0.25)
+
         x_val = torch.randn(4, 8)
         targets = {
             "direction": torch.tensor([2, 2, 0, 1], dtype=torch.long),
@@ -236,6 +243,8 @@ class TestTrainingEngine(unittest.TestCase):
         }
 
         class MockForexValLoader:
+            """Validation loader stub yielding a single forex batch."""
+
             def __iter__(self):
                 yield x_val, targets
 

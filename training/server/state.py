@@ -217,7 +217,8 @@ class ServerState:
             cursor = conn.execute(
                 """
                 UPDATE jobs
-                SET status = 'failed', completed_at = ?, error_message = 'Interrupted by server restart'
+                SET status = 'failed', completed_at = ?,
+                    error_message = 'Interrupted by server restart'
                 WHERE status IN ('running', 'pending');
                 """,
                 (now,),

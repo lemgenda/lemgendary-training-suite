@@ -6,9 +6,11 @@ Verifies ServerState, SQLite WAL persistence, JobManager, REST endpoints, and to
 from __future__ import annotations
 
 import logging
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 from fastapi.testclient import TestClient
@@ -24,8 +26,7 @@ class TestServerSubsystem(unittest.TestCase):
     """Test suite for server state, SQLite persistence, and REST endpoints."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
+        self.root = Path(tempfile.mkdtemp())
 
         # Create dummy presets.yaml
         presets_data = {
@@ -73,9 +74,9 @@ class TestServerSubsystem(unittest.TestCase):
 
     def tearDown(self) -> None:
         try:
-            self.temp_dir.cleanup()
+            shutil.rmtree(self.root)
         except OSError as exc:
-            _log.warning("Temp dir cleanup failed for %s: %s", self.temp_dir.name, exc)
+            _log.warning("Temp dir cleanup failed for %s: %s", self.root, exc)
 
     def test_state_db_and_tokens(self) -> None:
         """Verify SQLite DB initialization, WAL mode, token generation, and PID tracking."""
@@ -179,7 +180,10 @@ class TestServerSubsystem(unittest.TestCase):
             self.assertEqual(gui_state["models_count"], 1)
 
             # 6. Job submission & cancellation
-            app.state.job_manager._run_job_worker = lambda *args: None
+            # Stub the background worker so submitted jobs never start a real training run.
+            worker_patch = mock.patch.object(app.state.job_manager, "_run_job_worker")
+            worker_patch.start()
+            self.addCleanup(worker_patch.stop)
             job_payload = {"model": "test_model", "epochs": 2, "batch_size": 4}
             resp = client.post("/api/training/train", json=job_payload)
             self.assertEqual(resp.status_code, 200)

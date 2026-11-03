@@ -6,13 +6,16 @@ loss metrics, PSNR/SSIM reconstruction fidelity, or classification scores.
 
 from __future__ import annotations
 
+import gc
 import logging
 import math
 import time
+from functools import partial
 from typing import Any
 
 import numpy as np
 import torch
+import torch.distributed as dist
 
 from training.training.amp import compute_ssim_gpu, get_autocast_context
 from training.training.context import TrainingContext
@@ -20,9 +23,11 @@ from training.training.epoch import _unpack_batch
 
 logger = logging.getLogger("lemtrain.training.validation")
 
-# Failure modes of per-batch metric math on model outputs (shape/dtype mismatch, CUDA/OOM, bad indexing).
+# Failure modes of per-batch metric math on model outputs (shape/dtype mismatch, CUDA/OOM, bad
+# indexing).
 _METRIC_ERRORS: tuple[type[BaseException], ...] = (RuntimeError, ValueError, TypeError, IndexError)
-# Failure modes of constructing torchmetrics modules (missing backends, weight download/cache, device move).
+# Failure modes of constructing torchmetrics modules (missing backends, weight download/cache,
+# device move).
 _METRIC_INIT_ERRORS: tuple[type[BaseException], ...] = (
     ImportError,
     OSError,
@@ -163,12 +168,13 @@ def validate_one_epoch(
         and ctx.resume_state.is_intra_epoch
         and ctx.resume_state.phase == "val"
         and ctx.resume_state.iteration > 0
-        and not getattr(ctx, "_resumed_val_step_handled", False)
+        and not ctx.resumed_val_step_handled
     ):
         resume_step = ctx.resume_state.iteration
-        ctx._resumed_val_step_handled = True
+        ctx.resumed_val_step_handled = True
         print(
-            f"[RESUME] Fast-forwarding {resume_step} completed validation batches in Epoch {epoch}...",
+            f"[RESUME] Fast-forwarding {resume_step} completed validation batches in Epoch "
+            f"{epoch}...",
             flush=True,
         )
 
@@ -214,7 +220,8 @@ def validate_one_epoch(
                 if (batch_idx + 1) % ff_interval == 0 or (batch_idx + 1) == resume_step:
                     ff_pct = ((batch_idx + 1) / max(1, num_val_batches)) * 100.0
                     print(
-                        f"  [FAST-FORWARD] [VAL BATCH {batch_idx + 1:>{len(str(num_val_batches))}}/{num_val_batches}] "
+                        "  [FAST-FORWARD] [VAL BATCH "
+                        f"{batch_idx + 1:>{len(str(num_val_batches))}}/{num_val_batches}] "
                         f"({ff_pct:.1f}%) Skipping processed validation batches...",
                         flush=True,
                     )
@@ -248,22 +255,22 @@ def validate_one_epoch(
                     if hasattr(ctx.governor, "handle_oom"):
                         ctx.governor.handle_oom()
                     else:
-                        import gc
-
                         gc.collect()
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
                     print(
-                        f"\n  [VAL WARNING] VRAM OOM intercepted on val batch {batch_idx + 1}. Cache evacuated and recovered.",
+                        f"\n  [VAL WARNING] VRAM OOM intercepted on val batch {batch_idx + 1}. "
+                        "Cache evacuated and recovered.",
                         flush=True,
                     )
                     continue
-                raise oom_err
+                raise
 
             total_loss += float(loss.item())
             step_count += 1
 
-            # Intra-epoch progress check during validation (15 min interval, strictly bounded to [5%, 50%])
+            # Intra-epoch progress check during validation (15 min interval, strictly bounded to
+            # [5%, 50%])
             if ctx.lifecycle_manager is not None:
                 total_val = len(ctx.val_loader) if hasattr(ctx.val_loader, "__len__") else 0
                 val_acc_snapshot = {
@@ -296,8 +303,8 @@ def validate_one_epoch(
                 }
 
                 def _build_progress_payload(
-                    target_model: torch.nn.Module = raw_m,
-                    acc_dict: dict[str, Any] = val_acc_snapshot,
+                    target_model: torch.nn.Module,
+                    acc_dict: dict[str, Any],
                 ) -> dict[str, Any]:
                     return {
                         "epoch": epoch,
@@ -319,7 +326,7 @@ def validate_one_epoch(
                     phase="val",
                     step=step_count,
                     total_steps=total_val,
-                    payload_builder=_build_progress_payload,
+                    payload_builder=partial(_build_progress_payload, raw_m, val_acc_snapshot),
                 )
 
             # Validation batch telemetry progress logging
@@ -328,8 +335,6 @@ def validate_one_epoch(
             time_elapsed_since_log = now - last_log_time
             is_periodic = (step_count % log_interval == 0) or (step_count == num_val_batches)
             is_heartbeat = time_elapsed_since_log >= 8.0 and step_count > 10
-
-            import torch.distributed as dist
 
             is_main_proc = not (
                 dist.is_available() and dist.is_initialized() and dist.get_rank() != 0
@@ -361,7 +366,8 @@ def validate_one_epoch(
                     )
 
                     line = (
-                        f"\r  [VAL BATCH {step_count:>{len(str(num_val_batches))}}/{num_val_batches}] "
+                        "\r  [VAL BATCH "
+                        f"{step_count:>{len(str(num_val_batches))}}/{num_val_batches}] "
                         f"({pct:.2f}%) "
                         f"ValLoss: {batch_loss:.4f} | "
                         f"AvgValLoss: {total_loss / step_count:.4f} | "
@@ -423,7 +429,8 @@ def validate_one_epoch(
 
                     if lpips_metric_module is not None and lpips_metric_module is not False:
                         try:
-                            # Evaluate LPIPS with micro-batching (1 image per forward) and explicit cache clearing
+                            # Evaluate LPIPS with micro-batching (1 image per forward) and explicit
+                            # cache clearing
                             p_scaled = (torch.clamp(eval_pred, 0.0, 1.0) * 2.0 - 1.0).float()
                             t_scaled = (torch.clamp(eval_target, 0.0, 1.0) * 2.0 - 1.0).float()
                             b_sz = p_scaled.size(0)
@@ -490,46 +497,44 @@ def validate_one_epoch(
                 is_quality_model
                 and isinstance(preds, torch.Tensor)
                 and isinstance(targets, torch.Tensor)
+                and preds.ndim >= 2
+                and targets.ndim >= 2
+                and preds.shape[-1] >= 10
+                and targets.shape[-1] >= 10
             ):
-                if (
-                    preds.ndim >= 2
-                    and targets.ndim >= 2
-                    and preds.shape[-1] >= 10
-                    and targets.shape[-1] >= 10
-                ):
-                    try:
-                        p_probs = torch.softmax(preds.float(), dim=-1)
-                        t_probs = targets.float() / torch.clamp(
-                            targets.float().sum(dim=-1, keepdim=True), min=1e-6
-                        )
-                        rank_w = torch.arange(1, 11, dtype=torch.float32, device=preds.device)
-                        p_mean = (p_probs * rank_w).sum(dim=-1).detach().cpu().numpy().tolist()
-                        t_mean = (t_probs * rank_w).sum(dim=-1).detach().cpu().numpy().tolist()
-                        quality_preds_list.extend(p_mean)
-                        quality_targets_list.extend(t_mean)
+                try:
+                    p_probs = torch.softmax(preds.float(), dim=-1)
+                    t_probs = targets.float() / torch.clamp(
+                        targets.float().sum(dim=-1, keepdim=True), min=1e-6
+                    )
+                    rank_w = torch.arange(1, 11, dtype=torch.float32, device=preds.device)
+                    p_mean = (p_probs * rank_w).sum(dim=-1).detach().cpu().numpy().tolist()
+                    t_mean = (t_probs * rank_w).sum(dim=-1).detach().cpu().numpy().tolist()
+                    quality_preds_list.extend(p_mean)
+                    quality_targets_list.extend(t_mean)
 
-                        # Rank margin loss tracking
-                        if preds.size(0) > 1 and "rank_margin" in sota_cfg:
-                            p_diff = (
-                                preds.float()[:, 0] - preds.float()[:, 1]
-                                if preds.size(0) == 2
-                                else None
+                    # Rank margin loss tracking
+                    if preds.size(0) > 1 and "rank_margin" in sota_cfg:
+                        p_diff = (
+                            preds.float()[:, 0] - preds.float()[:, 1]
+                            if preds.size(0) == 2
+                            else None
+                        )
+                        p_m_t = (p_probs * rank_w).sum(dim=-1)
+                        t_m_t = (t_probs * rank_w).sum(dim=-1)
+                        p_diff = p_m_t.unsqueeze(0) - p_m_t.unsqueeze(1)
+                        t_diff = t_m_t.unsqueeze(0) - t_m_t.unsqueeze(1)
+                        t_sign = torch.sign(t_diff)
+                        margin_val = float(sota_cfg.get("rank_margin", 0.05))
+                        rank_loss = torch.relu(margin_val - t_sign * p_diff)
+                        mask = (t_sign != 0).float()
+                        if mask.sum() > 0:
+                            total_rank_margin_loss += float(
+                                (rank_loss * mask).sum().item() / mask.sum().item()
                             )
-                            p_m_t = (p_probs * rank_w).sum(dim=-1)
-                            t_m_t = (t_probs * rank_w).sum(dim=-1)
-                            p_diff = p_m_t.unsqueeze(0) - p_m_t.unsqueeze(1)
-                            t_diff = t_m_t.unsqueeze(0) - t_m_t.unsqueeze(1)
-                            t_sign = torch.sign(t_diff)
-                            margin_val = float(sota_cfg.get("rank_margin", 0.05))
-                            rank_loss = torch.relu(margin_val - t_sign * p_diff)
-                            mask = (t_sign != 0).float()
-                            if mask.sum() > 0:
-                                total_rank_margin_loss += float(
-                                    (rank_loss * mask).sum().item() / mask.sum().item()
-                                )
-                                rank_margin_count += 1
-                    except _METRIC_ERRORS as exc:
-                        logger.warning("Quality metrics evaluation error: %s", exc)
+                            rank_margin_count += 1
+                except _METRIC_ERRORS as exc:
+                    logger.warning("Quality metrics evaluation error: %s", exc)
 
             # 3. Categorical Classification (universal_nsfw_classification, nima_authenticity)
             if "accuracy" in sota_cfg and not has_forex_metrics:
@@ -633,8 +638,8 @@ def validate_one_epoch(
                         else None
                     )
 
-                    for idx in range(len(dirs_np)):
-                        p_d = int(dirs_np[idx])
+                    for idx, pred_d in enumerate(dirs_np):
+                        p_d = int(pred_d)
                         t_d = int(targets_np[idx])
                         tp_val = float(mags_np[idx, 0]) if mags_np is not None else 15.0
                         sl_val = float(mags_np[idx, 1]) if mags_np is not None else 15.0
@@ -659,8 +664,6 @@ def validate_one_epoch(
         in ("GenericCausalLLM", "AIHelperLemGend")
     )
     if is_llm_model and avg_loss < 20.0:
-        import math
-
         try:
             results["perplexity"] = float(math.exp(avg_loss))
         except OverflowError:

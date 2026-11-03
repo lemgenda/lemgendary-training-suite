@@ -20,13 +20,13 @@ def generate_fixtures() -> None:
     TARGETS_DIR.mkdir(parents=True, exist_ok=True)
     LABELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    rng = np.random.RandomState(42)
+    rng = np.random.default_rng(42)
 
     # 1. Generate 8 synthetic 64x64 images, targets, and labels
     for idx in range(8):
         name = f"sample_{idx:03d}"
-        img_arr = rng.randint(0, 256, (64, 64, 3), dtype=np.uint8)
-        target_arr = rng.randint(0, 256, (64, 64, 3), dtype=np.uint8)
+        img_arr = rng.integers(0, 256, (64, 64, 3), dtype=np.uint8)
+        target_arr = rng.integers(0, 256, (64, 64, 3), dtype=np.uint8)
 
         img = Image.fromarray(img_arr)
         target = Image.fromarray(target_arr)

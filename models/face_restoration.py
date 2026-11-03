@@ -1,7 +1,11 @@
+"""Face restoration (CodeFormer-style) and face parsing (ParseNet) models."""
+
 from torch import nn
 
 
 class ResidualBlock(nn.Module):
+    """Conv-InstanceNorm residual block."""
+
     def __init__(self, channels):
         super().__init__()
         self.conv1 = nn.Conv2d(channels, channels, 3, padding=1, bias=False)
@@ -11,6 +15,7 @@ class ResidualBlock(nn.Module):
         self.norm2 = nn.InstanceNorm2d(channels)
 
     def forward(self, x):
+        """Return ``x`` plus the two-conv residual branch."""
         residual = x
         out = self.conv1(x)
         out = self.norm1(out)
@@ -53,6 +58,7 @@ class UNetBackbone(nn.Module):
         self.final = nn.Conv2d(base_channels, out_c, 3, padding=1)
 
     def forward(self, x):
+        """Run the UNet encoder/decoder with skip connections."""
         e1 = self.enc1(x)
         e2 = self.enc2(self.down1(e1))
 
@@ -75,6 +81,7 @@ class CodeFormer(nn.Module):
         self.unet = UNetBackbone(3, 3, 64)
 
     def forward(self, x):
+        """Return the input plus the UNet-predicted residual."""
         # In CodeFormer, the output is often a residual of the input
         return x + self.unet(x)
 
@@ -91,4 +98,5 @@ class ParseNet(nn.Module):
         self.unet = UNetBackbone(3, 19, 32)
 
     def forward(self, x):
+        """Return per-pixel logits for the 19 face-parsing classes."""
         return self.unet(x)

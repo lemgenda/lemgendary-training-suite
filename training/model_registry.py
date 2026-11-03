@@ -1,3 +1,5 @@
+"""Legacy model utilities: VRAM audit re-export, pruned path search, robust state-dict loading."""
+
 import os
 
 from training.hardware.probe import audit_hardware_vram
@@ -64,7 +66,7 @@ def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
 def load_state_dict_robust(model, state_dict, strict=True):
     """Loads a state dict dynamically handling DataParallel 'module.' prefix mismatches."""
     is_model_dp = hasattr(model, "module")
-    is_state_dict_dp = any(k.startswith("module.") for k in state_dict.keys())
+    is_state_dict_dp = any(k.startswith("module.") for k in state_dict)
 
     new_state_dict = {}
     for k, v in state_dict.items():

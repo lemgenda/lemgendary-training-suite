@@ -1,36 +1,47 @@
-# LemGendary Headless Cloud Worker - Auto-Generated
+"""LemGendary headless cloud worker (auto-generated Kaggle kernel for nima_technical)."""
+
 import os
 import subprocess
 import sys
 
-print("[OK] [CLOUD WORKER] Booting Kaggle High-VRAM GPU Environment...")
+REPO_URL = "https://github.com/lemgenda/lemgendary-training-suite.git"
+WORK_DIR = "/kaggle/working/lemgendary-training-suite"
+MODEL_KEY = "nima_technical"
 
-# Verify GPU
-subprocess.run(["nvidia-smi"])
 
-# Clone/Sync LemGendary Training Suite
-repo_url = "https://github.com/lemgenda/lemgendary-training-suite.git"
-work_dir = "/kaggle/working/lemgendary-training-suite"
+def main() -> None:
+    """Probe the GPU, clone the suite if needed, then run Kaggle training with auto-sync."""
+    print("[OK] [CLOUD WORKER] Booting Kaggle High-VRAM GPU Environment...")
 
-if not os.path.exists(work_dir):
-    print("[CLOUD] Cloning Training Suite manifold...")
-    subprocess.run(["git", "clone", "--depth", "1", repo_url, work_dir])
+    gpu_probe = subprocess.run(["nvidia-smi"], check=False)
+    if gpu_probe.returncode != 0:
+        print(
+            f"[WARNING] [CLOUD WORKER] nvidia-smi exited with {gpu_probe.returncode}; "
+            "GPU may be unavailable."
+        )
 
-os.chdir(work_dir)
-sys.path.insert(0, work_dir)
+    if not os.path.exists(WORK_DIR):
+        print("[CLOUD] Cloning Training Suite manifold...")
+        subprocess.run(["git", "clone", "--depth", "1", REPO_URL, WORK_DIR], check=True)
 
-# Launch Cloud Training with Auto-Sync
-print("[CLOUD] Launching SOTA Matrix for >> nima_technical <<...")
-cmd = [
-    sys.executable,
-    "-m",
-    "training.train",
-    "--model",
-    "nima_technical",
-    "--env",
-    "kaggle",
-    "--auto_sync",
-    "--yes",
-]
-subprocess.run(cmd)
-print("[CLOUD] Training Execution Completed.")
+    os.chdir(WORK_DIR)
+    sys.path.insert(0, WORK_DIR)
+
+    print(f"[CLOUD] Launching SOTA Matrix for >> {MODEL_KEY} <<...")
+    cmd = [
+        sys.executable,
+        "-m",
+        "training.train",
+        "--model",
+        MODEL_KEY,
+        "--env",
+        "kaggle",
+        "--auto_sync",
+        "--yes",
+    ]
+    subprocess.run(cmd, check=True)
+    print("[CLOUD] Training Execution Completed.")
+
+
+if __name__ == "__main__":
+    main()

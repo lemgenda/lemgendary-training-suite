@@ -83,8 +83,8 @@ class MetricVault:
             return None
         return sum(vals) / len(vals)
 
-    def has_plateaued(self, patience: int = 5, min_delta: float = 1e-4) -> bool:
-        """Detect whether the primary metric has failed to improve for `patience` consecutive epochs."""
+    def has_plateaued(self, patience: int = 5) -> bool:
+        """Return True when the primary metric set no new best in the last `patience` epochs."""
         if len(self.history) < patience + 1 or self.best_record is None:
             return False
 
@@ -137,7 +137,6 @@ class MetricVault:
                 reader = csv.DictReader(f)
                 for row in reader:
                     epoch = int(row.get("epoch", 0))
-                    is_best = row.get("is_best", "False").lower() in {"true", "1"}
                     ckpt_path = row.get("checkpoint_path") or None
                     metrics: dict[str, float] = {}
                     for k, v in row.items():

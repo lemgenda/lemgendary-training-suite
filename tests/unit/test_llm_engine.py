@@ -24,9 +24,12 @@ class DummyMockTokenizer:
         self.eos_token_id = 2
 
     def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+        """Map ``text`` to deterministic token ids; append EOS when ``add_special_tokens``."""
         # Simple ASCII-based deterministic token mapping
-        tokens = [max(1, ord(c) % 500) for c in text.strip()]
-        return tokens or [1]
+        tokens = [max(1, ord(c) % 500) for c in text.strip()] or [1]
+        if add_special_tokens:
+            tokens.append(self.eos_token_id)
+        return tokens
 
 
 class TestLLMEngine(unittest.TestCase):

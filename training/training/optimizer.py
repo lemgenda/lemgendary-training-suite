@@ -84,7 +84,6 @@ def build_scheduler(
     config: dict[str, Any],
     total_epochs: int,
     steps_per_epoch: int = 100,
-    reset_scheduler: bool = False,
 ) -> Any:
     """Build learning rate scheduler supporting Cosine, OneCycle, Step, and Warmup."""
     sched_config = config.get("scheduler", {})

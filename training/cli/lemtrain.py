@@ -11,16 +11,23 @@ import logging
 import socket
 import subprocess
 import sys
+import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Annotated
 
+import psutil
 import typer
+import uvicorn
+import yaml
 
-_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
+from training.cloud.errors import kagglehub_errors
+from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+from training.cloud.variations import VARIATION_BY_KEY
+from training.export.staging import VariationStagingService
+from training.registry import get_model_registry
+from training.server.app import get_app
 from training.server.state import ServerState
 from training.services.audit_service import AuditService
 from training.services.checkpoint_service import CheckpointService
@@ -29,6 +36,7 @@ from training.services.export_service import ExportService
 from training.services.notebook_service import NotebookService
 from training.services.sync_service import CloudSyncService
 from training.services.training_service import TrainingService
+from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.cli.lemtrain")
 
@@ -83,8 +91,8 @@ def soup(
     output: str | None = typer.Option(None, "--output", "-o", help="Output filename or path"),
 ) -> None:
     """Blend specialized vault checkpoints using Pareto Model Soup."""
+    # Imported here so tests can patch training.model_soup.blend_model_soup per call.
     from training.model_soup import SoupError, blend_model_soup
-    from training.utils.paths import get_project_root
 
     parsed_donors = [x.strip() for x in donors.split(",") if x.strip()] if donors else None
     try:
@@ -112,7 +120,7 @@ def soup(
 @app.command("version")
 def version() -> None:
     """Show LemGendary Training Suite version."""
-    typer.echo("LemGendary Model Training Suite v16.9.72 (Refactored & Hardened)")
+    typer.echo("LemGendary Model Training Suite v16.9.73 (Refactored & Hardened)")
 
 
 @app.command("train")
@@ -199,12 +207,14 @@ def export(
     checkpoint: str | None = typer.Option(
         None, "--checkpoint", "-c", help="Path to checkpoint file."
     ),
-    target: list[str] | None = typer.Option(
-        None,
-        "--target",
-        "-t",
-        help="Target formats ('onnx_fp32', 'onnx_fp16', 'torch_pt', 'webgpu', 'forex').",
-    ),
+    target: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--target",
+            "-t",
+            help="Target formats ('onnx_fp32', 'onnx_fp16', 'torch_pt', 'webgpu', 'forex').",
+        ),
+    ] = None,
     output_dir: str | None = typer.Option(
         None, "--output-dir", "-o", help="Target directory for binaries."
     ),
@@ -384,7 +394,8 @@ def audit_system() -> None:
     typer.echo(f"  Compute Device: {info['device_name']} ({info['device_type']})")
     typer.echo(f"  CUDA Available: {info['cuda_available']} (GPUs: {info['gpu_count']})")
     typer.echo(
-        f"  VRAM Total: {info['vram_total_gb']} GB (Allocated: {info['vram_allocated_gb']} GB, Reserved: {info['vram_reserved_gb']} GB)"
+        f"  VRAM Total: {info['vram_total_gb']} GB (Allocated: {info['vram_allocated_gb']} GB, "
+        f"Reserved: {info['vram_reserved_gb']} GB)"
     )
     typer.echo(f"  CPU Threads: {info['cpu_threads']}")
     typer.echo(f"  Disk Free: {info['disk_free_gb']} GB (Healthy: {info['disk_healthy']})")
@@ -497,7 +508,10 @@ def sync_push(
         False, "--dry-run", help="Validate isolation and metadata without uploading to Kaggle."
     ),
     source_dir: str | None = typer.Option(
-        None, "--source-dir", "-s", help="Optional custom source directory."
+        None,
+        "--source-dir",
+        "-s",
+        help="Optional LemGendaryModels root to stage and push from (default: sibling of repo).",
     ),
     username: str | None = typer.Option(
         None, "--username", "-u", help="Optional Kaggle username override."
@@ -508,19 +522,18 @@ def sync_push(
         typer.echo("[ERROR] Please specify either a model key or --all.")
         raise typer.Exit(code=1)
 
-    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-    from training.export.staging import VariationStagingService
-    from training.registry import get_model_registry
-
-    sync_mgr = KaggleModelSyncManager(username=username)
+    sync_mgr = KaggleModelSyncManager(username=username, hub_root=source_dir)
     staging_service = VariationStagingService()
+    # Kaggle/transport/file errors, metadata YAML errors, and RuntimeError (kagglehub missing).
+    push_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), yaml.YAMLError, RuntimeError)
 
     if all_models:
         reg = get_model_registry()
         models = reg.list_models()
         total_models = len(models)
         typer.echo(
-            f"[START] Commencing fleet Kaggle push for all {total_models} models (variation: {variation}, dry_run: {dry_run})..."
+            f"[START] Commencing fleet Kaggle push for all {total_models} models (variation: "
+            f"{variation}, dry_run: {dry_run})..."
         )
         succeeded = 0
         failed = 0
@@ -530,7 +543,9 @@ def sync_push(
             typer.echo(f"[{idx}/{total_models}] Processing '{m_key}' ({m_spec.name})...")
             try:
                 sync_mgr.ensure_model_metadata(m_key)
-                staged = staging_service.stage_variations(m_key)
+                staged = staging_service.stage_variations(
+                    m_key, base_dir=sync_mgr.get_model_dir(m_key)
+                )
                 if staged.staged_files:
                     typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
                 res = sync_mgr.push_model(
@@ -546,30 +561,33 @@ def sync_push(
                 else:
                     failed += 1
                     typer.echo(f"  [WARN] Failed/skipped: {'; '.join(res.errors)}")
-            except Exception as e:
+            except push_errors as e:
                 # Fleet boundary: one model's push failure must not abort the remaining models.
                 failed += 1
                 logger.exception("Fleet Kaggle push failed for model '%s'", m_key)
                 typer.echo(f"  [ERROR] Exception for '{m_key}': {e}")
 
         typer.echo(
-            f"[COMPLETED] Fleet push finished: {succeeded} succeeded, {failed} failed/skipped out of {total_models} models."
+            f"[COMPLETED] Fleet push finished: {succeeded} succeeded, {failed} failed/skipped out "
+            f"of {total_models} models."
         )
         if failed > 0 and not dry_run and succeeded == 0:
             raise typer.Exit(code=1)
     else:
         if not model:
             typer.echo(
-                "[ERROR] No target model specified. Provide a --model argument or use --all-models.",
+                "[ERROR] No target model specified. Provide a --model argument or use "
+                "--all-models.",
                 err=True,
             )
             raise typer.Exit(code=1)
 
         typer.echo(
-            f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {variation}, dry_run: {dry_run})..."
+            f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {variation}, "
+            f"dry_run: {dry_run})..."
         )
         sync_mgr.ensure_model_metadata(model)
-        staged = staging_service.stage_variations(model)
+        staged = staging_service.stage_variations(model, base_dir=sync_mgr.get_model_dir(model))
         if staged.staged_files:
             typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
         res = sync_mgr.push_model(
@@ -593,7 +611,10 @@ def sync_pull(
         "all",
         "--variation",
         "-v",
-        help="Variation to pull ('all', 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32').",
+        help=(
+            "Variation to pull ('all', 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', "
+            "'onnx/fp32')."
+        ),
     ),
     force_download: bool = typer.Option(
         False, "--force", "-f", help="Force re-download even if already present locally."
@@ -603,10 +624,9 @@ def sync_pull(
     ),
 ) -> None:
     """Download model variation(s) from Kaggle Models Hub into canonical directories."""
-    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-    from training.cloud.variations import VARIATION_BY_KEY
-
     sync_mgr = KaggleModelSyncManager(username=username)
+    # Kaggle/transport/file errors, plus RuntimeError raised when kagglehub is not installed.
+    pull_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), RuntimeError)
     vars_to_pull = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
     total = len(vars_to_pull)
 
@@ -628,8 +648,9 @@ def sync_pull(
             else:
                 failed += 1
                 typer.echo(f"  [ERROR] Pull returned false for {var_key}")
-        except Exception as e:
-            # Per-variation boundary: report every variation's outcome instead of aborting the pull batch.
+        except pull_errors as e:
+            # Per-variation boundary: report every variation's outcome instead of aborting the pull
+            # batch.
             failed += 1
             logger.exception("Kaggle pull failed for model '%s' variation '%s'", model, var_key)
             typer.echo(f"  [ERROR] Failed to pull {var_key}: {e}")
@@ -661,12 +682,14 @@ def notebooks_generate(
     platform: str = typer.Option(
         "all", "--platform", "-p", help="Target platform ('kaggle', 'colab', 'all')."
     ),
-    kind: list[str] | None = typer.Option(
-        None,
-        "--kind",
-        "-k",
-        help="Notebook kind ('training', 'inference', 'usage'). Default is all.",
-    ),
+    kind: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--kind",
+            "-k",
+            help="Notebook kind ('training', 'inference', 'usage'). Default is all.",
+        ),
+    ] = None,
     output_dir: str | None = typer.Option(
         None, "--output-dir", "-o", help="Custom output directory."
     ),
@@ -710,6 +733,29 @@ def notebooks_generate(
             raise typer.Exit(code=1) from e
 
 
+def _spawn_detached_daemon(host: str, port: int) -> subprocess.Popen[bytes]:
+    """Launch the uvicorn sidecar as a detached background process that outlives the CLI.
+
+    The handle is returned rather than managed with ``with``: exiting a Popen context waits for the
+    child, which would block on a daemon that is meant to keep running.
+    """
+    return subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "training.server.app:app",
+            "--host",
+            host,
+            "--port",
+            str(port),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
 @server_app.command("start")
 def server_start(
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind address"),
@@ -725,21 +771,7 @@ def server_start(
         typer.echo(
             f"[START] Launching LemGendary Sidecar Daemon on http://{host}:{port} (daemon mode)..."
         )
-        proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "uvicorn",
-                "training.server.app:app",
-                "--host",
-                host,
-                "--port",
-                str(port),
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        proc = _spawn_detached_daemon(host, port)
         state = ServerState()
         state.write_pid(proc.pid)
         token = state.get_or_create_token()
@@ -751,8 +783,6 @@ def server_start(
         typer.echo(
             f"[START] Starting LemGendary Sidecar Daemon on http://{host}:{port} (foreground)..."
         )
-        import uvicorn
-
         uvicorn.run("training.server.app:app", host=host, port=port)
 
 
@@ -763,14 +793,6 @@ def server_stop() -> None:
     pid = state.read_pid()
     if not pid:
         typer.echo("No active server PID file found.")
-        return
-
-    try:
-        import psutil
-    except ImportError as imp_err:
-        logger.error("psutil is required to stop the sidecar daemon: %s", imp_err)
-        typer.echo(f"[ERROR] Could not terminate process {pid}: {imp_err}")
-        state.clear_pid()
         return
 
     try:
@@ -827,9 +849,7 @@ def server_openapi(
     ),
 ) -> None:
     """Export the OpenAPI 3.1 schema specification of the sidecar daemon."""
-    from training.server.app import app as application
-
-    schema = application.openapi()
+    schema = get_app().openapi()
     content = json.dumps(schema, indent=2) + "\n"
     if output:
         out_path = Path(output).resolve()
@@ -838,10 +858,6 @@ def server_openapi(
         typer.echo(f"[SUCCESS] Exported OpenAPI specification to {out_path}")
     else:
         typer.echo(content)
-
-
-if __name__ == "__main__":
-    app()
 
 
 # ??? LLM Operations Sub-Commands ?????????????????????????????????????????????
@@ -855,9 +871,6 @@ def llm_train(
         None, "--batch-size", "-b", help="Per-device micro-batch size."
     ),
     lr: float | None = typer.Option(None, "--lr", help="Learning rate for LoRA adapters."),
-    max_seq_length: int | None = typer.Option(
-        2048, "--max-seq-length", help="Maximum sequence context length."
-    ),
     preset: str | None = typer.Option(
         None, "--preset", "-p", help="Canonical preset profile from presets.yaml."
     ),
@@ -897,12 +910,14 @@ def llm_export(
     output_dir: str | None = typer.Option(
         None, "--output-dir", "-o", help="Target directory for binaries."
     ),
-    target: list[str] | None = typer.Option(
-        None,
-        "--target",
-        "-t",
-        help="Target formats ('qlora_adapter', 'merged_safetensors', 'gguf_fp16').",
-    ),
+    target: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--target",
+            "-t",
+            help="Target formats ('qlora_adapter', 'merged_safetensors', 'gguf_fp16').",
+        ),
+    ] = None,
 ) -> None:
     """Compile and export tri-format binaries for an LLM."""
     typer.echo(f"[EXPORT] Compiling tri-format LLM export targets for '{model}'...")
@@ -925,8 +940,6 @@ def test_unit(
     ),
 ) -> None:
     """Run unit test suites for the Model Training Suite in-process using unittest."""
-    import unittest
-
     project_root = Path(__file__).resolve().parent.parent.parent
     tests_dir = project_root / "tests" / "unit"
     typer.echo(f"[TEST] Running Training Suite unit tests in {tests_dir} (pattern: {pattern})...")
@@ -936,7 +949,8 @@ def test_unit(
     result = runner.run(suite)
     if not result.wasSuccessful():
         typer.echo(
-            f"[FAIL] Unit tests failed ({len(result.failures)} failures, {len(result.errors)} errors)"
+            f"[FAIL] Unit tests failed ({len(result.failures)} failures, {len(result.errors)} "
+            "errors)"
         )
         raise typer.Exit(1)
     typer.echo(f"[SUCCESS] All {result.testsRun} unit tests passed successfully!")

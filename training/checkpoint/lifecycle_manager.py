@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import torch.distributed as dist
 import yaml
 from torch import nn
 
@@ -116,7 +117,7 @@ def is_lower_better(metric_name: str) -> bool:
 
 
 def canonicalize_checkpoints(model_hub_dir: Path, checkpoints_dir: Path) -> list[str]:
-    """Scan model directory for legacy-named checkpoints and rename to canonical if canonical does not exist.
+    """Rename legacy-named checkpoints in a model directory to canonical names when missing.
 
     Canonical format:
     - best.pth
@@ -178,7 +179,10 @@ def canonicalize_checkpoints(model_hub_dir: Path, checkpoints_dir: Path) -> list
         else:
             try:
                 pth.unlink()
-                msg = f"Purged redundant duplicate checkpoint {pth.name} (canonical {target_path.name} exists)"
+                msg = (
+                    f"Purged redundant duplicate checkpoint {pth.name} "
+                    f"(canonical {target_path.name} exists)"
+                )
                 actions.append(msg)
                 logger.info(msg)
             except OSError as unlink_err:
@@ -211,14 +215,16 @@ class CheckpointLifecycleManager:
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
         self.visualizations_dir.mkdir(parents=True, exist_ok=True)
 
-        # Enforce canonical naming: rename legacy checkpoints if canonical missing, purge redundant duplicates
+        # Enforce canonical naming: rename legacy checkpoints if canonical missing, purge redundant
+        # duplicates
         canonicalize_checkpoints(self.model_hub_dir, self.checkpoints_dir)
 
         self.progress_path = self.checkpoints_dir / "progress.pth"
         self.latest_path = self.checkpoints_dir / "latest.pth"
         self.best_path = self.checkpoints_dir / "best.pth"
 
-        # Automated safeguard: Purge stale progress.pth if latest.pth represents an equal or newer epoch
+        # Automated safeguard: Purge stale progress.pth if latest.pth represents an equal or newer
+        # epoch
         if self.progress_path.exists() and self.latest_path.exists():
             try:
                 p_meta = safe_load_checkpoint(self.progress_path, map_location="cpu")
@@ -258,9 +264,7 @@ class CheckpointLifecycleManager:
         self.run_preflight(force=False)
 
     def run_preflight(self, force: bool = False) -> dict[str, Path]:
-        """Generate pre-flight deployment documentation and cloud training notebooks (Rank 0 only)."""
-        import torch.distributed as dist
-
+        """Generate pre-flight README docs and cloud training notebooks (Rank 0 only)."""
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return {}
         try:
@@ -330,10 +334,6 @@ class CheckpointLifecycleManager:
         total_steps: int,
         payload_builder: Callable[[], dict[str, Any]],
     ) -> bool:
-        import torch.distributed as dist
-
-        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
-            return False
         """Evaluate and conditionally persist progress.pth checkpoint.
 
         Guardrails:
@@ -342,6 +342,8 @@ class CheckpointLifecycleManager:
            0.02 <= (step / total_steps) <= 0.98.
         Avoids saving during initial warmup (<2%) or immediately before epoch completion (>98%).
         """
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return False
         if total_steps <= 0:
             return False
 
@@ -372,7 +374,8 @@ class CheckpointLifecycleManager:
         if success:
             self.last_progress_save_time = now
             logger.info(
-                "Saved intra-epoch progress checkpoint to %s (Epoch %d, %s phase, step %d/%d = %.1f%%)",
+                "Saved intra-epoch progress checkpoint to %s (Epoch %d, %s phase, step %d/%d = "
+                "%.1f%%)",
                 self.progress_path,
                 epoch,
                 phase,
@@ -381,19 +384,19 @@ class CheckpointLifecycleManager:
                 progress_fraction * 100.0,
             )
             print(
-                f"[PROGRESS] Intra-epoch checkpoint captured: Epoch {epoch} ({phase} {progress_fraction * 100.0:.1f}%) "
+                f"[PROGRESS] Intra-epoch checkpoint captured: Epoch {epoch} ({phase} "
+                f"{progress_fraction * 100.0:.1f}%) "
                 f"to {self.progress_path.name}",
                 flush=True,
             )
         else:
-            # Back off for 60 seconds on failure so subsequent 1-second batch iterations do not hammer locked files
+            # Back off for 60 seconds on failure so subsequent 1-second batch iterations do not
+            # hammer locked files
             self.last_progress_save_time = now - self.min_progress_interval_sec + 60.0
         return success
 
     def save_latest(self, epoch: int, payload: dict[str, Any]) -> bool:
         """Save latest.pth at epoch completion and immediately purge progress.pth (Rank 0 only)."""
-        import torch.distributed as dist
-
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return True
         success = safe_atomic_save(payload, self.latest_path)
@@ -430,8 +433,6 @@ class CheckpointLifecycleManager:
         yolo_trainer: Any | None = None,
     ) -> bool:
         """Save best.pth, invoke universal tri-format export, and refresh README (Rank 0 only)."""
-        import torch.distributed as dist
-
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return False
         if quality_score <= self.best_quality_score:
@@ -453,7 +454,8 @@ class CheckpointLifecycleManager:
             quality_score,
         )
         print(
-            f"[SOTA] New best checkpoint achieved at Epoch {epoch} (Quality Score: {quality_score:.4f}). "
+            f"[SOTA] New best checkpoint achieved at Epoch {epoch} (Quality Score: "
+            f"{quality_score:.4f}). "
             f"Persisted to {self.best_path.name}",
             flush=True,
         )
@@ -477,16 +479,14 @@ class CheckpointLifecycleManager:
         metrics: dict[str, float],
         payload: dict[str, Any],
     ) -> list[str]:
-        import torch.distributed as dist
-
-        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
-            return []
         """Check all target metrics against historical vault milestones.
 
         For each metric defined in sota_targets, if the current epoch sets a new
         best score, saves vault_[metric].pth.
         Returns list of newly achieved vault metric names.
         """
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return []
         achieved_vaults: list[str] = []
 
         for target_key in self.sota_targets:

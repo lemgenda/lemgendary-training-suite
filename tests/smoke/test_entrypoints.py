@@ -11,29 +11,33 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 class TestEntrypointsSmoke(unittest.TestCase):
     """Verifies that primary CLI entry points and packages initialize cleanly."""
 
+    def _assert_importable(self, module: str) -> None:
+        """Assert ``module`` imports cleanly in a fresh interpreter (no sys.modules cache)."""
+        res = subprocess.run(
+            [sys.executable, "-c", f"import {module}"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(res.returncode, 0, f"import {module} failed: {res.stderr}")
+
     def test_import_training_package(self) -> None:
         """Verify training package is importable."""
-        import training
-
-        self.assertIsNotNone(training)
+        self._assert_importable("training")
 
     def test_import_models_package(self) -> None:
         """Verify models package is importable."""
-        import models
-
-        self.assertIsNotNone(models)
+        self._assert_importable("models")
 
     def test_import_data_package(self) -> None:
         """Verify data package is importable."""
-        import data
-
-        self.assertIsNotNone(data)
+        self._assert_importable("data")
 
     def test_import_parallel_package(self) -> None:
         """Verify parallel strategy package is importable."""
-        from training import parallel
-
-        self.assertIsNotNone(parallel)
+        self._assert_importable("training.parallel")
 
     def test_parallel_cli_list(self) -> None:
         """Verify parallel diagnostic CLI runs successfully."""

@@ -1,3 +1,5 @@
+"""Multi-task restorer: shared encoder, soft task routing and per-task heads."""
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -15,18 +17,23 @@ from models.heads.vintage import VintageHead
 
 
 class TaskClassifier(nn.Module):
+    """Predict task logits from pooled encoder features."""
+
     def __init__(self, in_ch=64, num_tasks=11):
         super().__init__()
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(in_ch, num_tasks)
 
     def forward(self, x):
+        """Return task logits of shape [B, num_tasks]."""
         x = self.pool(x).flatten(1)
         logits = self.fc(x)
         return logits
 
 
 class MultiTaskRestorer(nn.Module):
+    """Shared-encoder restorer that blends per-task heads by predicted task weights."""
+
     def __init__(self, num_tasks=11, **kwargs):
         super().__init__()
 
@@ -64,6 +71,7 @@ class MultiTaskRestorer(nn.Module):
         ]
 
     def forward(self, x, task=None):
+        """Return (restored image, task logits); ``task`` forces a single head."""
         feat = self.encoder(x)
 
         # Soft Routing (Mixture of Experts)

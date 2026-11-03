@@ -10,7 +10,7 @@ import torch
 from torch import nn
 
 from data.forex_dataset import TIMEFRAME_LOOKBACK
-from models.forex_predictor import FOREX_FEATURES_PER_BAR
+from models.forex_predictor import FOREX_FEATURES_PER_BAR, ForexPredictor
 from training.export.common import ExportError
 
 logger = logging.getLogger("lemtrain.export.mt5_signal")
@@ -25,6 +25,7 @@ class _OnnxForexWrapper(nn.Module):
         self.tf_keys = tf_keys
 
     def forward(self, *args: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Map flat (timeframe tensors..., pair_idx) args to the model and return its two heads."""
         pair_idx = args[-1]
         tf_tensors = args[:-1]
         tf_dict = {int(k): t for k, t in zip(self.tf_keys, tf_tensors)}
@@ -106,13 +107,6 @@ def export_forex_onnx(
         ckpt = torch.load(str(ckpt_file), map_location="cpu", weights_only=False)
     except Exception as exc:
         raise ExportError("LOAD_FAILED", f"Could not load checkpoint {ckpt_file}: {exc}") from exc
-
-    try:
-        from models.forex_predictor import ForexPredictor
-    except ImportError as exc:
-        raise ExportError(
-            "MODEL_DEF_MISSING", f"ForexPredictor class could not be imported: {exc}"
-        ) from exc
 
     raw_kwargs = ckpt.get("model_kwargs", {}) if isinstance(ckpt, dict) else {}
     model_kwargs: dict[str, Any] = dict(raw_kwargs)

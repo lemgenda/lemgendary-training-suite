@@ -38,22 +38,33 @@ class TestExportPaths(unittest.TestCase):
         staging_service = VariationStagingService()
         with tempfile.TemporaryDirectory() as tmp_dir:
             base_dir = Path(tmp_dir) / "LemGendaryModels" / "mirnet_exposure"
-            hub_dir = staging_service._resolve_hub_dir("mirnet_exposure", base_dir=base_dir)
+            weights = Path(tmp_dir) / "weights.pt"
+            weights.write_bytes(b"pt")
+            result = staging_service.stage_variations(
+                "mirnet_exposure", source_files={"pt": weights}, base_dir=base_dir, validate=False
+            )
 
-            self.assertEqual(hub_dir, base_dir.resolve())
+            hub_dir = base_dir.resolve()
             self.assertTrue(hub_dir.exists())
 
-            # Verify stem resolution from SSOT registry
-            stem = staging_service._resolve_stem("mirnet_exposure")
+            # The staged .pt lands in the hub dir under the SSOT registry stem.
             spec = self.registry.get_model("mirnet_exposure")
             self.assertIsNotNone(spec)
-            self.assertEqual(stem, spec.filename)
+            expected = hub_dir / "dist" / "kaggle" / "pytorch" / f"{spec.filename}.pt"
+            self.assertEqual(result.staged_files["pytorch"], expected)
+            self.assertTrue(expected.exists())
 
     def test_ai_helper_export_stem_resolution(self) -> None:
         """Verify ai_helper_lemgend resolves to canonical stem AIHelperLemGend."""
         staging_service = VariationStagingService()
-        stem = staging_service._resolve_stem("ai_helper_lemgend")
-        self.assertEqual(stem, "AIHelperLemGend")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base_dir = Path(tmp_dir) / "LemGendaryModels" / "ai_helper_lemgend"
+            weights = Path(tmp_dir) / "weights.pt"
+            weights.write_bytes(b"pt")
+            result = staging_service.stage_variations(
+                "ai_helper_lemgend", source_files={"pt": weights}, base_dir=base_dir, validate=False
+            )
+            self.assertEqual(result.staged_files["pytorch"].name, "AIHelperLemGend.pt")
 
 
 if __name__ == "__main__":

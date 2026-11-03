@@ -4,9 +4,11 @@ Enforces uniform model export across all architectures and training methods:
 1. [ModelName].pt: FP32 PyTorch model weights (isolated in dist/kaggle/pytorch/)
 2. [ModelName]_FP32.onnx + [ModelName]_FP32.onnx.data: FP32 with external binary weights sidecar
    (isolated in dist/kaggle/onnx_fp32/)
-3. [ModelName].onnx: FP16 precision with integrated self-contained weights (isolated in dist/kaggle/onnx_fp16/)
+3. [ModelName].onnx: FP16 precision with integrated self-contained weights
+   (isolated in dist/kaggle/onnx_fp16/)
 
-All exports persist exclusively to LemGendaryModels/[ModelName]/ and NEVER to lemgendary-training-suite/.
+All exports persist exclusively to LemGendaryModels/[ModelName]/ and NEVER to
+lemgendary-training-suite/.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from typing import Any
 import torch
 from torch import nn
 
+from models.factory import get_model
 from training.export.exporter_factory import ExporterFactory
 from training.export.pytorch_exporter import PyTorchModelExporter
 from training.export.staging import StagingResult, VariationStagingService
@@ -93,7 +96,7 @@ def export_tri_format_yolo(
     output_dir: Path | str | None = None,
     stage_dist: bool = True,
 ) -> dict[str, Path]:
-    """Export Ultralytics YOLO model into all 3 required formats with automatic variation staging."""
+    """Export an Ultralytics YOLO model to all 3 required formats and stage the variations."""
     target_dir = Path(output_dir).resolve() if output_dir else get_model_hub_dir(model_key)
     staging_dir = target_dir / ".export_staging" if stage_dist else target_dir
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -133,8 +136,6 @@ def export_universal_model(
     staging_dir.mkdir(parents=True, exist_ok=True)
 
     if model is None:
-        from models.factory import get_model
-
         model = get_model(model_key)
 
     exporter = ExporterFactory.get_exporter(model_key, spec)

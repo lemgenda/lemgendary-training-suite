@@ -1,27 +1,33 @@
+"""Universal multi-task image dataset backed by dataset manifolds and container readers."""
+
+import io
+import json
 import logging
 import math
 import multiprocessing
 import os
 import random
+import subprocess
+import sys
+import zipfile
+from typing import Any
 
 import numpy as np
 import torch
 import yaml
 from PIL import Image, ImageFile
+from torch.utils.data import Dataset
 from torchvision import transforms
 
-Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
-import io
-import json
-from typing import Any
-
-from torch.utils.data import Dataset
-
+from training.data.containers import resolve_container_reader
 from training.data.degrade import (
     apply_film_degradation,
     apply_synthetic_degradation,
     synthesize_degradation,
 )
+from training.data.manifold import ManifoldResolver
+
+Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
 
 logger = logging.getLogger("lemtrain.dataset")
 
@@ -59,10 +65,10 @@ class MultiTaskDataset(Dataset):
         unified_models_path = os.path.join(
             os.path.dirname(__file__), "..", config["unified_models"]
         )
-        with open(unified_models_path, "r") as f:
+        with open(unified_models_path, "r", encoding="utf-8") as f:
             self.unified_models = yaml.safe_load(f)
 
-        self.model_key = model_key or list(self.unified_models.keys())[0]
+        self.model_key = model_key or next(iter(self.unified_models))
         self.model_info = self.unified_models.get(self.model_key)
 
         raw_type = self.model_info.get("dataset_type", "restoration")
@@ -81,11 +87,12 @@ class MultiTaskDataset(Dataset):
         self.samples = []
         self.all_samples = []
         self.path_cache = {}
+        self._container_readers: dict[str, Any] = {}
         self._load_manifest(config)
 
         self.nima_scores = {}
         if self.model_key == "nima_authenticity":
-            for _ds_name, ds_path in self.path_cache.items():
+            for ds_path in self.path_cache.values():
                 idx_path = os.path.join(ds_path, "index.json")
                 if os.path.exists(idx_path):
                     try:
@@ -159,7 +166,7 @@ class MultiTaskDataset(Dataset):
             .get("suffixes", {})
             .get(config.get("execution", {}).get("mode", "training"), "")
         )
-        # 2026 Resilience: Support 'LemGendized' prefix automatically and guard against double-suffixing
+        # 2026 Resilience: auto-add the 'LemGendized' prefix; guard against double-suffixing
         dataset_names = []
         for name in raw_dataset_names:
             dataset_names.append(name)
@@ -215,14 +222,13 @@ class MultiTaskDataset(Dataset):
 
         # Kaggle dynamic discovery: Train on whichever datasets are attached in /kaggle/input
         if (self.env == "kaggle" or os.path.exists("/kaggle/input")) and not self.all_samples:
-            from training.data.manifold import ManifoldResolver
-
             resolver = ManifoldResolver(env=self.env, config=config)
             attached_manifolds = resolver.scan_kaggle_input_manifolds()
             if attached_manifolds:
                 if os.environ.get("RANK", "0") == "0":
                     print(
-                        f"\n[KAGGLE] Auto-discovered {len(attached_manifolds)} attached dataset manifold(s) in /kaggle/input:"
+                        f"\n[KAGGLE] Auto-discovered {len(attached_manifolds)} attached "
+                        "dataset manifold(s) in /kaggle/input:"
                     )
                     for m_path in attached_manifolds:
                         print(f"  -> {m_path}")
@@ -264,7 +270,7 @@ class MultiTaskDataset(Dataset):
         self._apply_sample_fraction()
 
     def _apply_sample_fraction(self) -> None:
-        """Apply deterministic curriculum sample fraction slicing to ``self.all_samples`` in-memory."""
+        """Apply deterministic curriculum sample-fraction slicing to ``self.all_samples``."""
         self.samples = list(self.all_samples)
         if self.is_train and self.sample_fraction < 1.0 and self.samples:
             rng = random.Random(42)
@@ -273,6 +279,7 @@ class MultiTaskDataset(Dataset):
             self.samples = self.samples[:target_count]
 
     def build_transforms(self):
+        """Build ``self.transform`` (resize, augmentation, tensor conversion) for this task."""
         # 2026 Resilience: LANCZOS is superior for Aesthetic/Quality manifolds
         interp = (
             transforms.InterpolationMode.LANCZOS
@@ -357,11 +364,6 @@ class MultiTaskDataset(Dataset):
         ``all_samples`` index as ``(ds_name, int_index)`` tuples and stores an active
         ``ContainerReader`` per dataset in ``self._container_readers``.
         """
-        from training.data.containers import resolve_container_reader
-
-        if not hasattr(self, "_container_readers"):
-            self._container_readers: dict[str, Any] = {}
-
         for ds_name, ds_path in self.path_cache.items():
             if ds_path is None or ds_path not in loaded_paths:
                 continue
@@ -382,18 +384,22 @@ class MultiTaskDataset(Dataset):
                 )
                 if os.environ.get("RANK", "0") == "0":
                     print(
-                        f"[CONTAINER] Resolved {type(reader).__name__} for '{ds_name}': {count} samples ({self.split} split)"
+                        f"[CONTAINER] Resolved {type(reader).__name__} for '{ds_name}': "
+                        f"{count} samples ({self.split} split)"
                     )
             except (FileNotFoundError, OSError, ValueError) as exc:
                 logger.debug("Container reader failed for '%s': %s", ds_name, exc)
                 if self.split == "train":
                     print(
-                        f"[CONTAINER] Notice: Container reader for '{ds_name}' ({self.split} split): {exc}"
+                        f"[CONTAINER] Notice: Container reader for '{ds_name}' "
+                        f"({self.split} split): {exc}"
                     )
 
     def get_dataset_path(self, ds_name):
-        from training.data.manifold import ManifoldResolver
+        """Resolve the on-disk directory for dataset ``ds_name`` in the current environment.
 
+        Exits the process when a Colab run cannot locate a required dataset.
+        """
         resolver = ManifoldResolver(env=self.env, config=self.config)
         resolved = resolver.resolve_manifold(ds_name)
         if resolved is not None:
@@ -409,7 +415,7 @@ class MultiTaskDataset(Dataset):
             if os.path.exists(cand) and (
                 os.path.exists(os.path.join(cand, "images"))
                 or os.path.exists(os.path.join(cand, "targets"))
-                or any(f.endswith(".parquet") or f.endswith(".csv") for f in os.listdir(cand))
+                or any(f.endswith((".parquet", ".csv")) for f in os.listdir(cand))
             ):
                 return cand
             if hasattr(self, "data_root") and os.path.exists(self.data_root):
@@ -435,10 +441,9 @@ class MultiTaskDataset(Dataset):
             if gdrive_id:
                 if not os.path.exists(drive_path):
                     print(
-                        f"\n[ERROR] Colab requires dataset at {cand} or Google Drive at {drive_path}"
+                        f"\n[ERROR] Colab requires dataset at {cand} "
+                        f"or Google Drive at {drive_path}"
                     )
-                    import sys
-
                     sys.exit(1)
                 return drive_path
             # Priority 3: Fallback check anywhere in /content/LemGendaryDatasets
@@ -447,10 +452,9 @@ class MultiTaskDataset(Dataset):
                 if os.path.exists(cand):
                     return cand
             print(
-                f"\n[ERROR] Colab could not locate dataset '{ds_name}' in {colab_ds_root} or Google Drive."
+                f"\n[ERROR] Colab could not locate dataset '{ds_name}' in {colab_ds_root} "
+                "or Google Drive."
             )
-            import sys
-
             sys.exit(1)
 
         elif self.env == "kaggle":
@@ -549,15 +553,18 @@ class MultiTaskDataset(Dataset):
             # Priority 2: Use gdown
             if gdrive_id:
                 print(
-                    f"\n[DATA] Local dataset not found. Falling back to gdown from Google Drive (ID: {gdrive_id})..."
+                    "\n[DATA] Local dataset not found. Falling back to gdown from Google Drive "
+                    f"(ID: {gdrive_id})..."
                 )
-                import subprocess
-                import sys
-                import zipfile
-
                 os.makedirs(self.data_root, exist_ok=True)
                 dest = os.path.join(self.data_root, f"{ds_name}.zip")
-                subprocess.run([sys.executable, "-m", "gdown", "--id", gdrive_id, "-O", dest])
+                result = subprocess.run(
+                    [sys.executable, "-m", "gdown", "--id", gdrive_id, "-O", dest], check=False
+                )
+                if result.returncode != 0:
+                    logger.warning(
+                        "gdown exited with code %d for dataset %s", result.returncode, ds_name
+                    )
                 if os.path.exists(dest):
                     print(f"[DATA] Extracting {dest}...")
                     with zipfile.ZipFile(dest, "r") as zip_ref:
@@ -620,7 +627,7 @@ class MultiTaskDataset(Dataset):
                 torch.manual_seed(seed)
                 target_tensor = self.transform(target_img)
             elif needs_syn or self.task_type in ("restoration", "face"):
-                # Clean sample loaded from container; synthesize realistic degradation on-the-fly for inputs
+                # Clean container sample: synthesize realistic input degradation on-the-fly
                 clean_target = img
                 degraded_input = synthesize_degradation(clean_target)
                 random.seed(seed)
@@ -845,7 +852,7 @@ class MultiTaskDataset(Dataset):
                 label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
                 bboxes = []
                 if os.path.exists(label_path):
-                    with open(label_path, "r") as f:
+                    with open(label_path, "r", encoding="utf-8") as f:
                         for line in f:
                             parts = line.strip().split()
                             if len(parts) >= 5:
@@ -864,7 +871,7 @@ class MultiTaskDataset(Dataset):
 
             return img_tensor, target_tensor, task_str
 
-        elif self.task_type == "parameter_prediction":
+        if self.task_type == "parameter_prediction":
             # 2026: On-the-fly Synthetic Degradation for Parameter Prediction
             # Load clean image, sample random params, apply degradation, return both
             tgt_path = self._get_split_path(ds_path, "targets", fname)
@@ -888,7 +895,7 @@ class MultiTaskDataset(Dataset):
 
             return degraded_tensor, params, "parameter_prediction"
 
-        elif self.task_type == "quality":
+        if self.task_type == "quality":
             if self.model_key == "nima_authenticity":
                 # Dynamically construct target distribution for authenticity
                 # 'real' = High authenticity (Class 1, peak at bin 10)
@@ -912,7 +919,7 @@ class MultiTaskDataset(Dataset):
                     except (ValueError, TypeError) as lbl_err:
                         logger.debug("Invalid quality label in %s: %s", label_path, lbl_err)
             return img_tensor, torch.zeros(10), "quality"
-        elif self.task_type == "classification":
+        if self.task_type == "classification":
             label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
             if os.path.exists(label_path):
                 with open(label_path, "r", encoding="utf-8") as f:
@@ -948,7 +955,7 @@ class MultiTaskDataset(Dataset):
                     except OSError as cf_err:
                         logger.debug("Failed reading classes file %s: %s", classes_file, cf_err)
             return img_tensor, torch.tensor(0, dtype=torch.long), "classification"
-        elif self.task_type == "segmentation":
+        if self.task_type == "segmentation":
             mask_path = self._get_split_path(ds_path, "masks", fname)
             if os.path.exists(mask_path):
                 mask = Image.open(mask_path).convert("L")  # Usually masks are grayscale labels
@@ -964,7 +971,7 @@ class MultiTaskDataset(Dataset):
             else:
                 mask_tensor = torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
             return img_tensor, mask_tensor, "segmentation"
-        elif self.task_type == "face_detection":
+        if self.task_type == "face_detection":
             label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
             target = torch.zeros(15, dtype=torch.float32)
             if os.path.exists(label_path):

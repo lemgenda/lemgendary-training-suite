@@ -139,13 +139,15 @@ def resolve_vault_checkpoints(
             raise SoupInvalidRequest(f"Duplicate donors in request: {', '.join(names)}")
         if len(names) < MIN_SOUP_DONORS:
             raise SoupInvalidRequest(
-                f"Model Soup needs at least {MIN_SOUP_DONORS} vault checkpoints, got {len(names)}: {', '.join(names)}"
+                f"Model Soup needs at least {MIN_SOUP_DONORS} vault checkpoints, "
+                f"got {len(names)}: {', '.join(names)}"
             )
         paths = [ckpt_dir / n for n in names]
         missing = [p.name for p in paths if not p.is_file()]
         if missing:
             raise SoupCheckpointsMissing(
-                f"Missing vault checkpoints for model '{model_key}' in {shown_dir}: {', '.join(missing)}",
+                f"Missing vault checkpoints for model '{model_key}' in {shown_dir}: "
+                f"{', '.join(missing)}",
                 missing=missing,
             )
         return paths

@@ -58,7 +58,10 @@ def build_checkpoint_recovery_cell(
             "    if os.path.exists(yaml_path):\n",
             "        with open(yaml_path, 'r') as f: reg = yaml.safe_load(f)\n",
             "        reg_filename = reg.get(model_key, {}).get('filename', '')\n",
-            "except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
+            (
+                "except Exception as e: print(f'[REMEDY] An error occurred during environment "
+                "setup: {e}')\n"
+            ),
             "\n",
             (
                 "target_slugs = [model_key.lower().replace('_', ''), "
@@ -105,7 +108,8 @@ def build_checkpoint_recovery_cell(
             "                    \n",
             (
                 "                    if any(slug in item_lower for slug in target_slugs) "
-                "or 'checkpoint' in item_lower or 'weights' in item_lower or 'models' in item_lower:\n"
+                "or 'checkpoint' in item_lower or 'weights' in item_lower or 'models' in "
+                "item_lower:\n"
             ),
             "                        try:\n",
             "                            for f in os.listdir(path):\n",
@@ -130,11 +134,17 @@ def build_checkpoint_recovery_cell(
             ),
             "            continue\n",
             "        if not os.path.exists(src):\n",
-            "            print(f'   -> [WARNING] Source missing (Ghost File/Broken Link): {src}')\n",
+            (
+                "            print(f'   -> [WARNING] Source missing (Ghost File/Broken Link): "
+                "{src}')\n"
+            ),
             "            continue\n",
             "        fname = os.path.basename(src)\n",
             "        target_f = fname\n",
-            "        if 'latest' in fname.lower() or 'last' in fname.lower(): target_f = 'latest.pth'\n",
+            (
+                "        if 'latest' in fname.lower() or 'last' in fname.lower(): target_f = "
+                "'latest.pth'\n"
+            ),
             "        elif 'best' in fname.lower(): target_f = 'best.pth'\n",
             "        elif 'progress' in fname.lower(): target_f = 'progress.pth'\n",
             "        elif 'vault_' in fname.lower(): target_f = fname\n",
@@ -150,15 +160,24 @@ def build_checkpoint_recovery_cell(
             "            m_path = os.path.join(d, 'metrics.csv')\n",
             "            if os.path.exists(m_path):\n",
             "                try:\n",
-            "                    shutil.copy2(m_path, os.path.join(model_hub_dir, 'metrics.csv'))\n",
-            "                    print(f'[METRICS] Recovered metrics.csv from {os.path.basename(d)}')\n",
+            (
+                "                    shutil.copy2(m_path, os.path.join(model_hub_dir, "
+                "'metrics.csv'))\n"
+            ),
+            (
+                "                    print(f'[METRICS] Recovered metrics.csv from "
+                "{os.path.basename(d)}')\n"
+            ),
             "                    metrics_found = True; break\n",
             (
                 "                except Exception as e: "
                 "print(f'[REMEDY] An error occurred during environment setup: {e}')\n"
             ),
             "        if metrics_found: break\n",
-            "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs manifold.')\n",
+            (
+                "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs "
+                "manifold.')\n"
+            ),
         ]
     else:
         source = [
@@ -177,7 +196,10 @@ def build_checkpoint_recovery_cell(
             "    if os.path.exists(yaml_path):\n",
             "        with open(yaml_path, 'r') as f: reg = yaml.safe_load(f)\n",
             "        reg_filename = reg.get(model_key, {}).get('filename', '')\n",
-            "except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
+            (
+                "except Exception as e: print(f'[REMEDY] An error occurred during environment "
+                "setup: {e}')\n"
+            ),
             "\n",
             (
                 "target_slugs = [model_key.lower().replace('_', ''), "
@@ -209,7 +231,8 @@ def build_checkpoint_recovery_cell(
             "                    \n",
             (
                 "                    if any(slug in item_lower for slug in target_slugs) "
-                "or 'checkpoint' in item_lower or 'weights' in item_lower or 'models' in item_lower:\n"
+                "or 'checkpoint' in item_lower or 'weights' in item_lower or 'models' in "
+                "item_lower:\n"
             ),
             "                        try:\n",
             "                            for f in os.listdir(path):\n",
@@ -234,11 +257,17 @@ def build_checkpoint_recovery_cell(
             ),
             "            continue\n",
             "        if not os.path.exists(src):\n",
-            "            print(f'   -> [WARNING] Source missing (Ghost File/Broken Link): {src}')\n",
+            (
+                "            print(f'   -> [WARNING] Source missing (Ghost File/Broken Link): "
+                "{src}')\n"
+            ),
             "            continue\n",
             "        fname = os.path.basename(src)\n",
             "        target_f = fname\n",
-            "        if 'latest' in fname.lower() or 'last' in fname.lower(): target_f = 'latest.pth'\n",
+            (
+                "        if 'latest' in fname.lower() or 'last' in fname.lower(): target_f = "
+                "'latest.pth'\n"
+            ),
             "        elif 'best' in fname.lower(): target_f = 'best.pth'\n",
             "        elif 'progress' in fname.lower(): target_f = 'progress.pth'\n",
             "        elif 'vault_' in fname.lower(): target_f = fname\n",
@@ -254,8 +283,14 @@ def build_checkpoint_recovery_cell(
             "            m_path = os.path.join(d, 'metrics.csv')\n",
             "            if os.path.exists(m_path):\n",
             "                try:\n",
-            "                    shutil.copy2(m_path, os.path.join(model_hub_dir, 'metrics.csv'))\n",
-            "                    print(f'[METRICS] Recovered metrics.csv from {os.path.basename(d)}')\n",
+            (
+                "                    shutil.copy2(m_path, os.path.join(model_hub_dir, "
+                "'metrics.csv'))\n"
+            ),
+            (
+                "                    print(f'[METRICS] Recovered metrics.csv from "
+                "{os.path.basename(d)}')\n"
+            ),
             "                    metrics_found = True; break\n",
             (
                 "                except Exception as e: "
@@ -305,7 +340,8 @@ def build_stealth_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
         "                    \n",
         (
             "                    if 'checkpoints' in item_lower or 'models' in item_lower "
-            "or 'weights' in item_lower or model_key.replace('_', '') in item_lower.replace('_', ''):\n"
+            "or 'weights' in item_lower or model_key.replace('_', '') in item_lower.replace('_', "
+            "''):\n"
         ),
         "                        try:\n",
         "                            for f in os.listdir(path):\n",
@@ -349,11 +385,17 @@ def build_stealth_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
         "                        src_met = path\n",
         "                        break\n",
         "                if src_met: break\n",
-        "        except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
+        (
+            "        except Exception as e: print(f'[REMEDY] An error occurred during environment "
+            "setup: {e}')\n"
+        ),
         "        \n",
         "    if src_met:\n",
         "        dst_met = os.path.join(model_hub_dir, 'metrics.csv')\n",
-        "        if not os.path.exists(dst_met) or os.path.getsize(src_met) > os.path.getsize(dst_met):\n",
+        (
+            "        if not os.path.exists(dst_met) or os.path.getsize(src_met) > "
+            "os.path.getsize(dst_met):\n"
+        ),
         "            shutil.copy2(src_met, dst_met)\n",
         (
             "            print(f'[OK] [RECOVERY] Hydrated metrics.csv from "
@@ -365,7 +407,10 @@ def build_stealth_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "    search_paths = [p for p in glob.glob(os.path.join(ckpt_hub_dir, '*.pth')) "
             "if any(x in os.path.basename(p) for x in [model_key, model_key.replace('_', '-')])]\n"
         ),
-        "    search_paths.sort(key=lambda x: (0 if 'best' in x else 1 if 'latest' in x else 2, -os.path.getsize(x)))\n",
+        (
+            "    search_paths.sort(key=lambda x: (0 if 'best' in x else 1 if 'latest' in x else 2, "
+            "-os.path.getsize(x)))\n"
+        ),
         "    found = []\n",
         "    for p in search_paths: \n",
         "        if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024:\n",

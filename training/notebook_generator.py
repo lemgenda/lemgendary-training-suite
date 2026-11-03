@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from training.notebooks import (
     generate_colab_inference_notebook,
     generate_colab_training_notebook,
@@ -42,8 +44,7 @@ __all__ = [
 
 
 def main(argv: list[str] | None = None) -> int:
-    import yaml
-
+    """Generate training/inference/usage notebooks for one model or the whole registry."""
     parser = argparse.ArgumentParser(
         description="LemGendary Notebook Orchestrator (v16.2.9 Nuclear)"
     )
@@ -74,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
 
     models_to_gen: list[str] = []
     if args.all:
-        models_to_gen = [k for k in registry.keys() if not k.startswith("_")]
+        models_to_gen = [k for k in registry if not k.startswith("_")]
         print(f"[NUCLEAR] Initiating Global Notebook Refresh for {len(models_to_gen)} models...")
     elif args.model:
         if args.model in registry:

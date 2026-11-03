@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 import os
 import shutil
@@ -76,21 +77,21 @@ class KaggleHubManager:
             "accelerator": accelerator,
         }
 
-        import json
-
         (kernel_dir / "kernel-metadata.json").write_text(
             json.dumps(metadata, indent=2), encoding="utf-8"
         )
 
-        script_content = f'''"""Automated Headless Kaggle Cloud Training Job for {model_name}."""
-import os
-import subprocess
-import sys
-
-print("Initializing LemGendary Cloud Worker for {model_name}...")
-res = subprocess.run([sys.executable, "-m", "training.core_loop", "--model", "{model_name}"], check=False)
-sys.exit(res.returncode)
-'''
+        script_content = (
+            f'"""Automated Headless Kaggle Cloud Training Job for {model_name}."""\n'
+            "import os\n"
+            "import subprocess\n"
+            "import sys\n"
+            "\n"
+            f'print("Initializing LemGendary Cloud Worker for {model_name}...")\n'
+            'res = subprocess.run([sys.executable, "-m", "training.core_loop", "--model", '
+            f'"{model_name}"], check=False)\n'
+            "sys.exit(res.returncode)\n"
+        )
         (kernel_dir / "train_cloud.py").write_text(script_content, encoding="utf-8")
         logger.info("Created Kaggle cloud kernel bundle at %s", kernel_dir)
         return kernel_dir
@@ -100,7 +101,6 @@ sys.exit(res.returncode)
         model_name: str,
         epoch: int,
         src_dir: Path,
-        **kwargs: Any,
     ) -> bool:
         """Stage artifacts and upload model version to Kaggle Model Hub."""
         handle = self.get_handle(model_name)
@@ -180,7 +180,7 @@ sys.exit(res.returncode)
             if staging_dir.exists():
                 remove_tree(staging_dir, purpose="Kaggle staging cleanup")
 
-    def pull(self, remote_identifier: str, dest_dir: Path, **kwargs: Any) -> bool:
+    def pull(self, remote_identifier: str, dest_dir: Path) -> bool:
         """Download model artifacts or dataset from Kaggle Hub."""
         dest_dir.mkdir(parents=True, exist_ok=True)
         try:

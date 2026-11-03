@@ -17,4 +17,5 @@ class BaseRestorationHead(nn.Module):
         )
 
     def forward(self, x):
+        """Map features to the output image through two convolutions."""
         return self.net(x)

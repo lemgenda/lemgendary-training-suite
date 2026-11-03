@@ -1,5 +1,13 @@
+"""Model card and dataset README generation for the LemGendary model hub.
+
+Builds per-model ``README.md`` files from the SSOT registry and training metrics, and
+refreshes the hub-level README. Run as ``python -m training.doc_generator``.
+"""
+
 from __future__ import annotations
 
+import argparse
+import csv
 import logging
 import os
 import sys
@@ -7,6 +15,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from training.registry import get_model_registry
+from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.docs.doc_generator")
 
@@ -25,8 +36,6 @@ _REGISTRY_ERRORS: tuple[type[Exception], ...] = (
 def get_academic_reference(model_key: str) -> dict[str, str] | None:
     """Retrieve academic paper reference dynamically from the SSOT."""
     try:
-        from training.registry import get_model_registry
-
         spec = get_model_registry().get_model(model_key)
         if spec and spec.academic_reference and spec.academic_reference.title:
             ref = spec.academic_reference
@@ -71,6 +80,7 @@ def build_model_readme(
     metrics,
     hardware="NVIDIA GeForce GTX 1650 (4G VRAM)",
 ):
+    """Render the markdown model card for ``model_key`` from registry config and metrics."""
     metrics = metrics or {}
     model_info = unified_models.get(model_key, {})
     name = model_info.get("name", model_key)
@@ -125,8 +135,8 @@ ckpt = torch.load(model_path, map_location=device, weights_only=False)
 state = ckpt.get('model_state', ckpt) if isinstance(ckpt, dict) else ckpt
 
 # 3. Initialization
-from models.nima import NIMA_Model
-model = NIMA_Model().to(device)
+from models.nima import NIMAModel
+model = NIMAModel().to(device)
 if device.type == 'cuda' and torch.cuda.device_count() > 1:
     model = torch.nn.DataParallel(model)
 model.load_state_dict(state)
@@ -260,7 +270,10 @@ graph TD
     loss_fn = model_info.get("loss_fn", "l1").upper()
     if loss_fn == "EMD":
         softmax_temp = model_info.get("stabilizers", {}).get("softmax_temp", 0.1)
-        stability_str = f"Trained using **Earth Mover's Distance (EMD)** with strict {softmax_temp} Temperature Anchoring."
+        stability_str = (
+            "Trained using **Earth Mover's Distance (EMD)** with strict "
+            f"{softmax_temp} Temperature Anchoring."
+        )
     else:
         stability_str = f"Trained using **{loss_fn} Loss** to enforce strict manifold alignment."
     if task == "quality":
@@ -299,7 +312,10 @@ graph TD
         c_loss = metrics.get("Cls_Loss") or (
             f"{float(metrics['Val_Loss']):.4f}" if metrics.get("Val_Loss") else "0.50-"
         )
-        metrics_summary = f"**mAP50**: {m50} | **mAP50-95**: {m95} | **Box Loss**: {b_loss} | **Cls Loss**: {c_loss}"
+        metrics_summary = (
+            f"**mAP50**: {m50} | **mAP50-95**: {m95} | "
+            f"**Box Loss**: {b_loss} | **Cls Loss**: {c_loss}"
+        )
         vector_section = ""
     elif task == "face_detection" or model_key == "retinaface":
         m_easy = metrics.get("map_easy", "0.915")
@@ -352,11 +368,15 @@ graph TD
 
     if task == "forex":
         input_reqs_str = (
-            "- **Input Requirements**: Normalized OHLCV tensor sequences across multiple timeframes.\n"
+            "- **Input Requirements**: Normalized OHLCV tensor sequences across multiple "
+            "timeframes.\n"
             "- **Failures**: Susceptible to spread friction and lookahead leakage if walk-forward "
             "validation is compromised."
         )
-        eval_split_str = "- **Validation Protocol**: 6-Fold Anchored Walk-Forward Cross-Validation (14-day Embargo)."
+        eval_split_str = (
+            "- **Validation Protocol**: 6-Fold Anchored Walk-Forward Cross-Validation "
+            "(14-day Embargo)."
+        )
         metrics_label = "SOTA Metrics"
     elif task in ["detection", "yolo"]:
         input_reqs_str = (
@@ -378,8 +398,6 @@ graph TD
     # --- Scientific Paper & Literature Reference ---
     paper = None
     try:
-        from training.registry import get_model_registry
-
         reg = get_model_registry()
         spec = reg.get_model(model_key)
         if spec and spec.academic_reference and spec.academic_reference.title:
@@ -394,7 +412,10 @@ graph TD
             }
     except _REGISTRY_ERRORS as exc:
         logger.warning(
-            "Could not load academic reference for %s from registry; falling back to MODEL_PAPERS: %s",
+            (
+                "Could not load academic reference for %s from registry; falling back to "
+                "MODEL_PAPERS: %s"
+            ),
             model_key,
             exc,
         )
@@ -404,6 +425,7 @@ graph TD
 
     whitepaper_link_line = ""
     try:
+        # Deferred: the training.cloud package eagerly imports torch and the Kaggle SDK.
         from training.cloud.metadata_generator import resolve_whitepaper_url
 
         wp_url = resolve_whitepaper_url(model_key)
@@ -443,15 +465,18 @@ graph TD
         extra_tip = (
             "\n>\n"
             "> **Artifacts & Checkpoints Structure**:\n>\n"
-            "> - Production SOTA exports: `yolov8n.onnx` and `yolov8n.pt` are deployed to this directory whenever "
+            "> - Production SOTA exports: `yolov8n.onnx` and `yolov8n.pt` are deployed to this "
+            "directory whenever "
             "SOTA targets are achieved.\n"
-            "> - Training checkpoints & curriculum state: Preserved strictly in [`checkpoints/`](checkpoints/) "
+            "> - Training checkpoints & curriculum state: Preserved strictly in "
+            "[`checkpoints/`](checkpoints/) "
             "(`best.pt`, `best.pth`, `last.pt`, `progress.pth`, `curriculum_state.json`)."
         )
 
     tip_block = (
         "> [!TIP]\n"
-        "> **Implementation Guide**: For high-performance deployment including ONNX (FP32/FP16) and standalone "
+        "> **Implementation Guide**: For high-performance deployment including ONNX (FP32/FP16) "
+        "and standalone "
         f"PyTorch snippets, refer to the **[{kaggle_usage_name}]({kaggle_usage_name})** or "
         f"**[{colab_usage_name}]({colab_usage_name})** notebooks in this directory.{extra_tip}"
     )
@@ -509,9 +534,10 @@ within the LemGendary Training Suite.
 """
 
 
-def save_readme(path, content):
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
+def save_readme(path, text):
+    """Write ``text`` to ``path`` as UTF-8."""
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
 
 
 def _get_file_count(path):
@@ -521,13 +547,12 @@ def _get_file_count(path):
 
 
 def build_dataset_readme(dataset_name, dataset_path):
-    import os
-
+    """Insert or refresh the physical data manifest in a dataset README; False if no data."""
     readme_path = os.path.join(dataset_path, "README.md")
     existing_content = ""
     if os.path.exists(readme_path):
-        with open(readme_path, "r", encoding="utf-8") as f:
-            existing_content = f.read()
+        with open(readme_path, "r", encoding="utf-8") as fh:
+            existing_content = fh.read()
 
     folders = ["images", "targets", "labels", "masks"]
 
@@ -546,7 +571,8 @@ def build_dataset_readme(dataset_name, dataset_path):
         train_count = _get_file_count(train_path)
         val_count = _get_file_count(val_path)
 
-        # Some datasets don't have train/val subfolders, just files in the root folder (e.g. CodeFormer targets)
+        # Some datasets have no train/val subfolders, just files in the root folder
+        # (e.g. CodeFormer targets)
         if train_count == "N/A" and val_count == "N/A":
             root_path = os.path.join(dataset_path, folder)
             root_count = _get_file_count(root_path)
@@ -591,8 +617,6 @@ class ModelDocumentationService:
     """Service generating model documentation and READMEs using SSOT."""
 
     def __init__(self) -> None:
-        from training.registry import get_model_registry
-
         self.registry = get_model_registry()
 
     def generate_readme(
@@ -619,8 +643,6 @@ class ModelDocumentationService:
         if output_dir:
             dest_dir = Path(output_dir).resolve()
         else:
-            from training.utils.paths import get_project_root
-
             dest_dir = (get_project_root().parent / "LemGendaryModels" / model_key).resolve()
         dest_dir.mkdir(parents=True, exist_ok=True)
         content = self.generate_readme(model_key, epochs_trained, metrics, hardware)
@@ -629,10 +651,8 @@ class ModelDocumentationService:
         return dest_file
 
 
-if __name__ == "__main__":
-    import argparse
-    import csv
-
+def main() -> int:
+    """CLI: regenerate model READMEs (and optionally stage variations), then the hub README."""
     parser = argparse.ArgumentParser(description="LemGendary Model Documentation Generator")
     parser.add_argument(
         "--all", action="store_true", help="Regenerate READMEs for all registered models"
@@ -646,8 +666,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if base_dir not in sys.path:
-        sys.path.insert(0, base_dir)
     yaml_path = os.path.join(base_dir, "unified_models_v2.yaml")
     hub_dir = os.path.abspath(os.path.join(base_dir, "..", "LemGendaryModels"))
 
@@ -656,16 +674,16 @@ if __name__ == "__main__":
 
     models_to_process = []
     if args.all:
-        models_to_process = [k for k in unified_models.keys() if k != "_registry_metadata"]
+        models_to_process = [k for k in unified_models if k != "_registry_metadata"]
     elif args.model:
         if args.model in unified_models:
             models_to_process = [args.model]
         else:
             print(f"[ERROR] Model '{args.model}' not found in unified_models_v2.yaml.")
-            sys.exit(1)
+            return 1
     else:
         parser.print_help()
-        sys.exit(0)
+        return 0
 
     for m_key in models_to_process:
         m_dir = os.path.join(hub_dir, m_key)
@@ -694,15 +712,23 @@ if __name__ == "__main__":
         print(f"[OK] Generated Model README: {m_readme_path}")
 
         if args.stage_variations:
+            # Deferred: training.export eagerly imports torch; only needed with this flag.
             from training.export.staging import VariationStagingService
 
             staging_svc = VariationStagingService()
             st_res = staging_svc.stage_variations(model_key=m_key, validate=True)
             print(
-                f"[OK] Staged variations for model: {m_key} (staged={len(st_res.staged_files)}, errors={len(st_res.errors)})"
+                f"[OK] Staged variations for model: {m_key} "
+                f"(staged={len(st_res.staged_files)}, errors={len(st_res.errors)})"
             )
 
+    # Deferred: hub_readme_generator pulls training.telemetry (torch) for the final step.
     from training.hub_readme_generator import generate_hub_readme
 
     generate_hub_readme(base_dir)
     print("\n[SUCCESS] Model README Matrix Synchronized.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

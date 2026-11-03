@@ -1,3 +1,8 @@
+"""Hub-level README dashboard generator for the LemGendaryModels repository.
+
+Summarises every registered model's training status (SOTA / in progress / not started).
+"""
+
 from __future__ import annotations
 
 import csv
@@ -18,6 +23,7 @@ workspace_root = os.path.dirname(script_dir)
 
 
 def generate_hub_readme(project_root: str = workspace_root) -> None:
+    """Write LemGendaryModels/README.md summarising training status of every model."""
     yaml_path = os.path.join(project_root, "unified_models_v2.yaml")
     hub_dir = os.path.join(os.path.dirname(project_root), "LemGendaryModels")
     readme_path = os.path.join(hub_dir, "README.md")
@@ -111,8 +117,8 @@ def generate_hub_readme(project_root: str = workspace_root) -> None:
                 ladder_passed = current_res >= max_res
 
         # 2. Check if SOTA achieved
-        # Invariant: Training should NEVER be declared complete if it didn't reach 100% data fraction
-        # on max resolution and hasn't trained for at least 20 epochs
+        # Invariant: Training should NEVER be declared complete if it didn't reach 100% data
+        # fraction on max resolution and hasn't trained for at least 20 epochs
         is_sota = epoch >= 20 and current_data >= 0.999 and ladder_passed and completeness >= 99.99
 
         if is_sota:
@@ -137,7 +143,10 @@ def generate_hub_readme(project_root: str = workspace_root) -> None:
     lines = [
         "# LemGendary AI Training Matrix",
         "",
-        f"Auto-generated live dashboard | Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        (
+            "Auto-generated live dashboard | Last Updated: "
+            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        ),
         "",
         "## Completed (SOTA Targets Achieved)",
         "",
@@ -159,7 +168,10 @@ def generate_hub_readme(project_root: str = workspace_root) -> None:
             "",
             "## In Progress (Training)",
             "",
-            "Models actively scaling the resolution ladder and optimizing weights across dataset manifolds.",
+            (
+                "Models actively scaling the resolution ladder and optimizing weights across "
+                "dataset manifolds."
+            ),
             "",
         ]
     )
@@ -200,7 +212,10 @@ def generate_hub_readme(project_root: str = workspace_root) -> None:
             "",
             "## Canonical Directory Topology & Storage Invariants",
             "",
-            "Every model repository in `LemGendaryModels/` adheres to a strict, standardized directory structure:",
+            (
+                "Every model repository in `LemGendaryModels/` adheres to a strict, standardized "
+                "directory structure:"
+            ),
             "",
             "```text",
             "LemGendaryModels/<model_key>/",
@@ -212,22 +227,33 @@ def generate_hub_readme(project_root: str = workspace_root) -> None:
             "├── dist/                   # Isolated production distributions",
             "│   └── kaggle/",
             "│       ├── pytorch/        # Variation 1: Standalone PyTorch binary (*.pt)",
-            "│       ├── onnx_fp32/      # Variation 2: ONNX FP32 with external data (*_FP32.onnx*)",
+            (
+                "│       ├── onnx_fp32/      # Variation 2: ONNX FP32 with external data "
+                "(*_FP32.onnx*)"
+            ),
             "│       └── onnx_fp16/      # Variation 3: Edge-optimized ONNX FP16 (*.onnx)",
             "└── visualizations/         # Training curves, confusion matrices, and diagnostics",
             "```",
             "",
             "## Strict 3-Variation Isolation Contract",
             "",
-            "All model distributions published to Kaggle Models Hub must satisfy strict binary isolation:",
-            "",
-            "1. **Variation 1 (`pytorch`)**: Exclusively standalone PyTorch weights (`<ModelStem>.pt`).",
             (
-                "2. **Variation 2 (`onnx_fp32`)**: Exclusively standard precision ONNX model (`<ModelStem>_FP32.onnx`)"
+                "All model distributions published to Kaggle Models Hub must satisfy strict binary "
+                "isolation:"
+            ),
+            "",
+            (
+                "1. **Variation 1 (`pytorch`)**: Exclusively standalone PyTorch weights "
+                "(`<ModelStem>.pt`)."
+            ),
+            (
+                "2. **Variation 2 (`onnx_fp32`)**: Exclusively standard precision ONNX model "
+                "(`<ModelStem>_FP32.onnx`)"
                 " and sidecar tensor data (`<ModelStem>_FP32.onnx.data`)."
             ),
             (
-                "3. **Variation 3 (`onnx_fp16`)**: Exclusively half-precision embedded ONNX model (`<ModelStem>.onnx`)"
+                "3. **Variation 3 (`onnx_fp16`)**: Exclusively half-precision embedded ONNX model "
+                "(`<ModelStem>.onnx`)"
                 " with zero external tensor references."
             ),
             "",

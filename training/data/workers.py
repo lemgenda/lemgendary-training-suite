@@ -3,10 +3,12 @@
 import gc
 import logging
 import os
+import signal
 import sys
 from dataclasses import dataclass
 from typing import Any
 
+import psutil
 import torch
 
 logger = logging.getLogger("lemtrain.workers")
@@ -40,10 +42,8 @@ def compute_worker_topology(
     # Probe system memory
     ram_gb = 16.0
     try:
-        import psutil
-
         ram_gb = psutil.virtual_memory().total / (1024**3)
-    except (ImportError, OSError) as exc:
+    except OSError as exc:
         logger.debug("psutil unavailable for worker topology calculation: %s", exc)
 
     # Determine CPU thread allotment
@@ -100,7 +100,8 @@ def compute_worker_topology(
     )
 
     logger.info(
-        "Worker topology computed: train_workers=%d, val_workers=%d, persistent=%s, pin_mem=%s, prefetch=%s",
+        "Worker topology computed: train_workers=%d, val_workers=%d, persistent=%s, "
+        "pin_mem=%s, prefetch=%s",
         num_workers,
         val_num_workers,
         persistent_workers,
@@ -119,7 +120,7 @@ def compute_worker_topology(
 
 
 def dispose_loader(loader: Any) -> None:
-    """Cleanly terminate DataLoader worker processes and release pinned shared memory without suppression."""
+    """Terminate DataLoader worker processes and release pinned shared memory."""
     if loader is None:
         return
 
@@ -157,11 +158,9 @@ def dataloader_worker_init_fn(worker_id: int) -> None:
     """Worker initialization to prevent DataLoader child processes from intercepting SIGINT.
 
     By ignoring SIGINT in workers, the main process handles the user interruption
-    signal cleanly, preventing 'RuntimeError: DataLoader worker exited unexpectedly with exit code 130'
-    and BrokenPipeError during shutdown.
+    signal cleanly, preventing 'RuntimeError: DataLoader worker exited unexpectedly
+    with exit code 130' and BrokenPipeError during shutdown.
     """
-    import signal
-
     try:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
     except (ValueError, OSError) as exc:

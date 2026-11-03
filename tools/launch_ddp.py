@@ -25,6 +25,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import torch
+
 logger = logging.getLogger("lemtrain.tools.launch_ddp")
 
 
@@ -83,6 +85,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Launch training via torchrun on all local GPUs, or single-process when none exist."""
     # Split args: known (launcher) vs forwarded (train.py).
     launcher_parser = _build_arg_parser()
     launcher_args, train_argv = launcher_parser.parse_known_args()
@@ -95,12 +98,7 @@ def main() -> None:
         sys.exit(1)
 
     # GPU count resolution.
-    try:
-        import torch
-
-        detected_gpus = torch.cuda.device_count()
-    except ImportError:
-        detected_gpus = 0
+    detected_gpus = torch.cuda.device_count()
 
     nproc = (
         launcher_args.nproc_per_node if launcher_args.nproc_per_node is not None else detected_gpus
@@ -108,7 +106,8 @@ def main() -> None:
 
     if nproc <= 0:
         print(
-            "[WARNING] No CUDA GPUs detected. Falling back to --parallel single on a single process.",
+            "[WARNING] No CUDA GPUs detected. "
+            "Falling back to --parallel single on a single process.",
             flush=True,
         )
         cmd = [

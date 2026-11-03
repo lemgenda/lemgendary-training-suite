@@ -1,3 +1,5 @@
+"""Training loss functions: forex dual loss, focal loss, and the unified CombinedLoss engine."""
+
 from __future__ import annotations
 
 import gc
@@ -71,11 +73,15 @@ class ForexDualLoss(nn.Module):
         # Weight vector: [Down=1.3, Sideways=0.7, Up=1.3]
         self.register_buffer("class_weights", torch.tensor([1.3, 0.7, 1.3]))
 
-    def forward(self, pred: dict, labels: dict, *args, **kwargs) -> torch.Tensor:
+    def forward(
+        self, pred: dict, labels: dict, _task_idx: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """
         Args:
             pred:   Dict with 'direction_logits' [B, 3] and 'magnitude' [B, 2]
             labels: Dict with 'direction' [B] (long) and 'magnitude' [B, 2] (float)
+            _task_idx: Accepted for the shared criterion(preds, targets, task_idx)
+                call protocol used by the epoch/validation loops; unused here.
 
         Returns:
             Combined scalar loss.
@@ -237,6 +243,7 @@ class FocalLoss(nn.Module):
         self.label_smoothing = label_smoothing
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Return the mean focal-weighted cross-entropy of ``pred`` logits vs ``target``."""
         ce_loss = F.cross_entropy(
             pred, target, reduction="none", label_smoothing=self.label_smoothing
         )
@@ -248,7 +255,8 @@ class FocalLoss(nn.Module):
 class CombinedLoss(nn.Module):
     """
     LemGendary 2026 Unified Loss Engine
-    Supports Restoration (L1+LPIPS), Quality (EMD+SoftSpearman+RankBoost), and Classification (CE/Focal).
+    Supports Restoration (L1+LPIPS), Quality (EMD+SoftSpearman+RankBoost),
+    and Classification (CE/Focal).
     """
 
     def __init__(self, task_type="restoration", stabilizers=None, use_perc=False):
@@ -298,7 +306,7 @@ class CombinedLoss(nn.Module):
 
         if self.task_type in ["restoration", "enhancement"] and use_perc:
             try:
-                # 2026 Resilience: Surgical Memory Reclamation before heavy Perceptual Engine load
+                # Reclaim memory before loading the heavy perceptual engine
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
@@ -308,11 +316,14 @@ class CombinedLoss(nn.Module):
                 )
 
                 class AutocastLPIPS(torch.nn.Module):
+                    """Wrap an LPIPS module so its forward pass runs under CUDA autocast."""
+
                     def __init__(self, perc_module):
                         super().__init__()
                         self.perc = perc_module
 
                     def forward(self, x, y):
+                        """Return the LPIPS distance between ``x`` and ``y`` under autocast."""
                         with torch.autocast(device_type="cuda", enabled=True):
                             return self.perc(x, y)
 
@@ -328,7 +339,8 @@ class CombinedLoss(nn.Module):
                     param.requires_grad = False
             except ImportError:
                 print(
-                    "[WARNING] [RESILIENCE] TorchMetrics not found. Run: pip install torchmetrics[image]"
+                    "[WARNING] [RESILIENCE] TorchMetrics not found. "
+                    "Run: pip install torchmetrics[image]"
                 )
                 print("[WARNING] [RESILIENCE] Defaulting to pure L1.")
             except (OSError, RuntimeError, ValueError) as e:
@@ -336,6 +348,7 @@ class CombinedLoss(nn.Module):
                 logger.warning("LPIPS failed to bind (%s). Defaulting to pure L1.", e)
 
     def forward(self, pred, target, task_idx=None):
+        """Dispatch to the loss for ``self.task_type`` and return the scalar loss."""
         is_forex_pred = isinstance(pred, dict) and (
             "direction" in pred or "direction_logits" in pred
         )
@@ -378,7 +391,7 @@ class CombinedLoss(nn.Module):
 
             return base_loss
 
-        elif self.task_type == "quality":
+        if self.task_type == "quality":
             return self._compute_quality_loss(pred, target)
 
         return self._compute_fallback_loss(pred, target)

@@ -1,10 +1,97 @@
+"""Generate Ultralytics YOLO dataset YAML configs from the unified model registry."""
+
 import logging
 import os
 import shutil
 
 import yaml
 
+from training.data.manifold import ManifoldResolver
+
 logger = logging.getLogger("lemtrain.data.yolo_config_gen")
+
+COCO_CLASSES = [
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "airplane",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+    "traffic light",
+    "fire hydrant",
+    "stop sign",
+    "parking meter",
+    "bench",
+    "bird",
+    "cat",
+    "dog",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+    "backpack",
+    "umbrella",
+    "handbag",
+    "tie",
+    "suitcase",
+    "frisbee",
+    "skis",
+    "snowboard",
+    "sports ball",
+    "kite",
+    "baseball bat",
+    "baseball glove",
+    "skateboard",
+    "surfboard",
+    "tennis racket",
+    "bottle",
+    "wine glass",
+    "cup",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "banana",
+    "apple",
+    "sandwich",
+    "orange",
+    "broccoli",
+    "carrot",
+    "hot dog",
+    "pizza",
+    "donut",
+    "cake",
+    "chair",
+    "couch",
+    "potted plant",
+    "bed",
+    "dining table",
+    "toilet",
+    "tv",
+    "laptop",
+    "mouse",
+    "remote",
+    "keyboard",
+    "cell phone",
+    "microwave",
+    "oven",
+    "toaster",
+    "sink",
+    "refrigerator",
+    "book",
+    "clock",
+    "vase",
+    "scissors",
+    "teddy bear",
+    "hair drier",
+    "toothbrush",
+]
 
 
 def generate_yolo_yaml(config, model_key, unified_models_registry):
@@ -28,94 +115,9 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
         "yolov8n": ["face", "person", "hand", "eye"],
     }
 
-    COCO_CLASSES = [
-        "person",
-        "bicycle",
-        "car",
-        "motorcycle",
-        "airplane",
-        "bus",
-        "train",
-        "truck",
-        "boat",
-        "traffic light",
-        "fire hydrant",
-        "stop sign",
-        "parking meter",
-        "bench",
-        "bird",
-        "cat",
-        "dog",
-        "horse",
-        "sheep",
-        "cow",
-        "elephant",
-        "bear",
-        "zebra",
-        "giraffe",
-        "backpack",
-        "umbrella",
-        "handbag",
-        "tie",
-        "suitcase",
-        "frisbee",
-        "skis",
-        "snowboard",
-        "sports ball",
-        "kite",
-        "baseball bat",
-        "baseball glove",
-        "skateboard",
-        "surfboard",
-        "tennis racket",
-        "bottle",
-        "wine glass",
-        "cup",
-        "fork",
-        "knife",
-        "spoon",
-        "bowl",
-        "banana",
-        "apple",
-        "sandwich",
-        "orange",
-        "broccoli",
-        "carrot",
-        "hot dog",
-        "pizza",
-        "donut",
-        "cake",
-        "chair",
-        "couch",
-        "potted plant",
-        "bed",
-        "dining table",
-        "toilet",
-        "tv",
-        "laptop",
-        "mouse",
-        "remote",
-        "keyboard",
-        "cell phone",
-        "microwave",
-        "oven",
-        "toaster",
-        "sink",
-        "refrigerator",
-        "book",
-        "clock",
-        "vase",
-        "scissors",
-        "teddy bear",
-        "hair drier",
-        "toothbrush",
-    ]
-
     names = class_map.get(model_key, ["object"])
     if model_key == "yolov8n":
         names = list(COCO_CLASSES)
-
-    from training.data.manifold import ManifoldResolver
 
     resolver = ManifoldResolver(env=config.get("env", "local"), config=config)
     resolved_path = resolver.resolve_manifold(dataset_names[0])
@@ -172,9 +174,10 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
             if (suffix and dataset_names[0].endswith(suffix))
             else f"{dataset_names[0]}{suffix}"
         )
-        if not os.path.exists(os.path.join(abs_data_root, primary_ds)):
-            if os.path.exists(os.path.join(abs_data_root, dataset_names[0])):
-                primary_ds = dataset_names[0]
+        if not os.path.exists(os.path.join(abs_data_root, primary_ds)) and os.path.exists(
+            os.path.join(abs_data_root, dataset_names[0])
+        ):
+            primary_ds = dataset_names[0]
 
         yolo_cfg = {
             "path": abs_data_root,
@@ -204,6 +207,7 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
         yaml.dump(yolo_cfg, f, default_flow_style=False)
 
     print(
-        f"[YOLO GEN] Dynamic config materialized for {model_key} with {len(names)} classes at {temp_cfg_path}."
+        f"[YOLO GEN] Dynamic config materialized for {model_key} with {len(names)} classes "
+        f"at {temp_cfg_path}."
     )
     return temp_cfg_path

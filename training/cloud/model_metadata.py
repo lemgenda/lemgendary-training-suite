@@ -85,9 +85,11 @@ class ModelMetadata:
         return self.kaggle_model_payload()[item]
 
     def get(self, item: str, default: Any = None) -> Any:
+        """Dict-style lookup on the Kaggle model payload."""
         return self.kaggle_model_payload().get(item, default)
 
     def keys(self) -> Any:
+        """Return the Kaggle model payload keys."""
         return self.kaggle_model_payload().keys()
 
     # ------------------------------------------------------------------ validation

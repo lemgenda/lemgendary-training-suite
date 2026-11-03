@@ -10,23 +10,22 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
+from training.cloud.kaggle_hub import KaggleHubManager
+from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 
 logger = logging.getLogger("lemtrain.kaggle_cloud_manager")
 
 
 def get_kernel_slug(model_name: str, username: str) -> str:
     """Generate standardized Kaggle kernel slug."""
-    from training.cloud.kaggle_hub import KaggleHubManager
-
     mgr = KaggleHubManager(username=username)
     return mgr.get_kernel_slug(model_name)
 
 
 def create_cloud_kernel_bundle(model_name: str, username: str, gpu: str = "T4") -> Path:
     """Package a standalone Kaggle kernel bundle containing metadata and execution script."""
-    from training.cloud.kaggle_hub import KaggleHubManager
-
     mgr = KaggleHubManager(username=username)
     return mgr.create_cloud_kernel_bundle(model_name, gpu=gpu)
 
@@ -39,9 +38,6 @@ def launch_kaggle_training(
     gpu: str = "T4",
 ) -> bool:
     """Pushes and launches a training kernel to Kaggle GPU Cloud headlessly."""
-    from training.cloud.credentials import resolve_kaggle_credentials
-    from training.cloud.kaggle_hub import KaggleHubManager
-
     user, _ = resolve_kaggle_credentials(override_user=username, override_key=key)
     mgr = KaggleHubManager(username=user, key=key, config=config)
     kernel_dir = mgr.create_cloud_kernel_bundle(model_name, gpu=gpu)
@@ -69,6 +65,7 @@ def launch_kaggle_training(
             capture_output=True,
             text=True,
             timeout=60,
+            check=False,
             creationflags=cflags,
         )
         if res.returncode == 0:
@@ -85,9 +82,6 @@ def monitor_kaggle_training(
     model_name: str, username: str | None = None, poll_interval: int = 5
 ) -> None:
     """Stream status and logs from Kaggle for specified model kernel."""
-    from training.cloud.credentials import resolve_kaggle_credentials
-    from training.cloud.kaggle_hub import KaggleHubManager
-
     user, _ = resolve_kaggle_credentials(override_user=username)
     mgr = KaggleHubManager(username=user)
     slug = mgr.get_kernel_slug(model_name)
@@ -109,10 +103,12 @@ def pull_kaggle_artifacts(
     destination_dir: str | None = None,
     username: str | None = None,
 ) -> bool:
-    """Download latest checkpoints and metrics from Kaggle Models via unified sync manager."""
-    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+    """Download latest checkpoints and metrics from Kaggle Models via unified sync manager.
 
-    sync_mgr = KaggleModelSyncManager(username=username)
+    ``destination_dir`` overrides the hub root under which ``<model_name>/`` is written
+    (default: the sibling ``LemGendaryModels`` directory).
+    """
+    sync_mgr = KaggleModelSyncManager(username=username, hub_root=destination_dir)
     logger.info("Pulling Kaggle model variations for %s ...", model_name)
     try:
         return sync_mgr.pull_model(model_key=model_name)
@@ -121,14 +117,8 @@ def pull_kaggle_artifacts(
         return False
 
 
-def push_kaggle_artifacts(
-    model_name: str,
-    source_dir: str | None = None,
-    username: str | None = None,
-) -> bool:
+def push_kaggle_artifacts(model_name: str, username: str | None = None) -> bool:
     """Stage and upload multi-variation model to Kaggle Models Hub via unified sync pipeline."""
-    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-
     sync_mgr = KaggleModelSyncManager(username=username)
     res = sync_mgr.push_model(model_key=model_name, variation="all")
     return res.success
@@ -142,8 +132,6 @@ def push_kaggle_model(
     key: str | None = None,
 ) -> bool:
     """Stage and upload multi-variation model to Kaggle Models hub."""
-    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-
     sync_mgr = KaggleModelSyncManager(username=username, key=key)
     res = sync_mgr.push_model(
         model_key=model_name,
@@ -194,7 +182,10 @@ def main() -> None:
         help="Kaggle GPU accelerator",
     )
     parser.add_argument(
-        "--output_dir", type=str, default=None, help="Target destination for downloaded artifacts"
+        "--output_dir",
+        type=str,
+        default=None,
+        help="Hub root for pulled artifacts (pull only; default: sibling LemGendaryModels)",
     )
     args = parser.parse_args()
 
@@ -203,8 +194,6 @@ def main() -> None:
     )
 
     if args.action == "setup_auth":
-        from training.cloud.credentials import resolve_kaggle_credentials
-
         u, _ = resolve_kaggle_credentials()
         logger.info("Authentication verified for Kaggle user: %s", u)
     elif args.action == "launch":
@@ -214,7 +203,7 @@ def main() -> None:
     elif args.action == "pull":
         pull_kaggle_artifacts(args.model, destination_dir=args.output_dir, username=args.username)
     elif args.action == "push":
-        push_kaggle_artifacts(args.model, source_dir=args.output_dir, username=args.username)
+        push_kaggle_artifacts(args.model, username=args.username)
     elif args.action == "push_model":
         push_kaggle_model(
             args.model,
@@ -224,8 +213,6 @@ def main() -> None:
             key=args.key,
         )
     elif args.action == "status":
-        from training.cloud.credentials import resolve_kaggle_credentials
-
         u, _ = resolve_kaggle_credentials(override_user=args.username)
         slug = get_kernel_slug(args.model, u)
         try:

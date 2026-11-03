@@ -6,6 +6,7 @@ import os
 import sys
 from typing import Any
 
+import psutil
 import torch
 from torch import nn
 
@@ -96,7 +97,8 @@ def audit_hardware_vram(
         symbols_str = " | ".join(pairs) if pairs else "ALL"
         fold_str = str(fold) if fold else "MAIN"
         logger.info(
-            "Forex Dynamic Hardware Probe: %s (Free: %.1fGB / Total: %.1fGB) | Phase: %s | Batch: %d | Fold: %s | Symbols: %s",
+            "Forex Dynamic Hardware Probe: %s (Free: %.1fGB / Total: %.1fGB) | Phase: %s | Batch: "
+            "%d | Fold: %s | Symbols: %s",
             gpu_name,
             free_gb if torch.cuda.is_available() else 0.0,
             vram_gb,
@@ -153,7 +155,7 @@ def audit_hardware_vram(
         ):
             logger.critical("No CUDA kernel image available for active GPU architecture.")
             sys.exit(1)
-        raise exc
+        raise
 
     # Cache purge before probe
     gc.collect()
@@ -163,8 +165,6 @@ def audit_hardware_vram(
     vram_gb = total_vram / (1024**3)
     unused_reserved = torch.cuda.memory_reserved(0) - torch.cuda.memory_allocated(0)
     free_vram = free_vram + unused_reserved
-
-    is_exhausted = (free_vram / total_vram) < 0.15
 
     res = res_override
     if res is None:
@@ -191,7 +191,10 @@ def audit_hardware_vram(
         else:
             dummy = torch.randn(1, 3, h, w, device=cast_device)
 
-        model.eval() if mode == "val" else model.train()
+        if mode == "val":
+            model.eval()
+        else:
+            model.train()
         out = model(dummy)
         if mode == "train":
             loss = (
@@ -277,12 +280,10 @@ def audit_hardware_vram(
         os.path.exists("/kaggle/working") or os.environ.get("KAGGLE_KERNEL_RUN_TYPE") is not None
     )
     try:
-        import psutil
-
         sys_ram_gb = psutil.virtual_memory().total / (1024**3)
         if sys_ram_gb < 35.0 or is_kaggle:
             system_cap = min(system_cap, 32 if mode == "val" else 24)
-    except (ImportError, OSError, RuntimeError) as exc:
+    except (OSError, RuntimeError) as exc:
         logger.debug("System RAM probe fallback: %s", exc)
 
     if is_restoration:
@@ -310,7 +311,8 @@ def audit_hardware_vram(
         hasattr(model, "module") and gpu_count > 1
     )
 
-    # In DDP each process operates on a single device, so batch must NEVER be multiplied by gpu_count
+    # In DDP each process operates on a single device, so batch must NEVER be multiplied by
+    # gpu_count
     if gpu_count > 1 and not is_ddp:
         if is_dataparallel:
             if max(h, w) >= 512 or is_restoration:
@@ -343,14 +345,16 @@ def audit_hardware_vram(
     if final_batch <= 1 and vram_gb < 4.5:
         if dynamic_batch < 1:
             logger.critical(
-                "Hardware bottleneck reached on %s (%.1f GB). Required memory for single image exceeds available VRAM.",
+                "Hardware bottleneck reached on %s (%.1f GB). Required memory for single image "
+                "exceeds available VRAM.",
                 gpu_name,
                 vram_gb,
             )
             sys.exit(1)
         else:
             logger.warning(
-                "Hardware limit reached. Batch size forced to 1 to prevent OOM crash on %s (%.1f GB).",
+                "Hardware limit reached. Batch size forced to 1 to prevent OOM crash on %s (%.1f "
+                "GB).",
                 gpu_name,
                 vram_gb,
             )

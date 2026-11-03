@@ -18,7 +18,7 @@ logger = logging.getLogger("lemtrain.degrade")
 
 # Attempt dynamic linkage with lemgendary-datasets degrade engine
 _HAS_DEGRADE_CORE = False
-CoreDynamicDegrader: Any = None
+core_dynamic_degrader: Any = None
 core_parse_profile: Any = None
 
 try:
@@ -28,16 +28,16 @@ try:
     if datasets_root.exists() and str(datasets_root) not in sys.path:
         sys.path.append(str(datasets_root))
     degrade_pkg = importlib.import_module("degrade")
-    CoreDynamicDegrader = getattr(degrade_pkg, "DynamicDegrader", None)
+    core_dynamic_degrader = getattr(degrade_pkg, "DynamicDegrader", None)
     core_parse_profile = getattr(degrade_pkg, "parse_profile", None)
-    _HAS_DEGRADE_CORE = CoreDynamicDegrader is not None and core_parse_profile is not None
+    _HAS_DEGRADE_CORE = core_dynamic_degrader is not None and core_parse_profile is not None
 except (ImportError, ModuleNotFoundError, AttributeError) as exc:
     logger.debug("Core degrade engine from lemgendary-datasets not linked: %s", exc)
     _HAS_DEGRADE_CORE = False
 
 
 class JpegCompressionGuard:
-    """Simulates real-world JPEG artifacts on PIL images to shield against compression overfitting."""
+    """Simulate real-world JPEG artifacts on PIL images to resist compression overfitting."""
 
     def __init__(self, probability: float = 1.0) -> None:
         self.probability = probability
@@ -59,7 +59,7 @@ def apply_synthetic_degradation(
     theta: float,
     conf: float,
 ) -> torch.Tensor:
-    """Apply synthetic degradation pipeline (Gaussian blur, noise, JPEG, and scale) to image tensor [C, H, W]."""
+    """Apply synthetic blur, noise, JPEG and scale degradation to an image tensor [C, H, W]."""
     # Convert to numpy HWC for OpenCV operations
     img_np = img_tensor.permute(1, 2, 0).cpu().numpy().copy()
     h, w = img_np.shape[:2]
@@ -172,13 +172,14 @@ class DynamicOnTheFlyDegrader:
         self.intensity = intensity
         self._core_degrader = None
 
-        if _HAS_DEGRADE_CORE and callable(core_parse_profile) and callable(CoreDynamicDegrader):
+        if _HAS_DEGRADE_CORE and callable(core_parse_profile) and callable(core_dynamic_degrader):
             try:
                 prof = core_parse_profile(mode, intensity=str(intensity))
-                self._core_degrader = CoreDynamicDegrader(prof)
+                self._core_degrader = core_dynamic_degrader(prof)
             except (ValueError, KeyError, TypeError, RuntimeError) as exc:
                 logger.warning(
-                    "Core degrader rejected profile %r (intensity=%s); using standalone degradation: %s",
+                    "Core degrader rejected profile %r (intensity=%s); "
+                    "using standalone degradation: %s",
                     mode,
                     intensity,
                     exc,

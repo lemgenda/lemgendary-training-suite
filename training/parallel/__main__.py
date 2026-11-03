@@ -1,11 +1,14 @@
+"""CLI for inspecting parallel strategies: ``python -m training.parallel {list,resolve}``."""
+
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
 import torch
-from torch import nn
+import yaml
 
 from training.parallel import available_strategies, resolve_auto
 
@@ -20,10 +23,6 @@ def _cmd_list(_args):
 
 
 def _cmd_resolve(args):
-    import os
-
-    import yaml
-
     # Load model_info from registry if available, so preferred_parallel is shown.
     model_info: dict = {}
     try:
@@ -36,16 +35,15 @@ def _cmd_resolve(args):
     except (OSError, yaml.YAMLError, AttributeError) as exc:
         logger.warning("Could not load model registry; resolving without model_info: %s", exc)
 
-    stub = nn.Linear(1, 1)
     if args.devices is not None:
         orig = torch.cuda.device_count
         torch.cuda.device_count = lambda: args.devices
         try:
-            choice = resolve_auto(stub, args.model, {}, model_info=model_info)
+            choice = resolve_auto(args.model, model_info=model_info)
         finally:
             torch.cuda.device_count = orig
     else:
-        choice = resolve_auto(stub, args.model, {}, model_info=model_info)
+        choice = resolve_auto(args.model, model_info=model_info)
     preferred = model_info.get("preferred_parallel", "(auto)")
     print(f"model         = {args.model}")
     print(
@@ -58,6 +56,7 @@ def _cmd_resolve(args):
 
 
 def main():
+    """Parse arguments and dispatch to the selected subcommand; return the exit code."""
     p = argparse.ArgumentParser(prog="python -m training.parallel")
     sub = p.add_subparsers(dest="command", required=True)
     pl = sub.add_parser("list")

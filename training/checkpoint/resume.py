@@ -50,8 +50,12 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
     sota_achieved = bool(payload.get("sota_achieved", False))
     best_score = payload.get("best_score")
 
-    history: list[dict[str, Any]] = []
     raw_hist = payload.get("metric_history") or payload.get("history")
+    history: list[dict[str, Any]] = (
+        [dict(entry) for entry in raw_hist if isinstance(entry, dict)]
+        if isinstance(raw_hist, list)
+        else []
+    )
 
     progress_meta = payload.get("progress_metadata")
     if isinstance(progress_meta, dict):
@@ -91,7 +95,10 @@ def stretch_scheduler_runway(
     current_total_steps: int,
     expected_step: int | None = None,
 ) -> None:
-    """Load scheduler state dict, proportionally stretching total steps and scheduled phases if step counts shifted."""
+    """Load scheduler state, stretching total steps and phases proportionally.
+
+    The stretch applies only when the step count changed since the checkpoint was written.
+    """
     if not isinstance(state_dict, dict):
         return
 
@@ -108,7 +115,7 @@ def stretch_scheduler_runway(
             if expected_step is not None:
                 new_last = expected_step
             else:
-                new_last = int(round(old_last * ratio))
+                new_last = round(old_last * ratio)
 
             new_last = max(0, min(current_total_steps - 1, new_last))
             sched_dict["last_epoch"] = new_last
@@ -124,7 +131,7 @@ def stretch_scheduler_runway(
                             phase["end_step"] = current_total_steps - 1
                         else:
                             old_end = phase["end_step"]
-                            scaled_end = int(round((old_end + 1) * ratio - 1))
+                            scaled_end = round((old_end + 1) * ratio - 1)
                             phase["end_step"] = max(0, min(current_total_steps - 1, scaled_end))
                 sched_dict["_schedule_phases"] = phases
 
@@ -161,7 +168,7 @@ def scale_resume_progress(
     new_loader_len: int,
     is_progress_snapshot: bool = False,
 ) -> int:
-    """Scale resume iteration proportionally when batch size or dataset fraction shifts between runs."""
+    """Scale the resume iteration when batch size or dataset fraction changed between runs."""
     if resume_iteration <= 0 or source_loader_len <= 0 or new_loader_len <= 0:
         return 0
 

@@ -5,7 +5,9 @@ import os
 from typing import Any
 
 import torch
+import torch.distributed as dist
 from torch.utils.data import DataLoader, Dataset, Sampler
+from torch.utils.data.distributed import DistributedSampler
 
 from training.data.workers import (
     compute_worker_topology,
@@ -75,11 +77,7 @@ def build_train_loader(
         kwargs["sampler"] = sampler
     else:
         # Automatically use DistributedSampler when running multi-GPU DDP
-        import torch.distributed as dist
-
         if dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1:
-            from torch.utils.data.distributed import DistributedSampler
-
             kwargs["sampler"] = DistributedSampler(dataset, shuffle=shuffle)
         else:
             kwargs["shuffle"] = shuffle
@@ -143,8 +141,6 @@ def build_val_loader(
 
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     if world_size > 1:
-        from torch.utils.data.distributed import DistributedSampler
-
         kwargs["sampler"] = DistributedSampler(dataset, shuffle=False)
 
     if workers > 0:

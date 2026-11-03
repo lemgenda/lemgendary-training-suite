@@ -1,3 +1,5 @@
+"""Background dataset prefetcher: streams HF/Kaggle datasets to disk outside the training loop."""
+
 import logging
 import os
 import subprocess
@@ -40,14 +42,17 @@ def prefetch():
         # Engage structural Mutex Lock to prevent Orchestrator from starting too early
         lock_file = os.path.join(target_dir, f"{folder_name}.lock")
 
-        with open(lock_file, "w") as f:
+        with open(lock_file, "w", encoding="utf-8") as f:
             f.write(f"STREAMING_{source_id}")
 
         # 2026: Smart Source Router
         if source_id.startswith("hf://"):
             repo_id = source_id.replace("hf://", "")
             # Leverage huggingface-cli for high-speed concurrent streaming
-            cmd = f'huggingface-cli download {repo_id} --local-dir "{ds_path}" --local-dir-use-symlinks False'
+            cmd = (
+                f'huggingface-cli download {repo_id} --local-dir "{ds_path}" '
+                "--local-dir-use-symlinks False"
+            )
         else:
             # Fallback to standard Kaggle streaming
             kaggle_id = source_id.replace("kaggle://", "")

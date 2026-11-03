@@ -11,11 +11,16 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+import yaml
+
+import training.notebook_generator as legacy
 from training.notebooks import (
     ModelNotebookMeta,
     generate_colab_inference_notebook,
+    generate_colab_training_notebook,
     generate_colab_usage_notebook,
     generate_inference_notebook,
+    generate_training_notebook,
     generate_usage_notebook,
     load_registry,
     resolve_model_metadata,
@@ -55,8 +60,6 @@ class TestNotebookSubsystem(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.mkdtemp(prefix="test_nb_")
         self.project_root = get_project_root()
-
-        import yaml
 
         config_path = self.project_root / "config.yaml"
         self.config: dict[str, Any] = {}
@@ -168,16 +171,16 @@ class TestNotebookSubsystem(unittest.TestCase):
 
     def test_backward_compatibility_shim(self) -> None:
         """Verify that training.notebook_generator re-exports all expected functions."""
-        import training.notebook_generator as legacy
-
         self.assertTrue(callable(legacy.generate_inference_notebook))
         self.assertTrue(callable(legacy.generate_usage_notebook))
         self.assertTrue(callable(legacy.generate_training_notebook))
         self.assertTrue(callable(legacy.generate_colab_inference_notebook))
         self.assertTrue(callable(legacy.generate_colab_usage_notebook))
         self.assertTrue(callable(legacy.generate_colab_training_notebook))
-        self.assertTrue(callable(legacy._load_runtime_env))
-        self.assertTrue(callable(legacy._build_env_var_lines))
+        # The private env helpers are part of the shim's declared re-export surface.
+        for name in ("_load_runtime_env", "_build_env_var_lines"):
+            self.assertIn(name, legacy.__all__)
+            self.assertTrue(callable(vars(legacy)[name]))
 
     def _assert_valid_notebook(self, nb_path: Path) -> None:
         """Assert notebook exists, is valid JSON, and adheres to nbformat 4 schema."""
@@ -284,10 +287,6 @@ class TestNotebookSubsystem(unittest.TestCase):
         self.assertIn("from training.notebooks import", mc_source)
 
         # Verify that the SSOT notebook generators emit valid notebooks
-        from training.notebooks import (
-            generate_colab_training_notebook,
-            generate_training_notebook,
-        )
 
         model_key = "mirnet_exposure"
         out_dir = Path(self.temp_dir) / f"{model_key}_ds_ssot"

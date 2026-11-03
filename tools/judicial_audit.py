@@ -20,6 +20,8 @@ import torch.nn.functional as F
 from PIL import Image
 from torchvision import transforms
 
+from models.nima import NIMAModel
+
 
 class SimpleDataset(torch.utils.data.Dataset):
     """Minimal PyTorch Dataset for evaluation."""
@@ -75,9 +77,7 @@ def load_pytorch_model(model_path: str | Path, model_type: str, device: str) -> 
         torch.nn.Module: Loaded model in eval mode.
     """
     if "nima" in model_type.lower():
-        from models.nima import NIMA_Model
-
-        model = NIMA_Model()
+        model = NIMAModel()
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
 

@@ -281,9 +281,12 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
 
         chosen_csv = None
         for cand in csv_candidates:
-            if cand.exists() and cand.stat().st_size > 0:
-                if chosen_csv is None or cand.stat().st_mtime > chosen_csv.stat().st_mtime:
-                    chosen_csv = cand
+            if (
+                cand.exists()
+                and cand.stat().st_size > 0
+                and (chosen_csv is None or cand.stat().st_mtime > chosen_csv.stat().st_mtime)
+            ):
+                chosen_csv = cand
 
         if chosen_csv is not None:
             try:
@@ -364,14 +367,13 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                 )
 
         has_hub_weights = False
-        if hub_dir.exists():
-            if (
-                list(hub_dir.glob("*.pth"))
-                or list((hub_dir / "checkpoints").glob("*.pth"))
-                or list(hub_dir.glob("*.pt"))
-                or list(hub_dir.glob("*.onnx"))
-            ):
-                has_hub_weights = True
+        if hub_dir.exists() and (
+            list(hub_dir.glob("*.pth"))
+            or list((hub_dir / "checkpoints").glob("*.pth"))
+            or list(hub_dir.glob("*.pt"))
+            or list(hub_dir.glob("*.onnx"))
+        ):
+            has_hub_weights = True
 
         ckpt_filename = info.get("checkpoint")
         weights_exist = has_hub_weights

@@ -9,6 +9,7 @@ from typing import Any
 import torch
 import yaml
 
+from models.factory import get_model
 from training.export.base import BaseModelExporter
 from training.export.common import (
     ExportError,
@@ -112,8 +113,6 @@ def export_all(
         return results
 
     # Instantiate model architecture
-    from models.factory import get_model
-
     model = get_model(model_key, cfg).to(torch.device("cpu"))
 
     if ckpt_file and ckpt_file.exists():

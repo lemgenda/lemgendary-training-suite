@@ -1,3 +1,5 @@
+"""Publish trained model binaries (ONNX/PyTorch weights) to GitHub Releases via ``gh``."""
+
 import argparse
 import glob
 import os
@@ -33,7 +35,8 @@ def publish_model_release(
 
     # Check if release exists
     check_cmd = ["gh", "release", "view", tag, "--repo", repo]
-    res = subprocess.run(check_cmd, capture_output=True, text=True)
+    # Non-zero exit just means the release does not exist yet; handled below.
+    res = subprocess.run(check_cmd, capture_output=True, text=True, check=False)
 
     if res.returncode != 0:
         # Create the release
@@ -50,7 +53,7 @@ def publish_model_release(
             "--notes",
             "Official production weights and ONNX exports for LemGendary AI models.",
         ]
-        res_create = subprocess.run(create_cmd, capture_output=True, text=True)
+        res_create = subprocess.run(create_cmd, capture_output=True, text=True, check=False)
         if res_create.returncode != 0:
             print(f"[ERROR] Failed to create release: {res_create.stderr}")
             print("[REMEDY] Ensure GITHUB_PAT is set with 'repo' permissions.")
@@ -60,17 +63,17 @@ def publish_model_release(
     # Upload assets
     upload_cmd = ["gh", "release", "upload", tag, "--repo", repo, "--clobber"] + asset_files
     print(f"[RELEASE] Uploading {len(asset_files)} assets to {tag}...")
-    res_upload = subprocess.run(upload_cmd, capture_output=True, text=True)
+    res_upload = subprocess.run(upload_cmd, capture_output=True, text=True, check=False)
     if res_upload.returncode == 0:
         print(f"[SUCCESS] Assets for {model_key} successfully uploaded to {repo}@{tag}!")
         return True
-    else:
-        print(f"[ERROR] Asset upload failed: {res_upload.stderr}")
-        print("[REMEDY] Check your network connection and Github API limits.")
-        return False
+    print(f"[ERROR] Asset upload failed: {res_upload.stderr}")
+    print("[REMEDY] Check your network connection and Github API limits.")
+    return False
 
 
-if __name__ == "__main__":
+def main():
+    """CLI entrypoint: publish one model (--model) or every model (--all)."""
     parser = argparse.ArgumentParser(description="LemGendary GitHub Releases Publisher")
     parser.add_argument(
         "--model", type=str, help="Publish binary weights for a specific model key."
@@ -90,7 +93,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    models_root = os.path.abspath(os.path.join(base_dir, "../LemGendaryModels"))
+    models_root = os.path.abspath(os.path.join(base_dir, "..", "LemGendaryModels"))
 
     if args.all:
         model_dirs = sorted(
@@ -101,16 +104,22 @@ if __name__ == "__main__":
             ]
         )
         print(
-            f"[START] Publishing weights for {len(model_dirs)} models to {args.repo} ({args.tag})..."
+            f"[START] Publishing weights for {len(model_dirs)} models "
+            f"to {args.repo} ({args.tag})..."
         )
         success_count = 0
         for m in model_dirs:
             if publish_model_release(m, models_root, tag=args.tag, repo=args.repo):
                 success_count += 1
         print(
-            f"\n[DONE] Successfully published {success_count}/{len(model_dirs)} models to GitHub Releases."
+            f"\n[DONE] Successfully published {success_count}/{len(model_dirs)} models "
+            "to GitHub Releases."
         )
     elif args.model:
         publish_model_release(args.model, models_root, tag=args.tag, repo=args.repo)
     else:
         parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

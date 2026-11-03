@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from training.config.secrets import get_secret
-from training.utils.paths import get_project_root
+from training.utils.paths import get_project_root, get_workspace_root
 
 logger = logging.getLogger("lemtrain.cloud.credentials")
 
@@ -43,8 +43,6 @@ def resolve_github_credentials(override_pat: str | None = None) -> str | None:
 
 def load_secrets_yaml_registry() -> list[dict[str, Any]]:
     """Load secrets registry from workspace .secrets.yaml."""
-    from training.utils.paths import get_workspace_root
-
     candidates = [
         get_workspace_root() / ".secrets.yaml",
         get_project_root() / ".secrets.yaml",

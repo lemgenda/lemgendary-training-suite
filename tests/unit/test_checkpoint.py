@@ -1,5 +1,6 @@
 """Unit tests for checkpoint management, recovery engine, resume scaling, and metric vault."""
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,16 +25,14 @@ class TestCheckpointSubsystem(unittest.TestCase):
     """Test suite covering atomic checkpoint saves, recovery, resume scaling, and metric vault."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
         # The recovery engine returns canonical (resolved) roots; on Windows the
         # temp dir may be an 8.3 short path (e.g. ``SANDI~1``), so the fixture
         # root must be canonical too for path-equality assertions to hold.
-        self.root = Path(self.temp_dir.name).resolve()
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+        self.root = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.root)
 
     def test_atomic_save_and_load(self) -> None:
+        """Verify atomic checkpoint save writes a payload that loads back unchanged."""
         ckpt_path = self.root / "model_checkpoint.pth"
         payload = {
             "epoch": 5,
@@ -64,6 +63,7 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertGreater(headroom, 0.0)
 
     def test_resume_state_parsing_and_scaling(self) -> None:
+        """Verify resume-state parsing and epoch/iteration scaling from a checkpoint payload."""
         payload = {
             "epoch": 3,
             "iteration": 50,
@@ -90,6 +90,7 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertEqual(scaled_double, 50)
 
     def test_stretch_scheduler_runway(self) -> None:
+        """Verify the scheduler runway is stretched when training is extended."""
         dummy_model = torch.nn.Linear(2, 2)
         opt = torch.optim.SGD(dummy_model.parameters(), lr=0.1)
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=100)
@@ -106,6 +107,7 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertEqual(sched_state["last_epoch"], 100)
 
     def test_checkpoint_recovery_engine(self) -> None:
+        """Verify the recovery engine discovers checkpoints under canonical roots."""
         engine = CheckpointRecoveryEngine(
             workspace_root=self.root, project_root=self.root, env="local"
         )
@@ -133,6 +135,7 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertGreaterEqual(len(synced), 4)
 
     def test_metric_vault(self) -> None:
+        """Verify the metric vault tracks the best value per metric and direction."""
         vault = MetricVault(primary_metric="val_loss", mode="min")
 
         # Epoch 1
@@ -171,6 +174,7 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertEqual(loaded_vault.best_record.epoch, 2)
 
     def test_checkpoint_lifecycle_manager(self) -> None:
+        """Verify the checkpoint lifecycle manager saves, rotates and resolves checkpoints."""
         mgr = CheckpointLifecycleManager(
             model_name="test_model",
             project_root=self.root,
@@ -248,6 +252,7 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertNotIn("ssim", vaults_ep2)
 
     def test_vault_direction_and_alias_matching(self) -> None:
+        """Verify vault metric directions and alias matching for forex metrics."""
         mgr = CheckpointLifecycleManager(
             model_name="forex_test",
             project_root=self.root,
@@ -276,7 +281,8 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertTrue((mgr.checkpoints_dir / "vault_sharpe_ratio.pth").exists())
         self.assertTrue((mgr.checkpoints_dir / "vault_tp_mae.pth").exists())
 
-        # Epoch 2: Only MaxDD improves (10.0 < 11.5). DirAcc, Sharpe are worse. TP_MAE is worse (13.0 > 12.0).
+        # Epoch 2: Only MaxDD improves (10.0 < 11.5). DirAcc, Sharpe are worse.
+        # TP_MAE is worse (13.0 > 12.0).
         vaults_ep2 = mgr.check_and_save_vault(
             epoch=2,
             metrics={"DirAcc": 58.0, "MaxDD": 10.0, "Sharpe": 1.70, "TP_MAE": 13.0},
@@ -288,6 +294,7 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertNotIn("tp_mae", vaults_ep2)
 
     def test_resume_state_validation_phase(self) -> None:
+        """Verify resume-state validation reads the progress-metadata phase."""
         payload = {
             "epoch": 2,
             "progress_metadata": {

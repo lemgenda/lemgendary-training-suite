@@ -1,3 +1,11 @@
+"""Kaggle cloud training launcher and live kernel monitor.
+
+Authenticates Kaggle accounts, pushes training kernels, streams kernel logs and status, and
+optionally pulls checkpoints back into the local LemGendaryModels hub. Run as
+``python -m training.kaggle_monitor`` from the suite root.
+"""
+
+import argparse
 import json
 import logging
 import os
@@ -10,16 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
-# --- Path Anchor Defense ---
-# Anchor the search path to the workspace root and script directory to ensure module discovery
-_script_dir = Path(__file__).resolve().parent
-_suite_dir = _script_dir.parent
-_workspace_root = _suite_dir.parent
-if str(_suite_dir) not in sys.path:
-    sys.path.insert(0, str(_suite_dir))
-if str(_workspace_root) not in sys.path:
-    sys.path.insert(0, str(_workspace_root))
 
 from training.cloud.errors import KAGGLE_API_ERRORS
 from training.kaggle_cloud_manager import (
@@ -111,6 +109,7 @@ def authenticate_kaggle_user(username: str, token: str) -> Any | None:
     os.environ["KAGGLE_KEY"] = clean_token
 
     try:
+        # Deferred: the Kaggle SDK is optional and reads credentials at import time.
         from kaggle.api.kaggle_api_extended import KaggleApi
 
         api = KaggleApi()
@@ -164,7 +163,7 @@ def get_registered_models() -> list[str]:
             with open(yaml_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
             if isinstance(data, dict):
-                return [k for k in data.keys() if k != "_registry_metadata"]
+                return [k for k in data if k != "_registry_metadata"]
         except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
             logger.warning("Could not load registered models from %s: %s", yaml_path, exc)
     return []
@@ -227,7 +226,8 @@ def stream_kernel_logs(
 ) -> None:
     """
     Streams live kernel logs and status telemetry to terminal.
-    If auto_pull is True, pulls checkpoints and weights to local LemGendaryModels per completed epoch.
+    If auto_pull is True, pulls checkpoints and weights to local LemGendaryModels per
+    completed epoch.
     If auto_pull is False, operates in monitor-only mode with zero checkpoint pulling.
     """
     print("\n" + "=" * 76)
@@ -317,13 +317,17 @@ def stream_kernel_logs(
                         # Check for epoch completion or checkpoint save if auto-pull is enabled
                         if auto_pull and model_name:
                             epoch_signal = re.search(
-                                r"epoch\s+\d+\s+complete|saving.*checkpoint|model version.*committed|\[sota\]",
+                                (
+                                    r"epoch\s+\d+\s+complete|saving.*checkpoint|model "
+                                    r"version.*committed|\[sota\]"
+                                ),
                                 line,
                                 re.IGNORECASE,
                             )
                             if epoch_signal:
                                 print(
-                                    f"\n[{time.strftime('%H:%M:%S')}] [AUTO-PULL] New checkpoint detected. Syncing >> {model_name} <<..."
+                                    f"\n[{time.strftime('%H:%M:%S')}] [AUTO-PULL] New "
+                                    f"checkpoint detected. Syncing >> {model_name} <<..."
                                 )
                                 try:
                                     pull_kaggle_artifacts(model_name, username=username)
@@ -335,7 +339,8 @@ def stream_kernel_logs(
 
             if status in ["COMPLETE", "ERROR", "CANCELACK"]:
                 print(
-                    f"\n[{time.strftime('%H:%M:%S')}] [TERMINAL] Cloud job finished with status: {status}"
+                    f"\n[{time.strftime('%H:%M:%S')}] [TERMINAL] Cloud job finished with "
+                    f"status: {status}"
                 )
                 failure_msg = getattr(st, "failure_message", None) or getattr(
                     st, "failureMessage", None
@@ -345,7 +350,8 @@ def stream_kernel_logs(
 
                 if auto_pull and model_name and status == "COMPLETE":
                     print(
-                        f"\n[SYNC] Training complete. Performing final artifact pull for >> {model_name} <<..."
+                        "\n[SYNC] Training complete. Performing final artifact pull for >> "
+                        f"{model_name} <<..."
                     )
                     try:
                         pull_kaggle_artifacts(model_name, username=username)
@@ -357,7 +363,8 @@ def stream_kernel_logs(
 
     except KeyboardInterrupt:
         print(
-            f"\n\n[INFO] Detached from telemetry stream for {kernel_slug}. Process continues on Kaggle."
+            f"\n\n[INFO] Detached from telemetry stream for {kernel_slug}. Process continues "
+            "on Kaggle."
         )
 
 
@@ -442,7 +449,8 @@ def interactive_train_launcher(api: Any, username: str) -> None:
 
         new_opt_idx = len(kernels) + 1
         print(
-            f"\n  {new_opt_idx}. [DEPLOY NEW MODEL] Deploy and launch a registered model from local suite"
+            f"\n  {new_opt_idx}. [DEPLOY NEW MODEL] Deploy and launch a registered model from "
+            "local suite"
         )
         print("  B. [BACK] Return to User Selection")
         print()
@@ -481,17 +489,19 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                                 if "is_private" not in meta_data:
                                     meta_data["is_private"] = "true"
                                 raw_shape = str(meta_data.get("machine_shape", "")).strip()
-                                # Normalize legacy or non-specific shapes (like 'Gpu' or empty) to explicit accelerator
+                                # Normalize legacy/non-specific shapes ('Gpu', empty) to an
+                                # explicit accelerator
                                 if not raw_shape or raw_shape.lower() in ["gpu", "none", "cpu"]:
                                     meta_data["machine_shape"] = "NvidiaTeslaT4"
                                 meta_file.write_text(
                                     json.dumps(meta_data, indent=2), encoding="utf-8"
                                 )
                             except (OSError, ValueError, TypeError) as meta_err:
-                                # ValueError: json.JSONDecodeError; TypeError: non-object metadata JSON.
+                                # ValueError: JSONDecodeError; TypeError: non-object JSON.
                                 print(f"[REMEDY] Metadata update notice: {meta_err}")
 
-                        # Harden notebook sentinel cells against premature sys.exit(1) on transient container initialization
+                        # Harden notebook sentinel cells against premature sys.exit(1)
+                        # during transient container initialization
                         try:
                             for nb_path in Path(td).glob("*.ipynb"):
                                 nb_text = nb_path.read_text(encoding="utf-8")
@@ -505,10 +515,19 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                                             in src
                                             and "sys.exit(1)" in src
                                         ):
-                                            # Replace hard abort with non-fatal warning matching notebook_generator standard
+                                            # Replace hard abort with the non-fatal warning
+                                            # used by notebook_generator
                                             src_mod = src.replace(
-                                                "    print('[ERROR] [CRITICAL] NO GPU DETECTED! Training aborted to preserve quota.')\n    sys.exit(1)",
-                                                "    print('[WARNING] NO GPU DETECTED!')\n    print('   -> Continuing in fallback execution mode...')",
+                                                (
+                                                    "    print('[ERROR] [CRITICAL] NO GPU "
+                                                    "DETECTED! Training aborted to preserve "
+                                                    "quota.')\n    sys.exit(1)"
+                                                ),
+                                                (
+                                                    "    print('[WARNING] NO GPU DETECTED!')\n    "
+                                                    "print('   -> Continuing in fallback execution "
+                                                    "mode...')"
+                                                ),
                                             )
                                             cell["source"] = src_mod
                                             modified_nb = True
@@ -517,7 +536,8 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                                         json.dumps(nb_json, indent=2), encoding="utf-8"
                                     )
                         except (OSError, ValueError, TypeError, AttributeError) as nb_patch_err:
-                            # ValueError: json.JSONDecodeError; Type/AttributeError: malformed notebook cells.
+                            # ValueError: JSONDecodeError;
+                            # Type/AttributeError: malformed notebook cells.
                             print(f"[REMEDY] Notebook sentinel sync notice: {nb_patch_err}")
 
                         chosen_acc = (
@@ -528,7 +548,8 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                         if str(chosen_acc).lower() in ["gpu", "none", "cpu"]:
                             chosen_acc = "NvidiaTeslaT4"
                         print(
-                            f"[LAUNCH] Pushing kernel bundle to trigger execution on Kaggle GPU ({chosen_acc})..."
+                            "[LAUNCH] Pushing kernel bundle to trigger execution on Kaggle "
+                            f"GPU ({chosen_acc})..."
                         )
                         api.kernels_push(td, acc=chosen_acc)
                         print(
@@ -550,7 +571,8 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                     kernel_dir = create_cloud_kernel_bundle(target_model, username, gpu="T4")
                     selected_slug = get_kernel_slug(target_model, username)
                     print(
-                        f"[LAUNCH] Pushing bundle for '{target_model}' to Kaggle GPU (Dual T4: {selected_slug})..."
+                        f"[LAUNCH] Pushing bundle for '{target_model}' to Kaggle GPU (Dual T4: "
+                        f"{selected_slug})..."
                     )
                     try:
                         api.kernels_push(str(kernel_dir), acc="NvidiaTeslaT4")
@@ -629,9 +651,10 @@ def prompt_user_account_selection(
                     .strip()
                     .lower()
                 )
-                if save_prompt in ["", "y", "yes"]:
-                    if save_kaggle_user(users_file, inp_user, inp_token):
-                        print(f"[SUCCESS] User '{inp_user}' saved to {users_file}.")
+                if save_prompt in ["", "y", "yes"] and save_kaggle_user(
+                    users_file, inp_user, inp_token
+                ):
+                    print(f"[SUCCESS] User '{inp_user}' saved to {users_file}.")
             else:
                 print("[ERROR] Username and token cannot be empty.")
                 time.sleep(1)
@@ -682,8 +705,6 @@ def main():
     """
     Entry point for CLI execution.
     """
-    import argparse
-
     parser = argparse.ArgumentParser(description="LemGendary Kaggle Cloud Training & Monitor")
     parser.add_argument(
         "--action", type=str, default="monitor", choices=["train", "monitor", "stream"]

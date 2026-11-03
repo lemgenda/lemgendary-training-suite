@@ -1,3 +1,5 @@
+"""Unit tests for the VRAM safety governor: hardware caps, resolution vetoes and CPU fallback."""
+
 import unittest
 
 import torch
@@ -9,18 +11,24 @@ from training.ratchet import RatchetViolation
 
 
 class DummyRestorationModel(nn.Module):
+    """Single-conv restoration model used as a governor fixture."""
+
     def __init__(self):
         super().__init__()
         self.conv = nn.Conv2d(3, 3, kernel_size=3, padding=1)
 
     def forward(self, x):
+        """Apply the conv to ``x`` (or to ``x["pixel_values"]`` for dict batches)."""
         if isinstance(x, dict):
             x = x["pixel_values"]
         return self.conv(x)
 
 
 class TestVRAMSafetyGovernor(unittest.TestCase):
+    """Tests for VRAM-aware governor capping and resolution veto behaviour."""
+
     def test_governor_hardware_cap_restoration(self):
+        """Verify the governor caps restoration batch/resolution to the hardware budget."""
         model_info = {
             "name": "test_nafnet",
             "dataset_type": "restoration",
@@ -38,6 +46,7 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
         self.assertNotIn(768, gov.res_ladder)
 
     def test_governor_veto_resolution_jump(self):
+        """Verify the governor vetoes a resolution jump that would exceed VRAM."""
         model_info = {
             "name": "test_mprnet",
             "dataset_type": "restoration",
@@ -54,6 +63,7 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
         self.assertTrue(all(r <= 384 for r in gov.res_ladder))
 
     def test_governor_veto_never_retreats_resolution(self):
+        """Verify a vetoed jump never moves the resolution backwards."""
         model_info = {
             "name": "test_mprnet",
             "dataset_type": "restoration",
@@ -68,6 +78,7 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
         self.assertEqual(gov.current_res, 512)
 
     def test_audit_hardware_vram_cpu_fallback(self):
+        """Verify the VRAM audit falls back to CPU-safe settings without CUDA."""
         model_info = {
             "name": "test_nafnet",
             "dataset_type": "restoration",

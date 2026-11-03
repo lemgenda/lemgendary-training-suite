@@ -1,48 +1,34 @@
 """Path resolution and repository root auto-discovery for LemGendary Model Training Suite."""
 
+import functools
 import os
 import sys
 from pathlib import Path
 
-_CACHED_PROJECT_ROOT: Path | None = None
-_CACHED_WORKSPACE_ROOT: Path | None = None
 
-
+@functools.cache
 def get_project_root() -> Path:
-    """Discover the canonical root directory of lemgendary-training-suite."""
-    global _CACHED_PROJECT_ROOT
-    if _CACHED_PROJECT_ROOT is not None:
-        return _CACHED_PROJECT_ROOT
-
+    """Discover the canonical root directory of lemgendary-training-suite (cached per process)."""
     candidate = Path(__file__).resolve().parent.parent.parent
     if (candidate / "unified_models_v2.yaml").exists() or (candidate / "config.yaml").exists():
-        _CACHED_PROJECT_ROOT = candidate
-        return _CACHED_PROJECT_ROOT
+        return candidate
 
     cwd = Path.cwd().resolve()
     if (cwd / "unified_models_v2.yaml").exists() or (cwd / "config.yaml").exists():
-        _CACHED_PROJECT_ROOT = cwd
-        return _CACHED_PROJECT_ROOT
+        return cwd
 
     # Fallback to parent candidate
-    _CACHED_PROJECT_ROOT = candidate
-    return _CACHED_PROJECT_ROOT
+    return candidate
 
 
+@functools.cache
 def get_workspace_root() -> Path:
-    """Discover the workspace root containing sibling LemGendary projects."""
-    global _CACHED_WORKSPACE_ROOT
-    if _CACHED_WORKSPACE_ROOT is not None:
-        return _CACHED_WORKSPACE_ROOT
+    """Discover the workspace root containing sibling LemGendary projects (cached per process).
 
-    proj_root = get_project_root()
-    parent = proj_root.parent
-    if (parent / "lemgendary-datasets").exists() or (parent / "lemgendary-env-manager").exists():
-        _CACHED_WORKSPACE_ROOT = parent
-        return _CACHED_WORKSPACE_ROOT
-
-    _CACHED_WORKSPACE_ROOT = parent
-    return _CACHED_WORKSPACE_ROOT
+    This is the parent of the project root, where sibling projects such as lemgendary-datasets
+    and lemgendary-env-manager live.
+    """
+    return get_project_root().parent
 
 
 def resolve_path(target: str | Path) -> Path:

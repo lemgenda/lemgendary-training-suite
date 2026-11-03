@@ -1,5 +1,6 @@
 """Canonical Manifold Resolver for LemGendary Model Training Suite."""
 
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,7 +30,7 @@ class ManifoldInfo:
 
 
 class ManifoldResolver:
-    """Resolves dataset manifold locations and container layouts across local, Colab, and Kaggle environments."""
+    """Resolve dataset manifold locations and container layouts on local, Colab, and Kaggle."""
 
     def __init__(
         self,
@@ -93,7 +94,8 @@ class ManifoldResolver:
         """Generate common name variations (prefixes, suffixes) for fuzzy resolution."""
         candidates: list[str] = [manifold_name]
 
-        # Suffix stripping / normalization: e.g. LemGendizedNimaAestheticLarge -> LemGendizedNimaAesthetic
+        # Suffix stripping / normalization:
+        # e.g. LemGendizedNimaAestheticLarge -> LemGendizedNimaAesthetic
         if manifold_name.endswith("Large"):
             stripped = manifold_name[:-5]
             if stripped not in candidates:
@@ -122,7 +124,7 @@ class ManifoldResolver:
 
     @staticmethod
     def is_valid_manifold_dir(p: Path) -> bool:
-        """Check if directory contains dataset images, targets, shards, parquet, or manifest metadata."""
+        """Check if a directory holds dataset images, targets, shards, parquet, or manifests."""
         if not p.is_dir():
             return False
         for sub in (
@@ -230,7 +232,7 @@ class ManifoldResolver:
                 except OSError as exc:
                     logger.debug("Failed listing directory %s: %s", root, exc)
 
-        # Phase B: Kaggle /kaggle/input inspection (train on whichever dataset or datasets are attached)
+        # Phase B: Kaggle /kaggle/input inspection (train on whichever datasets are attached)
         if (
             self.env == "kaggle"
             or any("/kaggle/input" in str(r).replace("\\", "/") for r in search_roots)
@@ -308,11 +310,9 @@ class ManifoldResolver:
             if mf.exists():
                 meta_file = mf
                 try:
-                    if candidate_meta.endswith(".yaml") or candidate_meta.endswith(".yml"):
+                    if candidate_meta.endswith((".yaml", ".yml")):
                         meta = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
                     else:
-                        import json
-
                         meta = json.loads(mf.read_text(encoding="utf-8"))
                 except (OSError, ValueError, yaml.YAMLError) as exc:
                     logger.warning("Failed parsing metadata file %s: %s", mf, exc)

@@ -5,8 +5,6 @@ Validates end-to-end multi-timeframe feature calculation, tensor ingestion,
 model inference, and trade execution signals with sub-5ms latency verification.
 """
 
-import os
-import sys
 import time
 import unittest
 
@@ -16,12 +14,10 @@ import torch
 
 # pandas is an optional dependency of the MT5 Forex pipeline only (requirements.txt,
 # not the core pyproject dependency set); skip this module cleanly when absent.
-pd = pytest.importorskip("pandas")
-
-# Anchor root
-_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _root not in sys.path:
-    sys.path.insert(0, _root)
+try:
+    import pandas as pd
+except ImportError as exc:
+    pytest.skip(f"pandas is not installed: {exc}", allow_module_level=True)
 
 from data.mt5_pipeline import (
     FEATURES,
@@ -64,6 +60,7 @@ def generate_synthetic_candles(n_bars: int = 600) -> pd.DataFrame:
 
 
 def test_multi_timeframe_live_pipeline():
+    """Run the multi-timeframe forex pipeline end to end and return the model outputs."""
     print("\n" + "=" * 80, flush=True)
     print(" [MT5 INFERENCE TEST] Starting Multi-Timeframe Forex Inference Suite", flush=True)
     print("=" * 80, flush=True)
@@ -71,7 +68,8 @@ def test_multi_timeframe_live_pipeline():
     # 1. MT5 Terminal Discovery
     mt5_active = connect_mt5()
     print(
-        f" -> MT5 Terminal Connection: {'LIVE' if mt5_active else 'OFFLINE (Running Synthetic Mock)'}",
+        " -> MT5 Terminal Connection: "
+        f"{'LIVE' if mt5_active else 'OFFLINE (Running Synthetic Mock)'}",
         flush=True,
     )
 
@@ -137,7 +135,8 @@ def test_multi_timeframe_live_pipeline():
     avg_lat = np.mean(latencies)
     p95_lat = np.percentile(latencies, 95)
     print(
-        f"    [LATENCY] Mean: {avg_lat:.2f} ms | P95: {p95_lat:.2f} ms | Sub-5ms Target: {'PASS' if avg_lat < 5.0 else 'EXCEEDED'}",
+        f"    [LATENCY] Mean: {avg_lat:.2f} ms | P95: {p95_lat:.2f} ms | "
+        f"Sub-5ms Target: {'PASS' if avg_lat < 5.0 else 'EXCEEDED'}",
         flush=True,
     )
 
@@ -155,7 +154,9 @@ def test_multi_timeframe_live_pipeline():
     print(f" [SIGNAL RESULT] Asset: {test_pair}", flush=True)
     print(f"  -> Direction:       {dir_map[pred_dir_idx]}", flush=True)
     print(
-        f"  -> Confidence:      {probs[pred_dir_idx] * 100:.2f}% (Probabilities: Sell={probs[0] * 100:.1f}%, Hold={probs[1] * 100:.1f}%, Buy={probs[2] * 100:.1f}%)",
+        f"  -> Confidence:      {probs[pred_dir_idx] * 100:.2f}% "
+        f"(Probabilities: Sell={probs[0] * 100:.1f}%, Hold={probs[1] * 100:.1f}%, "
+        f"Buy={probs[2] * 100:.1f}%)",
         flush=True,
     )
     print(f"  -> Target Take-Profit: {tp_pips:.1f} pips", flush=True)
@@ -174,6 +175,7 @@ class TestMT5LiveInference(unittest.TestCase):
     """Unit/Integration wrapper for MT5 multi-timeframe inference pipeline."""
 
     def test_multi_timeframe_live_pipeline(self) -> None:
+        """Verify the pipeline returns direction logits and magnitude predictions."""
         preds = test_multi_timeframe_live_pipeline()
         self.assertIn("direction_logits", preds)
         self.assertIn("magnitude", preds)

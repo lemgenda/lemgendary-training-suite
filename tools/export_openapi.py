@@ -51,6 +51,7 @@ def build_schema() -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Write openapi.json, or with ``--check`` return 1 when it differs from the app."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--check",

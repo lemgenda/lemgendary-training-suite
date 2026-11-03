@@ -9,6 +9,7 @@ from typing import Any
 import torch
 from torch import nn
 
+from models.nima import SoftmaxWrapper
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export.common")
@@ -98,8 +99,6 @@ def wrap_quality_model(model: nn.Module, model_info: dict[str, Any]) -> nn.Modul
     """Applies softmax temperature wrapper for quality scoring models if needed."""
     if model_info.get("dataset_type") == "quality":
         try:
-            from models.nima import SoftmaxWrapper
-
             temp_raw = getattr(model, "softmax_temp", torch.tensor(1.0))
             temp = float(temp_raw.item() if isinstance(temp_raw, torch.Tensor) else temp_raw)
             if temp == 1.0:
@@ -109,6 +108,6 @@ def wrap_quality_model(model: nn.Module, model_info: dict[str, Any]) -> nn.Modul
             wrapped = SoftmaxWrapper(model, temperature=temp)
             wrapped.eval()
             return wrapped
-        except (ImportError, ValueError, TypeError, AttributeError, RuntimeError) as exc:
+        except (ValueError, TypeError, AttributeError, RuntimeError) as exc:
             logger.debug("SoftmaxWrapper unavailable or unnecessary: %s", exc)
     return model

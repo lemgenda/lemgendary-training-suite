@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import yaml
 
 from training.utils.paths import get_project_root
+
+if TYPE_CHECKING:
+    # Annotation-only (postponed evaluation); typing.Self needs Python 3.11.
+    from typing_extensions import Self
 
 logger = logging.getLogger("lemtrain.registry")
 
@@ -79,7 +83,7 @@ class ModelRegistryService:
     _models: ClassVar[dict[str, ModelSpecification]] = {}
     _capabilities: ClassVar[dict[str, Any]] = {}
 
-    def __new__(cls) -> ModelRegistryService:
+    def __new__(cls) -> Self:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._load()

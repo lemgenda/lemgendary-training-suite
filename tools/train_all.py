@@ -27,6 +27,7 @@ try:
     if not hasattr(ke, "get_web_endpoint"):
 
         def get_web_endpoint(env: Any) -> str:
+            """Return the Kaggle web endpoint for ``env`` (shim for older kagglesdk)."""
             endpoint = (
                 ke.get_endpoint(env) if hasattr(ke, "get_endpoint") else "https://api.kaggle.com"
             )
@@ -40,6 +41,8 @@ except ImportError as _kaggle_env_err:
 
 
 class PhaseDef(TypedDict):
+    """One fleet training phase: display name, datasets it needs and models it trains."""
+
     name: str
     datasets: list[str]
     models: list[str]
@@ -147,7 +150,7 @@ def main() -> None:
     active_phases: list[PhaseDef] = []
     auto_accept = args.yes
 
-    scheduled_models = set(m for p in PHASES for m in p["models"])
+    scheduled_models = {m for p in PHASES for m in p["models"]}
     unscheduled = [
         m
         for m, info in registry.items()
@@ -173,7 +176,8 @@ def main() -> None:
             )
             if final_pth.exists() and not args.force:
                 print(
-                    f"[SKIP] Model '{model_key}' has existing SOTA artifacts. Use --force to re-train."
+                    f"[SKIP] Model '{model_key}' has existing SOTA artifacts. "
+                    "Use --force to re-train."
                 )
                 continue
 
@@ -182,7 +186,7 @@ def main() -> None:
                 if export_dir.exists():
                     files = os.listdir(export_dir)
                     has_onnx = any(f.endswith(".onnx") for f in files)
-                    has_pt = any(f.endswith(".pt") or f.endswith(".pth") for f in files)
+                    has_pt = any(f.endswith((".pt", ".pth")) for f in files)
                     if has_onnx and has_pt:
                         print(
                             f"[SKIP] Model '{model_key}' already has exported ONNX and PT binaries."

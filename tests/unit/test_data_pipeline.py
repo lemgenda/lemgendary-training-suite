@@ -1,5 +1,6 @@
 """Unit tests for LemGendary Model Training Suite data pipeline subsystem."""
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -47,13 +48,11 @@ class TestDataPipeline(unittest.TestCase):
     """Test suite covering manifold resolution, worker topology, loaders, and degradations."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.root_path = Path(self.temp_dir.name)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+        self.root_path = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root_path)
 
     def test_manifold_candidates(self) -> None:
+        """Verify manifold name candidates include LemGendized and environment variants."""
         resolver = ManifoldResolver(project_root=self.root_path, env="local")
         candidates = resolver.generate_name_candidates("MyManifold")
         self.assertIn("MyManifold", candidates)
@@ -64,6 +63,7 @@ class TestDataPipeline(unittest.TestCase):
         self.assertIn("MyManifoldKaggleReady", kaggle_cands)
 
     def test_manifold_inspection(self) -> None:
+        """Verify manifold inspection reports layout and sample counts."""
         manifold_dir = self.root_path / "LemGendizedTestManifold"
         manifold_dir.mkdir(parents=True)
         images_dir = manifold_dir / "images" / "train"
@@ -90,6 +90,7 @@ class TestDataPipeline(unittest.TestCase):
         self.assertTrue(split_path.exists())
 
     def test_worker_topology_calculation(self) -> None:
+        """Verify worker topology is computed from environment and device."""
         topo = compute_worker_topology(
             env="local",
             device=torch.device("cpu"),
@@ -111,6 +112,7 @@ class TestDataPipeline(unittest.TestCase):
         self.assertEqual(forex_topo.num_workers, 0)
 
     def test_dataloader_factories_and_lifecycle(self) -> None:
+        """Verify train/val loader factories build loaders and dispose them cleanly."""
         dataset = _DummyDataset(size=8)
         train_loader = build_train_loader(
             dataset=dataset,
@@ -147,6 +149,7 @@ class TestDataPipeline(unittest.TestCase):
         dispose_loader(val_loader)
 
     def test_dynamic_degradation(self) -> None:
+        """Verify synthetic degradation keeps tensor shape and changes values."""
         tensor = torch.ones(3, 32, 32, dtype=torch.float32) * 0.5
         degraded = apply_synthetic_degradation(tensor, deg=0.5, theta=1.0, conf=0.5)
         self.assertEqual(degraded.shape, (3, 32, 32))
@@ -162,6 +165,7 @@ class TestDataPipeline(unittest.TestCase):
         self.assertIsInstance(meta, dict)
 
     def test_jpeg_guard_and_pil_degradation(self) -> None:
+        """Verify the JPEG compression guard and PIL degradation return valid images."""
         pil_img = Image.new("RGB", (64, 64), color=(128, 64, 32))
         guard = JpegCompressionGuard(probability=1.0)
         guarded = guard(pil_img)
@@ -171,6 +175,7 @@ class TestDataPipeline(unittest.TestCase):
         self.assertEqual(synth.size, (64, 64))
 
     def test_kaggle_manifold_generic_discovery(self) -> None:
+        """Verify generic discovery of attached Kaggle input manifolds."""
         kaggle_dir = self.root_path / "mock_kaggle" / "input"
         dataset_dir = kaggle_dir / "lemgendizedmirnetexposure" / "LemGendizedMirNetExposure"
         shards_dir = dataset_dir / "shards"

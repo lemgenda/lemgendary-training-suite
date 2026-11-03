@@ -48,7 +48,8 @@ _PULL_ERRORS: tuple[type[Exception], ...] = (RuntimeError, *KAGGLE_API_ERRORS)
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 CLEAN_CONTROL_RE = re.compile(r"^\s*\[K\s*")
 PROGRESS_RE = re.compile(
-    r"(\d+%\s*[━█─\-=|]+|\b\d+/\d+\b\s+.*\b(it/s|s/it|B/s|KB/s|MB/s|GB/s)\b|\d+:\d+<\d+:\d+|\d+%\s*\|.*\|\s*\d+/\d+|\[BATCH\s+\d+/\d+\])"
+    r"(\d+%\s*[━█─\-=|]+|\b\d+/\d+\b\s+.*\b(it/s|s/it|B/s|KB/s|MB/s|GB/s)\b|\d+:\d+<\d+:\d+|\d+"
+    r"%\s*\|.*\|\s*\d+/\d+|\[BATCH\s+\d+/\d+\])"
 )
 
 
@@ -68,8 +69,9 @@ def _is_progress_line(text: str) -> bool:
     return bool(PROGRESS_RE.search(text))
 
 
-# Failures a tee line handler (JobManager._broadcast_log) can raise: job-state DB access (sqlite3),
-# log-file I/O (OSError), payload encoding (TypeError/ValueError) and a closed event loop (RuntimeError).
+# Failures a tee line handler (JobManager._broadcast_log) can raise: job-state DB access
+# (sqlite3), log-file I/O (OSError), payload encoding (TypeError/ValueError) and a closed
+# event loop (RuntimeError).
 _LINE_HANDLER_ERRORS: tuple[type[Exception], ...] = (
     sqlite3.Error,
     OSError,
@@ -84,7 +86,7 @@ _STREAM_ERRORS: tuple[type[Exception], ...] = (OSError, ValueError)
 
 
 class _GlobalOutputTee:
-    """Process-wide stream tee that routes thread-specific stdout/stderr lines to active job loggers."""
+    """Process-wide stream tee routing thread-specific stdout/stderr lines to job loggers."""
 
     def __init__(self, original_stream: Any) -> None:
         self.original_stream = original_stream
@@ -128,11 +130,13 @@ class _GlobalOutputTee:
             self._report("Console stream write failed", exc)
 
     def register_thread(self, thread_id: int, on_line: Callable[[str], None]) -> None:
+        """Route complete lines written by ``thread_id`` to ``on_line``."""
         with self._lock:
             self._handlers[thread_id] = on_line
             self._buffers[thread_id] = ""
 
     def unregister_thread(self, thread_id: int) -> None:
+        """Flush any buffered partial line for ``thread_id`` and stop routing it."""
         failures: list[Exception] = []
         with self._lock:
             buf = self._buffers.pop(thread_id, "").strip()
@@ -142,6 +146,7 @@ class _GlobalOutputTee:
         self._report_failures(failures)
 
     def write(self, s: str) -> int:
+        """Write to the original stream and dispatch complete lines of the calling thread."""
         self._write_original(s)
 
         tid = threading.get_ident()
@@ -160,6 +165,7 @@ class _GlobalOutputTee:
         return len(s)
 
     def flush(self) -> None:
+        """Flush the original stream and dispatch the calling thread's partial line."""
         self._write_original(None)
         tid = threading.get_ident()
         failures: list[Exception] = []
@@ -174,9 +180,11 @@ class _GlobalOutputTee:
         self._report_failures(failures)
 
     def isatty(self) -> bool:
+        """Report a non-interactive stream so libraries disable TTY-only output."""
         return False
 
     def fileno(self) -> int:
+        """Return the wrapped stream's file descriptor."""
         if hasattr(self.original_stream, "fileno"):
             return self.original_stream.fileno()
         raise OSError("fileno not supported")
@@ -300,7 +308,7 @@ class JobManager:
         timestamp = datetime.now().isoformat()
         is_progress = _is_progress_line(message)
 
-        # Rate-limit high-frequency progress bar updates (max 10 Hz) to avoid overwhelming UI/WebSocket
+        # Rate-limit progress bar updates (max 10 Hz) to avoid overwhelming the UI/WebSocket
         if is_progress:
             now = time.monotonic()
             last_broadcast = self._last_progress_broadcast.get(job_id, 0.0)
@@ -378,10 +386,9 @@ class JobManager:
                 # Suppress noisy library lines; keep structured steps, errors, and success summaries
                 low = line.lower()
                 if (
-                    low.startswith("uploading model https://")
+                    low.startswith(("uploading model https://", "failed uploading "))
                     or "does not exist or access is forbidden" in low
                     or "creating or handling model" in low
-                    or low.startswith("failed uploading ")
                 ):
                     return
             self._broadcast_log(job_id, line)
@@ -427,9 +434,11 @@ class JobManager:
             )
             self._broadcast_log(job_id, f"[CANCEL] Job {job_id} halted by cancellation signal.")
         except Exception as exc:
-            logger.exception("Job %s encountered unexpected failure: %s", job_id, exc)
+            # Record the failure on the job, then re-raise so it also lands on the executor future.
+            logger.exception("Job %s encountered unexpected failure", job_id)
             self.state.update_job_status(job_id=job_id, status="failed", error_message=str(exc))
             self._broadcast_log(job_id, f"[ERROR] Execution failed: {exc}")
+            raise
         finally:
             if self._stdout_tee:
                 self._stdout_tee.unregister_thread(tid)
@@ -570,7 +579,8 @@ class JobManager:
                 api.authenticate()
             except KAGGLE_API_ERRORS as e:
                 raise RuntimeError(
-                    f"Kaggle authentication failed: {e}. Please configure Kaggle username and API key."
+                    f"Kaggle authentication failed: {e}. Please configure Kaggle username and "
+                    "API key."
                 ) from e
 
         mgr = KaggleHubManager(username=user, key=key)
@@ -645,7 +655,10 @@ class JobManager:
                         self._broadcast_log(job_id, line)
                         if auto_pull and model_key:
                             epoch_signal = re.search(
-                                r"epoch\s+\d+\s+complete|saving.*checkpoint|model version.*committed|\[sota\]",
+                                (
+                                    r"epoch\s+\d+\s+complete|saving.*checkpoint|model "
+                                    r"version.*committed|\[sota\]"
+                                ),
                                 line,
                                 re.IGNORECASE,
                             )
@@ -672,7 +685,10 @@ class JobManager:
                     if auto_pull:
                         self._broadcast_log(
                             job_id,
-                            f"[SYNC] Cloud execution complete. Pulling final artifacts for {model_key}...",
+                            (
+                                "[SYNC] Cloud execution complete. Pulling final artifacts for "
+                                f"{model_key}..."
+                            ),
                         )
                         try:
                             pull_kaggle_artifacts(model_key, username=user)
@@ -709,7 +725,10 @@ class JobManager:
             )
             self._broadcast_log(
                 job_id,
-                f"[CANCEL] Telemetry stream detached for {kernel_slug}. Remote kernel may continue running on Kaggle.",
+                (
+                    f"[CANCEL] Telemetry stream detached for {kernel_slug}. Remote kernel may "
+                    "continue running on Kaggle."
+                ),
             )
 
     def _execute_kaggle_monitor(
@@ -776,14 +795,20 @@ class JobManager:
                         self._broadcast_log(job_id, line)
                         if auto_pull and model_key:
                             epoch_signal = re.search(
-                                r"epoch\s+\d+\s+complete|saving.*checkpoint|model version.*committed|\[sota\]",
+                                (
+                                    r"epoch\s+\d+\s+complete|saving.*checkpoint|model "
+                                    r"version.*committed|\[sota\]"
+                                ),
                                 line,
                                 re.IGNORECASE,
                             )
                             if epoch_signal:
                                 self._broadcast_log(
                                     job_id,
-                                    f"[AUTO-PULL] Checkpoint milestone detected. Syncing {model_key}...",
+                                    (
+                                        "[AUTO-PULL] Checkpoint milestone detected. Syncing "
+                                        f"{model_key}..."
+                                    ),
                                 )
                                 try:
                                     pull_kaggle_artifacts(model_key, username=user)
@@ -844,19 +869,36 @@ class JobManager:
 
         self._broadcast_log(job_id, f"[COMMAND] Launching fleet diagnostic: {' '.join(cmd)}")
 
-        proc = subprocess.Popen(
+        with subprocess.Popen(
             cmd,
             cwd=str(self.project_root),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-        )
-
-        try:
-            if proc.stdout:
-                for line in proc.stdout:
-                    if cancel_event.is_set():
+        ) as proc:
+            try:
+                if proc.stdout:
+                    for line in proc.stdout:
+                        if cancel_event.is_set():
+                            if os.name == "nt":
+                                cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                                subprocess.run(
+                                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                    capture_output=True,
+                                    check=False,
+                                    creationflags=cflags,
+                                )
+                            else:
+                                proc.terminate()
+                            break
+                        clean_line = _clean_console_line(line)
+                        if clean_line:
+                            self._broadcast_log(job_id, clean_line)
+                proc.wait()
+            finally:
+                if cancel_event.is_set():
+                    try:
                         if os.name == "nt":
                             cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
                             subprocess.run(
@@ -866,29 +908,13 @@ class JobManager:
                                 creationflags=cflags,
                             )
                         else:
-                            proc.terminate()
-                        break
-                    clean_line = _clean_console_line(line)
-                    if clean_line:
-                        self._broadcast_log(job_id, clean_line)
-            proc.wait()
-        finally:
-            if cancel_event.is_set():
-                try:
-                    if os.name == "nt":
-                        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-                        subprocess.run(
-                            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                            capture_output=True,
-                            check=False,
-                            creationflags=cflags,
+                            proc.kill()
+                    except (OSError, subprocess.SubprocessError) as exc:
+                        logger.warning(
+                            "Failed to terminate test process %s after cancellation: %s",
+                            proc.pid,
+                            exc,
                         )
-                    else:
-                        proc.kill()
-                except (OSError, subprocess.SubprocessError) as exc:
-                    logger.warning(
-                        "Failed to terminate test process %s after cancellation: %s", proc.pid, exc
-                    )
 
         if cancel_event.is_set():
             self.state.update_job_status(
@@ -933,7 +959,10 @@ class JobManager:
             staged_names = [f.name for f in staging_res.staged_files.values()]
             self._broadcast_log(
                 job_id,
-                f"{prefix}[STAGING] Staged {len(staged_names)} files for '{model_key}': {staged_names}",
+                (
+                    f"{prefix}[STAGING] Staged {len(staged_names)} files for '{model_key}': "
+                    f"{staged_names}"
+                ),
             )
 
         variations = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
@@ -954,7 +983,10 @@ class JobManager:
             # Format with [UPLOAD] keyword so progressParser.ts detects upload operation
             self._broadcast_log(
                 job_id,
-                f"{prefix}[UPLOAD] [Step {i}/{total}] PUSHING {model_key} [{var}] -> {handle} ({pct_start}%)",
+                (
+                    f"{prefix}[UPLOAD] [Step {i}/{total}] PUSHING {model_key} [{var}] -> {handle} "
+                    f"({pct_start}%)"
+                ),
             )
             var_res = sync_mgr.push_variation(
                 model_key=model_key,
@@ -967,14 +999,17 @@ class JobManager:
             if var_res.success:
                 self._broadcast_log(
                     job_id,
-                    f"{prefix}[UPLOAD] [Step {i}/{total}] DONE {model_key} [{var}] files={var_res.files} ({pct_done}%)",
+                    (
+                        f"{prefix}[UPLOAD] [Step {i}/{total}] DONE {model_key} [{var}] "
+                        f"files={var_res.files} ({pct_done}%)"
+                    ),
                 )
             else:
                 result.success = False
                 result.errors.append(f"[{var}] {var_res.error}")
                 self._broadcast_log(job_id, f"{prefix}[ERROR] {model_key} [{var}]: {var_res.error}")
 
-        # 2. Sync metadata via API unconditionally (ensures model card & instance docs are published)
+        # 2. Sync metadata via API unconditionally (publishes model card & instance docs)
         try:
             sync_meta_res = sync_mgr.sync_kaggle_metadata(model_key, dry_run=dry_run)
             result.metadata_sync_result = sync_meta_res
@@ -992,7 +1027,10 @@ class JobManager:
         ):
             self._broadcast_log(
                 job_id,
-                f"{prefix}[SUCCESS] Model {model_key} pushed successfully to Kaggle ({total} variations)",
+                (
+                    f"{prefix}[SUCCESS] Model {model_key} pushed successfully to Kaggle ({total} "
+                    "variations)"
+                ),
             )
             self._broadcast_log(
                 job_id,
@@ -1001,7 +1039,10 @@ class JobManager:
         elif result.errors:
             self._broadcast_log(
                 job_id,
-                f"{prefix}[ERROR] Kaggle publish failed for {model_key}: {'; '.join(result.errors)}",
+                (
+                    f"{prefix}[ERROR] Kaggle publish failed for {model_key}: "
+                    f"{'; '.join(result.errors)}"
+                ),
             )
 
         return result
@@ -1078,7 +1119,10 @@ class JobManager:
             fleet_pct = int(((idx - 1) / total_models) * 100)
             self._broadcast_log(
                 job_id,
-                f"[UPLOAD] [Step {idx}/{total_models}] FLEET {model_key} ({model_spec.name}) ({fleet_pct}%)",
+                (
+                    f"[UPLOAD] [Step {idx}/{total_models}] FLEET {model_key} ({model_spec.name}) "
+                    f"({fleet_pct}%)"
+                ),
             )
 
             try:
@@ -1157,7 +1201,10 @@ class JobManager:
             handle = sync_mgr.get_handle(model_key, var_key)
             self._broadcast_log(
                 job_id,
-                f"[DOWNLOAD] [Step {i}/{total}] PULLING {model_key} [{var_key}] <- {handle} ({pct_start}%)",
+                (
+                    f"[DOWNLOAD] [Step {i}/{total}] PULLING {model_key} [{var_key}] <- {handle} "
+                    f"({pct_start}%)"
+                ),
             )
 
             try:
@@ -1168,7 +1215,10 @@ class JobManager:
                     target_dir = sync_mgr.get_variation_dir(model_key, var_key)
                     self._broadcast_log(
                         job_id,
-                        f"[DOWNLOAD] [Step {i}/{total}] DONE {model_key} [{var_key}] -> {target_dir} ({pct_done}%)",
+                        (
+                            f"[DOWNLOAD] [Step {i}/{total}] DONE {model_key} [{var_key}] -> "
+                            f"{target_dir} ({pct_done}%)"
+                        ),
                     )
                 else:
                     errors.append(f"[{var_key}] Pull returned False")
@@ -1201,7 +1251,10 @@ class JobManager:
             )
             self._broadcast_log(
                 job_id,
-                f"[ERROR] Pull incomplete for {model_key}: {success_count}/{total} succeeded. {err_summary}",
+                (
+                    f"[ERROR] Pull incomplete for {model_key}: {success_count}/{total} succeeded. "
+                    f"{err_summary}"
+                ),
             )
 
     def shutdown(self) -> None:

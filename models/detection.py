@@ -1,9 +1,11 @@
+"""Face detection model (RetinaFace-style heads on a MobileNet backbone)."""
+
 import torch
 from torch import nn
 from torchvision import models
 
 
-class RetinaFace_MobileNet(nn.Module):
+class RetinaFaceMobileNet(nn.Module):
     """
     Real RetinaFace structure with MobileNetV3-Small backbone.
     Outputs: [B, 4] Bboxes, [B, 1] Confidence, [B, 10] Landmarks.
@@ -30,6 +32,7 @@ class RetinaFace_MobileNet(nn.Module):
         self.landmark_head = nn.Linear(in_channels, 10)
 
     def forward(self, x):
+        """Return (bboxes [B, 4], confidence [B, 1], landmarks [B, 10])."""
         feat = self.backbone(x)
         feat = self.conv_feat(feat)
 

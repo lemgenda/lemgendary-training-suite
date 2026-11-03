@@ -14,7 +14,8 @@ import requests
 logger = logging.getLogger("lemtrain.cloud.errors")
 
 # Errors the Kaggle REST client raises for expected remote failures: HTTP/transport errors
-# (requests), local file / auth-file problems (OSError) and payload validation (ValueError, KeyError).
+# (requests), local file / auth-file problems (OSError) and payload validation
+# (ValueError, KeyError).
 KAGGLE_API_ERRORS: tuple[type[Exception], ...] = (
     requests.RequestException,
     OSError,

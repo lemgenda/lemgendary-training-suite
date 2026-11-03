@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 logger = logging.getLogger("lemtrain.notebooks.registry")
 
 
@@ -90,6 +92,8 @@ def resolve_model_metadata(
 
     # Resolve canonical Kaggle username and handles using SSOT variations
     try:
+        # Deferred: the training.cloud package eagerly imports torch and the Kaggle SDK,
+        # while notebook generation stays light.
         from training.cloud.credentials import resolve_kaggle_credentials
 
         user_cred, _ = resolve_kaggle_credentials()
@@ -112,6 +116,7 @@ def resolve_model_metadata(
     if not k_slug:
         k_slug = model_key.replace("_", "-").lower()
 
+    # Deferred for the same reason as the credentials import above.
     from training.cloud.variations import (
         ONNX_FP16,
         ONNX_FP32,
@@ -199,7 +204,6 @@ def load_registry(
 ) -> dict[str, Any]:
     """Load neural network registry manifest (unified_models_v2.yaml)."""
     root = project_root if project_root is not None else _get_project_root()
-    import yaml
 
     reg_name = "unified_models_v2.yaml"
     if config and "unified_models" in config:

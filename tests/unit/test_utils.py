@@ -24,6 +24,7 @@ class TestUtilsPaths(unittest.TestCase):
     """Tests path resolution and workspace discovery."""
 
     def test_get_project_root(self) -> None:
+        """Verify get_project_root points at the training-suite checkout."""
         root = get_project_root()
         self.assertTrue(root.exists())
         self.assertTrue(
@@ -31,15 +32,18 @@ class TestUtilsPaths(unittest.TestCase):
         )
 
     def test_get_workspace_root(self) -> None:
+        """Verify get_workspace_root contains the training-suite folder."""
         ws_root = get_workspace_root()
         self.assertTrue(ws_root.exists())
         self.assertTrue((ws_root / "lemgendary-training-suite").exists())
 
     def test_resolve_path(self) -> None:
+        """Verify resolve_path resolves relative to the project root."""
         resolved = resolve_path("config.yaml")
         self.assertEqual(resolved, (get_project_root() / "config.yaml").resolve())
 
     def test_ensure_dir(self) -> None:
+        """Verify ensure_dir creates the directory."""
         tmp_dir = get_project_root() / "tmp" / "test_dir_creation"
         created = ensure_dir(tmp_dir)
         self.assertTrue(created.exists())
@@ -54,6 +58,7 @@ class TestUtilsLogging(unittest.TestCase):
     """Tests ForceTTY and setup_logging."""
 
     def test_force_tty(self) -> None:
+        """Verify ForceTTY reports a TTY and writes through."""
         buf = io.StringIO()
         tty = ForceTTY(buf)
         self.assertTrue(tty.isatty())
@@ -62,6 +67,7 @@ class TestUtilsLogging(unittest.TestCase):
         self.assertEqual(buf.getvalue(), "hello")
 
     def test_setup_logging(self) -> None:
+        """Verify setup_logging returns the named logger."""
         logger = setup_logging(verbose=True, logger_name="test_logger")
         self.assertIsNotNone(logger)
         self.assertEqual(logger.name, "test_logger")
@@ -71,6 +77,7 @@ class TestUtilsSubprocess(unittest.TestCase):
     """Tests run_command wrapper."""
 
     def test_run_command_success(self) -> None:
+        """Verify run_command captures output on success."""
         res = run_command(
             [sys.executable, "-c", "print('subprocess_ok')"], timeout=10.0, check=True
         )
@@ -78,12 +85,14 @@ class TestUtilsSubprocess(unittest.TestCase):
         self.assertIn("subprocess_ok", res.stdout)
 
     def test_run_command_failure(self) -> None:
+        """Verify run_command raises on a non-zero exit with check=True."""
         with self.assertRaises(SubprocessExecutionError):
             run_command(
                 [sys.executable, "-c", "import sys; sys.exit(42)"], timeout=10.0, check=True
             )
 
     def test_run_command_timeout(self) -> None:
+        """Verify run_command raises on timeout."""
         with self.assertRaises(SubprocessExecutionError):
             run_command(
                 [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.2, check=False
@@ -94,10 +103,12 @@ class TestUtilsInterrupt(unittest.TestCase):
     """Tests signal and emergency handlers."""
 
     def test_silent_worker_excepthook(self) -> None:
+        """Verify the silent worker excepthook swallows KeyboardInterrupt."""
         # Should return silently without raising for KeyboardInterrupt
         silent_worker_excepthook(KeyboardInterrupt, KeyboardInterrupt(), None)
 
     def test_register_emergency_sync(self) -> None:
+        """Verify an emergency sync handler can be registered."""
         called = False
 
         def handler() -> None:
@@ -111,6 +122,7 @@ class TestUtilsDelegates(unittest.TestCase):
     """Tests EnvManagerDelegate and DatasetCompilerDelegate."""
 
     def test_env_delegate_instantiation(self) -> None:
+        """Verify the env-manager delegate instantiates and probes safely."""
         delegate = EnvManagerDelegate()
         self.assertEqual(delegate.project_root, get_project_root())
         # Online probe should return a boolean without throwing
@@ -118,6 +130,7 @@ class TestUtilsDelegates(unittest.TestCase):
         self.assertIsInstance(status, bool)
 
     def test_dataset_delegate_instantiation(self) -> None:
+        """Verify the dataset-compiler delegate instantiates and probes safely."""
         delegate = DatasetCompilerDelegate()
         self.assertEqual(delegate.workspace_root, get_workspace_root())
         status = delegate.is_sidecar_online()

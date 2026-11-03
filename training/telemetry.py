@@ -1,3 +1,5 @@
+"""Telemetry engine: metrics.csv schema management, row logging, and Quality Score math."""
+
 import logging
 import os
 import time
@@ -23,6 +25,8 @@ METRIC_DIRECTIONS = DEFAULT_METRIC_DIRECTIONS
 
 
 class TelemetryEngine:
+    """Owns a model's metrics.csv and computes Quality Score and auxiliary task metrics."""
+
     def __init__(self, export_dir: str, task_type: str = "image"):
         self.export_dir = export_dir
         self.task_type = task_type
@@ -35,10 +39,18 @@ class TelemetryEngine:
         # Determine expected columns based on task_type
         if self.task_type == "forex":
             expected_cols = 24
-            header_str = "Phase,Fold,Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,DirEntropy,Quality_Score,Pairs,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
+            header_str = (
+                "Phase,Fold,Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,"
+                "Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,DirEntropy,Quality_Score,Pairs,Data,"
+                "Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
+            )
         else:
             expected_cols = 28
-            header_str = "Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,Accuracy,Rank_Margin,MAE,mIoU,mAP_Medium,mAP_Hard,Accuracy_VQA,Quality_Score,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
+            header_str = (
+                "Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,"
+                "Accuracy,Rank_Margin,MAE,mIoU,mAP_Medium,mAP_Hard,Accuracy_VQA,"
+                "Quality_Score,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
+            )
 
         if os.path.exists(self.metrics_csv_path):
             try:
@@ -62,7 +74,9 @@ class TelemetryEngine:
                         legacy_path = legacy_path.replace(".csv", f"_{int(time.time())}.csv")
                     os.rename(self.metrics_csv_path, legacy_path)
                     print(
-                        f" [TELEMETRY] Legacy or corrupted metrics detected. Archiving to {os.path.basename(legacy_path)} and initializing {expected_cols}-column SOTA log."
+                        " [TELEMETRY] Legacy or corrupted metrics detected. Archiving to "
+                        f"{os.path.basename(legacy_path)} and initializing "
+                        f"{expected_cols}-column SOTA log."
                     )
                 except OSError as e:
                     logger.warning(
@@ -89,7 +103,7 @@ class TelemetryEngine:
         phase=1,
         fold=1,
     ):
-        """Mathematically serialize the row directly to the IO stream with deduplication and schema safety."""
+        """Append one epoch row to metrics.csv with deduplication and schema safety."""
         self.validate_and_initialize_csv()
 
         # 2026 Governor extraction variables
@@ -127,7 +141,8 @@ class TelemetryEngine:
                 f"{phase},{fold},{epoch_idx},{train_loss:.8f},{val_loss:.8f},{lr:.8f},"
                 f"{dir_acc:.4f},{win_rate:.4f},{profit_factor:.4f},{sharpe:.4f},{sortino:.4f},"
                 f"{max_dd:.4f},{tp_mae:.4f},{sl_mae:.4f},{dir_entropy:.4f},{quality_score:.4f},"
-                f"{pairs},{data:.2f},{temp:.4f},{clamp:.1f},{cooldown},{batch},{accum},{stress:.6f}\n"
+                f"{pairs},{data:.2f},{temp:.4f},{clamp:.1f},{cooldown},{batch},{accum},"
+                f"{stress:.6f}\n"
             )
             key_tuple = (str(phase), str(fold), str(epoch_idx))
         else:
@@ -209,7 +224,7 @@ class TelemetryEngine:
                     True,
                 )  # Return score, and a flag indicating singularity or polarity collapse
 
-        for k, target_v in sota_targets.items():
+        for k in sota_targets:
             val = curr_metrics.get(k, 0.0)
             direction = METRIC_DIRECTIONS.get(k, True)
             weight = METRIC_WEIGHTS.get(k, 1)
@@ -227,8 +242,8 @@ class TelemetryEngine:
                     quality_score += max(0.0, 100.0 - val) * weight
                 elif k in ["tp_mae", "sl_mae"]:
                     quality_score += max(0.0, 50.0 - val) * weight
-                # dir_entropy: lower is better. Max theoretical entropy for 3 classes = ln(3) ~= 1.099
-                # Contribution is 0 when entropy = ln(3) (random), and rises as model becomes confident.
+                # dir_entropy: lower is better. Max entropy for 3 classes = ln(3) ~= 1.099.
+                # Contribution is 0 at ln(3) (random) and rises as the model becomes confident.
                 elif k == "dir_entropy":
                     quality_score += max(0.0, 1.099 - val) * weight
                 else:
@@ -274,7 +289,7 @@ class TelemetryEngine:
         try:
             from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
-            # Requires preds/targets to be lists of dicts: {'boxes': [N,4], 'scores': [N], 'labels': [N]}
+            # preds/targets: lists of dicts {'boxes': [N,4], 'scores': [N], 'labels': [N]}
             map_metric = MeanAveragePrecision(iou_type="bbox")
             map_metric.update(preds, targets)
             res = map_metric.compute()

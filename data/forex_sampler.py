@@ -66,6 +66,11 @@ class RowGroupAwareSampler(Sampler):
         self._group_keys = list(self._groups.keys())
         self._num_samples = len(self._flat_order)
 
+    @property
+    def num_groups(self) -> int:
+        """Number of cache-locality groups the sampler shuffles between."""
+        return len(self._group_keys)
+
     def _locality_key(self, key, row):
         """Derive a cache-locality key for a dataset entry."""
         # Parquet branch: key is ('parquet', year_name)

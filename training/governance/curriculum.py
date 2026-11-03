@@ -1,4 +1,4 @@
-"""Curriculum state managing dynamic resolution ladders, fraction expansion, and effective batch scaling."""
+"""Curriculum state: resolution ladders, data-fraction expansion, and effective batch scaling."""
 
 import logging
 from dataclasses import dataclass, field
@@ -9,7 +9,7 @@ logger = logging.getLogger("lemtrain.governance.curriculum")
 
 @dataclass
 class CurriculumState:
-    """Manages progressive resolution scaling, sample fraction expansion, and gradient accumulation."""
+    """Manage progressive resolution, sample-fraction expansion, and gradient accumulation."""
 
     res_ladder: list[int] = field(default_factory=lambda: [256])
     current_res: int = 256
@@ -74,7 +74,8 @@ class CurriculumState:
         new_batch = max(min_batch, self.current_batch // 2)
         self.update_batch_and_accumulation(new_batch)
         logger.warning(
-            "Curriculum OOM Throttling: batch size reduced %d -> %d, accumulation adjusted to %d (effective batch=%d)",
+            "Curriculum OOM Throttling: batch size reduced %d -> %d, accumulation adjusted to %d "
+            "(effective batch=%d)",
             old_batch,
             self.current_batch,
             self.current_acc,

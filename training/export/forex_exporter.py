@@ -45,7 +45,7 @@ class ForexModelExporter(BaseModelExporter):
         spec: ModelSpecification | None = None,
         **kwargs: Any,
     ) -> dict[str, Path]:
-        """Export Forex model into ONNX (FP32 sidecar + FP16 integrated) and PyTorch checkpoint formats."""
+        """Export a Forex model to ONNX (FP32 sidecar + FP16 integrated) and PyTorch formats."""
         target_dir = self.resolve_destination(model_key, output_dir)
         resolved_spec = self.resolve_spec(model_key, spec)
 

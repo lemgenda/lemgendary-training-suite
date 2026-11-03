@@ -19,6 +19,16 @@ from torch.utils.data import Dataset
 
 logger = logging.getLogger("lemtrain.data.instruction")
 
+try:
+    import jinja2
+
+    _JINJA_TEMPLATE_ERRORS = (jinja2.TemplateError,)
+except ImportError as _jinja_err:
+    logger.debug(
+        "jinja2 unavailable; chat template errors limited to builtin types: %s", _jinja_err
+    )
+    _JINJA_TEMPLATE_ERRORS = ()
+
 # Failure modes of tokenizer.apply_chat_template (missing/invalid template, bad message shape).
 _CHAT_TEMPLATE_ERRORS: tuple[type[BaseException], ...] = (
     ValueError,
@@ -26,15 +36,8 @@ _CHAT_TEMPLATE_ERRORS: tuple[type[BaseException], ...] = (
     KeyError,
     IndexError,
     RuntimeError,
+    *_JINJA_TEMPLATE_ERRORS,
 )
-try:
-    import jinja2
-
-    _CHAT_TEMPLATE_ERRORS = (*_CHAT_TEMPLATE_ERRORS, jinja2.TemplateError)
-except ImportError as _jinja_err:
-    logger.debug(
-        "jinja2 unavailable; chat template errors limited to builtin types: %s", _jinja_err
-    )
 
 
 class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
@@ -78,7 +81,7 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
         )
 
     def _apply_sample_fraction(self) -> None:
-        """Apply deterministic curriculum sample fraction slicing to ``self.all_samples`` in-memory."""
+        """Apply deterministic curriculum sample-fraction slicing to ``self.all_samples``."""
         self.samples = list(self.all_samples)
         if self.sample_fraction < 1.0 and self.samples:
             rng = random.Random(42)

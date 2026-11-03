@@ -7,11 +7,12 @@ evaluations, checkpoint telemetry, and GUI integration.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -63,8 +64,8 @@ security_header = APIKeyHeader(name=AUTH_TOKEN_HEADER, auto_error=False)
 
 async def verify_auth_token(
     request: Request,
-    bearer: HTTPAuthorizationCredentials | None = Security(security_bearer),
-    api_key: str | None = Security(security_header),
+    bearer: Annotated[HTTPAuthorizationCredentials | None, Security(security_bearer)] = None,
+    api_key: Annotated[str | None, Security(security_header)] = None,
 ) -> bool:
     """Validate bearer or header token against local server secret."""
     # Allow open paths
@@ -93,7 +94,7 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
     job_manager = JobManager(state=server_state)
 
     @asynccontextmanager
-    async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
+    async def lifespan(_application: FastAPI) -> AsyncGenerator[None, None]:
         # Startup sequence
         logger.info("Initializing LemGendary Training Suite Sidecar Daemon on port 8200...")
         server_state.write_pid()
@@ -137,8 +138,11 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
 
     application = FastAPI(
         title="LemGendary Model Training Suite Sidecar API",
-        version="16.9.72",
-        description="Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
+        version="16.9.73",
+        description=(
+            "Local background daemon coordinating training runs, evaluations, "
+            "exports, and telemetry."
+        ),
         openapi_tags=openapi_tags,
         lifespan=lifespan,
     )
@@ -168,15 +172,10 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
     return application
 
 
-_cached_app: FastAPI | None = None
-
-
+@functools.cache
 def get_app() -> FastAPI:
     """Return singleton FastAPI app instance, creating it lazily if not yet initialized."""
-    global _cached_app
-    if _cached_app is None:
-        _cached_app = create_app()
-    return _cached_app
+    return create_app()
 
 
 def __getattr__(name: str) -> Any:

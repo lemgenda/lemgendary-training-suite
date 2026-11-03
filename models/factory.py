@@ -1,8 +1,28 @@
+"""Model factory: maps ``class_name`` entries in unified_models_v2.yaml to model classes."""
+
 import inspect
 import logging
 import os
 
 import yaml
+
+from models.core_restoration import (
+    BranchedFFANet,
+    FFANet,
+    GenericRestorationModel,
+    MIRNetProxy,
+    MPRNetProxy,
+    NAFNet,
+    UltraZoomModel,
+    UniversalFilmRestorer,
+    UPNv2Model,
+)
+from models.detection import RetinaFaceMobileNet
+from models.face_restoration import CodeFormer, ParseNet
+from models.forex_predictor import ForexPredictor
+from models.generic_causal_llm import AIHelperLemGend, GenericCausalLLM
+from models.multitask_restorer import MultiTaskRestorer
+from models.nima import AuthenticityScorer, NIMAModel, UniversalClassifier
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1412]
 
@@ -15,10 +35,35 @@ logger = logging.getLogger("lemtrain.factory")
 _OPTIONAL_IMPORT_ERRORS = (ImportError, OSError, RuntimeError, AttributeError)
 
 # --- Dynamic Architecture Registry (Task 10.2) ---
+# Core models depend only on torch/torchvision and are registered eagerly.
+_CORE_MODELS = {
+    "MultiTaskRestorer": MultiTaskRestorer,
+    "NIMA_Model": NIMAModel,
+    "AuthenticityScorer": AuthenticityScorer,
+    "UniversalClassifier": UniversalClassifier,
+    "ForexPredictor": ForexPredictor,
+    "CodeFormer": CodeFormer,
+    "ParseNet": ParseNet,
+    "RetinaFace": RetinaFaceMobileNet,
+    "GenericRestoration": GenericRestorationModel,
+    "NAFNet": NAFNet,
+    "FFANet": FFANet,
+    "BranchedFFANet": BranchedFFANet,
+    "MIRNet": MIRNetProxy,
+    "MPRNet": MPRNetProxy,
+    "UltraZoom": UltraZoomModel,
+    "UltraZoomMaster": UltraZoomModel,
+    "UniversalFilmRestorer": UniversalFilmRestorer,
+    "UPN_v2": UPNv2Model,
+    "GenericCausalLLM": GenericCausalLLM,
+    "AIHelperLemGend": AIHelperLemGend,
+}
 _MODEL_REGISTRY = {}
 
 
 def register_model(name):
+    """Class decorator that registers a model class under ``name``."""
+
     def decorator(cls):
         _MODEL_REGISTRY[name] = cls
         return cls
@@ -26,103 +71,27 @@ def register_model(name):
     return decorator
 
 
-# Lazily import models to populate registry (Robust dependency shielding)
 def _populate_registry():
-    # 1. Base Restoration & Core Models (Always available)
+    """Register core models, then the heavy optional ones whose dependencies are installed."""
+    _MODEL_REGISTRY.update(_CORE_MODELS)
+
+    # Heavy generative models need the optional 'diffusers' package.
     try:
-        from models.multitask_restorer import MultiTaskRestorer
-
-        _MODEL_REGISTRY["MultiTaskRestorer"] = MultiTaskRestorer
-    except _OPTIONAL_IMPORT_ERRORS as e:
-        logger.warning("Failed to import %s: %s", "MultiTaskRestorer", e)
-
-    try:
-        from models.nima import AuthenticityScorer, NIMA_Model, UniversalClassifier
-
-        _MODEL_REGISTRY["NIMA_Model"] = NIMA_Model
-        _MODEL_REGISTRY["AuthenticityScorer"] = AuthenticityScorer
-        _MODEL_REGISTRY["UniversalClassifier"] = UniversalClassifier
-    except _OPTIONAL_IMPORT_ERRORS as e:
-        logger.warning("Failed to import %s: %s", "NIMA models", e)
-
-    try:
-        from models.forex_predictor import ForexPredictor
-
-        _MODEL_REGISTRY["ForexPredictor"] = ForexPredictor
-    except _OPTIONAL_IMPORT_ERRORS as e:
-        logger.warning("Failed to import %s: %s", "ForexPredictor", e)
-
-    try:
-        from models.face_restoration import CodeFormer, ParseNet
-
-        _MODEL_REGISTRY["CodeFormer"] = CodeFormer
-        _MODEL_REGISTRY["ParseNet"] = ParseNet
-    except _OPTIONAL_IMPORT_ERRORS as e:
-        logger.warning("Failed to import %s: %s", "Face Restoration models", e)
-
-    try:
-        from models.detection import RetinaFace_MobileNet
-
-        _MODEL_REGISTRY["RetinaFace"] = RetinaFace_MobileNet
-    except _OPTIONAL_IMPORT_ERRORS as e:
-        logger.warning("Failed to import %s: %s", "Detection models", e)
-
-    try:
-        from models.core_restoration import (
-            BranchedFFANet,
-            FFANet,
-            GenericRestorationModel,
-            MIRNet_Proxy,
-            MPRNet_Proxy,
-            NAFNet,
-            UltraZoomModel,
-            UniversalFilmRestorer,
-            UPN_v2_Model,
-        )
-
-        _MODEL_REGISTRY.update(
-            {
-                "GenericRestoration": GenericRestorationModel,
-                "NAFNet": NAFNet,
-                "FFANet": FFANet,
-                "BranchedFFANet": BranchedFFANet,
-                "MIRNet": MIRNet_Proxy,
-                "MPRNet": MPRNet_Proxy,
-                "UltraZoom": UltraZoomModel,
-                "UltraZoomMaster": UltraZoomModel,
-                "UniversalFilmRestorer": UniversalFilmRestorer,
-                "UPN_v2": UPN_v2_Model,
-            }
-        )
-    except _OPTIONAL_IMPORT_ERRORS as e:
-        logger.warning("Failed to import %s: %s", "Core Restoration models", e)
-
-    # 2. Heavy Generative Models (May lack 'diffusers')
-    try:
-        from models.master_generative import Flux1_Master, StableDiffusionXL
+        from models.master_generative import Flux1Master, StableDiffusionXL
 
         _MODEL_REGISTRY["StableDiffusionXL"] = StableDiffusionXL
-        _MODEL_REGISTRY["Flux1_Master"] = Flux1_Master
+        _MODEL_REGISTRY["Flux1_Master"] = Flux1Master
     except _OPTIONAL_IMPORT_ERRORS as generative_err:
         logger.debug("Generative models unavailable (missing 'diffusers'?): %s", generative_err)
 
-    # 3. Heavy Multimodal Models (May lack 'transformers')
+    # Heavy multimodal models need the optional 'transformers' package.
     try:
-        from models.master_multimodal import BLIP_2, LLaVA_v1_5
+        from models.master_multimodal import BLIP2, LLaVAv15
 
-        _MODEL_REGISTRY["LLaVA_v1_5"] = LLaVA_v1_5
-        _MODEL_REGISTRY["BLIP_2"] = BLIP_2
+        _MODEL_REGISTRY["LLaVA_v1_5"] = LLaVAv15
+        _MODEL_REGISTRY["BLIP_2"] = BLIP2
     except _OPTIONAL_IMPORT_ERRORS as multimodal_err:
         logger.debug("Multimodal models unavailable (missing 'transformers'?): %s", multimodal_err)
-
-    # 4. Causal Assistant Language Models
-    try:
-        from models.generic_causal_llm import AIHelperLemGend, GenericCausalLLM
-
-        _MODEL_REGISTRY["GenericCausalLLM"] = GenericCausalLLM
-        _MODEL_REGISTRY["AIHelperLemGend"] = AIHelperLemGend
-    except _OPTIONAL_IMPORT_ERRORS as llm_err:
-        logger.debug("Causal LLMs unavailable: %s", llm_err)
 
 
 def get_model(model_key, config=None):
@@ -141,7 +110,7 @@ def get_model(model_key, config=None):
     model_class_name = config.get("class_name") if isinstance(config, dict) else None
     kwargs = config.get("kwargs", {}) if isinstance(config, dict) else {}
     if os.path.exists(unified_models_path):
-        with open(unified_models_path, "r") as f:
+        with open(unified_models_path, "r", encoding="utf-8") as f:
             unified = yaml.safe_load(f)
             if model_key in unified:
                 model_class_name = unified[model_key].get("class_name", model_class_name)

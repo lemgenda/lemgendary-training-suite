@@ -64,7 +64,10 @@ def _simulate_run(events: list[str]) -> list[Rung]:
 
 
 class PairRuleTests(unittest.TestCase):
+    """Tests for the resolution/fraction pair ratchet rule."""
+
     def test_simulated_run_obeys_pair_rule(self) -> None:
+        """Verify a simulated event sequence never violates the pair rule."""
         events = (
             ["expand"] * 6
             + ["hold", "veto", "jump"]
@@ -88,27 +91,33 @@ class PairRuleTests(unittest.TestCase):
         self.assertEqual(trajectory[-1].resolution, 512)
 
     def test_resolution_decrease_is_rejected(self) -> None:
+        """Verify a resolution decrease is rejected."""
         with self.assertRaises(RatchetViolation):
             check_transition(Rung(512, 0.2), Rung(384, 1.0))
 
     def test_fraction_decrease_within_step_is_rejected(self) -> None:
+        """Verify a fraction decrease at the same resolution is rejected."""
         with self.assertRaises(RatchetViolation):
             check_transition(Rung(384, 0.75), Rung(384, 0.55))
 
     def test_fraction_reset_on_step_up_is_allowed(self) -> None:
+        """Verify the fraction may reset when the resolution steps up."""
         self.assertEqual(check_transition(Rung(384, 1.0), Rung(512, 0.15)), Rung(512, 0.15))
 
     def test_assert_pair_monotonic_flags_recoil(self) -> None:
+        """Verify a fraction recoil within a rung is flagged."""
         with self.assertRaises(RatchetViolation):
             assert_pair_monotonic([Rung(256, 0.15), Rung(256, 0.75), Rung(256, 0.55)])
 
     def test_expand_fraction_never_decreases_and_snaps(self) -> None:
+        """Verify expand_fraction never decreases and snaps to 1.0."""
         self.assertAlmostEqual(expand_fraction(0.15, 0.20), 0.35)
         self.assertEqual(expand_fraction(0.95, 0.045), 1.0)
         self.assertEqual(expand_fraction(1.0, 0.20), 1.0)
         self.assertEqual(expand_fraction(0.6, -0.2), 0.6)
 
     def test_next_rung_resolution(self) -> None:
+        """Verify next_rung_resolution returns the next ladder rung or None."""
         self.assertEqual(next_rung_resolution(LADDER, 256), 384)
         self.assertEqual(next_rung_resolution(LADDER, 300), 384)
         self.assertIsNone(next_rung_resolution(LADDER, 512))
@@ -134,7 +143,10 @@ def _assigned_attrs(func: ast.FunctionDef) -> set[str]:
 
 
 class GovernorWiringTests(unittest.TestCase):
+    """Static checks that governor and engine route transitions through the ratchet."""
+
     def test_transitions_go_through_commit_rung(self) -> None:
+        """Verify governor transition methods go through commit_rung."""
         methods = _methods(GOVERNOR_PATH)
         for name in ("audit_epoch", "veto_resolution_jump", "register_rollback", "recoil"):
             with self.subTest(method=name):
@@ -145,6 +157,7 @@ class GovernorWiringTests(unittest.TestCase):
         self.assertIn("check_transition", commit_calls)
 
     def test_get_state_writes_canonical_keys(self) -> None:
+        """Verify get_state writes the canonical resolution/fraction keys."""
         get_state = _methods(GOVERNOR_PATH)["get_state"]
         returned = next(n for n in ast.walk(get_state) if isinstance(n, ast.Return))
         assert isinstance(returned.value, ast.Dict)
@@ -161,10 +174,12 @@ class CompletionResolutionTests(unittest.TestCase):
         return top_resolution_reached(res, LADDER)
 
     def test_canonical_keys(self) -> None:
+        """Verify the canonical state key names."""
         self.assertEqual(RESOLUTION_STATE_KEY, "input_size")
         self.assertEqual(FRACTION_STATE_KEY, "sample_fraction")
 
     def test_epoch_below_top_rung_is_not_complete(self) -> None:
+        """Verify an epoch below the top rung does not complete the ladder."""
         # Trained at 384 px @ 100%; the audit may then jump the governor to
         # 512 px, but the pre-audit state still says 384.
         state = {RESOLUTION_STATE_KEY: 384, FRACTION_STATE_KEY: 1.0}
@@ -172,18 +187,22 @@ class CompletionResolutionTests(unittest.TestCase):
         self.assertFalse(self._ladder_passed(state))
 
     def test_epoch_at_top_rung_is_complete(self) -> None:
+        """Verify an epoch at the top rung at 100% completes the ladder."""
         self.assertTrue(self._ladder_passed({RESOLUTION_STATE_KEY: 512, FRACTION_STATE_KEY: 1.0}))
         self.assertTrue(self._ladder_passed({RESOLUTION_STATE_KEY: [3, 512, 512]}))
 
     def test_legacy_or_missing_keys_never_pass(self) -> None:
+        """Verify legacy or missing state keys never pass the ladder."""
         self.assertFalse(self._ladder_passed({"current_resolution": 512, "resolution": 512}))
         self.assertFalse(self._ladder_passed({}))
         self.assertEqual(executed_rung({}).fraction, 0.0)
 
     def test_empty_ladder_never_passes(self) -> None:
+        """Verify an empty ladder never passes."""
         self.assertFalse(top_resolution_reached(2048, []))
 
     def test_engine_uses_pre_audit_executed_rung(self) -> None:
+        """Verify the engine uses the pre-audit executed rung."""
         source = ENGINE_PATH.read_text(encoding="utf-8")
         self.assertIn("executed_rung(pre_audit_gov_state)", source)
         self.assertNotIn('"current_resolution"', source)

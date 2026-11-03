@@ -166,7 +166,7 @@ class KaggleMetadataService:
         return ModelMetadata(model_key=model_key, model=model, variations=variations)
 
     def merge_hand_edited(self, generated: ModelMetadata, existing: ModelMetadata) -> ModelMetadata:
-        """Keep manual edits: every dotted path in existing.hand_edited overrides the generated value."""
+        """Keep manual edits: each dotted path in existing.hand_edited overrides generation."""
         merged = generated
         kept: list[str] = []
         for dotted in existing.hand_edited:
@@ -216,7 +216,10 @@ class KaggleMetadataService:
         spec: ModelSpecification | None = None,
         owner_slug: str | None = None,
     ) -> Path:
-        """Generate, merge, validate and write model_metadata.yaml and model-metadata.json; return yaml path."""
+        """Generate, merge, validate and write model_metadata.yaml and model-metadata.json.
+
+        Returns the yaml path.
+        """
         metadata = self.build(model_key, output_dir=output_dir, spec=spec, owner_slug=owner_slug)
         yaml_path = self.metadata_path(model_key, output_dir)
         metadata.write(yaml_path)
@@ -325,24 +328,29 @@ class KaggleMetadataService:
         stem = spec.filename or spec.key
         if variation is PYTORCH_DEFAULT:
             return (
-                f"Training checkpoints for {spec.name} (best.pth, latest.pth) with the model README and "
-                "training metrics.csv. Includes complete fine-tuning state and architecture telemetry for evaluation, "
+                f"Training checkpoints for {spec.name} (best.pth, latest.pth) with the model "
+                "README and "
+                "training metrics.csv. Includes complete fine-tuning state and architecture "
+                "telemetry for evaluation, "
                 "resuming training, or transfer learning."
             )
         if variation is PYTORCH_FP32:
             return (
-                f"Production PyTorch FP32 standalone TorchScript weight binary ({stem}.pt) for {spec.name}. "
+                f"Production PyTorch FP32 standalone TorchScript weight binary ({stem}.pt) for "
+                f"{spec.name}. "
                 "Optimized for direct CPU and CUDA server inference without external dependencies."
             )
         if variation is ONNX_FP16:
             return (
                 f"ONNX half-precision (FP16) computational graph ({stem}.onnx) for {spec.name}. "
-                "Engineered for high-throughput, low-latency, and low-VRAM edge inference via ONNX Runtime with TensorRT or CUDA Execution Providers."
+                "Engineered for high-throughput, low-latency, and low-VRAM edge inference via ONNX "
+                "Runtime with TensorRT or CUDA Execution Providers."
             )
         return (
             f"ONNX full-precision (FP32) computational graph ({stem}_FP32.onnx) for {spec.name}. "
             "Engineered for high-precision validation and broad hardware compatibility. "
-            "Note: The .onnx graph and its external weights tensor file (.onnx.data) must reside in the same runtime directory."
+            "Note: The .onnx graph and its external weights tensor file (.onnx.data) must reside "
+            "in the same runtime directory."
         )
 
     @staticmethod

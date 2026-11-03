@@ -42,6 +42,19 @@ _EXPORT_ERRORS: tuple[type[BaseException], ...] = (
     AttributeError,
     KeyError,
 )
+# Failure modes of one governed epoch callback: metrics/CSV parsing, checkpoint and
+# filesystem sync, and the caller-supplied on_epoch_end (formatting, log broadcast).
+# Anything outside this set is a bug and propagates out of the Ultralytics fit loop.
+_EPOCH_CALLBACK_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    KeyError,
+    IndexError,
+    AttributeError,
+    ZeroDivisionError,
+)
 # Failure modes of unpickling a YOLO checkpoint (truncation, foreign classes, torch version skew).
 _CKPT_LOAD_ERRORS: tuple[type[BaseException], ...] = (
     OSError,
@@ -116,10 +129,7 @@ def is_amp_supported_for_device(device_arg: str) -> bool:
             return False
 
         major, minor = torch.cuda.get_device_capability(device_index)
-        if major == 7 and minor == 5 and "rtx" not in dev_name:
-            return False
-
-        return True
+        return not (major == 7 and minor == 5 and "rtx" not in dev_name)
     except (RuntimeError, ValueError) as exc:
         logger.debug("Failed to probe GPU device capability for AMP: %s", exc)
         return False
@@ -245,15 +255,14 @@ def get_fractions_for_resolution(
         ):
             return [0.15, 0.35, 0.55, 0.75, 1.00]
         return _build_gradual_fractions(initial, step_min, step_max)
-    else:
-        next_res_start = float(opt_config.get("next_res_start_fraction", 0.15))
-        if (
-            abs(next_res_start - 0.15) < 0.05
-            and abs(step_min - 0.15) < 0.01
-            and abs(step_max - 0.20) < 0.01
-        ):
-            return [0.15, 0.35, 0.55, 0.75, 1.00]
-        return _build_gradual_fractions(next_res_start, step_min, step_max)
+    next_res_start = float(opt_config.get("next_res_start_fraction", 0.15))
+    if (
+        abs(next_res_start - 0.15) < 0.05
+        and abs(step_min - 0.15) < 0.01
+        and abs(step_max - 0.20) < 0.01
+    ):
+        return [0.15, 0.35, 0.55, 0.75, 1.00]
+    return _build_gradual_fractions(next_res_start, step_min, step_max)
 
 
 def build_ladder_curriculum(
@@ -364,7 +373,8 @@ class YOLOCurriculumGovernor:
         # suite project root is for code only, never for generated model files.
         self.models_hub_dir = (project_root.parent / "LemGendaryModels" / "yolov8n").resolve()
         self.models_hub_ckpt_dir = self.models_hub_dir / "checkpoints"
-        # Curriculum stage outputs go under local checkpoints directory to keep LemGendaryModels pristine
+        # Curriculum stage outputs go under local checkpoints directory to keep LemGendaryModels
+        # pristine
         self.runs_dir = (project_root / "checkpoints" / "yolov8n" / "runs").resolve()
 
         self.models_hub_dir.mkdir(parents=True, exist_ok=True)
@@ -397,7 +407,7 @@ class YOLOCurriculumGovernor:
         self.best_sota_quality = 0.0
         self.best_export_quality = 0.0
 
-    def _export_if_new_best(self, trainer: Any, resolution: int) -> None:
+    def _export_if_new_best(self, trainer: Any) -> None:
         """Export PyTorch and ONNX artifacts whenever a new global best checkpoint is saved.
 
         Runs from the Ultralytics on_model_save hook, which fires after best.pt has been
@@ -428,14 +438,15 @@ class YOLOCurriculumGovernor:
             tag = "SOTA ATTAINED" if sota_met else "NEW BEST"
             print(
                 f"\n[GOVERNOR] [{tag}] mAP50={map50:.4f}, mAP50-95={map50_95:.4f} "
-                f"(quality {quality:.4f}). Exporting PyTorch and ONNX artifacts to {self.models_hub_dir}...",
+                f"(quality {quality:.4f}). Exporting PyTorch and ONNX artifacts to "
+                f"{self.models_hub_dir}...",
                 flush=True,
             )
-            self._export_sota_models(Path(best_path), resolution=resolution)
+            self.export_sota_models(Path(best_path))
         except _EXPORT_ERRORS as export_err:
             logger.warning("New-best export hook failed: %s", export_err)
 
-    def _export_sota_models(self, source_weights: Path, resolution: int = 640) -> None:
+    def export_sota_models(self, source_weights: Path) -> None:
         """Export high-performance SOTA model as tri-format ONNX and PyTorch artifacts.
 
         Exports production-ready deployment assets directly to LemGendaryModels/yolov8n/:
@@ -457,13 +468,14 @@ class YOLOCurriculumGovernor:
                 output_dir=self.models_hub_dir,
             )
             print(
-                f"[GOVERNOR] [SOTA EXPORT] Tri-format SOTA models exported to {self.models_hub_dir}",
+                "[GOVERNOR] [SOTA EXPORT] Tri-format SOTA models exported to "
+                f"{self.models_hub_dir}",
                 flush=True,
             )
         except _EXPORT_ERRORS as export_err:
             logger.warning("Error during tri-format SOTA model export: %s", export_err)
 
-    def _synchronize_checkpoints(
+    def synchronize_checkpoints(
         self,
         stage_dir: Path,
         resolution: int,
@@ -529,7 +541,8 @@ class YOLOCurriculumGovernor:
             except OSError as csv_err:
                 logger.debug("Non-fatal metrics CSV sync error: %s", csv_err)
 
-        # Synchronize validation plots (confusion matrices, PR/F1 curves) to LemGendaryModels/yolov8n/
+        # Synchronize validation plots (confusion matrices, PR/F1 curves) to
+        # LemGendaryModels/yolov8n/
         rung_dirs = [
             stage_dir / f"rung_{resolution}_f{frac_pct}",
             stage_dir / f"rung_{resolution}",
@@ -639,7 +652,8 @@ class YOLOCurriculumGovernor:
         # Clean run handling
         if getattr(self.args, "clean", False):
             print(
-                "[GOVERNOR] [CLEAN] Clean run requested. Wiping prior checkpoints, state, and metrics...",
+                "[GOVERNOR] [CLEAN] Clean run requested. Wiping prior checkpoints, state, and "
+                "metrics...",
                 flush=True,
             )
             for p in [
@@ -742,8 +756,10 @@ class YOLOCurriculumGovernor:
                 )
 
         print(
-            f"[GOVERNOR] Commencing Governed YOLOv8n Training across {len(curriculum_stages)} ladder rungs | "
-            f"VRAM Capacity: {vram_gb:.1f} GB | AMP Precision: {'FP16' if is_amp_safe else 'FP32 (Numerical Safe)'} | "
+            f"[GOVERNOR] Commencing Governed YOLOv8n Training across {len(curriculum_stages)} "
+            "ladder rungs | "
+            f"VRAM Capacity: {vram_gb:.1f} GB | AMP Precision: "
+            f"{'FP16' if is_amp_safe else 'FP32 (Numerical Safe)'} | "
             f"Loaded Weights: {Path(current_weights_path).name} (History: {csv_epochs} epochs)",
             flush=True,
         )
@@ -771,19 +787,22 @@ class YOLOCurriculumGovernor:
             # Check if this stage was already fully completed in previous runs
             stage_already_complete = False
             if ckpt_dict:
-                if ckpt_imgsz > stage.resolution:
+                if ckpt_imgsz > stage.resolution or (
+                    ckpt_imgsz == stage.resolution and ckpt_fraction > (stage.fraction + 0.05)
+                ):
                     stage_already_complete = True
-                elif ckpt_imgsz == stage.resolution:
-                    if ckpt_fraction > (stage.fraction + 0.05):
-                        stage_already_complete = True
-            elif last_csv_res is not None:
-                if last_csv_res > stage.resolution:
-                    stage_already_complete = True
-                elif last_csv_res == stage.resolution and last_csv_frac is not None:
-                    if last_csv_frac > (stage.fraction + 0.05):
-                        stage_already_complete = True
+            elif last_csv_res is not None and (
+                last_csv_res > stage.resolution
+                or (
+                    last_csv_res == stage.resolution
+                    and last_csv_frac is not None
+                    and last_csv_frac > (stage.fraction + 0.05)
+                )
+            ):
+                stage_already_complete = True
 
-            # The final top-res @ 100% data stage cannot be skipped as complete unless SOTA targets are achieved
+            # The final top-res @ 100% data stage cannot be skipped as complete
+            # unless SOTA targets are achieved
             if (
                 stage.resolution >= max_ladder_res
                 and stage.fraction >= 0.99
@@ -797,7 +816,8 @@ class YOLOCurriculumGovernor:
 
             if stage_already_complete and not getattr(self.args, "clean", False):
                 print(
-                    f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] {stage.resolution}px rung @ "
+                    f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] "
+                    f"{stage.resolution}px rung @ "
                     f"{frac_pct}% data manifold already completed ({prior_stage_epochs} epochs). "
                     f"Skipping to next ladder stage.",
                     flush=True,
@@ -805,7 +825,8 @@ class YOLOCurriculumGovernor:
                 completed_prior_epochs += prior_stage_epochs
                 continue
 
-            # Sawtooth VRAM Governor: Dynamic batch size adjustment based on runtime memory telemetry
+            # Sawtooth VRAM Governor: Dynamic batch size adjustment based on runtime memory
+            # telemetry
             if torch.cuda.is_available() and vram_gb > 0:
                 try:
                     peak_bytes = torch.cuda.max_memory_allocated(0)
@@ -814,7 +835,8 @@ class YOLOCurriculumGovernor:
 
                     # Thresholds are configurable via opt_config (unified_models_v2.yaml).
                     # vram_pressure_thresh: fraction above which batch is halved (default 0.90)
-                    # vram_headroom_thresh: fraction below which batch may be promoted (default 0.60)
+                    # vram_headroom_thresh: fraction below which batch may be promoted (default
+                    # 0.60)
                     pressure_thresh = float(
                         self.opt_config.get("sawtooth_vram_pressure_thresh", 0.90)
                     )
@@ -829,7 +851,8 @@ class YOLOCurriculumGovernor:
                             print(
                                 f"\n[GOVERNOR] [SAWTOOTH SENTINEL] High VRAM pressure detected "
                                 f"({vram_pct * 100:.1f}% >= {pressure_thresh * 100:.0f}%). "
-                                f"Dynamically reducing batch size: {stage.batch_size} -> {reduced_batch}\n",
+                                f"Dynamically reducing batch size: {stage.batch_size} -> "
+                                f"{reduced_batch}\n",
                                 flush=True,
                             )
                             stage.batch_size = reduced_batch
@@ -842,9 +865,11 @@ class YOLOCurriculumGovernor:
                             promoted_batch = min(safe_limit, max(stage.batch_size * 2, safe_limit))
                             if promoted_batch > stage.batch_size:
                                 print(
-                                    f"\n[GOVERNOR] [SAWTOOTH DYNAMIC] Abundant VRAM headroom detected "
+                                    "\n[GOVERNOR] [SAWTOOTH DYNAMIC] Abundant VRAM headroom "
+                                    "detected "
                                     f"({vram_pct * 100:.1f}% < {headroom_thresh * 100:.0f}% used). "
-                                    f"Dynamically scaling batch size: {stage.batch_size} -> {promoted_batch}\n",
+                                    f"Dynamically scaling batch size: {stage.batch_size} -> "
+                                    f"{promoted_batch}\n",
                                     flush=True,
                                 )
                                 stage.batch_size = promoted_batch
@@ -889,8 +914,10 @@ class YOLOCurriculumGovernor:
                 print(
                     f"\n[GOVERNOR] [STAGE {stage.stage_index}/{len(curriculum_stages)}] "
                     f"Launching {stage.resolution}px rung | "
-                    f"Batch Size: {stage.batch_size} (Sawtooth Guard) | Data Fraction: {frac_pct}% | "
-                    f"Advance Rule: plateau/overfit (no epoch budget) | Starting Weights: {ckpt_name}",
+                    f"Batch Size: {stage.batch_size} (Sawtooth Guard) | Data Fraction: {frac_pct}% "
+                    "| "
+                    "Advance Rule: plateau/overfit (no epoch budget) | Starting Weights: "
+                    f"{ckpt_name}",
                     flush=True,
                 )
 
@@ -902,7 +929,8 @@ class YOLOCurriculumGovernor:
                     stage_start_epoch - csv_stage_epoch_counts.get((stage.resolution, frac_pct), 0),
                 )
 
-            # Always anchor against metrics.csv historical progress if metrics.csv is further ahead than checkpoint
+            # Always anchor against metrics.csv historical progress if metrics.csv is further ahead
+            # than checkpoint
             if not getattr(self.args, "clean", False) and csv_epochs > 0:
                 stage_start_epoch = max(stage_start_epoch, csv_epochs)
                 completed_prior_epochs = max(completed_prior_epochs, csv_epochs)
@@ -1075,8 +1103,9 @@ class YOLOCurriculumGovernor:
                             flush=True,
                         )
 
-                        # Synchronize checkpoints and metrics CSV to checkpoints and documentation models hub
-                        self._synchronize_checkpoints(
+                        # Synchronize checkpoints and metrics CSV to checkpoints and documentation
+                        # models hub
+                        self.synchronize_checkpoints(
                             target_stage_dir,
                             current_stage.resolution,
                             fraction=current_stage.fraction,
@@ -1087,14 +1116,15 @@ class YOLOCurriculumGovernor:
                         target_map50 = self.sota_targets.get("map50", 0.54)
                         target_map50_95 = self.sota_targets.get("map50_95", 0.39)
                         quality = (map50_95 * 0.7) + (map50 * 0.3)
-                        if map50 >= target_map50 and map50_95 >= target_map50_95:
-                            if (
-                                current_stage.resolution >= max_ladder_res
-                                and current_stage.fraction >= 0.99
-                            ):
-                                self.sota_achieved = True
-                                if hasattr(trainer, "stop"):
-                                    trainer.stop = True
+                        if (
+                            map50 >= target_map50
+                            and map50_95 >= target_map50_95
+                            and current_stage.resolution >= max_ladder_res
+                            and current_stage.fraction >= 0.99
+                        ):
+                            self.sota_achieved = True
+                            if hasattr(trainer, "stop"):
+                                trainer.stop = True
 
                         if self.cancel_check is not None and self.cancel_check():
                             if hasattr(trainer, "stop"):
@@ -1102,7 +1132,8 @@ class YOLOCurriculumGovernor:
                             raise InterruptedError("Training cancelled by user request.")
 
                         # PLATEAU / OVERFITTING DRIVEN RUNG ADVANCEMENT
-                        # Fraction and resolution progression is never tied to an epoch count. A rung
+                        # Fraction and resolution progression is never tied to an epoch count. A
+                        # rung
                         # advances only when combined mAP quality stops improving (plateau) or when
                         # train/val divergence indicates overfitting on the current data manifold.
                         stage_loss_history.append(train_loss)
@@ -1119,7 +1150,8 @@ class YOLOCurriculumGovernor:
                             print(
                                 f"\n[GOVERNOR] [PLATEAU DETECTED] No quality improvement for "
                                 f"{int(p_state['stall'])} epochs at {current_stage.resolution}px @ "
-                                f"{current_stage.fraction * 100:.0f}% data (best quality {p_state['best']:.4f}). "
+                                f"{current_stage.fraction * 100:.0f}% data (best quality "
+                                f"{p_state['best']:.4f}). "
                                 f"Advancing to next ladder stage.",
                                 flush=True,
                             )
@@ -1155,11 +1187,14 @@ class YOLOCurriculumGovernor:
                             if is_overfitting:
                                 rescued_overfitting = True
                                 print(
-                                    f"\n[GOVERNOR] [OVERFITTING RESCUE] Overfitting attractor detected on "
+                                    "\n[GOVERNOR] [OVERFITTING RESCUE] Overfitting attractor "
+                                    "detected on "
                                     f"data manifold ({current_stage.fraction * 100:.0f}% @ "
                                     f"{current_stage.resolution}px rung). "
-                                    f"Train Trend: {train_trend:+.4f} | Val Trend: {val_trend:+.4f}. "
-                                    f"Halting stage early to expand dataset manifold and introduce sample variety!",
+                                    f"Train Trend: {train_trend:+.4f} | Val Trend: "
+                                    f"{val_trend:+.4f}. "
+                                    "Halting stage early to expand dataset manifold and "
+                                    "introduce sample variety!",
                                     flush=True,
                                 )
                                 if hasattr(trainer, "stop"):
@@ -1181,9 +1216,10 @@ class YOLOCurriculumGovernor:
 
                     except (InterruptedError, KeyboardInterrupt):
                         raise
-                    except Exception:
-                        # Boundary: Ultralytics callback wrapping caller-supplied on_epoch_end; a failure is
-                        # logged with traceback and must not abort the Ultralytics fit loop.
+                    except _EPOCH_CALLBACK_ERRORS:
+                        # Boundary: Ultralytics callback wrapping caller-supplied on_epoch_end;
+                        # an expected failure is logged with traceback and must not abort the
+                        # Ultralytics fit loop.
                         logger.exception("YOLO governor epoch callback failed")
 
                 return on_fit_epoch_end
@@ -1256,7 +1292,7 @@ class YOLOCurriculumGovernor:
             )
             model.add_callback(
                 "on_model_save",
-                lambda trainer, _res=stage.resolution: self._export_if_new_best(trainer, _res),
+                self._export_if_new_best,
             )
 
             train_kwargs: dict[str, Any] = {
@@ -1323,7 +1359,7 @@ class YOLOCurriculumGovernor:
 
             if next_weights:
                 current_weights_path = next_weights
-                self._synchronize_checkpoints(
+                self.synchronize_checkpoints(
                     stage_dir,
                     stage.resolution,
                     fraction=stage.fraction,
@@ -1332,7 +1368,8 @@ class YOLOCurriculumGovernor:
                 )
                 ckpt_name = Path(current_weights_path).name
                 print(
-                    f"[GOVERNOR] [STAGE {stage.stage_index} COMPLETE] Advanced checkpoint: {ckpt_name}",
+                    f"[GOVERNOR] [STAGE {stage.stage_index} COMPLETE] Advanced checkpoint: "
+                    f"{ckpt_name}",
                     flush=True,
                 )
             else:
@@ -1359,7 +1396,8 @@ class YOLOCurriculumGovernor:
 
         # Open-Ended SOTA Convergence Protocol:
         # If curriculum stages completed but SOTA targets on top resolution @ 100% data
-        # have not yet been reached, do NOT stop on fixed epochs. Extend training until SOTA is achieved.
+        # have not yet been reached, do NOT stop on fixed epochs. Extend training until SOTA is
+        # achieved.
         top_res = max_ladder_res
         extension_cycle = 1
         target_map50 = self.sota_targets.get("map50", 0.54)
@@ -1565,14 +1603,15 @@ class YOLOCurriculumGovernor:
 
                         max_ext_epochs_disp = int(getattr(trainer, "epochs", _tot_ep))
                         print(
-                            f"\n[GOVERNOR] [SOTA EXT EPOCH {global_epoch}/{max_ext_epochs_disp} SUMMARY] "
+                            f"\n[GOVERNOR] [SOTA EXT EPOCH {global_epoch}/{max_ext_epochs_disp} "
+                            "SUMMARY] "
                             f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} "
                             f"(Box: {box_loss:.4f}, Cls: {cls_loss:.4f}, Dfl: {dfl_loss:.4f}) | "
                             f"mAP50: {map50:.4f} | mAP50-95: {map50_95:.4f}",
                             flush=True,
                         )
 
-                        self._synchronize_checkpoints(
+                        self.synchronize_checkpoints(
                             target_ext_dir,
                             current_stage.resolution,
                             fraction=current_stage.fraction,
@@ -1606,9 +1645,10 @@ class YOLOCurriculumGovernor:
 
                     except (InterruptedError, KeyboardInterrupt):
                         raise
-                    except Exception:
-                        # Boundary: Ultralytics callback wrapping caller-supplied on_epoch_end; a failure is
-                        # logged with traceback and must not abort the Ultralytics fit loop.
+                    except _EPOCH_CALLBACK_ERRORS:
+                        # Boundary: Ultralytics callback wrapping caller-supplied on_epoch_end;
+                        # an expected failure is logged with traceback and must not abort the
+                        # Ultralytics fit loop.
                         logger.exception("YOLO governor extension callback failed")
 
                 return on_ext_epoch_end
@@ -1640,7 +1680,7 @@ class YOLOCurriculumGovernor:
             )
             model.add_callback(
                 "on_model_save",
-                lambda trainer, _res=ext_stage.resolution: self._export_if_new_best(trainer, _res),
+                self._export_if_new_best,
             )
 
             train_kwargs = {
@@ -1666,7 +1706,8 @@ class YOLOCurriculumGovernor:
                 model.train(**train_kwargs)
             except (InterruptedError, KeyboardInterrupt):
                 print(
-                    f"[GOVERNOR] Extension cycle {extension_cycle} interrupted by cancellation signal.",
+                    f"[GOVERNOR] Extension cycle {extension_cycle} interrupted by cancellation "
+                    "signal.",
                     flush=True,
                 )
                 return TrainingSummary(
@@ -1679,7 +1720,8 @@ class YOLOCurriculumGovernor:
 
             if self.cancel_check is not None and self.cancel_check():
                 print(
-                    f"[GOVERNOR] Cancellation signal detected in extension cycle {extension_cycle}. Halting.",
+                    "[GOVERNOR] Cancellation signal detected in extension cycle "
+                    f"{extension_cycle}. Halting.",
                     flush=True,
                 )
                 return TrainingSummary(
@@ -1695,7 +1737,7 @@ class YOLOCurriculumGovernor:
                 ext_cand = ext_weights_dir / "last.pt"
             if ext_cand.exists() and ext_cand.stat().st_size > 0:
                 current_weights_path = str(ext_cand)
-                self._synchronize_checkpoints(
+                self.synchronize_checkpoints(
                     ext_dir,
                     top_res,
                     fraction=1.0,
@@ -1727,7 +1769,7 @@ class YOLOCurriculumGovernor:
                 "(PyTorch & ONNX) to LemGendaryModels/yolov8n...",
                 flush=True,
             )
-            self._export_sota_models(final_best_source, resolution=640)
+            self.export_sota_models(final_best_source)
 
         total_time = round(time.time() - start_time, 2)
         print(
@@ -1736,7 +1778,8 @@ class YOLOCurriculumGovernor:
         )
 
         # Authoritative invariant check:
-        # Minimum 20 epochs AND SOTA convergence attained, max resolution ladder rung (640), and 100% data fraction
+        # Minimum 20 epochs AND SOTA convergence attained, max resolution ladder rung (640), and
+        # 100% data fraction
         res_ladder = self.opt_config.get("res_ladder", [320, 480, 640])
         max_ladder_res = max(res_ladder) if res_ladder else 640
         yolo_completed = (

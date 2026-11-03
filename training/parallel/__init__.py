@@ -1,10 +1,11 @@
+"""Parallel training strategies (single GPU, DataParallel, DDP) and automatic selection."""
+
 from __future__ import annotations
 
 import os
 from typing import Any
 
 import torch
-from torch import nn
 
 from training.parallel.base import ParallelStrategy
 from training.parallel.ddp import DistributedDataParallelStrategy
@@ -17,12 +18,16 @@ _STRATEGIES = {
     "ddp": DistributedDataParallelStrategy,
 }
 
+# Model-key substrings that must always run on a single process.
+_SINGLE_ONLY_TOKENS = frozenset({"forex", "yolo"})
+
 
 def available_strategies() -> list:
+    """Return the names of all registered parallel strategies."""
     return list(_STRATEGIES.keys())
 
 
-def resolve_auto(model: Any, model_key: str, config: dict, model_info: dict | None = None) -> str:
+def resolve_auto(model_key: str, model_info: dict | None = None) -> str:
     """Resolve the optimal parallel strategy based on hardware and model characteristics.
 
     Priority order:
@@ -48,9 +53,8 @@ def resolve_auto(model: Any, model_key: str, config: dict, model_info: dict | No
         return preferred
 
     # 2. Models that must always run on a single process.
-    _SINGLE_ONLY = {"forex", "yolo"}
     key_lower = model_key.lower()
-    if any(tok in key_lower for tok in _SINGLE_ONLY):
+    if any(tok in key_lower for tok in _SINGLE_ONLY_TOKENS):
         return "single"
 
     if not torch.cuda.is_available() or torch.cuda.device_count() <= 1:
@@ -73,9 +77,10 @@ def build_parallel_strategy(
     model_info: dict | None = None,
     config: dict | None = None,
 ) -> ParallelStrategy:
+    """Instantiate the named strategy (``auto`` resolves via :func:`resolve_auto`)."""
     config = config or {}
     if name == "auto":
-        name = resolve_auto(model, model_key, config, model_info=model_info)
+        name = resolve_auto(model_key, model_info=model_info)
     if name not in _STRATEGIES:
         raise ValueError(
             f"Unknown parallel strategy '{name}'. Available: {', '.join(available_strategies())}"

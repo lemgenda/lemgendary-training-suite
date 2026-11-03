@@ -1,14 +1,17 @@
 """Kaggle Model Hub Synchronization Manager (SSOT).
 
 Orchestrates validation, metadata synchronization via the official Kaggle REST API,
-and publishing of strictly isolated model variations (PyTorch default, PyTorch FP32, ONNX FP16, ONNX FP32)
-to Kaggle Models Hub via kagglehub.
+and publishing of strictly isolated model variations (PyTorch default, PyTorch FP32,
+ONNX FP16, ONNX FP32) to Kaggle Models Hub via kagglehub.
 """
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import logging
+import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -108,7 +111,10 @@ class KaggleModelSyncManager:
 
     @property
     def staging_service(self):
+        """Return the lazily created variation staging service."""
         if self._staging_service is None:
+            # Deferred: training.export.staging imports training.cloud, so a module-level
+            # import here is circular when training.export is imported first.
             from training.export.staging import VariationStagingService
 
             self._staging_service = VariationStagingService()
@@ -122,7 +128,7 @@ class KaggleModelSyncManager:
         return model_key.replace("_", "-").lower()
 
     def get_handle(self, model_key: str, variation_key: str) -> str:
-        """Construct standard Kaggle model handle: <owner>/<model_slug>/<framework>/<variation_slug>."""
+        """Construct Kaggle model handle: <owner>/<model_slug>/<framework>/<variation_slug>."""
         slug = self.get_model_slug(model_key)
         variation = VARIATION_BY_KEY.get(variation_key)
         if variation:
@@ -146,11 +152,11 @@ class KaggleModelSyncManager:
             if payload_dir.exists():
                 return payload_dir
             return model_dir
-        elif variation is PYTORCH_FP32:
+        if variation is PYTORCH_FP32:
             return dist_dir / "pytorch"
-        elif variation is ONNX_FP32:
+        if variation is ONNX_FP32:
             return dist_dir / "onnx_fp32"
-        elif variation is ONNX_FP16:
+        if variation is ONNX_FP16:
             return dist_dir / "onnx_fp16"
         return dist_dir / variation_key
 
@@ -181,7 +187,9 @@ class KaggleModelSyncManager:
                 variation=variation,
                 handle="",
                 success=False,
-                error=f"Unsupported variation '{variation}'. Allowed: {list(VARIATION_BY_KEY.keys())}",
+                error=(
+                    f"Unsupported variation '{variation}'. Allowed: {list(VARIATION_BY_KEY.keys())}"
+                ),
                 dry_run=dry_run,
             )
 
@@ -242,40 +250,32 @@ class KaggleModelSyncManager:
             notes = version_notes or f"Production SOTA Release: {model_key} [{var_obj.label}]"
             logger.info("Uploading %s variation to Kaggle Models Hub: %s ...", variation, handle)
 
-            # If uploading PYTORCH_DEFAULT from the canonical model_dir, upload via a clean transient staging
-            # directory containing strictly checkpoints/, README.md, and metrics.csv to guarantee isolation.
-            upload_dir = variation_dir
-            temp_staging_dir = None
-            if variation == PYTORCH_DEFAULT.key and variation_dir == self.get_model_dir(model_key):
-                import tempfile
+            # If uploading PYTORCH_DEFAULT from the canonical model_dir, upload via a clean
+            # transient staging directory containing strictly checkpoints/, README.md and
+            # metrics.csv to guarantee isolation.
+            with contextlib.ExitStack() as stack:
+                upload_dir = variation_dir
+                if variation == PYTORCH_DEFAULT.key and variation_dir == self.get_model_dir(
+                    model_key
+                ):
+                    temp_path = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+                    temp_ckpt_dir = temp_path / "checkpoints"
+                    temp_ckpt_dir.mkdir(parents=True, exist_ok=True)
+                    src_ckpts = variation_dir / "checkpoints"
+                    if src_ckpts.exists():
+                        for pth in src_ckpts.glob("*.pth"):
+                            shutil.copy2(pth, temp_ckpt_dir / pth.name)
+                    for root_f in ("README.md", "metrics.csv"):
+                        src_f = variation_dir / root_f
+                        if src_f.exists():
+                            shutil.copy2(src_f, temp_path / root_f)
+                    upload_dir = temp_path
 
-                temp_staging_dir = tempfile.TemporaryDirectory()
-                temp_path = Path(temp_staging_dir.name)
-                temp_ckpt_dir = temp_path / "checkpoints"
-                temp_ckpt_dir.mkdir(parents=True, exist_ok=True)
-                src_ckpts = variation_dir / "checkpoints"
-                if src_ckpts.exists():
-                    import shutil
-
-                    for pth in src_ckpts.glob("*.pth"):
-                        shutil.copy2(pth, temp_ckpt_dir / pth.name)
-                for root_f in ("README.md", "metrics.csv"):
-                    src_f = variation_dir / root_f
-                    if src_f.exists():
-                        import shutil
-
-                        shutil.copy2(src_f, temp_path / root_f)
-                upload_dir = temp_path
-
-            try:
                 kagglehub.model_upload(
                     handle=handle,
                     local_model_dir=str(upload_dir),
                     version_notes=notes,
                 )
-            finally:
-                if temp_staging_dir is not None:
-                    temp_staging_dir.cleanup()
 
             logger.info("[OK] Successfully uploaded %s to Kaggle Models Hub", handle)
             return VariationPushResult(
@@ -372,8 +372,8 @@ class KaggleModelSyncManager:
 
         try:
             kagglehub = importlib.import_module("kagglehub")
-        except ImportError:
-            raise RuntimeError("kagglehub SDK is not installed in runtime environment.")
+        except ImportError as exc:
+            raise RuntimeError("kagglehub SDK is not installed in runtime environment.") from exc
 
         logger.info("Pulling Kaggle variation %s -> %s", handle, target_dir)
         downloaded_path = kagglehub.model_download(
@@ -392,8 +392,6 @@ class KaggleModelSyncManager:
                 dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
                 for f in src_ckpt_dir.iterdir():
                     if f.is_file():
-                        import shutil
-
                         dest_f = dst_ckpt_dir / f.name
                         if not dest_f.exists() or f.stat().st_size != dest_f.stat().st_size:
                             shutil.copy2(f, dest_f)
@@ -401,11 +399,12 @@ class KaggleModelSyncManager:
             for rf_name in ("metrics.csv", "README.md"):
                 src_rf = target_dir / rf_name
                 dst_rf = model_root / rf_name
-                if src_rf.exists() and src_rf.resolve() != dst_rf.resolve():
-                    import shutil
-
-                    if not dst_rf.exists() or src_rf.stat().st_size != dst_rf.stat().st_size:
-                        shutil.copy2(src_rf, dst_rf)
+                if (
+                    src_rf.exists()
+                    and src_rf.resolve() != dst_rf.resolve()
+                    and (not dst_rf.exists() or src_rf.stat().st_size != dst_rf.stat().st_size)
+                ):
+                    shutil.copy2(src_rf, dst_rf)
 
             # Purge duplicate dist/kaggle/pytorch_default directory to prevent dual files on disk
             if target_dir.exists() and target_dir.resolve() != model_root.resolve():

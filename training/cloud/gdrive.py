@@ -60,14 +60,18 @@ class GDriveSyncManager:
         model_name: str,
         epoch: int,
         src_dir: Path,
-        **kwargs: Any,
     ) -> bool:
         """Synchronize model artifacts to Google Drive."""
         if self.mount_root is not None and self.mount_root.exists():
             target_dir = self.mount_root / "LemGendaryModels" / model_name
             target_dir.mkdir(parents=True, exist_ok=True)
 
-            logger.info("Synchronizing to mounted Google Drive at %s...", target_dir)
+            logger.info(
+                "Synchronizing %s (epoch %d) to mounted Google Drive at %s...",
+                model_name,
+                epoch,
+                target_dir,
+            )
             try:
                 for item in src_dir.iterdir():
                     dst = target_dir / item.name
@@ -97,7 +101,7 @@ class GDriveSyncManager:
         )
         return True
 
-    def pull(self, remote_identifier: str, dest_dir: Path, **kwargs: Any) -> bool:
+    def pull(self, remote_identifier: str, dest_dir: Path) -> bool:
         """Download or copy model artifacts from Google Drive."""
         dest_dir.mkdir(parents=True, exist_ok=True)
 

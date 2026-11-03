@@ -218,7 +218,7 @@ def generate_all_preflight_assets(
     if not isinstance(models_dict, dict):
         models_dict = registry
 
-    model_keys = sorted([k for k in models_dict.keys() if not k.startswith("_")])
+    model_keys = sorted([k for k in models_dict if not k.startswith("_")])
     for model_key in model_keys:
         try:
             res = generate_preflight_assets(model_key, root, force=force)

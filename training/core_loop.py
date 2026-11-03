@@ -10,6 +10,7 @@ All other models use the universal TrainingContext path.
 from __future__ import annotations
 
 import argparse
+import csv
 import logging
 import os
 import pickle
@@ -177,7 +178,10 @@ def build_cli_parser() -> argparse.ArgumentParser:
         "--fresh",
         dest="clean",
         action="store_true",
-        help="Start training fresh from epoch 1, wiping local checkpoints and ignoring hub checkpoints",
+        help=(
+            "Start training fresh from epoch 1, wiping local checkpoints "
+            "and ignoring hub checkpoints"
+        ),
     )
     parser.add_argument(
         "--phase", type=int, default=1, help="Training Phase (e.g. Pre-training=1, Fine-tuning=2)"
@@ -266,7 +270,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     policy = apply_hardware_policy(model_key, model_info, device_info, config)
 
     # 2. Directory structure â€” exclusively under LemGendaryModels
-    # Training suite project is code-only; all artifacts, checkpoints, exports, and metrics go to LemGendaryModels
+    # Training suite project is code-only; all artifacts, checkpoints, exports,
+    # and metrics go to LemGendaryModels
     models_hub_dir = (project_root.parent / "LemGendaryModels" / model_key).resolve()
     models_hub_checkpoint_dir = models_hub_dir / "checkpoints"
     models_hub_dir.mkdir(parents=True, exist_ok=True)
@@ -331,7 +336,6 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         optimizer=optimizer,
         config=config,
         total_epochs=total_epochs,
-        reset_scheduler=args.reset_scheduler,
     )
 
     # 6. Criterion
@@ -439,7 +443,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             )
             val_ds = None
     elif task_type in ("text_instruction", "llm"):
-        # Resolve dataset folder dynamically from model_info or fallback to LemGendizedAIHelperLemGend
+        # Resolve dataset folder from model_info, else fall back to LemGendizedAIHelperLemGend
         declared_datasets = model_info.get("datasets", [])
         dataset_name = declared_datasets[0] if declared_datasets else "LemGendizedAIHelperLemGend"
         data_root = project_root.parent / "LemGendaryDatasets" / dataset_name
@@ -520,7 +524,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
         logger.info(
             "RowGroupAwareSampler active for Forex dataset: %d locality groups (fraction: %.2f)",
-            len(train_sampler._group_keys),
+            train_sampler.num_groups,
             sample_fraction,
         )
         train_loader = build_train_loader(
@@ -619,7 +623,12 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 sched_state = loaded_data.get("scheduler_state") or loaded_data.get(
                     "scheduler_state_dict"
                 )
-                if isinstance(sched_state, dict) and scheduler is not None:
+                if getattr(args, "reset_scheduler", False):
+                    logger.info(
+                        "--reset-scheduler set: ignoring checkpoint scheduler state "
+                        "and starting a fresh LR curve."
+                    )
+                elif isinstance(sched_state, dict) and scheduler is not None:
                     try:
                         scheduler.load_state_dict(sched_state)
                     except _STATE_RESTORE_ERRORS as sched_err:
@@ -637,21 +646,19 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                         if (
                             model_info.get("needs_synthesis")
                             or model_info.get("dataset_type") == "face"
-                        ):
-                            if float(getattr(governor, "best_quality", 0.0) or 0.0) > 600.0:
-                                logger.info(
-                                    "[CALIBRATION] Calibrating artificial quality anchor (%.2f -> 555.0)",
-                                    float(governor.best_quality),
-                                )
-                                governor.best_quality = 555.0
+                        ) and float(getattr(governor, "best_quality", 0.0) or 0.0) > 600.0:
+                            logger.info(
+                                "[CALIBRATION] Calibrating artificial quality anchor "
+                                "(%.2f -> 555.0)",
+                                float(governor.best_quality),
+                            )
+                            governor.best_quality = 555.0
                         # Reconcile curriculum state against canonical metrics.csv if available
                         if (
                             paths.models_hub_metrics_csv is not None
                             and paths.models_hub_metrics_csv.exists()
                         ):
                             try:
-                                import csv
-
                                 with open(
                                     paths.models_hub_metrics_csv, "r", encoding="utf-8"
                                 ) as mf:
@@ -690,7 +697,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                     "Could not reconcile metrics.csv on resume: %s", csv_err
                                 )
 
-                        # Synchronize train dataset and train DataLoader with restored governor state
+                        # Sync train dataset and DataLoader with restored governor state
                         rec_res = getattr(governor, "current_res", None)
                         rec_frac = getattr(governor, "current_fraction", None)
                         if (
@@ -721,7 +728,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                             curr_batch = min(restored_batch, hw_safe_batch)
                             if curr_batch != restored_batch:
                                 logger.warning(
-                                    "[RESUME CLAMP] Clamped restored batch %d -> %d to prevent OOM on current hardware at res %s",
+                                    "[RESUME CLAMP] Clamped restored batch %d -> %d to prevent "
+                                    "OOM on current hardware at res %s",
                                     restored_batch,
                                     curr_batch,
                                     rec_res,
@@ -759,14 +767,18 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                 train_ds
                             )
                             if os.environ.get("RANK", "0") == "0":
+                                shown_frac = rec_frac if rec_frac is not None else 1.0
                                 print(
-                                    f"[CURRICULUM] Active training manifold: {len(train_ds)}/{total_ds_samples} samples "
-                                    f"({(rec_frac if rec_frac is not None else 1.0) * 100:.0f}% data fraction) | "
-                                    f"Res: {rec_res}px | Batch: {curr_batch} | Total Batches: {len(train_loader)}",
+                                    "[CURRICULUM] Active training manifold: "
+                                    f"{len(train_ds)}/{total_ds_samples} samples "
+                                    f"({shown_frac * 100:.0f}% data fraction) | "
+                                    f"Res: {rec_res}px | Batch: {curr_batch} | "
+                                    f"Total Batches: {len(train_loader)}",
                                     flush=True,
                                 )
                             logger.info(
-                                "Synchronized training dataset and loader with recovered governor state: res=%s, frac=%.2f",
+                                "Synchronized training dataset and loader with recovered "
+                                "governor state: res=%s, frac=%.2f",
                                 rec_res,
                                 rec_frac if rec_frac is not None else 1.0,
                             )
@@ -877,7 +889,8 @@ def main(raw_args: list[str] | None = None) -> None:
     try:
         summary = run_training(ctx)
         print(
-            f"[SUCCESS] Training completed at epoch {summary.final_epoch} with status: {summary.status}"
+            f"[SUCCESS] Training completed at epoch {summary.final_epoch} "
+            f"with status: {summary.status}"
         )
 
         # Post-training export

@@ -1,5 +1,6 @@
 """Unit tests for cloud subsystem: credentials, git, kaggle, and gdrive bit-exact parity."""
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,6 +21,7 @@ class TestCloudCredentials(unittest.TestCase):
     """Tests for credentials parsing and stealth masking."""
 
     def test_mask_secret(self) -> None:
+        """Verify secrets are masked inside command strings."""
         raw = "git clone https://ghp_secretToken12345@github.com/repo.git"
         secret = "ghp_secretToken12345"
         masked = mask_secret(raw, secret)
@@ -31,6 +33,7 @@ class TestCloudCredentials(unittest.TestCase):
         self.assertEqual(mask_secret("hello world", "ab"), "hello world")
 
     def test_resolve_credentials_overrides(self) -> None:
+        """Verify explicit credential overrides take precedence."""
         gh_token = resolve_github_credentials(override_pat="test_gh_token")
         self.assertEqual(gh_token, "test_gh_token")
 
@@ -48,6 +51,7 @@ class TestCloudSyncError(unittest.TestCase):
     """Tests for structured CloudSyncError."""
 
     def test_error_attributes(self) -> None:
+        """Verify CloudSyncError exposes code, message and retryable."""
         err = CloudSyncError(code="NET_ERR", message="Connection reset", retryable=True)
         self.assertEqual(err.code, "NET_ERR")
         self.assertEqual(err.message, "Connection reset")
@@ -60,6 +64,7 @@ class TestGitHubSyncManager(unittest.TestCase):
     """Tests for GitHubSyncManager setup and health probing."""
 
     def test_probe_health(self) -> None:
+        """Verify the GitHub sync manager health probe reports its status."""
         with tempfile.TemporaryDirectory() as tmp:
             mgr = GitHubSyncManager(hub_root=Path(tmp), hub_user="testuser")
             health = mgr.probe_health()
@@ -72,6 +77,7 @@ class TestKaggleHubManager(unittest.TestCase):
     """Tests for KaggleHubManager handle and bundle creation."""
 
     def test_handle_generation(self) -> None:
+        """Verify Kaggle model handles are built as user/slug/framework/variation."""
         mgr = KaggleHubManager(username="tester")
         handle = mgr.get_handle("mirnet_exposure")
         self.assertEqual(handle, "tester/mirnet-exposure/pytorch/default")
@@ -81,6 +87,7 @@ class TestKaggleHubManager(unittest.TestCase):
         self.assertEqual(nima_handle, "tester/nima-aesthetics/pytorch/default")
 
     def test_create_cloud_kernel_bundle(self) -> None:
+        """Verify the Kaggle cloud kernel bundle contains metadata and the training script."""
         mgr = KaggleHubManager(username="tester")
         bundle_dir = mgr.create_cloud_kernel_bundle("test_model", gpu="T4")
         try:
@@ -88,8 +95,6 @@ class TestKaggleHubManager(unittest.TestCase):
             self.assertTrue((bundle_dir / "kernel-metadata.json").exists())
             self.assertTrue((bundle_dir / "train_cloud.py").exists())
         finally:
-            import shutil
-
             if bundle_dir.exists():
                 shutil.rmtree(bundle_dir)
 
@@ -98,6 +103,7 @@ class TestGDriveBitExactParity(unittest.TestCase):
     """Gate 7: Verify bit-exact SHA256 parity during push and pull."""
 
     def test_push_and_pull_bit_exact_parity(self) -> None:
+        """Verify a GDrive push followed by a pull is bit-exact."""
         with (
             tempfile.TemporaryDirectory() as source_tmp,
             tempfile.TemporaryDirectory() as mount_tmp,

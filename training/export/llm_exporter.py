@@ -27,7 +27,6 @@ def export_llm_tri_format(
     model: nn.Module,
     model_key: str = "ai_helper_lemgend",
     output_dir: Path | str | None = None,
-    max_seq_length: int = 512,
 ) -> dict[str, Path]:
     """Export Causal LLM into all 3 required isolated Kaggle variations."""
     target_dir = (
@@ -159,10 +158,8 @@ class LLMModelExporter(BaseModelExporter):
     ) -> dict[str, Path]:
         """Export Causal LLM into all 3 required isolated Kaggle variations."""
         target_dir = self.resolve_destination(model_key, output_dir)
-        max_seq_length = kwargs.get("max_seq_length", 512)
         return export_llm_tri_format(
             model=model,
             model_key=model_key,
             output_dir=target_dir,
-            max_seq_length=max_seq_length,
         )

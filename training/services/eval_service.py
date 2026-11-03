@@ -77,8 +77,21 @@ class EvaluationService:
                 elif ckpt_data and "state_dict" in ckpt_data:
                     ctx.model.load_state_dict(ckpt_data["state_dict"], strict=False)
         else:
-            recovery_engine = CheckpointRecoveryEngine(model_key=model_key)
-            resolved_ckpt = recovery_engine.find_best_checkpoint()
+            recovery_engine = CheckpointRecoveryEngine(
+                workspace_root=self.project_root.parent,
+                project_root=self.project_root,
+                env=env,
+            )
+            candidate_roots = recovery_engine.find_candidate_roots(model_key, config=ctx.config)
+            discovered = recovery_engine.discover_checkpoints(candidate_roots, model_key)
+            resolved_ckpt = next(
+                (
+                    discovered[key]
+                    for key in ("best", "latest", "latest_epoch", "progress")
+                    if key in discovered
+                ),
+                None,
+            )
             if resolved_ckpt and resolved_ckpt.exists():
                 ckpt_data = safe_load_checkpoint(resolved_ckpt, map_location=ctx.device_info.device)
                 if ckpt_data and "model_state" in ckpt_data:

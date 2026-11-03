@@ -11,11 +11,9 @@ from __future__ import annotations
 import json
 
 import pytest
+from fastapi.routing import APIRoute
 
-pytest.importorskip(
-    "fastapi",
-    reason="fastapi is not installed; the sidecar app cannot be built in this environment",
-)
+from tools.export_openapi import OPENAPI_FILE, render_openapi
 
 # The app imports the full training stack (torch, kaggle, onnx, ...).
 try:
@@ -25,10 +23,6 @@ except ImportError as exc:
         f"training.server.app cannot be imported in this environment: {exc}",
         allow_module_level=True,
     )
-
-from fastapi.routing import APIRoute
-
-from tools.export_openapi import OPENAPI_FILE, render_openapi
 
 HTTP_METHODS = {"get", "put", "post", "delete", "patch", "head", "options", "trace"}
 
@@ -54,14 +48,16 @@ def _schema_operations(routes: list, prefix: str = "") -> set[tuple[str, str]]:
     return operations
 
 
-@pytest.fixture(scope="module")
-def live_app(tmp_path_factory):
+@pytest.fixture(name="live_app", scope="module")
+def fixture_live_app(tmp_path_factory):
+    """Build the sidecar app once per module and shut its job executor down afterwards."""
     app = create_app(project_root=tmp_path_factory.mktemp("lemtrain_state"))
     yield app
     app.state.job_manager.executor.shutdown(wait=True)
 
 
 def test_openapi_json_matches_live_app(live_app) -> None:
+    """Verify the committed openapi.json equals the live app's rendering."""
     committed = OPENAPI_FILE.read_text(encoding="utf-8")
     assert committed == render_openapi(live_app.openapi()), (
         "openapi.json drifted from the app; run: python tools/export_openapi.py"
@@ -69,6 +65,7 @@ def test_openapi_json_matches_live_app(live_app) -> None:
 
 
 def test_every_app_operation_is_in_openapi_json(live_app) -> None:
+    """Verify every live schema operation is documented in openapi.json."""
     committed = json.loads(OPENAPI_FILE.read_text(encoding="utf-8"))
     documented = {
         (method.upper(), path)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import tarfile
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -90,9 +91,11 @@ class WebDatasetReader:
                     shards = sorted(self.root.glob("**/*.tar"))
                 self.tar_files = shards
 
-        # Map sample index -> (storage_mode, tar_path, img_ref, tgt_ref, mask_ref, txt_ref, json_ref)
+        # Map sample index -> (mode, tar_path, img_ref, tgt_ref, mask_ref, txt_ref, json_ref)
         self.index_map: list[tuple[str, Path | None, Any, Any, Any, Any, Any]] = []
         self._tar_handles: dict[Path, tarfile.TarFile] = {}
+        # Owns the cached tar handles; close() unwinds it.
+        self._tar_stack = ExitStack()
 
         if self.tar_files:
             for t_path in self.tar_files:
@@ -110,7 +113,7 @@ class WebDatasetReader:
                                 samples[key] = {}
                             samples[key][role] = m.name
 
-                        for _key, roles in samples.items():
+                        for roles in samples.values():
                             img_member = roles.get("image")
                             if img_member is not None:
                                 tgt_member = roles.get("target")
@@ -155,7 +158,7 @@ class WebDatasetReader:
                         logger.debug("Failed scanning directory %s: %s", scan_dir, scan_err)
                         continue
 
-                    for _key, roles in samples_dir.items():
+                    for roles in samples_dir.values():
                         img_path = roles.get("image")
                         if img_path is not None:
                             tgt_path = roles.get("target")
@@ -263,7 +266,10 @@ class WebDatasetReader:
 
         tf = self._tar_handles.get(t_path)
         if tf is None:
-            tf = tarfile.open(t_path, mode="r:*")
+            # Open under a temporary stack, then hand ownership to the long-lived one.
+            with ExitStack() as stack:
+                tf = stack.enter_context(tarfile.open(t_path, mode="r:*"))
+                self._tar_stack.push(stack.pop_all())
             self._tar_handles[t_path] = tf
 
         extracted = tf.extractfile(img_m)
@@ -342,18 +348,20 @@ class WebDatasetReader:
         """Exclude open file handles when pickling across process boundaries."""
         state = self.__dict__.copy()
         state["_tar_handles"] = {}
+        state["_tar_stack"] = None
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Reconstruct state with clean handle cache in worker processes."""
         self.__dict__.update(state)
         self._tar_handles = {}
+        self._tar_stack = ExitStack()
 
     def close(self) -> None:
         """Close all open tar file handles."""
-        for tf in self._tar_handles.values():
-            try:
-                tf.close()
-            except OSError as exc:
-                logger.debug("Error closing tarfile: %s", exc)
+        try:
+            self._tar_stack.close()
+        except OSError as exc:
+            logger.debug("Error closing tarfile: %s", exc)
         self._tar_handles.clear()
+        self._tar_stack = ExitStack()

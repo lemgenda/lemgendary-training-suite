@@ -72,4 +72,4 @@ def get_job_logs(
         tail_lines = lines[-tail:] if len(lines) > tail else lines
         return {"job_id": job_id, "lines": tail_lines, "total_lines": len(lines)}
     except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Failed reading log file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed reading log file: {e}") from e

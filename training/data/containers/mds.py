@@ -70,9 +70,9 @@ class MdsReader:
     def _init_streaming(self) -> None:
         """Attempt initializing via official streaming library if available."""
         try:
-            import importlib
+            # Optional MosaicML dependency; absent installs fall back to the raw index.
+            import streaming as streaming_pkg
 
-            streaming_pkg = importlib.import_module("streaming")
             local_ds_cls = getattr(streaming_pkg, "LocalDataset", None)
             streaming_cls = getattr(streaming_pkg, "StreamingDataset", None)
             if local_ds_cls is not None:

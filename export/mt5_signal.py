@@ -7,12 +7,14 @@ Two modes:
     1. ONNX Export:     Convert trained .pth checkpoint to .onnx for MT5 EA.
     2. Live Signal:     Connect to MT5, pull latest bars, run model, emit signal.
 
-Usage:
+Usage (run as a module from the project root):
     # Export trained model to ONNX:
-    python export/mt5_signal.py --mode export --checkpoint LemGendaryModels/forex_predictor/forex_predictor_best.pth
+    python -m export.mt5_signal --mode export \
+        --checkpoint LemGendaryModels/forex_predictor/forex_predictor_best.pth
 
     # Generate a live signal (requires MT5 terminal + demo account):
-    python export/mt5_signal.py --mode signal --onnx LemGendaryModels/forex_predictor/forex_predictor.onnx --pair EURUSD
+    python -m export.mt5_signal --mode signal \
+        --onnx LemGendaryModels/forex_predictor/forex_predictor.onnx --pair EURUSD
 
 TODO (requires MT5 demo account):
     - Validate ONNX inference matches PyTorch output on real bars
@@ -24,15 +26,11 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import sys
 
 import numpy as np
-
-# Anchor workspace root for relative imports
-_script_dir = os.path.dirname(os.path.abspath(__file__))
-_workspace_root = os.path.dirname(_script_dir)
-if _workspace_root not in sys.path:
-    sys.path.insert(0, _workspace_root)
+import torch
 
 from data.mt5_pipeline import (
     PAIR_INDEX,
@@ -46,6 +44,7 @@ from data.mt5_pipeline import (
 from models.forex_predictor import (
     ForexPredictor,
 )
+from training.export.mt5_signal import export_forex_onnx_from_model
 
 # [LemGendary Forex Suite v1.0 - SYNC_ID: FOREX_03]
 
@@ -80,9 +79,6 @@ def export_onnx(
     Returns:
         Path to the exported .onnx file.
     """
-    import torch
-    import torch.onnx
-
     if active_timeframes is None:
         active_timeframes = [1, 5, 15, 60, 240, 1440]
 
@@ -120,8 +116,6 @@ def export_onnx(
     pt_path = os.path.join(base_dir, f"{base_stem.replace('_FP32', '')}.pt")
 
     print(f" [ONNX Export] Synthesizing FP32 ONNX model to: {fp32_onnx_path} (opset {opset})")
-    from training.export.mt5_signal import export_forex_onnx_from_model
-
     export_forex_onnx_from_model(
         model=model,
         out_path=fp32_onnx_path,
@@ -171,8 +165,6 @@ def export_onnx(
             "FP16 conversion failed; copying FP32 model to %s: %s", fp16_onnx_path, fp16_error
         )
         print(f" [ONNX Export] FP16 conversion fallback: copying FP32 -> {fp16_onnx_path}")
-        import shutil
-
         shutil.copy2(fp32_onnx_path, fp16_onnx_path)
 
     # Detach FP32 weights into external sidecar file (.onnx.data)
@@ -316,7 +308,10 @@ def generate_signal(
     if not connect_mt5(login=login, password=password, server=server):
         return {
             "error": "MT5 not connected. Provide demo account credentials.",
-            "help": "Pass --login, --password, --server or set MT5_LOGIN, MT5_PASSWORD, MT5_SERVER environment variables.",
+            "help": (
+                "Pass --login, --password, --server or set MT5_LOGIN, MT5_PASSWORD, "
+                "MT5_SERVER environment variables."
+            ),
         }
 
     try:
@@ -424,7 +419,7 @@ def generate_mql5_ea(out_path: str):
         out_path: Path to write the .mq5 file.
     """
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(MQL5_EA_STUB)
     print(f" [MQL5] EA stub written: {out_path}")
     print(" [MQL5] TODO: Implement Python bridge IPC before live deployment.")
@@ -436,12 +431,15 @@ def generate_mql5_ea(out_path: str):
 
 
 def main():
+    """CLI entrypoint: ONNX export, live signal generation or MQL5 EA stub writing."""
     parser = argparse.ArgumentParser(description="LemGendary MT5 Signal Generator & ONNX Exporter")
     parser.add_argument(
         "--mode",
         choices=["export", "signal", "mql5_stub"],
         default="export",
-        help="export: convert to ONNX | signal: generate live signal | mql5_stub: write EA template",
+        help=(
+            "export: convert to ONNX | signal: generate live signal | mql5_stub: write EA template"
+        ),
     )
     parser.add_argument("--checkpoint", default=None, help="Path to .pth checkpoint for export")
     parser.add_argument("--onnx", default=None, help="Path to .onnx model for signal mode")

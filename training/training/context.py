@@ -73,5 +73,7 @@ class TrainingContext:
     lifecycle_manager: CheckpointLifecycleManager | None = None
     last_train_metrics: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
-    _resumed_val_handled: bool = False
-    _resumed_val_step_handled: bool = False
+    # One-shot guards so an intra-epoch resume fast-forward is applied only once.
+    resumed_train_step_handled: bool = False
+    resumed_val_handled: bool = False
+    resumed_val_step_handled: bool = False

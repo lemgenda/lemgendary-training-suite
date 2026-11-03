@@ -1,3 +1,5 @@
+"""Diffusers-backed generative model wrappers (SDXL, FLUX.1) for the training loop."""
+
 import torch
 from diffusers import (
     AutoencoderKL,
@@ -14,7 +16,7 @@ class StableDiffusionXL(nn.Module):
     Bridges the training loop to the Diffusers UNet + VAE architecture.
     """
 
-    def __init__(self, checkpoint=None, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__()
         model_id = "stabilityai/stable-diffusion-xl-base-1.0"
 
@@ -36,17 +38,17 @@ class StableDiffusionXL(nn.Module):
         self.vae.requires_grad_(False)
         self.unet.train()
 
-    def forward(self, inputs):
-        return None
+    def forward(self, _inputs):
+        """Placeholder forward (returns None); training uses the wrapped Diffusers parts."""
 
 
-class Flux1_Master(nn.Module):
+class Flux1Master(nn.Module):
     """
     LemGendary FLUX.1 Master Wrapper (v2.0 Hardened).
     Implements PEFT/LoRA to allow training of the 12B parameter backbone.
     """
 
-    def __init__(self, checkpoint=None, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__()
         model_id = "black-forest-labs/FLUX.1-dev"
 
@@ -94,5 +96,5 @@ class Flux1_Master(nn.Module):
             self.transformer = nn.Identity()
             self.vae = nn.Identity()
 
-    def forward(self, inputs):
-        return None
+    def forward(self, _inputs):
+        """Placeholder forward (returns None); training uses the wrapped Diffusers parts."""

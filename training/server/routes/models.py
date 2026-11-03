@@ -9,6 +9,10 @@ from typing import Any
 import yaml
 from fastapi import APIRouter, HTTPException, Request
 
+from training.cloud.metadata_generator import KaggleMetadataService
+from training.doc_generator import ModelDocumentationService
+from training.export.staging import VariationStagingService
+from training.export.validation import StrictIsolationValidator
 from training.services.audit_service import AuditService
 from training.utils.paths import get_project_root
 
@@ -84,10 +88,13 @@ def audit_model(model_key: str, request: Request) -> dict[str, Any]:
     service = AuditService(project_root=root)
     try:
         return service.audit_model(model_key)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"Model '{model_key}' not found in registry"
+        ) from exc
     except (OSError, yaml.YAMLError, ImportError, RuntimeError, TypeError, ValueError) as e:
-        # Registry I/O/parse failures, or model construction errors (torch RuntimeError, bad config kwargs).
+        # Registry I/O/parse failures, or model construction errors
+        # (torch RuntimeError, bad config kwargs).
         logger.error("Failed auditing model %s: %s", model_key, e)
         raise HTTPException(status_code=500, detail=f"Failed auditing model: {e}") from e
 
@@ -101,9 +108,6 @@ def generate_model_docs(model_key: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
 
     try:
-        from training.cloud.metadata_generator import KaggleMetadataService
-        from training.doc_generator import ModelDocumentationService
-
         doc_service = ModelDocumentationService()
         meta_service = KaggleMetadataService()
 
@@ -137,8 +141,6 @@ def stage_model_variations(model_key: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
 
     try:
-        from training.export.staging import VariationStagingService
-
         staging_service = VariationStagingService()
         result = staging_service.stage_variations(model_key=model_key)
 
@@ -166,8 +168,6 @@ def validate_model_variations(model_key: str, request: Request) -> dict[str, Any
         raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
 
     try:
-        from training.export.validation import StrictIsolationValidator
-
         validator = StrictIsolationValidator()
         report = validator.validate_all(model_key=model_key)
 

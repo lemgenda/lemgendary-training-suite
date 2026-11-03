@@ -38,6 +38,13 @@ class CheckpointSaveError(RuntimeError):
     """Raised when an atomic checkpoint save cannot be completed."""
 
 
+class CheckpointPayloadTypeError(TypeError, ValueError):
+    """Raised when a checkpoint deserializes to something other than a dict.
+
+    Subclasses ValueError as well so existing handlers of malformed checkpoints keep catching it.
+    """
+
+
 def audit_disk_space(target_dir: Path, min_free_gb: float = 5.0) -> float:
     """Audit available disk space in GB, triggering emergency pruning of .tmp files if critical."""
     try:
@@ -68,7 +75,8 @@ def audit_disk_space(target_dir: Path, min_free_gb: float = 5.0) -> float:
 
     if free_gb < 0.2:
         raise CheckpointSaveError(
-            f"Disk critically full on {target_dir} ({free_gb:.2f} GB remaining). Save aborted to preserve filesystem."
+            f"Disk critically full on {target_dir} ({free_gb:.2f} GB remaining). Save aborted to "
+            "preserve filesystem."
         )
 
     if free_gb < min_free_gb:
@@ -85,7 +93,10 @@ def audit_disk_space(target_dir: Path, min_free_gb: float = 5.0) -> float:
 def _resilient_replace(
     src: Path, dst: Path, max_retries: int = 8, initial_delay: float = 0.1
 ) -> None:
-    """Atomically replace dst with src, retrying with exponential backoff on transient Windows file lock errors (WinError 5 / 32)."""
+    """Atomically replace dst with src, retrying with exponential backoff.
+
+    Retries cover transient Windows file lock errors (WinError 5 / 32).
+    """
     last_err: Exception | None = None
     for attempt in range(max_retries):
         try:
@@ -100,7 +111,8 @@ def _resilient_replace(
                 raise
             delay = initial_delay * (1.5**attempt)
             time.sleep(delay)
-            # If multiple retries failed and destination exists, attempt unlinking dst before final attempts
+            # If multiple retries failed and destination exists, attempt unlinking dst before final
+            # attempts
             if attempt >= 3 and dst.exists():
                 try:
                     dst.unlink()
@@ -158,7 +170,7 @@ def safe_load_checkpoint(path: Path | str, map_location: Any = "cpu") -> dict[st
         payload = torch.load(str(ckpt_path), map_location=map_location)
 
     if not isinstance(payload, dict):
-        raise ValueError(
+        raise CheckpointPayloadTypeError(
             f"Expected dict payload from checkpoint {ckpt_path}, got {type(payload).__name__}"
         )
 

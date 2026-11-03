@@ -11,6 +11,7 @@ import torch
 import yaml
 from torch import nn
 
+from models.factory import get_model
 from training.export.common import (
     resolve_checkpoint_file as canonical_resolve_checkpoint_file,
 )
@@ -88,17 +89,17 @@ def resolve_checkpoint_file(
 
 
 def build_export_model(
-    model_key: str, config: dict[str, Any], device: torch.device = torch.device("cpu")
+    model_key: str, config: dict[str, Any], device: torch.device | None = None
 ) -> nn.Module | None:
-    """Instantiate model architecture on designated device."""
+    """Instantiate model architecture on designated device (CPU when ``device`` is None)."""
+    if device is None:
+        device = torch.device("cpu")
     try:
-        from models.factory import get_model
-
         return get_model(model_key, config).to(device)
     except (ValueError, TypeError, RuntimeError, OSError, ImportError, yaml.YAMLError) as err:
         # ValueError: unknown/unsupported architecture; TypeError: bad constructor kwargs;
         # RuntimeError: device placement failure; OSError/YAMLError: unreadable model registry.
-        logger.error("Error during instantiation of %s: %s", model_key, err, exc_info=True)
+        logger.exception("Error during instantiation of %s (%s)", model_key, type(err).__name__)
         return None
 
 

@@ -1,3 +1,5 @@
+"""Forex walk-forward curriculum orchestrator: runs train.py fold by fold for forex_predictor."""
+
 import argparse
 import csv
 import json
@@ -14,6 +16,8 @@ logger = logging.getLogger("lemtrain.forex_curriculum")
 
 NUM_FOLDS = 6
 MODEL_KEY = "forex_predictor"
+# Pair folders whose presence marks a directory as a forex manifold root.
+KNOWN_PAIR_ANCHORS = {"EURUSD", "GBPUSD", "USDJPY", "XAUUSD"}
 
 
 def get_latest_epoch(model_key, project_root):
@@ -36,6 +40,7 @@ def get_latest_epoch(model_key, project_root):
 
 
 def main():
+    """Parse CLI args and run the walk-forward fold curriculum, resuming from saved state."""
     parser = argparse.ArgumentParser(
         description="LemGendary Forex Walk-Forward Curriculum Orchestrator"
     )
@@ -86,7 +91,6 @@ def main():
     project_root = os.path.dirname(script_dir)
 
     # 2026: Validate fold consistency across attached manifolds
-    KNOWN_PAIR_ANCHORS = {"EURUSD", "GBPUSD", "USDJPY", "XAUUSD"}
     resolved_roots = []
     base_search_dirs = [
         os.path.abspath(os.path.join(project_root, "..", "LemGendaryDatasets")),
@@ -151,7 +155,7 @@ def main():
 
     if os.path.exists("/kaggle/input") and len(all_year_dirs) < 8:
         try:
-            for root_dir, dirs, _ in os.walk("/kaggle/input"):
+            for _, dirs, _ in os.walk("/kaggle/input"):
                 for d in dirs:
                     if d.startswith("ForexUniverse") and not d.endswith(".zip"):
                         all_year_dirs.add(d)
@@ -161,7 +165,8 @@ def main():
     if all_year_dirs:
         total_folds = max(1, len(all_year_dirs) - 2)
         print(
-            f" [DISCOVERY] [FOREX] Identified {len(all_year_dirs)} year manifolds ({', '.join(sorted(all_year_dirs))}) -> {total_folds} Walk-Forward Folds."
+            f" [DISCOVERY] [FOREX] Identified {len(all_year_dirs)} year manifolds "
+            f"({', '.join(sorted(all_year_dirs))}) -> {total_folds} Walk-Forward Folds."
         )
     else:
         manifold_folds = {}
@@ -187,7 +192,8 @@ def main():
                 for m, count in manifold_folds.items():
                     print(f" - {os.path.basename(os.path.dirname(m))}: {count} folds")
                 print(
-                    "\n[REQUIRED ACTION] Please ensure all mounted manifolds have the exact same number of folds."
+                    "\n[REQUIRED ACTION] Please ensure all mounted manifolds have the "
+                    "exact same number of folds."
                 )
                 sys.exit(1)
 
@@ -198,7 +204,8 @@ def main():
 
     if getattr(args, "clean", False):
         print(
-            " [CLEAN] [RESET] Fresh curriculum run requested. Wiping checkpoints, state file, and telemetry..."
+            " [CLEAN] [RESET] Fresh curriculum run requested. "
+            "Wiping checkpoints, state file, and telemetry..."
         )
         target_root = os.path.dirname(ckpt_dir)
         purge_targets = (

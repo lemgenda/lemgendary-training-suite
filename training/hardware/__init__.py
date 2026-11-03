@@ -1,4 +1,4 @@
-"""Hardware discovery, device policy, VRAM probing, and SentinelGuard for LemGendary Model Training Suite."""
+"""Hardware discovery, device policy, VRAM probing, and SentinelGuard for LemGendary training."""
 
 from training.hardware.discovery import DeviceInfo, discover_device
 from training.hardware.policy import HardwarePolicyResult, apply_hardware_policy

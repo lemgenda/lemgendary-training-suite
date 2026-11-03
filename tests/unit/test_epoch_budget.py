@@ -44,12 +44,16 @@ def _run_loop(
 
 
 class EpochBudgetConfigTests(unittest.TestCase):
+    """Tests for parsing EpochBudgetConfig from config dicts."""
+
     def test_missing_section_disables_extensions(self) -> None:
+        """Verify a missing training_budget section disables extensions."""
         cfg = EpochBudgetConfig.from_config({})
         self.assertFalse(cfg.extensions_enabled)
         self.assertFalse(EpochBudgetConfig.from_config(None).extensions_enabled)
 
     def test_reads_section(self) -> None:
+        """Verify extension settings are read from the training_budget section."""
         cfg = EpochBudgetConfig.from_config(
             {"training_budget": {"extension_epochs": 5, "max_extension_epochs": 12}}
         )
@@ -57,6 +61,7 @@ class EpochBudgetConfigTests(unittest.TestCase):
         self.assertTrue(cfg.extensions_enabled)
 
     def test_rejects_invalid_values(self) -> None:
+        """Verify negative or non-integer budget values are rejected."""
         with self.assertRaises(ValueError):
             EpochBudgetConfig.from_config({"training_budget": {"max_extension_epochs": -1}})
         for bad in ("10", 1.5, True):
@@ -66,6 +71,7 @@ class EpochBudgetConfigTests(unittest.TestCase):
             EpochBudgetConfig.from_config({"training_budget": [1, 2]})
 
     def test_shipped_config_is_a_hard_cap(self) -> None:
+        """Verify the shipped config.yaml allows no extension epochs."""
         config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
         cfg = EpochBudgetConfig.from_config(config)
         self.assertEqual(cfg.max_extension_epochs, 0)
@@ -73,24 +79,31 @@ class EpochBudgetConfigTests(unittest.TestCase):
 
 
 class EpochBudgetPolicyTests(unittest.TestCase):
+    """Tests for EpochBudgetPolicy stop/continue/extend decisions."""
+
     def test_rejects_empty_budget(self) -> None:
+        """Verify a zero-epoch budget is rejected."""
         with self.assertRaises(ValueError):
             EpochBudgetPolicy(0, EpochBudgetConfig())
 
     def test_one_epoch_smoke_run_stops_after_one_epoch(self) -> None:
+        """Verify a one-epoch budget stops after one epoch."""
         policy = EpochBudgetPolicy(1, EpochBudgetConfig())
         self.assertEqual(_run_loop(policy), (1, StopReason.BUDGET_REACHED))
 
     def test_one_epoch_run_with_shipped_config_stops_after_one_epoch(self) -> None:
+        """Verify a one-epoch run with the shipped config stops after one epoch."""
         config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
         policy = EpochBudgetPolicy(1, EpochBudgetConfig.from_config(config))
         self.assertEqual(_run_loop(policy), (1, StopReason.BUDGET_REACHED))
 
     def test_budget_reached_stops(self) -> None:
+        """Verify the run stops exactly at the epoch budget."""
         policy = EpochBudgetPolicy(7, EpochBudgetConfig())
         self.assertEqual(_run_loop(policy), (7, StopReason.BUDGET_REACHED))
 
     def test_continue_before_budget(self) -> None:
+        """Verify the policy continues while under budget."""
         policy = EpochBudgetPolicy(3, EpochBudgetConfig())
         decision = policy.decide(
             2, converged=False, early_stop=False, governor_reports_improvement=True
@@ -99,16 +112,19 @@ class EpochBudgetPolicyTests(unittest.TestCase):
         self.assertIsNone(decision.stop_reason)
 
     def test_early_stop_stops_before_budget(self) -> None:
+        """Verify early stopping ends the run before the budget."""
         policy = EpochBudgetPolicy(50, EpochBudgetConfig(10, 30))
         self.assertEqual(_run_loop(policy, early_stop_at=4), (4, StopReason.EARLY_STOP))
 
     def test_convergence_stops_and_wins_over_early_stop(self) -> None:
+        """Verify convergence stops the run and takes precedence over early stop."""
         policy = EpochBudgetPolicy(50, EpochBudgetConfig())
         self.assertEqual(
             _run_loop(policy, early_stop_at=20, converge_at=20), (20, StopReason.CONVERGED)
         )
 
     def test_extension_is_bounded_by_ceiling(self) -> None:
+        """Verify extensions never exceed the max-extension ceiling."""
         policy = EpochBudgetPolicy(
             10, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=25)
         )
@@ -118,6 +134,7 @@ class EpochBudgetPolicyTests(unittest.TestCase):
         self.assertEqual(policy.extension_used, 25)
 
     def test_extension_reports_new_budget(self) -> None:
+        """Verify an extension decision reports the new budget."""
         policy = EpochBudgetPolicy(
             5, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=30)
         )
@@ -129,6 +146,7 @@ class EpochBudgetPolicyTests(unittest.TestCase):
         self.assertEqual(decision.extension_used, 10)
 
     def test_no_extension_without_governor_improvement(self) -> None:
+        """Verify no extension is granted without governor-reported improvement."""
         policy = EpochBudgetPolicy(
             10, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=30)
         )
@@ -136,6 +154,7 @@ class EpochBudgetPolicyTests(unittest.TestCase):
         self.assertEqual(policy.extension_used, 0)
 
     def test_early_stop_during_extension_stops(self) -> None:
+        """Verify early stopping during an extension stops the run."""
         policy = EpochBudgetPolicy(
             10, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=30)
         )

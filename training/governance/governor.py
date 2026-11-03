@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 from typing import Any
 
@@ -174,7 +175,8 @@ class SmartTrainingGovernor:
                 and self.curriculum.current_res > max_safe_res
             ):
                 logger.info(
-                    "Hardware VRAM Cap Active (%.1fGB): Clamping %dpx -> %dpx for memory stability.",
+                    "Hardware VRAM Cap Active (%.1fGB): Clamping %dpx -> %dpx for memory "
+                    "stability.",
                     vram_gb,
                     self.curriculum.current_res,
                     max_safe_res,
@@ -198,7 +200,7 @@ class SmartTrainingGovernor:
             and self.curriculum.current_res not in self.curriculum.res_ladder
         ):
             self.curriculum.res_ladder = sorted(
-                list(set(self.curriculum.res_ladder + [self.curriculum.current_res]))
+                set(self.curriculum.res_ladder + [self.curriculum.current_res])
             )
 
         if self.task_type == "forex":
@@ -306,6 +308,7 @@ class SmartTrainingGovernor:
     # -------------------------------------------------------------------------
     @property
     def current_fraction(self) -> float:
+        """Delegated ``CurriculumState.current_fraction`` (read/write)."""
         return self.curriculum.current_fraction
 
     @current_fraction.setter
@@ -314,6 +317,7 @@ class SmartTrainingGovernor:
 
     @property
     def current_res(self) -> int:
+        """Delegated ``CurriculumState.current_res`` (read/write)."""
         return self.curriculum.current_res
 
     @current_res.setter
@@ -322,6 +326,7 @@ class SmartTrainingGovernor:
 
     @property
     def res_ladder(self) -> list[int]:
+        """Delegated ``CurriculumState.res_ladder`` (read/write)."""
         return self.curriculum.res_ladder
 
     @res_ladder.setter
@@ -330,6 +335,7 @@ class SmartTrainingGovernor:
 
     @property
     def current_batch(self) -> int:
+        """Delegated ``CurriculumState.current_batch`` (read/write)."""
         return self.curriculum.current_batch
 
     @current_batch.setter
@@ -338,6 +344,7 @@ class SmartTrainingGovernor:
 
     @property
     def current_acc(self) -> int:
+        """Delegated ``CurriculumState.current_acc`` (read/write)."""
         return self.curriculum.current_acc
 
     @current_acc.setter
@@ -346,6 +353,7 @@ class SmartTrainingGovernor:
 
     @property
     def target_effective_batch(self) -> int:
+        """Delegated ``CurriculumState.target_effective_batch`` (read/write)."""
         return self.curriculum.target_effective_batch
 
     @target_effective_batch.setter
@@ -354,6 +362,7 @@ class SmartTrainingGovernor:
 
     @property
     def fraction_increment(self) -> float:
+        """Delegated ``CurriculumState.fraction_increment`` (read/write)."""
         return self.curriculum.fraction_increment
 
     @fraction_increment.setter
@@ -362,6 +371,7 @@ class SmartTrainingGovernor:
 
     @property
     def current_temp(self) -> float:
+        """Delegated ``ThermalState.temperature`` (read/write)."""
         return self.thermal.temperature
 
     @current_temp.setter
@@ -370,6 +380,7 @@ class SmartTrainingGovernor:
 
     @property
     def best_quality(self) -> float:
+        """Delegated ``SotaTracker.best_quality`` (read/write)."""
         return self.sota.best_quality
 
     @best_quality.setter
@@ -378,6 +389,7 @@ class SmartTrainingGovernor:
 
     @property
     def prev_quality(self) -> float:
+        """Delegated ``SotaTracker.prev_quality`` (read/write)."""
         return self.sota.prev_quality
 
     @prev_quality.setter
@@ -386,6 +398,7 @@ class SmartTrainingGovernor:
 
     @property
     def prev_loss(self) -> float:
+        """Delegated ``SotaTracker.prev_loss`` (read/write)."""
         return self.sota.prev_loss
 
     @prev_loss.setter
@@ -394,6 +407,7 @@ class SmartTrainingGovernor:
 
     @property
     def target_quality_score(self) -> float:
+        """Delegated ``SotaTracker.target_quality_score`` (read/write)."""
         return self.sota.target_quality_score
 
     @target_quality_score.setter
@@ -402,6 +416,7 @@ class SmartTrainingGovernor:
 
     @property
     def recovery_streak(self) -> int:
+        """Delegated ``SotaTracker.recovery_streak`` (read/write)."""
         return self.sota.recovery_streak
 
     @recovery_streak.setter
@@ -410,6 +425,7 @@ class SmartTrainingGovernor:
 
     @property
     def consecutive_rollbacks(self) -> int:
+        """Delegated ``SotaTracker.consecutive_rollbacks`` (read/write)."""
         return self.sota.consecutive_rollbacks
 
     @consecutive_rollbacks.setter
@@ -418,6 +434,7 @@ class SmartTrainingGovernor:
 
     @property
     def rollback_history(self) -> dict[int, int]:
+        """Delegated ``SotaTracker.rollback_history`` (read/write)."""
         return self.sota.rollback_history
 
     @rollback_history.setter
@@ -426,6 +443,7 @@ class SmartTrainingGovernor:
 
     @property
     def gate_relaxation_epochs(self) -> int:
+        """Delegated ``SotaTracker.gate_relaxation_epochs`` (read/write)."""
         return self.sota.gate_relaxation_epochs
 
     @gate_relaxation_epochs.setter
@@ -434,6 +452,7 @@ class SmartTrainingGovernor:
 
     @property
     def sota_resolution(self) -> int | None:
+        """Delegated ``SotaTracker.sota_resolution`` (read/write)."""
         return self.sota.sota_resolution
 
     @sota_resolution.setter
@@ -442,6 +461,7 @@ class SmartTrainingGovernor:
 
     @property
     def breakout_lock(self) -> int:
+        """Delegated ``SotaTracker.breakout_lock`` (read/write)."""
         return self.sota.breakout_lock
 
     @breakout_lock.setter
@@ -450,6 +470,7 @@ class SmartTrainingGovernor:
 
     @property
     def history(self) -> list[tuple[float, float | None, float | None]]:
+        """Delegated ``SotaTracker.history`` (read/write)."""
         return self.sota.history
 
     @history.setter
@@ -458,6 +479,7 @@ class SmartTrainingGovernor:
 
     @property
     def failure_log(self) -> dict[str, int]:
+        """Delegated ``SotaTracker.failure_log`` (read/write)."""
         return self.sota.failure_log
 
     @failure_log.setter
@@ -466,6 +488,7 @@ class SmartTrainingGovernor:
 
     @property
     def stabilization_epochs(self) -> int:
+        """Delegated ``SotaTracker.stabilization_epochs`` (read/write)."""
         return self.sota.stabilization_epochs
 
     @stabilization_epochs.setter
@@ -474,6 +497,7 @@ class SmartTrainingGovernor:
 
     @property
     def cooldown_remaining(self) -> int:
+        """Delegated ``SotaTracker.cooldown_remaining`` (read/write)."""
         return self.sota.cooldown_remaining
 
     @cooldown_remaining.setter
@@ -482,6 +506,7 @@ class SmartTrainingGovernor:
 
     @property
     def current_stress(self) -> float:
+        """Delegated ``SotaTracker.current_stress`` (read/write)."""
         return self.sota.current_stress
 
     @current_stress.setter
@@ -490,6 +515,7 @@ class SmartTrainingGovernor:
 
     @property
     def max_stress_stuck_epochs(self) -> int:
+        """Delegated ``SotaTracker.max_stress_stuck_epochs`` (read/write)."""
         return self.sota.max_stress_stuck_epochs
 
     @max_stress_stuck_epochs.setter
@@ -498,6 +524,7 @@ class SmartTrainingGovernor:
 
     @property
     def plateau_patience(self) -> int:
+        """Delegated ``SotaTracker.plateau_patience`` (read/write)."""
         return self.sota.plateau_patience
 
     @plateau_patience.setter
@@ -506,6 +533,7 @@ class SmartTrainingGovernor:
 
     @property
     def loop_breaker_enabled(self) -> bool:
+        """Delegated ``SotaTracker.loop_breaker_enabled`` (read/write)."""
         return self.sota.loop_breaker_enabled
 
     @loop_breaker_enabled.setter
@@ -514,6 +542,7 @@ class SmartTrainingGovernor:
 
     @property
     def loop_breaker_threshold(self) -> int:
+        """Delegated ``SotaTracker.loop_breaker_threshold`` (read/write)."""
         return self.sota.loop_breaker_threshold
 
     @loop_breaker_threshold.setter
@@ -522,6 +551,7 @@ class SmartTrainingGovernor:
 
     @property
     def loop_breaker_strategy(self) -> str:
+        """Delegated ``SotaTracker.loop_breaker_strategy`` (read/write)."""
         return self.sota.loop_breaker_strategy
 
     @loop_breaker_strategy.setter
@@ -546,8 +576,6 @@ class SmartTrainingGovernor:
         Returns:
             Tuple of (new_batch, new_accumulation_steps).
         """
-        import gc
-
         gc.collect()
         if torch.cuda.is_available():
             try:
@@ -564,7 +592,8 @@ class SmartTrainingGovernor:
 
         logger.warning(
             "[GOVERNOR] [ACTIVE OOM INTERVENTION] VRAM physical ceiling encountered. "
-            "Downscaled physical batch to %d, adjusted accumulation to %d. Spatial jump locked for %d epochs.",
+            "Downscaled physical batch to %d, adjusted accumulation to %d. "
+            "Spatial jump locked for %d epochs.",
             new_batch,
             new_acc,
             self.spatial_lock_remaining,
@@ -605,18 +634,12 @@ class SmartTrainingGovernor:
     def _apply_targeted_optimizations(
         self,
         lagging_list: list[tuple[str, float]],
-        metrics_dict: dict[str, float],
     ) -> list[str]:
         msg_parts: list[str] = []
         if not lagging_list:
             return msg_parts
 
         primary_metric, deficit = lagging_list[0]
-        severity = "MILD"
-        if primary_metric in ["srcc", "plcc", "accuracy", "dir_acc", "win_rate"]:
-            severity = "CRITICAL" if deficit > 0.15 else "MILD"
-        else:
-            severity = "CRITICAL" if deficit > 0.30 else "MILD"
 
         # Apply targeted stabilization based on deficit
         if primary_metric in ["srcc", "plcc"]:
@@ -647,12 +670,8 @@ class SmartTrainingGovernor:
     def audit_epoch(
         self,
         current_quality: float,
-        best_quality: float,
         epochs_no_improve: int,
-        regression_epochs: int,
         sentinel_trigger_rate: float = 0.0,
-        current_lr: float | None = None,
-        base_lr: float | None = None,
         current_loss: float | None = None,
         plcc: float = 0.0,
         srcc: float = 0.0,
@@ -664,7 +683,8 @@ class SmartTrainingGovernor:
         """Audit single epoch performance and return optimization directives.
 
         Returns:
-            Tuple of (f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed, early_stop_triggered, status_msg)
+            Tuple of (f_changed, r_changed, lr_changed, t_changed, c_changed, b_changed,
+            early_stop_triggered, status_msg)
         """
         if not self.enabled and not force_jump:
             return False, False, False, False, False, False, False, ""
@@ -723,7 +743,11 @@ class SmartTrainingGovernor:
                     False,
                     False,
                     False,
-                    f"[GUARD] [HARDENING] SOTA hit early, but locking at {self.current_res}px for weight stabilization (Manifold Maturity: {epochs_at_res}/{self.manifold_maturity}).",
+                    (
+                        f"[GUARD] [HARDENING] SOTA hit early, but locking at {self.current_res}px "
+                        "for weight stabilization (Manifold Maturity: "
+                        f"{epochs_at_res}/{self.manifold_maturity})."
+                    ),
                 )
 
             current_idx = (
@@ -783,7 +807,8 @@ class SmartTrainingGovernor:
                 and self.best_quality > 0
             ):
                 msg_parts.append(
-                    f"[BREAKOUT] Shield shattered! Quality dropped {(1 - current_quality / self.best_quality) * 100:.1f}%."
+                    "[BREAKOUT] Shield shattered! Quality dropped "
+                    f"{(1 - current_quality / self.best_quality) * 100:.1f}%."
                 )
                 self.stabilization_epochs = 0
             else:
@@ -844,9 +869,10 @@ class SmartTrainingGovernor:
         if len(self.history) >= 3:
             q_values = [h[0] for h in self.history[-3:]]
             deltas = [q_values[i] - q_values[i - 1] for i in range(1, len(q_values))]
-            if all(deltas[i] * deltas[i - 1] < 0 for i in range(1, len(deltas))):
-                if all(abs(d) > self.min_delta * 2 for d in deltas):
-                    is_turbulent = True
+            if all(deltas[i] * deltas[i - 1] < 0 for i in range(1, len(deltas))) and all(
+                abs(d) > self.min_delta * 2 for d in deltas
+            ):
+                is_turbulent = True
 
         is_plateaued = epochs_no_improve >= self.plateau_patience
         is_flat_leg = abs(delta_q) < self.min_delta and len(self.history) >= 2
@@ -918,7 +944,8 @@ class SmartTrainingGovernor:
             should_retreat = False
             self.cooldown_remaining = 0
             msg_parts.append(
-                "[RESCUE] [OVERFITTING] Overfitting detected. Forcing dataset expansion to introduce variety."
+                "[RESCUE] [OVERFITTING] Overfitting detected. Forcing dataset expansion to "
+                "introduce variety."
             )
         elif is_overfitting and self.current_fraction >= 1.0:
             should_retreat = False
@@ -926,18 +953,21 @@ class SmartTrainingGovernor:
             if self.task_type == "forex":
                 self.current_stress = min(2.0, self.current_stress + 0.5)
                 msg_parts.append(
-                    f"[REGULARIZE] [OVERFITTING] Temporal fold divergence detected. Applying mild stabilization (Level {self.current_stress})."
+                    "[REGULARIZE] [OVERFITTING] Temporal fold divergence detected. Applying mild "
+                    f"stabilization (Level {self.current_stress})."
                 )
             else:
                 self.current_stress = min(5.0, self.current_stress + 1.0)
                 msg_parts.append(
-                    f"[RESCUE] [OVERFITTING] Dataset exhausted. Deploying Stress Protocol (Level {self.current_stress})."
+                    "[RESCUE] [OVERFITTING] Dataset exhausted. Deploying Stress Protocol (Level "
+                    f"{self.current_stress})."
                 )
 
         if should_retreat:
             self.failure_log[str(current_state)] = failures + 1
             msg_parts.append(
-                f"[WARNING] NPP FAILURE: State {current_state} (Count: {self.failure_log[str(current_state)]})"
+                f"[WARNING] NPP FAILURE: State {current_state} (Count: "
+                f"{self.failure_log[str(current_state)]})"
             )
 
             if self.failure_log[str(current_state)] >= 2:
@@ -947,21 +977,16 @@ class SmartTrainingGovernor:
                 t_changed = True
                 msg_parts.append("NPP LOOP: Forcing Numerical Shakeup")
 
-            proven_threshold = max(
-                85.0 if self.task_type == "quality" else 0.85, self.target_quality_score * 0.75
-            )
-            is_proven_manifold = self.best_quality >= proven_threshold
-
-            # Monotonic ratchet: Spatial resolution and data fraction retreat strictly forbidden in production
-            can_spatial_retreat = False
-
+            # Monotonic ratchet: resolution and data fraction never retreat in production;
+            # recovery is LR cooling only.
             if not r_changed:
                 self.lr_multiplier = self.cooling_factor
                 lr_changed = True
                 self.stabilization_epochs = self.stabilization_lock
                 self.cooldown_remaining = 5
                 msg_parts.append(
-                    f"RECOIL: Retaining data fraction at {self.current_fraction * 100:.0f}% | Cooling LR to stabilize manifold"
+                    f"RECOIL: Retaining data fraction at {self.current_fraction * 100:.0f}% | "
+                    "Cooling LR to stabilize manifold"
                 )
 
         elif sentinel_trigger_rate > 0.15:
@@ -972,7 +997,8 @@ class SmartTrainingGovernor:
             t_changed = True
             self.stabilization_epochs = 2
             msg_parts.append(
-                f"COOLING: Stress {sentinel_trigger_rate * 100:.1f}% -> Temp {self.current_temp:.2f} | DataStress {self.current_stress:.1f}"
+                f"COOLING: Stress {sentinel_trigger_rate * 100:.1f}% -> Temp "
+                f"{self.current_temp:.2f} | DataStress {self.current_stress:.1f}"
             )
 
         stride_threshold = (
@@ -1016,12 +1042,15 @@ class SmartTrainingGovernor:
                 self.head_lr_multiplier = self.cooling_factor
                 lr_changed = True
                 msg_parts.append(
-                    f"[JOLT SHIELD] Early collapse triggered (Regression: {delta_q:.4f} < {collapse_threshold:.4f}). Cooling LR."
+                    f"[JOLT SHIELD] Early collapse triggered (Regression: {delta_q:.4f} < "
+                    f"{collapse_threshold:.4f}). Cooling LR."
                 )
             else:
                 lr_changed = True
                 msg_parts.append(
-                    f"SUSTAINED JOLT: Window Active ({self.jolt_window_remaining} epochs remaining | Head LR: {self.head_lr_multiplier:.2f}x | Backbone LR: {self.lr_multiplier:.2f}x)"
+                    f"SUSTAINED JOLT: Window Active ({self.jolt_window_remaining} epochs remaining "
+                    f"| Head LR: {self.head_lr_multiplier:.2f}x | Backbone LR: "
+                    f"{self.lr_multiplier:.2f}x)"
                 )
 
         if trigger_propulsion:
@@ -1050,7 +1079,9 @@ class SmartTrainingGovernor:
                 lr_changed = True
                 self.last_jolt_epoch = self.epoch_count
                 msg_parts.append(
-                    f"JOLT: Breaking Plateau with Head-Differential Propulsion (Head: {self.head_lr_multiplier:.2f}x, Backbone: {self.lr_multiplier:.2f}x | {window_size}-Epoch Window)"
+                    "JOLT: Breaking Plateau with Head-Differential Propulsion (Head: "
+                    f"{self.head_lr_multiplier:.2f}x, Backbone: {self.lr_multiplier:.2f}x | "
+                    f"{window_size}-Epoch Window)"
                 )
 
             next_frac = expand_fraction(self.current_fraction, self.fraction_increment)
@@ -1121,7 +1152,8 @@ class SmartTrainingGovernor:
                         self.jolt_window_remaining = 2
                         lr_changed = True
                         msg_parts.append(
-                            "REFINEMENT: Plateau in Temporal Fold. Deploying Gentle Fold Tuning (Head LR: 1.10x)"
+                            "REFINEMENT: Plateau in Temporal Fold. Deploying Gentle Fold Tuning "
+                            "(Head LR: 1.10x)"
                         )
                     else:
                         if self.jolt_window_remaining == 0:
@@ -1146,7 +1178,8 @@ class SmartTrainingGovernor:
                     lr_changed = True
                     self.max_stress_stuck_epochs = 0
                     msg_parts.append(
-                        f"REFINEMENT: Trapped in Plateau. Deploying Stress Protocol (Level {self.current_stress}) & Differential Jolt"
+                        "REFINEMENT: Trapped in Plateau. Deploying Stress Protocol (Level "
+                        f"{self.current_stress}) & Differential Jolt"
                     )
                 elif (
                     self.current_stress >= 5.0
@@ -1162,12 +1195,14 @@ class SmartTrainingGovernor:
                     self.max_stress_stuck_epochs = self.max_stress_stuck_epochs + 1
                     stuck_patience = self.plateau_patience * 2
                     msg_parts.append(
-                        f"REFINEMENT: [MAX STRESS] Forcing Jolt (x{jolt_base:.2f}) to maintain momentum (Stuck: {self.max_stress_stuck_epochs}/{stuck_patience})"
+                        f"REFINEMENT: [MAX STRESS] Forcing Jolt (x{jolt_base:.2f}) to maintain "
+                        f"momentum (Stuck: {self.max_stress_stuck_epochs}/{stuck_patience})"
                     )
                     if self.max_stress_stuck_epochs >= stuck_patience:
                         self.trigger_mini_swa = True
                         msg_parts.append(
-                            f"[MINI-SWA PULSE] Triggering weight averaging pulse across top checkpoints (Stuck: {self.max_stress_stuck_epochs} epochs)"
+                            "[MINI-SWA PULSE] Triggering weight averaging pulse across top "
+                            f"checkpoints (Stuck: {self.max_stress_stuck_epochs} epochs)"
                         )
                 else:
                     if self.jolt_window_remaining == 0:
@@ -1181,7 +1216,7 @@ class SmartTrainingGovernor:
 
                     lagging = self._identify_lagging_metric(metrics_dict)
                     if lagging:
-                        adjustments = self._apply_targeted_optimizations(lagging, metrics_dict)
+                        adjustments = self._apply_targeted_optimizations(lagging)
                         msg_parts.extend(adjustments)
 
         if (
@@ -1215,16 +1250,17 @@ class SmartTrainingGovernor:
             self.current_clamp = min(self.clamp_range[1], self.current_clamp)
 
         early_stop_triggered = False
-        if epochs_no_improve >= self.plateau_patience:
-            if (
-                self.metric_focus_epochs_remaining == 0
-                and self.stabilization_epochs == 0
-                and self.cooldown_remaining == 0
-            ):
-                early_stop_triggered = True
-                msg_parts.append(
-                    f"[EARLY STOPPING] Patience exceeded ({epochs_no_improve}/{self.plateau_patience}). Fold exhausted."
-                )
+        if (
+            epochs_no_improve >= self.plateau_patience
+            and self.metric_focus_epochs_remaining == 0
+            and self.stabilization_epochs == 0
+            and self.cooldown_remaining == 0
+        ):
+            early_stop_triggered = True
+            msg_parts.append(
+                "[EARLY STOPPING] Patience exceeded "
+                f"({epochs_no_improve}/{self.plateau_patience}). Fold exhausted."
+            )
 
         final_msg = f"[LAUNCH] [{phase}] " + " | ".join(msg_parts) if msg_parts else ""
 
@@ -1279,7 +1315,10 @@ class SmartTrainingGovernor:
         if self.task_type == "quality":
             self.current_temp = min(1.0, self.current_temp)
         self.stabilization_epochs = 3
-        return f"[NPP] RECOIL: Retaining data fraction at {self.current_fraction * 100:.0f}% | Temp Heatup {self.current_temp:.2f}"
+        return (
+            f"[NPP] RECOIL: Retaining data fraction at {self.current_fraction * 100:.0f}% | "
+            f"Temp Heatup {self.current_temp:.2f}"
+        )
 
     def reset_best(self) -> None:
         """Reset historical SOTA tracking."""
@@ -1298,7 +1337,7 @@ class SmartTrainingGovernor:
             if new_res is not None:
                 self._commit_rung(new_res, 0.15)
                 if self.current_res not in self.res_ladder:
-                    self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
+                    self.res_ladder = sorted(set(self.res_ladder + [self.current_res]))
                 logger.info(
                     "Breakout promoted resolution %dpx -> %dpx with retreat protection.",
                     res_before,
@@ -1384,7 +1423,7 @@ class SmartTrainingGovernor:
                 self.current_fraction = 1.0
 
             if self.current_res is not None and self.current_res not in self.res_ladder:
-                self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
+                self.res_ladder = sorted(set(self.res_ladder + [self.current_res]))
         else:
             raw_res = state.get(RESOLUTION_STATE_KEY, self.current_res)
             self.sota_resolution = int(

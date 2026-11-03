@@ -24,7 +24,8 @@ def blend_state_dicts(
 
     Args:
         state_dicts: List of state dictionaries sharing the exact same architecture.
-        weights: Optional blending coefficients summing to 1.0. If omitted, uniform averaging is applied.
+        weights: Optional blending coefficients summing to 1.0. If omitted, uniform
+            averaging is applied.
 
     Returns:
         New state dictionary containing the interpolated model parameters.

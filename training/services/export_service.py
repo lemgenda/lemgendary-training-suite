@@ -7,6 +7,7 @@ WebGPU, and MT5 Forex) in-process without shell spawning.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 from training.export import export_all
 from training.utils.paths import get_project_root
@@ -15,13 +16,13 @@ from training.utils.paths import get_project_root
 class ExportService:
     """Orchestrates production model export pipelines."""
 
-    SUPPORTED_TARGETS: list[str] = [
+    SUPPORTED_TARGETS: ClassVar[tuple[str, ...]] = (
         "onnx_fp32",
         "onnx_fp16",
         "torch_pt",
         "webgpu",
         "forex",
-    ]
+    )
 
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = project_root or get_project_root()

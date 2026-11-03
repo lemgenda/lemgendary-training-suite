@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import logging
+import unittest
 from typing import Any
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
+from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+from training.kaggle_monitor import authenticate_kaggle_user, fetch_user_kernels
+from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.server.routes.training")
 
@@ -134,7 +139,9 @@ class KagglePullRequest(BaseModel):
     model: str = Field(..., description="Target model key")
     variation: str = Field(
         "all",
-        description="Variation to pull ('all', 'pytorch', 'pytorch_fp32', 'onnx_fp16', 'onnx_fp32')",
+        description=(
+            "Variation to pull ('all', 'pytorch', 'pytorch_fp32', 'onnx_fp16', 'onnx_fp32')"
+        ),
     )
     force_download: bool = Field(
         False, description="Force re-download even if cached version is current"
@@ -153,9 +160,6 @@ class KagglePushRequest(BaseModel):
 @router.get("/kaggle/status")
 def get_kaggle_status() -> dict[str, Any]:
     """Check Kaggle credentials configuration and authentication status."""
-    from training.cloud.credentials import resolve_kaggle_credentials
-    from training.kaggle_monitor import authenticate_kaggle_user
-
     user, token = resolve_kaggle_credentials()
     authenticated = False
     if user and token:
@@ -174,11 +178,8 @@ def get_kaggle_status() -> dict[str, Any]:
 
 
 @router.get("/kaggle/kernels")
-def list_kaggle_kernels(request: Request, limit: int = 20) -> list[dict[str, Any]]:
+def list_kaggle_kernels(limit: int = 20) -> list[dict[str, Any]]:
     """List recent and active Kaggle kernels for authenticated user."""
-    from training.cloud.credentials import resolve_kaggle_credentials
-    from training.kaggle_monitor import authenticate_kaggle_user, fetch_user_kernels
-
     user, token = resolve_kaggle_credentials()
     if not user or not token:
         return []
@@ -233,7 +234,10 @@ def pull_kaggle_model_artifacts(payload: KagglePullRequest, request: Request) ->
         "job_id": job_id,
         "status": "pending",
         "model": payload.model,
-        "message": f"Kaggle pull enqueued for {payload.model} (pytorch/default, pytorch/fp32, onnx/fp16, onnx/fp32)",
+        "message": (
+            f"Kaggle pull enqueued for {payload.model} "
+            "(pytorch/default, pytorch/fp32, onnx/fp16, onnx/fp32)"
+        ),
     }
 
 
@@ -247,7 +251,10 @@ def push_kaggle_model_artifacts(payload: KagglePushRequest, request: Request) ->
         "job_id": job_id,
         "status": "pending",
         "model": payload.model,
-        "message": f"Kaggle push enqueued for {payload.model} (pytorch/default, pytorch/fp32, onnx/fp16, onnx/fp32)",
+        "message": (
+            f"Kaggle push enqueued for {payload.model} "
+            "(pytorch/default, pytorch/fp32, onnx/fp16, onnx/fp32)"
+        ),
     }
 
 
@@ -267,8 +274,6 @@ class KagglePushModelRequest(BaseModel):
 @router.post("/kaggle/push-model")
 def push_kaggle_model_variations(payload: KagglePushModelRequest) -> dict[str, Any]:
     """Publish validated isolated model variation(s) to Kaggle Models Hub."""
-    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-
     sync_mgr = KaggleModelSyncManager()
     result = sync_mgr.push_model(
         model_key=payload.model,
@@ -300,7 +305,10 @@ def push_all_kaggle_models(payload: KagglePushAllRequest, request: Request) -> d
     return {
         "job_id": job_id,
         "status": "pending",
-        "message": f"Kaggle fleet push enqueued for all models (variation: {payload.variation}, dry_run: {payload.dry_run})",
+        "message": (
+            "Kaggle fleet push enqueued for all models "
+            f"(variation: {payload.variation}, dry_run: {payload.dry_run})"
+        ),
         "variation": payload.variation,
         "dry_run": payload.dry_run,
     }
@@ -365,10 +373,6 @@ class UnitTestsRunRequest(BaseModel):
 @router.post("/unit-test-run")
 def run_unit_tests(payload: UnitTestsRunRequest) -> dict[str, Any]:
     """Execute unit test suite in-process and return structured test outcome."""
-    import unittest
-
-    from training.utils.paths import get_project_root
-
     project_root = get_project_root()
     tests_dir = project_root / "tests" / "unit"
     loader = unittest.TestLoader()

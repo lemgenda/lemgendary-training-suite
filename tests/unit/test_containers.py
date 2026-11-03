@@ -2,6 +2,7 @@
 
 import io
 import json
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -27,13 +28,11 @@ class TestContainers(unittest.TestCase):
     """Test suite covering modern container readers and resolution factory."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root)
 
     def test_directory_reader_lossless_and_legacy(self) -> None:
+        """Verify the directory reader decodes images/targets/masks losslessly, incl. legacy."""
         manifold = self.root / "test_dir_manifold"
         images_dir = manifold / "images" / "train"
         targets_dir = manifold / "targets" / "train"
@@ -74,6 +73,7 @@ class TestContainers(unittest.TestCase):
         reader.close()
 
     def test_parquet_reader(self) -> None:
+        """Verify the Parquet container reader yields the stored samples."""
         manifold = self.root / "test_parquet_manifold"
         manifold.mkdir(parents=True)
 
@@ -103,6 +103,7 @@ class TestContainers(unittest.TestCase):
         reader.close()
 
     def test_webdataset_reader(self) -> None:
+        """Verify the WebDataset tar reader groups sample members correctly."""
         manifold = self.root / "test_wds_manifold"
         shards_dir = manifold / "shards"
         shards_dir.mkdir(parents=True)
@@ -198,6 +199,7 @@ class TestContainers(unittest.TestCase):
         reader.close()
 
     def test_mds_reader(self) -> None:
+        """Verify the MDS container reader yields the stored samples."""
         manifold = self.root / "test_mds_manifold"
         mds_dir = manifold / "mds"
         mds_dir.mkdir(parents=True)
@@ -224,6 +226,7 @@ class TestContainers(unittest.TestCase):
         reader.close()
 
     def test_litdata_reader(self) -> None:
+        """Verify the LitData container reader yields the stored samples."""
         manifold = self.root / "test_lit_manifold"
         lit_dir = manifold / "litdata"
         lit_dir.mkdir(parents=True)
@@ -238,6 +241,7 @@ class TestContainers(unittest.TestCase):
         reader.close()
 
     def test_resolve_container_reader(self) -> None:
+        """Verify resolve_container_reader picks the reader matching the manifold layout."""
         manifold = self.root / "test_resolution"
         images_dir = manifold / "images" / "train"
         images_dir.mkdir(parents=True)

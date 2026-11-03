@@ -6,7 +6,7 @@ Coordinates remote storage synchronization with Google Drive, Kaggle Hub, and Gi
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from training.cloud.gdrive import GDriveSyncManager
 from training.cloud.git_hub import GitHubSyncManager
@@ -17,7 +17,7 @@ from training.utils.paths import get_project_root
 class CloudSyncService:
     """Manages cloud synchronization and provider health checks."""
 
-    SUPPORTED_TARGETS: list[str] = ["gdrive", "kaggle", "github"]
+    SUPPORTED_TARGETS: ClassVar[tuple[str, ...]] = ("gdrive", "kaggle", "github")
 
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = project_root or get_project_root()

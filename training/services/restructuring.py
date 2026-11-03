@@ -21,9 +21,11 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from training.checkpoint.lifecycle_manager import canonicalize_checkpoints
 from training.cloud.metadata_generator import KaggleMetadataService
 from training.doc_generator import ModelDocumentationService
 from training.export.staging import VariationStagingService
+from training.hub_readme_generator import generate_hub_readme
 from training.registry import get_model_registry
 from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
@@ -32,7 +34,7 @@ logger = logging.getLogger("lemtrain.services.restructuring")
 
 
 class ModelTopologyRestructuringService:
-    """Orchestrates structural migration and hygiene across all model directories in LemGendaryModels."""
+    """Orchestrates structural migration and hygiene across LemGendaryModels model directories."""
 
     def __init__(self, base_dir: Path | str | None = None) -> None:
         self.project_root = get_project_root()
@@ -84,8 +86,6 @@ class ModelTopologyRestructuringService:
                 actions.append(f"Moved visual asset {p.name} -> visualizations/")
 
         # 3. Relocate and canonicalize training checkpoints strictly to checkpoints/
-        from training.checkpoint.lifecycle_manager import canonicalize_checkpoints
-
         ckpt_actions = canonicalize_checkpoints(model_dir, checkpoints_dir)
         actions.extend(ckpt_actions)
 
@@ -171,14 +171,12 @@ class ModelTopologyRestructuringService:
         all_models = self.registry.get_all_models()
         results: dict[str, Any] = {}
 
-        for key in all_models.keys():
+        for key in all_models:
             if key.startswith("_"):
                 continue
             logger.info("Restructuring model manifold: %s", key)
             res = self.restructure_model(key)
             results[key] = res
-
-        from training.hub_readme_generator import generate_hub_readme
 
         generate_hub_readme(str(get_project_root()))
         logger.info("Completed topology restructuring across %d models.", len(results))
