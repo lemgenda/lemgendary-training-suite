@@ -133,7 +133,12 @@ class AuthenticityScorer(nn.Module):
         self.backbone = models.efficientnet_v2_s(
             weights=models.EfficientNet_V2_S_Weights.IMAGENET1K_V1
         )
-        in_features = self.backbone.classifier[1].in_features
+        head = self.backbone.classifier[1]
+        if not isinstance(head, nn.Linear):
+            raise TypeError(
+                f"EfficientNetV2-S classifier head is {type(head).__name__}, not Linear"
+            )
+        in_features = head.in_features
         if pooling == "stats":
             self.backbone.classifier[1] = nn.Linear(in_features * 2, num_classes)
         else:

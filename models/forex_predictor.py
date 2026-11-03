@@ -624,13 +624,10 @@ class ForexPredictor(nn.Module):
             return
 
         fused_dim = n_tf * self.d_model + self.d_model
-        new_proj = nn.Sequential(
-            nn.Linear(fused_dim, m0.out_features),
-            nn.GELU(),
-            nn.Dropout(float(m2.p)),
-            nn.LayerNorm(m0.out_features),
-        )
-        _copy_projection_weights(m0, m3, new_proj)
+        new_linear = nn.Linear(fused_dim, m0.out_features)
+        new_ln = nn.LayerNorm(m0.out_features)
+        new_proj = nn.Sequential(new_linear, nn.GELU(), nn.Dropout(float(m2.p)), new_ln)
+        _copy_projection_weights(m0, m3, new_linear, new_ln)
         self.fused_project = new_proj
 
         print(f" [ForexPredictor] Expanded to {n_tf} timeframes. Added: {new_tf}min rung.")
@@ -641,7 +638,7 @@ class ForexPredictor(nn.Module):
 
 
 def _copy_projection_weights(
-    old_linear: nn.Linear, old_norm: nn.LayerNorm, new_proj: nn.Sequential
+    old_linear: nn.Linear, old_norm: nn.LayerNorm, new_first_linear: nn.Linear, new_ln: nn.LayerNorm
 ) -> None:
     """Copy the old input-block weights and LayerNorm into a wider ``fused_project``.
 
@@ -650,8 +647,6 @@ def _copy_projection_weights(
     the old linear. The new d_model rows at the tail belong to the new timeframe and
     keep their Kaiming initialization.
     """
-    new_first_linear = new_proj[0]
-    new_ln = new_proj[3]
     with torch.no_grad():
         new_first_linear.weight[: old_linear.in_features] = old_linear.weight
         if new_first_linear.bias is not None and old_linear.bias is not None:

@@ -35,32 +35,36 @@ def _explicit_pad_widths(conv):
     return tuple(p for p in reversed(conv.padding) for _ in range(2))
 
 
-def _aligned_conv2d_forward(self, x):
-    """Conv2d forward that re-allocates 16-byte-unaligned weights before calling cuDNN."""
-    is_unaligned = False
-    try:
-        is_unaligned = self.weight.data_ptr() % 16 != 0
-    except RuntimeError:
-        pass  # FakeTensor during ONNX/FX tracing
-    if is_unaligned:
-        w = self.weight.clone()
-        b = self.bias.clone() if self.bias is not None else None
+class _AlignedConv2d(nn.Conv2d):
+    """Hosts the patched ``nn.Conv2d.forward``; declared as an override so it keeps the
+    exact ``(self, input)`` signature of the method it replaces."""
 
-        if self.padding_mode != "zeros":
-            return F.conv2d(
-                F.pad(x, _explicit_pad_widths(self), mode=self.padding_mode),
-                w,
-                b,
-                self.stride,
-                _pair(0),
-                self.dilation,
-                self.groups,
-            )
-        return F.conv2d(x, w, b, self.stride, self.padding, self.dilation, self.groups)
-    return _orig_conv2d_forward(self, x)
+    def forward(self: nn.Conv2d, input: torch.Tensor) -> torch.Tensor:
+        """Conv2d forward that re-allocates 16-byte-unaligned weights before calling cuDNN."""
+        is_unaligned = False
+        try:
+            is_unaligned = self.weight.data_ptr() % 16 != 0
+        except RuntimeError:
+            pass  # FakeTensor during ONNX/FX tracing
+        if is_unaligned:
+            w = self.weight.clone()
+            b = self.bias.clone() if self.bias is not None else None
+
+            if self.padding_mode != "zeros":
+                return F.conv2d(
+                    F.pad(input, _explicit_pad_widths(self), mode=self.padding_mode),
+                    w,
+                    b,
+                    self.stride,
+                    _pair(0),
+                    self.dilation,
+                    self.groups,
+                )
+            return F.conv2d(input, w, b, self.stride, self.padding, self.dilation, self.groups)
+        return _orig_conv2d_forward(self, input)
 
 
-nn.Conv2d.forward = _aligned_conv2d_forward
+nn.Conv2d.forward = _AlignedConv2d.forward
 
 # ==========================================
 # 1. NAFNet (Nonlinear Activation Free Network)

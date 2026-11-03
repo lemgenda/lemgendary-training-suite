@@ -18,6 +18,7 @@ import torch
 from training.training.amp import compute_ssim_gpu
 from training.training.val_accumulators import ImageMetricModules, ValAccumulators
 from training.utils.error_types import METRIC_INIT_ERRORS
+from training.utils.lazy_imports import load_fid_metric, load_lpips_metric, load_optional
 
 logger = logging.getLogger("lemtrain.training.validation")
 
@@ -25,15 +26,8 @@ logger = logging.getLogger("lemtrain.training.validation")
 # indexing).
 METRIC_ERRORS: tuple[type[BaseException], ...] = (RuntimeError, ValueError, TypeError, IndexError)
 
-try:
-    from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
-except ImportError:
-    LearnedPerceptualImagePatchSimilarity = None
-
-try:
-    from torchmetrics.image.fid import FrechetInceptionDistance
-except ImportError:
-    FrechetInceptionDistance = None
+LearnedPerceptualImagePatchSimilarity = load_optional(load_lpips_metric)
+FrechetInceptionDistance = load_optional(load_fid_metric)
 
 _DETECTION_KEYS = ("map50", "map50_95", "map_easy", "map_medium", "map_hard")
 
@@ -61,6 +55,8 @@ def _lpips_module(modules: ImageMetricModules, device: torch.device) -> Any:
     """Build the LPIPS module on first use; returns None or False when unavailable."""
     if modules.lpips is None:
         try:
+            if LearnedPerceptualImagePatchSimilarity is None:
+                raise ImportError("TorchMetrics LPIPS is not installed")
             modules.lpips = LearnedPerceptualImagePatchSimilarity(
                 net_type="vgg",
                 normalize=False,
@@ -78,6 +74,8 @@ def _fid_module(modules: ImageMetricModules, device: torch.device) -> Any:
     """Build the 2048-feature FID module on first use; returns None or False when unavailable."""
     if modules.fid is None:
         try:
+            if FrechetInceptionDistance is None:
+                raise ImportError("TorchMetrics FID is not installed")
             modules.fid = FrechetInceptionDistance(
                 feature=2048,
                 reset_real_features=True,
@@ -236,11 +234,11 @@ def update_classification(acc: ValAccumulators, batch: ValBatch) -> None:
         if preds.ndim >= 2 and (targets.ndim == 1 or targets.shape[-1] == 1):
             pred_labels = torch.argmax(preds, dim=-1).squeeze()
             tgt_labels = targets.squeeze().long()
-            acc.tasks.total_cls_correct += (pred_labels == tgt_labels).sum().item()
+            acc.tasks.total_cls_correct += int((pred_labels == tgt_labels).sum().item())
             acc.tasks.total_cls_samples += tgt_labels.numel()
         elif preds.ndim == 1 and targets.ndim == 1:
             pred_bin = (torch.sigmoid(preds) > 0.5).long()
-            acc.tasks.total_cls_correct += (pred_bin == targets.long()).sum().item()
+            acc.tasks.total_cls_correct += int((pred_bin == targets.long()).sum().item())
             acc.tasks.total_cls_samples += targets.numel()
     except METRIC_ERRORS as exc:
         logger.warning("Classification accuracy evaluation error: %s", exc)
@@ -323,8 +321,8 @@ def extract_forex_tensors(
     else:
         target_pair = _sequence_pair(targets)
     if target_pair is None:
-        is_label_vector = isinstance(targets, torch.Tensor) and targets.ndim == 1
-        target_pair = (targets if is_label_vector else None, None)
+        label_vector = targets if isinstance(targets, torch.Tensor) and targets.ndim == 1 else None
+        target_pair = (label_vector, None)
     return pred_pair[0], pred_pair[1], target_pair[0], target_pair[1]
 
 

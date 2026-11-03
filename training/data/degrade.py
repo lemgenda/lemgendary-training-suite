@@ -183,7 +183,8 @@ class DynamicOnTheFlyDegrader:
     def __init__(self, mode: str = "motion-blur+iso-noise", intensity: str = "medium") -> None:
         self.mode = mode
         self.intensity = intensity
-        self._core_degrader = None
+        # Instance of the optional, untyped lemgendary-datasets ``DynamicDegrader``.
+        self._core_degrader: Any = None
 
         if _HAS_DEGRADE_CORE and callable(core_parse_profile) and callable(core_dynamic_degrader):
             try:

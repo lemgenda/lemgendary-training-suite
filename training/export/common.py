@@ -11,6 +11,7 @@ from typing import Any
 
 import onnx
 import torch
+from onnx import external_data_helper
 from torch import nn
 
 from models.nima import SoftmaxWrapper
@@ -87,12 +88,13 @@ def extract_input_dimensions(
         size_raw = default_size
 
     if isinstance(size_raw, (list, tuple)):
-        if len(size_raw) == 3:
-            h, w = int(size_raw[1]), int(size_raw[2])
-        elif len(size_raw) >= 2:
-            h, w = int(size_raw[0]), int(size_raw[1])
+        dims = list(size_raw)
+        if len(dims) == 3:
+            h, w = int(dims[1]), int(dims[2])
+        elif len(dims) >= 2:
+            h, w = int(dims[0]), int(dims[1])
         else:
-            h = w = int(size_raw[0])
+            h = w = int(dims[0])
     else:
         h = w = int(size_raw)
 
@@ -180,7 +182,7 @@ def run_onnx_export(
 def detach_onnx_weights(onnx_path: Path, data_filename: str) -> None:
     """Move an ONNX model's tensors into one external ``data_filename`` sidecar file."""
     onnx_model = onnx.load(str(onnx_path))
-    onnx.external_data_helper.convert_model_to_external_data(
+    external_data_helper.convert_model_to_external_data(
         onnx_model,
         all_tensors_to_one_file=True,
         location=data_filename,

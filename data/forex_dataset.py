@@ -186,8 +186,12 @@ class ForexDataset(ForexIndexMixin, Dataset):
         other_ts = self._parquet_tf_ts.get((pair_name, other_tf, yr_name))
         prim_ts = self._parquet_tf_ts.get((pair_name, primary_tf, yr_name))
 
-        arrays = (other_rows, other_ts, prim_ts)
-        if any(a is None or len(a) == 0 for a in arrays):
+        if (
+            other_rows is None
+            or other_ts is None
+            or prim_ts is None
+            or any(len(a) == 0 for a in (other_rows, other_ts, prim_ts))
+        ):
             self._parquet_alignment_cache[align_key] = None
             return None
 
@@ -276,7 +280,9 @@ class ForexDataset(ForexIndexMixin, Dataset):
         )
         return (tf_inputs, labels, pair_idx)
 
-    def _legacy_other_window(self, key: tuple, row: int, other_tf: int, n_features: int):
+    def _legacy_other_window(
+        self, key: tuple[str, int, str, int], row: int, other_tf: int, n_features: int
+    ):
         """Return the window of ``other_tf`` aligned to a legacy shard row (zeros if absent)."""
         other_target_len = TIMEFRAME_LOOKBACK.get(other_tf, 168)
         yr_identifier = str(key[2]) if len(key) > 2 else ""
