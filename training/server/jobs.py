@@ -12,6 +12,7 @@ import logging
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
@@ -27,6 +28,30 @@ from training.server.state import ServerState
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.server.jobs")
+
+
+def _is_kaggle_noise(line: str) -> bool:
+    """Noisy kagglehub lines hidden from push logs (steps, errors and summaries stay)."""
+    low = line.lower()
+    return (
+        low.startswith(("uploading model https://", "failed uploading "))
+        or "does not exist or access is forbidden" in low
+        or "creating or handling model" in low
+    )
+
+
+def _log_status(message: str) -> str:
+    """GUI telemetry status of a log line: error, success, warning or running."""
+    msg_lower = message.lower()
+    if "[error]" in msg_lower or "failed" in msg_lower or "traceback" in msg_lower:
+        return "error"
+    if "[success]" in msg_lower or "complete" in msg_lower:
+        return "success"
+    if "[progress]" in msg_lower:
+        return "running"
+    if "[warn" in msg_lower:
+        return "warning"
+    return "running"
 
 
 class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
@@ -124,6 +149,16 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
         with self._lock:
             self._global_subscribers.discard(q)
 
+    def _append_log_file(self, job_id: str, timestamp: str, message: str) -> None:
+        """Append ``[timestamp] message`` to the job's log file (failures are logged)."""
+        log_file = self.state.logs_dir / f"{job_id}.log"
+        try:
+            self.state.logs_dir.mkdir(parents=True, exist_ok=True)
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"[{timestamp}] {message}\n")
+        except OSError as e:
+            logger.warning("Failed writing to log file %s: %s", log_file, e)
+
     def _broadcast_log(self, job_id: str, message: str) -> None:
         """Stream log line to file, job subscribers, and global subscribers."""
         timestamp = datetime.now().isoformat()
@@ -138,16 +173,7 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
             self._last_progress_broadcast[job_id] = now
 
         # Classify status for compatible GUI telemetry display
-        status = "running"
-        msg_lower = message.lower()
-        if "[error]" in msg_lower or "failed" in msg_lower or "traceback" in msg_lower:
-            status = "error"
-        elif "[success]" in msg_lower or "complete" in msg_lower:
-            status = "success"
-        elif "[progress]" in msg_lower:
-            status = "running"
-        elif "[warn" in msg_lower:
-            status = "warning"
+        status = _log_status(message)
 
         # Determine contextual job type and step name for telemetry isolation
         job = self.state.get_job(job_id)
@@ -158,26 +184,21 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
             else "Training"
         )
 
-        payload_dict = {
-            "timestamp": timestamp,
-            "job_id": job_id,
-            "job_type": job_type,
-            "message": message,
-            "step_name": step_name,
-            "step_number": 0,
-            "status": status,
-            "is_progress": is_progress,
-        }
-        log_payload = json.dumps(payload_dict)
+        log_payload = json.dumps(
+            {
+                "timestamp": timestamp,
+                "job_id": job_id,
+                "job_type": job_type,
+                "message": message,
+                "step_name": step_name,
+                "step_number": 0,
+                "status": status,
+                "is_progress": is_progress,
+            }
+        )
 
         # Append to log file
-        log_file = self.state.logs_dir / f"{job_id}.log"
-        try:
-            self.state.logs_dir.mkdir(parents=True, exist_ok=True)
-            with open(log_file, "a", encoding="utf-8") as f:
-                f.write(f"[{timestamp}] {message}\n")
-        except OSError as e:
-            logger.warning("Failed writing to log file %s: %s", log_file, e)
+        self._append_log_file(job_id, timestamp, message)
 
         # Threadsafe push to asyncio queues
         if self._loop and self._loop.is_running():
@@ -203,15 +224,8 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
         tid = threading.get_ident()
 
         def _job_log_filter(line: str) -> None:
-            if job_type in ("kaggle_push", "kaggle_push_all"):
-                # Suppress noisy library lines; keep structured steps, errors, and success summaries
-                low = line.lower()
-                if (
-                    low.startswith(("uploading model https://", "failed uploading "))
-                    or "does not exist or access is forbidden" in low
-                    or "creating or handling model" in low
-                ):
-                    return
+            if job_type in ("kaggle_push", "kaggle_push_all") and _is_kaggle_noise(line):
+                return
             self._broadcast_log(job_id, line)
 
         if self._stdout_tee:
@@ -227,26 +241,7 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
                 self._broadcast_log(job_id, "[CANCEL] Job aborted prior to dispatch.")
                 return
 
-            if job_type == "train":
-                self.execute_training(job_id, model_key, params, cancel_event)
-            elif job_type == "eval":
-                self.execute_evaluation(job_id, model_key, params)
-            elif job_type == "export":
-                self.execute_export(job_id, model_key, params)
-            elif job_type == "kaggle_train":
-                self.execute_kaggle_training(job_id, model_key, params, cancel_event)
-            elif job_type == "kaggle_monitor":
-                self.execute_kaggle_monitor(job_id, model_key, params, cancel_event)
-            elif job_type in ("test_all", "unit_test_all"):
-                self.execute_test_all(job_id, params, cancel_event)
-            elif job_type == "kaggle_push_all":
-                self.execute_kaggle_push_all(job_id, params, cancel_event)
-            elif job_type == "kaggle_push":
-                self.execute_kaggle_push(job_id, model_key, params, cancel_event)
-            elif job_type == "kaggle_pull":
-                self.execute_kaggle_pull(job_id, model_key, params, cancel_event)
-            else:
-                raise ValueError(f"Unknown job_type: '{job_type}'")
+            self._dispatch_job(job_id, job_type, model_key, params, cancel_event)
 
         except (InterruptedError, KeyboardInterrupt):
             logger.info("Job %s was cancelled by user request.", job_id)
@@ -267,6 +262,40 @@ class JobManager(LocalJobsMixin, KaggleRunJobsMixin, KaggleSyncJobsMixin):
                 self._stderr_tee.unregister_thread(tid)
             with self._lock:
                 self._cancellation_events.pop(job_id, None)
+
+    def _dispatch_job(
+        self,
+        job_id: str,
+        job_type: str,
+        model_key: str,
+        params: dict[str, Any],
+        cancel_event: threading.Event,
+    ) -> None:
+        """Run the ``execute_*`` handler for ``job_type``; ValueError when it is unknown."""
+        handlers: dict[str, Callable[[], None]] = {
+            "train": lambda: self.execute_training(job_id, model_key, params, cancel_event),
+            "eval": lambda: self.execute_evaluation(job_id, model_key, params),
+            "export": lambda: self.execute_export(job_id, model_key, params),
+            "kaggle_train": lambda: self.execute_kaggle_training(
+                job_id, model_key, params, cancel_event
+            ),
+            "kaggle_monitor": lambda: self.execute_kaggle_monitor(
+                job_id, model_key, params, cancel_event
+            ),
+            "test_all": lambda: self.execute_test_all(job_id, params, cancel_event),
+            "unit_test_all": lambda: self.execute_test_all(job_id, params, cancel_event),
+            "kaggle_push_all": lambda: self.execute_kaggle_push_all(job_id, params, cancel_event),
+            "kaggle_push": lambda: self.execute_kaggle_push(
+                job_id, model_key, params, cancel_event
+            ),
+            "kaggle_pull": lambda: self.execute_kaggle_pull(
+                job_id, model_key, params, cancel_event
+            ),
+        }
+        handler = handlers.get(job_type)
+        if handler is None:
+            raise ValueError(f"Unknown job_type: '{job_type}'")
+        handler()
 
     def shutdown(self) -> None:
         """Gracefully terminate thread pool executors."""

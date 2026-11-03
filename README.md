@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.112-STABLE`
+- **Version**: `v16.9.113-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,16 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.113 - Job Dispatch Table, Worker Topology and MT5 Helpers
+
+- **Refactor**: `JobManager` runs jobs through a `job_type` dispatch table
+  and gets `_log_status`, `_is_kaggle_noise` and `_append_log_file`;
+  `compute_worker_topology` splits RAM probe, CPU threads, train/val worker
+  defaults and prefetch factor; MT5 `connect_mt5` resolves login kwargs in
+  `_login_kwargs`, and mock bars use `_MOCK_BASE_PRICES`, `_mock_pip_size`
+  and `_mock_bar_times`. Removes 4 too-many-locals, 3 too-many-branches and
+  1 too-many-statements finding.
 
 ### v16.9.112 - Smaller Functions in Export, Registry and Services
 

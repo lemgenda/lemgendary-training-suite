@@ -34,6 +34,61 @@ class UserWorkerCounts:
     val: int | None = None
 
 
+def _system_ram_gb() -> float:
+    """Total system RAM in GB (16.0 when psutil cannot tell)."""
+    try:
+        return psutil.virtual_memory().total / (1024**3)
+    except OSError as exc:
+        logger.debug("psutil unavailable for worker topology calculation: %s", exc)
+        return 16.0
+
+
+def _set_cpu_threads(env: str, cpu_count: int) -> int:
+    """Set torch CPU threads (1 on Kaggle, else every core); return the count."""
+    num_threads = 1 if env == "kaggle" else max(1, cpu_count)
+    try:
+        torch.set_num_threads(num_threads)
+    except RuntimeError as exc:
+        logger.debug("Failed setting torch CPU threads to %d: %s", num_threads, exc)
+    return num_threads
+
+
+def _default_train_workers(env: str, ram_gb: float, cpu_count: int, cfg: dict[str, Any]) -> int:
+    """Training DataLoader workers for the environment and platform."""
+    if env in {"kaggle", "colab"}:
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        # In multi-GPU DDP on Kaggle (2 GPUs), 4 workers per process spawns 8 total workers,
+        # exhausting shared memory and RAM. Cap to 2 workers per process in DDP.
+        return 2 if world_size > 1 else 4
+    if sys.platform == "win32":
+        # Windows multi-process PyTorch spawns via freeze_support; restrict to 2 if ample RAM
+        return 2 if ram_gb >= 16.0 else 0
+    cfg_workers = cfg.get("hardware", {}).get("num_workers", 4)
+    if isinstance(cfg_workers, int):
+        return min(cpu_count, cfg_workers)
+    return min(cpu_count, 4)
+
+
+def _default_val_workers(env: str, num_workers: int, cfg: dict[str, Any]) -> int:
+    """Validation workers: ``hardware.val_num_workers`` if an int, else per environment."""
+    cfg_val = cfg.get("hardware", {}).get("val_num_workers", "auto")
+    if isinstance(cfg_val, int):
+        return cfg_val
+    if env in {"kaggle", "colab"}:
+        return 2
+    if sys.platform == "win32":
+        return 0
+    return min(2, num_workers)
+
+
+def _prefetch_factor(env: str, num_workers: int) -> int | None:
+    """Batches prefetched per worker: 2 on Kaggle/Colab or under DDP, else 4."""
+    if num_workers <= 0:
+        return None
+    multi_rank = int(os.environ.get("WORLD_SIZE", "1")) > 1
+    return 2 if (env in {"kaggle", "colab"} or multi_rank) else 4
+
+
 def compute_worker_topology(
     env: str = "local",
     device: torch.device | None = None,
@@ -42,28 +97,12 @@ def compute_worker_topology(
     config: dict[str, Any] | None = None,
 ) -> WorkerTopology:
     """Compute optimal DataLoader worker counts, persistent worker policies, and CPU threads."""
-    cfg = config or {}
     user = user_workers or UserWorkerCounts()
     cpu_count = os.cpu_count() or 2
-    dev = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dev_type = (device or torch.device("cuda" if torch.cuda.is_available() else "cpu")).type
 
-    # Probe system memory
-    ram_gb = 16.0
-    try:
-        ram_gb = psutil.virtual_memory().total / (1024**3)
-    except OSError as exc:
-        logger.debug("psutil unavailable for worker topology calculation: %s", exc)
-
-    # Determine CPU thread allotment
-    if env == "kaggle":
-        num_threads = 1
-    else:
-        num_threads = max(1, cpu_count)
-
-    try:
-        torch.set_num_threads(num_threads)
-    except RuntimeError as exc:
-        logger.debug("Failed setting torch CPU threads to %d: %s", num_threads, exc)
+    ram_gb = _system_ram_gb()
+    num_threads = _set_cpu_threads(env, cpu_count)
 
     # Determine training workers
     if user.train is not None:
@@ -71,41 +110,18 @@ def compute_worker_topology(
     elif is_forex:
         # Time-series datasets stream efficiently from memory/mmap; multi-process adds IPC overhead
         num_workers = 0
-    elif env in {"kaggle", "colab"}:
-        world_size = int(os.environ.get("WORLD_SIZE", "1"))
-        # In multi-GPU DDP on Kaggle (2 GPUs), 4 workers per process spawns 8 total workers,
-        # exhausting shared memory and RAM. Cap to 2 workers per process in DDP.
-        num_workers = 2 if world_size > 1 else 4
-    elif sys.platform == "win32":
-        # Windows multi-process PyTorch spawns via freeze_support; restrict to 2 if ample RAM
-        num_workers = 2 if ram_gb >= 16.0 else 0
     else:
-        cfg_workers = cfg.get("hardware", {}).get("num_workers", 4)
-        if isinstance(cfg_workers, int):
-            num_workers = min(cpu_count, cfg_workers)
-        else:
-            num_workers = min(cpu_count, 4)
+        num_workers = _default_train_workers(env, ram_gb, cpu_count, config or {})
 
     # Determine validation workers
     if user.val is not None:
         val_num_workers = user.val
     else:
-        cfg_val = cfg.get("hardware", {}).get("val_num_workers", "auto")
-        if isinstance(cfg_val, int):
-            val_num_workers = cfg_val
-        elif env in {"kaggle", "colab"}:
-            val_num_workers = 2
-        elif sys.platform == "win32":
-            val_num_workers = 0
-        else:
-            val_num_workers = min(2, num_workers)
+        val_num_workers = _default_val_workers(env, num_workers, config or {})
 
-    pin_memory = dev.type == "cuda"
+    pin_memory = dev_type == "cuda"
     persistent_workers = num_workers > 0 and ram_gb >= 16.0 and sys.platform != "win32"
-    world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    prefetch_factor = (
-        (2 if (env in {"kaggle", "colab"} or world_size > 1) else 4) if num_workers > 0 else None
-    )
+    prefetch_factor = _prefetch_factor(env, num_workers)
 
     logger.info(
         "Worker topology computed: train_workers=%d, val_workers=%d, persistent=%s, "

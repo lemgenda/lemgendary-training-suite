@@ -68,6 +68,22 @@ def _attach_running_session(mt5: Any) -> bool:
     return False
 
 
+def _login_kwargs(login: int | None, password: str | None, server: str | None) -> dict[str, Any]:
+    """``mt5.initialize`` login kwargs (arguments, else ``MT5_*`` env); {} if incomplete."""
+    if login is None and "MT5_LOGIN" in os.environ:
+        try:
+            login = int(os.environ["MT5_LOGIN"])
+        except ValueError as exc:
+            logger.warning("Ignoring non-integer MT5_LOGIN environment value: %s", exc)
+    if password is None:
+        password = os.environ.get("MT5_PASSWORD")
+    if server is None:
+        server = os.environ.get("MT5_SERVER")
+    if login and password and server:
+        return {"login": login, "password": password, "server": server}
+    return {}
+
+
 def connect_mt5(
     login: int | None = None,
     password: str | None = None,
@@ -83,15 +99,7 @@ def connect_mt5(
     Returns:
         True if connection succeeded, False otherwise.
     """
-    if login is None and "MT5_LOGIN" in os.environ:
-        try:
-            login = int(os.environ["MT5_LOGIN"])
-        except ValueError as exc:
-            logger.warning("Ignoring non-integer MT5_LOGIN environment value: %s", exc)
-    if password is None:
-        password = os.environ.get("MT5_PASSWORD")
-    if server is None:
-        server = os.environ.get("MT5_SERVER")
+    init_kwargs = _login_kwargs(login, password, server)
     if api_key is None:
         api_key = os.environ.get("MT5_API_KEY")
 
@@ -110,11 +118,7 @@ def connect_mt5(
     if _attach_running_session(mt5):
         return True
 
-    # Fallback to explicit login parameters if active session not found
-    init_kwargs = {}
-    if login and password and server:
-        init_kwargs.update({"login": login, "password": password, "server": server})
-
+    # Fallback to explicit login parameters (init_kwargs) if active session not found
     try:
         if not mt5.initialize(**init_kwargs):
             err = mt5.last_error()
@@ -151,55 +155,64 @@ def disconnect_mt5():
         logger.warning("MT5 shutdown failed: %s", exc)
 
 
+_MOCK_BASE_PRICES = {
+    "EURUSD": 1.0850,
+    "GBPUSD": 1.2700,
+    "USDJPY": 155.00,
+    "XAUUSD": 2400.00,
+    "USDCAD": 1.3650,
+    "USDCHF": 0.8950,
+    "AUDUSD": 0.6650,
+    "NZDUSD": 0.6100,
+    "EURJPY": 168.00,
+    "GBPJPY": 196.50,
+    "EURGBP": 0.8550,
+    "XAGUSD": 29.50,
+    "USOIL": 78.50,
+    "US500": 5500.0,
+    "USTEC": 19500.0,
+    "GER40": 18500.0,
+}
+
+
+def _mock_pip_size(pair: str) -> float:
+    """Pip size used to scale synthetic spreads and wicks."""
+    if any(x in pair for x in ["JPY", "XAG"]):
+        return 0.01
+    if any(x in pair for x in ["XAU", "USOIL"]):
+        return 0.1
+    if any(x in pair for x in ["US500", "USTEC", "GER40"]):
+        return 1.0
+    return 0.0001
+
+
+def _mock_bar_times(timeframe_min: int, n_bars: int | None, start_date: str | None):
+    """Bar timestamps ending now: ``n_bars`` back, or from ``start_date`` (2019-01-01)."""
+    dt_end = datetime.now(timezone.utc)
+    freq = f"{timeframe_min}min" if timeframe_min < 1440 else "1D"
+
+    if n_bars is not None and n_bars > 0 and start_date is None:
+        return pd.date_range(end=dt_end, periods=n_bars, freq=freq)
+    start_dt = (
+        pd.to_datetime(start_date, utc=True)
+        if start_date
+        else pd.to_datetime("2019-01-01", utc=True)
+    )
+    times = pd.date_range(start=start_dt, end=dt_end, freq=freq)
+    if n_bars is not None and len(times) < n_bars:
+        times = pd.date_range(end=dt_end, periods=n_bars, freq=freq)
+    return times
+
+
 def generate_mock_bars(
     pair: str, timeframe_min: int, n_bars: int | None = None, start_date: str = "2019-01-01"
 ) -> pd.DataFrame:
     """Generate realistic synthetic OHLCV bars spanning 2019-01-01 to present for all 16 assets."""
     np.random.seed(abs(hash(pair + str(timeframe_min))) % (2**32 - 1))
 
-    price_map = {
-        "EURUSD": 1.0850,
-        "GBPUSD": 1.2700,
-        "USDJPY": 155.00,
-        "XAUUSD": 2400.00,
-        "USDCAD": 1.3650,
-        "USDCHF": 0.8950,
-        "AUDUSD": 0.6650,
-        "NZDUSD": 0.6100,
-        "EURJPY": 168.00,
-        "GBPJPY": 196.50,
-        "EURGBP": 0.8550,
-        "XAGUSD": 29.50,
-        "USOIL": 78.50,
-        "US500": 5500.0,
-        "USTEC": 19500.0,
-        "GER40": 18500.0,
-    }
-    base_price = price_map.get(pair, 1.0000)
-
-    if any(x in pair for x in ["JPY", "XAG"]):
-        pip_size = 0.01
-    elif any(x in pair for x in ["XAU", "USOIL"]):
-        pip_size = 0.1
-    elif any(x in pair for x in ["US500", "USTEC", "GER40"]):
-        pip_size = 1.0
-    else:
-        pip_size = 0.0001
-
-    dt_end = datetime.now(timezone.utc)
-    freq = f"{timeframe_min}min" if timeframe_min < 1440 else "1D"
-
-    if n_bars is not None and n_bars > 0 and start_date is None:
-        times = pd.date_range(end=dt_end, periods=n_bars, freq=freq)
-    else:
-        start_dt = (
-            pd.to_datetime(start_date, utc=True)
-            if start_date
-            else pd.to_datetime("2019-01-01", utc=True)
-        )
-        times = pd.date_range(start=start_dt, end=dt_end, freq=freq)
-        if n_bars is not None and len(times) < n_bars:
-            times = pd.date_range(end=dt_end, periods=n_bars, freq=freq)
+    base_price = _MOCK_BASE_PRICES.get(pair, 1.0000)
+    pip_size = _mock_pip_size(pair)
+    times = _mock_bar_times(timeframe_min, n_bars, start_date)
 
     total_bars = len(times)
     returns = np.random.normal(loc=0.0, scale=0.001, size=total_bars)
@@ -209,10 +222,9 @@ def generate_mock_bars(
     highs = price_curve + np.abs(np.random.normal(0, pip_size * 5, size=total_bars)) + spread
     lows = price_curve - np.abs(np.random.normal(0, pip_size * 5, size=total_bars)) - spread
     opens = price_curve + np.random.uniform(-spread, spread, size=total_bars)
-    closes = price_curve
 
-    highs = np.maximum(highs, np.maximum(opens, closes))
-    lows = np.minimum(lows, np.minimum(opens, closes))
+    highs = np.maximum(highs, np.maximum(opens, price_curve))
+    lows = np.minimum(lows, np.minimum(opens, price_curve))
     volumes = np.random.randint(100, 5000, size=total_bars)
 
     print(
@@ -225,7 +237,7 @@ def generate_mock_bars(
             "open": opens,
             "high": highs,
             "low": lows,
-            "close": closes,
+            "close": price_curve,
             "volume": volumes,
         }
     )
