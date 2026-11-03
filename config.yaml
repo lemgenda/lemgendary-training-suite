@@ -87,6 +87,24 @@ training_budget:
   extension_epochs: 10
   max_extension_epochs: 0
 
+# --- Stochastic Weight Averaging (torch.optim.swa_utils) ---
+# Off by default. When enabled, the weights of every `update_every`-th epoch
+# from `start_epoch` (or after `start_fraction` of the budget) are averaged.
+# `swa_lr` hands the LR to SWALR (null keeps the main scheduler). BatchNorm
+# statistics are refreshed before the averaged model is validated and saved
+# as vault_swa.pth, a Pareto Model Soup ingredient (`eval_every` updates;
+# 0 = only at the end). Resume state lives in checkpoints/swa_state.pth.
+swa:
+  enabled: false
+  start_epoch: null
+  start_fraction: 0.75
+  swa_lr: null
+  anneal_epochs: 5
+  anneal_strategy: cos
+  update_every: 1
+  eval_every: 0
+  bn_update_batches: null
+
 # --- Security & Stealth ---
 security:
   mask_tokens: true

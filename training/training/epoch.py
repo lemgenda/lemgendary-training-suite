@@ -248,7 +248,11 @@ class _TrainingPass:
         elapsed = time.time() - self.clock.start_time
         steps = max(1, self.totals.step_count)
         current_lr = float(ctx.optimizer.param_groups[0]["lr"])
-        if ctx.scheduler is not None and not hasattr(ctx.scheduler, "step_batch"):
+        if (
+            ctx.scheduler is not None
+            and not hasattr(ctx.scheduler, "step_batch")
+            and not (ctx.swa is not None and ctx.swa.owns_lr(self.epoch))
+        ):
             try:
                 ctx.scheduler.step()
             except (TypeError, ValueError, RuntimeError) as exc:
