@@ -54,6 +54,67 @@ def _probe_kagglehub_checkpoints(kh_mod: Any, model_name: str) -> Path | None:
     return dl_path
 
 
+def _norm(name: str) -> str:
+    """Lower-case ``name`` without ``_`` and ``-`` (model-name matching)."""
+    return name.lower().replace("_", "").replace("-", "")
+
+
+def _append_kaggle_mounts(roots: list[Path], kaggle_input: Path, model_name: str) -> None:
+    """Append ``/kaggle/input/<owner>/<mount>`` dirs naming the model or a checkpoint set."""
+    model_norm = _norm(model_name)
+    try:
+        for owner in kaggle_input.iterdir():
+            if not owner.is_dir():
+                continue
+            for mount in owner.iterdir():
+                if not mount.is_dir():
+                    continue
+                mount_norm = _norm(mount.name)
+                if model_norm in mount_norm or "checkpoint" in mount_norm:
+                    roots.append(mount)
+    except OSError as exc:
+        logger.debug("Failed traversing /kaggle/input: %s", exc)
+
+
+def _skip_subdir(curr_dir: Path, entry: Path, model_norm: str) -> bool:
+    """Inside a generic 'checkpoints' root, do not traverse into unrelated model subdirs."""
+    dir_norm = _norm(entry.name)
+    return (
+        curr_dir.name.lower() == "checkpoints"
+        and dir_norm != model_norm
+        and not dir_norm.startswith(model_norm)
+    )
+
+
+def _index_checkpoint_file(
+    entry: Path, model_norm: str, discovered: dict[str, Path], epoch_ckpts: list[tuple[int, Path]]
+) -> None:
+    """Record ``entry`` as latest/best/progress and by epoch when it belongs to the model."""
+    name_lower = entry.name.lower()
+    # If file is directly inside checkpoints or mixed folder, ensure it belongs to this model
+    parent_norm = _norm(entry.parent.name)
+    entry_file_norm = name_lower.replace("_", "").replace("-", "")
+    # Skip files whose parent dir and file name both fail to name this model
+    if (
+        parent_norm not in {model_norm, "checkpoints", "runs"}
+        and model_norm not in parent_norm
+        and model_norm not in entry_file_norm
+    ):
+        return
+
+    if ("latest" in name_lower or "last" in name_lower) and "latest" not in discovered:
+        discovered["latest"] = entry
+    elif "best" in name_lower and "best" not in discovered:
+        discovered["best"] = entry
+    elif "progress" in name_lower and "progress" not in discovered:
+        discovered["progress"] = entry
+
+    # Check for epoch patterns (e.g. model_epoch_015.pth)
+    match = re.search(r"epoch_?(\d+)", name_lower)
+    if match:
+        epoch_ckpts.append((int(match.group(1)), entry))
+
+
 class CheckpointRecoveryEngine:
     """Discovers and synchronizes model checkpoints across cloud and local filesystems."""
 
@@ -73,7 +134,22 @@ class CheckpointRecoveryEngine:
         config: dict[str, Any] | None = None,
     ) -> list[Path]:
         """Compute all potential search roots containing checkpoints for the target model."""
-        cfg = config or {}
+        roots = self._local_roots(model_name, config or {})
+
+        # Kaggle input mounts and working directory
+        if self.env == "kaggle" or Path("/kaggle/input").exists():
+            self._add_kaggle_roots(roots, model_name)
+
+        # Remove duplicate roots
+        unique_roots: list[Path] = []
+        for r in roots:
+            resolved = r.resolve()
+            if resolved not in unique_roots:
+                unique_roots.append(resolved)
+        return unique_roots
+
+    def _local_roots(self, model_name: str, cfg: dict[str, Any]) -> list[Path]:
+        """Existing local hub, checkpoint and scratch directories for ``model_name``."""
         roots: list[Path] = []
 
         # Local Hub & Checkpoints in LemGendaryModels
@@ -91,64 +167,40 @@ class CheckpointRecoveryEngine:
         hub_candidates.append(
             (self.workspace_root / export_root / model_name / "checkpoints").resolve()
         )
+        hub_candidates.extend(
+            [
+                (self.project_root / "checkpoints" / model_name).resolve(),
+                (self.project_root / "checkpoints").resolve(),
+                (self.project_root / "_local_checkpoints" / model_name).resolve(),
+            ]
+        )
 
         for hc in hub_candidates:
             if hc.exists() and hc not in roots:
                 roots.append(hc)
+        return roots
 
-        local_model_ckpt = (self.project_root / "checkpoints" / model_name).resolve()
-        if local_model_ckpt.exists() and local_model_ckpt not in roots:
-            roots.append(local_model_ckpt)
+    def _add_kaggle_roots(self, roots: list[Path], model_name: str) -> None:
+        """Add the Kaggle working dir, matching input mounts and a KaggleHub download (first)."""
+        kaggle_working = Path("/kaggle/working/LemGendaryModels") / model_name / "checkpoints"
+        if kaggle_working.exists():
+            roots.append(kaggle_working)
 
-        local_ckpt = (self.project_root / "checkpoints").resolve()
-        if local_ckpt.exists() and local_ckpt not in roots:
-            roots.append(local_ckpt)
+        kaggle_input = Path("/kaggle/input")
+        if kaggle_input.exists():
+            _append_kaggle_mounts(roots, kaggle_input, model_name)
 
-        scratch_ckpt = (self.project_root / "_local_checkpoints" / model_name).resolve()
-        if scratch_ckpt.exists() and scratch_ckpt not in roots:
-            roots.append(scratch_ckpt)
-
-        # Kaggle input mounts and working directory
-        if self.env == "kaggle" or Path("/kaggle/input").exists():
-            kaggle_working = Path("/kaggle/working/LemGendaryModels") / model_name / "checkpoints"
-            if kaggle_working.exists():
-                roots.append(kaggle_working)
-
-            kaggle_input = Path("/kaggle/input")
-            if kaggle_input.exists():
-                model_norm = model_name.lower().replace("_", "").replace("-", "")
-                try:
-                    for owner in kaggle_input.iterdir():
-                        if not owner.is_dir():
-                            continue
-                        for mount in owner.iterdir():
-                            if not mount.is_dir():
-                                continue
-                            mount_norm = mount.name.lower().replace("_", "").replace("-", "")
-                            if model_norm in mount_norm or "checkpoint" in mount_norm:
-                                roots.append(mount)
-                except OSError as exc:
-                    logger.debug("Failed traversing /kaggle/input: %s", exc)
-
-            # Attempt kagglehub download probe with non-blocking timeout
-            try:
-                kh_mod = importlib.import_module("kagglehub")
-            except ImportError as kh_imp_err:
-                logger.debug(
-                    "kagglehub not installed; skipping remote checkpoint probe: %s", kh_imp_err
-                )
-            else:
-                dl_path = _probe_kagglehub_checkpoints(kh_mod, model_name)
-                if dl_path is not None:
-                    roots.insert(0, dl_path)
-
-        # Remove duplicate roots
-        unique_roots: list[Path] = []
-        for r in roots:
-            resolved = r.resolve()
-            if resolved not in unique_roots:
-                unique_roots.append(resolved)
-        return unique_roots
+        # Attempt kagglehub download probe with non-blocking timeout
+        try:
+            kh_mod = importlib.import_module("kagglehub")
+        except ImportError as kh_imp_err:
+            logger.debug(
+                "kagglehub not installed; skipping remote checkpoint probe: %s", kh_imp_err
+            )
+        else:
+            dl_path = _probe_kagglehub_checkpoints(kh_mod, model_name)
+            if dl_path is not None:
+                roots.insert(0, dl_path)
 
     def discover_checkpoints(
         self,
@@ -159,7 +211,7 @@ class CheckpointRecoveryEngine:
         discovered: dict[str, Path] = {}
         epoch_ckpts: list[tuple[int, Path]] = []
 
-        model_norm = model_name.lower().replace("_", "").replace("-", "")
+        model_norm = _norm(model_name)
 
         for root in candidate_roots:
             if not root.exists():
@@ -181,45 +233,10 @@ class CheckpointRecoveryEngine:
 
                 for entry in entries:
                     if entry.is_dir():
-                        # If inside generic 'checkpoints' root, do not traverse into unrelated model
-                        # subdirs
-                        dir_norm = entry.name.lower().replace("_", "").replace("-", "")
-                        if (
-                            curr_dir.name.lower() == "checkpoints"
-                            and dir_norm != model_norm
-                            and not dir_norm.startswith(model_norm)
-                        ):
-                            continue
-                        queue.append((entry, depth + 1))
-                        continue
-
-                    if entry.is_file() and entry.suffix in {".pth", ".pt"}:
-                        name_lower = entry.name.lower()
-                        # If file is directly inside checkpoints or mixed folder, ensure it belongs
-                        # to this model
-                        parent_norm = entry.parent.name.lower().replace("_", "").replace("-", "")
-                        entry_file_norm = name_lower.replace("_", "").replace("-", "")
-                        # Skip files whose parent dir and file name both fail to name this model
-                        if (
-                            parent_norm not in {model_norm, "checkpoints", "runs"}
-                            and model_norm not in parent_norm
-                            and model_norm not in entry_file_norm
-                        ):
-                            continue
-
-                        if (
-                            "latest" in name_lower or "last" in name_lower
-                        ) and "latest" not in discovered:
-                            discovered["latest"] = entry
-                        elif "best" in name_lower and "best" not in discovered:
-                            discovered["best"] = entry
-                        elif "progress" in name_lower and "progress" not in discovered:
-                            discovered["progress"] = entry
-
-                        # Check for epoch patterns (e.g. model_epoch_015.pth)
-                        match = re.search(r"epoch_?(\d+)", name_lower)
-                        if match:
-                            epoch_ckpts.append((int(match.group(1)), entry))
+                        if not _skip_subdir(curr_dir, entry, model_norm):
+                            queue.append((entry, depth + 1))
+                    elif entry.is_file() and entry.suffix in {".pth", ".pt"}:
+                        _index_checkpoint_file(entry, model_norm, discovered, epoch_ckpts)
 
         # Sort epoch checkpoints by descending epoch
         epoch_ckpts.sort(key=lambda x: x[0], reverse=True)
@@ -241,17 +258,7 @@ class CheckpointRecoveryEngine:
         if not source_root.exists():
             return synced
 
-        # Sync metrics.csv
-        for candidate_csv in ["metrics.csv", f"{model_name}_metrics.csv"]:
-            src_csv = source_root / candidate_csv
-            if src_csv.exists():
-                dst_csv = target_dir / "metrics.csv"
-                try:
-                    shutil.copy2(src_csv, dst_csv)
-                    synced.append(dst_csv)
-                    logger.info("Synced metrics log: %s -> %s", src_csv, dst_csv)
-                except OSError as exc:
-                    logger.warning("Failed syncing metrics.csv: %s", exc)
+        _sync_metrics(source_root, target_dir, model_name, synced)
 
         # Ensure canonical subdirectories exist
         checkpoints_dir = (
@@ -261,58 +268,90 @@ class CheckpointRecoveryEngine:
 
         dist_dir = target_dir / "dist" / "kaggle"
 
-        # Sync .pth checkpoints (strictly into checkpoints/)
-        for pth in source_root.glob("**/*.pth"):
-            if pth.is_file():
-                # Enforce canonical checkpoint names
-                if pth.name in ("best.pth", f"{model_name}_best.pth"):
-                    dst_pth = checkpoints_dir / "best.pth"
-                elif pth.name in ("latest.pth", "last.pth", f"{model_name}_latest.pth"):
-                    dst_pth = checkpoints_dir / "latest.pth"
-                else:
-                    dst_pth = checkpoints_dir / pth.name
-
-                try:
-                    shutil.copy2(pth, dst_pth)
-                    synced.append(dst_pth)
-                    logger.info("Synced checkpoint: %s -> %s", pth.name, dst_pth)
-                except OSError as exc:
-                    logger.warning("Failed syncing checkpoint %s: %s", pth, exc)
-
-        # Sync model binaries (.pt, .onnx) into canonical dist/kaggle/ variations
-        for pt in source_root.glob("**/*.pt"):
-            if pt.is_file():
-                # If YOLO checkpoint, also ensure presence in checkpoints_dir
-                if pt.name in ["best.pt", "last.pt", f"{model_name}.pt"]:
-                    ckpt_pt = checkpoints_dir / pt.name
-                    try:
-                        shutil.copy2(pt, ckpt_pt)
-                        synced.append(ckpt_pt)
-                    except OSError as copy_err:
-                        logger.warning("Failed mirroring %s into %s: %s", pt, ckpt_pt, copy_err)
-                pytorch_dir = dist_dir / "pytorch"
-                pytorch_dir.mkdir(parents=True, exist_ok=True)
-                dst_pt = pytorch_dir / pt.name
-                try:
-                    shutil.copy2(pt, dst_pt)
-                    synced.append(dst_pt)
-                    logger.info("Synced PyTorch binary: %s -> %s", pt.name, dst_pt)
-                except OSError as exc:
-                    logger.warning("Failed syncing PyTorch binary %s: %s", pt, exc)
-
-        for onnx_file in source_root.glob("**/*.onnx*"):
-            if onnx_file.is_file():
-                if "_FP32" in onnx_file.name:
-                    var_dir = dist_dir / "onnx_fp32"
-                else:
-                    var_dir = dist_dir / "onnx_fp16"
-                var_dir.mkdir(parents=True, exist_ok=True)
-                dst_onnx = var_dir / onnx_file.name
-                try:
-                    shutil.copy2(onnx_file, dst_onnx)
-                    synced.append(dst_onnx)
-                    logger.info("Synced ONNX variation: %s -> %s", onnx_file.name, dst_onnx)
-                except OSError as exc:
-                    logger.warning("Failed syncing ONNX variation %s: %s", onnx_file, exc)
-
+        _sync_pth_checkpoints(source_root, checkpoints_dir, model_name, synced)
+        _sync_pt_binaries(source_root, (checkpoints_dir, dist_dir), model_name, synced)
+        _sync_onnx_variations(source_root, dist_dir, synced)
         return synced
+
+
+def _sync_metrics(source_root: Path, target_dir: Path, model_name: str, synced: list[Path]):
+    """Copy ``metrics.csv`` (or ``<model>_metrics.csv``) to ``target_dir/metrics.csv``."""
+    for candidate_csv in ["metrics.csv", f"{model_name}_metrics.csv"]:
+        src_csv = source_root / candidate_csv
+        if src_csv.exists():
+            dst_csv = target_dir / "metrics.csv"
+            try:
+                shutil.copy2(src_csv, dst_csv)
+                synced.append(dst_csv)
+                logger.info("Synced metrics log: %s -> %s", src_csv, dst_csv)
+            except OSError as exc:
+                logger.warning("Failed syncing metrics.csv: %s", exc)
+
+
+def _sync_pth_checkpoints(
+    source_root: Path, checkpoints_dir: Path, model_name: str, synced: list[Path]
+):
+    """Copy .pth checkpoints strictly into ``checkpoints_dir`` under canonical names."""
+    for pth in source_root.glob("**/*.pth"):
+        if pth.is_file():
+            # Enforce canonical checkpoint names
+            if pth.name in ("best.pth", f"{model_name}_best.pth"):
+                dst_pth = checkpoints_dir / "best.pth"
+            elif pth.name in ("latest.pth", "last.pth", f"{model_name}_latest.pth"):
+                dst_pth = checkpoints_dir / "latest.pth"
+            else:
+                dst_pth = checkpoints_dir / pth.name
+
+            try:
+                shutil.copy2(pth, dst_pth)
+                synced.append(dst_pth)
+                logger.info("Synced checkpoint: %s -> %s", pth.name, dst_pth)
+            except OSError as exc:
+                logger.warning("Failed syncing checkpoint %s: %s", pth, exc)
+
+
+def _sync_pt_binaries(
+    source_root: Path, dirs: tuple[Path, Path], model_name: str, synced: list[Path]
+):
+    """Copy .pt binaries into ``dist/kaggle/pytorch``; YOLO weights also into checkpoints.
+
+    ``dirs`` is ``(checkpoints_dir, dist_dir)``.
+    """
+    checkpoints_dir, dist_dir = dirs
+    for pt in source_root.glob("**/*.pt"):
+        if pt.is_file():
+            # If YOLO checkpoint, also ensure presence in checkpoints_dir
+            if pt.name in ["best.pt", "last.pt", f"{model_name}.pt"]:
+                ckpt_pt = checkpoints_dir / pt.name
+                try:
+                    shutil.copy2(pt, ckpt_pt)
+                    synced.append(ckpt_pt)
+                except OSError as copy_err:
+                    logger.warning("Failed mirroring %s into %s: %s", pt, ckpt_pt, copy_err)
+            pytorch_dir = dist_dir / "pytorch"
+            pytorch_dir.mkdir(parents=True, exist_ok=True)
+            dst_pt = pytorch_dir / pt.name
+            try:
+                shutil.copy2(pt, dst_pt)
+                synced.append(dst_pt)
+                logger.info("Synced PyTorch binary: %s -> %s", pt.name, dst_pt)
+            except OSError as exc:
+                logger.warning("Failed syncing PyTorch binary %s: %s", pt, exc)
+
+
+def _sync_onnx_variations(source_root: Path, dist_dir: Path, synced: list[Path]):
+    """Copy ONNX files into ``dist/kaggle/onnx_fp32`` (``_FP32`` names) or ``onnx_fp16``."""
+    for onnx_file in source_root.glob("**/*.onnx*"):
+        if onnx_file.is_file():
+            if "_FP32" in onnx_file.name:
+                var_dir = dist_dir / "onnx_fp32"
+            else:
+                var_dir = dist_dir / "onnx_fp16"
+            var_dir.mkdir(parents=True, exist_ok=True)
+            dst_onnx = var_dir / onnx_file.name
+            try:
+                shutil.copy2(onnx_file, dst_onnx)
+                synced.append(dst_onnx)
+                logger.info("Synced ONNX variation: %s -> %s", onnx_file.name, dst_onnx)
+            except OSError as exc:
+                logger.warning("Failed syncing ONNX variation %s: %s", onnx_file, exc)

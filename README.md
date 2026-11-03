@@ -11,11 +11,17 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.98-STABLE` |
+| **Version** | `v16.9.99-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.99 - Checkpoint Recovery Split into Steps
+
+- **`training/checkpoint/recovery.py`**: `find_candidate_roots` (25 local variables, 19 branches) now calls `_local_roots` (hub, export, project and scratch checkpoint dirs) and `_add_kaggle_roots` (Kaggle working dir, input mounts in `_append_kaggle_mounts`, KaggleHub probe). `discover_checkpoints` (18 local variables, 15 branches) keeps the depth-4 BFS and moves the descend rule to `_skip_subdir` and the per-file indexing to `_index_checkpoint_file`. `sync_to_local_hub` (21 local variables, 20 branches, 59 statements) calls `_sync_metrics`, `_sync_pth_checkpoints`, `_sync_pt_binaries` and `_sync_onnx_variations`. Model-name normalization is one `_norm`. The file has no design-check findings left (8 before).
+- **Behaviour is unchanged**: an old-vs-new comparison ran 1,500 random checkpoint trees on disk (hub, export, project, scratch, Kaggle working and input mounts, nested and unrelated model folders, every checkpoint, binary, ONNX and metrics name, KaggleHub present, missing, failing or absent, local and Kaggle environments) through both versions; candidate roots, discovered checkpoints, synced files and their contents, stdout and log records were identical.
+- **Tests**: 289 passed.
 
 ### v16.9.98 - DataLoader Factories Take Option Objects
 
