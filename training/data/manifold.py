@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from training.data.task_resolution import ManifoldLayout, resolve_manifold_task
 from training.utils.paths import get_project_root, get_workspace_root
 
 logger = logging.getLogger("lemtrain.manifold")
@@ -339,17 +340,9 @@ class ManifoldResolver:
         elif any(f.suffix == ".parquet" for f in path.iterdir() if f.is_file()):
             container_type = "parquet"
 
-        # Task type detection
-        task_type = meta.get("task_type", "")
-        if not task_type:
-            if container_type == "parquet" or "forex" in name.lower() or (path / "forex").exists():
-                task_type = "forex"
-            elif (path / "masks").exists():
-                task_type = "segmentation"
-            elif (path / "labels").exists():
-                task_type = "face_detection"
-            else:
-                task_type = "restoration"
+        task_type = resolve_manifold_task(
+            ManifoldLayout(path=path, name=name, container_type=container_type, metadata=meta)
+        )
 
         images_dir = path / "images" if (path / "images").exists() else None
         targets_dir = path / "targets" if (path / "targets").exists() else None

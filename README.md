@@ -11,11 +11,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.99-STABLE` |
+| **Version** | `v16.9.100-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.100 - Manifold Task Read from dataset_info.yaml and the Datasets Taxonomy
+
+- **`training/data/task_resolution.py`** (new): `ManifoldResolver.inspect_manifold` no longer guesses the task from folder names with its own taxonomy. It reads `task_type` from the manifold's `dataset_info.yaml` (the plain datasets task id the compiler writes, e.g. `pose`; an internal name such as `face_detection` is kept as it is). A legacy manifold without `task_type` is resolved through the datasets `task_taxonomy.json`: `LEMGENDARY_TASK_TAXONOMY_FILE`, else `<workspace_root>/lemgendary-datasets/task_taxonomy.json` (the workspace root used by `training/ecosystem.py`). The old layout signals name a datasets task id (forex markers -> `forex`, `masks/` -> `segmentation`, `labels/` -> `pose`, `targets/` -> `restoration`), which must exist in the taxonomy with that split folder as its `layout_dir` (`forex` as a documentation task). A missing or malformed taxonomy, a taxonomy that disagrees with the legacy layout, a task id with no training-suite equivalent, or a manifold with no `task_type` and no layout signal raises `TaskResolutionError` naming the file to fix; the old silent `restoration` default is gone.
+- **One mapping table**: `DATASETS_TO_INTERNAL_TASK` turns datasets task ids into the training suite's internal names (`pose` -> `face_detection`, `super-resolution` -> `restoration`, `authenticity` -> `quality`, `ai_helper` -> `text_instruction`, the rest unchanged; `diffusion` and `vision` have no equivalent). The internal names stay: losses, the ratchet and dataset builders read the model registry's `dataset_type`, and `ManifoldInfo.task_type` has no other consumer.
+- **Behaviour**: an old-vs-new comparison over every combination of the old heuristic's signals (parquet container, `forex/` folder, forex in the name, `masks/`, `labels/`, `targets/`; 63 layouts) gives the same internal task. Only an images-only manifold without `task_type` changes: it now raises instead of defaulting to `restoration`.
+- **Tests**: `tests/unit/test_task_resolution.py` (new) with fixture manifolds and `tests/fixtures/task_taxonomy.json`; `tests/conftest.py` unsets `LEMGENDARY_TASK_TAXONOMY_FILE` so tests never read the real datasets checkout. 372 passed.
 
 ### v16.9.99 - Checkpoint Recovery Split into Steps
 

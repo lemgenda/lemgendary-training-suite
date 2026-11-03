@@ -72,6 +72,7 @@ class TestDataPipeline(unittest.TestCase):
         images_dir = manifold_dir / "images" / "train"
         images_dir.mkdir(parents=True)
         (images_dir / "sample_001.png").touch()
+        (manifold_dir / "dataset_info.yaml").write_text("task_type: restoration\n", "utf-8")
 
         resolver = ManifoldResolver(project_root=self.root_path, env="local")
         info = resolver.inspect_manifold(manifold_dir)

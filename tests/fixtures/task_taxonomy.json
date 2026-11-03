@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "heuristic": {
+    "fallback_task": "detection",
+    "unnamed_task": "quality"
+  },
+  "tasks": [
+    {
+      "id": "diffusion",
+      "layout_dir": null,
+      "label_strategy": "blip_caption",
+      "mask_strategy": null,
+      "name_patterns": [
+        "diffusion",
+        "vlm"
+      ]
+    },
+    {
+      "id": "segmentation",
+      "layout_dir": "masks",
+      "label_strategy": "parsenet_segmentation",
+      "mask_strategy": "parsenet",
+      "name_patterns": [
+        "seg",
+        "mask"
+      ]
+    },
+    {
+      "id": "pose",
+      "layout_dir": "labels",
+      "label_strategy": null,
+      "mask_strategy": null,
+      "name_patterns": [
+        "pose",
+        "face"
+      ]
+    },
+    {
+      "id": "quality",
+      "layout_dir": "labels",
+      "label_strategy": null,
+      "mask_strategy": null,
+      "name_patterns": [
+        "nima",
+        "aesthetic"
+      ]
+    },
+    {
+      "id": "classification",
+      "layout_dir": "labels",
+      "label_strategy": "clip_zeroshot",
+      "mask_strategy": null,
+      "name_patterns": [
+        "classify",
+        "classification"
+      ]
+    },
+    {
+      "id": "super-resolution",
+      "layout_dir": "targets",
+      "label_strategy": null,
+      "mask_strategy": null,
+      "name_patterns": [
+        "sr",
+        "ultrazoom"
+      ]
+    },
+    {
+      "id": "restoration",
+      "layout_dir": "targets",
+      "label_strategy": null,
+      "mask_strategy": null,
+      "name_patterns": [
+        "deraining",
+        "debluring"
+      ]
+    },
+    {
+      "id": "detection",
+      "layout_dir": "labels",
+      "label_strategy": "yolo_detection",
+      "mask_strategy": null,
+      "name_patterns": []
+    },
+    {
+      "id": "yolo",
+      "layout_dir": "labels",
+      "label_strategy": null,
+      "mask_strategy": null,
+      "name_patterns": []
+    },
+    {
+      "id": "parameter_prediction",
+      "layout_dir": null,
+      "label_strategy": null,
+      "mask_strategy": null,
+      "name_patterns": []
+    },
+    {
+      "id": "vision",
+      "layout_dir": null,
+      "label_strategy": null,
+      "mask_strategy": null,
+      "name_patterns": []
+    }
+  ],
+  "documentation_tasks": {
+    "FixtureForex": "forex",
+    "FixtureParseNet": "segmentation",
+    "FixtureRetinaFace": "detection"
+  }
+}
