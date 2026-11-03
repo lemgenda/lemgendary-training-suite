@@ -12,10 +12,7 @@ Verifies:
 
 from __future__ import annotations
 
-import io
-import json
 import shutil
-import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,6 +22,7 @@ import yaml
 from PIL import Image
 from torch import nn
 
+from tests.fixtures.webdataset import json_bytes, webp_bytes, write_tar
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 from training.cloud.metadata_generator import KaggleMetadataService
 from training.data.containers import (
@@ -48,27 +46,13 @@ class TestDatasetToTrainingE2E(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root)
 
-    def test_webdataset_webp_pipeline_roundtrip(self) -> None:
-        """Create a canonical WebDataset WebP manifold and load via training suite."""
-        manifold_path = self.root / "LemGendizedRestorationE2E"
+    def _make_manifold(self, name: str) -> Path:
+        """Create a manifold with a WebDataset ``dataset_info.yaml``; return its shard dir."""
+        manifold_path = self.root / name
         shards_dir = manifold_path / "shards" / "train"
         shards_dir.mkdir(parents=True)
-
-        # 1. Generate synthetic 32x32 WebP image and target
-        img = Image.new("RGB", (32, 32), color=(40, 120, 200))
-        tgt = Image.new("RGB", (32, 32), color=(240, 240, 240))
-
-        buf_img = io.BytesIO()
-        img.save(buf_img, format="WEBP", quality=92)
-        img_bytes = buf_img.getvalue()
-
-        buf_tgt = io.BytesIO()
-        tgt.save(buf_tgt, format="WEBP", quality=95)
-        tgt_bytes = buf_tgt.getvalue()
-
-        # 2. Write dataset_info.yaml as emitted by compiler/stream_zip_to_container
         ds_info = {
-            "name": "LemGendizedRestorationE2E",
+            "name": name,
             "format": "webdataset",
             "canonical_format": "webdataset",
             "image_format": "webp",
@@ -79,33 +63,27 @@ class TestDatasetToTrainingE2E(unittest.TestCase):
             yaml.safe_dump(ds_info, default_flow_style=False),
             encoding="utf-8",
         )
+        return shards_dir
 
-        # 3. Create WebDataset tar shard following compiler convention
+    def test_webdataset_webp_pipeline_roundtrip(self) -> None:
+        """Create a canonical WebDataset WebP manifold and load via training suite."""
+        shards_dir = self._make_manifold("LemGendizedRestorationE2E")
+        img_bytes = webp_bytes((40, 120, 200), quality=92)
+        tgt_bytes = webp_bytes((240, 240, 240), quality=95)
+        meta = {"source": "integration_test", "score": 1.0}
+        write_tar(
+            shards_dir / "shard-00000.tar",
+            {
+                "sample_1001.webp": img_bytes,
+                "sample_1001.target.webp": tgt_bytes,
+                "sample_1001.json": json_bytes(meta),
+            },
+        )
 
-        tar_path = shards_dir / "shard-00000.tar"
-        with tarfile.open(tar_path, "w") as tf:
-            # Input image
-            ti_img = tarfile.TarInfo(name="sample_1001.webp")
-            ti_img.size = len(img_bytes)
-            tf.addfile(ti_img, io.BytesIO(img_bytes))
-
-            # Restoration target image
-            ti_tgt = tarfile.TarInfo(name="sample_1001.target.webp")
-            ti_tgt.size = len(tgt_bytes)
-            tf.addfile(ti_tgt, io.BytesIO(tgt_bytes))
-
-            # Metadata JSON
-            meta = json.dumps({"source": "integration_test", "score": 1.0}).encode("utf-8")
-            ti_json = tarfile.TarInfo(name="sample_1001.json")
-            ti_json.size = len(meta)
-            tf.addfile(ti_json, io.BytesIO(meta))
-
-        # 4. Resolve container reader via training suite auto-resolver
-        reader = resolve_container_reader(manifold_path, split="train")
+        reader = resolve_container_reader(shards_dir.parent.parent, split="train")
         self.assertIsInstance(reader, WebDatasetReader)
         self.assertEqual(len(reader), 1)
 
-        # 5. Retrieve and verify sample decoding
         sample = reader[0]
         self.assertIsInstance(sample, TrainingSample)
         self.assertEqual(sample.name, "sample_1001")
@@ -114,7 +92,6 @@ class TestDatasetToTrainingE2E(unittest.TestCase):
         self.assertIsNotNone(sample.target_bytes)
         self.assertEqual(sample.target_bytes, tgt_bytes)
 
-        # 6. Verify image decode to PIL matches expectations
         decoded_img = DirectoryReader.decode_image(sample.image_bytes)
         self.assertIsInstance(decoded_img, Image.Image)
         self.assertEqual(decoded_img.size, (32, 32))
@@ -128,51 +105,20 @@ class TestDatasetToTrainingE2E(unittest.TestCase):
 
     def test_webdataset_data_obfuscation_pipeline_roundtrip(self) -> None:
         """Create a WebDataset with obfuscated .data shards and load it via the training suite."""
-        manifold_path = self.root / "LemGendizedRestorationDataE2E"
-        shards_dir = manifold_path / "shards" / "train"
-        shards_dir.mkdir(parents=True)
-
-        img = Image.new("RGB", (32, 32), color=(50, 150, 250))
-        tgt = Image.new("RGB", (32, 32), color=(250, 150, 50))
-
-        buf_img = io.BytesIO()
-        img.save(buf_img, format="WEBP", quality=92)
-        img_bytes = buf_img.getvalue()
-
-        buf_tgt = io.BytesIO()
-        tgt.save(buf_tgt, format="WEBP", quality=95)
-        tgt_bytes = buf_tgt.getvalue()
-
-        ds_info = {
-            "name": "LemGendizedRestorationDataE2E",
-            "format": "webdataset",
-            "canonical_format": "webdataset",
-            "image_format": "webp",
-            "task": "restoration",
-            "splits": {"train": 1},
-        }
-        (manifold_path / "dataset_info.yaml").write_text(
-            yaml.safe_dump(ds_info, default_flow_style=False),
-            encoding="utf-8",
+        shards_dir = self._make_manifold("LemGendizedRestorationDataE2E")
+        img_bytes = webp_bytes((50, 150, 250), quality=92)
+        tgt_bytes = webp_bytes((250, 150, 50), quality=95)
+        meta = {"source": "integration_test_data", "score": 0.99}
+        write_tar(
+            shards_dir / "shard-00000.data",
+            {
+                "sample_2001.webp": img_bytes,
+                "sample_2001.target.webp": tgt_bytes,
+                "sample_2001.json": json_bytes(meta),
+            },
         )
 
-        data_path = shards_dir / "shard-00000.data"
-        with tarfile.open(data_path, "w") as tf:
-            ti_img = tarfile.TarInfo(name="sample_2001.webp")
-            ti_img.size = len(img_bytes)
-            tf.addfile(ti_img, io.BytesIO(img_bytes))
-
-            ti_tgt = tarfile.TarInfo(name="sample_2001.target.webp")
-            ti_tgt.size = len(tgt_bytes)
-            tf.addfile(ti_tgt, io.BytesIO(tgt_bytes))
-
-            meta = json.dumps({"source": "integration_test_data", "score": 0.99}).encode("utf-8")
-            ti_json = tarfile.TarInfo(name="sample_2001.json")
-            ti_json.size = len(meta)
-            tf.addfile(ti_json, io.BytesIO(meta))
-
-        # Resolve container reader via training suite auto-resolver
-        reader = resolve_container_reader(manifold_path, split="train")
+        reader = resolve_container_reader(shards_dir.parent.parent, split="train")
         self.assertIsInstance(reader, WebDatasetReader)
         self.assertEqual(len(reader), 1)
 
@@ -219,46 +165,14 @@ class TestFullProductionPipelinePass(unittest.TestCase):
             ckpt_dir = model_hub_dir / "checkpoints"
             ckpt_dir.mkdir(parents=True)
 
-            # 1. Simulate 1 training step on dummy model
-            model = nn.Sequential(
-                nn.Conv2d(3, 8, kernel_size=3, padding=1), nn.ReLU(), nn.Conv2d(8, 3, 1)
-            )
-            optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-            x = torch.randn(1, 3, 32, 32)
-            y = torch.randn(1, 3, 32, 32)
-            out = model(x)
-            loss = nn.functional.mse_loss(out, y)
-            loss.backward()
-            optimizer.step()
-            self.assertFalse(torch.isnan(loss))
-
-            # 2. Save best checkpoint
-            ckpt_path = ckpt_dir / "mirnet_exposure_best.pth"
-            torch.save(
-                {"model_state": model.state_dict(), "epoch": 1, "loss": loss.item()}, ckpt_path
-            )
-            self.assertTrue(ckpt_path.exists())
-
-            # 3. Export binaries into temporary export staging
-            stage_dir = Path(tmp_dir) / "staging"
-            stage_dir.mkdir(parents=True)
-            pt_path = stage_dir / "LemGendaryMirNetExposure.pt"
-            fp32_path = stage_dir / "LemGendaryMirNetExposure_FP32.onnx"
-            fp16_path = stage_dir / "LemGendaryMirNetExposure.onnx"
-
-            export_torch_standalone(model, pt_path)
-            export_onnx(model, fp32_path, dummy_shape=(1, 3, 32, 32), half=False)
-            export_onnx(model, fp16_path, dummy_shape=(1, 3, 32, 32), half=True)
-
-            self.assertTrue(pt_path.exists())
-            self.assertTrue(fp32_path.exists())
-            self.assertTrue(fp16_path.exists())
+            model = _train_one_step(self, ckpt_dir)
+            source_files = _export_binaries(self, model, Path(tmp_dir) / "staging")
 
             # 4. Stage isolated variations into dist/kaggle/
             staging_svc = VariationStagingService()
             staging_res = staging_svc.stage_variations(
                 model_key="mirnet_exposure",
-                source_files={"pytorch": pt_path, "onnx_fp32": fp32_path, "onnx_fp16": fp16_path},
+                source_files=source_files,
                 base_dir=model_hub_dir,
                 validate=True,
             )
@@ -284,6 +198,38 @@ class TestFullProductionPipelinePass(unittest.TestCase):
             self.assertEqual(push_res.model_key, "mirnet_exposure")
             for var_result in push_res.variations.values():
                 self.assertTrue(var_result.dry_run)
+
+
+def _train_one_step(case: unittest.TestCase, ckpt_dir: Path) -> nn.Module:
+    """Run one optimiser step on a dummy model and save it as the best checkpoint."""
+    model = nn.Sequential(nn.Conv2d(3, 8, kernel_size=3, padding=1), nn.ReLU(), nn.Conv2d(8, 3, 1))
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    out = model(torch.randn(1, 3, 32, 32))
+    loss = nn.functional.mse_loss(out, torch.randn(1, 3, 32, 32))
+    loss.backward()
+    optimizer.step()
+    case.assertFalse(torch.isnan(loss))
+
+    ckpt_path = ckpt_dir / "mirnet_exposure_best.pth"
+    torch.save({"model_state": model.state_dict(), "epoch": 1, "loss": loss.item()}, ckpt_path)
+    case.assertTrue(ckpt_path.exists())
+    return model
+
+
+def _export_binaries(case: unittest.TestCase, model: nn.Module, stage_dir: Path) -> dict:
+    """Export TorchScript and FP32/FP16 ONNX binaries into ``stage_dir``."""
+    stage_dir.mkdir(parents=True)
+    source_files = {
+        "pytorch": stage_dir / "LemGendaryMirNetExposure.pt",
+        "onnx_fp32": stage_dir / "LemGendaryMirNetExposure_FP32.onnx",
+        "onnx_fp16": stage_dir / "LemGendaryMirNetExposure.onnx",
+    }
+    export_torch_standalone(model, source_files["pytorch"])
+    export_onnx(model, source_files["onnx_fp32"], dummy_shape=(1, 3, 32, 32), half=False)
+    export_onnx(model, source_files["onnx_fp16"], dummy_shape=(1, 3, 32, 32), half=True)
+    for path in source_files.values():
+        case.assertTrue(path.exists())
+    return source_files
 
 
 if __name__ == "__main__":

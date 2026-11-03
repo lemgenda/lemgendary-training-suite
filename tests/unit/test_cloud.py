@@ -116,16 +116,14 @@ class TestGDriveBitExactParity(unittest.TestCase):
             # 1. Create a deterministic fixture model checkpoint
             ckpt_dir = source_dir / "checkpoints"
             ckpt_dir.mkdir()
-            payload = b"LEMGENDARY_TEST_CHECKPOINT_DATA_1234567890_XYZ"
             ckpt_file = ckpt_dir / "best_model.pth"
-            ckpt_file.write_bytes(payload)
+            ckpt_file.write_bytes(b"LEMGENDARY_TEST_CHECKPOINT_DATA_1234567890_XYZ")
 
             src_hash = compute_file_sha256(ckpt_file)
 
             # 2. Sync to simulated Google Drive mount
             mgr = GDriveSyncManager(mount_root=mount_dir)
-            sync_ok = mgr.sync("test_model", epoch=1, src_dir=source_dir)
-            self.assertTrue(sync_ok)
+            self.assertTrue(mgr.sync("test_model", epoch=1, src_dir=source_dir))
 
             # Verify synced file on mount
             mounted_ckpt = (
@@ -135,15 +133,12 @@ class TestGDriveBitExactParity(unittest.TestCase):
             self.assertEqual(compute_file_sha256(mounted_ckpt), src_hash)
 
             # 3. Pull back to a new destination directory
-            pull_ok = mgr.pull("test_model", dest_dir=dest_dir)
-            self.assertTrue(pull_ok)
+            self.assertTrue(mgr.pull("test_model", dest_dir=dest_dir))
 
             # 4. Verify bit-exact SHA256 digest on pulled artifact
             pulled_ckpt = dest_dir / "checkpoints" / "best_model.pth"
             self.assertTrue(pulled_ckpt.exists())
-            pulled_hash = compute_file_sha256(pulled_ckpt)
-
-            self.assertEqual(pulled_hash, src_hash)
+            self.assertEqual(compute_file_sha256(pulled_ckpt), src_hash)
 
 
 if __name__ == "__main__":

@@ -90,58 +90,47 @@ class TestTrainingEngine(unittest.TestCase):
         )
         self.assertGreaterEqual(grad_norm, 0.0)
 
+    def _make_context(
+        self, tmp_path: Path, model: nn.Module, optimizer, loaders: tuple
+    ) -> TrainingContext:
+        """Build a two-epoch MSE ``TrainingContext`` rooted at ``tmp_path``."""
+        paths = TrainingPaths(
+            project_root=tmp_path,
+            local_checkpoint_dir=tmp_path / "checkpoints",
+            hub_checkpoint_dir=tmp_path / "hub",
+            export_dir=tmp_path / "export",
+            progress_local_path=tmp_path / "progress.pth",
+            best_checkpoint_path=tmp_path / "best.pth",
+            history_csv_path=tmp_path / "history.csv",
+        )
+        return TrainingContext(
+            model_name="test_model",
+            model=model,
+            optimizer=optimizer,
+            scheduler=torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9),
+            criterion=nn.MSELoss(),
+            train_loader=loaders[0],
+            val_loader=loaders[1],
+            device_info=self.device_info,
+            policy=self.policy,
+            sentinel=SentinelGuard(device=self.device),
+            governor=SmartTrainingGovernor(model_info={}),
+            sota_tracker=SotaTracker(),
+            vault=MetricVault(),
+            paths=paths,
+            config={},
+            model_info={},
+            args=None,
+            total_epochs=2,
+        )
+
     def test_train_and_validate_one_epoch(self) -> None:
         """Verify train_one_epoch and validate_one_epoch return accurate telemetry metrics."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
             model = SimpleModel()
             optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
-            criterion = nn.MSELoss()
-
-            x_train = torch.randn(16, 8)
-            y_train = torch.randn(16, 1)
-            train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=4, shuffle=True)
-
-            x_val = torch.randn(8, 8)
-            y_val = torch.randn(8, 1)
-            val_loader = DataLoader(TensorDataset(x_val, y_val), batch_size=4, shuffle=False)
-
-            paths = TrainingPaths(
-                project_root=tmp_path,
-                local_checkpoint_dir=tmp_path / "checkpoints",
-                hub_checkpoint_dir=tmp_path / "hub",
-                export_dir=tmp_path / "export",
-                progress_local_path=tmp_path / "progress.pth",
-                best_checkpoint_path=tmp_path / "best.pth",
-                history_csv_path=tmp_path / "history.csv",
-            )
-
-            sentinel = SentinelGuard(device=self.device)
-            governor = SmartTrainingGovernor(model_info={})
-            sota_tracker = SotaTracker()
-            vault = MetricVault()
-
-            ctx = TrainingContext(
-                model_name="test_model",
-                model=model,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                criterion=criterion,
-                train_loader=train_loader,
-                val_loader=val_loader,
-                device_info=self.device_info,
-                policy=self.policy,
-                sentinel=sentinel,
-                governor=governor,
-                sota_tracker=sota_tracker,
-                vault=vault,
-                paths=paths,
-                config={},
-                model_info={},
-                args=None,
-                total_epochs=2,
-            )
+            loaders = (_tensor_loader(16, shuffle=True), _tensor_loader(8))
+            ctx = self._make_context(Path(tmp_dir), model, optimizer, loaders)
 
             train_metrics = train_one_epoch(ctx, 1)
             self.assertIn("train_loss", train_metrics)
@@ -154,57 +143,12 @@ class TestTrainingEngine(unittest.TestCase):
     def test_run_training_gate_10(self) -> None:
         """Gate 10: Execute a complete multi-epoch mock training session."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
             model = SimpleModel()
             optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
-            criterion = nn.MSELoss()
-
-            x_train = torch.randn(12, 8)
-            y_train = torch.randn(12, 1)
-            train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=4)
-
-            x_val = torch.randn(4, 8)
-            y_val = torch.randn(4, 1)
-            val_loader = DataLoader(TensorDataset(x_val, y_val), batch_size=4)
-
-            paths = TrainingPaths(
-                project_root=tmp_path,
-                local_checkpoint_dir=tmp_path / "checkpoints",
-                hub_checkpoint_dir=tmp_path / "hub",
-                export_dir=tmp_path / "export",
-                progress_local_path=tmp_path / "progress.pth",
-                best_checkpoint_path=tmp_path / "best.pth",
-                history_csv_path=tmp_path / "history.csv",
-            )
-            paths.local_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            paths.export_dir.mkdir(parents=True, exist_ok=True)
-
-            sentinel = SentinelGuard(device=self.device)
-            governor = SmartTrainingGovernor(model_info={})
-            sota_tracker = SotaTracker()
-            vault = MetricVault()
-
-            ctx = TrainingContext(
-                model_name="test_model",
-                model=model,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                criterion=criterion,
-                train_loader=train_loader,
-                val_loader=val_loader,
-                device_info=self.device_info,
-                policy=self.policy,
-                sentinel=sentinel,
-                governor=governor,
-                sota_tracker=sota_tracker,
-                vault=vault,
-                paths=paths,
-                config={},
-                model_info={},
-                args=None,
-                total_epochs=2,
-            )
+            loaders = (_tensor_loader(12), _tensor_loader(4))
+            ctx = self._make_context(Path(tmp_dir), model, optimizer, loaders)
+            ctx.paths.local_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            ctx.paths.export_dir.mkdir(parents=True, exist_ok=True)
 
             summary = run_training(ctx)
 
@@ -296,6 +240,13 @@ class TestTrainingEngine(unittest.TestCase):
         self.assertIn("dir_entropy", val_metrics)
         self.assertIn("quality_score", val_metrics)
         self.assertEqual(val_metrics["dir_acc"], 50.0)
+
+
+def _tensor_loader(n: int, shuffle: bool = False) -> DataLoader:
+    """A batch-4 loader over ``n`` random (8-feature, 1-target) pairs."""
+    return DataLoader(
+        TensorDataset(torch.randn(n, 8), torch.randn(n, 1)), batch_size=4, shuffle=shuffle
+    )
 
 
 if __name__ == "__main__":

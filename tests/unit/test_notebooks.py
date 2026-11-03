@@ -119,60 +119,41 @@ class TestNotebookSubsystem(unittest.TestCase):
         self.assertEqual(c_sentinel["cell_type"], "code")
         self.assertTrue(any("Google Colab:" in line for line in c_sentinel["source"]))
 
+    def _assert_code_cell(self, cell: dict, needle: str | None) -> None:
+        """Assert ``cell`` is a code cell whose source mentions ``needle`` (if given)."""
+        self.assertEqual(cell["cell_type"], "code")
+        if needle is not None:
+            self.assertTrue(any(needle in line for line in cell["source"]))
+
     def test_individual_cell_generators(self) -> None:
         """Verify that individual cell builders construct structurally sound cells."""
         meta = resolve_model_metadata("mirnet_exposure", self.registry, self.config)
 
-        clone_cell = build_clone_cell("kaggle")
-        self.assertEqual(clone_cell["cell_type"], "code")
-        self.assertTrue(any("lemgendary-training-suite" in line for line in clone_cell["source"]))
+        # builder output -> a substring one of its source lines must contain (None: any)
+        cells = {
+            "clone": (build_clone_cell("kaggle"), "lemgendary-training-suite"),
+            "install": (build_install_cell("kaggle"), "pip"),
+            "symlink": (build_symlink_cell(meta, "kaggle"), "LemGendaryDatasets"),
+            "hub_prep": (build_hub_prep_cell(meta, "kaggle"), "LemGendaryModels"),
+            "recovery": (build_checkpoint_recovery_cell(meta, "kaggle"), "checkpoints"),
+            "stealth": (build_stealth_cell(meta, "kaggle"), None),
+            "pth": (build_pth_cell(meta), None),
+            "onnx_fp32": (build_onnx_fp32_cell(meta), None),
+            "onnx_fp16": (build_onnx_fp16_cell(meta), None),
+            "secrets": (build_secrets_cell("kaggle"), None),
+            "fuse": (build_fuse_mount_cell(), None),
+            "sync": (build_continuous_sync_cell(meta), None),
+            "train": (build_training_cell(meta, "kaggle"), None),
+            "push": (build_push_cell(meta, "kaggle"), None),
+        }
+        for name, (cell, needle) in cells.items():
+            with self.subTest(cell=name):
+                self._assert_code_cell(cell, needle)
 
-        install_cell = build_install_cell("kaggle")
-        self.assertEqual(install_cell["cell_type"], "code")
-        self.assertTrue(any("pip" in line for line in install_cell["source"]))
-
-        symlink_cell = build_symlink_cell(meta, "kaggle")
-        self.assertEqual(symlink_cell["cell_type"], "code")
-        self.assertTrue(any("LemGendaryDatasets" in line for line in symlink_cell["source"]))
-
-        hub_cell = build_hub_prep_cell(meta, "kaggle")
-        self.assertEqual(hub_cell["cell_type"], "code")
-        self.assertTrue(any("LemGendaryModels" in line for line in hub_cell["source"]))
-
-        recovery_cell = build_checkpoint_recovery_cell(meta, "kaggle")
-        self.assertEqual(recovery_cell["cell_type"], "code")
-        self.assertTrue(any("checkpoints" in line for line in recovery_cell["source"]))
-
-        stealth_cell = build_stealth_cell(meta, "kaggle")
-        self.assertEqual(stealth_cell["cell_type"], "code")
-
-        pth_cell = build_pth_cell(meta)
-        self.assertEqual(pth_cell["cell_type"], "code")
-
-        onnx32_cell = build_onnx_fp32_cell(meta)
-        self.assertEqual(onnx32_cell["cell_type"], "code")
-
-        onnx16_cell = build_onnx_fp16_cell(meta)
-        self.assertEqual(onnx16_cell["cell_type"], "code")
-
-        secrets_cell = build_secrets_cell("kaggle")
-        self.assertEqual(secrets_cell["cell_type"], "code")
         # The fallback Kaggle owner is substituted from ecosystem.json at generation time.
         for platform in ("kaggle", "colab"):
             source = "".join(build_secrets_cell(platform)["source"])
             self.assertIn(f"k_user = {kaggle_owner()!r}", source)
-
-        fuse_cell = build_fuse_mount_cell()
-        self.assertEqual(fuse_cell["cell_type"], "code")
-
-        sync_cell = build_continuous_sync_cell(meta)
-        self.assertEqual(sync_cell["cell_type"], "code")
-
-        train_cell = build_training_cell(meta, "kaggle")
-        self.assertEqual(train_cell["cell_type"], "code")
-
-        push_cell = build_push_cell(meta, "kaggle")
-        self.assertEqual(push_cell["cell_type"], "code")
 
     def test_backward_compatibility_shim(self) -> None:
         """Verify that training.notebook_generator re-exports all expected functions."""

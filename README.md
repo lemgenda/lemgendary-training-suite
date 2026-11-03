@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.107-STABLE`
+- **Version**: `v16.9.108-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,14 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.108 - Test Helpers for WebDataset Shards
+
+- **Tests**: new `tests/fixtures/webdataset.py` (`webp_bytes`, `json_bytes`,
+  `write_tar`) replaces hand-built WebP buffers and tar members in the e2e and
+  container tests. Engine tests share `_make_context` and `_tensor_loader`;
+  the notebook cell test is table-driven. Removes 11 too-many-locals and 1
+  too-many-statements finding; same 415 tests.
 
 ### v16.9.107 - Stochastic Weight Averaging and FID Re-evaluation Tool
 

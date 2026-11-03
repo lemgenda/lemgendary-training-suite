@@ -13,6 +13,7 @@ import pyarrow.parquet as pq
 import yaml
 from PIL import Image
 
+from tests.fixtures.webdataset import webp_bytes, write_tar
 from training.data.containers import (
     DirectoryReader,
     LitDataReader,
@@ -109,17 +110,11 @@ class TestContainers(unittest.TestCase):
         shards_dir.mkdir(parents=True)
         tar_path = shards_dir / "shard-000000.tar"
 
-        buf_img = io.BytesIO()
-        Image.new("RGB", (16, 16), color=(50, 60, 70)).save(buf_img, format="WEBP")
-        img_bytes = buf_img.getvalue()
+        img_bytes = webp_bytes((50, 60, 70), size=(16, 16))
 
-        buf_tgt = io.BytesIO()
-        Image.new("RGB", (16, 16), color=(255, 255, 255)).save(buf_tgt, format="WEBP")
-        tgt_bytes = buf_tgt.getvalue()
+        tgt_bytes = webp_bytes((255, 255, 255), size=(16, 16))
 
-        buf_mask = io.BytesIO()
-        Image.new("L", (16, 16), color=128).save(buf_mask, format="WEBP")
-        mask_bytes = buf_mask.getvalue()
+        mask_bytes = webp_bytes(128, size=(16, 16), mode="L")
 
         meta_json = json.dumps(
             {
@@ -128,26 +123,15 @@ class TestContainers(unittest.TestCase):
             }
         ).encode("utf-8")
 
-        with tarfile.open(tar_path, mode="w") as tf:
-            # Add input image
-            ti_img = tarfile.TarInfo(name="item_001.webp")
-            ti_img.size = len(img_bytes)
-            tf.addfile(ti_img, io.BytesIO(img_bytes))
-
-            # Add paired target
-            ti_tgt = tarfile.TarInfo(name="item_001.target.webp")
-            ti_tgt.size = len(tgt_bytes)
-            tf.addfile(ti_tgt, io.BytesIO(tgt_bytes))
-
-            # Add paired mask
-            ti_msk = tarfile.TarInfo(name="item_001.mask.webp")
-            ti_msk.size = len(mask_bytes)
-            tf.addfile(ti_msk, io.BytesIO(mask_bytes))
-
-            # Add JSON metadata with distribution
-            ti_json = tarfile.TarInfo(name="item_001.json")
-            ti_json.size = len(meta_json)
-            tf.addfile(ti_json, io.BytesIO(meta_json))
+        write_tar(
+            tar_path,
+            {
+                "item_001.webp": img_bytes,
+                "item_001.target.webp": tgt_bytes,
+                "item_001.mask.webp": mask_bytes,
+                "item_001.json": meta_json,
+            },
+        )
 
         reader = WebDatasetReader(manifold, split="train")
         self.assertEqual(len(reader), 1)
@@ -170,13 +154,9 @@ class TestContainers(unittest.TestCase):
         shard_dir = manifold / "shards" / "train" / "shard-00000"
         shard_dir.mkdir(parents=True)
 
-        buf_img = io.BytesIO()
-        Image.new("RGB", (16, 16), color=(200, 100, 50)).save(buf_img, format="WEBP")
-        img_bytes = buf_img.getvalue()
+        img_bytes = webp_bytes((200, 100, 50), size=(16, 16))
 
-        buf_tgt = io.BytesIO()
-        Image.new("RGB", (16, 16), color=(50, 100, 200)).save(buf_tgt, format="WEBP")
-        tgt_bytes = buf_tgt.getvalue()
+        tgt_bytes = webp_bytes((50, 100, 200), size=(16, 16))
 
         meta_json = json.dumps({"task": "restoration", "distribution": [0.1] * 10}).encode("utf-8")
 
@@ -295,28 +275,20 @@ class TestContainers(unittest.TestCase):
         shards_dir.mkdir(parents=True)
         data_path = shards_dir / "shard-000000.data"
 
-        buf_img = io.BytesIO()
-        Image.new("RGB", (16, 16), color=(100, 150, 200)).save(buf_img, format="WEBP")
-        img_bytes = buf_img.getvalue()
+        img_bytes = webp_bytes((100, 150, 200), size=(16, 16))
 
-        buf_tgt = io.BytesIO()
-        Image.new("RGB", (16, 16), color=(200, 150, 100)).save(buf_tgt, format="WEBP")
-        tgt_bytes = buf_tgt.getvalue()
+        tgt_bytes = webp_bytes((200, 150, 100), size=(16, 16))
 
         meta_json = json.dumps({"task": "restoration"}).encode("utf-8")
 
-        with tarfile.open(data_path, mode="w") as tf:
-            ti_img = tarfile.TarInfo(name="sample_obf_001.webp")
-            ti_img.size = len(img_bytes)
-            tf.addfile(ti_img, io.BytesIO(img_bytes))
-
-            ti_tgt = tarfile.TarInfo(name="sample_obf_001.target.webp")
-            ti_tgt.size = len(tgt_bytes)
-            tf.addfile(ti_tgt, io.BytesIO(tgt_bytes))
-
-            ti_json = tarfile.TarInfo(name="sample_obf_001.json")
-            ti_json.size = len(meta_json)
-            tf.addfile(ti_json, io.BytesIO(meta_json))
+        write_tar(
+            data_path,
+            {
+                "sample_obf_001.webp": img_bytes,
+                "sample_obf_001.target.webp": tgt_bytes,
+                "sample_obf_001.json": meta_json,
+            },
+        )
 
         # Test WebDatasetReader directly on .data
         reader = WebDatasetReader(manifold, split="train")

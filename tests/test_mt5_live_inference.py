@@ -81,6 +81,31 @@ def test_multi_timeframe_live_pipeline():
     print(f" -> Target Asset: {test_pair} (Pair ID: {pair_id})", flush=True)
     print(f" -> Active Confluence Ladder: {active_tfs} (M1, M5, M15, H1, H4, D1)", flush=True)
 
+    tf_inputs = _build_timeframe_inputs(test_pair, active_tfs, mt5_active)
+
+    # 3. Model Instantiation & Forward Pass
+    print("\n -> Instantiating ForexPredictor (4 Heads, Cross-Timeframe Fusion)...", flush=True)
+    model = ForexPredictor(
+        active_timeframes=active_tfs,
+        in_features=FOREX_FEATURES_PER_BAR,
+        d_model=128,
+        n_heads=4,
+        n_layers=4,
+    )
+    model.eval()
+
+    preds = _benchmark_latency(model, tf_inputs, torch.tensor([pair_id], dtype=torch.long))
+    _print_signal(test_pair, preds)
+
+    if mt5_active:
+        disconnect_mt5()
+
+    print(" [SUCCESS] All MT5 Inference & Latency assertions passed successfully.\n", flush=True)
+    return preds
+
+
+def _build_timeframe_inputs(test_pair: str, active_tfs: list[int], mt5_active: bool) -> dict:
+    """Build one normalised ``[1, seq_len, features]`` tensor per timeframe (live or synthetic)."""
     tf_inputs = {}
     for tf in active_tfs:
         seq_len = TIMEFRAME_LOOKBACK[tf]
@@ -104,20 +129,11 @@ def test_multi_timeframe_live_pipeline():
         print(
             f"    [OK] Timeframe {tf}m Tensor Built: Shape {list(tf_inputs[tf].shape)}", flush=True
         )
+    return tf_inputs
 
-    # 3. Model Instantiation & Forward Pass
-    print("\n -> Instantiating ForexPredictor (4 Heads, Cross-Timeframe Fusion)...", flush=True)
-    model = ForexPredictor(
-        active_timeframes=active_tfs,
-        in_features=FOREX_FEATURES_PER_BAR,
-        d_model=128,
-        n_heads=4,
-        n_layers=4,
-    )
-    model.eval()
 
-    pair_tensor = torch.tensor([pair_id], dtype=torch.long)
-
+def _benchmark_latency(model: ForexPredictor, tf_inputs: dict, pair_tensor: torch.Tensor) -> dict:
+    """Time 100 forward passes after a warm-up; print mean/P95 latency; return the last outputs."""
     # 4. Latency Benchmark (100 Iterations)
     print(" -> Benchmarking Inference Latency over 100 passes...", flush=True)
     latencies = []
@@ -141,6 +157,11 @@ def test_multi_timeframe_live_pipeline():
         flush=True,
     )
 
+    return preds
+
+
+def _print_signal(test_pair: str, preds: dict) -> None:
+    """Print the direction, confidence and TP/SL read from the model outputs."""
     # 5. Output Signal Parsing
     dir_logits = preds["direction_logits"]
     mag_preds = preds["magnitude"]
@@ -164,12 +185,6 @@ def test_multi_timeframe_live_pipeline():
     print(f"  -> Risk Stop-Loss:     {sl_pips:.1f} pips", flush=True)
     print(f"  -> Risk/Reward Ratio:  {tp_pips / max(0.1, sl_pips):.2f}", flush=True)
     print("-" * 80, flush=True)
-
-    if mt5_active:
-        disconnect_mt5()
-
-    print(" [SUCCESS] All MT5 Inference & Latency assertions passed successfully.\n", flush=True)
-    return preds
 
 
 class TestMT5LiveInference(unittest.TestCase):
