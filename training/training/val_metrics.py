@@ -111,6 +111,10 @@ def _update_lpips(
         _relieve_metric_oom(batch.governor)
 
 
+FID_CHUNK_SIZE = 2
+"""Images per FID update call (publication-grade FID invariant: at most 2)."""
+
+
 def _update_fid(
     acc: ValAccumulators, batch: ValBatch, pred: torch.Tensor, target: torch.Tensor
 ) -> None:
@@ -124,13 +128,24 @@ def _update_fid(
         if p_u8.shape[1] == 1:
             p_u8 = p_u8.repeat(1, 3, 1, 1)
             t_u8 = t_u8.repeat(1, 3, 1, 1)
-        chunk_size = 2
-        for c_idx in range(0, p_u8.size(0), chunk_size):
-            metric.update(t_u8[c_idx : c_idx + chunk_size], real=True)
-            metric.update(p_u8[c_idx : c_idx + chunk_size], real=False)
+        _update_fid_pairs(acc, metric, t_u8, p_u8)
         acc.image.fid_batches_accumulated += 1
     except METRIC_ERRORS as exc:
         logger.warning("FID update error: %s", exc)
+
+
+def _update_fid_pairs(
+    acc: ValAccumulators, metric: Any, real_u8: torch.Tensor, fake_u8: torch.Tensor
+) -> None:
+    """Feed real and fake chunks pairwise; a pair cut in half marks the pass's FID incomplete."""
+    for c_idx in range(0, fake_u8.size(0), FID_CHUNK_SIZE):
+        metric.update(real_u8[c_idx : c_idx + FID_CHUNK_SIZE], real=True)
+        try:
+            metric.update(fake_u8[c_idx : c_idx + FID_CHUNK_SIZE], real=False)
+        except METRIC_ERRORS:
+            acc.image.fid_incomplete = True
+            logger.warning("FID fake-feature update failed after its real half; FID is dropped.")
+            raise
 
 
 def _image_pair(batch: ValBatch) -> tuple[torch.Tensor, torch.Tensor] | None:
