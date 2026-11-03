@@ -110,7 +110,8 @@ def get_model(model_key, config=None):
                 model_class_name = unified[model_key].get("class_name", model_class_name)
                 kwargs = unified[model_key].get("kwargs", kwargs)
 
-    # YOLO models are delegated to the Ultralytics native trainer via core_loop._run_yolo_native().
+    # YOLO models are delegated to the Ultralytics native trainer via
+    # governance.yolo_governor.run_governed_yolo_training().
     # Reaching this point means the bypass in core_loop.main() was skipped, which is a bug.
     if model_class_name == "YOLO":
         raise ValueError(

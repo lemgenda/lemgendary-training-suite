@@ -15,7 +15,8 @@ from typing import Any
 
 import yaml
 
-from training.core_loop import _run_yolo_native, build_training_context
+from training.core_loop import build_training_context
+from training.governance.yolo_governor import run_governed_yolo_training
 from training.services.notebook_service import NotebookService
 from training.training.engine import TrainingSummary, run_training
 from training.utils.paths import get_project_root
@@ -182,7 +183,7 @@ class TrainingService:
             config_path = self.project_root / "config.yaml"
             with open(config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
-            return _run_yolo_native(
+            return run_governed_yolo_training(
                 args,
                 config,
                 self.project_root,

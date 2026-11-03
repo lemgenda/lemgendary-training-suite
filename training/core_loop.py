@@ -3,7 +3,7 @@
 Backward-compatible entry point delegating runtime execution, optimization,
 AMP management, and validation to the modular training.training subpackage.
 
-YOLOv8n is handled via Ultralytics native trainer (_run_yolo_native).
+YOLOv8n is handled via Ultralytics native trainer (run_governed_yolo_training).
 All other models use the universal TrainingContext path.
 """
 
@@ -465,29 +465,6 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     )
 
 
-def _run_yolo_native(
-    args: argparse.Namespace,
-    config: dict,
-    project_root: Path,
-    on_epoch_end: Any = None,
-    cancel_check: Any = None,
-) -> Any:
-    """Delegate yolov8n training to the Governed YOLO Curriculum Runner.
-
-    Coordinates multi-stage resolution ladder progression (320px -> 480px -> 640px),
-    hardware-aware Sawtooth VRAM batch allocation, dataset fraction scaling,
-    and real-time telemetry synchronization while preserving native Ultralytics
-    inner-loop optimizations.
-    """
-    return run_governed_yolo_training(
-        args=args,
-        config=config,
-        project_root=project_root,
-        on_epoch_end=on_epoch_end,
-        cancel_check=cancel_check,
-    )
-
-
 def main(raw_args: list[str] | None = None) -> None:
     """Primary execution entry point for LemGendary Model Training Suite."""
     parser = build_cli_parser()
@@ -501,7 +478,7 @@ def main(raw_args: list[str] | None = None) -> None:
         load_secrets()
         project_root = get_project_root()
         config = load_workspace_config(project_root)
-        _run_yolo_native(args, config, project_root)
+        run_governed_yolo_training(args, config, project_root)
         return
 
     ctx = build_training_context(args)
