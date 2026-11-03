@@ -142,7 +142,7 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
 
     application = FastAPI(
         title="LemGendary Model Training Suite Sidecar API",
-        version="16.9.94",
+        version="16.9.95",
         description=(
             "Local background daemon coordinating training runs, evaluations, "
             "exports, and telemetry."

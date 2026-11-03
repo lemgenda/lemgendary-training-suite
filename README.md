@@ -11,11 +11,17 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.94-STABLE` |
+| **Version** | `v16.9.95-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.95 - Dataset Discovery Split into Lookup Steps
+
+- **`data/dataset_sources.py`**: `load_manifest` (33 local variables, 44 branches, 89 statements, nesting 9) and `get_dataset_path` (22 local variables, nesting 6) are split into one step each. `load_manifest` now reads the registry names (`_raw_dataset_names`), expands them (`_dataset_names`, `_dataset_suffix`), picks the folder to scan (`_scan_dir`) and falls back to attached Kaggle manifolds (`_load_attached_manifolds`). `get_dataset_path` dispatches to `_colab_dataset_path`, `_kaggle_dataset_path` and `_local_dataset_path` (gdown download in `_gdown_dataset`). The two copies of the image scan are one `_list_images`; the three case-insensitive folder scans share `_case_insensitive_entries`; the fuzzy Kaggle name match is `_match_attached`. The file has no design-check findings left (13 before).
+- **Behaviour is unchanged**: an old-vs-new comparison ran 10,000 random virtual file systems (Colab, Kaggle and local layouts, nested and case-variant folders, unreadable folders, attached manifolds, registry-resolved paths, gdown success and failure, container fallback, all split and task combinations) through both versions; samples, path cache, return values, exits, stdout, log records, file-system calls and their order were identical.
+- **Tests**: 289 passed.
 
 ### v16.9.94 - Typed GUI Model Catalog with an Always-Present Training Verdict
 
