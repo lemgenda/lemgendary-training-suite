@@ -8,6 +8,7 @@ completed rung is skipped, never retrained at a lower setting.
 
 from __future__ import annotations
 
+import argparse
 import logging
 import shutil
 import time
@@ -18,6 +19,7 @@ from typing import Any
 
 import torch
 
+from training.governance.delegation import Delegated
 from training.governance.yolo_callbacks import (
     TRAINING_CANCELLED,
     VALIDATION_CANCELLED,
@@ -28,7 +30,7 @@ from training.governance.yolo_callbacks import (
     make_epoch_start_hook,
     make_pretrain_routine_end,
 )
-from training.governance.yolo_checkpoint_sync import YoloCheckpointSyncMixin
+from training.governance.yolo_checkpoint_sync import YoloHubSync
 from training.governance.yolo_ladder import (
     BatchBudget,
     SawtoothMessages,
@@ -46,6 +48,7 @@ from training.governance.yolo_resume import (
     replay_metrics_history,
     wipe_clean_run,
 )
+from training.telemetry import TelemetryEngine
 from training.training.summary import TrainingSummary
 
 logger = logging.getLogger("lemtrain.governance.yolo")
@@ -127,19 +130,77 @@ def _first_nonempty(*candidates: Path) -> Path | None:
     return None
 
 
-class YoloRunMixin(YoloCheckpointSyncMixin):
-    """Curriculum run loop mixed into ``YOLOCurriculumGovernor``."""
+@dataclass
+class YoloRunHooks:
+    """Project root and the caller's epoch-end and cancellation callbacks."""
 
-    # Set by ``YOLOCurriculumGovernor.__init__``.
+    project_root: Path
+    on_epoch_end: Callable[[int, dict[str, float]], None] | None = None
+    cancel_check: Callable[[], bool] | None = None
+
+
+@dataclass
+class YoloModelSpec:
+    """Registry entry of yolov8n, its merged optimization block and SOTA targets."""
+
     model_info: dict[str, Any]
     opt_config: dict[str, Any]
     sota_targets: dict[str, float]
-    runs_dir: Path
-    on_epoch_end: Callable[[int, dict[str, float]], None] | None
-    cancel_check: Callable[[], bool] | None
+
+
+_BEST = "sync.best"
+
+
+class YoloRunMixin:
+    """Curriculum run loop mixed into ``YOLOCurriculumGovernor``.
+
+    The governor keeps three groups, set by ``YOLOCurriculumGovernor.__init__``: ``hooks``
+    (project root and caller callbacks), ``spec`` (registry entry, merged optimization
+    block and SOTA targets) and ``sync`` (models hub, telemetry and best-so-far state).
+    Every historical flat attribute name is a ``Delegated`` descriptor onto one of them.
+    """
+
+    hooks: YoloRunHooks
+    spec: YoloModelSpec
+    sync: YoloHubSync
+
+    project_root: Delegated[Path] = Delegated("hooks")
+    on_epoch_end: Delegated[Callable[[int, dict[str, float]], None] | None] = Delegated("hooks")
+    cancel_check: Delegated[Callable[[], bool] | None] = Delegated("hooks")
+    model_info: Delegated[dict[str, Any]] = Delegated("spec")
+    opt_config: Delegated[dict[str, Any]] = Delegated("spec")
+    sota_targets: Delegated[dict[str, float]] = Delegated("spec")
+    args: Delegated[argparse.Namespace] = Delegated("sync")
+    config: Delegated[dict[str, Any]] = Delegated("sync")
+    models_hub_dir: Delegated[Path] = Delegated("sync")
+    models_hub_ckpt_dir: Delegated[Path] = Delegated("sync")
+    runs_dir: Delegated[Path] = Delegated("sync")
+    telemetry: Delegated[TelemetryEngine] = Delegated("sync")
+    best_overall_metrics: Delegated[dict[str, float]] = Delegated(_BEST)
+    sota_achieved: Delegated[bool] = Delegated(_BEST)
+    best_sota_quality: Delegated[float] = Delegated(_BEST)
+    best_export_quality: Delegated[float] = Delegated(_BEST)
+
     # Export steps implemented by ``YOLOCurriculumGovernor``.
     _export_if_new_best: Callable[[Any], None]
     export_sota_models: Callable[[Path], None]
+
+    def synchronize_checkpoints(
+        self,
+        stage_dir: Path,
+        resolution: int,
+        fraction: float = 1.0,
+        stage_index: int = 1,
+        global_epoch: int | None = None,
+    ) -> None:
+        """Mirror a rung's checkpoints, metrics and plots into the models hub."""
+        self.sync.synchronize_checkpoints(
+            stage_dir,
+            resolution,
+            fraction=fraction,
+            stage_index=stage_index,
+            global_epoch=global_epoch,
+        )
 
     def _create_model(self, weights: str | Path) -> Any:
         raise NotImplementedError

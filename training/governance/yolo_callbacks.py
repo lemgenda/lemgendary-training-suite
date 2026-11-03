@@ -166,6 +166,21 @@ class EpochMetrics:
 
 
 @dataclass
+class RungHistory:
+    """Per-epoch train loss, validation loss and mAP50 of the current rung."""
+
+    train_loss: list[float] = field(default_factory=list)
+    val_loss: list[float] = field(default_factory=list)
+    map50: list[float] = field(default_factory=list)
+
+    def record(self, metrics: EpochMetrics) -> None:
+        """Append one epoch's readings."""
+        self.train_loss.append(metrics.train_loss)
+        self.val_loss.append(metrics.val_loss)
+        self.map50.append(metrics.map50)
+
+
+@dataclass
 class RungAdvanceMonitor:
     """Plateau and overfitting detector that ends a ladder rung.
 
@@ -180,17 +195,13 @@ class RungAdvanceMonitor:
     best: float = -1.0
     stall: int = 0
     rescued_overfitting: bool = False
-    loss_history: list[float] = field(default_factory=list)
-    val_loss_history: list[float] = field(default_factory=list)
-    map_history: list[float] = field(default_factory=list)
+    history: RungHistory = field(default_factory=RungHistory)
 
     def observe(
         self, trainer: Any, stage: YOLOLadderStage, metrics: EpochMetrics, rung_epochs: int
     ) -> None:
         """Record one epoch and set ``trainer.stop`` when the rung should advance."""
-        self.loss_history.append(metrics.train_loss)
-        self.val_loss_history.append(metrics.val_loss)
-        self.map_history.append(metrics.map50)
+        self.history.record(metrics)
 
         if metrics.quality > self.best + self.min_delta:
             self.best = metrics.quality
@@ -212,13 +223,14 @@ class RungAdvanceMonitor:
 
         if (
             rung_epochs >= self.min_epochs
-            and len(self.loss_history) >= 4
+            and len(self.history.train_loss) >= 4
             and not self.rescued_overfitting
         ):
             self._check_overfitting(trainer, stage)
 
     def _check_overfitting(self, trainer: Any, stage: YOLOLadderStage) -> None:
-        losses, val_losses, maps = self.loss_history, self.val_loss_history, self.map_history
+        history = self.history
+        losses, val_losses, maps = history.train_loss, history.val_loss, history.map50
         train_trend = losses[-1] - losses[-3]
         val_trend = val_losses[-1] - val_losses[-3]
         val_consecutive_rise = (
@@ -262,24 +274,17 @@ class EpochHookSpec:
     cancel_first: bool = False
 
 
+@dataclass(eq=False)
 class GovernedEpochHook:
     """``on_fit_epoch_end`` hook: telemetry, checkpoint sync, SOTA and rung advancement."""
 
-    def __init__(
-        self,
-        governor: YoloRunMixin,
-        stage: YOLOLadderStage,
-        prior_epochs: int,
-        target_dir: Path,
-        spec: EpochHookSpec,
-    ) -> None:
-        self.governor = governor
-        self.stage = stage
-        self.prior_epochs = prior_epochs
-        self.target_dir = target_dir
-        self.spec = spec
-        self.recorded: set[int] = set()
-        self.epochs_recorded = 0
+    governor: YoloRunMixin
+    stage: YOLOLadderStage
+    prior_epochs: int
+    target_dir: Path
+    spec: EpochHookSpec
+    recorded: set[int] = field(default_factory=set, init=False)
+    epochs_recorded: int = field(default=0, init=False)
 
     def __call__(self, trainer: Any) -> None:
         """Process one finished epoch; expected failures are logged, never fatal."""
