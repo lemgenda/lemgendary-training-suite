@@ -11,11 +11,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.76-STABLE` |
+| **Version** | `v16.9.77-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.77 - Shared Error Tuples, Kaggle Log Polling and Test Fixtures
+
+- **New module `training/utils/error_types.py`**: `STATE_RESTORE_ERRORS`, `CLOUD_SYNC_START_ERRORS`, `EPOCH_CALLBACK_ERRORS` and `METRIC_INIT_ERRORS` replace identical private tuples in `core_loop`, `training/training/engine.py`, `yolo_governor` and `validation`. The checkpoint-load and export handlers in `core_loop` and `yolo_governor` now use `CHECKPOINT_LOAD_ERRORS` (`training/checkpoint/manager.py`) and `EXPORT_ERRORS` (`training/export/base.py`). Those tuples also list `AttributeError`, `ImportError`, `ExportError` and `DecodeError`, so these handlers now also recover from those load and export failures.
+- **Kaggle kernel monitoring**: `training.kaggle_monitor` adds `fetch_new_log_lines` and `is_epoch_milestone`. The CLI monitor and the server's two kernel-watch jobs share them instead of three copies of the log-polling and auto-pull regex code. `training.cloud.credentials.parse_kaggle_users_text` is now the only `.kaggle_users` parser.
+- **Removed `training/optimization_engine.py`**: this legacy re-export shim had no callers outside two tests. Import the governor classes from `training.governance`.
+- **Tests**: `tests/fixtures/models.py` adds `SingleConvModel`, which the hardware and VRAM-governor tests now share. 260 passed, 0 failed.
+- **Pylint `duplicate-code`**: 38 findings down to 24.
 
 ### v16.9.76 - Shared Forex Spec, Notebook Assembly and ONNX Export Helpers
 

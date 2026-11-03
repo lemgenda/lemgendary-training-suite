@@ -25,55 +25,21 @@ import torch
 import yaml
 
 from data.yolo_config_gen import generate_yolo_yaml
+from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS
 from training.cloud_sync import trigger_cloud_sync
+from training.export.base import EXPORT_ERRORS
 from training.export.universal_exporter import export_tri_format_yolo
 from training.telemetry import TelemetryEngine
 from training.training.summary import TrainingSummary
+from training.utils.error_types import CLOUD_SYNC_START_ERRORS, EPOCH_CALLBACK_ERRORS
 from training.utils.lazy_imports import load_ultralytics
 
 logger = logging.getLogger("lemtrain.governance.yolo")
 
-# Failure modes of ONNX/PyTorch export (missing exporter deps, IO, tracing/graph errors).
-_EXPORT_ERRORS: tuple[type[BaseException], ...] = (
-    ImportError,
-    OSError,
-    RuntimeError,
-    ValueError,
-    TypeError,
-    AttributeError,
-    KeyError,
-)
 # Failure modes of one governed epoch callback: metrics/CSV parsing, checkpoint and
 # filesystem sync, and the caller-supplied on_epoch_end (formatting, log broadcast).
 # Anything outside this set is a bug and propagates out of the Ultralytics fit loop.
-_EPOCH_CALLBACK_ERRORS: tuple[type[BaseException], ...] = (
-    OSError,
-    RuntimeError,
-    ValueError,
-    TypeError,
-    KeyError,
-    IndexError,
-    AttributeError,
-    ZeroDivisionError,
-)
-# Failure modes of unpickling a YOLO checkpoint (truncation, foreign classes, torch version skew).
-_CKPT_LOAD_ERRORS: tuple[type[BaseException], ...] = (
-    OSError,
-    EOFError,
-    RuntimeError,
-    ValueError,
-    pickle.UnpicklingError,
-    ImportError,
-    AttributeError,
-)
-# Failure modes of starting a cloud sync (manager construction, thread start, filesystem).
-_CLOUD_SYNC_ERRORS: tuple[type[BaseException], ...] = (
-    OSError,
-    RuntimeError,
-    ValueError,
-    TypeError,
-    KeyError,
-)
+_EPOCH_CALLBACK_ERRORS = (*EPOCH_CALLBACK_ERRORS, IndexError, ZeroDivisionError)
 
 
 def create_yolo_model(weights: str | Path) -> Any:
@@ -442,7 +408,7 @@ class YOLOCurriculumGovernor:
                 flush=True,
             )
             self.export_sota_models(Path(best_path))
-        except _EXPORT_ERRORS as export_err:
+        except EXPORT_ERRORS as export_err:
             logger.warning("New-best export hook failed: %s", export_err)
 
     def export_sota_models(self, source_weights: Path) -> None:
@@ -471,7 +437,7 @@ class YOLOCurriculumGovernor:
                 f"{self.models_hub_dir}",
                 flush=True,
             )
-        except _EXPORT_ERRORS as export_err:
+        except EXPORT_ERRORS as export_err:
             logger.warning("Error during tri-format SOTA model export: %s", export_err)
 
     def synchronize_checkpoints(
@@ -593,7 +559,7 @@ class YOLOCurriculumGovernor:
         ):
             try:
                 trigger_cloud_sync("yolov8n", global_epoch, self.config)
-            except _CLOUD_SYNC_ERRORS as sync_err:
+            except CLOUD_SYNC_START_ERRORS as sync_err:
                 logger.warning(
                     "Non-fatal cloud sync trigger error at epoch %s: %s", global_epoch, sync_err
                 )
@@ -711,7 +677,7 @@ class YOLOCurriculumGovernor:
                     and loaded.get("optimizer") is not None
                 ):
                     ckpt_dict = loaded
-            except _CKPT_LOAD_ERRORS as exc:
+            except CHECKPOINT_LOAD_ERRORS as exc:
                 logger.warning("Failed reading checkpoint dict from %s: %s", candidate_ckpt, exc)
 
         # Inspect metrics.csv history

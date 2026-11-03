@@ -110,26 +110,33 @@ def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, Any]]:
     if target_file and target_file.exists():
         try:
             content = target_file.read_text(encoding="utf-8")
-            for line in content.splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                m_user = re.search(r"KAGGLE_USERNAME=([^,;\s]+)", line)
-                m_token = re.search(r"KAGGLE_API_TOKEN=([^,;\s]+)", line)
-                if m_user and m_token:
-                    u = m_user.group(1).strip()
-                    accounts.append(
-                        {
-                            "username": u,
-                            "token": m_token.group(1).strip(),
-                            "is_default": u == "lemtreursi",
-                        }
-                    )
+            accounts.extend(
+                {"username": user, "token": token, "is_default": user == "lemtreursi"}
+                for user, token in parse_kaggle_users_text(content)
+            )
             accounts.sort(key=lambda a: not a.get("is_default", False))
         except OSError as e:
             logger.warning("Could not read .kaggle_users at %s: %s", target_file, e)
 
     return accounts
+
+
+def parse_kaggle_users_text(content: str) -> list[tuple[str, str]]:
+    """Parse ``.kaggle_users`` text into (username, token) pairs.
+
+    Expected format per line: ``KAGGLE_USERNAME=<user>, KAGGLE_API_TOKEN=<token>;``.
+    Blank lines and ``#`` comments are skipped.
+    """
+    pairs: list[tuple[str, str]] = []
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m_user = re.search(r"KAGGLE_USERNAME=([^,;\s]+)", line)
+        m_token = re.search(r"KAGGLE_API_TOKEN=([^,;\s]+)", line)
+        if m_user and m_token:
+            pairs.append((m_user.group(1).strip(), m_token.group(1).strip()))
+    return pairs
 
 
 def resolve_kaggle_credentials(

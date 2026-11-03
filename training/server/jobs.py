@@ -32,7 +32,11 @@ from training.cloud.kaggle_model_sync import KaggleModelSyncManager, ModelPushRe
 from training.cloud.variations import VARIATION_BY_KEY
 from training.export.staging import VariationStagingService
 from training.kaggle_cloud_manager import pull_kaggle_artifacts
-from training.kaggle_monitor import authenticate_kaggle_user, parse_kernel_logs
+from training.kaggle_monitor import (
+    authenticate_kaggle_user,
+    fetch_new_log_lines,
+    is_epoch_milestone,
+)
 from training.registry import get_model_registry
 from training.server.state import ServerState
 from training.services.eval_service import EvaluationService
@@ -646,35 +650,21 @@ class JobManager:
                 status_val = last_status
 
             try:
-                raw_logs = api.kernels_logs(kernel_slug)
-                log_text = parse_kernel_logs(raw_logs)
-                all_lines = log_text.splitlines()
-                if len(all_lines) > printed_lines_count:
-                    new_lines = all_lines[printed_lines_count:]
-                    for line in new_lines:
-                        self._broadcast_log(job_id, line)
-                        if auto_pull and model_key:
-                            epoch_signal = re.search(
-                                (
-                                    r"epoch\s+\d+\s+complete|saving.*checkpoint|model "
-                                    r"version.*committed|\[sota\]"
-                                ),
-                                line,
-                                re.IGNORECASE,
-                            )
-                            if epoch_signal:
-                                self._broadcast_log(
-                                    job_id,
-                                    f"[AUTO-PULL] Epoch milestone detected in logs. "
-                                    f"Syncing artifacts for {model_key}...",
-                                )
-                                try:
-                                    pull_kaggle_artifacts(model_key, username=user)
-                                except _PULL_ERRORS as pull_err:
-                                    self._broadcast_log(
-                                        job_id, f"[WARN] Auto-pull notice: {pull_err}"
-                                    )
-                    printed_lines_count = len(all_lines)
+                new_lines, printed_lines_count = fetch_new_log_lines(
+                    api, kernel_slug, printed_lines_count
+                )
+                for line in new_lines:
+                    self._broadcast_log(job_id, line)
+                    if auto_pull and model_key and is_epoch_milestone(line):
+                        self._broadcast_log(
+                            job_id,
+                            f"[AUTO-PULL] Epoch milestone detected in logs. "
+                            f"Syncing artifacts for {model_key}...",
+                        )
+                        try:
+                            pull_kaggle_artifacts(model_key, username=user)
+                        except _PULL_ERRORS as pull_err:
+                            self._broadcast_log(job_id, f"[WARN] Auto-pull notice: {pull_err}")
             except KAGGLE_API_ERRORS as exc:
                 logger.debug(
                     "Kaggle log poll failed for %s; retrying next interval: %s", kernel_slug, exc
@@ -786,37 +776,20 @@ class JobManager:
                 status_val = last_status
 
             try:
-                raw_logs = api.kernels_logs(kernel_slug)
-                log_text = parse_kernel_logs(raw_logs)
-                all_lines = log_text.splitlines()
-                if len(all_lines) > printed_lines_count:
-                    new_lines = all_lines[printed_lines_count:]
-                    for line in new_lines:
-                        self._broadcast_log(job_id, line)
-                        if auto_pull and model_key:
-                            epoch_signal = re.search(
-                                (
-                                    r"epoch\s+\d+\s+complete|saving.*checkpoint|model "
-                                    r"version.*committed|\[sota\]"
-                                ),
-                                line,
-                                re.IGNORECASE,
-                            )
-                            if epoch_signal:
-                                self._broadcast_log(
-                                    job_id,
-                                    (
-                                        "[AUTO-PULL] Checkpoint milestone detected. Syncing "
-                                        f"{model_key}..."
-                                    ),
-                                )
-                                try:
-                                    pull_kaggle_artifacts(model_key, username=user)
-                                except _PULL_ERRORS as pull_err:
-                                    self._broadcast_log(
-                                        job_id, f"[WARN] Auto-pull notice: {pull_err}"
-                                    )
-                    printed_lines_count = len(all_lines)
+                new_lines, printed_lines_count = fetch_new_log_lines(
+                    api, kernel_slug, printed_lines_count
+                )
+                for line in new_lines:
+                    self._broadcast_log(job_id, line)
+                    if auto_pull and model_key and is_epoch_milestone(line):
+                        self._broadcast_log(
+                            job_id,
+                            f"[AUTO-PULL] Checkpoint milestone detected. Syncing {model_key}...",
+                        )
+                        try:
+                            pull_kaggle_artifacts(model_key, username=user)
+                        except _PULL_ERRORS as pull_err:
+                            self._broadcast_log(job_id, f"[WARN] Auto-pull notice: {pull_err}")
             except KAGGLE_API_ERRORS as exc:
                 logger.debug(
                     "Kaggle log poll failed for %s; retrying next interval: %s", kernel_slug, exc

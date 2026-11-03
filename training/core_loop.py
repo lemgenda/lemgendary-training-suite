@@ -13,7 +13,6 @@ import argparse
 import csv
 import logging
 import os
-import pickle
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +30,7 @@ from training.checkpoint import (
     parse_resume_state,
     safe_load_checkpoint,
 )
+from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS
 from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
 from training.data import build_train_loader, rebuild_train_loader
@@ -63,6 +63,7 @@ from training.training import (
     create_grad_scaler,
     run_training,
 )
+from training.utils.error_types import STATE_RESTORE_ERRORS
 from training.utils.interrupt import (
     _ACTIVE_PROCESSES,
     cleanup_active_processes,
@@ -87,24 +88,6 @@ _DATASET_BUILD_ERRORS: tuple[type[BaseException], ...] = (
     KeyError,
     TypeError,
     RuntimeError,
-)
-# Failure modes of torch.load on a corrupt/truncated/incompatible checkpoint.
-_CHECKPOINT_LOAD_ERRORS: tuple[type[BaseException], ...] = (
-    OSError,
-    RuntimeError,
-    ValueError,
-    EOFError,
-    pickle.UnpicklingError,
-)
-# Failure modes of restoring optimizer/scheduler/governor state and rebuilding loaders.
-_STATE_RESTORE_ERRORS: tuple[type[BaseException], ...] = (
-    ValueError,
-    TypeError,
-    KeyError,
-    IndexError,
-    AttributeError,
-    RuntimeError,
-    OSError,
 )
 # Failure modes of post-training artefact generation (docs, notebooks, sync, teardown).
 _ARTEFACT_ERRORS: tuple[type[BaseException], ...] = (
@@ -594,7 +577,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                         best_candidate = cand_p
                         best_cand_epoch = c_ep
                         best_cand_mtime = c_mt
-                except _CHECKPOINT_LOAD_ERRORS as cand_err:
+                except CHECKPOINT_LOAD_ERRORS as cand_err:
                     logger.warning(
                         "Checkpoint candidate %s could not be inspected: %s", cand_p, cand_err
                     )
@@ -618,7 +601,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 if isinstance(opt_state, dict):
                     try:
                         optimizer.load_state_dict(opt_state)
-                    except _STATE_RESTORE_ERRORS as opt_err:
+                    except STATE_RESTORE_ERRORS as opt_err:
                         logger.warning("Optimizer state could not be loaded cleanly: %s", opt_err)
                 sched_state = loaded_data.get("scheduler_state") or loaded_data.get(
                     "scheduler_state_dict"
@@ -631,7 +614,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 elif isinstance(sched_state, dict) and scheduler is not None:
                     try:
                         scheduler.load_state_dict(sched_state)
-                    except _STATE_RESTORE_ERRORS as sched_err:
+                    except STATE_RESTORE_ERRORS as sched_err:
                         logger.warning("Scheduler state could not be loaded cleanly: %s", sched_err)
                 gov_state = dict(loaded_data.get("governor_state") or {})
                 ckpt_epoch = int(loaded_data.get("epoch", 0) or 0)
@@ -782,7 +765,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                 rec_res,
                                 rec_frac if rec_frac is not None else 1.0,
                             )
-                    except _STATE_RESTORE_ERRORS as gov_err:
+                    except STATE_RESTORE_ERRORS as gov_err:
                         logger.warning("Governor state could not be loaded cleanly: %s", gov_err)
                 if hasattr(sota_tracker, "best_quality"):
                     saved_best = (

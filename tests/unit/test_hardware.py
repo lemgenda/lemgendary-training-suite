@@ -3,26 +3,12 @@
 import unittest
 
 import torch
-from torch import nn
 
+from tests.fixtures.models import SingleConvModel
 from training.hardware.discovery import DeviceInfo, discover_device
 from training.hardware.policy import HardwarePolicyResult, apply_hardware_policy
 from training.hardware.probe import audit_hardware_vram
 from training.hardware.sentinel import SentinelGuard
-
-
-class DummyModel(nn.Module):
-    """Single-conv model used as a hardware-audit fixture."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.conv = nn.Conv2d(3, 3, kernel_size=3, padding=1)
-
-    def forward(self, x: torch.Tensor | dict[str, torch.Tensor]) -> torch.Tensor:
-        """Apply the conv to ``x`` (or to ``x["pixel_values"]`` for dict batches)."""
-        if isinstance(x, dict):
-            x = x["pixel_values"]
-        return self.conv(x)
 
 
 class TestHardwareDiscovery(unittest.TestCase):
@@ -71,7 +57,7 @@ class TestHardwareProbe(unittest.TestCase):
 
     def test_audit_hardware_vram_cpu(self) -> None:
         """Verify the VRAM audit on CPU for a restoration model."""
-        model = DummyModel()
+        model = SingleConvModel()
         model_info = {"dataset_type": "restoration", "input_size": 224}
         config = {"defaults": {"batch_size": 8}}
         batch = audit_hardware_vram("test_mirnet", model_info, config, torch.device("cpu"), model)
@@ -79,7 +65,7 @@ class TestHardwareProbe(unittest.TestCase):
 
     def test_audit_hardware_vram_forex(self) -> None:
         """Verify the VRAM audit for a forex model."""
-        model = DummyModel()
+        model = SingleConvModel()
         model_info = {"dataset_type": "forex", "batch_size": 128}
         config = {}
         batch = audit_hardware_vram(

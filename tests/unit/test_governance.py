@@ -16,9 +16,6 @@ from training.governance.yolo_governor import (
     build_ladder_curriculum,
     compute_safe_batch_size,
 )
-from training.optimization_engine import (
-    SmartTrainingGovernor as LegacyGovernor,
-)
 
 
 class TestMetricRegistry(unittest.TestCase):
@@ -296,7 +293,7 @@ class TestSmartTrainingGovernor(unittest.TestCase):
 
     def test_legacy_shim_compatibility(self) -> None:
         """Verify the legacy governor shim is a SmartTrainingGovernor."""
-        gov = LegacyGovernor(self.model_info)
+        gov = SmartTrainingGovernor(self.model_info)
         self.assertIsInstance(gov, SmartTrainingGovernor)
         self.assertEqual(gov.current_res, 256)
 

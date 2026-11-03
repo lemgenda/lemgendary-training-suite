@@ -35,38 +35,13 @@ from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
 from training.training.summary import TrainingSummary
 from training.training.validation import validate_one_epoch
+from training.utils.error_types import (
+    CLOUD_SYNC_START_ERRORS,
+    EPOCH_CALLBACK_ERRORS,
+    STATE_RESTORE_ERRORS,
+)
 
 logger = logging.getLogger("lemtrain.engine")
-
-# Failure modes of a governor audit + dataset/loader rebuild (bad state values, missing attrs,
-# CUDA/IO).
-_GOVERNOR_AUDIT_ERRORS: tuple[type[BaseException], ...] = (
-    ValueError,
-    TypeError,
-    KeyError,
-    IndexError,
-    AttributeError,
-    RuntimeError,
-    OSError,
-)
-# Failure modes of the caller-supplied on_epoch_end telemetry callback (metric formatting,
-# log broadcast IO). Anything else is a bug and propagates.
-_EPOCH_CALLBACK_ERRORS: tuple[type[BaseException], ...] = (
-    OSError,
-    RuntimeError,
-    ValueError,
-    TypeError,
-    KeyError,
-    AttributeError,
-)
-# Failure modes of starting a cloud sync (manager construction, thread start, filesystem).
-_CLOUD_SYNC_ERRORS: tuple[type[BaseException], ...] = (
-    OSError,
-    RuntimeError,
-    ValueError,
-    TypeError,
-    KeyError,
-)
 
 
 def run_training(
@@ -409,7 +384,7 @@ def run_training(
                             param_group["lr"] = param_group.get("lr", 1e-4) * lr_mult
                     logger.debug("Applied governor learning rate multiplier: %.3fx", lr_mult)
 
-            except _GOVERNOR_AUDIT_ERRORS as gov_err:
+            except STATE_RESTORE_ERRORS as gov_err:
                 logger.warning(
                     "Governor audit or loader rebuild failed at epoch %d: %s", epoch, gov_err
                 )
@@ -491,7 +466,7 @@ def run_training(
         if getattr(ctx.args, "auto_sync", False) and getattr(ctx.args, "env", "local") == "kaggle":
             try:
                 trigger_cloud_sync(ctx.model_name, epoch, ctx.config)
-            except _CLOUD_SYNC_ERRORS as sync_err:
+            except CLOUD_SYNC_START_ERRORS as sync_err:
                 logger.warning(
                     "Automated cloud sync trigger failed at epoch %d: %s", epoch, sync_err
                 )
@@ -509,7 +484,7 @@ def run_training(
                     total_time=time.time() - total_start_time,
                     status="cancelled",
                 )
-            except _EPOCH_CALLBACK_ERRORS:
+            except EPOCH_CALLBACK_ERRORS:
                 # Boundary: on_epoch_end is caller-supplied code; an expected failure is logged
                 # with traceback and must not abort training.
                 logger.exception("Telemetry epoch callback failed at epoch %d", epoch)

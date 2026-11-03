@@ -20,21 +20,13 @@ import torch.distributed as dist
 from training.training.amp import compute_ssim_gpu, get_autocast_context
 from training.training.context import TrainingContext
 from training.training.epoch import _unpack_batch
+from training.utils.error_types import METRIC_INIT_ERRORS
 
 logger = logging.getLogger("lemtrain.training.validation")
 
 # Failure modes of per-batch metric math on model outputs (shape/dtype mismatch, CUDA/OOM, bad
 # indexing).
 _METRIC_ERRORS: tuple[type[BaseException], ...] = (RuntimeError, ValueError, TypeError, IndexError)
-# Failure modes of constructing torchmetrics modules (missing backends, weight download/cache,
-# device move).
-_METRIC_INIT_ERRORS: tuple[type[BaseException], ...] = (
-    ImportError,
-    OSError,
-    RuntimeError,
-    ValueError,
-    TypeError,
-)
 
 try:
     from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
@@ -423,7 +415,7 @@ def validate_one_epoch(
                             lpips_metric_module.eval()
                             for p_param in lpips_metric_module.parameters():
                                 p_param.requires_grad = False
-                        except _METRIC_INIT_ERRORS as exc:
+                        except METRIC_INIT_ERRORS as exc:
                             logger.warning("LPIPS metric module initialization failed: %s", exc)
                             lpips_metric_module = False
 
@@ -463,7 +455,7 @@ def validate_one_epoch(
                                 sync_on_compute=False,
                             ).to(device)
                             fid_metric_module.eval()
-                        except _METRIC_INIT_ERRORS as exc:
+                        except METRIC_INIT_ERRORS as exc:
                             logger.warning("FID metric module initialization failed: %s", exc)
                             fid_metric_module = False
 

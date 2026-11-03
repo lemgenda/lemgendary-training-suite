@@ -19,6 +19,7 @@ from typing import Any
 
 import yaml
 
+from training.cloud.credentials import parse_kaggle_users_text
 from training.cloud.errors import KAGGLE_API_ERRORS
 from training.kaggle_cloud_manager import (
     create_cloud_kernel_bundle,
@@ -68,16 +69,10 @@ def load_kaggle_users(users_file: Path | None = None) -> tuple[list[dict[str, st
     if target_file and target_file.exists():
         try:
             content = target_file.read_text(encoding="utf-8")
-            for line in content.splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                m_user = re.search(r"KAGGLE_USERNAME=([^,;\s]+)", line)
-                m_token = re.search(r"KAGGLE_API_TOKEN=([^,;\s]+)", line)
-                if m_user and m_token:
-                    accounts.append(
-                        {"username": m_user.group(1).strip(), "token": m_token.group(1).strip()}
-                    )
+            accounts.extend(
+                {"username": user, "token": token}
+                for user, token in parse_kaggle_users_text(content)
+            )
         except OSError as e:
             print(f"[WARN] Failed to read users registry at {target_file}: {e}")
 
@@ -181,6 +176,24 @@ def match_model_from_slug(slug: str | None) -> str | None:
     if "forex" in clean_slug:
         return "forex_predictor"
     return None
+
+
+# A kernel log line that marks a finished epoch or a saved checkpoint.
+_EPOCH_SIGNAL = re.compile(
+    r"epoch\s+\d+\s+complete|saving.*checkpoint|model version.*committed|\[sota\]",
+    re.IGNORECASE,
+)
+
+
+def is_epoch_milestone(line: str) -> bool:
+    """Return True when a kernel log line reports a finished epoch or a saved checkpoint."""
+    return _EPOCH_SIGNAL.search(line) is not None
+
+
+def fetch_new_log_lines(api: Any, kernel_slug: str, printed_count: int) -> tuple[list[str], int]:
+    """Return the kernel log lines after ``printed_count`` and the new printed count."""
+    all_lines = parse_kernel_logs(api.kernels_logs(kernel_slug)).splitlines()
+    return all_lines[printed_count:], max(printed_count, len(all_lines))
 
 
 def parse_kernel_logs(raw_logs: Any) -> str:
@@ -306,33 +319,21 @@ def stream_kernel_logs(
 
             # Poll logs
             try:
-                raw_logs = api.kernels_logs(kernel_slug)
-                log_text = parse_kernel_logs(raw_logs)
-                all_lines = log_text.splitlines()
-                if len(all_lines) > printed_lines_count:
-                    new_lines = all_lines[printed_lines_count:]
-                    for line in new_lines:
-                        print(line)
-                        # Check for epoch completion or checkpoint save if auto-pull is enabled
-                        if auto_pull and model_name:
-                            epoch_signal = re.search(
-                                (
-                                    r"epoch\s+\d+\s+complete|saving.*checkpoint|model "
-                                    r"version.*committed|\[sota\]"
-                                ),
-                                line,
-                                re.IGNORECASE,
-                            )
-                            if epoch_signal:
-                                print(
-                                    f"\n[{time.strftime('%H:%M:%S')}] [AUTO-PULL] New "
-                                    f"checkpoint detected. Syncing >> {model_name} <<..."
-                                )
-                                try:
-                                    pull_kaggle_artifacts(model_name, username=username)
-                                except _PULL_ERRORS as pull_err:
-                                    print(f"[WARN] Auto-pull notice: {pull_err}")
-                    printed_lines_count = len(all_lines)
+                new_lines, printed_lines_count = fetch_new_log_lines(
+                    api, kernel_slug, printed_lines_count
+                )
+                for line in new_lines:
+                    print(line)
+                    # Check for epoch completion or checkpoint save if auto-pull is enabled
+                    if auto_pull and model_name and is_epoch_milestone(line):
+                        print(
+                            f"\n[{time.strftime('%H:%M:%S')}] [AUTO-PULL] New "
+                            f"checkpoint detected. Syncing >> {model_name} <<..."
+                        )
+                        try:
+                            pull_kaggle_artifacts(model_name, username=username)
+                        except _PULL_ERRORS as pull_err:
+                            print(f"[WARN] Auto-pull notice: {pull_err}")
             except KAGGLE_API_ERRORS as exc:
                 logger.debug("Log poll failed for %s; retrying next interval: %s", kernel_slug, exc)
 

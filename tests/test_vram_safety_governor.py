@@ -3,25 +3,11 @@
 import unittest
 
 import torch
-from torch import nn
 
+from tests.fixtures.models import SingleConvModel
+from training.governance import SmartTrainingGovernor
 from training.model_registry import audit_hardware_vram
-from training.optimization_engine import SmartTrainingGovernor
 from training.ratchet import RatchetViolation
-
-
-class DummyRestorationModel(nn.Module):
-    """Single-conv restoration model used as a governor fixture."""
-
-    def __init__(self):
-        super().__init__()
-        self.conv = nn.Conv2d(3, 3, kernel_size=3, padding=1)
-
-    def forward(self, x):
-        """Apply the conv to ``x`` (or to ``x["pixel_values"]`` for dict batches)."""
-        if isinstance(x, dict):
-            x = x["pixel_values"]
-        return self.conv(x)
 
 
 class TestVRAMSafetyGovernor(unittest.TestCase):
@@ -86,7 +72,7 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
             "batch_size": "auto",
         }
         config = {"defaults": {"batch_size": 8}}
-        model = DummyRestorationModel()
+        model = SingleConvModel()
         device = torch.device("cpu")
         batch = audit_hardware_vram(
             "nafnet_debluring", model_info, config, device, model, res_override=256
