@@ -11,6 +11,7 @@ import logging
 import math
 import os
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -98,6 +99,21 @@ class DirectorySample:
 class DatasetTargetsMixin:
     """Directory sample loading and per-task target builders mixed into ``MultiTaskDataset``."""
 
+    # Host (``MultiTaskDataset``) state this mixin reads.
+    model_key: str
+    task_type: str
+    size: tuple[int, int]
+    transform: Callable[[Image.Image], torch.Tensor]
+    mask_transform: transforms.Compose
+    clean_transform: Callable[[Image.Image], torch.Tensor]
+    path_cache: dict[str, str | None]
+    nima_scores: dict[str, float]
+    # Provided by the host and by ``DatasetSourcesMixin``.
+    load_image: Callable[[str], Image.Image]
+    get_dataset_path: Callable[[str], str | None]
+    # ``split_path(ds_path, folder_name, fname, ext)``
+    split_path: Callable[[str, str, str, str], str]
+
     def load_directory_sample(self, ds_name: str, fname: str) -> DirectorySample:
         """Resolve ``fname`` in ``ds_name``, load its input and (restoration) target tensors."""
         ds_path = self.path_cache.get(ds_name)
@@ -110,8 +126,8 @@ class DatasetTargetsMixin:
         sample = DirectorySample(
             fname=fname,
             ds_path=ds_path,
-            img_path=self.split_path(ds_path, "images", fname),
-            tgt_path=self.split_path(ds_path, "targets", fname),
+            img_path=self.split_path(ds_path, "images", fname, ""),
+            tgt_path=self.split_path(ds_path, "targets", fname, ""),
             task_str=self.task_type,
         )
         has_img = os.path.exists(sample.img_path)
@@ -167,7 +183,7 @@ class DatasetTargetsMixin:
 
     def load_mask(self, sample: DirectorySample):
         """Load the sample's class mask (``masks/``), clamped to valid classes, or zeros."""
-        mask_path = self.split_path(sample.ds_path, "masks", sample.fname)
+        mask_path = self.split_path(sample.ds_path, "masks", sample.fname, "")
         if not os.path.exists(mask_path):
             return torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
         mask = Image.open(mask_path).convert("L")  # Masks are grayscale class labels.
@@ -217,7 +233,7 @@ class DatasetTargetsMixin:
 
     def parameter_item(self, sample: DirectorySample):
         """Degrade the clean image with random parameters; the target is the parameters."""
-        tgt_path = self.split_path(sample.ds_path, "targets", sample.fname)
+        tgt_path = self.split_path(sample.ds_path, "targets", sample.fname, "")
         clean_img = self.load_image(tgt_path) if os.path.exists(tgt_path) else sample.img
         clean_tensor = self.clean_transform(clean_img)
 

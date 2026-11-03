@@ -12,6 +12,7 @@ import random
 import subprocess
 import sys
 import zipfile
+from collections.abc import Callable
 
 from training.data.manifold import ManifoldResolver
 
@@ -140,6 +141,23 @@ def _match_attached(ds_name, attached):
 
 class DatasetSourcesMixin:
     """Dataset discovery mixed into ``MultiTaskDataset``."""
+
+    # Host (``MultiTaskDataset``) state this mixin reads and writes.
+    config: dict
+    env: str
+    is_train: bool
+    sample_fraction: float
+    split: str
+    data_root: str
+    model_key: str
+    model_info: dict
+    unified_models: dict
+    task_type: str
+    path_cache: dict[str, str | None]
+    samples: list[tuple[str, str | int]]
+    all_samples: list[tuple[str, str | int]]
+    # Provided by ``DatasetContainerMixin``.
+    load_container_samples: Callable[[set], None]
 
     def split_path(self, ds_path, folder_name, fname, ext=""):
         """Locate ``fname`` under ``folder_name``, falling back to the split-specific path."""

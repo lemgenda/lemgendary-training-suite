@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import onnx
+from onnx import external_data_helper
 
 from training.export.base import EXPORT_ERRORS, BaseModelExporter
 from training.registry import ModelSpecification
@@ -87,7 +88,7 @@ class YOLOModelExporter(BaseModelExporter):
                 raw_onnx = yolo_model.export(format="onnx", half=False, imgsz=640)
                 if raw_onnx and Path(raw_onnx).exists():
                     onnx_model = onnx.load(str(raw_onnx))
-                    onnx.external_data_helper.convert_model_to_external_data(
+                    external_data_helper.convert_model_to_external_data(
                         onnx_model,
                         all_tensors_to_one_file=True,
                         location=f"{model_key}_FP32.onnx.data",

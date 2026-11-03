@@ -236,7 +236,7 @@ def _model_with_stats(
     opt_cfg = info.get("optimization")
     if is_forex:
         ladder_type = "timeframe"
-        res_ladder = [1, 5, 15, 60, 240, 1440]
+        res_ladder: list[int] = [1, 5, 15, 60, 240, 1440]
         if (
             isinstance(opt_cfg, dict)
             and "res_ladder" in opt_cfg
@@ -547,7 +547,7 @@ def _model_with_stats(
     )
 
     # Target resolution from spatial ladder or model metadata
-    target_res = (
+    target_res: int = (
         max(res_ladder)
         if res_ladder
         else (info.get("resolution") or (512 if not is_forex else 1440))

@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from training.governance.governor_host import GovernorHost
+
 logger = logging.getLogger("lemtrain.governance.governor")
 
 AuditResult = tuple[bool, bool, bool, bool, bool, bool, bool, str]
@@ -58,15 +60,15 @@ class AuditDirectives:
         )
 
 
-class EpochSignalsMixin:
+class EpochSignalsMixin(GovernorHost):
     """Counters, holds and stability detectors used by ``EpochAuditMixin.audit_epoch``."""
 
     # Class-level defaults for the counters this mixin advances; the governor
-    # initialises the instance values (``breakout_lock`` is a ``Delegated`` there).
+    # initialises the instance values (``breakout_lock`` is a ``Delegated`` on
+    # ``GovernorHost``).
     epoch_count: int = 0
     session_epoch_count: int = 0
     metric_focus_epochs_remaining: int = 0
-    breakout_lock: int = 0
 
     def advance_counters(self) -> None:
         """Count the epoch, tick an open metric-focus window and the breakout lock."""
@@ -82,8 +84,9 @@ class EpochSignalsMixin:
     def tick_metric_focus(self) -> None:
         """Apply the active metric-focus loss weights and count the focus window down."""
         self.metric_focus_epochs_remaining -= 1
-        for name, value in METRIC_FOCUS_WEIGHTS.get(self.metric_focus_target, {}).items():
-            setattr(self, name, value)
+        if self.metric_focus_target is not None:
+            for name, value in METRIC_FOCUS_WEIGHTS.get(self.metric_focus_target, {}).items():
+                setattr(self, name, value)
 
         self.lr_multiplier = self.cooling_factor
         self.head_lr_multiplier = min(self.lr_multiplier * 2.0, 1.5)

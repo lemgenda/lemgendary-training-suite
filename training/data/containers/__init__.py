@@ -26,7 +26,10 @@ __all__ = [
 ]
 
 
-_FORMAT_READERS: dict[str, type[ContainerReader]] = {
+# Concrete reader classes (all share the ``(root, split="train")`` constructor).
+_ReaderClass = type[DirectoryReader | ParquetReader | MdsReader | LitDataReader | WebDatasetReader]
+
+_FORMAT_READERS: dict[str, _ReaderClass] = {
     "directory": DirectoryReader,
     "parquet": ParquetReader,
     "mds": MdsReader,
@@ -69,7 +72,7 @@ def _any_glob(dirs: tuple[Path, ...], patterns: tuple[str, ...]) -> bool:
     return any(next(d.glob(pattern), None) is not None for d in dirs for pattern in patterns)
 
 
-def _detect_reader_class(root: Path, split: str) -> type[ContainerReader]:
+def _detect_reader_class(root: Path, split: str) -> _ReaderClass:
     """Pick a reader from the files present (Parquet, WebDataset, MDS, LitData, directory)."""
     split_dir = root / split
     check_dir = split_dir if split_dir.exists() and split_dir.is_dir() else root

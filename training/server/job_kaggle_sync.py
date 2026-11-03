@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -14,6 +16,7 @@ from training.cloud.kaggle_model_sync import KaggleModelSyncManager, ModelPushRe
 from training.cloud.variations import VARIATION_BY_KEY
 from training.export.staging import VariationStagingService
 from training.registry import get_model_registry
+from training.server.state import ServerState
 
 logger = logging.getLogger("lemtrain.server.jobs")
 
@@ -30,6 +33,11 @@ class PushRequest:
 
 class KaggleSyncJobsMixin:
     """Kaggle model push and pull job executors."""
+
+    # Provided by ``JobManager``.
+    project_root: Path
+    state: ServerState
+    _broadcast_log: Callable[[str, str], None]
 
     def push_model_with_telemetry(
         self,

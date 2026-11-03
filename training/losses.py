@@ -11,10 +11,9 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-try:
-    from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
-except ImportError:
-    LearnedPerceptualImagePatchSimilarity = None
+from training.utils.lazy_imports import load_lpips_metric, load_optional
+
+LearnedPerceptualImagePatchSimilarity = load_optional(load_lpips_metric)
 
 logger = logging.getLogger("lemtrain.losses")
 
@@ -62,6 +61,8 @@ class ForexDualLoss(nn.Module):
         focal_gamma:      Focal loss focusing parameter (default 2.0).
         label_smoothing:  Label smoothing for direction targets (default 0.05).
     """
+
+    class_weights: torch.Tensor  # registered buffer
 
     def __init__(
         self,
@@ -307,12 +308,26 @@ def _face_detection_loss(pred: Any, target: torch.Tensor) -> torch.Tensor:
     return loss_conf + loss_bbox * 2.0 + loss_landm * 1.0
 
 
+def _is_forex_prediction(pred) -> bool:
+    """True for a Forex model output: a dict carrying direction logits."""
+    return isinstance(pred, dict) and ("direction" in pred or "direction_logits" in pred)
+
+
+def _restoration_output(pred) -> dict | None:
+    """``pred`` when it is a dict model output carrying ``restored_image``, else None."""
+    return pred if isinstance(pred, dict) and "restored_image" in pred else None
+
+
 class CombinedLoss(nn.Module):
     """
     LemGendary 2026 Unified Loss Engine
     Supports Restoration (L1+LPIPS), Quality (EMD+SoftSpearman+RankBoost),
     and Classification (CE/Focal).
     """
+
+    # Registered buffers.
+    rank_weights: torch.Tensor
+    task_lpips_weights: torch.Tensor
 
     def __init__(self, task_type="restoration", stabilizers=None, use_perc=False):
         super().__init__()
@@ -404,19 +419,17 @@ class CombinedLoss(nn.Module):
 
     def forward(self, pred, target, task_idx=None):
         """Dispatch to the loss for ``self.task_type`` and return the scalar loss."""
-        is_forex_pred = isinstance(pred, dict) and (
-            "direction" in pred or "direction_logits" in pred
-        )
-        if self.task_type in ("forex", "forex_dual") or is_forex_pred:
+        if self.task_type in ("forex", "forex_dual") or _is_forex_prediction(pred):
             self.forex_dual.stab = self.stab
             return self.forex_dual(pred, target)
 
         if self.task_type in ["restoration", "enhancement"]:
             detect_loss = None
-            if isinstance(pred, dict) and "restored_image" in pred:
-                img_pred = pred["restored_image"]
+            restored = _restoration_output(pred)
+            if restored is not None:
+                img_pred = restored["restored_image"]
                 img_target = target["image"] if isinstance(target, dict) else target
-                bbox_pred = pred.get("detections")
+                bbox_pred = restored.get("detections")
                 if bbox_pred is not None and isinstance(bbox_pred, torch.Tensor):
                     detect_loss = F.smooth_l1_loss(bbox_pred, torch.zeros_like(bbox_pred))
             elif isinstance(pred, (tuple, list)):
