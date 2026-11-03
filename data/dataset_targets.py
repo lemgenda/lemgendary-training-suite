@@ -20,6 +20,7 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
+from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
 from training.data.degrade import (
     apply_film_degradation,
     apply_synthetic_degradation,
@@ -81,14 +82,21 @@ def read_lines(path: str) -> list[str]:
         return list(f)
 
 
-@dataclass
-class DirectorySample:
-    """A directory-backed sample: its paths, loaded input and seeded tensors."""
+@dataclass(frozen=True)
+class SamplePaths:
+    """Where a directory-backed sample lives: its name, dataset root, input and target."""
 
     fname: str
     ds_path: str
     img_path: str
     tgt_path: str
+
+
+@dataclass
+class DirectorySample:
+    """A directory-backed sample: its paths, loaded input and seeded tensors."""
+
+    paths: SamplePaths
     task_str: str
     img: Any = None
     seed: int = 0
@@ -100,14 +108,10 @@ class DatasetTargetsMixin:
     """Directory sample loading and per-task target builders mixed into ``MultiTaskDataset``."""
 
     # Host (``MultiTaskDataset``) state this mixin reads.
-    model_key: str
-    task_type: str
-    size: tuple[int, int]
-    transform: Callable[[Image.Image], torch.Tensor]
-    mask_transform: transforms.Compose
-    clean_transform: Callable[[Image.Image], torch.Tensor]
-    path_cache: dict[str, str | None]
-    nima_scores: dict[str, float]
+    opts: DatasetOptions
+    spec: ModelSpec
+    catalog: SampleCatalog
+    pipes: TransformSet
     # Provided by the host and by ``DatasetSourcesMixin``.
     load_image: Callable[[str], Image.Image]
     get_dataset_path: Callable[[str], str | None]
@@ -116,26 +120,28 @@ class DatasetTargetsMixin:
 
     def load_directory_sample(self, ds_name: str, fname: str) -> DirectorySample:
         """Resolve ``fname`` in ``ds_name``, load its input and (restoration) target tensors."""
-        ds_path = self.path_cache.get(ds_name)
+        ds_path = self.catalog.path_cache.get(ds_name)
         if ds_path is None:
             ds_path = self.get_dataset_path(ds_name)
-            self.path_cache[ds_name] = ds_path
+            self.catalog.path_cache[ds_name] = ds_path
         if ds_path is None:
             ds_path = ""
 
         sample = DirectorySample(
-            fname=fname,
-            ds_path=ds_path,
-            img_path=self.split_path(ds_path, "images", fname, ""),
-            tgt_path=self.split_path(ds_path, "targets", fname, ""),
-            task_str=self.task_type,
+            paths=SamplePaths(
+                fname=fname,
+                ds_path=ds_path,
+                img_path=self.split_path(ds_path, "images", fname, ""),
+                tgt_path=self.split_path(ds_path, "targets", fname, ""),
+            ),
+            task_str=self.spec.task_type,
         )
-        has_img = os.path.exists(sample.img_path)
-        has_tgt = os.path.exists(sample.tgt_path)
-        if self.model_key == "professional_multitask_restoration":
+        has_img = os.path.exists(sample.paths.img_path)
+        has_tgt = os.path.exists(sample.paths.tgt_path)
+        if self.spec.model_key == "professional_multitask_restoration":
             sample.task_str = multitask_head(fname)
 
-        restoration = self.task_type in RESTORATION_TASKS
+        restoration = self.spec.task_type in RESTORATION_TASKS
         if not has_img and has_tgt and restoration:
             self._load_synthesized_pair(sample)
         else:
@@ -148,20 +154,20 @@ class DatasetTargetsMixin:
 
     def _load_synthesized_pair(self, sample: DirectorySample) -> None:
         """Degrade the clean target into the input; one seed aligns both crops and flips."""
-        target = self.load_image(sample.tgt_path)
+        target = self.load_image(sample.paths.tgt_path)
         sample.img = synthesize_degradation(target)
         sample.seed = random.randint(0, 2**32 - 1)
         reseed(sample.seed)
-        sample.target_tensor = self.transform(target)
+        sample.target_tensor = self.pipes.transform(target)
         reseed(sample.seed)
-        sample.img_tensor = self.transform(sample.img)
+        sample.img_tensor = self.pipes.transform(sample.img)
 
     def _load_input(self, sample: DirectorySample) -> None:
         """Load the input image; ``ultrazoom`` gets an on-the-fly 2x downscaled input."""
-        sample.img = self.load_image(sample.img_path)
+        sample.img = self.load_image(sample.paths.img_path)
         sample.seed = random.randint(0, 2**32 - 1)
-        if self.model_key == "ultrazoom":
-            lr_size = (self.size[0] // 2, self.size[1] // 2)
+        if self.spec.model_key == "ultrazoom":
+            lr_size = (self.opts.size[0] // 2, self.opts.size[1] // 2)
             input_transform = transforms.Compose(
                 [
                     transforms.Resize(lr_size, interpolation=transforms.InterpolationMode.BILINEAR),
@@ -169,7 +175,7 @@ class DatasetTargetsMixin:
                 ]
             )
         else:
-            input_transform = self.transform
+            input_transform = self.pipes.transform
         reseed(sample.seed)
         sample.img_tensor = input_transform(sample.img)
 
@@ -177,42 +183,45 @@ class DatasetTargetsMixin:
         """Return the restoration target: a parsing mask, the target image or the input."""
         if sample.task_str == "face_parser":
             return self.load_mask(sample)
-        source = self.load_image(sample.tgt_path) if has_tgt else sample.img
+        source = self.load_image(sample.paths.tgt_path) if has_tgt else sample.img
         reseed(sample.seed)
-        return self.transform(source)  # Without a target, the input keeps the HR shape.
+        return self.pipes.transform(source)  # Without a target, the input keeps the HR shape.
 
     def load_mask(self, sample: DirectorySample):
         """Load the sample's class mask (``masks/``), clamped to valid classes, or zeros."""
-        mask_path = self.split_path(sample.ds_path, "masks", sample.fname, "")
+        mask_path = self.split_path(sample.paths.ds_path, "masks", sample.paths.fname, "")
         if not os.path.exists(mask_path):
-            return torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
+            return torch.zeros((self.opts.size[0], self.opts.size[1]), dtype=torch.long)
         mask = Image.open(mask_path).convert("L")  # Masks are grayscale class labels.
         reseed(sample.seed)
-        mask = self.mask_transform(mask)
+        mask = self.pipes.mask_transform(mask)
         mask_tensor = torch.from_numpy(np.array(mask)).long()
         # Clamp so garbage dataset masks cannot crash NLLLoss2d.
         return torch.clamp(mask_tensor, 0, _MAX_MASK_CLASS)
 
     def label_path(self, sample: DirectorySample) -> str:
         """Return the sample's ``labels/<name>.txt`` path."""
-        return self.split_path(sample.ds_path, "labels", sample.fname, ".txt")
+        return self.split_path(sample.paths.ds_path, "labels", sample.paths.fname, ".txt")
 
     def restoration_item(self, sample: DirectorySample):
         """Restoration, enhancement and face items (film degradation, FFA-Net boxes)."""
         img_tensor = sample.img_tensor
-        if self.model_key == "film_restorer":
+        if self.spec.model_key == "film_restorer":
             # An identical input and target file means a clean dataset such as DIV2K.
             try:
-                if os.path.exists(sample.tgt_path) and os.path.samefile(
-                    sample.img_path, sample.tgt_path
+                if os.path.exists(sample.paths.tgt_path) and os.path.samefile(
+                    sample.paths.img_path, sample.paths.tgt_path
                 ):
                     img_tensor = apply_film_degradation(sample.target_tensor)
             except OSError as exc:
                 logger.debug(
-                    "samefile check failed for %s vs %s: %s", sample.img_path, sample.tgt_path, exc
+                    "samefile check failed for %s vs %s: %s",
+                    sample.paths.img_path,
+                    sample.paths.tgt_path,
+                    exc,
                 )
 
-        if self.model_key.startswith("ffanet"):
+        if self.spec.model_key.startswith("ffanet"):
             target = {"image": sample.target_tensor, "bboxes": self._ffanet_boxes(sample)}
             return img_tensor, target, sample.task_str
         return img_tensor, sample.target_tensor, sample.task_str
@@ -233,9 +242,9 @@ class DatasetTargetsMixin:
 
     def parameter_item(self, sample: DirectorySample):
         """Degrade the clean image with random parameters; the target is the parameters."""
-        tgt_path = self.split_path(sample.ds_path, "targets", sample.fname, "")
+        tgt_path = self.split_path(sample.paths.ds_path, "targets", sample.paths.fname, "")
         clean_img = self.load_image(tgt_path) if os.path.exists(tgt_path) else sample.img
-        clean_tensor = self.clean_transform(clean_img)
+        clean_tensor = self.pipes.clean_transform(clean_img)
 
         deg = random.random()  # [0.0, 1.0]
         theta = random.random() * math.pi  # [0.0, pi]
@@ -246,9 +255,9 @@ class DatasetTargetsMixin:
 
     def quality_item(self, sample: DirectorySample):
         """NIMA items: a 10-bin score distribution from the label file or the NIMA index."""
-        if self.model_key == "nima_authenticity":
+        if self.spec.model_key == "nima_authenticity":
             # 'real' peaks at bin 10 (class 1); 'shutterstock' peaks at bin 1 (class 0).
-            n_score = self.nima_scores.get(os.path.splitext(sample.fname)[0], 0.0)
+            n_score = self.catalog.nima_scores.get(os.path.splitext(sample.paths.fname)[0], 0.0)
             if n_score > 5.0:
                 score = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9]
             else:
@@ -287,13 +296,13 @@ class DatasetTargetsMixin:
     @staticmethod
     def _folder_class(sample: DirectorySample) -> int:
         """Class index from the parent folder name (a number or a ``classes.txt`` entry)."""
-        parent_dir = os.path.dirname(sample.fname)
+        parent_dir = os.path.dirname(sample.paths.fname)
         if not parent_dir:
             return 0
         class_candidate = os.path.basename(parent_dir)
         if class_candidate.isdigit():
             return int(class_candidate)
-        classes_file = os.path.join(sample.ds_path, "classes.txt")
+        classes_file = os.path.join(sample.paths.ds_path, "classes.txt")
         try:
             c_lines = [line.strip() for line in read_lines(classes_file) if line.strip()]
         except OSError as cf_err:
@@ -322,7 +331,7 @@ class DatasetTargetsMixin:
 
     def task_item(self, sample: DirectorySample):
         """Dispatch ``sample`` to its task type's builder."""
-        if self.task_type in RESTORATION_TASKS:
+        if self.spec.task_type in RESTORATION_TASKS:
             return self.restoration_item(sample)
         builders = {
             "parameter_prediction": self.parameter_item,
@@ -331,7 +340,7 @@ class DatasetTargetsMixin:
             "segmentation": self.segmentation_item,
             "face_detection": self.face_detection_item,
         }
-        builder = builders.get(self.task_type)
+        builder = builders.get(self.spec.task_type)
         if builder is None:
-            return sample.img_tensor, torch.zeros(1), self.task_type
+            return sample.img_tensor, torch.zeros(1), self.spec.task_type
         return builder(sample)

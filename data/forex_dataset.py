@@ -39,7 +39,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from data.forex_index import ForexIndexMixin
+from data.forex_index import ForexIndexMixin, ForexSelection, LegacyShardStore, ParquetStore
 from data.forex_roots import discover_shard_roots
 from data.forex_shards import load_shard, safe_from_numpy
 from data.forex_spec import EXTENDED_PAIRS, PAIR_PIP_SCALE, TIMEFRAME_LOOKBACK
@@ -76,24 +76,17 @@ class ForexDataset(ForexIndexMixin, Dataset):
     def __init__(self, shard_root: str, split: ForexSplit | None = None):
         split = split or ForexSplit()
         self.shard_roots = discover_shard_roots(shard_root)
-        self.pairs = split.pairs if split.pairs else EXTENDED_PAIRS
-
-        self.active_timeframes = split.active_timeframes or list(DEFAULT_TIMEFRAMES)
-        self.is_train = split.is_train
-        self.sample_fraction = split.sample_fraction
-        self.split = "train" if split.is_train else "val"
-        self.fold = split.fold if split.fold is not None else 1
-        self.spread_stress_pips = split.spread_stress_pips
-
-        self._parquet_caches = {}
-        self._parquet_meta = {}
-        self._parquet_tf_rows = {}
-        self._parquet_tf_ts = {}
-        self._parquet_alignment_cache = {}
-        self._alignment_cache = {}
-        self._shards = {}
-        self._shard_paths = {}
-        self._tf_map = {}
+        self.selection = ForexSelection(
+            pairs=split.pairs if split.pairs else EXTENDED_PAIRS,
+            active_timeframes=split.active_timeframes or list(DEFAULT_TIMEFRAMES),
+            is_train=split.is_train,
+            sample_fraction=split.sample_fraction,
+            split="train" if split.is_train else "val",
+            fold=split.fold if split.fold is not None else 1,
+            spread_stress_pips=split.spread_stress_pips,
+        )
+        self.parquet_store = ParquetStore()
+        self.legacy_shards = LegacyShardStore()
         self._index = []
         self.all_samples = []
 
@@ -114,18 +107,18 @@ class ForexDataset(ForexIndexMixin, Dataset):
         if size is not None:
             logger.debug("ForexDataset ignores size=%s (fixed per-timeframe lookbacks)", size)
         rebuild = False
-        if active_timeframes is not None and active_timeframes != self.active_timeframes:
-            self.active_timeframes = active_timeframes
+        if active_timeframes is not None and active_timeframes != self.selection.active_timeframes:
+            self.selection.active_timeframes = active_timeframes
             rebuild = True
         if stress is not None:
-            self.spread_stress_pips = stress
+            self.selection.spread_stress_pips = stress
 
-        if fraction is not None and fraction != self.sample_fraction:
-            self.sample_fraction = fraction
+        if fraction is not None and fraction != self.selection.sample_fraction:
+            self.selection.sample_fraction = fraction
             if not rebuild and hasattr(self, "all_samples") and self.all_samples:
                 stride = (
-                    max(1, round(1.0 / max(1e-4, self.sample_fraction)))
-                    if (self.is_train and self.sample_fraction < 1.0)
+                    max(1, round(1.0 / max(1e-4, self.selection.sample_fraction)))
+                    if (self.selection.is_train and self.selection.sample_fraction < 1.0)
                     else 1
                 )
                 self._index = self.all_samples[::stride]
@@ -139,23 +132,23 @@ class ForexDataset(ForexIndexMixin, Dataset):
 
     def _get_shard_data(self, key: tuple):
         """Lazily retrieves or loads shard arrays for a specific key."""
-        if key not in self._shards:
-            tf_dir, chunk_idx = self._shard_paths[key]
+        if key not in self.legacy_shards.shards:
+            tf_dir, chunk_idx = self.legacy_shards.shard_paths[key]
             c_arg = chunk_idx if chunk_idx >= 0 else None
-            self._shards[key] = load_shard(tf_dir, chunk_idx=c_arg, mmap_mode="r")
-        return self._shards[key]
+            self.legacy_shards.shards[key] = load_shard(tf_dir, chunk_idx=c_arg, mmap_mode="r")
+        return self.legacy_shards.shards[key]
 
     def _get_alignment_map(self, primary_key: tuple, other_key: tuple):
         """Lazily computes or retrieves precalculated alignment row mapping between two shards."""
         pair_key = (primary_key, other_key)
-        if pair_key in self._alignment_cache:
-            return self._alignment_cache[pair_key]
+        if pair_key in self.legacy_shards.alignment_cache:
+            return self.legacy_shards.alignment_cache[pair_key]
 
         _, _, _, prim_ts = self._get_shard_data(primary_key)
         other_x, _, _, other_ts = self._get_shard_data(other_key)
 
         if other_x is None or len(other_x) == 0 or prim_ts is None or len(prim_ts) == 0:
-            self._alignment_cache[pair_key] = None
+            self.legacy_shards.alignment_cache[pair_key] = None
             return None
 
         if (
@@ -174,17 +167,17 @@ class ForexDataset(ForexIndexMixin, Dataset):
             rows = np.arange(len(prim_ts), dtype=np.float64)
             aligned = np.clip((rows * ratio).astype(np.int64), 0, len(other_x) - 1)
 
-        self._alignment_cache[pair_key] = aligned
+        self.legacy_shards.alignment_cache[pair_key] = aligned
         return aligned
 
     def _get_parquet_alignment(self, pair_name: str, primary_tf: int, other_tf: int, yr_name: str):
         align_key = (pair_name, primary_tf, other_tf, yr_name)
-        if align_key in self._parquet_alignment_cache:
-            return self._parquet_alignment_cache[align_key]
+        if align_key in self.parquet_store.alignment_cache:
+            return self.parquet_store.alignment_cache[align_key]
 
-        other_rows = self._parquet_tf_rows.get((pair_name, other_tf, yr_name))
-        other_ts = self._parquet_tf_ts.get((pair_name, other_tf, yr_name))
-        prim_ts = self._parquet_tf_ts.get((pair_name, primary_tf, yr_name))
+        other_rows = self.parquet_store.tf_rows.get((pair_name, other_tf, yr_name))
+        other_ts = self.parquet_store.tf_ts.get((pair_name, other_tf, yr_name))
+        prim_ts = self.parquet_store.tf_ts.get((pair_name, primary_tf, yr_name))
 
         if (
             other_rows is None
@@ -192,13 +185,13 @@ class ForexDataset(ForexIndexMixin, Dataset):
             or prim_ts is None
             or any(len(a) == 0 for a in (other_rows, other_ts, prim_ts))
         ):
-            self._parquet_alignment_cache[align_key] = None
+            self.parquet_store.alignment_cache[align_key] = None
             return None
 
         mapped = np.searchsorted(other_ts, prim_ts, side="right") - 1
         mapped = np.clip(mapped, 0, len(other_rows) - 1).astype(np.int64)
         result = (other_rows, mapped)
-        self._parquet_alignment_cache[align_key] = result
+        self.parquet_store.alignment_cache[align_key] = result
         return result
 
     @staticmethod
@@ -220,9 +213,9 @@ class ForexDataset(ForexIndexMixin, Dataset):
         scale = PAIR_PIP_SCALE.get(pair_name, 1.0)
         mag_tp = float(tp_sl[0]) / scale
         mag_sl = float(tp_sl[1]) / scale
-        if self.spread_stress_pips > 0.0:
-            mag_tp = max(0.0, mag_tp - (self.spread_stress_pips / scale))
-            mag_sl = mag_sl + (self.spread_stress_pips / scale)
+        if self.selection.spread_stress_pips > 0.0:
+            mag_tp = max(0.0, mag_tp - (self.selection.spread_stress_pips / scale))
+            mag_sl = mag_sl + (self.selection.spread_stress_pips / scale)
 
         labels = {
             "direction": torch.tensor(int(direction), dtype=torch.long),
@@ -238,7 +231,7 @@ class ForexDataset(ForexIndexMixin, Dataset):
             return None
 
         other_rows, mapped = align
-        prim_rows = self._parquet_tf_rows.get((pair_name, tf, yr_name))
+        prim_rows = self.parquet_store.tf_rows.get((pair_name, tf, yr_name))
         if prim_rows is None or len(prim_rows) == 0:
             return None
 
@@ -253,14 +246,14 @@ class ForexDataset(ForexIndexMixin, Dataset):
         aligned_row = self._parquet_aligned_row(primary, other_tf)
         if aligned_row is None:
             return torch.zeros(other_target_len, n_features)
-        cache = self._parquet_caches[primary[2]]
+        cache = self.parquet_store.caches[primary[2]]
         other_sample = self._fit_window(cache.get_row_features(aligned_row), other_target_len)
         return safe_from_numpy(other_sample)
 
     def _parquet_item(self, p_idx: int, tf: int, yr_name: str, row: int):
         """Native high-throughput Parquet retrieval of one sample."""
-        meta = self._parquet_meta[yr_name]
-        cache = self._parquet_caches[yr_name]
+        meta = self.parquet_store.meta[yr_name]
+        cache = self.parquet_store.caches[yr_name]
         pair_name = str(meta["pair"][row])
 
         target_len = TIMEFRAME_LOOKBACK.get(tf, 168)
@@ -269,7 +262,7 @@ class ForexDataset(ForexIndexMixin, Dataset):
         # Single-copy tensor materialization.
         tf_inputs = {tf: safe_from_numpy(raw_sample)}
         primary = (pair_name, tf, yr_name, row)
-        for other_tf in self.active_timeframes:
+        for other_tf in self.selection.active_timeframes:
             if other_tf != tf:
                 tf_inputs[other_tf] = self._parquet_other_window(
                     primary, other_tf, raw_sample.shape[1]
@@ -286,7 +279,7 @@ class ForexDataset(ForexIndexMixin, Dataset):
         """Return the window of ``other_tf`` aligned to a legacy shard row (zeros if absent)."""
         other_target_len = TIMEFRAME_LOOKBACK.get(other_tf, 168)
         yr_identifier = str(key[2]) if len(key) > 2 else ""
-        candidate_keys = self._tf_map.get((str(key[0]), other_tf, yr_identifier), [])
+        candidate_keys = self.legacy_shards.tf_map.get((str(key[0]), other_tf, yr_identifier), [])
         if not candidate_keys:
             return torch.zeros(other_target_len, n_features)
 
@@ -313,7 +306,7 @@ class ForexDataset(ForexIndexMixin, Dataset):
         raw_sample = self._fit_window(np.asarray(x_data[row]), target_len)
 
         tf_inputs = {tf: safe_from_numpy(raw_sample)}
-        for other_tf in self.active_timeframes:
+        for other_tf in self.selection.active_timeframes:
             if other_tf != tf:
                 tf_inputs[other_tf] = self._legacy_other_window(
                     key, row, other_tf, raw_sample.shape[1]
@@ -334,7 +327,7 @@ class ForexDataset(ForexIndexMixin, Dataset):
         if len(self._index) == 0:
             tf_inputs = {
                 tf: torch.zeros(TIMEFRAME_LOOKBACK.get(tf, 168), 14)
-                for tf in self.active_timeframes
+                for tf in self.selection.active_timeframes
             }
             return (
                 tf_inputs,

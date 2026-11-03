@@ -11,7 +11,7 @@ from typing import Any
 
 from training.cloud.errors import kagglehub_errors
 from training.ecosystem import kaggle_owner
-from training.utils.paths import get_project_root, get_workspace_root
+from training.utils.paths import get_project_root, get_workspace_root, unique_resolved
 
 logger = logging.getLogger("lemtrain.checkpoint.recovery")
 
@@ -140,13 +140,7 @@ class CheckpointRecoveryEngine:
         if self.env == "kaggle" or Path("/kaggle/input").exists():
             self._add_kaggle_roots(roots, model_name)
 
-        # Remove duplicate roots
-        unique_roots: list[Path] = []
-        for r in roots:
-            resolved = r.resolve()
-            if resolved not in unique_roots:
-                unique_roots.append(resolved)
-        return unique_roots
+        return unique_resolved(roots)
 
     def _local_roots(self, model_name: str, cfg: dict[str, Any]) -> list[Path]:
         """Existing local hub, checkpoint and scratch directories for ``model_name``."""

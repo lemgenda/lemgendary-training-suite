@@ -397,6 +397,13 @@ def _check_shard(shard_dir: str, label: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def add_timeframes_argument(parser: argparse.ArgumentParser, help_text: str) -> None:
+    """Add the shared ``--timeframes`` option (minutes; defaults to every curriculum rung)."""
+    parser.add_argument(
+        "--timeframes", nargs="+", type=int, default=list(TIMEFRAME_RUNGS), help=help_text
+    )
+
+
 def main():
     """CLI entrypoint: download/build forex shards or check existing ones."""
     parser = argparse.ArgumentParser(description="LemGendary MT5 Data Pipeline")
@@ -412,13 +419,7 @@ def main():
         default=MT5_SYMBOLS,
         help="Currency pairs / instruments to include (default: all 16 extended instruments)",
     )
-    parser.add_argument(
-        "--timeframes",
-        nargs="+",
-        type=int,
-        default=list(TIMEFRAME_RUNGS),
-        help="Timeframes in minutes (default: M1, M5, M15, H1, H4, D1)",
-    )
+    add_timeframes_argument(parser, "Timeframes in minutes (default: M1, M5, M15, H1, H4, D1)")
     parser.add_argument("--out_dir", default="data/forex", help="Output directory for .npy shards")
     parser.add_argument(
         "--n_bars", type=int, default=50000, help="Number of bars to download per pair/timeframe"

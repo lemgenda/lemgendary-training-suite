@@ -63,24 +63,22 @@ class MdsReader:
                 self.mds_dir = d
                 break
 
-        self.index_file = self.mds_dir / "index.json"
-        if not self.index_file.exists():
+        index_file = self.mds_dir / "index.json"
+        if not index_file.exists():
             raise FileNotFoundError(f"MDS index.json not found in '{self.mds_dir}'.")
 
         try:
-            self.index_data = json.loads(self.index_file.read_text(encoding="utf-8"))
+            index_data = json.loads(index_file.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Failed parsing MDS index.json at '{self.index_file}': {exc}"
-            ) from exc
+            raise ValueError(f"Failed parsing MDS index.json at '{index_file}': {exc}") from exc
 
-        self.shards: list[dict[str, Any]] = self.index_data.get("shards", [])
+        shards: list[dict[str, Any]] = index_data.get("shards", [])
         self._sample_count = 0
         self._shard_offsets: list[
             tuple[int, int, dict[str, Any]]
         ] = []  # (start_idx, end_idx, shard)
 
-        for shard in self.shards:
+        for shard in shards:
             samples = shard.get("samples", 0)
             self._shard_offsets.append((self._sample_count, self._sample_count + samples, shard))
             self._sample_count += samples

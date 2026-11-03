@@ -32,13 +32,13 @@ import sys
 import numpy as np
 import torch
 
-from data.forex_spec import PAIR_INDEX, TIMEFRAME_LOOKBACK, TIMEFRAME_RUNGS
+from data.forex_spec import PAIR_INDEX, TIMEFRAME_LOOKBACK
 from data.mt5_features import (
     PRICE_INDICATOR_FEATURES,
     compute_indicators,
     normalize_ohlcv,
 )
-from data.mt5_pipeline import MT5Credentials
+from data.mt5_pipeline import MT5Credentials, add_timeframes_argument
 from data.mt5_terminal import (
     connect_mt5,
     disconnect_mt5,
@@ -460,12 +460,8 @@ def main():
     parser.add_argument("--checkpoint", default=None, help="Path to .pth checkpoint for export")
     parser.add_argument("--onnx", default=None, help="Path to .onnx model for signal mode")
     parser.add_argument("--pair", default="EURUSD", help="Currency pair for signal mode")
-    parser.add_argument(
-        "--timeframes",
-        nargs="+",
-        type=int,
-        default=list(TIMEFRAME_RUNGS),
-        help="Active timeframe rungs in minutes (default: 1 5 15 60 240 1440)",
+    add_timeframes_argument(
+        parser, "Active timeframe rungs in minutes (default: 1 5 15 60 240 1440)"
     )
     parser.add_argument("--out", default=None, help="Output path for ONNX or MQL5 file")
     parser.add_argument("--opset", type=int, default=17, help="ONNX opset version")

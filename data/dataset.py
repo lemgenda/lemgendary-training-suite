@@ -4,7 +4,6 @@ import json
 import logging
 import multiprocessing
 import os
-from typing import Any
 
 import yaml
 from PIL import Image, ImageFile
@@ -13,6 +12,7 @@ from torchvision import transforms
 
 from data.dataset_containers import DatasetContainerMixin
 from data.dataset_sources import DatasetSourcesMixin
+from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
 from data.dataset_targets import DatasetTargetsMixin
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
@@ -66,13 +66,7 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
 
     def __init__(self, config, model_key=None, is_train=True, env="local", sample_fraction=1.0):
         self.config = config
-        self.is_train = is_train
-        self.env = env
-        self.sample_fraction = sample_fraction
-        self.stress = 0.0  # 2026 Resilience: Dynamic Stress Protocol
         self.sync_mode = multiprocessing.Value("b", False)
-        self.split = "train" if is_train else "val"
-        self.data_root = _resolve_data_root(config, env)
 
         ImageFile.LOAD_TRUNCATED_IMAGES = True  # Shield against corrupt JPG headers
 
@@ -80,62 +74,96 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
             os.path.dirname(__file__), "..", config["unified_models"]
         )
         with open(unified_models_path, "r", encoding="utf-8") as f:
-            self.unified_models = yaml.safe_load(f)
+            unified_models = yaml.safe_load(f)
 
-        self.model_key = model_key or next(iter(self.unified_models))
-        self.model_info = self.unified_models[self.model_key]
-
-        raw_type = self.model_info.get("dataset_type", "restoration")
-        self.task_type = raw_type[0] if isinstance(raw_type, list) else raw_type
-
-        self.size = _input_size(
-            self.model_info.get("input_size", config.get("default_img_size", 256))
+        model_key = model_key or next(iter(unified_models))
+        model_info = unified_models[model_key]
+        raw_type = model_info.get("dataset_type", "restoration")
+        self.spec = ModelSpec(
+            unified_models=unified_models,
+            model_key=model_key,
+            model_info=model_info,
+            task_type=raw_type[0] if isinstance(raw_type, list) else raw_type,
+        )
+        self.opts = DatasetOptions(
+            is_train=is_train,
+            env=env,
+            split="train" if is_train else "val",
+            data_root=_resolve_data_root(config, env),
+            sample_fraction=sample_fraction,
+            size=_input_size(model_info.get("input_size", config.get("default_img_size", 256))),
         )
 
-        self.samples = []
-        self.all_samples = []
-        self.path_cache = {}
-        self._container_readers: dict[str, Any] = {}
+        self.catalog = SampleCatalog()
         self.load_manifest(config)
 
-        self.nima_scores = {}
-        if self.model_key == "nima_authenticity":
-            for ds_path in self.path_cache.values():
+        if self.spec.model_key == "nima_authenticity":
+            for ds_path in self.catalog.path_cache.values():
                 if ds_path is None:
                     continue
-                _load_nima_scores(os.path.join(ds_path, "index.json"), self.nima_scores)
+                _load_nima_scores(os.path.join(ds_path, "index.json"), self.catalog.nima_scores)
 
+        self.pipes = TransformSet()
         self.build_transforms()
 
+    @property
+    def task_type(self) -> str:
+        """The served model's dataset task type (read by loaders)."""
+        return self.spec.task_type
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """Current ``(H, W)`` input size (read by loaders)."""
+        return self.opts.size
+
+    @property
+    def all_samples(self) -> list[tuple[str, str | int]]:
+        """Every indexed sample before sample-fraction slicing."""
+        return self.catalog.all_samples
+
+    @property
+    def path_cache(self) -> dict[str, str | None]:
+        """Resolved dataset paths by dataset name."""
+        return self.catalog.path_cache
+
+    @property
+    def sample_fraction(self) -> float:
+        """Curriculum sample fraction."""
+        return self.opts.sample_fraction
+
+    @sample_fraction.setter
+    def sample_fraction(self, value: float) -> None:
+        self.opts.sample_fraction = value
+
     def build_transforms(self):
-        """Build ``self.transform`` (resize, augmentation, tensor conversion) for this task."""
+        """Build ``self.pipes`` (resize, augmentation, tensor conversion) for this task."""
         # 2026 Resilience: LANCZOS is superior for Aesthetic/Quality manifolds
         interp = (
             transforms.InterpolationMode.LANCZOS
-            if self.task_type == "quality"
+            if self.spec.task_type == "quality"
             else transforms.InterpolationMode.BILINEAR
         )
 
         # FIX: Preserve aspect ratio and crop to prevent network from learning squish artifacts
-        if self.task_type == "face_detection":
+        if self.spec.task_type == "face_detection":
             # Coordinate-based targets (bboxes, landmarks) become invalid if the image is cropped.
             # We must squish-resize so normalized [0,1] coordinates remain physically accurate.
-            transform_list: list = [transforms.Resize(self.size, interpolation=interp)]
-        elif self.is_train:
+            transform_list: list = [transforms.Resize(self.opts.size, interpolation=interp)]
+        elif self.opts.is_train:
             transform_list: list = [
-                transforms.Resize(max(self.size), interpolation=interp),
-                transforms.RandomCrop(self.size),
+                transforms.Resize(max(self.opts.size), interpolation=interp),
+                transforms.RandomCrop(self.opts.size),
             ]
         else:
             transform_list: list = [
-                transforms.Resize(max(self.size), interpolation=interp),
-                transforms.CenterCrop(self.size),
+                transforms.Resize(max(self.opts.size), interpolation=interp),
+                transforms.CenterCrop(self.opts.size),
             ]
-        if self.is_train and self.task_type == "quality":
+        if self.opts.is_train and self.spec.task_type == "quality":
             transform_list.append(transforms.RandomHorizontalFlip())
             # --- 2026 Resilience: Dynamic Stress Injection ---
-            if getattr(self, "stress", 0.0) > 0.0:
-                stress_val = min(self.stress, 5.0)
+            if self.opts.stress > 0.0:
+                stress_val = min(self.opts.stress, 5.0)
                 transform_list.append(
                     transforms.ColorJitter(
                         brightness=0.1 * stress_val,
@@ -149,38 +177,38 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
                     transform_list.append(
                         transforms.RandomPerspective(distortion_scale=0.1 * stress_val, p=0.3)
                     )
-            elif "aesthetic" in self.model_key:
+            elif "aesthetic" in self.spec.model_key:
                 transform_list.append(transforms.ColorJitter(brightness=0.05, contrast=0.05))
 
         transform_list.append(transforms.ToTensor())
-        if self.task_type == "quality":
+        if self.spec.task_type == "quality":
             transform_list.append(
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             )
 
-        self.transform = transforms.Compose(transform_list)
+        self.pipes.transform = transforms.Compose(transform_list)
 
         # 2026 ParseNet Fix: Dynamic mask interpolation for multitask pipelines
-        self.mask_transform = transforms.Compose(
+        self.pipes.mask_transform = transforms.Compose(
             [
                 transforms.Resize(
-                    max(self.size), interpolation=transforms.InterpolationMode.NEAREST
+                    max(self.opts.size), interpolation=transforms.InterpolationMode.NEAREST
                 ),
-                transforms.RandomCrop(self.size)
-                if self.is_train
-                else transforms.CenterCrop(self.size),
+                transforms.RandomCrop(self.opts.size)
+                if self.opts.is_train
+                else transforms.CenterCrop(self.opts.size),
             ]
         )
 
         # 2026: Parameter prediction needs clean ToTensor only (no normalization)
         # Degradation is applied after transform in __getitem__
-        if self.task_type == "parameter_prediction":
-            self.clean_transform = transforms.Compose(
+        if self.spec.task_type == "parameter_prediction":
+            self.pipes.clean_transform = transforms.Compose(
                 [
-                    transforms.Resize(max(self.size), interpolation=interp),
-                    transforms.RandomCrop(self.size)
-                    if self.is_train
-                    else transforms.CenterCrop(self.size),
+                    transforms.Resize(max(self.opts.size), interpolation=interp),
+                    transforms.RandomCrop(self.opts.size)
+                    if self.opts.is_train
+                    else transforms.CenterCrop(self.opts.size),
                     transforms.ToTensor(),
                 ]
             )
@@ -193,16 +221,16 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
         except (OSError, ValueError, Image.DecompressionBombError) as e:
             # OSError covers missing files and PIL.UnidentifiedImageError / truncated data.
             logger.warning("I/O failure on %s; substituting neutral gray: %s", img_path, e)
-            return Image.new("RGB", (self.size[1], self.size[0]), (128, 128, 128))
+            return Image.new("RGB", (self.opts.size[1], self.opts.size[0]), (128, 128, 128))
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.catalog.samples)
 
     def __getitem__(self, index):
         if getattr(self.sync_mode, "value", self.sync_mode):
             return self.sync_dummy()
 
-        ds_name, sample_id = self.samples[index]
+        ds_name, sample_id = self.catalog.samples[index]
 
         # Container-backed sample path: sample_id is an integer index.
         if isinstance(sample_id, int):
@@ -216,26 +244,26 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
         rebuild = False
         if size:
             if isinstance(size, (int, float)):
-                self.size = (int(size), int(size))
+                self.opts.size = (int(size), int(size))
             elif isinstance(size, (list, tuple)):
-                self.size = (int(size[0]), int(size[1]))
+                self.opts.size = (int(size[0]), int(size[1]))
             rebuild = True
-        if stress is not None and getattr(self, "stress", 0.0) != stress:
-            self.stress = stress
+        if stress is not None and self.opts.stress != stress:
+            self.opts.stress = stress
             rebuild = True
         if rebuild:
             self.build_transforms()
 
         if fraction is not None:
-            self.sample_fraction = float(fraction)
-            if self.all_samples:
+            self.opts.sample_fraction = float(fraction)
+            if self.catalog.all_samples:
                 self._apply_sample_fraction()
             else:
                 self.load_manifest(self.config)
 
     def get_distribution(self):
         """Task 9.3: Analyze label manifold for stratified balancing."""
-        print(f"[METRICS] [DATA] Analyzing distribution for {self.model_key}...")
-        stats = {"total": len(self.samples), "tasks": {}}
+        print(f"[METRICS] [DATA] Analyzing distribution for {self.spec.model_key}...")
+        stats = {"total": len(self.catalog.samples), "tasks": {}}
         # Implementation for background distribution analysis...
         return stats

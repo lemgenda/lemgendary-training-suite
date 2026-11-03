@@ -5,6 +5,7 @@ import logging
 import math
 import random
 import sys
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -36,11 +37,11 @@ except (ImportError, ModuleNotFoundError, AttributeError) as exc:
     _HAS_DEGRADE_CORE = False
 
 
+@dataclass
 class JpegCompressionGuard:
     """Simulate real-world JPEG artifacts on PIL images to resist compression overfitting."""
 
-    def __init__(self, probability: float = 1.0) -> None:
-        self.probability = probability
+    probability: float = 1.0
 
     def __call__(self, img: Image.Image) -> Image.Image:
         if random.random() < self.probability:
@@ -177,15 +178,17 @@ def synthesize_degradation(target_img: Image.Image) -> Image.Image:
     return Image.fromarray(arr)
 
 
+@dataclass
 class DynamicOnTheFlyDegrader:
     """On-The-Fly Degradation Engine for dynamic training augmentation."""
 
-    def __init__(self, mode: str = "motion-blur+iso-noise", intensity: str = "medium") -> None:
-        self.mode = mode
-        self.intensity = intensity
-        # Instance of the optional, untyped lemgendary-datasets ``DynamicDegrader``.
-        self._core_degrader: Any = None
+    mode: str = "motion-blur+iso-noise"
+    intensity: str = "medium"
+    # Instance of the optional, untyped lemgendary-datasets ``DynamicDegrader``.
+    _core_degrader: Any = field(default=None, init=False, repr=False)
 
+    def __post_init__(self) -> None:
+        mode, intensity = self.mode, self.intensity
         if _HAS_DEGRADE_CORE and callable(core_parse_profile) and callable(core_dynamic_degrader):
             try:
                 prof = core_parse_profile(mode, intensity=str(intensity))

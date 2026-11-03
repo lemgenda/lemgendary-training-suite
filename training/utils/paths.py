@@ -62,3 +62,13 @@ def bootstrap_sys_path() -> None:
     venv_site_pkgs = os.path.normpath(os.path.join(proj_root, ".venv", "Lib", "site-packages"))
     if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
         sys.path.insert(1, venv_site_pkgs)
+
+
+def unique_resolved(paths: list[Path]) -> list[Path]:
+    """Resolve ``paths`` and drop duplicates, keeping the first occurrence's order."""
+    unique: list[Path] = []
+    for p in paths:
+        resolved = p.resolve()
+        if resolved not in unique:
+            unique.append(resolved)
+    return unique
