@@ -234,11 +234,11 @@ def update_classification(acc: ValAccumulators, batch: ValBatch) -> None:
         if preds.ndim >= 2 and (targets.ndim == 1 or targets.shape[-1] == 1):
             pred_labels = torch.argmax(preds, dim=-1).squeeze()
             tgt_labels = targets.squeeze().long()
-            acc.tasks.total_cls_correct += (pred_labels == tgt_labels).sum().item()
+            acc.tasks.total_cls_correct += int((pred_labels == tgt_labels).sum().item())
             acc.tasks.total_cls_samples += tgt_labels.numel()
         elif preds.ndim == 1 and targets.ndim == 1:
             pred_bin = (torch.sigmoid(preds) > 0.5).long()
-            acc.tasks.total_cls_correct += (pred_bin == targets.long()).sum().item()
+            acc.tasks.total_cls_correct += int((pred_bin == targets.long()).sum().item())
             acc.tasks.total_cls_samples += targets.numel()
     except METRIC_ERRORS as exc:
         logger.warning("Classification accuracy evaluation error: %s", exc)
@@ -321,8 +321,8 @@ def extract_forex_tensors(
     else:
         target_pair = _sequence_pair(targets)
     if target_pair is None:
-        is_label_vector = isinstance(targets, torch.Tensor) and targets.ndim == 1
-        target_pair = (targets if is_label_vector else None, None)
+        label_vector = targets if isinstance(targets, torch.Tensor) and targets.ndim == 1 else None
+        target_pair = (label_vector, None)
     return pred_pair[0], pred_pair[1], target_pair[0], target_pair[1]
 
 

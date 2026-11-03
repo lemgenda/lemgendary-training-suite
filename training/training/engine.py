@@ -450,11 +450,14 @@ def run_training(
                     dummy_shape = (1, 3, raw_size, raw_size)
                 elif (
                     ctx.train_loader is not None
-                    and hasattr(ctx.train_loader, "dataset")
-                    and hasattr(ctx.train_loader.dataset, "tensors")
-                    and len(getattr(ctx.train_loader.dataset, "tensors", ())) > 0
+                    and len(
+                        dataset_tensors := getattr(
+                            getattr(ctx.train_loader, "dataset", None), "tensors", ()
+                        )
+                    )
+                    > 0
                 ):
-                    sample_tensor = ctx.train_loader.dataset.tensors[0]
+                    sample_tensor = dataset_tensors[0]
                     dummy_shape = (1, *[int(d) for d in sample_tensor.shape[1:]])
                 else:
                     dummy_shape = (1, 3, 256, 256)

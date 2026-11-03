@@ -55,7 +55,11 @@ class _ValidationPass:
         self.acc = ValAccumulators()
         self.step_count = 0
         start_time = time.time()
-        num_batches = len(ctx.val_loader) if hasattr(ctx.val_loader, "__len__") else 0
+        num_batches = (
+            len(ctx.val_loader)
+            if ctx.val_loader is not None and hasattr(ctx.val_loader, "__len__")
+            else 0
+        )
         self.clock = BatchClock(num_batches, start_time, time.time())
 
     def resume(self) -> None:
@@ -121,7 +125,11 @@ class _ValidationPass:
         ctx = self.ctx
         if ctx.lifecycle_manager is None:
             return
-        total_val = len(ctx.val_loader) if hasattr(ctx.val_loader, "__len__") else 0
+        total_val = (
+            len(ctx.val_loader)
+            if ctx.val_loader is not None and hasattr(ctx.val_loader, "__len__")
+            else 0
+        )
         ctx.lifecycle_manager.check_and_save_progress(
             epoch=self.epoch,
             phase="val",
