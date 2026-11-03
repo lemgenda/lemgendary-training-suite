@@ -188,12 +188,17 @@ def dispose_loader(loader: Any) -> None:
                 logger.warning("Error closing dataset resources: %s", exc)
 
     # Reclaim garbage and empty CUDA memory cache if available
+    release_cuda_memory("loader disposal")
+
+
+def release_cuda_memory(purpose: str) -> None:
+    """Collect garbage and empty the CUDA cache; a failed release is logged, not raised."""
     gc.collect()
     if torch.cuda.is_available():
         try:
             torch.cuda.empty_cache()
         except RuntimeError as exc:
-            logger.debug("Error releasing CUDA cache during loader disposal: %s", exc)
+            logger.debug("CUDA cache release failed during %s: %s", purpose, exc)
 
 
 def dataloader_worker_init_fn(worker_id: int) -> None:

@@ -23,6 +23,7 @@ T = TypeVar("T")
 class Delegated(Generic[T]):
     """Read/write proxy for ``getattr(owner.<state>, <field>)``.
 
+    ``state`` may be a dotted path (``"runtime.counters"``) to reach a nested group.
     ``cast`` (for example ``float`` or ``list``) is applied to assigned values.
     """
 
@@ -33,6 +34,7 @@ class Delegated(Generic[T]):
         cast: Callable[[Any], T] | None = None,
     ) -> None:
         self.state = state
+        self.path = tuple(state.split("."))
         self.field = field or ""
         self.cast = cast
         self.__doc__: str | None = None
@@ -51,9 +53,16 @@ class Delegated(Generic[T]):
     def __get__(self, instance: object | None, owner: type | None = None) -> Self | T:
         if instance is None:
             return self
-        return getattr(getattr(instance, self.state), self.field)
+        return getattr(self._target(instance), self.field)
 
     def __set__(self, instance: object, value: T) -> None:
         if self.cast is not None:
             value = self.cast(value)
-        setattr(getattr(instance, self.state), self.field, value)
+        setattr(self._target(instance), self.field, value)
+
+    def _target(self, instance: object) -> Any:
+        """Return the (possibly nested) state object that owns the field."""
+        target: Any = instance
+        for name in self.path:
+            target = getattr(target, name)
+        return target

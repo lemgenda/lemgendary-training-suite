@@ -44,13 +44,13 @@ class PropulsionMixin(GovernorHost):
 
         # Apply targeted stabilization based on deficit
         if primary_metric in ["srcc", "plcc"]:
-            self.current_spearman_weight = min(3.0, self.current_spearman_weight * 1.5)
-            self.current_rank_weight = min(2.5, self.current_rank_weight * 1.3)
+            self.runtime.rank.current_spearman_weight = min(3.0, self.current_spearman_weight * 1.5)
+            self.runtime.rank.current_rank_weight = min(2.5, self.current_rank_weight * 1.3)
             msg_parts.append(
                 f"TARGETED: Boosting rank weights for {primary_metric} (deficit={deficit:.2%})"
             )
         elif primary_metric in ["dir_acc", "win_rate"]:
-            self.current_dir_weight = min(3.0, self.current_dir_weight * 1.4)
+            self.runtime.weights.current_dir_weight = min(3.0, self.current_dir_weight * 1.4)
             msg_parts.append(f"TARGETED: Elevating directional weight for {primary_metric}")
 
         return msg_parts
@@ -71,18 +71,18 @@ class PropulsionMixin(GovernorHost):
             jolt_base = float(jolt)
 
             if phase == "REFINEMENT":
-                self.lr_multiplier = round(jolt_base * 0.5, 3)
-                self.head_lr_multiplier = min(
+                self.runtime.lr.lr_multiplier = round(jolt_base * 0.5, 3)
+                self.runtime.lr.head_lr_multiplier = min(
                     round(self.lr_multiplier * 3.0, 3), round(jolt_base * 1.5, 3)
                 )
             else:
-                self.lr_multiplier = jolt_base
-                self.head_lr_multiplier = jolt_base
+                self.runtime.lr.lr_multiplier = jolt_base
+                self.runtime.lr.head_lr_multiplier = jolt_base
 
             window_size = 5 if self.task_type == "forex" else 3
-            self.jolt_window_remaining = window_size
+            self.runtime.lr.jolt_window_remaining = window_size
             d.lr_changed = True
-            self.last_jolt_epoch = self.epoch_count
+            self.runtime.counters.last_jolt_epoch = self.epoch_count
             d.msg_parts.append(
                 "JOLT: Breaking Plateau with Head-Differential Propulsion (Head: "
                 f"{self.head_lr_multiplier:.2f}x, Backbone: {self.lr_multiplier:.2f}x | "
@@ -95,13 +95,13 @@ class PropulsionMixin(GovernorHost):
         """FOUNDATION/EXPANSION propulsion: grow the data fraction at the same resolution."""
         if self.current_fraction < 1.0:
             self._commit_rung(self.current_res, next_frac)
-            self.last_action_epoch = self.epoch_count
+            self.runtime.counters.last_action_epoch = self.epoch_count
             d.f_changed = True
             d.msg_parts.append(f"PROPULSION: Data -> {self.current_fraction * 100:.0f}%")
             cooldown_soak = max(3, self.manifold_maturity)
-            self.stabilization_epochs = cooldown_soak
-            self.cooldown_remaining = cooldown_soak
-            self.best_quality = current_quality
+            self.sota.stabilization_epochs = cooldown_soak
+            self.sota.cooldown_remaining = cooldown_soak
+            self.sota.best_quality = float(current_quality)
 
     def _spatial_jump(self, d: AuditDirectives) -> None:
         """DEEPENING propulsion: step up one resolution rung and reset the data fraction."""
@@ -109,11 +109,11 @@ class PropulsionMixin(GovernorHost):
         next_res = self.res_ladder[current_idx + 1]
 
         if self.best_quality < self.target_quality_score * 0.80 and self.target_quality_score > 1.0:
-            self.lr_multiplier = self.cooling_factor
-            self.head_lr_multiplier = self.cooling_factor
+            self.runtime.lr.lr_multiplier = self.cooling_factor
+            self.runtime.lr.head_lr_multiplier = self.cooling_factor
             d.lr_changed = True
             d.msg_parts.append("RECOIL: Insufficient Quality for spatial jump. Cooling LR.")
-            self.stabilization_epochs = self.stabilization_lock
+            self.sota.stabilization_epochs = self.stabilization_lock
         else:
             init_frac = float(
                 self.model_info.get("optimization", {}).get(
@@ -126,13 +126,13 @@ class PropulsionMixin(GovernorHost):
             self._commit_rung(next_res, init_frac)
             d.r_changed = d.b_changed = True
             d.f_changed = True
-            self.last_res_jump_epoch = self.epoch_count
-            self.last_action_epoch = self.epoch_count
-            self.spatial_lock_remaining = self.stabilization_lock
+            self.runtime.counters.last_res_jump_epoch = self.epoch_count
+            self.runtime.counters.last_action_epoch = self.epoch_count
+            self.runtime.counters.spatial_lock_remaining = self.stabilization_lock
             d.msg_parts.append(
                 f"SPATIAL JUMP: {next_res}px | Data Reset {init_frac * 100:.0f}% | Lock: ON"
             )
-            self.stabilization_epochs = self.stabilization_lock
+            self.sota.stabilization_epochs = self.stabilization_lock
 
     def _refine(
         self,
@@ -147,10 +147,10 @@ class PropulsionMixin(GovernorHost):
                 and self.target_quality_score > 0
                 and self.best_quality < self.target_quality_score * 0.90
             ):
-                self.current_stress = min(2.0, self.current_stress + 0.5)
-                self.lr_multiplier = 1.0
-                self.head_lr_multiplier = 1.10
-                self.jolt_window_remaining = 2
+                self.sota.current_stress = min(2.0, self.current_stress + 0.5)
+                self.runtime.lr.lr_multiplier = 1.0
+                self.runtime.lr.head_lr_multiplier = 1.10
+                self.runtime.lr.jolt_window_remaining = 2
                 d.lr_changed = True
                 d.msg_parts.append(
                     "REFINEMENT: Plateau in Temporal Fold. Deploying Gentle Fold Tuning "
@@ -158,8 +158,8 @@ class PropulsionMixin(GovernorHost):
                 )
             else:
                 if self.jolt_window_remaining == 0:
-                    self.lr_multiplier = self.cooling_factor
-                    self.head_lr_multiplier = self.cooling_factor
+                    self.runtime.lr.lr_multiplier = self.cooling_factor
+                    self.runtime.lr.head_lr_multiplier = self.cooling_factor
                     d.lr_changed = True
                     d.msg_parts.append("REFINEMENT: Precision Cooling")
         elif (
@@ -167,15 +167,15 @@ class PropulsionMixin(GovernorHost):
             and self.target_quality_score > 0
             and self.best_quality < self.target_quality_score * 0.90
         ):
-            self.current_stress = min(5.0, self.current_stress + 1.0)
+            self.sota.current_stress = min(5.0, self.current_stress + 1.0)
             jolt_base = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
-            self.lr_multiplier = round(jolt_base * 0.5, 3)
-            self.head_lr_multiplier = min(
+            self.runtime.lr.lr_multiplier = round(jolt_base * 0.5, 3)
+            self.runtime.lr.head_lr_multiplier = min(
                 round(self.lr_multiplier * 3.0, 3), round(jolt_base * 1.5, 3)
             )
-            self.jolt_window_remaining = 3
+            self.runtime.lr.jolt_window_remaining = 3
             d.lr_changed = True
-            self.max_stress_stuck_epochs = 0
+            self.sota.max_stress_stuck_epochs = 0
             d.msg_parts.append(
                 "REFINEMENT: Trapped in Plateau. Deploying Stress Protocol (Level "
                 f"{self.current_stress}) & Differential Jolt"
@@ -186,25 +186,25 @@ class PropulsionMixin(GovernorHost):
             and self.best_quality < self.target_quality_score * 0.90
         ):
             jolt_base = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
-            self.lr_multiplier = jolt_base
-            self.head_lr_multiplier = jolt_base
+            self.runtime.lr.lr_multiplier = jolt_base
+            self.runtime.lr.head_lr_multiplier = jolt_base
             d.lr_changed = True
-            self.max_stress_stuck_epochs = self.max_stress_stuck_epochs + 1
+            self.sota.max_stress_stuck_epochs = self.max_stress_stuck_epochs + 1
             stuck_patience = self.plateau_patience * 2
             d.msg_parts.append(
                 f"REFINEMENT: [MAX STRESS] Forcing Jolt (x{jolt_base:.2f}) to maintain "
                 f"momentum (Stuck: {self.max_stress_stuck_epochs}/{stuck_patience})"
             )
             if self.max_stress_stuck_epochs >= stuck_patience:
-                self.trigger_mini_swa = True
+                self.runtime.lr.trigger_mini_swa = True
                 d.msg_parts.append(
                     "[MINI-SWA PULSE] Triggering weight averaging pulse across top "
                     f"checkpoints (Stuck: {self.max_stress_stuck_epochs} epochs)"
                 )
         else:
             if self.jolt_window_remaining == 0:
-                self.lr_multiplier = self.cooling_factor
-                self.head_lr_multiplier = self.cooling_factor
+                self.runtime.lr.lr_multiplier = self.cooling_factor
+                self.runtime.lr.head_lr_multiplier = self.cooling_factor
                 d.lr_changed = True
                 d.msg_parts.append("REFINEMENT: SOTA Precision Cooling")
 
@@ -230,8 +230,8 @@ class PropulsionMixin(GovernorHost):
         next_state = (self.current_res, round(next_frac, 2))
 
         if self.failure_log.get(str(next_state), 0) > 0:
-            self.lr_multiplier = 0.6
-            self.head_lr_multiplier = 0.6
+            self.runtime.lr.lr_multiplier = 0.6
+            self.runtime.lr.head_lr_multiplier = 0.6
             d.lr_changed = True
             d.msg_parts.append("ANCHOR: Caution ahead (Previous Failures). 0.6x LR.")
 
@@ -259,7 +259,7 @@ class PropulsionMixin(GovernorHost):
 
         if self.cooldown_remaining == 0 and self.current_temp > floor:
             sharpen_rate = 0.95 if self.current_temp > 1.2 else self.sharpening_rate
-            self.current_temp = max(floor, self.current_temp * sharpen_rate)
+            self.thermal.temperature = float(max(floor, self.current_temp * sharpen_rate))
             d.t_changed = True
             d.msg_parts.append(f"SHARPENING: Temp -> {self.current_temp:.2f}")
         elif self.cooldown_remaining > 0:

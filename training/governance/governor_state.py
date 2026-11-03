@@ -10,6 +10,20 @@ from training.ratchet import (
     RESOLUTION_STATE_KEY,
 )
 
+# Checkpoint key -> governor attribute of the loss weights restored only when saved.
+_OPTIONAL_WEIGHT_KEYS: dict[str, str] = {
+    "rank_weight": "current_rank_weight",
+    "rank_margin": "current_rank_margin",
+    "soft_spearman_weight": "current_spearman_weight",
+    "lpips_weight": "current_lpips_weight",
+    "mag_weight": "current_mag_weight",
+    "dir_weight": "current_dir_weight",
+    "emd_weight": "current_emd_weight",
+    "ssim_weight": "current_ssim_weight",
+    "huber_delta": "current_huber_delta",
+    "conf_gate_str": "current_conf_gate_str",
+}
+
 
 class GovernorStateMixin(GovernorHost):
     """Checkpoint serialisation of the governor's curriculum, thermal and SOTA state."""
@@ -65,82 +79,102 @@ class GovernorStateMixin(GovernorHost):
             return
 
         # Restore epoch counters and history first so curriculum checks have accurate state context
-        self.epoch_count = int(state.get("epoch_count", self.epoch_count))
-        self.last_res_jump_epoch = int(state.get("last_res_jump_epoch", 0))
-        self.last_action_epoch = int(state.get("last_action_epoch", self.last_res_jump_epoch))
-        self.history = list(state.get("history", []))
+        counters = self.runtime.counters
+        counters.epoch_count = int(state.get("epoch_count", counters.epoch_count))
+        counters.last_res_jump_epoch = int(state.get("last_res_jump_epoch", 0))
+        counters.last_action_epoch = int(
+            state.get("last_action_epoch", counters.last_res_jump_epoch)
+        )
+        self.sota.history = list(state.get("history", []))
 
         if not preserve_curriculum:
-            raw_frac = float(state.get(FRACTION_STATE_KEY, self.current_fraction))
-            self.current_fraction = 1.0 if (1.0 - raw_frac < 0.01) else round(raw_frac, 4)
-            raw_res = state.get(RESOLUTION_STATE_KEY, self.current_res)
-            self.current_res = int(raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res)
-
-            # The saved fraction is restored as-is: lowering it at the same
-            # resolution would break the Monotonic Ratchet (pair rule).
-            if (
-                self.task_type in ("forex", "llm", "text_instruction")
-                or self.model_info.get("category") == "llm"
-            ):
-                self.current_fraction = 1.0
-
-            if self.current_res is not None and self.current_res not in self.res_ladder:
-                self.res_ladder = sorted(set(self.res_ladder + [self.current_res]))
+            self._restore_rung(state)
         else:
-            raw_res = state.get(RESOLUTION_STATE_KEY, self.current_res)
-            self.sota_resolution = int(
-                raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res
+            self.sota.sota_resolution = _resolution(
+                state.get(RESOLUTION_STATE_KEY, self.current_res)
             )
 
-        self.current_temp = max(self.min_temp, float(state.get("softmax_temp", self.current_temp)))
+        self._restore_loss_shaping(state)
+        self._restore_windows(state)
+        self._restore_sota(state)
+
+    def _restore_rung(self, state: dict[str, Any]) -> None:
+        """Restore the saved (resolution, fraction) rung and keep it on the ladder."""
+        curriculum = self.curriculum
+        raw_frac = float(state.get(FRACTION_STATE_KEY, curriculum.current_fraction))
+        curriculum.current_fraction = 1.0 if (1.0 - raw_frac < 0.01) else round(raw_frac, 4)
+        curriculum.current_res = _resolution(
+            state.get(RESOLUTION_STATE_KEY, curriculum.current_res)
+        )
+
+        # The saved fraction is restored as-is: lowering it at the same
+        # resolution would break the Monotonic Ratchet (pair rule).
+        if (
+            self.task_type in ("forex", "llm", "text_instruction")
+            or self.model_info.get("category") == "llm"
+        ):
+            curriculum.current_fraction = 1.0
+
+        if (
+            curriculum.current_res is not None
+            and curriculum.current_res not in curriculum.res_ladder
+        ):
+            curriculum.res_ladder = sorted(set(curriculum.res_ladder + [curriculum.current_res]))
+
+    def _restore_loss_shaping(self, state: dict[str, Any]) -> None:
+        """Restore temperature, clamp and the loss weights present in the checkpoint."""
+        self.thermal.temperature = float(
+            max(self.min_temp, float(state.get("softmax_temp", self.current_temp)))
+        )
         if self.task_type == "quality":
-            self.current_temp = min(1.0, self.current_temp)
-        self.current_clamp = float(state.get("logit_clamp", self.current_clamp))
+            self.thermal.temperature = min(1.0, self.thermal.temperature)
+        calibration = self.runtime.calibration
+        calibration.current_clamp = float(state.get("logit_clamp", calibration.current_clamp))
+        calibration.thermal_floor = dict(state.get("thermal_floor", {}))
 
-        if "rank_weight" in state:
-            self.current_rank_weight = float(state["rank_weight"])
-        if "rank_margin" in state:
-            self.current_rank_margin = float(state["rank_margin"])
-        if "soft_spearman_weight" in state:
-            self.current_spearman_weight = float(state["soft_spearman_weight"])
-        if "lpips_weight" in state:
-            self.current_lpips_weight = float(state["lpips_weight"])
-        if "mag_weight" in state:
-            self.current_mag_weight = float(state["mag_weight"])
-        if "dir_weight" in state:
-            self.current_dir_weight = float(state["dir_weight"])
-        if "emd_weight" in state:
-            self.current_emd_weight = float(state["emd_weight"])
-        if "ssim_weight" in state:
-            self.current_ssim_weight = float(state["ssim_weight"])
-        if "huber_delta" in state:
-            self.current_huber_delta = float(state["huber_delta"])
-        if "conf_gate_str" in state:
-            self.current_conf_gate_str = float(state["conf_gate_str"])
+        for key, attr in _OPTIONAL_WEIGHT_KEYS.items():
+            if key in state:
+                setattr(self, attr, float(state[key]))
 
-        self.metric_focus_epochs_remaining = int(state.get("metric_focus_epochs_remaining", 0))
-        self.metric_focus_target = state.get("metric_focus_target")
+    def _restore_windows(self, state: dict[str, Any]) -> None:
+        """Restore the metric-focus window, LR multipliers, batch and per-epoch windows."""
+        focus = self.runtime.focus
+        focus.metric_focus_epochs_remaining = int(state.get("metric_focus_epochs_remaining", 0))
+        focus.metric_focus_target = state.get("metric_focus_target")
         raw_mflf = state.get("metric_focus_last_fired", {})
-        self.metric_focus_last_fired = {k: int(v) for k, v in raw_mflf.items()}
+        focus.metric_focus_last_fired = {k: int(v) for k, v in raw_mflf.items()}
 
-        self.lr_multiplier = float(state.get("lr_multiplier", self.lr_multiplier))
-        self.head_lr_multiplier = float(state.get("head_lr_multiplier", self.lr_multiplier))
-        self.jolt_window_remaining = int(state.get("jolt_window_remaining", 0))
-        self.current_batch = int(state.get("batch_size", self.current_batch))
-        self.current_acc = int(state.get("accumulation_steps", self.current_acc))
-        self.stabilization_epochs = int(state.get("stabilization_epochs", 0))
-        self.failure_log = dict(state.get("failure_log", {}))
-        self.thermal_floor = dict(state.get("thermal_floor", {}))
-        self.cooldown_remaining = int(state.get("cooldown_remaining", 0))
-        self.last_jolt_epoch = int(state.get("last_jolt_epoch", -10))
-        self.spatial_lock_remaining = int(state.get("spatial_lock_remaining", 0))
-        self.best_quality = float(state.get("best_quality", self.best_quality))
-        self.current_stress = float(state.get("stress", 0.0))
-        self.max_stress_stuck_epochs = int(state.get("max_stress_stuck_epochs", 0))
+        lr = self.runtime.lr
+        lr.lr_multiplier = float(state.get("lr_multiplier", lr.lr_multiplier))
+        lr.head_lr_multiplier = float(state.get("head_lr_multiplier", lr.lr_multiplier))
+        lr.jolt_window_remaining = int(state.get("jolt_window_remaining", 0))
+        self.curriculum.current_batch = int(state.get("batch_size", self.curriculum.current_batch))
+        self.curriculum.current_acc = int(
+            state.get("accumulation_steps", self.curriculum.current_acc)
+        )
+        counters = self.runtime.counters
+        counters.last_jolt_epoch = int(state.get("last_jolt_epoch", -10))
+        counters.spatial_lock_remaining = int(state.get("spatial_lock_remaining", 0))
 
-        self.consecutive_rollbacks = int(state.get("consecutive_rollbacks", 0))
+    def _restore_sota(self, state: dict[str, Any]) -> None:
+        """Restore stress, cooldown, best quality and the loop-breaker rollback state."""
+        stress = self.sota.stress
+        stress.stabilization_epochs = int(state.get("stabilization_epochs", 0))
+        stress.failure_log = dict(state.get("failure_log", {}))
+        stress.cooldown_remaining = int(state.get("cooldown_remaining", 0))
+        stress.current_stress = float(state.get("stress", 0.0))
+        stress.max_stress_stuck_epochs = int(state.get("max_stress_stuck_epochs", 0))
+        self.sota.quality.best_quality = float(state.get("best_quality", self.best_quality))
+
+        rollback = self.sota.rollback
+        rollback.consecutive_rollbacks = int(state.get("consecutive_rollbacks", 0))
         raw_history = state.get("rollback_history", {})
-        self.rollback_history = {int(k): int(v) for k, v in raw_history.items()}
-        self.gate_relaxation_epochs = int(state.get("gate_relaxation_epochs", 0))
-        self.sota_resolution = state.get("sota_resolution")
-        self.breakout_lock = int(state.get("breakout_lock", 0))
+        rollback.rollback_history = {int(k): int(v) for k, v in raw_history.items()}
+        rollback.gate_relaxation_epochs = int(state.get("gate_relaxation_epochs", 0))
+        rollback.sota_resolution = state.get("sota_resolution")
+        rollback.breakout_lock = int(state.get("breakout_lock", 0))
+
+
+def _resolution(raw_res: Any) -> int:
+    """Return the resolution of a saved size (height of a pair)."""
+    return int(raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res)
