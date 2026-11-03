@@ -105,7 +105,7 @@ def _populate_registry():
 
     # 4. Causal Assistant Language Models
     try:
-        from models.generic_causal_llm import GenericCausalLLM, AIHelperLemGend
+        from models.generic_causal_llm import AIHelperLemGend, GenericCausalLLM
         _MODEL_REGISTRY["GenericCausalLLM"] = GenericCausalLLM
         _MODEL_REGISTRY["AIHelperLemGend"] = AIHelperLemGend
     except _OPTIONAL_IMPORT_ERRORS as llm_err:

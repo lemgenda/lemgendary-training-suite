@@ -4,6 +4,7 @@ import io
 import logging
 from pathlib import Path
 from typing import Any
+
 from PIL import Image
 
 from training.data.containers.base import Sample
@@ -128,4 +129,3 @@ class DirectoryReader:
 
     def close(self) -> None:
         """DirectoryReader does not hold persistent file handles."""
-        pass

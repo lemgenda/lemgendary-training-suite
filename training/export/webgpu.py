@@ -8,7 +8,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from training.export.common import ExportError
 
@@ -28,8 +28,8 @@ def export_webgpu_onnx(
     logger.info("Exporting WebGPU ONNX payload to %s (opset=%d, shape=%s)...", out_file, opset, dummy_input_shape)
 
     model_to_export: nn.Module
-    if hasattr(model, "module") and isinstance(getattr(model, "module"), nn.Module):
-        model_to_export = getattr(model, "module")
+    if hasattr(model, "module") and isinstance(model.module, nn.Module):
+        model_to_export = model.module
     elif isinstance(model, nn.Module):
         model_to_export = model
     else:

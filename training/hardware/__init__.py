@@ -7,9 +7,9 @@ from training.hardware.sentinel import SentinelGuard
 
 __all__ = [
     "DeviceInfo",
-    "discover_device",
     "HardwarePolicyResult",
+    "SentinelGuard",
     "apply_hardware_policy",
     "audit_hardware_vram",
-    "SentinelGuard",
+    "discover_device",
 ]

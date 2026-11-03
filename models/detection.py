@@ -1,6 +1,7 @@
 import torch
-import torch.nn as nn
+from torch import nn
 from torchvision import models
+
 
 class RetinaFace_MobileNet(nn.Module):
     """

@@ -8,10 +8,20 @@ from typing import Any
 import torch
 
 from training.governance.curriculum import CurriculumState
-from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS, DEFAULT_METRIC_WEIGHTS, MetricRegistry
+from training.governance.metrics import (
+    DEFAULT_METRIC_DIRECTIONS,
+    DEFAULT_METRIC_WEIGHTS,
+    MetricRegistry,
+)
 from training.governance.sota import SotaTracker
 from training.governance.thermal import ThermalState
-from training.ratchet import FRACTION_STATE_KEY, RESOLUTION_STATE_KEY, Rung, check_transition, expand_fraction
+from training.ratchet import (
+    FRACTION_STATE_KEY,
+    RESOLUTION_STATE_KEY,
+    Rung,
+    check_transition,
+    expand_fraction,
+)
 
 logger = logging.getLogger("lemtrain.governance.governor")
 

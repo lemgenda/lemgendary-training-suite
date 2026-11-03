@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from data.forex_dataset import TIMEFRAME_LOOKBACK
 from models.forex_predictor import FOREX_FEATURES_PER_BAR
@@ -117,7 +117,7 @@ def export_forex_onnx(
 
     raw_state = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt)) if isinstance(ckpt, dict) else ckpt
     state_dict = {
-        k[7:] if k.startswith("module.") else k: v
+        k.removeprefix("module."): v
         for k, v in raw_state.items()
     }
     model.load_state_dict(state_dict, strict=False)

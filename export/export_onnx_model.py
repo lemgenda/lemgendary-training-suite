@@ -7,7 +7,6 @@ import logging
 import sys
 
 from training.export import ExportError, export_all
-from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export.onnx_cli")
 

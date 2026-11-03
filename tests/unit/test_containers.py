@@ -2,14 +2,15 @@
 
 import io
 import json
-from pathlib import Path
 import tarfile
 import tempfile
 import unittest
-from PIL import Image
+from pathlib import Path
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
+from PIL import Image
 
 from training.data.containers import (
     DirectoryReader,

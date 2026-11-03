@@ -7,16 +7,10 @@ and inclusion of all registered models (including ai_helper_lemgend).
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
 from training.registry.model_specs import (
-    AcademicReference,
-    KaggleModelMetadata,
-    ModelRegistryService,
-    ModelSpecification,
     get_model_registry,
 )
-from training.utils.paths import get_project_root
 
 
 class TestModelRegistry(unittest.TestCase):

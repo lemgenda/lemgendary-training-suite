@@ -4,12 +4,12 @@ import os
 from typing import Any
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from training.parallel.base import ParallelStrategy
-from training.parallel.single import SingleGPUStrategy
-from training.parallel.dp import DataParallelStrategy
 from training.parallel.ddp import DistributedDataParallelStrategy
+from training.parallel.dp import DataParallelStrategy
+from training.parallel.single import SingleGPUStrategy
 
 _STRATEGIES = {
     "single": SingleGPUStrategy,

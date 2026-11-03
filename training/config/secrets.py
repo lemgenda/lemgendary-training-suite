@@ -3,6 +3,7 @@
 import logging
 import os
 from pathlib import Path
+
 from training.utils.paths import get_project_root, get_workspace_root
 
 logger = logging.getLogger("lemtrain.secrets")

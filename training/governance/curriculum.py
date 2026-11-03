@@ -1,7 +1,7 @@
 """Curriculum state managing dynamic resolution ladders, fraction expansion, and effective batch scaling."""
 
-from dataclasses import dataclass, field
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger("lemtrain.governance.curriculum")

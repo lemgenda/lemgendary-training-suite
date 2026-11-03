@@ -116,10 +116,10 @@ class KaggleApiSyncService:
         try:
             from kagglesdk.security.types.iam_service import (
                 GetIamPolicyRequest,
-                SetIamPolicyRequest,
-                KaggleResourceId,
                 IamPolicyBinding,
+                KaggleResourceId,
                 Principal,
+                SetIamPolicyRequest,
                 UserPrincipal,
             )
             KaggleResourceType = KaggleResourceId.__init__.__globals__["KaggleResourceType"]

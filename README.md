@@ -11,11 +11,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.70-STABLE` |
+| **Version** | `v16.9.71-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.71 - Ruff Autofix Pass and Explicit Re-exports
+
+- **Ruff safe fixes applied across the repository** (about 440 findings): import sorting (`I001`), PEP 604/585 annotations (`UP045`, `UP006`, `UP035`), `from torch import nn` style imports (`PLR0402`), constant `getattr`/`setattr` (`B009`, `B010`), f-strings without placeholders (`F541`), `__all__` sorting (`RUF022`), plus smaller simplifications. No unsafe fixes were applied.
+- **Unused imports (`F401`)**: 119 imports with no reference inside the repository were removed. Four backward-compatibility shims (`cloud_hub.py`, `train_all.py`, `judicial_audit_api.py` and `training/model_registry.py`) re-export names on purpose, so they now say so with `__all__`. That also keeps `training.model_registry.audit_hardware_vram` importable for `tests/test_vram_safety_governor.py`.
+- **Remaining ruff findings**: 109, down from 798 at v16.9.69. They need manual fixes and come in later releases.
+- **Tests**: 260 passed, 0 failed.
 
 ### v16.9.70 - No Silent Exception Handlers
 

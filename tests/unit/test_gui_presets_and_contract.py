@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 import shutil
 import tempfile
-from typing import Any
 import unittest
+from pathlib import Path
+from typing import Any
+
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
@@ -44,7 +45,7 @@ class TestOpenAPIAndContract(unittest.TestCase):
         self.assertEqual(data.get("openapi"), "3.1.0")
         info = data.get("info", {})
         self.assertEqual(info.get("title"), "LemGendary Model Training Suite Sidecar API")
-        self.assertEqual(info.get("version"), "16.9.70")
+        self.assertEqual(info.get("version"), "16.9.71")
 
         paths = data.get("paths", {})
         required_paths = [

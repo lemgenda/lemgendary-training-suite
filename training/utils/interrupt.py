@@ -6,7 +6,8 @@ import os
 import signal
 import subprocess
 import sys
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger("lemtrain.interrupt")
 
@@ -27,7 +28,7 @@ def cleanup_active_processes(*args: Any) -> None:
         return
 
     logger.info("Terminating %d active child processes...", len(_ACTIVE_PROCESSES))
-    for p in list(_ACTIVE_PROCESSES):
+    for p in _ACTIVE_PROCESSES:
         if p.poll() is None:
             try:
                 if os.name == "nt":

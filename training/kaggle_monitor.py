@@ -1,13 +1,13 @@
+import json
 import logging
 import os
-import sys
 import re
-import json
-import time
+import sys
 import tempfile
-from pathlib import Path
-from typing import Optional, List, Dict, Tuple, Any
+import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -33,7 +33,7 @@ logger = logging.getLogger("lemtrain.cloud.kaggle_monitor")
 # pull_kaggle_artifacts reports most failures itself; RuntimeError covers a missing kagglehub SDK.
 _PULL_ERRORS: tuple[type[Exception], ...] = (RuntimeError, *KAGGLE_API_ERRORS)
 
-def find_kaggle_users_file(explicit_path: Optional[Path] = None) -> Optional[Path]:
+def find_kaggle_users_file(explicit_path: Path | None = None) -> Path | None:
     """
     Locates the .kaggle_users credentials registry file.
     Searches explicit path, local suite directory, working directory, and sibling directories.
@@ -55,13 +55,13 @@ def find_kaggle_users_file(explicit_path: Optional[Path] = None) -> Optional[Pat
     return Path(__file__).resolve().parent.parent / ".kaggle_users"
 
 
-def load_kaggle_users(users_file: Optional[Path] = None) -> Tuple[List[Dict[str, str]], Path]:
+def load_kaggle_users(users_file: Path | None = None) -> tuple[list[dict[str, str]], Path]:
     """
     Parses configured Kaggle user accounts from .kaggle_users.
     Expected format per line: KAGGLE_USERNAME=<user>, KAGGLE_API_TOKEN=<token>;
     """
     target_file = find_kaggle_users_file(users_file)
-    accounts: List[Dict[str, str]] = []
+    accounts: list[dict[str, str]] = []
 
     if target_file and target_file.exists():
         try:
@@ -97,7 +97,7 @@ def save_kaggle_user(users_file: Path, username: str, token: str) -> bool:
         return False
 
 
-def authenticate_kaggle_user(username: str, token: str) -> Optional[Any]:
+def authenticate_kaggle_user(username: str, token: str) -> Any | None:
     """
     Configures environment variables and initializes authenticated KaggleApi instance.
     """
@@ -119,7 +119,7 @@ def authenticate_kaggle_user(username: str, token: str) -> Optional[Any]:
         return None
 
 
-def fetch_user_kernels(api: Any, username: str, limit: int = 20) -> List[Dict[str, Any]]:
+def fetch_user_kernels(api: Any, username: str, limit: int = 20) -> list[dict[str, Any]]:
     """
     Queries active and recent kernels for the target Kaggle user with concurrent status resolution.
     """
@@ -132,7 +132,7 @@ def fetch_user_kernels(api: Any, username: str, limit: int = 20) -> List[Dict[st
     if not raw_kernels:
         return []
 
-    def _resolve_status(kernel_item: Any) -> Dict[str, Any]:
+    def _resolve_status(kernel_item: Any) -> dict[str, Any]:
         ref = getattr(kernel_item, "ref", str(kernel_item))
         title = getattr(kernel_item, "title", ref)
         status_val = "UNKNOWN"
@@ -156,7 +156,7 @@ def fetch_user_kernels(api: Any, username: str, limit: int = 20) -> List[Dict[st
     return kernels_data
 
 
-def get_registered_models() -> List[str]:
+def get_registered_models() -> list[str]:
     """Loads model manifold names registered in unified_models_v2.yaml."""
     yaml_path = Path(__file__).resolve().parent.parent / "unified_models_v2.yaml"
     if yaml_path.exists():
@@ -170,7 +170,7 @@ def get_registered_models() -> List[str]:
     return []
 
 
-def match_model_from_slug(slug: Optional[str]) -> Optional[str]:
+def match_model_from_slug(slug: str | None) -> str | None:
     """Infers registered model manifold key from kernel slug."""
     if not slug:
         return None
@@ -222,8 +222,8 @@ def stream_kernel_logs(
     kernel_slug: str,
     poll_interval: int = 5,
     auto_pull: bool = False,
-    username: Optional[str] = None,
-    model_name: Optional[str] = None
+    username: str | None = None,
+    model_name: str | None = None
 ) -> None:
     """
     Streams live kernel logs and status telemetry to terminal.
@@ -372,7 +372,7 @@ def interactive_kernel_monitor(api: Any, username: str) -> None:
         print(f"\n  {custom_opt_idx}. [CUSTOM] Enter custom kernel slug / model name")
         print("  R. [REFRESH] Re-query kernel statuses")
         print("  B. [BACK] Return to User Selection")
-        print("")
+        print()
 
         choice = input(f"Select kernel to monitor (1-{custom_opt_idx}, R, B): ").strip()
 
@@ -381,7 +381,7 @@ def interactive_kernel_monitor(api: Any, username: str) -> None:
         if choice.upper() == "R":
             continue
 
-        target_slug: Optional[str] = None
+        target_slug: str | None = None
 
         if choice.isdigit():
             val = int(choice)
@@ -426,15 +426,15 @@ def interactive_train_launcher(api: Any, username: str) -> None:
         new_opt_idx = len(kernels) + 1
         print(f"\n  {new_opt_idx}. [DEPLOY NEW MODEL] Deploy and launch a registered model from local suite")
         print("  B. [BACK] Return to User Selection")
-        print("")
+        print()
 
         choice = input(f"Select notebook to run (1-{new_opt_idx}, B): ").strip()
 
         if choice.upper() in ["B", "Q"]:
             break
 
-        selected_slug: Optional[str] = None
-        target_model: Optional[str] = None
+        selected_slug: str | None = None
+        target_model: str | None = None
 
         if choice.isdigit():
             val = int(choice)
@@ -536,7 +536,7 @@ def interactive_train_launcher(api: Any, username: str) -> None:
             input("\nPress Enter to return to notebooks list...")
 
 
-def prompt_user_account_selection(users_file_override: Optional[str] = None) -> Optional[Tuple[str, str, Path]]:
+def prompt_user_account_selection(users_file_override: str | None = None) -> tuple[str, str, Path] | None:
     """
     Presents the user account selection menu from .kaggle_users with new user addition.
     """
@@ -565,8 +565,8 @@ def prompt_user_account_selection(users_file_override: Optional[str] = None) -> 
     if choice.upper() in ["Q", "QUIT", "EXIT", "B"]:
         return None
 
-    selected_user: Optional[str] = None
-    selected_token: Optional[str] = None
+    selected_user: str | None = None
+    selected_token: str | None = None
 
     if choice.isdigit():
         val = int(choice)
@@ -595,7 +595,7 @@ def prompt_user_account_selection(users_file_override: Optional[str] = None) -> 
     return None
 
 
-def run_interactive_train(users_file_override: Optional[str] = None) -> None:
+def run_interactive_train(users_file_override: str | None = None) -> None:
     """
     Option 1: Train on Kaggle (Select notebook, launch, stream logs, auto-pull checkpoints).
     """
@@ -613,7 +613,7 @@ def run_interactive_train(users_file_override: Optional[str] = None) -> None:
         interactive_train_launcher(api, username)
 
 
-def run_interactive_monitor(users_file_override: Optional[str] = None) -> None:
+def run_interactive_monitor(users_file_override: str | None = None) -> None:
     """
     Option 2: Monitor Only (Stream live logs from active training, no pulling).
     """

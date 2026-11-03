@@ -96,7 +96,12 @@ def resolve_model_metadata(
     if not k_slug:
         k_slug = model_key.replace("_", "-").lower()
 
-    from training.cloud.variations import ONNX_FP16, ONNX_FP32, PYTORCH_DEFAULT, PYTORCH_FP32
+    from training.cloud.variations import (
+        ONNX_FP16,
+        ONNX_FP32,
+        PYTORCH_DEFAULT,
+        PYTORCH_FP32,
+    )
     handle_pytorch_default = PYTORCH_DEFAULT.handle(k_username, k_slug)
     handle_pytorch_fp32 = PYTORCH_FP32.handle(k_username, k_slug)
     handle_onnx_fp16 = ONNX_FP16.handle(k_username, k_slug)

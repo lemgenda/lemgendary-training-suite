@@ -366,7 +366,7 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "\n",
             "if os.path.exists(dest_path):\n",
             "    print(f'[OK] Manifold materialized at: {dest_path}')\n",
-            f"    aliases = [primary_manifold.lower(), model_key.lower(), model_key.replace('_', '-'), model_key.replace('_', '')]\n",
+            "    aliases = [primary_manifold.lower(), model_key.lower(), model_key.replace('_', '-'), model_key.replace('_', '')]\n",
             f"    if {meta.is_forex}:\n",
             "        aliases.extend(['forex', 'lemgendizedforexuniverse', 'lemgendizedforexuniverselarge'])\n",
             "    for alias in set(aliases):\n",

@@ -6,10 +6,11 @@ forward passes under AMP autocast, gradient accumulation, and telemetry collecti
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 import logging
 import time
+from contextlib import nullcontext
 from typing import Any
+
 import torch
 
 from training.training.amp import get_autocast_context, safe_backward
@@ -98,7 +99,7 @@ def train_one_epoch(
         and not getattr(ctx, "_resumed_train_step_handled", False)
     ):
         resume_step = ctx.resume_state.iteration
-        setattr(ctx, "_resumed_train_step_handled", True)
+        ctx._resumed_train_step_handled = True
         print(f"[RESUME] Fast-forwarding {resume_step} completed batches in Epoch {epoch}...", flush=True)
 
         acc = getattr(ctx.resume_state, "train_accumulators", {})

@@ -1,9 +1,10 @@
 """Execution policy, AMP, cuDNN, and memory format configuration for LemGendary Model Training Suite."""
 
-from dataclasses import dataclass
 import logging
-import torch
+from dataclasses import dataclass
 from typing import Any
+
+import torch
 
 from training.hardware.discovery import DeviceInfo
 

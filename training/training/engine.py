@@ -5,9 +5,9 @@ SOTA tracking, atomic checkpointing, rollback recovery, and cloud sync triggers.
 """
 
 from __future__ import annotations
-import os
 
 import logging
+import os
 import time
 from collections.abc import Callable
 
@@ -17,9 +17,18 @@ from data.forex_sampler import RowGroupAwareSampler
 from training.checkpoint import CheckpointLifecycleManager
 from training.cloud_sync import trigger_cloud_sync
 from training.data import rebuild_train_loader
-from training.epoch_budget import EpochAction, EpochBudgetConfig, EpochBudgetPolicy, StopReason
+from training.epoch_budget import (
+    EpochAction,
+    EpochBudgetConfig,
+    EpochBudgetPolicy,
+    StopReason,
+)
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS
-from training.ratchet import FULL_FRACTION_THRESHOLD, executed_rung, top_resolution_reached
+from training.ratchet import (
+    FULL_FRACTION_THRESHOLD,
+    executed_rung,
+    top_resolution_reached,
+)
 from training.telemetry import TelemetryEngine
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
@@ -394,7 +403,7 @@ def run_training(
                     and hasattr(ctx.train_loader.dataset, "tensors")
                     and len(getattr(ctx.train_loader.dataset, "tensors", ())) > 0
                 ):
-                    sample_tensor = getattr(ctx.train_loader.dataset, "tensors")[0]
+                    sample_tensor = ctx.train_loader.dataset.tensors[0]
                     dummy_shape = (1, *[int(d) for d in sample_tensor.shape[1:]])
                 else:
                     dummy_shape = (1, 3, 256, 256)
@@ -485,10 +494,7 @@ def run_training(
                 achieved = float(combined_metrics[s_key])
                 target_val = float(s_target)
                 is_higher = DEFAULT_METRIC_DIRECTIONS.get(s_key, True)
-                if is_higher and achieved < target_val:
-                    sota_all_met = False
-                    break
-                elif not is_higher and achieved > target_val:
+                if is_higher and achieved < target_val or not is_higher and achieved > target_val:
                     sota_all_met = False
                     break
 

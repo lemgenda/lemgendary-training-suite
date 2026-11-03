@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any
 
 import yaml
 
-from training.config.secrets import get_secret, load_secrets
+from training.config.secrets import get_secret
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.cloud.credentials")

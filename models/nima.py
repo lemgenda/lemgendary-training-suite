@@ -1,5 +1,5 @@
 import torch
-import torch.nn as nn
+from torch import nn
 from torchvision import models
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1312]

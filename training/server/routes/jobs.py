@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -12,8 +13,8 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 @router.get("")
 def list_jobs(
     request: Request,
-    status: Optional[str] = Query(None, description="Filter by status ('pending', 'running', 'completed', 'failed', 'cancelled')"),
-    model_key: Optional[str] = Query(None, description="Filter by target model key"),
+    status: str | None = Query(None, description="Filter by status ('pending', 'running', 'completed', 'failed', 'cancelled')"),
+    model_key: str | None = Query(None, description="Filter by target model key"),
     limit: int = Query(50, ge=1, le=500),
 ) -> list[dict[str, Any]]:
     """List persistent jobs from SQLite database."""

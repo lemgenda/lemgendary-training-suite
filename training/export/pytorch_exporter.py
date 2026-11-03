@@ -16,7 +16,7 @@ from typing import Any
 
 import onnx
 import torch
-import torch.nn as nn
+from torch import nn
 
 from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
 from training.export.common import extract_input_dimensions

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
-from fastapi import APIRouter
+
 import yaml
+from fastapi import APIRouter
 
 from training.utils.paths import get_project_root
 

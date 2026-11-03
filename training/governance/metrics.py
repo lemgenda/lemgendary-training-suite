@@ -1,8 +1,7 @@
 """Metric registry, direction mappings, weights, and composite quality score calculation."""
 
-from dataclasses import dataclass
 import logging
-from typing import Any
+from dataclasses import dataclass
 
 logger = logging.getLogger("lemtrain.governance.metrics")
 

@@ -4,8 +4,10 @@ import logging
 import os
 from contextlib import AbstractContextManager, nullcontext
 from typing import Any, cast
+
 import torch
-import torch.nn as nn
+from torch import nn
+
 from training.parallel.base import ParallelStrategy, generic_prepare_batch
 
 logger = logging.getLogger("lemtrain.parallel.ddp")
@@ -33,6 +35,7 @@ class DistributedDataParallelStrategy(ParallelStrategy):
 
     def setup(self) -> nn.Module:
         import datetime
+
         import torch.distributed as dist
 
         if not dist.is_initialized():

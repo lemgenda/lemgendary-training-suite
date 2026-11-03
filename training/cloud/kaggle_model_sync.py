@@ -19,18 +19,16 @@ from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS, kagglehub_errors
 from training.cloud.kaggle_api_sync import KaggleApiSyncService
 from training.cloud.metadata_generator import KaggleMetadataService
-from training.cloud.model_metadata import METADATA_FILENAME, ModelMetadata
+from training.cloud.model_metadata import METADATA_FILENAME
 from training.cloud.variations import (
     ONNX_FP16,
     ONNX_FP32,
     PYTORCH_DEFAULT,
     PYTORCH_FP32,
     VARIATION_BY_KEY,
-    VARIATIONS,
-    KaggleVariation,
 )
 from training.export.validation import IsolationReport, StrictIsolationValidator
-from training.registry import ModelSpecification, get_model_registry
+from training.registry import get_model_registry
 from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 

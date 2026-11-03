@@ -1,6 +1,6 @@
 # 2026: Environment Linter Sync
-import sys
 import os
+import sys
 
 # --- Hyper-Verbose Path Defense (2026 Specialization) ---
 script_dir = os.path.dirname(os.path.abspath(__file__))

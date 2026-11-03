@@ -6,7 +6,6 @@ and exact structural parity against baseline notebooks for mirnet_exposure and f
 
 import json
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path

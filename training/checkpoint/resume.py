@@ -1,7 +1,7 @@
 """Typed resume state, scheduler runway stretching, and iteration progress scaling."""
 
-from dataclasses import dataclass, field
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger("lemtrain.checkpoint.resume")

@@ -7,11 +7,12 @@ evaluations, checkpoint telemetry, and GUI integration.
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 import logging
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from collections.abc import AsyncGenerator
+
 from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.security.api_key import APIKeyHeader
@@ -19,15 +20,35 @@ from fastapi.security.api_key import APIKeyHeader
 from training.server.jobs import JobManager
 from training.server.routes import (
     config as config_route,
+)
+from training.server.routes import (
     datasets as datasets_route,
+)
+from training.server.routes import (
     env as env_route,
+)
+from training.server.routes import (
     gui as gui_route,
+)
+from training.server.routes import (
     health as health_route,
+)
+from training.server.routes import (
     jobs as jobs_route,
+)
+from training.server.routes import (
     models as models_route,
+)
+from training.server.routes import (
     notebooks as notebooks_route,
+)
+from training.server.routes import (
     soup as soup_route,
+)
+from training.server.routes import (
     training as training_route,
+)
+from training.server.routes import (
     ws as ws_route,
 )
 from training.server.security import AUTH_TOKEN_HEADER, install_security
@@ -107,7 +128,7 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
 
     application = FastAPI(
         title="LemGendary Model Training Suite Sidecar API",
-        version="16.9.70",
+        version="16.9.71",
         description="Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
         openapi_tags=openapi_tags,
         lifespan=lifespan,

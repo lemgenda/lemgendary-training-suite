@@ -6,14 +6,15 @@ and token generation.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from datetime import datetime
 import json
 import os
-from pathlib import Path
 import secrets
 import sqlite3
-from typing import Any, Generator
+from collections.abc import Generator
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 from training.utils.paths import get_project_root
 
@@ -227,7 +228,7 @@ class ServerState:
     def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         """Convert sqlite3.Row to deserialized dictionary."""
         d = dict(row)
-        if "params_json" in d and d["params_json"]:
+        if d.get("params_json"):
             try:
                 d["params"] = json.loads(d["params_json"])
             except json.JSONDecodeError:
@@ -235,7 +236,7 @@ class ServerState:
         else:
             d["params"] = {}
 
-        if "metrics_json" in d and d["metrics_json"]:
+        if d.get("metrics_json"):
             try:
                 d["metrics"] = json.loads(d["metrics_json"])
             except json.JSONDecodeError:

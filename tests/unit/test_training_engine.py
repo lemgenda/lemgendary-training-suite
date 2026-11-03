@@ -6,16 +6,17 @@ epoch runner, validation passes, and the central run_training coordinator (Gate 
 
 from __future__ import annotations
 
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
+
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from training.checkpoint import MetricVault, ResumeState
+from training.checkpoint import MetricVault
 from training.governance import SmartTrainingGovernor, SotaTracker
-from training.hardware.discovery import DeviceInfo, discover_device
+from training.hardware.discovery import discover_device
 from training.hardware.policy import ExecutionPolicy
 from training.hardware.sentinel import SentinelGuard
 from training.training import (
@@ -23,8 +24,6 @@ from training.training import (
     TrainingPaths,
     build_optimizer,
     build_scheduler,
-    create_grad_scaler,
-    get_autocast_context,
     run_training,
     safe_backward,
     train_one_epoch,

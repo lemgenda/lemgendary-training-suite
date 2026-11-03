@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from training.export.exporter_factory import ExporterFactory
 from training.export.pytorch_exporter import PyTorchModelExporter

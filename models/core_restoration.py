@@ -1,7 +1,7 @@
-from torch.nn.modules.utils import _pair
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
+from torch.nn.modules.utils import _pair
 
 # ==========================================
 # 0. ALIGNMENT HOTFIX FOR DATAPARALLEL
@@ -33,7 +33,7 @@ def _aligned_conv2d_forward(self, x):
     return _orig_conv2d_forward(self, x)
 
 
-setattr(nn.Conv2d, "forward", _aligned_conv2d_forward)
+nn.Conv2d.forward = _aligned_conv2d_forward
 
 # ==========================================
 # 1. NAFNet (Nonlinear Activation Free Network)

@@ -6,10 +6,11 @@ import math
 import random
 import sys
 from typing import Any
+
 import cv2
 import numpy as np
-from PIL import Image, ImageFilter
 import torch
+from PIL import Image, ImageFilter
 
 from training.utils.paths import get_workspace_root
 

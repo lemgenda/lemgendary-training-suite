@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request
@@ -27,20 +27,20 @@ class NotebookGenerateRequest(BaseModel):
 
     model_key: str = Field(..., description="Target model key (e.g. nima_aesthetic_mobile)")
     platform: str = Field("all", description="Execution platform: 'kaggle', 'colab', or 'all'")
-    kinds: Optional[List[str]] = Field(
+    kinds: list[str] | None = Field(
         None, description="Notebook kinds: ['training', 'inference', 'usage'] (defaults to all)"
     )
-    output_dir: Optional[str] = Field(None, description="Custom target export directory")
+    output_dir: str | None = Field(None, description="Custom target export directory")
 
 
 class NotebookRefreshAllRequest(BaseModel):
     """Payload for generating notebooks for all registered models."""
 
     platform: str = Field("all", description="Execution platform: 'kaggle', 'colab', or 'all'")
-    kinds: Optional[List[str]] = Field(
+    kinds: list[str] | None = Field(
         None, description="Notebook kinds: ['training', 'inference', 'usage'] (defaults to all)"
     )
-    output_dir: Optional[str] = Field(None, description="Custom target export directory")
+    output_dir: str | None = Field(None, description="Custom target export directory")
 
 
 @router.get("/models")

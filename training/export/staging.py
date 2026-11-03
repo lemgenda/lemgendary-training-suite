@@ -10,12 +10,13 @@ Stages and strictly isolates model artifacts into canonical publishing variation
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from training.cloud.variations import ONNX_FP16, ONNX_FP32, PYTORCH_DEFAULT, PYTORCH_FP32, VARIATIONS
+from training.cloud.variations import (
+    PYTORCH_DEFAULT,
+)
 from training.export.validation import IsolationReport, StrictIsolationValidator
 from training.registry import ModelSpecification, get_model_registry
 from training.utils.fs import remove_tree

@@ -1,7 +1,12 @@
 import torch
-import torch.nn as nn
-from diffusers import StableDiffusionXLPipeline, FluxPipeline, UNet2DConditionModel, AutoencoderKL, FluxTransformer2DModel
+from diffusers import (
+    AutoencoderKL,
+    FluxTransformer2DModel,
+    UNet2DConditionModel,
+)
 from diffusers.schedulers import DDPMScheduler, FlowMatchEulerDiscreteScheduler
+from torch import nn
+
 
 class StableDiffusionXL(nn.Module):
     """

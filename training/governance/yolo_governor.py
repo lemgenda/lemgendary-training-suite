@@ -23,8 +23,8 @@ from typing import Any
 
 import torch
 import yaml
-from data.yolo_config_gen import generate_yolo_yaml
 
+from data.yolo_config_gen import generate_yolo_yaml
 from training.cloud_sync import trigger_cloud_sync
 from training.export.universal_exporter import export_tri_format_yolo
 from training.telemetry import TelemetryEngine
@@ -830,8 +830,7 @@ class YOLOCurriculumGovernor:
 
             # Always anchor against metrics.csv historical progress if metrics.csv is further ahead than checkpoint
             if not getattr(self.args, "clean", False) and csv_epochs > 0:
-                if csv_epochs > stage_start_epoch:
-                    stage_start_epoch = csv_epochs
+                stage_start_epoch = max(stage_start_epoch, csv_epochs)
                 completed_prior_epochs = max(completed_prior_epochs, csv_epochs)
 
             # Keep total_epochs ceiling dynamically ahead of stage_start_epoch

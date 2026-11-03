@@ -2,12 +2,13 @@
 
 import logging
 import os
-from pathlib import Path
 import pickle
 import shutil
 import sys
 import time
+from pathlib import Path
 from typing import Any
+
 import torch
 
 logger = logging.getLogger("lemtrain.checkpoint.manager")
@@ -35,7 +36,6 @@ CHECKPOINT_SAVE_ERRORS: tuple[type[BaseException], ...] = (
 
 class CheckpointSaveError(RuntimeError):
     """Raised when an atomic checkpoint save cannot be completed."""
-    pass
 
 
 def audit_disk_space(target_dir: Path, min_free_gb: float = 5.0) -> float:

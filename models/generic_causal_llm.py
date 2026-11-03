@@ -12,7 +12,7 @@ import logging
 from typing import Any
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 logger = logging.getLogger("lemtrain.models.generic_llm")
 
@@ -55,7 +55,7 @@ class GenericCausalLLM(nn.Module):
                 pad_token = getattr(raw_tokenizer, "pad_token", None)
                 if pad_token is None:
                     eos_token = getattr(raw_tokenizer, "eos_token", None)
-                    setattr(raw_tokenizer, "pad_token", eos_token)
+                    raw_tokenizer.pad_token = eos_token
             self.tokenizer = raw_tokenizer
 
             quant_config = None
@@ -81,7 +81,11 @@ class GenericCausalLLM(nn.Module):
 
             if self.use_lora:
                 try:
-                    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+                    from peft import (
+                        LoraConfig,
+                        get_peft_model,
+                        prepare_model_for_kbit_training,
+                    )
 
                     if load_in_4bit:
                         self.model = prepare_model_for_kbit_training(self.model)
@@ -177,4 +181,3 @@ class GenericCausalLLM(nn.Module):
 # Backward-compatible subclass alias
 class AIHelperLemGend(GenericCausalLLM):
     """Backward-compatible alias for the official AI Assistant LLM."""
-    pass

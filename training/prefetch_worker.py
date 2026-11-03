@@ -1,8 +1,8 @@
 import logging
 import os
-import sys
 import subprocess
-import time
+import sys
+
 import psutil
 
 logger = logging.getLogger("lemtrain.prefetch_worker")

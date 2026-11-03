@@ -1,7 +1,7 @@
 import logging
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 logger = logging.getLogger("lemtrain.models.master_multimodal")
 
@@ -12,7 +12,7 @@ class LLaVA_v1_5(nn.Module):
     """
     def __init__(self, checkpoint=None, **kwargs):
         super().__init__()
-        from transformers import LlavaNextForConditionalGeneration, BitsAndBytesConfig
+        from transformers import BitsAndBytesConfig, LlavaNextForConditionalGeneration
         model_id = "llava-hf/llava-v1.6-vicuna-7b-hf"
         
         # 2026: SOTA 4-bit Quantization for VRAM seating
@@ -63,7 +63,7 @@ class BLIP_2(nn.Module):
     """
     def __init__(self, checkpoint=None, **kwargs):
         super().__init__()
-        from transformers import Blip2ForConditionalGeneration, BitsAndBytesConfig
+        from transformers import BitsAndBytesConfig, Blip2ForConditionalGeneration
         model_id = "Salesforce/blip2-opt-2.7b"
         
         bnb_config = BitsAndBytesConfig(

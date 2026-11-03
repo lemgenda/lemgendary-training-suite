@@ -15,7 +15,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
-from training.cloud.variations import ONNX_FP16, ONNX_FP32, PYTORCH_DEFAULT, PYTORCH_FP32, VARIATIONS
+from training.cloud.variations import (
+    ONNX_FP16,
+    ONNX_FP32,
+    PYTORCH_DEFAULT,
+    PYTORCH_FP32,
+    VARIATIONS,
+)
 from training.registry import ModelSpecification, get_model_registry
 from training.utils.paths import get_project_root
 

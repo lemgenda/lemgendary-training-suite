@@ -1,10 +1,8 @@
 import logging
-import math
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from training.losses import ForexDualLoss
+from torch import nn
 
 logger = logging.getLogger("lemtrain.models.forex_predictor")
 
@@ -459,11 +457,7 @@ class ForexPredictor(nn.Module):
     def _init_weights(self):
         """Kaiming init for linear/conv layers, Xavier for embeddings."""
         for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.Conv1d):
+            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
                 nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)

@@ -16,16 +16,16 @@ TODO (requires demo account):
     - Generate dataset shards
 """
 
+import argparse
+import importlib
+import logging
 import os
 import sys
-import importlib
-import argparse
-import logging
+from datetime import datetime, timezone
+from typing import Any
+
 import numpy as np
 import pandas as pd
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Literal, Any
 
 logger = logging.getLogger("lemtrain.data.mt5_pipeline")
 

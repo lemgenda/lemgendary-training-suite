@@ -1,9 +1,12 @@
 import unittest
+
 import torch
-import torch.nn as nn
-from training.optimization_engine import SmartTrainingGovernor
+from torch import nn
+
 from training.model_registry import audit_hardware_vram
+from training.optimization_engine import SmartTrainingGovernor
 from training.ratchet import RatchetViolation
+
 
 class DummyRestorationModel(nn.Module):
     def __init__(self):

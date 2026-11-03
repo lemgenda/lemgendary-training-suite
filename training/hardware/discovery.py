@@ -1,10 +1,9 @@
 """Device and accelerator discovery for LemGendary Model Training Suite."""
 
-from dataclasses import dataclass
 import logging
-import sys
+from dataclasses import dataclass
+
 import torch
-from typing import Any
 
 logger = logging.getLogger("lemtrain.hardware.discovery")
 
@@ -135,7 +134,7 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
         return info
 
     # 4. Microsoft DirectML
-    if hasattr(torch, "dml") and getattr(torch, "dml").is_available():
+    if hasattr(torch, "dml") and torch.dml.is_available():
         logger.info("Discovered Microsoft DirectML acceleration.")
         info = DeviceInfo(
             device=torch.device("dml"),

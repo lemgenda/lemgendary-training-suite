@@ -2,17 +2,20 @@
 
 import io
 import logging
-import os
 import sys
 import unittest
-from pathlib import Path
 
-from training.utils.paths import get_project_root, get_workspace_root, resolve_path, ensure_dir
-from training.utils.logging import ForceTTY, setup_logging
-from training.utils.subprocess import run_command, SubprocessExecutionError
-from training.utils.interrupt import silent_worker_excepthook, register_emergency_sync
-from training.utils.env_delegate import EnvManagerDelegate
 from training.utils.dataset_delegate import DatasetCompilerDelegate
+from training.utils.env_delegate import EnvManagerDelegate
+from training.utils.interrupt import register_emergency_sync, silent_worker_excepthook
+from training.utils.logging import ForceTTY, setup_logging
+from training.utils.paths import (
+    ensure_dir,
+    get_project_root,
+    get_workspace_root,
+    resolve_path,
+)
+from training.utils.subprocess import SubprocessExecutionError, run_command
 
 _log = logging.getLogger("lemtrain.tests.test_utils")
 

@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 from typing import Any
+
 import websockets
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

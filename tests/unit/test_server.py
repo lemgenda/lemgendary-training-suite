@@ -6,16 +6,15 @@ Verifies ServerState, SQLite WAL persistence, JobManager, REST endpoints, and to
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 import tempfile
-from typing import Any
 import unittest
+from pathlib import Path
+
+import yaml
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
-import yaml
 
 from training.server.app import create_app
-from training.server.jobs import JobManager
 from training.server.state import ServerState
 
 _log = logging.getLogger("lemtrain.tests.test_server")

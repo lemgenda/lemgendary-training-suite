@@ -30,6 +30,7 @@ v2.1 Changes (retained):
 import logging
 import os
 from typing import Literal
+
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -607,7 +608,7 @@ class ForexDataset(Dataset):
         self,
         fraction: float | None = None,
         active_timeframes: list | None = None,
-        size: float | int | tuple | None = None,
+        size: float | tuple | None = None,
         stress: float | None = None,
         **kwargs
     ):

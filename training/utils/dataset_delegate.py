@@ -5,6 +5,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
 import yaml
 
 from training.utils.paths import get_workspace_root

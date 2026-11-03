@@ -4,9 +4,10 @@ import gc
 import logging
 import os
 import sys
-import torch
-import torch.nn as nn
 from typing import Any
+
+import torch
+from torch import nn
 
 logger = logging.getLogger("lemtrain.hardware.probe")
 

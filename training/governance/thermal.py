@@ -1,7 +1,7 @@
 """Thermal state managing softmax temperature decay, logit clamping, and turbulence dampening."""
 
-from dataclasses import dataclass, field
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger("lemtrain.governance.thermal")

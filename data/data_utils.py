@@ -1,10 +1,8 @@
 import logging
 import os
-import sys
 import shutil
-import subprocess
+
 import psutil
-from pathlib import Path
 
 from training.cloud.errors import kagglehub_errors
 
@@ -56,8 +54,7 @@ def _handle_kaggle(ds_name, data_dir, config, ref):
         if os.path.exists(token_path):
             with open(token_path, "r") as f:
                 token = f.read().strip()
-            if token.startswith("KGAT_"):
-                token = token[5:]
+            token = token.removeprefix("KGAT_")
             os.environ["KAGGLE_USERNAME"] = username
             os.environ["KAGGLE_KEY"] = token
 

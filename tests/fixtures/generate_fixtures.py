@@ -2,9 +2,10 @@
 
 import json
 from pathlib import Path
+
 import numpy as np
-from PIL import Image
 import torch
+from PIL import Image
 
 FIXTURES_DIR = Path(__file__).resolve().parent
 DATASET_DIR = FIXTURES_DIR / "tiny_dataset"

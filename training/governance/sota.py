@@ -1,7 +1,7 @@
 """SOTA tracking, recovery streaks, rollback history, and drift-gated decisions."""
 
-from dataclasses import dataclass, field
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger("lemtrain.governance.sota")
@@ -47,8 +47,7 @@ class SotaTracker:
 
         is_new_sota = (current_quality > self.best_quality) or (self.best_quality == 0.0 and current_quality > 0.0)
         if is_new_sota:
-            if self.current_stress > 0.0:
-                self.current_stress = 0.0
+            self.current_stress = min(self.current_stress, 0.0)
             self.best_quality = current_quality
 
         return is_new_sota

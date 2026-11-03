@@ -12,13 +12,13 @@ Verifies:
 from __future__ import annotations
 
 import math
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import torch
 
-from models.factory import get_model, _MODEL_REGISTRY
+from models.factory import get_model
 from models.generic_causal_llm import AIHelperLemGend, GenericCausalLLM
 from training.export.llm_exporter import LLMModelExporter
 

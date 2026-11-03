@@ -1,8 +1,8 @@
-import os
-import sys
 import argparse
-import subprocess
 import glob
+import os
+import subprocess
+
 
 def publish_model_release(model_key, models_root, tag="v1.0.0-sota", repo="lemgenda/lemgendary-pretrained-models"):
     """
@@ -40,7 +40,7 @@ def publish_model_release(model_key, models_root, tag="v1.0.0-sota", repo="lemge
             "gh", "release", "create", tag,
             "--repo", repo,
             "--title", f"LemGendary SOTA Model Weights ({tag})",
-            "--notes", f"Official production weights and ONNX exports for LemGendary AI models."
+            "--notes", "Official production weights and ONNX exports for LemGendary AI models."
         ]
         res_create = subprocess.run(create_cmd, capture_output=True, text=True)
         if res_create.returncode != 0:

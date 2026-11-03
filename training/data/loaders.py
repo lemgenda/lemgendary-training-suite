@@ -7,7 +7,11 @@ from typing import Any
 import torch
 from torch.utils.data import DataLoader, Dataset, Sampler
 
-from training.data.workers import compute_worker_topology, dataloader_worker_init_fn, dispose_loader
+from training.data.workers import (
+    compute_worker_topology,
+    dataloader_worker_init_fn,
+    dispose_loader,
+)
 
 logger = logging.getLogger("lemtrain.loaders")
 

@@ -1,5 +1,4 @@
 """Automated Headless Kaggle Cloud Training Job for mirnet_exposure."""
-import os
 import subprocess
 import sys
 

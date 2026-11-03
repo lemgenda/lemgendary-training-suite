@@ -37,8 +37,8 @@ from training.export.validation import (
     VariationValidationReport,
 )
 from training.export.webgpu import export_webgpu_onnx
-from training.utils.fs import remove_tree
 from training.export.yolo_exporter import YOLOModelExporter
+from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export")
@@ -119,7 +119,7 @@ def export_all(
         ckpt = torch.load(str(ckpt_file), map_location="cpu", weights_only=False)
         raw_state = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt)) if isinstance(ckpt, dict) else ckpt
         state_dict = {
-            k[7:] if k.startswith("module.") else k: v
+            k.removeprefix("module."): v
             for k, v in raw_state.items()
         }
         model.load_state_dict(state_dict, strict=False)

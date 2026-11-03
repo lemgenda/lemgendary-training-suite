@@ -2,7 +2,7 @@
 Base convolutional restoration head for multitask vision restoration models.
 """
 
-import torch.nn as nn
+from torch import nn
 
 
 class BaseRestorationHead(nn.Module):

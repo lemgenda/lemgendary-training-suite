@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import logging
 import os
-from pathlib import Path
 import subprocess
 import sys
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from training.cloud.credentials import mask_secret, resolve_github_credentials
-from training.cloud.manager import CloudManager, CloudSyncError
+from training.cloud.manager import CloudSyncError
 
 logger = logging.getLogger("lemtrain.cloud.git_hub")
 

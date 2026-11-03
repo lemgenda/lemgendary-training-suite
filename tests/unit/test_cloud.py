@@ -1,10 +1,8 @@
 """Unit tests for cloud subsystem: credentials, git, kaggle, and gdrive bit-exact parity."""
 
-import hashlib
-import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from training.cloud.credentials import (
     mask_secret,
@@ -15,7 +13,7 @@ from training.cloud.credentials import (
 from training.cloud.gdrive import GDriveSyncManager, compute_file_sha256
 from training.cloud.git_hub import GitHubSyncManager
 from training.cloud.kaggle_hub import KaggleHubManager
-from training.cloud.manager import CloudManager, CloudSyncError
+from training.cloud.manager import CloudSyncError
 
 
 class TestCloudCredentials(unittest.TestCase):

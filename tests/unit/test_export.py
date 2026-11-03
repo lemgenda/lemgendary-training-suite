@@ -1,17 +1,14 @@
 """Unit tests for model export subsystem: ONNX, TorchScript, WebGPU, and export_all."""
 
-import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from training.export.common import (
-    ExportError,
     extract_input_dimensions,
-    resolve_checkpoint_file,
     resolve_export_paths,
 )
 from training.export.onnx import export_onnx

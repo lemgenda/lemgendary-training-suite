@@ -1,10 +1,8 @@
-import torch
 import os
-import sys
 
 from training.hardware.probe import audit_hardware_vram
 
-
+__all__ = ["audit_hardware_vram", "find_paths_pruned", "load_state_dict_robust"]
 
 
 def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
@@ -64,7 +62,7 @@ def load_state_dict_robust(model, state_dict, strict=True):
         if is_model_dp and not is_state_dict_dp:
             new_key = 'module.' + k
         elif not is_model_dp and is_state_dict_dp:
-            new_key = k[7:] if k.startswith('module.') else k
+            new_key = k.removeprefix('module.')
         else:
             new_key = k
         new_state_dict[new_key] = v

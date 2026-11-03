@@ -6,16 +6,15 @@ ExportService, CloudSyncService, NotebookService, and AuditService.
 
 from __future__ import annotations
 
-from pathlib import Path
 import tempfile
-from typing import Any
 import unittest
+from pathlib import Path
+
 import torch
 import yaml
 
 from training.services.audit_service import AuditService
 from training.services.checkpoint_service import CheckpointService
-from training.services.eval_service import EvaluationService
 from training.services.export_service import ExportService
 from training.services.notebook_service import NotebookService
 from training.services.sync_service import CloudSyncService

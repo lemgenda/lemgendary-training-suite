@@ -1,5 +1,5 @@
-import torch
-import torch.nn as nn
+from torch import nn
+
 
 class ResidualBlock(nn.Module):
     def __init__(self, channels):

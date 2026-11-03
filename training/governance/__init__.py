@@ -10,16 +10,19 @@ from training.governance.metrics import (
 )
 from training.governance.sota import SotaTracker
 from training.governance.thermal import ThermalState
-from training.governance.yolo_governor import YOLOCurriculumGovernor, run_governed_yolo_training
+from training.governance.yolo_governor import (
+    YOLOCurriculumGovernor,
+    run_governed_yolo_training,
+)
 
 __all__ = [
-    "CurriculumState",
-    "GovernorStateError",
-    "SmartTrainingGovernor",
-    "MetricDefinition",
-    "MetricRegistry",
     "DEFAULT_METRIC_DIRECTIONS",
     "DEFAULT_METRIC_WEIGHTS",
+    "CurriculumState",
+    "GovernorStateError",
+    "MetricDefinition",
+    "MetricRegistry",
+    "SmartTrainingGovernor",
     "SotaTracker",
     "ThermalState",
     "YOLOCurriculumGovernor",

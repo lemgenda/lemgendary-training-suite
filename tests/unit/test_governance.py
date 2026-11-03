@@ -1,13 +1,13 @@
 """Unit tests for governance subsystem: metrics, curriculum, thermal, sota, and governor."""
 
 import unittest
+
 from training.governance.curriculum import CurriculumState
-from training.governance.governor import GovernorStateError, SmartTrainingGovernor
+from training.governance.governor import SmartTrainingGovernor
 from training.governance.metrics import MetricRegistry
 from training.governance.sota import SotaTracker
 from training.governance.thermal import ThermalState
 from training.optimization_engine import (
-    CurriculumState as LegacyCurriculumState,
     SmartTrainingGovernor as LegacyGovernor,
 )
 
@@ -358,7 +358,7 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
         import argparse
         import tempfile
         from pathlib import Path
-        from unittest.mock import MagicMock
+
         from training.governance.yolo_governor import YOLOCurriculumGovernor
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -424,7 +424,8 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
         import argparse
         import tempfile
         from pathlib import Path
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from training.governance.yolo_governor import YOLOCurriculumGovernor
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -481,7 +482,8 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
         import argparse
         import tempfile
         from pathlib import Path
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from training.governance.yolo_governor import YOLOCurriculumGovernor
 
         with tempfile.TemporaryDirectory() as tmpdir:

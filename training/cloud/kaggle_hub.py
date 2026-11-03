@@ -5,15 +5,13 @@ from __future__ import annotations
 import importlib
 import logging
 import os
-from pathlib import Path
 import shutil
-import subprocess
-import sys
+from pathlib import Path
 from typing import Any
 
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import kagglehub_errors
-from training.cloud.manager import CloudManager, CloudSyncError
+from training.cloud.manager import CloudSyncError
 from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 

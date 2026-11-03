@@ -1,17 +1,17 @@
 import torch
-import torch.nn as nn
+import torch.nn.functional as F
+from torch import nn
+
 from models.encoder import SharedEncoder
-from models.heads.denoise import DenoiseHead
 from models.heads.deblur import DeblurHead
-from models.heads.derain import DerainHead
 from models.heads.dehaze import DehazeHead
+from models.heads.denoise import DenoiseHead
+from models.heads.derain import DerainHead
+from models.heads.faceparse import FaceParseHead
+from models.heads.facerestore import FaceRestoreHead
 from models.heads.lowlight import LowLightHead
 from models.heads.superres import SuperResHead
 from models.heads.vintage import VintageHead
-from models.heads.facerestore import FaceRestoreHead
-from models.heads.faceparse import FaceParseHead
-
-import torch.nn.functional as F
 
 
 class TaskClassifier(nn.Module):

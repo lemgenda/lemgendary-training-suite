@@ -1,10 +1,10 @@
 """Metric trajectory vault, moving averages, and plateau detection."""
 
 import csv
-from dataclasses import dataclass, field
 import logging
-from pathlib import Path
 import time
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("lemtrain.checkpoint.vault")

@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any
 
 import onnx
-from onnxconverter_common import float16
 import torch
-import torch.nn as nn
+from onnxconverter_common import float16
+from torch import nn
 
 from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
 from training.export.mt5_signal import export_forex_onnx, export_forex_onnx_from_model

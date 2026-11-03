@@ -5,11 +5,9 @@ from __future__ import annotations
 import argparse
 import importlib
 import logging
-import os
-from pathlib import Path
-import shutil
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 from training.cloud.errors import KAGGLE_API_ERRORS
@@ -50,7 +48,7 @@ def launch_kaggle_training(
 
     try:
         kaggle_mod = importlib.import_module("kaggle.api.kaggle_api_extended")
-        api_cls = getattr(kaggle_mod, "KaggleApi")
+        api_cls = kaggle_mod.KaggleApi
         api = api_cls()
         api.authenticate()
         api.kernels_push(str(kernel_dir))
@@ -90,7 +88,7 @@ def monitor_kaggle_training(model_name: str, username: str | None = None, poll_i
     try:
         km = importlib.import_module("training.kaggle_monitor")
         kaggle_mod = importlib.import_module("kaggle.api.kaggle_api_extended")
-        api_cls = getattr(kaggle_mod, "KaggleApi")
+        api_cls = kaggle_mod.KaggleApi
         api = api_cls()
         api.authenticate()
         km.stream_kernel_logs(api, slug, poll_interval=poll_interval)
@@ -204,7 +202,7 @@ def main() -> None:
         slug = get_kernel_slug(args.model, u)
         try:
             kaggle_mod = importlib.import_module("kaggle.api.kaggle_api_extended")
-            api_cls = getattr(kaggle_mod, "KaggleApi")
+            api_cls = kaggle_mod.KaggleApi
             api = api_cls()
             api.authenticate()
             st = api.kernels_status(slug)

@@ -1,5 +1,4 @@
 """Automated Headless Kaggle Cloud Training Job for forex_predictor."""
-import os
 import subprocess
 import sys
 

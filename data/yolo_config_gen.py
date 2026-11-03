@@ -55,9 +55,7 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
             try:
                 raw_lines = classes_file.read_text(encoding="utf-8").splitlines()
                 c_names = [line.strip() for line in raw_lines if line.strip()]
-                if c_names and len(c_names) >= 80:
-                    names = c_names
-                elif c_names and model_key != "yolov8n":
+                if c_names and len(c_names) >= 80 or c_names and model_key != "yolov8n":
                     names = c_names
             except (OSError, UnicodeDecodeError) as exc:
                 logger.warning("Could not read %s; keeping default class names: %s", classes_file, exc)

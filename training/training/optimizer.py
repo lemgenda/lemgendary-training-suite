@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import math
 from typing import Any
+
 import torch
-import torch.optim as optim
+from torch import optim
 from torch.optim.lr_scheduler import (
     CosineAnnealingLR,
     CosineAnnealingWarmRestarts,

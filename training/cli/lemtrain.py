@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-from pathlib import Path
 import socket
 import subprocess
 import sys
-from typing import Any, List, Optional
 import urllib.error
 import urllib.request
+from pathlib import Path
+
 import typer
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
@@ -71,8 +70,8 @@ def soup(
     donors: str | None = typer.Option(
         None, "--donors", "-d", help="Comma-separated vault metrics (psnr,lpips). Default: every vault_*.pth."
     ),
-    weights: Optional[str] = typer.Option(None, "--weights", "-w", help="Comma-separated weights (0.6,0.4)"),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output filename or path"),
+    weights: str | None = typer.Option(None, "--weights", "-w", help="Comma-separated weights (0.6,0.4)"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output filename or path"),
 ) -> None:
     """Blend specialized vault checkpoints using Pareto Model Soup."""
     from training.model_soup import SoupError, blend_model_soup
@@ -104,16 +103,16 @@ def soup(
 @app.command("version")
 def version() -> None:
     """Show LemGendary Training Suite version."""
-    typer.echo("LemGendary Model Training Suite v16.9.70 (Refactored & Hardened)")
+    typer.echo("LemGendary Model Training Suite v16.9.71 (Refactored & Hardened)")
 
 
 @app.command("train")
 def train(
     model: str = typer.Argument(..., help="Model architecture key (e.g. nima_aesthetic_mobile)."),
-    epochs: Optional[int] = typer.Option(None, "--epochs", "-e", help="Total epochs to train."),
-    batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Batch size per step."),
-    lr: Optional[float] = typer.Option(None, "--lr", help="Base learning rate."),
-    preset: Optional[str] = typer.Option(None, "--preset", "-p", help="Canonical preset profile from presets.yaml."),
+    epochs: int | None = typer.Option(None, "--epochs", "-e", help="Total epochs to train."),
+    batch_size: int | None = typer.Option(None, "--batch-size", "-b", help="Batch size per step."),
+    lr: float | None = typer.Option(None, "--lr", help="Base learning rate."),
+    preset: str | None = typer.Option(None, "--preset", "-p", help="Canonical preset profile from presets.yaml."),
     env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."),
     clean: bool = typer.Option(False, "--clean", help="Wipe local checkpoints and start fresh."),
     auto_sync: bool = typer.Option(False, "--auto-sync", help="Enable cloud checkpoint synchronization."),
@@ -148,8 +147,8 @@ def train(
 @app.command("eval")
 def evaluate(
     model: str = typer.Argument(..., help="Model architecture key to evaluate."),
-    checkpoint: Optional[str] = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
-    batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Evaluation batch size."),
+    checkpoint: str | None = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
+    batch_size: int | None = typer.Option(None, "--batch-size", "-b", help="Evaluation batch size."),
     env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."),
 ) -> None:
     """Evaluate a trained model checkpoint in-process."""
@@ -172,9 +171,9 @@ def evaluate(
 @app.command("export")
 def export(
     model: str = typer.Argument(..., help="Model key to export."),
-    checkpoint: Optional[str] = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
-    target: Optional[List[str]] = typer.Option(None, "--target", "-t", help="Target formats ('onnx_fp32', 'onnx_fp16', 'torch_pt', 'webgpu', 'forex')."),
-    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="Target directory for binaries."),
+    checkpoint: str | None = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
+    target: list[str] | None = typer.Option(None, "--target", "-t", help="Target formats ('onnx_fp32', 'onnx_fp16', 'torch_pt', 'webgpu', 'forex')."),
+    output_dir: str | None = typer.Option(None, "--output-dir", "-o", help="Target directory for binaries."),
 ) -> None:
     """Compile and export model binaries into deployment targets."""
     typer.echo(f"[EXPORT] Compiling export targets for '{model}'...")
@@ -217,7 +216,7 @@ def test_all(
 def notebooks(
     model: str = typer.Argument(..., help="Model key for notebook generation."),
     platform: str = typer.Option("kaggle", "--platform", "-p", help="Target platform ('kaggle' or 'colab')."),
-    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="Directory for generated .ipynb files."),
+    output_dir: str | None = typer.Option(None, "--output-dir", "-o", help="Directory for generated .ipynb files."),
 ) -> None:
     """Generate standalone training, inference, and usage notebooks."""
     typer.echo(f"[NOTEBOOKS] Synthesizing {platform} notebooks for '{model}'...")
@@ -235,7 +234,7 @@ def notebooks(
 
 @checkpoints_app.command("list")
 def checkpoints_list(
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Filter checkpoints by model key."),
+    model: str | None = typer.Option(None, "--model", "-m", help="Filter checkpoints by model key."),
 ) -> None:
     """List stored model checkpoints."""
     service = CheckpointService()
@@ -358,7 +357,7 @@ def audit_judicial(
     model_path: str = typer.Option(..., "--model-path", "-m", help="Path to .pth or .onnx model."),
     dataset_dir: str = typer.Option(..., "--dataset-dir", "-d", help="Directory of evaluation images."),
     labels_csv: str = typer.Option(..., "--labels-csv", "-l", help="Ground truth labels CSV."),
-    output_json: Optional[str] = typer.Option(None, "--output-json", "-o", help="Path to save report."),
+    output_json: str | None = typer.Option(None, "--output-json", "-o", help="Path to save report."),
     model_type: str = typer.Option("nima_aesthetic_mobile", "--model-type", help="Architecture key."),
     batch_size: int = typer.Option(32, "--batch-size", help="Batch size."),
     device: str = typer.Option("cpu", "--device", help="Execution device ('cuda' or 'cpu')."),
@@ -415,13 +414,13 @@ def sync_run(
 
 @sync_app.command("push")
 def sync_push(
-    model: Optional[str] = typer.Argument(None, help="Model key to upload to Kaggle Models (optional if --all is specified)."),
+    model: str | None = typer.Argument(None, help="Model key to upload to Kaggle Models (optional if --all is specified)."),
     all_models: bool = typer.Option(False, "--all", "-a", help="Push all 22 registered models to Kaggle Models Hub."),
     variation: str = typer.Option("all", "--variation", "-v", help="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')."),
-    version_notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Optional release version notes."),
+    version_notes: str | None = typer.Option(None, "--notes", "-n", help="Optional release version notes."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate isolation and metadata without uploading to Kaggle."),
-    source_dir: Optional[str] = typer.Option(None, "--source-dir", "-s", help="Optional custom source directory."),
-    username: Optional[str] = typer.Option(None, "--username", "-u", help="Optional Kaggle username override."),
+    source_dir: str | None = typer.Option(None, "--source-dir", "-s", help="Optional custom source directory."),
+    username: str | None = typer.Option(None, "--username", "-u", help="Optional Kaggle username override."),
 ) -> None:
     """Stage and upload local model checkpoints, variations, and metrics to Kaggle Models."""
     if not model and not all_models:
@@ -502,7 +501,7 @@ def sync_pull(
     model: str = typer.Argument(..., help="Target model key to download from Kaggle Models Hub."),
     variation: str = typer.Option("all", "--variation", "-v", help="Variation to pull ('all', 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32')."),
     force_download: bool = typer.Option(False, "--force", "-f", help="Force re-download even if already present locally."),
-    username: Optional[str] = typer.Option(None, "--username", "-u", help="Optional Kaggle username override."),
+    username: str | None = typer.Option(None, "--username", "-u", help="Optional Kaggle username override."),
 ) -> None:
     """Download model variation(s) from Kaggle Models Hub into canonical directories."""
     from training.cloud.kaggle_model_sync import KaggleModelSyncManager
@@ -553,10 +552,10 @@ def notebooks_list() -> None:
 
 @notebooks_app.command("generate")
 def notebooks_generate(
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Target model key (e.g. nima_aesthetic_mobile)."),
+    model: str | None = typer.Option(None, "--model", "-m", help="Target model key (e.g. nima_aesthetic_mobile)."),
     platform: str = typer.Option("all", "--platform", "-p", help="Target platform ('kaggle', 'colab', 'all')."),
-    kind: Optional[List[str]] = typer.Option(None, "--kind", "-k", help="Notebook kind ('training', 'inference', 'usage'). Default is all."),
-    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="Custom output directory."),
+    kind: list[str] | None = typer.Option(None, "--kind", "-k", help="Notebook kind ('training', 'inference', 'usage'). Default is all."),
+    output_dir: str | None = typer.Option(None, "--output-dir", "-o", help="Custom output directory."),
     all_models: bool = typer.Option(False, "--all", "-a", help="Generate notebooks for all registered models."),
 ) -> None:
     """Generate Jupyter training, inference, and usage notebooks."""
@@ -693,7 +692,7 @@ def server_status(
 
 @server_app.command("openapi")
 def server_openapi(
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="File path to save openapi.json. If omitted, prints to stdout."),
+    output: str | None = typer.Option(None, "--output", "-o", help="File path to save openapi.json. If omitted, prints to stdout."),
 ) -> None:
     """Export the OpenAPI 3.1 schema specification of the sidecar daemon."""
     from training.server.app import app as application
@@ -716,11 +715,11 @@ if __name__ == "__main__":
 @llm_app.command("train")
 def llm_train(
     model: str = typer.Argument("ai_helper_lemgend", help="LLM model key (e.g. ai_helper_lemgend, test_llm)."),
-    epochs: Optional[int] = typer.Option(None, "--epochs", "-e", help="Total training epochs."),
-    batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Per-device micro-batch size."),
-    lr: Optional[float] = typer.Option(None, "--lr", help="Learning rate for LoRA adapters."),
-    max_seq_length: Optional[int] = typer.Option(2048, "--max-seq-length", help="Maximum sequence context length."),
-    preset: Optional[str] = typer.Option(None, "--preset", "-p", help="Canonical preset profile from presets.yaml."),
+    epochs: int | None = typer.Option(None, "--epochs", "-e", help="Total training epochs."),
+    batch_size: int | None = typer.Option(None, "--batch-size", "-b", help="Per-device micro-batch size."),
+    lr: float | None = typer.Option(None, "--lr", help="Learning rate for LoRA adapters."),
+    max_seq_length: int | None = typer.Option(2048, "--max-seq-length", help="Maximum sequence context length."),
+    preset: str | None = typer.Option(None, "--preset", "-p", help="Canonical preset profile from presets.yaml."),
     env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."),
     clean: bool = typer.Option(False, "--clean", help="Wipe local checkpoints and start fresh."),
     auto_sync: bool = typer.Option(False, "--auto-sync", help="Enable cloud checkpoint synchronization."),
@@ -747,9 +746,9 @@ def llm_train(
 @llm_app.command("export")
 def llm_export(
     model: str = typer.Argument("ai_helper_lemgend", help="LLM model key to export."),
-    checkpoint: Optional[str] = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
-    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="Target directory for binaries."),
-    target: Optional[List[str]] = typer.Option(None, "--target", "-t", help="Target formats ('qlora_adapter', 'merged_safetensors', 'gguf_fp16')."),
+    checkpoint: str | None = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
+    output_dir: str | None = typer.Option(None, "--output-dir", "-o", help="Target directory for binaries."),
+    target: list[str] | None = typer.Option(None, "--target", "-t", help="Target formats ('qlora_adapter', 'merged_safetensors', 'gguf_fp16')."),
 ) -> None:
     """Compile and export tri-format binaries for an LLM."""
     typer.echo(f"[EXPORT] Compiling tri-format LLM export targets for '{model}'...")

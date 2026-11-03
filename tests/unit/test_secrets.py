@@ -2,10 +2,8 @@
 
 import os
 import unittest
-from pathlib import Path
 
-from training.config.secrets import load_secrets, get_secret, _mask_secret
-from training.utils.paths import get_project_root
+from training.config.secrets import _mask_secret, get_secret, load_secrets
 
 
 class TestConfigSecrets(unittest.TestCase):

@@ -1,11 +1,12 @@
 """Worker topology calculation and memory-leak-free DataLoader disposal."""
 
-from dataclasses import dataclass
 import gc
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from typing import Any
+
 import torch
 
 logger = logging.getLogger("lemtrain.workers")
@@ -128,7 +129,7 @@ def dispose_loader(loader: Any) -> None:
                 shutdown_fn()
             except (RuntimeError, OSError) as exc:
                 logger.warning("Error shutting down DataLoader workers: %s", exc)
-        setattr(loader, "_iterator", None)
+        loader._iterator = None
 
     # Clean dataset references if close() or shutdown() protocol exists
     dataset = getattr(loader, "dataset", None)

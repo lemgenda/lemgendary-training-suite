@@ -1,12 +1,13 @@
-import os
-import sys
-import subprocess
-import time
-import shutil
+import argparse
 import csv
 import json
-import argparse
 import logging
+import os
+import shutil
+import subprocess
+import sys
+import time
+
 import yaml
 
 logger = logging.getLogger("lemtrain.forex_curriculum")
@@ -223,10 +224,10 @@ def main():
             with open(state_file, "w", encoding="utf-8") as f:
                 json.dump(state, f, indent=2)
 
-        print(f"\n================================================================================")
+        print("\n================================================================================")
         print(f"--- Launching Walk-Forward Fold {fold}/{NUM_FOLDS} ---")
         print(f" [ORCHESTRATOR] Current Epoch: {current_epoch} | Max Target Epoch: {target_epoch}")
-        print(f"================================================================================\n")
+        print("================================================================================\n")
 
         # 2026: --enable-batch-growth lets the governor raise physical batch
         # toward VRAM ceiling. Workers default to the env-based count (4 for

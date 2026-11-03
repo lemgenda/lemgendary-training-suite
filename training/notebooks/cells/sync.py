@@ -269,7 +269,7 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
 
     source = [
         "import os, subprocess, sys\n",
-        f"suite_candidates = {repr(suite_candidates)}\n",
+        f"suite_candidates = {suite_candidates!r}\n",
         f"active_suite_dir = next((p for p in suite_candidates if os.path.exists(os.path.join(p, 'training', 'train.py'))), '{default_dir}')\n",
         "os.chdir(active_suite_dir)\n",
         "print(f'[OK] [SUITE] Active working directory set to: {os.getcwd()}')\n",
@@ -317,8 +317,8 @@ def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str
         f"local_path = '{local_path}'\n",
         f"owner_slug = '{meta.k_username}'\n",
         f"model_slug = '{meta.k_slug}'\n",
-        f"handles = {repr(meta.handles)}\n",
-        f"EMBEDDED_METADATA_YAML = {repr(metadata_yaml_str)}\n",
+        f"handles = {meta.handles!r}\n",
+        f"EMBEDDED_METADATA_YAML = {metadata_yaml_str!r}\n",
         "\n",
         "print(f'[PUBLISH] Initiating 4-variation Kaggle Model Hub publish for {model_key}...')\n",
         "if not os.path.exists(local_path):\n",

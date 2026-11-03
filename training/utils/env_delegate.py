@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from training.utils.paths import get_project_root, get_workspace_root
-from training.utils.subprocess import run_command, SubprocessExecutionError
+from training.utils.subprocess import SubprocessExecutionError, run_command
 
 logger = logging.getLogger("lemtrain.env_delegate")
 

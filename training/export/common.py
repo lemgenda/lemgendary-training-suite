@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from training.utils.paths import get_project_root
 

@@ -1,9 +1,12 @@
 from __future__ import annotations
+
 import argparse
 import logging
 import sys
+
 import torch
-import torch.nn as nn
+from torch import nn
+
 from training.parallel import available_strategies, resolve_auto
 
 logger = logging.getLogger("lemtrain.parallel.cli")
@@ -18,6 +21,7 @@ def _cmd_list(_args):
 
 def _cmd_resolve(args):
     import os
+
     import yaml
 
     # Load model_info from registry if available, so preferred_parallel is shown.

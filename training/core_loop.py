@@ -8,21 +8,21 @@ All other models use the universal TrainingContext path.
 """
 
 from __future__ import annotations
-import os
 
 import argparse
 import logging
+import os
 import pickle
 from pathlib import Path
 from typing import Any
 
 import yaml
+from torch.utils.data import DataLoader
+
 from data.dataset import MultiTaskDataset
 from data.forex_dataset import ForexDataset
 from data.forex_sampler import RowGroupAwareSampler
 from models.factory import get_model
-from torch.utils.data import DataLoader
-
 from training.checkpoint import (
     CheckpointLifecycleManager,
     CheckpointRecoveryEngine,
@@ -34,7 +34,10 @@ from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
 from training.data import build_train_loader, rebuild_train_loader
 from training.data import build_val_loader as canonical_build_val_loader
-from training.data.instruction_dataset import InstructionDataset, collate_instruction_batch
+from training.data.instruction_dataset import (
+    InstructionDataset,
+    collate_instruction_batch,
+)
 from training.doc_generator import build_model_readme
 from training.export import export_all
 from training.governance import SmartTrainingGovernor, SotaTracker
@@ -59,7 +62,11 @@ from training.training import (
     create_grad_scaler,
     run_training,
 )
-from training.utils.interrupt import _ACTIVE_PROCESSES, cleanup_active_processes, install_signal_handlers
+from training.utils.interrupt import (
+    _ACTIVE_PROCESSES,
+    cleanup_active_processes,
+    install_signal_handlers,
+)
 from training.utils.logging import install_force_tty
 from training.utils.paths import bootstrap_sys_path, get_project_root
 
@@ -589,8 +596,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                             r_qual = float(r.get("Quality_Score") or 0.0)
                                             if r_res == curr_res_val and r_frac > max_frac_at_res:
                                                 max_frac_at_res = r_frac
-                                            if r_qual > max_quality_csv:
-                                                max_quality_csv = r_qual
+                                            max_quality_csv = max(max_quality_csv, r_qual)
                                         except (ValueError, TypeError) as row_err:
                                             logger.debug("Skipping malformed metrics.csv row %r: %s", r, row_err)
                                             continue
@@ -611,7 +617,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                             if hasattr(train_ds, "update_strategy"):
                                 train_ds.update_strategy(size=rec_res, fraction=rec_frac)
                             elif hasattr(train_ds, "sample_fraction") and rec_frac is not None:
-                                setattr(train_ds, "sample_fraction", rec_frac)
+                                train_ds.sample_fraction = rec_frac
                             # Re-audit hardware safety limit for the restored resolution
                             hw_safe_batch = audit_hardware_vram(
                                 model_key=model_key,

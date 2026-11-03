@@ -1,25 +1,23 @@
 import logging
-import os
-import multiprocessing
 import math
+import multiprocessing
+import os
 import random
-import yaml
-import torch
-from torchvision import transforms
-import cv2
+
 import numpy as np
-from PIL import Image, ImageFile, ImageFilter
+import torch
+import yaml
+from PIL import Image, ImageFile
+from torchvision import transforms
+
 Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
+import io
 import json
-import shutil
 from typing import Any
+
 from torch.utils.data import Dataset
 
-
-import io
 from training.data.degrade import (
-    DynamicOnTheFlyDegrader,
-    JpegCompressionGuard,
     apply_film_degradation,
     apply_synthetic_degradation,
     synthesize_degradation,
@@ -54,7 +52,7 @@ class MultiTaskDataset(Dataset):
             else:
                 self.data_root = os.path.normpath(os.path.join(workspace_root, self.data_root))
         
-        setattr(ImageFile, "LOAD_TRUNCATED_IMAGES", True)  # Shield against corrupt JPG headers
+        ImageFile.LOAD_TRUNCATED_IMAGES = True  # Shield against corrupt JPG headers
         
         unified_models_path = os.path.join(os.path.dirname(__file__), "..", config["unified_models"])
         with open(unified_models_path, 'r') as f:
@@ -436,7 +434,9 @@ class MultiTaskDataset(Dataset):
             # Priority 2: Use gdown
             if gdrive_id:
                 print(f"\n[DATA] Local dataset not found. Falling back to gdown from Google Drive (ID: {gdrive_id})...")
-                import subprocess, sys, zipfile
+                import subprocess
+                import sys
+                import zipfile
                 os.makedirs(self.data_root, exist_ok=True)
                 dest = os.path.join(self.data_root, f"{ds_name}.zip")
                 subprocess.run([sys.executable, "-m", "gdown", "--id", gdrive_id, "-O", dest])
@@ -574,9 +574,7 @@ class MultiTaskDataset(Dataset):
         return torch.zeros(in_shape), torch.zeros(target_shape), task_str
 
     def __getitem__(self, index):
-        if hasattr(self.sync_mode, 'value') and self.sync_mode.value:
-            return self._get_sync_dummy()
-        elif not hasattr(self.sync_mode, 'value') and self.sync_mode:
+        if hasattr(self.sync_mode, 'value') and self.sync_mode.value or not hasattr(self.sync_mode, 'value') and self.sync_mode:
             return self._get_sync_dummy()
 
         ds_name, sample_id = self.samples[index]
@@ -608,8 +606,7 @@ class MultiTaskDataset(Dataset):
             elif "deblur" in fname_lower: task_str = "deblur"
             elif "derain" in fname_lower: task_str = "derain"
             elif "dehaze_outdoor" in fname_lower or "outdoor" in fname_lower: task_str = "dehaze_outdoor"
-            elif "dehaze_indoor" in fname_lower or "indoor" in fname_lower: task_str = "dehaze_indoor"
-            elif "dehaze" in fname_lower or "ffa" in fname_lower: task_str = "dehaze_indoor"
+            elif "dehaze_indoor" in fname_lower or "indoor" in fname_lower or "dehaze" in fname_lower or "ffa" in fname_lower: task_str = "dehaze_indoor"
             elif "lowlight" in fname_lower: task_str = "lowlight"
             elif "exposure" in fname_lower: task_str = "exposure"
             elif "zoom" in fname_lower or "super" in fname_lower: task_str = "superres"

@@ -1,8 +1,9 @@
 """Unit tests for training/hardware subsystem in LemGendary Model Training Suite."""
 
 import unittest
+
 import torch
-import torch.nn as nn
+from torch import nn
 
 from training.hardware.discovery import DeviceInfo, discover_device
 from training.hardware.policy import HardwarePolicyResult, apply_hardware_policy

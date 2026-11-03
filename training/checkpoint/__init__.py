@@ -5,6 +5,7 @@ from training.checkpoint.lifecycle_manager import (
     canonicalize_checkpoints,
 )
 
+
 def generate_preflight_assets(*args, **kwargs):
     from training.checkpoint.preflight_generator import generate_preflight_assets as _fn
 
@@ -12,7 +13,9 @@ def generate_preflight_assets(*args, **kwargs):
 
 
 def generate_all_preflight_assets(*args, **kwargs):
-    from training.checkpoint.preflight_generator import generate_all_preflight_assets as _fn
+    from training.checkpoint.preflight_generator import (
+        generate_all_preflight_assets as _fn,
+    )
 
     return _fn(*args, **kwargs)
 

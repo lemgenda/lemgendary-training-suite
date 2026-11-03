@@ -9,9 +9,10 @@ import os
 import sys
 import time
 import unittest
-import torch
+
 import numpy as np
 import pytest
+import torch
 
 # pandas is an optional dependency of the MT5 Forex pipeline only (requirements.txt,
 # not the core pyproject dependency set); skip this module cleanly when absent.
@@ -24,14 +25,13 @@ if _root not in sys.path:
 
 from data.mt5_pipeline import (
     FEATURES,
-    TITAN_PAIRS,
     PAIR_INDEX,
     TIMEFRAME_LOOKBACK,
     compute_indicators,
-    normalize_ohlcv,
     connect_mt5,
     disconnect_mt5,
     download_bars,
+    normalize_ohlcv,
 )
 from models.forex_predictor import (
     DIRECTION_CLASSES,

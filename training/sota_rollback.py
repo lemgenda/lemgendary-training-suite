@@ -1,9 +1,8 @@
 """Backward-compatibility adapter delegating to modular training.checkpoint subsystem."""
 
 import logging
-import os
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import Any
 
 from training.checkpoint.manager import safe_atomic_save

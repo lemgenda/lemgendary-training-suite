@@ -5,12 +5,12 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-from pathlib import Path
 import shutil
+from pathlib import Path
 from typing import Any
 
 from training.cloud.credentials import resolve_gdrive_credentials
-from training.cloud.manager import CloudManager, CloudSyncError
+from training.cloud.manager import CloudSyncError
 
 logger = logging.getLogger("lemtrain.cloud.gdrive")
 

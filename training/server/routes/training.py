@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from typing import Any
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
@@ -17,10 +18,10 @@ router = APIRouter(prefix="/training", tags=["training"])
 class TrainRequest(BaseModel):
     """Payload for submitting training job."""
     model: str = Field(..., description="Target model key")
-    epochs: Optional[int] = Field(None, description="Total epochs override")
-    batch_size: Optional[int] = Field(None, description="Batch size override")
-    lr: Optional[float] = Field(None, description="Learning rate override")
-    preset: Optional[str] = Field(None, description="Preset configuration name")
+    epochs: int | None = Field(None, description="Total epochs override")
+    batch_size: int | None = Field(None, description="Batch size override")
+    lr: float | None = Field(None, description="Learning rate override")
+    preset: str | None = Field(None, description="Preset configuration name")
     env: str = Field("local", description="Target environment ('local', 'kaggle', 'colab')")
     clean: bool = Field(False, description="Wipe local checkpoints and start fresh")
     auto_sync: bool = Field(False, description="Auto sync checkpoints to cloud")
@@ -30,17 +31,17 @@ class TrainRequest(BaseModel):
 class EvalRequest(BaseModel):
     """Payload for submitting evaluation job."""
     model: str = Field(..., description="Target model key")
-    checkpoint_path: Optional[str] = Field(None, description="Path to checkpoint (.pth)")
-    batch_size: Optional[int] = Field(None, description="Evaluation batch size")
+    checkpoint_path: str | None = Field(None, description="Path to checkpoint (.pth)")
+    batch_size: int | None = Field(None, description="Evaluation batch size")
     env: str = Field("local", description="Environment")
 
 
 class ExportRequest(BaseModel):
     """Payload for submitting export job."""
     model: str = Field(..., description="Target model key")
-    checkpoint_path: Optional[str] = Field(None, description="Path to checkpoint")
-    output_dir: Optional[str] = Field(None, description="Export output directory")
-    targets: Optional[List[str]] = Field(None, description="Subset of export targets")
+    checkpoint_path: str | None = Field(None, description="Path to checkpoint")
+    output_dir: str | None = Field(None, description="Export output directory")
+    targets: list[str] | None = Field(None, description="Subset of export targets")
 
 
 @router.post("/train")
@@ -103,7 +104,7 @@ class KaggleTrainRequest(BaseModel):
 class KaggleMonitorRequest(BaseModel):
     """Payload for connecting to active Kaggle kernel stream."""
     kernel_slug: str = Field(..., description="Kaggle kernel slug (e.g. username/kernel-slug)")
-    model: Optional[str] = Field(None, description="Optional associated model key for auto-pull")
+    model: str | None = Field(None, description="Optional associated model key for auto-pull")
     auto_pull: bool = Field(False, description="Enable auto-pull on epoch completion")
     poll_interval: int = Field(5, description="Telemetry poll interval in seconds")
 
@@ -113,14 +114,14 @@ class KagglePullRequest(BaseModel):
     model: str = Field(..., description="Target model key")
     variation: str = Field("all", description="Variation to pull ('all', 'pytorch', 'pytorch_fp32', 'onnx_fp16', 'onnx_fp32')")
     force_download: bool = Field(False, description="Force re-download even if cached version is current")
-    username: Optional[str] = Field(None, description="Optional Kaggle username override")
+    username: str | None = Field(None, description="Optional Kaggle username override")
 
 
 class KagglePushRequest(BaseModel):
     """Payload for uploading model checkpoints to Kaggle Models."""
     model: str = Field(..., description="Target model key")
-    source_dir: Optional[str] = Field(None, description="Optional custom source directory")
-    username: Optional[str] = Field(None, description="Optional Kaggle username override")
+    source_dir: str | None = Field(None, description="Optional custom source directory")
+    username: str | None = Field(None, description="Optional Kaggle username override")
 
 
 @router.get("/kaggle/status")
@@ -228,7 +229,7 @@ class KagglePushModelRequest(BaseModel):
     """Payload for pushing validated isolated variations to Kaggle Models Hub."""
     model: str = Field(..., description="Target model key")
     variation: str = Field("all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')")
-    version_notes: Optional[str] = Field(None, description="Optional release version notes")
+    version_notes: str | None = Field(None, description="Optional release version notes")
     dry_run: bool = Field(False, description="Validate payload and isolation without publishing to Kaggle")
 
 
@@ -250,7 +251,7 @@ def push_kaggle_model_variations(payload: KagglePushModelRequest) -> dict[str, A
 class KagglePushAllRequest(BaseModel):
     """Payload for staging and pushing all registered models to Kaggle Models Hub."""
     variation: str = Field("all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')")
-    version_notes: Optional[str] = Field(None, description="Optional release version notes")
+    version_notes: str | None = Field(None, description="Optional release version notes")
     dry_run: bool = Field(False, description="Validate payload and isolation without publishing to Kaggle")
 
 
@@ -295,9 +296,9 @@ def enqueue_llm_training(payload: LLMTrainRequest, request: Request) -> dict[str
 class LLMExportRequest(BaseModel):
     """Payload for compiling and exporting tri-format LLM binaries."""
     model: str = Field("ai_helper_lemgend", description="Target LLM model key")
-    checkpoint: Optional[str] = Field(None, description="Path to checkpoint file")
-    output_dir: Optional[str] = Field(None, description="Output directory for exported binaries")
-    targets: Optional[list[str]] = Field(None, description="Target export formats (e.g. ['adapter', 'merged', 'gguf'])")
+    checkpoint: str | None = Field(None, description="Path to checkpoint file")
+    output_dir: str | None = Field(None, description="Output directory for exported binaries")
+    targets: list[str] | None = Field(None, description="Target export formats (e.g. ['adapter', 'merged', 'gguf'])")
 
 
 @router.post("/llm/export")
@@ -323,6 +324,7 @@ class UnitTestsRunRequest(BaseModel):
 def run_unit_tests(payload: UnitTestsRunRequest) -> dict[str, Any]:
     """Execute unit test suite in-process and return structured test outcome."""
     import unittest
+
     from training.utils.paths import get_project_root
     project_root = get_project_root()
     tests_dir = project_root / "tests" / "unit"

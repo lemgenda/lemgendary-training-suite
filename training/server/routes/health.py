@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from typing import Any
-from fastapi import APIRouter
+
 import torch
+from fastapi import APIRouter
 
 from training.hardware.discovery import discover_device
 

@@ -6,16 +6,15 @@ Orchestrates sequential model training runs across registered phases and manifol
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import json
 import logging
 import os
-from pathlib import Path
-import shutil
 import subprocess
 import sys
 import time
-from typing import Any, List, TypedDict
+from datetime import datetime
+from typing import Any, TypedDict
+
 import yaml
 
 from training.utils.paths import get_project_root
@@ -37,11 +36,11 @@ except ImportError as _kaggle_env_err:
 
 class PhaseDef(TypedDict):
     name: str
-    datasets: List[str]
-    models: List[str]
+    datasets: list[str]
+    models: list[str]
 
 
-PHASES: List[PhaseDef] = [
+PHASES: list[PhaseDef] = [
     {
         "name": "Phase 1: Deep Quality & Safety Assessment",
         "datasets": ["LemGendizedQualityDataset", "ClassificationMasterManifold"],

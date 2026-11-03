@@ -1,9 +1,10 @@
 """Parquet container reader wrapping PyArrow with row-group level caching."""
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
 import pyarrow.parquet as pq
 
 from training.data.containers.base import Sample

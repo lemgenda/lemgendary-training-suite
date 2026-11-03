@@ -20,11 +20,11 @@ TODO (requires MT5 demo account):
     - Test MQL5 EA stub in MT5 Strategy Tester
 """
 
-import os
-import sys
 import argparse
 import json
 import logging
+import os
+import sys
 
 import numpy as np
 
@@ -35,17 +35,17 @@ if _workspace_root not in sys.path:
     sys.path.insert(0, _workspace_root)
 
 from data.mt5_pipeline import (
-    TIMEFRAME_LOOKBACK,
-    MAJOR_PAIRS,
     PAIR_INDEX,
+    TIMEFRAME_LOOKBACK,
     compute_indicators,
-    normalize_ohlcv,
-    generate_labels,
     connect_mt5,
     disconnect_mt5,
     download_bars,
+    normalize_ohlcv,
 )
-from models.forex_predictor import ForexPredictor, DIRECTION_CLASSES, FOREX_FEATURES_PER_BAR
+from models.forex_predictor import (
+    ForexPredictor,
+)
 
 # [LemGendary Forex Suite v1.0 - SYNC_ID: FOREX_03]
 
@@ -100,7 +100,7 @@ def export_onnx(
     state_dict = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
     # Strip DataParallel prefix if present
     state_dict = {
-        k[7:] if k.startswith("module.") else k: v
+        k.removeprefix("module."): v
         for k, v in state_dict.items()
     }
     model.load_state_dict(state_dict, strict=False)
@@ -192,7 +192,7 @@ def export_onnx(
     print(f" [ONNX Export] Saving standalone PyTorch FP32 model to: {pt_path}")
     torch.save(model, pt_path)
 
-    print(f" [ONNX Export] [OK] Export Matrix Complete:")
+    print(" [ONNX Export] [OK] Export Matrix Complete:")
     print(f"   -> FP32 ONNX:  {fp32_onnx_path}")
     print(f"   -> FP16 ONNX:  {fp16_onnx_path}")
     print(f"   -> PyTorch PT: {pt_path}")

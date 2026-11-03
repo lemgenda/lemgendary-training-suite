@@ -15,7 +15,7 @@ from typing import Any
 
 import onnx
 import torch
-import torch.nn as nn
+from torch import nn
 
 from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
 from training.registry import ModelSpecification
@@ -45,8 +45,8 @@ def export_llm_tri_format(
     exported_files: dict[str, Path] = {}
 
     model_to_export: nn.Module
-    if hasattr(model, "module") and isinstance(getattr(model, "module"), nn.Module):
-        model_to_export = getattr(model, "module")
+    if hasattr(model, "module") and isinstance(model.module, nn.Module):
+        model_to_export = model.module
     elif isinstance(model, nn.Module):
         model_to_export = model
     else:

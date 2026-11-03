@@ -14,18 +14,20 @@ from __future__ import annotations
 
 import io
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
-from PIL import Image
 import yaml
+from PIL import Image
 
 from training.data.containers import (
     DirectoryReader,
-    Sample as TrainingSample,
     WebDatasetReader,
     resolve_container_reader,
+)
+from training.data.containers import (
+    Sample as TrainingSample,
 )
 
 
@@ -208,7 +210,8 @@ class TestFullProductionPipelinePass(unittest.TestCase):
     def test_full_pipeline_roundtrip(self) -> None:
         """Simulate training step -> checkpoint -> export -> stage -> metadata -> Kaggle payload."""
         import torch
-        import torch.nn as nn
+        from torch import nn
+
         from training.cloud.kaggle_model_sync import KaggleModelSyncManager
         from training.cloud.metadata_generator import KaggleMetadataService
         from training.export.onnx import export_onnx

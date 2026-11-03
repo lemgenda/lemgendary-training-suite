@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from contextlib import AbstractContextManager, nullcontext
 from typing import Any
+
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 class ParallelStrategy(ABC):
@@ -57,7 +59,7 @@ class ParallelStrategy(ABC):
     def normalize_state_dict(self, state_dict: dict) -> dict:
         if not state_dict:
             return state_dict
-        has_prefix = any(k.startswith("module.") for k in state_dict.keys())
+        has_prefix = any(k.startswith("module.") for k in state_dict)
         if not has_prefix:
             return state_dict
         return {
