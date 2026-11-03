@@ -25,7 +25,11 @@ from training.ratchet import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-GOVERNOR_PATH = REPO_ROOT / "training" / "governance" / "governor.py"
+GOVERNANCE_DIR = REPO_ROOT / "training" / "governance"
+GOVERNOR_PATH = GOVERNANCE_DIR / "governor.py"
+# Mixin modules that make up SmartTrainingGovernor; every audit-path step lives here.
+AUDIT_PATHS = [GOVERNANCE_DIR / "epoch_audit.py", GOVERNANCE_DIR / "propulsion.py"]
+GOVERNOR_PATHS = [GOVERNOR_PATH, *AUDIT_PATHS, GOVERNANCE_DIR / "governor_state.py"]
 ENGINE_PATH = REPO_ROOT / "training" / "training" / "engine.py"
 
 LADDER = [256, 384, 512]
@@ -123,9 +127,12 @@ class PairRuleTests(unittest.TestCase):
         self.assertIsNone(next_rung_resolution(LADDER, 512))
 
 
-def _methods(path: Path) -> dict[str, ast.FunctionDef]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    return {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+def _methods(*paths: Path) -> dict[str, ast.FunctionDef]:
+    found: dict[str, ast.FunctionDef] = {}
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        found.update({n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)})
+    return found
 
 
 def _assigned_attrs(func: ast.FunctionDef) -> set[str]:
@@ -147,8 +154,10 @@ class GovernorWiringTests(unittest.TestCase):
 
     def test_transitions_go_through_commit_rung(self) -> None:
         """Verify governor transition methods go through commit_rung."""
-        methods = _methods(GOVERNOR_PATH)
-        for name in ("audit_epoch", "veto_resolution_jump", "register_rollback", "recoil"):
+        methods = _methods(*GOVERNOR_PATHS)
+        audit_steps = set(_methods(*AUDIT_PATHS))
+        self.assertIn("audit_epoch", audit_steps)
+        for name in sorted(audit_steps | {"veto_resolution_jump", "register_rollback", "recoil"}):
             with self.subTest(method=name):
                 written = _assigned_attrs(methods[name])
                 self.assertNotIn("current_res", written)
@@ -158,7 +167,7 @@ class GovernorWiringTests(unittest.TestCase):
 
     def test_get_state_writes_canonical_keys(self) -> None:
         """Verify get_state writes the canonical resolution/fraction keys."""
-        get_state = _methods(GOVERNOR_PATH)["get_state"]
+        get_state = _methods(*GOVERNOR_PATHS)["get_state"]
         returned = next(n for n in ast.walk(get_state) if isinstance(n, ast.Return))
         assert isinstance(returned.value, ast.Dict)
         key_names = {k.id for k in returned.value.keys if isinstance(k, ast.Name)}

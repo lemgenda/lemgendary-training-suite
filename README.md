@@ -11,11 +11,22 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.78-STABLE` |
+| **Version** | `v16.9.79-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.79 - SmartTrainingGovernor Split into Audit, Propulsion and State Modules
+
+- **`training/governance/governor.py`** (1,484 lines) is split by responsibility. The class name, import path and behaviour are unchanged.
+  - `governor.py` (472): construction, `_commit_rung`, OOM and batch handling, rollback and veto rules.
+  - `epoch_audit.py` (524): `EpochAuditMixin.audit_epoch` and its stability signals (metric focus, forced SOTA jump, stabilization hold, overfitting and turbulence detection, retreat and jolt-window handling). `AuditDirectives` collects the six change flags and status fragments.
+  - `propulsion.py` (265): `PropulsionMixin` steps taken once an audit allows progress (plateau jolt, fraction expansion, spatial jump, refinement, temperature sharpening).
+  - `governor_state.py` (145): `get_state` / `load_state`.
+  - `delegation.py`: the `Delegated` descriptor replaces 28 hand-written property pairs that forwarded to `CurriculumState`, `SotaTracker` and `ThermalState`, with the same coercion on assignment. `too-many-public-methods` (42/20) no longer fires.
+- **`audit_epoch`** went from one 607-line method to a 230-line pipeline over 16 helpers. Every rung move still goes through `_commit_rung` (Monotonic Ratchet PAIR rule). A differential harness ran the old and new governor side by side over 24,000 random audits (quality, restoration, forex and parameter-prediction setups, forced jumps, metric-focus windows). Results and `get_state()` were identical at every step.
+- **Tests**: `tests/unit/test_ratchet.py` now checks every audit-path method in `epoch_audit.py` and `propulsion.py`, not just `governor.py`, for direct `current_res` / `current_fraction` writes. 260 passed.
 
 ### v16.9.78 - Private-API Adapters, OpenCV Loader, No Pylint Errors or Warnings
 
