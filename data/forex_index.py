@@ -132,6 +132,19 @@ class YearSources:
 class ForexIndexMixin:
     """Builds the flat ``(pair_idx, timeframe, key, row)`` sample index of ``ForexDataset``."""
 
+    # Host (``ForexDataset``) state this mixin reads and writes.
+    shard_roots: list[str]
+    pairs: list
+    active_timeframes: list
+    is_train: bool
+    sample_fraction: float
+    split: str
+    fold: int
+    _parquet_caches: dict[str, ParquetRowGroupCache]
+    _parquet_meta: dict
+    _parquet_tf_rows: dict[tuple, np.ndarray]
+    _parquet_tf_ts: dict[tuple, np.ndarray]
+
     def resolve_pair_dir(self, parent_dir: str, pair: str) -> str | None:
         """Resolves pair directory handling symbol aliases (e.g. NAS100 <-> USTEC)."""
         candidates = [pair, ALIAS_PAIRS.get(pair, pair)]
@@ -193,26 +206,20 @@ class ForexIndexMixin:
         pair_set = set(self.pairs)
         tf_set = set(self.active_timeframes)
         ts_arr = meta["timestamp"]
+        tf_rows: dict[tuple, list] = {}
+        tf_ts: dict[tuple, list] = {}
         for r, p_val in enumerate(meta["pair"]):
             p = str(p_val)
             tf = int(meta["timeframe"][r])
             if p in pair_set and tf in tf_set:
                 self._index.append((PAIR_INDEX.get(p, 0), tf, ("parquet", yr_name), r))
                 tf_key = (p, tf, yr_name)
-                if tf_key not in self._parquet_tf_rows:
-                    self._parquet_tf_rows[tf_key] = []
-                    self._parquet_tf_ts[tf_key] = []
-                self._parquet_tf_rows[tf_key].append(r)
-                self._parquet_tf_ts[tf_key].append(ts_arr[r])
+                tf_rows.setdefault(tf_key, []).append(r)
+                tf_ts.setdefault(tf_key, []).append(ts_arr[r])
 
-        for tf_key in list(self._parquet_tf_rows.keys()):
-            if tf_key[2] == yr_name and isinstance(self._parquet_tf_rows[tf_key], list):
-                self._parquet_tf_rows[tf_key] = np.asarray(
-                    self._parquet_tf_rows[tf_key], dtype=np.int64
-                )
-                self._parquet_tf_ts[tf_key] = np.asarray(
-                    self._parquet_tf_ts[tf_key], dtype=np.int64
-                )
+        for tf_key, rows in tf_rows.items():
+            self._parquet_tf_rows[tf_key] = np.asarray(rows, dtype=np.int64)
+            self._parquet_tf_ts[tf_key] = np.asarray(tf_ts[tf_key], dtype=np.int64)
 
     def _index_year_dir(self, yr_name: str, yr_dir: str | None) -> None:
         """Index the ``<pair>/<tf>/X.npy`` or ``X_chunk*.npy`` shards of one year directory."""

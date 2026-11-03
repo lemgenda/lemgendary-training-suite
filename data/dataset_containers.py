@@ -13,8 +13,9 @@ import random
 
 import torch
 from PIL import Image
+from torchvision import transforms
 
-from training.data.containers import resolve_container_reader
+from training.data.containers import ContainerReader, resolve_container_reader
 from training.data.degrade import (
     synthesize_degradation,
 )
@@ -43,6 +44,17 @@ def _class_index_from_file(classes_file: str, label: str) -> int:
 
 class DatasetContainerMixin:
     """Container-backed samples mixed into ``MultiTaskDataset``."""
+
+    # Host (``MultiTaskDataset``) state this mixin reads and writes.
+    split: str
+    model_key: str
+    unified_models: dict
+    task_type: str
+    size: tuple[int, int]
+    transform: transforms.Compose
+    path_cache: dict[str, str | None]
+    all_samples: list[tuple[str, str | int]]
+    _container_readers: dict[str, ContainerReader]
 
     def load_container_samples(self, loaded_paths: set) -> None:
         """Attempt container-format loading when no directory images are found.
@@ -157,7 +169,7 @@ class DatasetContainerMixin:
                 if label.isdigit():
                     class_idx = int(label)
                 else:
-                    classes_file = os.path.join(self.path_cache.get(ds_name, ""), "classes.txt")
+                    classes_file = os.path.join(self.path_cache.get(ds_name) or "", "classes.txt")
                     class_idx = _class_index_from_file(classes_file, label)
             return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
 

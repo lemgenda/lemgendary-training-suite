@@ -83,7 +83,7 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
             self.unified_models = yaml.safe_load(f)
 
         self.model_key = model_key or next(iter(self.unified_models))
-        self.model_info = self.unified_models.get(self.model_key)
+        self.model_info = self.unified_models[self.model_key]
 
         raw_type = self.model_info.get("dataset_type", "restoration")
         self.task_type = raw_type[0] if isinstance(raw_type, list) else raw_type
@@ -101,6 +101,8 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
         self.nima_scores = {}
         if self.model_key == "nima_authenticity":
             for ds_path in self.path_cache.values():
+                if ds_path is None:
+                    continue
                 _load_nima_scores(os.path.join(ds_path, "index.json"), self.nima_scores)
 
         self.build_transforms()
@@ -203,11 +205,7 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
         ds_name, sample_id = self.samples[index]
 
         # Container-backed sample path: sample_id is an integer index.
-        if (
-            isinstance(sample_id, int)
-            and hasattr(self, "_container_readers")
-            and ds_name in self._container_readers
-        ):
+        if isinstance(sample_id, int):
             return self.getitem_container(ds_name, sample_id)
 
         # Directory-backed path: sample_id is a filename string.
