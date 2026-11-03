@@ -31,6 +31,48 @@ _HEADER = (
 )
 
 
+def _model_errors(m: Any) -> list[str]:
+    """Validation errors of the ``model`` section."""
+    errors: list[str] = []
+    if m.owner in _PLACEHOLDER_OWNERS or not _OWNER_RE.match(m.owner):
+        errors.append("model.owner must be a resolved Kaggle username")
+    if not _SLUG_RE.match(m.slug):
+        errors.append(f"model.slug '{m.slug}' must be lowercase letters, digits and hyphens")
+    if not m.title.strip():
+        errors.append("model.title is required")
+    if not m.subtitle.strip():
+        errors.append("model.subtitle is required")
+    if not m.description.strip():
+        errors.append("model.description is required")
+    if m.is_private:
+        errors.append("model.is_private must be false (models are published as public)")
+    if not m.license.strip():
+        errors.append("model.license is required")
+    if m.publish_time is not None and not re.match(r"^\d{4}-\d{2}-\d{2}$", m.publish_time):
+        errors.append("model.publish_time must be YYYY-MM-DD")
+    return errors
+
+
+def _variation_errors(variations: dict[str, Any]) -> list[str]:
+    """Missing/incomplete supported variations and unsupported variation keys."""
+    errors: list[str] = []
+    for variation in VARIATIONS:
+        v = variations.get(variation.key)
+        if v is None:
+            errors.append(f"variations.{variation.key} is missing")
+            continue
+        if not v.overview.strip():
+            errors.append(f"variations.{variation.key}.overview is required")
+        if not v.usage.strip():
+            errors.append(f"variations.{variation.key}.usage is required")
+        if not v.license.strip():
+            errors.append(f"variations.{variation.key}.license is required")
+    for key in variations:
+        if key not in VARIATION_BY_KEY:
+            errors.append(f"variations.{key} is not a supported variation")
+    return errors
+
+
 class MetadataValidationError(ValueError):
     """Raised when a model_metadata.yaml document is missing or has invalid required fields."""
 
@@ -95,40 +137,7 @@ class ModelMetadata:
     # ------------------------------------------------------------------ validation
     def validate(self) -> list[str]:
         """Return a list of human readable validation errors (empty when valid)."""
-        errors: list[str] = []
-        m = self.model
-        if m.owner in _PLACEHOLDER_OWNERS or not _OWNER_RE.match(m.owner):
-            errors.append("model.owner must be a resolved Kaggle username")
-        if not _SLUG_RE.match(m.slug):
-            errors.append(f"model.slug '{m.slug}' must be lowercase letters, digits and hyphens")
-        if not m.title.strip():
-            errors.append("model.title is required")
-        if not m.subtitle.strip():
-            errors.append("model.subtitle is required")
-        if not m.description.strip():
-            errors.append("model.description is required")
-        if m.is_private:
-            errors.append("model.is_private must be false (models are published as public)")
-        if not m.license.strip():
-            errors.append("model.license is required")
-        if m.publish_time is not None and not re.match(r"^\d{4}-\d{2}-\d{2}$", m.publish_time):
-            errors.append("model.publish_time must be YYYY-MM-DD")
-
-        for variation in VARIATIONS:
-            v = self.variations.get(variation.key)
-            if v is None:
-                errors.append(f"variations.{variation.key} is missing")
-                continue
-            if not v.overview.strip():
-                errors.append(f"variations.{variation.key}.overview is required")
-            if not v.usage.strip():
-                errors.append(f"variations.{variation.key}.usage is required")
-            if not v.license.strip():
-                errors.append(f"variations.{variation.key}.license is required")
-        for key in self.variations:
-            if key not in VARIATION_BY_KEY:
-                errors.append(f"variations.{key} is not a supported variation")
-        return errors
+        return _model_errors(self.model) + _variation_errors(self.variations)
 
     def ensure_valid(self) -> None:
         """Raise MetadataValidationError when the document is invalid."""

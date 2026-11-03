@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.114-STABLE`
+- **Version**: `v16.9.115-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,14 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.115 - Notebook Generator Table and Metadata Validation Split
+
+- **Refactor**: `NotebookService.generate_notebooks` runs a per-call
+  platform/kind generator table (`_run_generators`, same result keys);
+  Kaggle model metadata validation splits into `_model_errors` and
+  `_variation_errors` (same messages and order). Removes 2
+  too-many-branches findings.
 
 ### v16.9.114 - Smaller Notebook Metadata, Manifold Sync and DDP Launcher
 
