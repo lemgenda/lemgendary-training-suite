@@ -12,7 +12,9 @@ import os
 import subprocess
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, TypedDict
 
 import yaml
@@ -124,32 +126,29 @@ PHASES: list[PhaseDef] = [
 ]
 
 
-def main() -> None:
-    """Execute fleet orchestrator."""
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Global LemGendary Fleet Orchestrator")
     parser.add_argument("--env", type=str, default="local", choices=["local", "kaggle"])
     parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--force", action="store_true", help="Bypass SOTA existence checks.")
     parser.add_argument("--yes", action="store_true")
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    project_root = get_project_root()
-    config_path = project_root / "config.yaml"
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
 
+def _load_yaml(path: Path) -> dict[str, Any]:
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _load_registry(project_root: Path) -> dict[str, Any]:
+    """Load the model registry named by ``config.yaml`` (``unified_models``)."""
+    config = _load_yaml(project_root / "config.yaml")
     unified_models_name = config.get("unified_models", "unified_models_v2.yaml")
-    unified_models_path = project_root / unified_models_name
-    with open(unified_models_path, "r", encoding="utf-8") as f:
-        registry = yaml.safe_load(f) or {}
+    return _load_yaml(project_root / unified_models_name)
 
-    train_script = project_root / "training" / "train.py"
-    failure_log_path = project_root / "fleet_failure_report.json"
-    failure_report: dict[str, Any] = {"timestamp": datetime.now().isoformat(), "failures": []}
 
-    active_phases: list[PhaseDef] = []
-    auto_accept = args.yes
-
+def _append_unscheduled_phase(registry: dict[str, Any]) -> None:
+    """Add a phase for registry models that no phase in ``PHASES`` schedules."""
     scheduled_models = {m for p in PHASES for m in p["models"]}
     unscheduled = [
         m
@@ -161,83 +160,117 @@ def main() -> None:
             {"name": "Phase 6: Dynamic Fleet Extensions", "datasets": [], "models": unscheduled}
         )
 
+
+def _has_artifacts(project_root: Path, model_key: str, args: argparse.Namespace) -> bool:
+    """True (with a ``[SKIP]`` line) when ``model_key`` needs no training run."""
+    hub_dir = project_root.parent / "LemGendaryModels" / model_key
+    final_pth = hub_dir / "checkpoints" / f"{model_key}_best.pth"
+    if final_pth.exists() and not args.force:
+        print(f"[SKIP] Model '{model_key}' has existing SOTA artifacts. Use --force to re-train.")
+        return True
+    if args.epochs == 1 and hub_dir.exists():
+        files = os.listdir(hub_dir)
+        has_onnx = any(f.endswith(".onnx") for f in files)
+        has_pt = any(f.endswith((".pt", ".pth")) for f in files)
+        if has_onnx and has_pt:
+            print(f"[SKIP] Model '{model_key}' already has exported ONNX and PT binaries.")
+            return True
+    return False
+
+
+def _approve(model_key: str, auto_accept: bool) -> tuple[bool, bool]:
+    """Ask whether to train ``model_key``; return ``(approved, auto_accept)``."""
+    if auto_accept:
+        return True, True
+    if input(f"Train >> {model_key} << ? (y/n/all): ").strip().lower() in ["y", "all"]:
+        return True, "all" in sys.stdin.readline()
+    return False, False
+
+
+def _select_phases(
+    registry: dict[str, Any], project_root: Path, args: argparse.Namespace
+) -> list[PhaseDef]:
+    """Return the phases with the models the operator approved for training."""
+    active_phases: list[PhaseDef] = []
+    auto_accept = args.yes
     for phase in PHASES:
         approved_models: list[str] = []
         for model_key in phase["models"]:
-            if model_key not in registry:
+            if model_key not in registry or _has_artifacts(project_root, model_key, args):
                 continue
-
-            final_pth = (
-                project_root.parent
-                / "LemGendaryModels"
-                / model_key
-                / "checkpoints"
-                / f"{model_key}_best.pth"
-            )
-            if final_pth.exists() and not args.force:
-                print(
-                    f"[SKIP] Model '{model_key}' has existing SOTA artifacts. "
-                    "Use --force to re-train."
-                )
-                continue
-
-            if args.epochs == 1:
-                export_dir = project_root.parent / "LemGendaryModels" / model_key
-                if export_dir.exists():
-                    files = os.listdir(export_dir)
-                    has_onnx = any(f.endswith(".onnx") for f in files)
-                    has_pt = any(f.endswith((".pt", ".pth")) for f in files)
-                    if has_onnx and has_pt:
-                        print(
-                            f"[SKIP] Model '{model_key}' already has exported ONNX and PT binaries."
-                        )
-                        continue
-
-            if auto_accept or input(f"Train >> {model_key} << ? (y/n/all): ").strip().lower() in [
-                "y",
-                "all",
-            ]:
+            approved, auto_accept = _approve(model_key, auto_accept)
+            if approved:
                 approved_models.append(model_key)
-                if not auto_accept and "all" in sys.stdin.readline():
-                    auto_accept = True
-
         if approved_models:
             active_phases.append(
                 {"name": phase["name"], "datasets": phase["datasets"], "models": approved_models}
             )
+    return active_phases
 
-    for phase in active_phases:
+
+@dataclass
+class _Report:
+    """Fleet failure report, rewritten to ``fleet_failure_report.json`` on each failure."""
+
+    project_root: Path
+    data: dict[str, Any] = field(
+        default_factory=lambda: {"timestamp": datetime.now().isoformat(), "failures": []}
+    )
+
+    @property
+    def path(self) -> Path:
+        """Report file in the project root."""
+        return self.project_root / "fleet_failure_report.json"
+
+    def add_failure(self, failure: dict[str, Any]) -> None:
+        """Record ``failure`` and rewrite the report file."""
+        self.data["failures"].append(failure)
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, indent=4)
+
+
+def _train_model(
+    model_key: str, phase_name: str, args: argparse.Namespace, report: _Report
+) -> None:
+    """Run ``training/train.py`` for one model; record and confirm on failure."""
+    print(f"\nMatrix: {model_key}\n")
+    cmd = [
+        sys.executable,
+        str(report.project_root / "training" / "train.py"),
+        "--model",
+        model_key,
+        "--epochs",
+        str(args.epochs),
+        "--env",
+        args.env,
+    ]
+    try:
+        subprocess.check_call(cmd)
+        print(f"[OK] {model_key} converged.")
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] {model_key} structural failure.")
+        report.add_failure({"model": model_key, "phase": phase_name, "code": e.returncode})
+        if not args.yes and input("Proceed to next? (y/n): ").lower() != "y":
+            sys.exit(1)
+    time.sleep(2)
+
+
+def main() -> None:
+    """Execute fleet orchestrator."""
+    args = _parse_args()
+    project_root = get_project_root()
+    registry = _load_registry(project_root)
+    report = _Report(project_root)
+    _append_unscheduled_phase(registry)
+    for phase in _select_phases(registry, project_root, args):
         print(f"\n[FAST] Initiating {phase['name']}...")
         for model_key in phase["models"]:
-            print(f"\nMatrix: {model_key}\n")
-            cmd = [
-                sys.executable,
-                str(train_script),
-                "--model",
-                model_key,
-                "--epochs",
-                str(args.epochs),
-                "--env",
-                args.env,
-            ]
-            try:
-                subprocess.check_call(cmd)
-                print(f"[OK] {model_key} converged.")
-            except subprocess.CalledProcessError as e:
-                print(f"[ERROR] {model_key} structural failure.")
-                failure_report["failures"].append(
-                    {"model": model_key, "phase": phase["name"], "code": e.returncode}
-                )
-                with open(failure_log_path, "w", encoding="utf-8") as f:
-                    json.dump(failure_report, f, indent=4)
-                if not args.yes and input("Proceed to next? (y/n): ").lower() != "y":
-                    sys.exit(1)
-
-            time.sleep(2)
+            _train_model(model_key, phase["name"], args, report)
 
     print("\nFleet Orchestration Complete!")
-    if failure_report["failures"]:
-        print(f"Warning: {len(failure_report['failures'])} models failed. See {failure_log_path}")
+    if report.data["failures"]:
+        failures = report.data["failures"]
+        print(f"Warning: {len(failures)} models failed. See {report.path}")
 
 
 if __name__ == "__main__":

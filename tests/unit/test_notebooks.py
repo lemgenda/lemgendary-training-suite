@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 import training.notebook_generator as legacy
-from training.ecosystem import kaggle_owner
+from training.ecosystem import TRAINING_SERVICE, ecosystem, kaggle_owner
 from training.notebooks import (
     ModelNotebookMeta,
     generate_colab_inference_notebook,
@@ -129,9 +129,10 @@ class TestNotebookSubsystem(unittest.TestCase):
         """Verify that individual cell builders construct structurally sound cells."""
         meta = resolve_model_metadata("mirnet_exposure", self.registry, self.config)
 
+        suite_folder = ecosystem().service(TRAINING_SERVICE).project
         # builder output -> a substring one of its source lines must contain (None: any)
         cells = {
-            "clone": (build_clone_cell("kaggle"), "lemgendary-training-suite"),
+            "clone": (build_clone_cell("kaggle"), suite_folder),
             "install": (build_install_cell("kaggle"), "pip"),
             "symlink": (build_symlink_cell(meta, "kaggle"), "LemGendaryDatasets"),
             "hub_prep": (build_hub_prep_cell(meta, "kaggle"), "LemGendaryModels"),

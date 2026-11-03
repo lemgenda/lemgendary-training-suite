@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
 
 import torch
@@ -16,12 +17,12 @@ from training.data.instruction_dataset import (
 )
 
 
+@dataclass
 class DummyMockTokenizer:
     """Deterministic mock tokenizer for testing instruction prompt masking."""
 
-    def __init__(self) -> None:
-        self.pad_token_id = 0
-        self.eos_token_id = 2
+    pad_token_id: int = 0
+    eos_token_id: int = 2
 
     def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
         """Map ``text`` to deterministic token ids; append EOS when ``add_special_tokens``."""

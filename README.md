@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.115-STABLE`
+- **Version**: `v16.9.116-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,17 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.116 - Staging Variation Table, Hub Dashboard and Fleet Helpers
+
+- **Refactor**: `VariationStagingService.stage_variations` stages from a
+  `_VARIATIONS` table (`_StagingRun.find_source` / `stage`; same files,
+  staged keys, logs; unused `_safe_copy` removed). The hub dashboard is
+  built by `_Dashboard` with `_read_progress` / `_completeness`;
+  `tools/train_all.py` `main` splits into selection and run helpers.
+- **Tests**: `test_notebooks` reads the suite folder from the ecosystem
+  file (ecosystem_ssot project-list finding); the LLM mock tokenizer is a
+  dataclass.
 
 ### v16.9.115 - Notebook Generator Table and Metadata Validation Split
 
