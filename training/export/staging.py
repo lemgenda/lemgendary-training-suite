@@ -18,8 +18,12 @@ from pathlib import Path
 from training.cloud.variations import (
     PYTORCH_DEFAULT,
 )
-from training.export.validation import IsolationReport, StrictIsolationValidator
-from training.registry import ModelSpecification, get_model_registry
+from training.export.validation import (
+    IsolationReport,
+    StrictIsolationValidator,
+    resolve_model_stem,
+)
+from training.registry import ModelSpecification
 from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 
@@ -180,22 +184,15 @@ class _StagingRun:
                     logger.warning("Could not remove leftover %s: %s", leftover, unlink_err)
 
 
+@dataclass
 class VariationStagingService:
     """Orchestrates staging of exported artifacts into strictly isolated variation directories."""
 
-    def __init__(self, spec: ModelSpecification | None = None) -> None:
-        self.spec = spec
-        self.validator = StrictIsolationValidator(spec=spec)
+    spec: ModelSpecification | None = None
+    validator: StrictIsolationValidator = field(init=False)
 
-    def _resolve_stem(self, model_key: str) -> str:
-        """Resolve canonical model binary stem from specification."""
-        if self.spec and self.spec.filename:
-            return self.spec.filename
-        reg = get_model_registry()
-        spec = reg.get_model(model_key)
-        if spec and spec.filename:
-            return spec.filename
-        return model_key
+    def __post_init__(self) -> None:
+        self.validator = StrictIsolationValidator(spec=self.spec)
 
     def _resolve_hub_dir(self, model_key: str, base_dir: Path | str | None = None) -> Path:
         """Resolve directory path in LemGendaryModels."""
@@ -216,7 +213,7 @@ class VariationStagingService:
     ) -> StagingResult:
         """Stage all 4 model variations into dist/kaggle/ subdirectories."""
         hub_dir = self._resolve_hub_dir(model_key, base_dir)
-        stem = self._resolve_stem(model_key)
+        stem = resolve_model_stem(model_key, self.spec)
         dist_dir = hub_dir / "dist" / "kaggle"
         out_dirs = [dist_dir / var.folder for var in _VARIATIONS]
         for out_dir in out_dirs:

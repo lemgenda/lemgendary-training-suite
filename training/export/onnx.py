@@ -54,12 +54,7 @@ def export_onnx(
     )
 
     try:
-        run_onnx_export(
-            model_to_export,
-            (dummy_input,),
-            out_file,
-            graph,
-        )
+        run_onnx_export(model_to_export, (dummy_input,), out_file, graph)
 
         if graph.external_data:
             data_filename = f"{out_file.name}.data"

@@ -15,7 +15,12 @@ from onnx import external_data_helper
 from onnxconverter_common import float16
 from torch import nn
 
-from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
+from training.export.base import (
+    EXPORT_ERRORS,
+    MODEL_IO_ERRORS,
+    BaseModelExporter,
+    spec_dataset_types,
+)
 from training.export.mt5_signal import export_forex_onnx, export_forex_onnx_from_model
 from training.registry import ModelSpecification
 
@@ -104,12 +109,7 @@ class ForexModelExporter(BaseModelExporter):
         """Determines if model is ForexPredictor."""
         resolved_spec = self.resolve_spec(model_key, spec)
         if resolved_spec:
-            d_type = resolved_spec.dataset_type
-            d_types = (
-                [x.lower() for x in d_type]
-                if isinstance(d_type, list)
-                else [(d_type or "").lower()]
-            )
+            d_types = spec_dataset_types(resolved_spec)
             return "forex" in d_types or "forex" in resolved_spec.key.lower()
         return "forex" in model_key.lower()
 

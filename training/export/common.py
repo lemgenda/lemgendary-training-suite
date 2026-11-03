@@ -125,6 +125,21 @@ def unwrap_export_model(model: nn.Module) -> nn.Module:
     return inner if isinstance(inner, nn.Module) else model
 
 
+def load_checkpoint_weights(model: nn.Module, ckpt: Any) -> None:
+    """Load a checkpoint's model state into ``model`` (non-strict, DDP ``module.`` stripped).
+
+    ``ckpt`` is a raw state dict or a dict holding it under ``model_state`` or
+    ``model_state_dict``.
+    """
+    raw_state = (
+        ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
+        if isinstance(ckpt, dict)
+        else ckpt
+    )
+    state_dict = {k.removeprefix("module."): v for k, v in raw_state.items()}
+    model.load_state_dict(state_dict, strict=False)
+
+
 def model_device(model: nn.Module) -> torch.device:
     """Return the device of the model's first parameter (CPU for parameter-free models)."""
     try:

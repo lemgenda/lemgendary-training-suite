@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,7 @@ import yaml
 from torch import nn
 
 from models.factory import get_model
+from training.export import ExportError, ExportPlan, export_all
 from training.export.common import (
     resolve_checkpoint_file as canonical_resolve_checkpoint_file,
 )
@@ -111,3 +114,40 @@ __all__ = [
     "resolve_export_paths",
     "wrap_quality_model",
 ]
+
+
+@dataclass(frozen=True)
+class LegacyExportCli:
+    """One legacy single-model export CLI: its help text, log lines and export targets."""
+
+    description: str
+    banner: str
+    failure: str
+    targets: tuple[str, ...]
+    log: logging.Logger
+
+
+def run_legacy_export_cli(cli: LegacyExportCli) -> None:
+    """Parse ``--model/--checkpoint/--yes``, export ``cli.targets`` and exit 1 on failure."""
+    parser = argparse.ArgumentParser(description=cli.description)
+    parser.add_argument(
+        "--model", type=str, required=True, help="Model key from unified_models.yaml"
+    )
+    parser.add_argument(
+        "--checkpoint", type=str, default=None, help="Path to specific .pth checkpoint to export"
+    )
+    parser.add_argument("--yes", action="store_true", help="Bypass interactive prompts")
+    args = parser.parse_args()
+
+    cli.log.info(cli.banner, args.model)
+    try:
+        results = export_all(
+            model_key=args.model,
+            checkpoint_path=args.checkpoint,
+            plan=ExportPlan(targets=list(cli.targets)),
+        )
+        for target, path in results.items():
+            cli.log.info("Exported %s -> %s", target, path)
+    except ExportError as err:
+        cli.log.error(cli.failure, err)
+        sys.exit(1)

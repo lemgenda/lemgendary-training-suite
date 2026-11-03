@@ -11,7 +11,7 @@ from torch import nn
 
 from data.forex_spec import TIMEFRAME_LOOKBACK
 from models.forex_predictor import FOREX_FEATURES_PER_BAR, ForexPredictor
-from training.export.common import ExportError
+from training.export.common import ExportError, load_checkpoint_weights
 
 logger = logging.getLogger("lemtrain.export.mt5_signal")
 
@@ -117,13 +117,7 @@ def export_forex_onnx(
     model_kwargs["active_timeframes"] = timeframes
     model = ForexPredictor(**model_kwargs)
 
-    raw_state = (
-        ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
-        if isinstance(ckpt, dict)
-        else ckpt
-    )
-    state_dict = {k.removeprefix("module."): v for k, v in raw_state.items()}
-    model.load_state_dict(state_dict, strict=False)
+    load_checkpoint_weights(model, ckpt)
 
     return export_forex_onnx_from_model(
         model=model,

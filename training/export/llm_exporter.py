@@ -16,7 +16,12 @@ from typing import Any
 import torch
 from torch import nn
 
-from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
+from training.export.base import (
+    EXPORT_ERRORS,
+    MODEL_IO_ERRORS,
+    BaseModelExporter,
+    spec_dataset_types,
+)
 from training.export.common import (
     OnnxGraphSpec,
     detach_onnx_weights,
@@ -125,12 +130,7 @@ class LLMModelExporter(BaseModelExporter):
         resolved_spec = self.resolve_spec(model_key, spec)
         if resolved_spec:
             cat = (resolved_spec.category or "").lower()
-            d_type = resolved_spec.dataset_type
-            d_types = (
-                [x.lower() for x in d_type]
-                if isinstance(d_type, list)
-                else [(d_type or "").lower()]
-            )
+            d_types = spec_dataset_types(resolved_spec)
             return (
                 cat == "llm" or "text_instruction" in d_types or "llm" in resolved_spec.key.lower()
             )

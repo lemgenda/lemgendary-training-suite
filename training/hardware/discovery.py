@@ -19,8 +19,16 @@ class DeviceInfo:
     total_vram_gb: float
     capability: tuple[int, int]
     is_cuda: bool
-    is_mps: bool
-    is_cpu: bool
+
+    @property
+    def is_mps(self) -> bool:
+        """Whether the device is Apple Silicon Metal (MPS)."""
+        return self.device_type == "mps"
+
+    @property
+    def is_cpu(self) -> bool:
+        """Whether the device is the host CPU."""
+        return self.device_type == "cpu"
 
 
 _CACHED_DEVICE_INFO: dict[str | None, DeviceInfo] = {}
@@ -43,8 +51,6 @@ def _forced_device_info(force_device: str) -> DeviceInfo:
         total_vram_gb=vram,
         capability=cap,
         is_cuda=is_cuda,
-        is_mps=dev_type == "mps",
-        is_cpu=dev_type == "cpu",
     )
     return info
 
@@ -95,8 +101,6 @@ def _cuda_device_info() -> DeviceInfo | None:
             total_vram_gb=vram,
             capability=cap,
             is_cuda=True,
-            is_mps=False,
-            is_cpu=False,
         )
         return info
     return None
@@ -118,8 +122,6 @@ def _mps_device_info() -> DeviceInfo | None:
             total_vram_gb=0.0,
             capability=(0, 0),
             is_cuda=False,
-            is_mps=True,
-            is_cpu=False,
         )
         return info
     return None
@@ -139,8 +141,6 @@ def _xpu_device_info() -> DeviceInfo | None:
             total_vram_gb=0.0,
             capability=(0, 0),
             is_cuda=False,
-            is_mps=False,
-            is_cpu=False,
         )
         return info
     return None
@@ -159,8 +159,6 @@ def _dml_device_info() -> DeviceInfo | None:
             total_vram_gb=0.0,
             capability=(0, 0),
             is_cuda=False,
-            is_mps=False,
-            is_cpu=False,
         )
         return info
     return None
@@ -177,8 +175,6 @@ def _cpu_device_info() -> DeviceInfo:
         total_vram_gb=0.0,
         capability=(0, 0),
         is_cuda=False,
-        is_mps=False,
-        is_cpu=True,
     )
     return info
 

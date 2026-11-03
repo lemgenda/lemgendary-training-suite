@@ -9,6 +9,7 @@ from typing import Any
 
 from training import ecosystem
 from training.utils.paths import get_project_root, get_workspace_root
+from training.utils.sidecar import sidecar_online
 from training.utils.subprocess import SubprocessExecutionError, run_command
 
 logger = logging.getLogger("lemtrain.env_delegate")
@@ -24,12 +25,7 @@ class EnvManagerDelegate:
 
     def is_sidecar_online(self) -> bool:
         """Probe environment manager sidecar API health."""
-        try:
-            req = urllib.request.Request(f"{self.sidecar_url}/api/health", method="GET")
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
-                return resp.status == 200
-        except (urllib.error.URLError, TimeoutError, OSError):
-            return False
+        return sidecar_online(self.sidecar_url)
 
     def get_hardware_profile(self) -> dict[str, Any]:
         """Fetch deep hardware profile from sidecar API if online, else empty dict."""

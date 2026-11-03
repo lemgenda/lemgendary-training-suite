@@ -1,8 +1,6 @@
 """Delegation adapter for LemGendary Dataset Compiler Suite."""
 
 import logging
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +8,7 @@ import yaml
 
 from training import ecosystem
 from training.utils.paths import get_workspace_root
+from training.utils.sidecar import sidecar_online
 
 logger = logging.getLogger("lemtrain.dataset_delegate")
 
@@ -26,12 +25,7 @@ class DatasetCompilerDelegate:
 
     def is_sidecar_online(self) -> bool:
         """Probe dataset compiler sidecar API health."""
-        try:
-            req = urllib.request.Request(f"{self.sidecar_url}/api/health", method="GET")
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
-                return resp.status == 200
-        except (urllib.error.URLError, TimeoutError, OSError):
-            return False
+        return sidecar_online(self.sidecar_url)
 
     def resolve_models_metadata(self) -> dict[str, Any]:
         """Resolve canonical models_metadata.yaml from lemgendary-datasets/models/ with fallback."""

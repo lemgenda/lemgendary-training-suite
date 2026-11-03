@@ -76,6 +76,16 @@ class IsolationReport:
         return "\n".join(lines)
 
 
+def resolve_model_stem(model_key: str, spec: ModelSpecification | None = None) -> str:
+    """Canonical binary stem: ``spec.filename``, else the registry's, else ``model_key``."""
+    if spec and spec.filename:
+        return spec.filename
+    reg_spec = get_model_registry().get_model(model_key)
+    if reg_spec and reg_spec.filename:
+        return reg_spec.filename
+    return model_key
+
+
 class StrictIsolationValidator:
     """Audits staged variation directories for strict binary isolation across all 4 variations."""
 
@@ -91,13 +101,7 @@ class StrictIsolationValidator:
 
     def _resolve_stem(self, model_key: str) -> str:
         """Resolve canonical binary stem."""
-        if self.spec and self.spec.filename:
-            return self.spec.filename
-        reg = get_model_registry()
-        spec = reg.get_model(model_key)
-        if spec and spec.filename:
-            return spec.filename
-        return model_key
+        return resolve_model_stem(model_key, self.spec)
 
     def validate_pytorch_default_variation(
         self,
