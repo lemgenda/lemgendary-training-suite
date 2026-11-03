@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from typer.testing import CliRunner
@@ -114,6 +115,96 @@ class TestLemTrainCLI(unittest.TestCase):
             result = runner.invoke(app, ["soup", "m"])
         self.assertEqual(result.exit_code, 1)
         self.assertIn("vault_lpips.pth", result.output)
+
+    def test_cli_train_passes_option_group(self) -> None:
+        """Verify `train` options reach run_training as the TrainRequest keywords."""
+        summary = SimpleNamespace(
+            model_name="m", status="done", final_epoch=2, total_time=1.0, best_metrics={}
+        )
+        with (
+            mock.patch("training.cli.lemtrain.announce_sidecar"),
+            mock.patch("training.cli.lemtrain.run_training", return_value=summary) as run,
+        ):
+            result = runner.invoke(
+                app, ["train", "m", "-e", "2", "--lr", "0.01", "--clean", "--parallel", "dp"]
+            )
+        self.assertEqual(result.exit_code, 0, result.output)
+        run.assert_called_once_with(
+            "m",
+            epochs=2,
+            batch_size=None,
+            lr=0.01,
+            preset=None,
+            env="local",
+            clean=True,
+            auto_sync=False,
+            parallel="dp",
+        )
+
+    def test_cli_llm_train_passes_option_group(self) -> None:
+        """Verify `llm train` options reach run_training without a parallel strategy."""
+        summary = SimpleNamespace(status="done", final_epoch=1)
+        with (
+            mock.patch("training.cli.llm_commands.announce_sidecar"),
+            mock.patch("training.cli.llm_commands.run_training", return_value=summary) as run,
+        ):
+            result = runner.invoke(app, ["llm", "train", "--auto-sync", "-b", "4"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(run.call_args.args, ("ai_helper_lemgend",))
+        self.assertEqual(run.call_args.kwargs["batch_size"], 4)
+        self.assertTrue(run.call_args.kwargs["auto_sync"])
+        self.assertNotIn("parallel", run.call_args.kwargs)
+
+    def test_cli_audit_judicial_requires_paths_and_builds_request(self) -> None:
+        """Verify `audit judicial` keeps its required options and builds the request."""
+        missing = runner.invoke(app, ["audit", "judicial", "-m", "a.pth"])
+        self.assertNotEqual(missing.exit_code, 0)
+
+        report = {"samples_evaluated": 3, "backend": "cpu", "metrics": {"PLCC": 1, "SRCC": 1}}
+        with mock.patch("training.cli.lemtrain.AuditService") as service:
+            service.return_value.audit_judicial.return_value = report
+            result = runner.invoke(
+                app,
+                [
+                    "audit",
+                    "judicial",
+                    "-m",
+                    "a.pth",
+                    "-d",
+                    "imgs",
+                    "-l",
+                    "l.csv",
+                    "--device",
+                    "cuda",
+                ],
+            )
+        self.assertEqual(result.exit_code, 0, result.output)
+        request = service.return_value.audit_judicial.call_args.args[0]
+        self.assertEqual(request.model_path, "a.pth")
+        self.assertEqual(request.device, "cuda")
+        self.assertEqual(request.batch_size, 32)
+
+    def test_cli_sync_push_passes_option_group(self) -> None:
+        """Verify `sync push` builds the sync manager and push options from its flags."""
+        with (
+            mock.patch("training.cli.sync_commands.KaggleModelSyncManager") as mgr,
+            mock.patch("training.cli.sync_commands._stage_and_push") as push,
+        ):
+            push.return_value = SimpleNamespace(success=True, variations={})
+            result = runner.invoke(
+                app, ["sync", "push", "m", "--dry-run", "-v", "pytorch", "-u", "me"]
+            )
+        self.assertEqual(result.exit_code, 0, result.output)
+        mgr.assert_called_once_with(username="me", hub_root=None)
+        self.assertEqual(
+            push.call_args.args[2],
+            {"variation": "pytorch", "version_notes": None, "dry_run": True},
+        )
+
+    def test_cli_sync_push_without_model_or_all_exits_1(self) -> None:
+        """Verify `sync push` with neither a model nor --all exits 1."""
+        result = runner.invoke(app, ["sync", "push"])
+        self.assertEqual(result.exit_code, 1)
 
 
 if __name__ == "__main__":

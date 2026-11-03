@@ -30,42 +30,42 @@ forex_predictor:
 
     '
   datasets:
-  - LemGendizedForexUniverse
-  - LemGendizedForexUniverse
+    - LemGendizedForexUniverse
+    - LemGendizedForexUniverse
   curriculum:
     active_folds:
-    - 1
-    - 2
-    - 3
-    - 4
-    - 5
-    - 6
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
   google_drive_dataset_ids: []
   kwargs:
     active_timeframes:
-    - 1
-    - 5
-    - 15
-    - 60
-    - 240
-    - 1440
+      - 1
+      - 5
+      - 15
+      - 60
+      - 240
+      - 1440
     pairs:
-    - EURUSD
-    - GBPUSD
-    - USDJPY
-    - XAUUSD
-    - USDCAD
-    - USDCHF
-    - AUDUSD
-    - NZDUSD
-    - EURJPY
-    - GBPJPY
-    - EURGBP
-    - XAGUSD
-    - USOIL
-    - US500
-    - NAS100
-    - DE40
+      - EURUSD
+      - GBPUSD
+      - USDJPY
+      - XAUUSD
+      - USDCAD
+      - USDCHF
+      - AUDUSD
+      - NZDUSD
+      - EURJPY
+      - GBPJPY
+      - EURGBP
+      - XAGUSD
+      - USOIL
+      - US500
+      - NAS100
+      - DE40
     d_model: 192
     n_heads: 6
     n_layers: 4
@@ -85,8 +85,8 @@ forex_predictor:
     softmax_temp: 1.0
     min_temp: 0.75
     numerical_sentinel:
-    - -50.0
-    - 50.0
+      - -50.0
+      - 50.0
   optimization:
     enabled: true
     initial_fraction: 1.0
@@ -99,12 +99,12 @@ forex_predictor:
     regression_limit: 8
     high_fidelity_fraction: 0.6
     res_ladder:
-    - 1
-    - 5
-    - 15
-    - 60
-    - 240
-    - 1440
+      - 1
+      - 5
+      - 15
+      - 60
+      - 240
+      - 1440
     jolt_multiplier: 1.15
     target_effective_batch: 64
     min_delta: 0.002
@@ -120,15 +120,15 @@ forex_predictor:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - finance
-    - forex
-    - time-series
-    - trading
-    - tcn
-    - attention
+      - finance
+      - forex
+      - time-series
+      - trading
+      - tcn
+      - attention
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 nima_aesthetic_mobile:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Mobile)
@@ -141,9 +141,9 @@ nima_aesthetic_mobile:
     hidden_dim: 256
     backbone: mobilenet_v3_small
   input_size:
-  - 3
-  - 224
-  - 224
+    - 3
+    - 224
+    - 224
   batch_size: auto
   learning_rate: 5.0e-05
   loss_fn: emd
@@ -155,8 +155,8 @@ nima_aesthetic_mobile:
     optimized for artistic composition and color harmony with ultra-lightweight MobileNetV3-Small
     backbone for real-time mobile and edge inference.
   datasets:
-  - LemGendizedNimaAesthetic
-  - LemGendizedNimaAesthetic
+    - LemGendizedNimaAesthetic
+    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.65
     srcc: 0.65
@@ -173,8 +173,8 @@ nima_aesthetic_mobile:
     max_rank_weight: 1.5
     min_rank_margin: 0.05
     numerical_sentinel:
-    - -15.0
-    - 15.0
+      - -15.0
+      - 15.0
   optimization:
     drift_gate: 0.9
     regression_limit: 8
@@ -186,10 +186,10 @@ nima_aesthetic_mobile:
     cooling_factor: 0.85
     plateau_priority: data
     res_ladder:
-    - 224
+      - 224
     clamp_range:
-    - 15.0
-    - 45.0
+      - 15.0
+      - 45.0
     jolt_multiplier: 1.5
     target_effective_batch: 32
     min_delta: 0.001
@@ -205,13 +205,13 @@ nima_aesthetic_mobile:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-quality-assessment
-    - aesthetic-scoring
-    - mobile
+      - computer-vision
+      - image-quality-assessment
+      - aesthetic-scoring
+      - mobile
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 nima_aesthetic_efficientnet:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
@@ -221,9 +221,9 @@ nima_aesthetic_efficientnet:
   filename: NIMAAestheticEfficientNet
   checkpoint: NIMAAestheticEfficientNetWeights_FP32.pth
   input_size:
-  - 3
-  - 224
-  - 224
+    - 3
+    - 224
+    - 224
   batch_size: auto
   learning_rate: 5.0e-05
   kwargs:
@@ -237,8 +237,8 @@ nima_aesthetic_efficientnet:
   description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
     optimized for artistic composition and color harmony using EfficientNetV2-S backbone.
   datasets:
-  - LemGendizedNimaAesthetic
-  - LemGendizedNimaAesthetic
+    - LemGendizedNimaAesthetic
+    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.7
     srcc: 0.7
@@ -255,8 +255,8 @@ nima_aesthetic_efficientnet:
     max_rank_weight: 2.0
     min_rank_margin: 0.05
     numerical_sentinel:
-    - -15.0
-    - 15.0
+      - -15.0
+      - 15.0
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -266,12 +266,12 @@ nima_aesthetic_efficientnet:
     cooling_factor: 0.85
     plateau_priority: data
     res_ladder:
-    - 224
-    - 256
-    - 384
+      - 224
+      - 256
+      - 384
     clamp_range:
-    - 15.0
-    - 45.0
+      - 15.0
+      - 45.0
     jolt_multiplier: 1.5
     target_effective_batch: 32
     min_delta: 0.001
@@ -287,13 +287,13 @@ nima_aesthetic_efficientnet:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-quality-assessment
-    - aesthetic-scoring
-    - efficientnet
+      - computer-vision
+      - image-quality-assessment
+      - aesthetic-scoring
+      - efficientnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 nima_aesthetic_pro:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Pro ViT)
@@ -303,9 +303,9 @@ nima_aesthetic_pro:
   filename: NIMAAestheticPro
   checkpoint: NIMAAestheticProWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: auto
   learning_rate: 2.0e-05
   kwargs:
@@ -318,8 +318,8 @@ nima_aesthetic_pro:
   description: High-end aesthetic quality scorer using Swin Transformer V2, optimized
     for high-res global composition.
   datasets:
-  - LemGendizedNimaAesthetic
-  - LemGendizedNimaAesthetic
+    - LemGendizedNimaAesthetic
+    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.75
     srcc: 0.75
@@ -335,8 +335,8 @@ nima_aesthetic_pro:
     max_rank_weight: 1.0
     min_rank_margin: 0.05
     numerical_sentinel:
-    - -15.0
-    - 15.0
+      - -15.0
+      - 15.0
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -346,12 +346,12 @@ nima_aesthetic_pro:
     cooling_factor: 0.85
     plateau_priority: data
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     clamp_range:
-    - 15.0
-    - 45.0
+      - 15.0
+      - 45.0
     jolt_multiplier: 1.5
     target_effective_batch: 16
     min_delta: 0.001
@@ -367,13 +367,13 @@ nima_aesthetic_pro:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-quality-assessment
-    - aesthetic-scoring
-    - vit
+      - computer-vision
+      - image-quality-assessment
+      - aesthetic-scoring
+      - vit
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 nima_technical:
   status: VALIDATED
   name: LemGendary NIMA Technical Scorer
@@ -383,9 +383,9 @@ nima_technical:
   filename: NIMATechnical
   checkpoint: NIMATechnicalWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: auto
   learning_rate: 5.0e-05
   kwargs:
@@ -399,8 +399,8 @@ nima_technical:
   description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset,
     optimized for detecting micro-defects, noise, and artifacts.
   datasets:
-  - LemGendizedNimaTechnical
-  - LemGendizedNimaTechnical
+    - LemGendizedNimaTechnical
+    - LemGendizedNimaTechnical
   stabilizers:
     min_temp: 0.96
     softmax_temp: 1.0
@@ -414,8 +414,8 @@ nima_technical:
     max_rank_weight: 2.0
     min_rank_margin: 0.05
     numerical_sentinel:
-    - -15.0
-    - 15.0
+      - -15.0
+      - 15.0
   sota_targets:
     plcc: 0.91
     srcc: 0.91
@@ -431,12 +431,12 @@ nima_technical:
     drift_gate: 0.98
     regression_limit: 3
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     clamp_range:
-    - 15.0
-    - 50.0
+      - 15.0
+      - 50.0
     jolt_multiplier: 1.5
     target_effective_batch: 24
     min_delta: 0.0005
@@ -452,13 +452,13 @@ nima_technical:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-quality-assessment
-    - technical-quality
-    - nima
+      - computer-vision
+      - image-quality-assessment
+      - technical-quality
+      - nima
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 nima_authenticity:
   status: VALIDATED
   name: LemGendary Authenticity Scorer (AI vs Human)
@@ -468,9 +468,9 @@ nima_authenticity:
   filename: AuthenticityScorer
   checkpoint: AuthenticityScorerWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: auto
   learning_rate: 5.0e-05
   kwargs:
@@ -482,15 +482,15 @@ nima_authenticity:
   architecture_type: EfficientNetV2-S (Distribution Scorer)
   description: DeepFake and AI-generated image detection model built on EfficientNetV2.
   datasets:
-  - LemGendizedNimaAuthenticity
-  - LemGendizedNimaAuthenticity
+    - LemGendizedNimaAuthenticity
+    - LemGendizedNimaAuthenticity
   stabilizers:
     softmax_temp: 1.0
     emd_epsilon: 1.0e-05
     logit_clamp: 15.0
     numerical_sentinel:
-    - -15.0
-    - 15.0
+      - -15.0
+      - 15.0
   sota_targets:
     accuracy: 0.96
   optimization:
@@ -501,10 +501,10 @@ nima_authenticity:
     plateau_patience: 6
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
-    - 768
+      - 256
+      - 384
+      - 512
+      - 768
     target_effective_batch: 24
     plateau_priority: data
   val_resolution: 768
@@ -518,13 +518,13 @@ nima_authenticity:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - deepfake-detection
-    - ai-generated-detection
-    - authenticity
+      - computer-vision
+      - deepfake-detection
+      - ai-generated-detection
+      - authenticity
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 upn_v2:
   status: VALIDATED
   name: LemGendary UPN v2 Parameter Predictor
@@ -534,25 +534,25 @@ upn_v2:
   filename: UPN(v2)Modular
   checkpoint: UPN(v2)ModularWeights_FP32.pth
   input_size:
-  - 3
-  - 128
-  - 128
+    - 3
+    - 128
+    - 128
   learning_rate: 0.0001
   loss_fn: smooth_l1
   dataset_type: parameter_prediction
   preferred_parallel: single
   needs_synthesis: true
   output_names:
-  - deg
-  - theta
-  - conf
+    - deg
+    - theta
+    - conf
   optimal_key: upn_v2
   description: Universal parameter predictor for image restoration powered by MobileNetV3-Small
     backbone
   stabilizers:
     numerical_sentinel:
-    - -0.1
-    - 1.5
+      - -0.1
+      - 1.5
     logit_clamp: 2.0
     softmax_temp: 0.1
   sota_targets:
@@ -567,13 +567,13 @@ upn_v2:
     cooling_factor: 0.85
     target_effective_batch: 64
     res_ladder:
-    - 128
-    - 192
-    - 256
+      - 128
+      - 192
+      - 256
     plateau_priority: data
   datasets:
-  - LemGendizedUpnV2
-  - LemGendizedUpnV2
+    - LemGendizedUpnV2
+    - LemGendizedUpnV2
   val_resolution: 256
   kaggle_accelerator: T4
   architecture_type: MobileNetV3-Small Parameter Regressor
@@ -588,13 +588,13 @@ upn_v2:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-enhancement
-    - parameter-prediction
-    - neural-network
+      - computer-vision
+      - image-enhancement
+      - parameter-prediction
+      - neural-network
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 film_restorer:
   status: VALIDATED
   name: LemGendary Universal Film Restorer
@@ -604,9 +604,9 @@ film_restorer:
   filename: UniversalFilmRestorer
   checkpoint: UniversalFilmRestorerWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 0.0001
   loss_fn: l1_lpips
   dataset_type: restoration
@@ -628,13 +628,13 @@ film_restorer:
     plateau_patience: 8
     cooling_factor: 0.8
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   datasets:
-  - LemGendizedFilmRestorer
-  - LemGendizedFilmRestorer
+    - LemGendizedFilmRestorer
+    - LemGendizedFilmRestorer
   val_resolution: 512
   kaggle_accelerator: Dual T4
   architecture_type: UniversalFilmRestorer (Residual Dense Autoencoder)
@@ -649,13 +649,13 @@ film_restorer:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - film-restoration
-    - scratch-removal
+      - computer-vision
+      - image-restoration
+      - film-restoration
+      - scratch-removal
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 codeformer:
   status: VALIDATED
   name: LemGendary CodeFormer Face Restoration
@@ -665,9 +665,9 @@ codeformer:
   filename: CodeFormer-FaceRestoration
   checkpoint: CodeFormer-FaceRestorationWeights_FP32.pth
   input_size:
-  - 3
-  - 512
-  - 512
+    - 3
+    - 512
+    - 512
   learning_rate: 0.0001
   loss_fn: mse
   dataset_type: face
@@ -685,12 +685,12 @@ codeformer:
     plateau_priority: data
     jolt_multiplier: 5.0
     res_ladder:
-    - 512
+      - 512
   stabilizers:
     logit_clamp: 15.0
   datasets:
-  - LemGendizedCodeFormer
-  - LemGendizedCodeFormer
+    - LemGendizedCodeFormer
+    - LemGendizedCodeFormer
   sota_targets:
     fid: 5.2
     psnr: 30.5
@@ -710,13 +710,13 @@ codeformer:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - face-restoration
-    - transformer
+      - computer-vision
+      - image-restoration
+      - face-restoration
+      - transformer
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 parsenet:
   status: VALIDATED
   name: LemGendary ParseNet Face Parsing
@@ -727,9 +727,9 @@ parsenet:
   filename: ParseNet-Parsing
   checkpoint: ParseNet-ParsingWeights_FP32.pth
   input_size:
-  - 3
-  - 512
-  - 512
+    - 3
+    - 512
+    - 512
   learning_rate: 5.0e-05
   loss_fn: cross_entropy
   dataset_type: segmentation
@@ -738,8 +738,8 @@ parsenet:
   optimal_key: parsenet
   description: Face parsing model for segmentation
   datasets:
-  - LemGendizedParseNet
-  - LemGendizedParseNet
+    - LemGendizedParseNet
+    - LemGendizedParseNet
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -748,7 +748,7 @@ parsenet:
     plateau_patience: 8
     plateau_priority: data
     res_ladder:
-    - 512
+      - 512
   val_resolution: 512
   sota_targets:
     miou: 0.86
@@ -765,13 +765,13 @@ parsenet:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - face-parsing
-    - semantic-segmentation
-    - maskgan
+      - computer-vision
+      - face-parsing
+      - semantic-segmentation
+      - maskgan
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 ffanet_indoor:
   status: VALIDATED
   name: LemGendary FFANet Dehazing (Indoor)
@@ -781,9 +781,9 @@ ffanet_indoor:
   filename: FFANet-Dehazing(Indoor)
   checkpoint: FFANet-Dehazing(Indoor)Weights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: 16
   learning_rate: 5.0e-05
   loss_fn: l1
@@ -792,12 +792,12 @@ ffanet_indoor:
   optimal_key: ffanet_indoor
   description: FFANet indoor dehazing restoration
   datasets:
-  - LemGendizedFfaNetIndoor
-  - LemGendizedFfaNetIndoor
+    - LemGendizedFfaNetIndoor
+    - LemGendizedFfaNetIndoor
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 36.5
     ssim: 0.99
@@ -811,9 +811,9 @@ ffanet_indoor:
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   val_resolution: 512
   kaggle_accelerator: Dual T4
@@ -829,13 +829,13 @@ ffanet_indoor:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-dehazing
-    - feature-fusion-attention
-    - restoration
+      - computer-vision
+      - image-dehazing
+      - feature-fusion-attention
+      - restoration
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 ffanet_outdoor:
   status: VALIDATED
   name: LemGendary FFANet Dehazing (Outdoor)
@@ -845,9 +845,9 @@ ffanet_outdoor:
   filename: FFANet-Dehazing(Outdoor)
   checkpoint: FFANet-Dehazing(Outdoor)Weights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: 16
   learning_rate: 5.0e-05
   loss_fn: l1
@@ -856,12 +856,12 @@ ffanet_outdoor:
   optimal_key: ffanet_outdoor
   description: FFANet outdoor dehazing restoration
   datasets:
-  - LemGendizedFfaNetOutdoor
-  - LemGendizedFfaNetOutdoor
+    - LemGendizedFfaNetOutdoor
+    - LemGendizedFfaNetOutdoor
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 33.7
     ssim: 0.986
@@ -875,9 +875,9 @@ ffanet_outdoor:
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   val_resolution: 512
   kaggle_accelerator: Dual T4
@@ -893,13 +893,13 @@ ffanet_outdoor:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-dehazing
-    - feature-fusion-attention
-    - restoration
+      - computer-vision
+      - image-dehazing
+      - feature-fusion-attention
+      - restoration
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 mirnet_lowlight:
   status: VALIDATED
   name: LemGendary MIRNet v2 Low-Light Enhancement
@@ -909,9 +909,9 @@ mirnet_lowlight:
   filename: MIRNet(v2)-LowLight
   checkpoint: MIRNet(v2)-LowLightWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 5.0e-05
   loss_fn: l1_lpips
   dataset_type: restoration
@@ -919,12 +919,12 @@ mirnet_lowlight:
   optimal_key: mirnet_lowlight
   description: MIRNet v2 low-light image enhancement
   datasets:
-  - LemGendizedMirNetLowLight
-  - LemGendizedMirNetLowLight
+    - LemGendizedMirNetLowLight
+    - LemGendizedMirNetLowLight
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 24.3
     ssim: 0.84
@@ -938,9 +938,9 @@ mirnet_lowlight:
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   val_resolution: 512
   kaggle_accelerator: Dual T4
@@ -956,13 +956,13 @@ mirnet_lowlight:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - low-light-enhancement
-    - mirnet
+      - computer-vision
+      - image-restoration
+      - low-light-enhancement
+      - mirnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 mirnet_exposure:
   status: VALIDATED
   name: LemGendary MIRNet v2 Exposure Correction
@@ -972,9 +972,9 @@ mirnet_exposure:
   filename: MIRNet(v2)-Exposure
   checkpoint: MIRNet(v2)-ExposureWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 5.0e-05
   loss_fn: l1_lpips
   dataset_type: restoration
@@ -982,12 +982,12 @@ mirnet_exposure:
   optimal_key: mirnet_exposure
   description: MIRNet v2 for overexposure correction and dynamic range adjustment
   datasets:
-  - LemGendizedMirNetExposure
-  - LemGendizedMirNetExposure
+    - LemGendizedMirNetExposure
+    - LemGendizedMirNetExposure
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 24.3
     ssim: 0.84
@@ -1001,9 +1001,9 @@ mirnet_exposure:
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   val_resolution: 512
   kaggle_accelerator: Dual T4
@@ -1019,13 +1019,13 @@ mirnet_exposure:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - exposure-correction
-    - mirnet
+      - computer-vision
+      - image-restoration
+      - exposure-correction
+      - mirnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 mprnet_deraining:
   status: VALIDATED
   name: LemGendary MPRNet Deraining
@@ -1035,9 +1035,9 @@ mprnet_deraining:
   filename: MPRNet-Deraining
   checkpoint: MPRNet-DerainingWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 5.0e-05
   loss_fn: l1
   dataset_type: restoration
@@ -1045,12 +1045,12 @@ mprnet_deraining:
   optimal_key: mprnet_deraining
   description: MPRNet image deraining
   datasets:
-  - LemGendizedMprNetDeraining
-  - LemGendizedMprNetDeraining
+    - LemGendizedMprNetDeraining
+    - LemGendizedMprNetDeraining
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 30.6
     ssim: 0.9
@@ -1064,9 +1064,9 @@ mprnet_deraining:
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   val_resolution: 512
   kaggle_accelerator: Dual T4
@@ -1082,13 +1082,13 @@ mprnet_deraining:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - deraining
-    - mprnet
+      - computer-vision
+      - image-restoration
+      - deraining
+      - mprnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 nafnet_debluring:
   status: VALIDATED
   name: LemGendary NAFNet Debluring
@@ -1098,9 +1098,9 @@ nafnet_debluring:
   filename: NAFNet-Debluring
   checkpoint: NAFNet-DebluringWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: auto
   learning_rate: 5.0e-05
   loss_fn: l1
@@ -1116,16 +1116,16 @@ nafnet_debluring:
     cooling_factor: 0.8
     plateau_priority: resolution
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
   datasets:
-  - LemGendizedNafNetDebluring
-  - LemGendizedNafNetDebluring
+    - LemGendizedNafNetDebluring
+    - LemGendizedNafNetDebluring
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 33.9
     ssim: 0.97
@@ -1145,13 +1145,13 @@ nafnet_debluring:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - deblurring
-    - nafnet
+      - computer-vision
+      - image-restoration
+      - deblurring
+      - nafnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 nafnet_denoising:
   status: VALIDATED
   name: LemGendary NAFNet Denoising
@@ -1161,9 +1161,9 @@ nafnet_denoising:
   filename: NAFNet-Denoising
   checkpoint: NAFNet-DenoisingWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: auto
   learning_rate: 5.0e-05
   loss_fn: l1
@@ -1180,16 +1180,16 @@ nafnet_denoising:
     plateau_priority: resolution
     jolt_multiplier: 5.0
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
   datasets:
-  - LemGendizedNafNetDenoising
-  - LemGendizedNafNetDenoising
+    - LemGendizedNafNetDenoising
+    - LemGendizedNafNetDenoising
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 40.2
     ssim: 0.965
@@ -1209,13 +1209,13 @@ nafnet_denoising:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - denoising
-    - nafnet
+      - computer-vision
+      - image-restoration
+      - denoising
+      - nafnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 yolov8n:
   status: PRODUCTION
   name: LemGendary YOLOv8n Multi-Task Model
@@ -1225,16 +1225,16 @@ yolov8n:
   filename: YOLOv8n-Unified
   checkpoint: yolov8n.pt
   input_size:
-  - 3
-  - 320
-  - 320
+    - 3
+    - 320
+    - 320
   batch_size: 32
   learning_rate: 0.01
   loss_fn: yolo
   dataset_type:
-  - detection
-  - classification
-  - pose
+    - detection
+    - classification
+    - pose
   preferred_parallel: single
   optimal_key: yolov8n
   description: Unified YOLOv8n for classification, detection, and pose
@@ -1255,9 +1255,9 @@ yolov8n:
     plateau_priority: resolution
     extension_epochs: 20
     res_ladder:
-    - 320
-    - 480
-    - 640
+      - 320
+      - 480
+      - 640
     static_vram_mb: 260
     per_sample_vram_mb_640: 240
     sawtooth_vram_safety: 0.85
@@ -1266,7 +1266,7 @@ yolov8n:
     batch_min: 1
     batch_max: 512
   datasets:
-  - LemGendizedYoloV8n
+    - LemGendizedYoloV8n
   sota_targets:
     map50: 0.74
     map50_95: 0.55
@@ -1284,13 +1284,13 @@ yolov8n:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - object-detection
-    - yolov8
-    - ultralytics
+      - computer-vision
+      - object-detection
+      - yolov8
+      - ultralytics
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 professional_multitask_restoration:
   status: DATASET_READY
   name: LemGendary Professional Multi-Task Restoration Model
@@ -1300,9 +1300,9 @@ professional_multitask_restoration:
   filename: ProfessionalMultiRestorer
   checkpoint: ProfessionalMultiRestorerWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 0.0001
   loss_fn: hybrid_restoration
   dataset_type: restoration
@@ -1320,17 +1320,17 @@ professional_multitask_restoration:
     cooling_factor: 0.8
     plateau_priority: resolution
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
   sota_targets:
     psnr: 32.0
     ssim: 0.93
     lpips: 0.07
     fid: 12.0
   datasets:
-  - LemGendizedMultitaskRestorationPro
-  - LemGendizedMultitaskRestorationPro
+    - LemGendizedMultitaskRestorationPro
+    - LemGendizedMultitaskRestorationPro
   val_resolution: 512
   kaggle_accelerator: Dual T4
   architecture_type: MultiTaskRestorer (Shared Encoder Multi-Task MoE)
@@ -1345,13 +1345,13 @@ professional_multitask_restoration:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - multi-task
-    - all-in-one
+      - computer-vision
+      - image-restoration
+      - multi-task
+      - all-in-one
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 ultrazoom:
   status: VALIDATED
   name: LemGendary UltraZoom Master Model
@@ -1361,9 +1361,9 @@ ultrazoom:
   filename: UltraZoom(Master)
   checkpoint: UltraZoom(Master)Weights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 0.0001
   loss_fn: mse
   dataset_type: restoration
@@ -1371,8 +1371,8 @@ ultrazoom:
   optimal_key: ultrazoom
   description: Dynamic scale super-resolution model
   datasets:
-  - LemGendizedUltraZoom
-  - LemGendizedUltraZoom
+    - LemGendizedUltraZoom
+    - LemGendizedUltraZoom
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -1381,9 +1381,9 @@ ultrazoom:
     plateau_patience: 10
     plateau_priority: resolution
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
   sota_targets:
     psnr: 34.0
     ssim: 0.95
@@ -1403,13 +1403,13 @@ ultrazoom:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - super-resolution
-    - sub-pixel-cnn
-    - ultrazoom
+      - computer-vision
+      - super-resolution
+      - sub-pixel-cnn
+      - ultrazoom
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 universal_nsfw_classification:
   status: DATASET_READY
   name: LemGendary Universal NSFW Classifier
@@ -1419,9 +1419,9 @@ universal_nsfw_classification:
   filename: UniversalNSFWClassifier
   checkpoint: UniversalNSFWClassifierWeights_FP32.pth
   input_size:
-  - 3
-  - 224
-  - 224
+    - 3
+    - 224
+    - 224
   learning_rate: 3.0e-05
   loss_fn: cross_entropy
   dataset_type: classification
@@ -1431,8 +1431,8 @@ universal_nsfw_classification:
   description: Universal safety filter and NSFW classifier for realistic and anime
     content.
   datasets:
-  - LemGendizedClassificationMaster
-  - LemGendizedClassificationMaster
+    - LemGendizedClassificationMaster
+    - LemGendizedClassificationMaster
   sota_targets:
     accuracy: 0.98
   optimization:
@@ -1444,7 +1444,7 @@ universal_nsfw_classification:
     cooling_factor: 0.85
     plateau_priority: data
     res_ladder:
-    - 224
+      - 224
   val_resolution: 224
   kaggle_accelerator: T4
   kwargs:
@@ -1458,13 +1458,13 @@ universal_nsfw_classification:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-classification
-    - content-moderation
-    - safety
+      - computer-vision
+      - image-classification
+      - content-moderation
+      - safety
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 retinaface:
   status: DATASET_READY
   name: LemGendary RetinaFace Detection
@@ -1474,23 +1474,23 @@ retinaface:
   filename: RetinaFace-Detection
   checkpoint: RetinaFaceWeights_FP32.pth
   input_size:
-  - 3
-  - 640
-  - 640
+    - 3
+    - 640
+    - 640
   learning_rate: 0.0005
   loss_fn: retinaface
   dataset_type: face_detection
   preferred_parallel: ddp
   output_names:
-  - output
-  - output2
-  - output3
+    - output
+    - output2
+    - output3
   optimal_key: retinaface
   description: Robust single-stage face and landmark detection with unified MobileNetV3-Small
     backbone for real-time edge deployment.
   datasets:
-  - LemGendizedRetinaFace
-  - LemGendizedRetinaFace
+    - LemGendizedRetinaFace
+    - LemGendizedRetinaFace
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -1499,7 +1499,7 @@ retinaface:
     plateau_patience: 10
     plateau_priority: data
     res_ladder:
-    - 640
+      - 640
   val_resolution: 640
   sota_targets:
     map_easy: 0.915
@@ -1509,8 +1509,8 @@ retinaface:
   kwargs:
     backbone: mobilenet_v3_small
     supported_backbones:
-    - mobilenet_v3_small
-    - mobilenet_v2
+      - mobilenet_v3_small
+      - mobilenet_v2
   kaggle_accelerator: T4
   canonical_format: webdataset
   kaggle_metadata:
@@ -1521,13 +1521,13 @@ retinaface:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - face-detection
-    - landmark-localization
-    - retinaface
+      - computer-vision
+      - face-detection
+      - landmark-localization
+      - retinaface
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
 ai_helper_lemgend:
   status: PRODUCTION
   name: LemGendary AI Studio Assistant (Causal LLM)
@@ -1548,20 +1548,20 @@ ai_helper_lemgend:
     Possesses expert domain knowledge of the 22 neural architectures, Dataset Compiler,
     Training Suite, Sawtooth Governor, REST APIs, and multi-tier diagnostic workflows.
   datasets:
-  - LemGendizedAIHelperLemGend
+    - LemGendizedAIHelperLemGend
   curriculum:
     max_seq_length: 2048
     lora_r: 16
     lora_alpha: 32
     lora_dropout: 0.05
     target_modules:
-    - q_proj
-    - k_proj
-    - v_proj
-    - o_proj
-    - gate_proj
-    - up_proj
-    - down_proj
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
   sota_targets:
     eval_loss: 1.15
     perplexity: 3.15
@@ -1574,11 +1574,11 @@ ai_helper_lemgend:
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - nlp
-    - text-generation
-    - causal-lm
-    - instruction-tuning
-    - pytorch
+      - nlp
+      - text-generation
+      - causal-lm
+      - instruction-tuning
+      - pytorch
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr

@@ -8,7 +8,8 @@ presets:
   quick-sota:
     name: "quick-sota"
     title: "Quick SOTA (Aggressive Convergence Baseline)"
-    description: "Mixed-precision training with cosine annealing, warm restarts, full curriculum progression, and active SOTA rollback gating."
+    description: "Mixed-precision training with cosine annealing, warm restarts, full curriculum
+      progression, and active SOTA rollback gating."
     precision: "amp_fp16"
     batch_size: 64
     learning_rate: 0.001
@@ -22,7 +23,8 @@ presets:
   debug-tiny:
     name: "debug-tiny"
     title: "Debug Tiny (Instant Verification Run)"
-    description: "Rapid 2-epoch run over a tiny 8-sample fixture batch for quick regression testing and pipeline debugging on CPU or single GPU."
+    description: "Rapid 2-epoch run over a tiny 8-sample fixture batch for quick regression testing
+      and pipeline debugging on CPU or single GPU."
     precision: "fp32"
     batch_size: 4
     learning_rate: 0.0001
@@ -36,7 +38,8 @@ presets:
   walk-forward:
     name: "walk-forward"
     title: "Walk-Forward Financial (Forex Time-Series)"
-    description: "Curriculum-driven walk-forward time-series training using ParquetRowGroupCache, RowGroupAwareSampler, and combined EMD + Rank losses."
+    description: "Curriculum-driven walk-forward time-series training using ParquetRowGroupCache,
+      RowGroupAwareSampler, and combined EMD + Rank losses."
     precision: "amp_fp16"
     batch_size: 512
     learning_rate: 0.0005
@@ -50,7 +53,8 @@ presets:
   restoration-ultra:
     name: "restoration-ultra"
     title: "Restoration Ultra (High-Fidelity Vision Restoration)"
-    description: "High-resolution tile curriculum for MIRNet, DeblurGAN, and super-resolution models with combined L1 + Perceptual loss and VRAM sentinel protection."
+    description: "High-resolution tile curriculum for MIRNet, DeblurGAN, and super-resolution models
+      with combined L1 + Perceptual loss and VRAM sentinel protection."
     precision: "amp_fp16"
     batch_size: 16
     learning_rate: 0.0002

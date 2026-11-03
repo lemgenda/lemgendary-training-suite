@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from training.server.jobs import JobManager
     from training.server.state import ServerState
 
-__all__ = ["JobManager", "ServerState", "app", "create_app"]
+__all__ = ["JobManager", "ServerState", "create_app"]
 
 
 # Public name -> submodule that defines it (PEP 562 lazy exports).
@@ -25,8 +25,6 @@ _LAZY_EXPORTS = {
 
 def __getattr__(name: str) -> Any:
     """Lazily import the public server objects on access."""
-    if name == "app":
-        return importlib.import_module(f"{__name__}.app").get_app()
     submodule = _LAZY_EXPORTS.get(name)
     if submodule is None:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

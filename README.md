@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.122-STABLE`
+- **Version**: `v16.9.123-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,45 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.123 - Validator Findings Fixed
+
+- **`lemgendary_models_hub.ps1`**: passes PSScriptAnalyzer. `Write-Host`
+  (36 calls) is replaced by `Write-Ui`, which writes to the information
+  stream with ANSI colours (as in the datasets hub). The janitor purge
+  stops locked python processes with `-ErrorAction Stop` and logs a
+  warning when one cannot be stopped, instead of an empty `catch`.
+- **No `too-many-arguments` disables left**:
+  - `training.cli.option_groups.option_group` exposes the fields of a
+    frozen dataclass as Typer options and passes the parsed values as
+    one instance. `lemtrain train` and `lemtrain llm train` take
+    `TrainHyper`/`LLMHyper` and the shared `RunFlags` (preset, env,
+    clean, auto-sync); `audit judicial` takes `JudicialAuditOptions`
+    and `sync push` takes `PushOptions`. Flags, help text and defaults
+    are unchanged (the `--help` output is byte-identical).
+  - `NAFNet(config=NAFNetConfig(...))`,
+    `ForexPredictor(timeframes, arch=ForexArch(...), pairs=...)` (now
+    with `n_heads` and defaults) and
+    `GenericCausalLLM(name, lora=LoraSettings(...))`. The flat
+    keywords stored as checkpoint `model_kwargs` still work:
+    `models.model_config.resolve_config` maps them onto the dataclass
+    and rejects a config given twice.
+- **Google Drive mount**: `training/cloud/gdrive.py` no longer
+  hardcodes `G:`. `mount_candidates()` probes `LEMGENDARY_GDRIVE_ROOT`,
+  the Colab mount, `My Drive` and `Shared drives` on every mounted
+  drive letter, then `~/Google Drive`.
+- **Hub folders**: `KaggleModelSyncManager.push_model` validated the
+  model key after staging and staged into the default hub, not its
+  own `hub_root`; a push with `--source-dir` (or a test) created empty
+  `dist/kaggle/{pytorch,onnx_fp32,onnx_fp16}` folders in the workspace
+  `LemGendaryModels`. It now validates first and stages into its own
+  hub; `ensure_model_metadata` no longer creates the folder of an
+  unknown model; staging without `base_dir` and the sidecar push job
+  follow the workspace root (`LEMGENDARY_WORKSPACE_ROOT`).
+- **YAML**: `.gitattributes` keeps `*.yaml`/`*.yml` LF on checkout.
+  `unified_models_v2.yaml` and `.github/workflows/python-app.yml`
+  indent block sequences, and the long `presets.yaml` descriptions are
+  wrapped (same values). yamllint reports 0 errors.
 
 ### v16.9.122 - Review Findings Fixed (L10)
 

@@ -223,9 +223,12 @@ class KaggleModelSyncManager:
         return dist_dir / _UPLOAD_SUBDIRS.get(variation.key, variation_key)
 
     def ensure_model_metadata(self, model_key: str) -> Path:
-        """Ensure both model_metadata.yaml and model-metadata.json are materialized."""
+        """Ensure both model_metadata.yaml and model-metadata.json are materialized.
+
+        ``write_metadata`` validates ``model_key`` against the registry before it
+        creates the model folder, so an unknown key leaves no directory behind.
+        """
         model_dir = self.get_model_dir(model_key)
-        model_dir.mkdir(parents=True, exist_ok=True)
         yaml_file = model_dir / METADATA_FILENAME
         if not yaml_file.exists():
             return self.metadata_service.write_metadata(model_key, output_dir=model_dir)
@@ -363,9 +366,10 @@ class KaggleModelSyncManager:
         dry_run: bool = False,
     ) -> ModelPushResult:
         """Stage, validate, sync metadata, and push specified or all 4 variations for a model."""
-        # 1. Stage variations first to ensure canonical file layout
-        self.staging_service.stage_variations(model_key)
+        # 1. Validate the model key (metadata), then stage variations into this hub's model
+        #    folder to ensure the canonical file layout.
         self.ensure_model_metadata(model_key)
+        self.staging_service.stage_variations(model_key, base_dir=self.get_model_dir(model_key))
 
         isolation_rep = self.validate_isolation(model_key)
 

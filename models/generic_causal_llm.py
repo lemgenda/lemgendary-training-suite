@@ -9,11 +9,13 @@ and dynamic LoRA / PEFT adapter injection according to curriculum policies.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import torch
 from torch import nn
 
+from models.model_config import resolve_config
 from training.utils.lazy_imports import load_peft, load_transformers
 
 logger = logging.getLogger("lemtrain.models.generic_llm")
@@ -53,24 +55,36 @@ def _quant_config(transformers: Any, load_in_4bit: bool) -> Any:
         return None
 
 
+@dataclass(frozen=True)
+class LoraSettings:
+    """LoRA adapter and quantization settings of a ``GenericCausalLLM``.
+
+    The registry ``model_kwargs`` stored with each checkpoint carry these fields
+    as flat keywords.
+    """
+
+    use_lora: bool = True
+    lora_r: int = 16
+    lora_alpha: int = 32
+    lora_dropout: float = 0.05
+    load_in_4bit: bool = False
+
+
 class GenericCausalLLM(nn.Module):
     """Universal Causal Language Model fine-tuning backbone wrapper."""
 
-    # Keyword arguments are the registry ``model_kwargs`` stored with each checkpoint.
-    def __init__(  # pylint: disable=too-many-arguments
+    def __init__(
         self,
         base_model_name_or_path: str = "Qwen/Qwen2.5-Coder-1.5B-Instruct",
         *,
-        use_lora: bool = True,
-        lora_r: int = 16,
-        lora_alpha: int = 32,
-        lora_dropout: float = 0.05,
-        load_in_4bit: bool = False,
+        lora: LoraSettings | None = None,
         **kwargs: Any,
     ) -> None:
+        """Load ``base_model_name_or_path`` with ``lora`` (or its fields as flat keywords)."""
         super().__init__()
+        settings = resolve_config(LoraSettings, lora, kwargs)
         self.base_model_name = base_model_name_or_path
-        self.use_lora = use_lora
+        self.use_lora = settings.use_lora
         self.model: Any = None
         self.tokenizer: Any = None
 
@@ -86,15 +100,21 @@ class GenericCausalLLM(nn.Module):
             self.tokenizer = _load_tokenizer(transformers, self.base_model_name)
             self.model = transformers.AutoModelForCausalLM.from_pretrained(
                 self.base_model_name,
-                quantization_config=_quant_config(transformers, load_in_4bit),
+                quantization_config=_quant_config(transformers, settings.load_in_4bit),
                 torch_dtype=torch.float32 if not torch.cuda.is_available() else torch.bfloat16,
                 trust_remote_code=True,
                 low_cpu_mem_usage=True,
             )
 
             if self.use_lora:
-                lora = {"r": lora_r, "lora_alpha": lora_alpha, "lora_dropout": lora_dropout}
-                self._inject_lora(lora, load_in_4bit, kwargs.get("target_modules", LORA_TARGETS))
+                lora_cfg = {
+                    "r": settings.lora_r,
+                    "lora_alpha": settings.lora_alpha,
+                    "lora_dropout": settings.lora_dropout,
+                }
+                self._inject_lora(
+                    lora_cfg, settings.load_in_4bit, kwargs.get("target_modules", LORA_TARGETS)
+                )
 
         except (ImportError, OSError, ValueError, RuntimeError) as exc:
             # ImportError: transformers missing; OSError: weights/tokenizer not found or not

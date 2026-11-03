@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from data.forex_spec import EXTENDED_PAIRS, NUM_PAIRS, TIMEFRAME_LOOKBACK
+from models.model_config import resolve_config
 
 logger = logging.getLogger("lemtrain.models.forex_predictor")
 
@@ -317,17 +318,16 @@ class MagnitudeHead(nn.Module):
 class ForexArch:
     """Architecture hyper-parameters of a ``ForexPredictor`` (its checkpoint ``model_kwargs``)."""
 
-    d_model: int
-    n_layers: int
-    dropout: float
-    tf_dropout: float
-    in_features: int
-    head_hidden: int
+    d_model: int = 192
+    n_heads: int = 6
+    n_layers: int = 4
+    head_hidden: int = 384
+    dropout: float = 0.1
+    tf_dropout: float = 0.15
+    in_features: int = FOREX_FEATURES_PER_BAR
 
 
-def _forex_layers(
-    arch: ForexArch, active_timeframes: list, num_pairs: int, n_heads: int
-) -> dict[str, nn.Module]:
+def _forex_layers(arch: ForexArch, active_timeframes: list, num_pairs: int) -> dict[str, nn.Module]:
     """ForexPredictor children in registration order (the names are the ``state_dict`` keys)."""
     d_model = arch.d_model
     n_tf = len(active_timeframes)
@@ -355,7 +355,7 @@ def _forex_layers(
         # 2026 v1.1 Fix: guarantee d_model % n_heads == 0 for nn.MultiheadAttention
         "cross_attn": CrossTimeframeAttention(
             d_model=d_model,
-            n_heads=_select_valid_n_heads(d_model, n_tf, preferred=n_heads),
+            n_heads=_select_valid_n_heads(d_model, n_tf, preferred=arch.n_heads),
             dropout=arch.dropout,
             tf_dropout=arch.tf_dropout,
         ),
@@ -400,20 +400,22 @@ class ForexPredictor(nn.Module):
         - MagnitudeHead.max_pips is synchronized with ForexDualLoss.max_pips (100).
         - pair_idx is clamped to [0, num_pairs-1] to prevent nn.Embedding IndexError.
 
-    Arguments after ``active_timeframes`` are keyword-only; the model factory and the
-    checkpoint ``model_kwargs`` pass them by name.
+    Arguments after ``active_timeframes`` are keyword-only. The hyper-parameters are a
+    ``ForexArch``; the model factory and the checkpoint ``model_kwargs`` pass its fields
+    as flat keywords instead (``ForexPredictor(d_model=128, n_heads=4)``).
 
     Args:
         active_timeframes: List of active timeframe rungs (minutes).
                            Curriculum: start with [1], expand to all 6.
-        d_model:           Embedding dimension per timeframe branch.
-        n_heads:           Preferred number of cross-timeframe attention heads.
-                           Clamped to the largest divisor of d_model that is <= n_tf.
-        n_layers:          Number of CausalConv1D layers per encoder.
-        head_hidden:       Hidden dim for both output heads.
-        dropout:           Global dropout rate.
-        tf_dropout:        Timeframe dropout rate for cross-attention.
-        in_features:       Features per bar (default: FOREX_FEATURES_PER_BAR = 14).
+        arch:              ``ForexArch`` hyper-parameters:
+                           d_model (embedding dimension per timeframe branch),
+                           n_heads (preferred cross-timeframe attention heads, clamped
+                           to the largest divisor of d_model that is <= n_tf),
+                           n_layers (CausalConv1D layers per encoder),
+                           head_hidden (hidden dim of both output heads),
+                           dropout (global rate), tf_dropout (timeframe dropout for
+                           cross-attention), in_features (features per bar, default
+                           FOREX_FEATURES_PER_BAR = 14).
         pairs:             Optional subset of pairs for pair-embedding sizing.
     """
 
@@ -427,42 +429,31 @@ class ForexPredictor(nn.Module):
     direction_head: DirectionHead
     magnitude_head: MagnitudeHead
 
-    # Keyword arguments are the registry ``model_kwargs`` stored with each checkpoint.
-    def __init__(  # pylint: disable=too-many-arguments
+    def __init__(
         self,
         active_timeframes: list | None = None,
         *,
-        d_model: int = 192,
-        n_heads: int = 6,
-        n_layers: int = 4,
-        head_hidden: int = 384,
-        dropout: float = 0.1,
-        tf_dropout: float = 0.15,
-        in_features: int = FOREX_FEATURES_PER_BAR,
+        arch: ForexArch | None = None,
         pairs: list | None = None,
         **kwargs,
     ):
+        """Build for ``active_timeframes`` and ``pairs`` with ``arch`` hyper-parameters.
+
+        The ``ForexArch`` fields may instead be given as flat keywords, as the
+        checkpoint ``model_kwargs`` store them.
+        """
         super().__init__()
 
         if active_timeframes is None:
             active_timeframes = [1, 5, 15, 60, 240, 1440]
 
         self.active_timeframes = list(active_timeframes)
-        self.arch = ForexArch(
-            d_model=d_model,
-            n_layers=n_layers,
-            dropout=dropout,
-            tf_dropout=tf_dropout,
-            in_features=in_features,
-            head_hidden=head_hidden,
-        )
+        self.arch = resolve_config(ForexArch, arch, kwargs)
 
         self.pairs = list(pairs) if pairs is not None else list(EXTENDED_PAIRS)
         self.num_pairs = max(len(self.pairs), NUM_PAIRS)
 
-        for name, layer in _forex_layers(
-            self.arch, self.active_timeframes, self.num_pairs, n_heads
-        ).items():
+        for name, layer in _forex_layers(self.arch, self.active_timeframes, self.num_pairs).items():
             self.add_module(name, layer)
 
         self._init_weights()

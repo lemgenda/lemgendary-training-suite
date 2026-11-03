@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from typing import Annotated
 
 import typer
 import yaml
 
+from training.cli.option_groups import option_group
 from training.cloud.errors import kagglehub_errors
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 from training.cloud.variations import VARIATION_BY_KEY
@@ -54,46 +57,72 @@ def sync_run(
         typer.echo(f"[ERROR] Cloud sync failed: {res.get('message', '')}")
 
 
+@dataclass(frozen=True)
+class PushOptions:
+    """Options of ``lemtrain sync push``."""
+
+    all_models: Annotated[
+        bool,
+        typer.Option("--all", "-a", help="Push all 22 registered models to Kaggle Models Hub."),
+    ] = False
+    variation: Annotated[
+        str,
+        typer.Option(
+            "--variation",
+            "-v",
+            help="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16').",
+        ),
+    ] = "all"
+    version_notes: Annotated[
+        str | None, typer.Option("--notes", "-n", help="Optional release version notes.")
+    ] = None
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run", help="Validate isolation and metadata without uploading to Kaggle."
+        ),
+    ] = False
+    source_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--source-dir",
+            "-s",
+            help=(
+                "Optional LemGendaryModels root to stage and push from (default: sibling of repo)."
+            ),
+        ),
+    ] = None
+    username: Annotated[
+        str | None, typer.Option("--username", "-u", help="Optional Kaggle username override.")
+    ] = None
+
+    def push_kwargs(self) -> dict:
+        """The ``KaggleModelSyncManager.push_model`` options."""
+        return {
+            "variation": self.variation,
+            "version_notes": self.version_notes,
+            "dry_run": self.dry_run,
+        }
+
+
 @sync_app.command("push")
-def sync_push(  # pylint: disable=too-many-arguments  # one parameter per CLI option
+@option_group("opts", PushOptions)
+def sync_push(
     model: str | None = typer.Argument(
         None, help="Model key to upload to Kaggle Models (optional if --all is specified)."
     ),
     *,
-    all_models: bool = typer.Option(
-        False, "--all", "-a", help="Push all 22 registered models to Kaggle Models Hub."
-    ),
-    variation: str = typer.Option(
-        "all",
-        "--variation",
-        "-v",
-        help="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16').",
-    ),
-    version_notes: str | None = typer.Option(
-        None, "--notes", "-n", help="Optional release version notes."
-    ),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Validate isolation and metadata without uploading to Kaggle."
-    ),
-    source_dir: str | None = typer.Option(
-        None,
-        "--source-dir",
-        "-s",
-        help="Optional LemGendaryModels root to stage and push from (default: sibling of repo).",
-    ),
-    username: str | None = typer.Option(
-        None, "--username", "-u", help="Optional Kaggle username override."
-    ),
+    opts: PushOptions,
 ) -> None:
     """Stage and upload local model checkpoints, variations, and metrics to Kaggle Models."""
-    if not model and not all_models:
+    if not model and not opts.all_models:
         typer.echo("[ERROR] Please specify either a model key or --all.")
         raise typer.Exit(code=1)
 
-    sync_mgr = KaggleModelSyncManager(username=username, hub_root=source_dir)
-    push_opts = {"variation": variation, "version_notes": version_notes, "dry_run": dry_run}
+    sync_mgr = KaggleModelSyncManager(username=opts.username, hub_root=opts.source_dir)
+    push_opts = opts.push_kwargs()
 
-    if all_models:
+    if opts.all_models:
         _push_fleet(sync_mgr, push_opts)
         return
     if not model:
@@ -104,8 +133,8 @@ def sync_push(  # pylint: disable=too-many-arguments  # one parameter per CLI op
         raise typer.Exit(code=1)
 
     typer.echo(
-        f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {variation}, "
-        f"dry_run: {dry_run})..."
+        f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {opts.variation}, "
+        f"dry_run: {opts.dry_run})..."
     )
     res = _stage_and_push(sync_mgr, model, push_opts)
     if res.success:

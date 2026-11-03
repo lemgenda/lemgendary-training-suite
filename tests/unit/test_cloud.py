@@ -4,7 +4,9 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from training.cloud import gdrive
 from training.cloud.credentials import (
     mask_secret,
     resolve_gdrive_credentials,
@@ -139,6 +141,36 @@ class TestGDriveBitExactParity(unittest.TestCase):
             pulled_ckpt = dest_dir / "checkpoints" / "best_model.pth"
             self.assertTrue(pulled_ckpt.exists())
             self.assertEqual(compute_file_sha256(pulled_ckpt), src_hash)
+
+
+class TestGDriveMountDiscovery(unittest.TestCase):
+    """Google Drive mount roots come from the environment or a drive scan, not a fixed letter."""
+
+    def test_env_root_is_probed_first(self) -> None:
+        """``LEMGENDARY_GDRIVE_ROOT`` names the mount when it exists."""
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict("os.environ", {gdrive.GDRIVE_ROOT_ENV: tmp}),
+        ):
+            self.assertEqual(gdrive.mount_candidates()[0], Path(tmp))
+            self.assertEqual(GDriveSyncManager.resolve_mounted_root(), Path(tmp).resolve())
+
+    def test_desktop_drive_found_on_any_letter(self) -> None:
+        """A ``My Drive`` folder at a scanned drive root is the mount."""
+        with tempfile.TemporaryDirectory() as tmp:
+            my_drive = Path(tmp) / "My Drive"
+            my_drive.mkdir()
+            with (
+                mock.patch.dict("os.environ", {gdrive.GDRIVE_ROOT_ENV: ""}),
+                mock.patch.object(gdrive, "_COLAB_MOUNTS", ()),
+                mock.patch.object(gdrive, "drive_letter_roots", return_value=[Path(tmp)]),
+            ):
+                self.assertEqual(GDriveSyncManager.resolve_mounted_root(), my_drive.resolve())
+
+    def test_drive_letter_roots_exist(self) -> None:
+        """Every scanned drive root exists (and none are scanned off Windows)."""
+        roots = gdrive.drive_letter_roots()
+        self.assertTrue(all(root.exists() for root in roots))
 
 
 if __name__ == "__main__":

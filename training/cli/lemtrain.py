@@ -11,6 +11,7 @@ import logging
 import subprocess
 import sys
 import unittest
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Annotated
 
@@ -19,8 +20,14 @@ import typer
 from tools.judicial_audit import JudicialAuditRequest
 from training import model_soup
 from training.cli.llm_commands import llm_app
+from training.cli.option_groups import option_group
 from training.cli.server_commands import server_app
-from training.cli.service_calls import announce_sidecar, export_targets, run_training
+from training.cli.service_calls import (
+    RunFlags,
+    announce_sidecar,
+    export_targets,
+    run_training,
+)
 from training.cli.sync_commands import sync_app
 from training.services.audit_service import AuditService
 from training.services.checkpoint_service import CheckpointService
@@ -98,43 +105,41 @@ def version() -> None:
     typer.echo(f"LemGendary Model Training Suite v{__version__} (Refactored & Hardened)")
 
 
+@dataclass(frozen=True)
+class TrainHyper:
+    """Hyper-parameter options of ``lemtrain train``."""
+
+    epochs: Annotated[int | None, typer.Option("--epochs", "-e", help="Total epochs to train.")] = (
+        None
+    )
+    batch_size: Annotated[
+        int | None, typer.Option("--batch-size", "-b", help="Batch size per step.")
+    ] = None
+    lr: Annotated[float | None, typer.Option("--lr", help="Base learning rate.")] = None
+
+
 @app.command("train")
-def train(  # pylint: disable=too-many-arguments  # one parameter per CLI option
+@option_group("hyper", TrainHyper)
+@option_group("run", RunFlags)
+def train(
     model: str = typer.Argument(..., help="Model architecture key (e.g. nima_aesthetic_mobile)."),
     *,
-    epochs: int | None = typer.Option(None, "--epochs", "-e", help="Total epochs to train."),
-    batch_size: int | None = typer.Option(None, "--batch-size", "-b", help="Batch size per step."),
-    lr: float | None = typer.Option(None, "--lr", help="Base learning rate."),
-    preset: str | None = typer.Option(
-        None, "--preset", "-p", help="Canonical preset profile from presets.yaml."
-    ),
-    env: str = typer.Option(
-        "local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."
-    ),
-    clean: bool = typer.Option(False, "--clean", help="Wipe local checkpoints and start fresh."),
-    auto_sync: bool = typer.Option(
-        False, "--auto-sync", help="Enable cloud checkpoint synchronization."
-    ),
-    parallel: str = typer.Option(
-        "auto", "--parallel", help="Parallel execution strategy ('auto', 'single', 'dp', 'ddp')."
-    ),
+    hyper: TrainHyper,
+    run: RunFlags,
+    parallel: Annotated[
+        str,
+        typer.Option(
+            "--parallel", help="Parallel execution strategy ('auto', 'single', 'dp', 'ddp')."
+        ),
+    ] = "auto",
 ) -> None:
     """Launch model training workflow in-process."""
     announce_sidecar()
     typer.echo(
-        f"[START] Initiating training run for model '{model}' (preset={preset}, env={env})..."
+        f"[START] Initiating training run for model '{model}' "
+        f"(preset={run.preset}, env={run.env})..."
     )
-    summary = run_training(
-        model,
-        epochs=epochs,
-        batch_size=batch_size,
-        lr=lr,
-        preset=preset,
-        env=env,
-        clean=clean,
-        auto_sync=auto_sync,
-        parallel=parallel,
-    )
+    summary = run_training(model, **asdict(hyper), **asdict(run), parallel=parallel)
 
     typer.echo(f"[SUCCESS] Training complete for '{summary.model_name}' (status={summary.status}).")
     typer.echo(f"Final Epoch Completed: {summary.final_epoch}")
@@ -384,36 +389,35 @@ def audit_model(
     typer.echo(f"  Estimated Memory (FP16): {report['estimated_fp16_mb']} MB")
 
 
+@dataclass(frozen=True)
+class JudicialAuditOptions:
+    """Options of ``lemtrain audit judicial`` (the fields of ``JudicialAuditRequest``)."""
+
+    model_path: Annotated[
+        str, typer.Option("--model-path", "-m", help="Path to .pth or .onnx model.")
+    ]
+    dataset_dir: Annotated[
+        str, typer.Option("--dataset-dir", "-d", help="Directory of evaluation images.")
+    ]
+    labels_csv: Annotated[str, typer.Option("--labels-csv", "-l", help="Ground truth labels CSV.")]
+    output_json: Annotated[
+        str | None, typer.Option("--output-json", "-o", help="Path to save report.")
+    ] = None
+    model_type: Annotated[str, typer.Option("--model-type", help="Architecture key.")] = (
+        "nima_aesthetic_mobile"
+    )
+    batch_size: Annotated[int, typer.Option("--batch-size", help="Batch size.")] = 32
+    device: Annotated[str, typer.Option("--device", help="Execution device ('cuda' or 'cpu').")] = (
+        "cpu"
+    )
+
+
 @audit_app.command("judicial")
-def audit_judicial(  # pylint: disable=too-many-arguments  # one parameter per CLI option
-    *,
-    model_path: str = typer.Option(..., "--model-path", "-m", help="Path to .pth or .onnx model."),
-    dataset_dir: str = typer.Option(
-        ..., "--dataset-dir", "-d", help="Directory of evaluation images."
-    ),
-    labels_csv: str = typer.Option(..., "--labels-csv", "-l", help="Ground truth labels CSV."),
-    output_json: str | None = typer.Option(
-        None, "--output-json", "-o", help="Path to save report."
-    ),
-    model_type: str = typer.Option(
-        "nima_aesthetic_mobile", "--model-type", help="Architecture key."
-    ),
-    batch_size: int = typer.Option(32, "--batch-size", help="Batch size."),
-    device: str = typer.Option("cpu", "--device", help="Execution device ('cuda' or 'cpu')."),
-) -> None:
+@option_group("opts", JudicialAuditOptions)
+def audit_judicial(*, opts: JudicialAuditOptions) -> None:
     """Run judicial correlation verification (PLCC / SRCC)."""
     service = AuditService()
-    results = service.audit_judicial(
-        JudicialAuditRequest(
-            model_path=model_path,
-            dataset_dir=dataset_dir,
-            labels_csv=labels_csv,
-            output_json=output_json,
-            model_type=model_type,
-            batch_size=batch_size,
-            device=device,
-        )
-    )
+    results = service.audit_judicial(JudicialAuditRequest(**asdict(opts)))
 
     typer.echo(f"Judicial Correlation Audit Results ({results['samples_evaluated']} samples):")
     typer.echo(f"  Backend: {results['backend']}")

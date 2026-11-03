@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Annotated, Any
 
 import typer
 
@@ -10,6 +11,25 @@ from training.cli.server_commands import is_sidecar_online, sidecar_port
 from training.services.export_service import ExportService
 from training.services.training_service import TrainingService, TrainRequest
 from training.training.summary import TrainingSummary
+
+
+@dataclass(frozen=True)
+class RunFlags:
+    """Preset and run options shared by ``lemtrain train`` and ``lemtrain llm train``."""
+
+    preset: Annotated[
+        str | None,
+        typer.Option("--preset", "-p", help="Canonical preset profile from presets.yaml."),
+    ] = None
+    env: Annotated[
+        str, typer.Option("--env", help="Execution environment ('local', 'kaggle', 'colab').")
+    ] = "local"
+    clean: Annotated[
+        bool, typer.Option("--clean", help="Wipe local checkpoints and start fresh.")
+    ] = False
+    auto_sync: Annotated[
+        bool, typer.Option("--auto-sync", help="Enable cloud checkpoint synchronization.")
+    ] = False
 
 
 def announce_sidecar() -> None:

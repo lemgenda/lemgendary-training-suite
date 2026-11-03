@@ -1,10 +1,15 @@
 """Core image-restoration architectures (NAFNet, FFANet, MIRNet/MPRNet proxies, RDB, ESPCN, UPN)."""
 
+from collections.abc import Sequence
+from dataclasses import dataclass
+
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.nn.modules.utils import _pair
 from torchvision import models
+
+from models.model_config import resolve_config
 
 # ==========================================
 # 0. ALIGNMENT HOTFIX FOR DATAPARALLEL
@@ -178,26 +183,26 @@ class NAFBlock(nn.Module):
         return (y + x.contiguous() * self.gamma.clone()).contiguous()
 
 
+@dataclass(frozen=True)
+class NAFNetConfig:
+    """NAFNet hyper-parameters (the registry ``model_kwargs`` stored with each checkpoint)."""
+
+    in_ch: int = 3
+    out_ch: int = 3
+    width: int = 32
+    middle_blk_num: int = 1
+    enc_blk_nums: Sequence[int] = (1, 1, 1, 1)
+    dec_blk_nums: Sequence[int] = (1, 1, 1, 1)
+
+
 class NAFNet(nn.Module):
     """Real NAFNet Architecture for Denoising/Deblurring"""
 
-    # Keyword arguments are the registry ``model_kwargs`` stored with each checkpoint.
-    def __init__(  # pylint: disable=too-many-arguments
-        self,
-        *,
-        in_ch=3,
-        out_ch=3,
-        width=32,
-        middle_blk_num=1,
-        enc_blk_nums=None,
-        dec_blk_nums=None,
-        **kwargs,
-    ):
+    def __init__(self, *, config: NAFNetConfig | None = None, **kwargs):
+        """Build from ``config``, or from its fields given as flat ``model_kwargs`` keywords."""
         super().__init__()
-        if enc_blk_nums is None:
-            enc_blk_nums = [1, 1, 1, 1]
-        if dec_blk_nums is None:
-            dec_blk_nums = [1, 1, 1, 1]
+        cfg = resolve_config(NAFNetConfig, config, kwargs)
+        in_ch, out_ch, width = cfg.in_ch, cfg.out_ch, cfg.width
         self.intro = nn.Conv2d(
             in_channels=in_ch,
             out_channels=width,
@@ -223,14 +228,14 @@ class NAFNet(nn.Module):
         self.downs = nn.ModuleList()
 
         chan = width
-        for num in enc_blk_nums:
+        for num in cfg.enc_blk_nums:
             self.encoders.append(nn.Sequential(*[NAFBlock(chan) for _ in range(num)]))
             self.downs.append(nn.Conv2d(chan, chan * 2, 2, 2))
             chan = chan * 2
 
-        self.middle_blks = nn.Sequential(*[NAFBlock(chan) for _ in range(middle_blk_num)])
+        self.middle_blks = nn.Sequential(*[NAFBlock(chan) for _ in range(cfg.middle_blk_num)])
 
-        for num in dec_blk_nums:
+        for num in cfg.dec_blk_nums:
             self.ups.append(nn.ConvTranspose2d(chan, chan // 2, kernel_size=2, stride=2))
             chan = chan // 2
             self.decoders.append(nn.Sequential(*[NAFBlock(chan) for _ in range(num)]))

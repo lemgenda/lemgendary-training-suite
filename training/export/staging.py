@@ -25,7 +25,7 @@ from training.export.validation import (
 )
 from training.registry import ModelSpecification
 from training.utils.fs import remove_tree
-from training.utils.paths import get_project_root
+from training.utils.paths import get_workspace_root
 
 logger = logging.getLogger("lemtrain.export.staging")
 
@@ -195,12 +195,11 @@ class VariationStagingService:
         self.validator = StrictIsolationValidator(spec=self.spec)
 
     def _resolve_hub_dir(self, model_key: str, base_dir: Path | str | None = None) -> Path:
-        """Resolve directory path in LemGendaryModels."""
+        """Resolve directory path in LemGendaryModels (default: under the workspace root)."""
         if base_dir:
             hub_dir = Path(base_dir).resolve()
         else:
-            root = get_project_root()
-            hub_dir = (root.parent / "LemGendaryModels" / model_key).resolve()
+            hub_dir = (get_workspace_root() / "LemGendaryModels" / model_key).resolve()
         hub_dir.mkdir(parents=True, exist_ok=True)
         return hub_dir
 

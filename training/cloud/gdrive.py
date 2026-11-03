@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import shutil
+import string
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,41 @@ from training.cloud.manager import CloudSyncError
 logger = logging.getLogger("lemtrain.cloud.gdrive")
 
 DEFAULT_ROOT_FOLDER_ID = "142G7B9ONfUkXAhVkPeN4NeJ3YXU0UmJX"
+
+
+GDRIVE_ROOT_ENV = "LEMGENDARY_GDRIVE_ROOT"
+"""Environment variable naming the mounted Google Drive folder to sync with."""
+
+_COLAB_MOUNTS = ("/content/drive/MyDrive", "/content/drive/Shareddrives", "/content/drive")
+# Top-level folders of the virtual drive that Google Drive for desktop mounts on Windows.
+_DESKTOP_DRIVE_FOLDERS = ("My Drive", "Shared drives")
+
+
+def drive_letter_roots() -> list[Path]:
+    """Roots of the mounted Windows drive letters, in letter order (none on other systems)."""
+    if os.name != "nt":
+        return []
+    roots = (Path(f"{letter}:/") for letter in string.ascii_uppercase)
+    return [root for root in roots if root.exists()]
+
+
+def mount_candidates() -> list[Path]:
+    """Google Drive mount folders to probe, most specific first.
+
+    ``LEMGENDARY_GDRIVE_ROOT`` when set, then the Colab mount, then the
+    ``My Drive`` / ``Shared drives`` folders of any drive letter that Google
+    Drive for desktop mounted, then ``~/Google Drive``.
+    """
+    candidates = []
+    configured = os.environ.get(GDRIVE_ROOT_ENV)
+    if configured:
+        candidates.append(Path(configured).expanduser())
+    candidates.extend(Path(mount) for mount in _COLAB_MOUNTS)
+    candidates.extend(
+        root / folder for root in drive_letter_roots() for folder in _DESKTOP_DRIVE_FOLDERS
+    )
+    candidates.append(Path("~/Google Drive").expanduser())
+    return candidates
 
 
 def compute_file_sha256(file_path: Path) -> str:
@@ -54,17 +90,9 @@ class GDriveSyncManager:
 
     @staticmethod
     def resolve_mounted_root() -> Path | None:
-        """Detect local or Colab FUSE mounted Google Drive directories."""
-        candidates = [
-            Path("/content/drive/MyDrive"),
-            Path("/content/drive/Shareddrives"),
-            Path("/content/drive"),
-            Path(r"G:\My Drive"),
-            Path(r"G:\Shared drives"),
-            Path(os.path.expanduser("~/Google Drive")),
-        ]
-        for cand in candidates:
-            if cand.exists() and cand.is_dir():
+        """Detect a local or Colab FUSE mounted Google Drive folder (see ``mount_candidates``)."""
+        for cand in mount_candidates():
+            if cand.is_dir():
                 return cand.resolve()
         return None
 

@@ -81,7 +81,9 @@ class KaggleSyncJobsMixin:
         run = _PushRun(job_id, sync_mgr, request, cancel_event, prefix)
         model_key, variation = request.model_key, request.variation
         sync_mgr.ensure_model_metadata(model_key)
-        staging_res = VariationStagingService().stage_variations(model_key)
+        staging_res = VariationStagingService().stage_variations(
+            model_key, base_dir=sync_mgr.get_model_dir(model_key)
+        )
         if staging_res.staged_files:
             staged_names = [f.name for f in staging_res.staged_files.values()]
             self._broadcast_log(

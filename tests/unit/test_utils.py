@@ -1,9 +1,9 @@
 """Unit tests for training/utils subsystem in LemGendary Model Training Suite."""
 
 import io
-import logging
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -19,8 +19,6 @@ from training.utils.paths import (
     resolve_path,
 )
 from training.utils.subprocess import SubprocessExecutionError, run_command
-
-_log = logging.getLogger("lemtrain.tests.test_utils")
 
 
 class TestUtilsPaths(unittest.TestCase):
@@ -51,14 +49,10 @@ class TestUtilsPaths(unittest.TestCase):
 
     def test_ensure_dir(self) -> None:
         """Verify ensure_dir creates the directory."""
-        tmp_dir = get_project_root() / "tmp" / "test_dir_creation"
-        created = ensure_dir(tmp_dir)
-        self.assertTrue(created.exists())
-        self.assertTrue(created.is_dir())
-        try:
-            created.rmdir()
-        except OSError as exc:
-            _log.warning("Could not remove test dir %s: %s", created, exc)
+        with tempfile.TemporaryDirectory() as base:
+            created = ensure_dir(Path(base) / "nested" / "test_dir_creation")
+            self.assertTrue(created.exists())
+            self.assertTrue(created.is_dir())
 
 
 class TestUtilsLogging(unittest.TestCase):

@@ -16,7 +16,7 @@ marked **(unverified at runtime)**.
 
 ## Remediation Status
 
-Status of every finding on branch `fix/review-remediation` at v16.9.122.
+Status of every finding on branch `fix/review-remediation` at v16.9.123.
 "L10" marks commits of the review-fix step, released in v16.9.122.
 Severity `-` means the review did not rate the finding. Owner and resource
 items keep today's behaviour; the notes below the table say what is open.
@@ -98,13 +98,15 @@ Real resources and deferred work:
   `forex_predictor` in its extension phase.
 - R-2: metrics.csv rows that `recalibrate_fid.py` rewrote need a real
   Inception-2048 re-evaluation (`training/fid_reeval`, data and GPU).
-- R-3: duplicated ladders, metric directions, forex checks, hub paths and
-  cloud mount roots: pylint `duplicate-code` is 0 since v16.9.121, but
-  these shared-concept duplicates still need their own refactor.
-- R-4: done in v16.9.121. `.pylintrc` has no disables and pylint
+- R-3: duplicated ladders, metric directions, forex checks and hub
+  paths: pylint `duplicate-code` is 0 since v16.9.121, but these
+  shared-concept duplicates still need their own refactor. Google Drive
+  mount roots are discovered at runtime since v16.9.123.
+- R-4: done in v16.9.123. `.pylintrc` has no disables and pylint
   reports 0 findings, design checks included (`too-many-*`,
-  `duplicate-code`). Seven inline `too-many-arguments` stay on CLI
-  commands (one parameter per option) and model constructors.
+  `duplicate-code`). The last seven inline `too-many-arguments` are
+  gone: CLI commands take option-group dataclasses and the model
+  constructors take config dataclasses.
 - R-5: `lemtrain test-all` and `tools/train_all.py` still start scripts as
   subprocesses (Later Phase L9).
 
