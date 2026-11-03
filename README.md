@@ -11,11 +11,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.88-STABLE` |
+| **Version** | `v16.9.89-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.89 - Model Card Renderer Split out of the Doc Generator
+
+- **`training/doc_generator.py`** (731 -> 225 lines) keeps README writing, the dataset manifest, `ModelDocumentationService` and the CLI. `build_dataset_readme` (21 local variables) now uses `_manifest_rows` and `_merge_manifest`; `main` (21 local variables) uses `_read_metrics`, `_write_model_readme`, `_stage_variations` and `_build_parser`.
+- **`training/model_card.py`** (new, 480 lines): `build_model_readme` was one 457-line function with 73 local variables, 39 branches and 151 statements. A `ModelCard` record resolves task and input resolution once; the metric summary is a first-match table of task rules (a new task family is a new row); evaluation profile, stability line, dataset manifest, paper and whitepaper section, tip block and badges are separate functions; the card is one module-level template. The registry reference lookup that was written out twice is now shared, with both warning messages kept. The checkpoint lifecycle manager, the preflight generator and the core loop import `build_model_readme` from here.
+- **`training/model_card_snippets.py`** (new): the quality, restoration and Forex usage snippets and the Mermaid topology, moved unchanged.
+- **Behaviour is unchanged**: an old-vs-new comparison rendered 2,000 model cards (every task family, list and scalar input sizes, metric overrides including non-numeric `Res`, EMD stabilizers, registry failures, missing references, whitepaper resolver failures), 500 dataset READMEs (new, replaced and inserted manifests on random folder layouts) and five CLI runs (no arguments, unknown model, one model with and without variation staging, `--all` with good, malformed and empty `metrics.csv`). Output text, files, return values and log records were identical.
+- **Tests**: 260 passed.
 
 ### v16.9.88 - Kaggle Monitor Split into Accounts, Stream and Launcher
 

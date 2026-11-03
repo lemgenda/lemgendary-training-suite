@@ -93,7 +93,7 @@ def soup(
 @app.command("version")
 def version() -> None:
     """Show LemGendary Training Suite version."""
-    typer.echo("LemGendary Model Training Suite v16.9.88 (Refactored & Hardened)")
+    typer.echo("LemGendary Model Training Suite v16.9.89 (Refactored & Hardened)")
 
 
 @app.command("train")

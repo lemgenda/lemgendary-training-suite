@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from training.doc_generator import build_model_readme
+from training.model_card import build_model_readme
 from training.notebooks import (
     generate_colab_training_notebook,
     generate_colab_usage_notebook,

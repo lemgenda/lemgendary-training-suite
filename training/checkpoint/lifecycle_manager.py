@@ -43,12 +43,12 @@ from training.checkpoint.preflight_generator import (
     PREFLIGHT_ERRORS,
     generate_preflight_assets,
 )
-from training.doc_generator import build_model_readme
 from training.export.base import EXPORT_ERRORS
 from training.export.universal_exporter import (
     export_universal_model,
     get_model_hub_dir,
 )
+from training.model_card import build_model_readme
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.checkpoint.lifecycle")

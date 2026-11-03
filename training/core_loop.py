@@ -33,7 +33,6 @@ from training.context_data import (
     resolve_batch_size,
 )
 from training.context_resume import LoaderState, TrainState, resume_from_checkpoint
-from training.doc_generator import build_model_readme
 from training.export import export_all
 from training.governance import SmartTrainingGovernor, SotaTracker
 from training.governance.yolo_governor import run_governed_yolo_training
@@ -41,6 +40,7 @@ from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
 from training.hardware.sentinel import SentinelGuard
 from training.losses import CombinedLoss, ForexDualLoss
+from training.model_card import build_model_readme
 from training.notebook_generator import (
     generate_colab_inference_notebook,
     generate_colab_usage_notebook,
