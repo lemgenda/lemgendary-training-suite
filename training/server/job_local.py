@@ -7,11 +7,14 @@ import os
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from training.server.job_output import (
     _clean_console_line,
 )
+from training.server.state import ServerState
 from training.services.eval_service import EvaluationService
 from training.services.export_service import ExportService
 from training.services.training_service import TrainingService, TrainRequest
@@ -21,6 +24,11 @@ logger = logging.getLogger("lemtrain.server.jobs")
 
 class LocalJobsMixin:
     """In-process training, evaluation, export and test-all job executors."""
+
+    # Provided by ``JobManager``.
+    project_root: Path
+    state: ServerState
+    _broadcast_log: Callable[[str, str], None]
 
     def execute_training(
         self,

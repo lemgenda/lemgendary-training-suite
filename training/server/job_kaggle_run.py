@@ -7,6 +7,8 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from kaggle.api.kaggle_api_extended import KaggleApi
@@ -17,6 +19,7 @@ from training.cloud.kaggle_hub import KaggleHubManager
 from training.kaggle_accounts import authenticate_kaggle_user
 from training.kaggle_cloud_manager import pull_kaggle_artifacts
 from training.kaggle_stream import fetch_new_log_lines, is_epoch_milestone
+from training.server.state import ServerState
 
 logger = logging.getLogger("lemtrain.server.jobs")
 
@@ -27,6 +30,11 @@ _PULL_ERRORS: tuple[type[Exception], ...] = (RuntimeError, *KAGGLE_API_ERRORS)
 
 class KaggleRunJobsMixin:
     """Kaggle kernel training and monitoring job executors."""
+
+    # Provided by ``JobManager``.
+    project_root: Path
+    state: ServerState
+    _broadcast_log: Callable[[str, str], None]
 
     def execute_kaggle_training(
         self,
