@@ -11,11 +11,21 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.77-STABLE` |
+| **Version** | `v16.9.78-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.78 - Private-API Adapters, OpenCV Loader, No Pylint Errors or Warnings
+
+- **Private-API adapters**: each of the two uses of a third-party private API now sits in one small, documented function.
+  - `training/data/workers._shutdown_loader_iterator` handles torch's `DataLoader._iterator` and `_shutdown_workers`. torch has no public call that stops persistent workers.
+  - `training/governance/yolo_governor.restore_trainer_checkpoint_state` handles Ultralytics `BaseTrainer._load_checkpoint_state`. The public `resume_training` does nothing without `resume=True`, and it resets the stage epoch window.
+  - When a library release drops the private name, the torch adapter logs and does nothing, and the Ultralytics adapter raises a clear `AttributeError`. Pylint reports 0 `protected-access` findings.
+- **OpenCV**: `training/data/degrade.py` gets `cv2` from the new `lazy_imports.load_cv2()`. OpenCV 5's loader package replaces itself with the native extension when imported, so pylint cannot see its members statically. This clears the 11 `no-member` findings.
+- **Pylint**: no errors or warnings remain. Still reported: 24 `duplicate-code`, 11 `too-few-public-methods`, 11 `too-many-return-statements` and 1 `too-many-public-methods` (`SmartTrainingGovernor`).
+- **Tests**: 260 passed, 0 failed.
 
 ### v16.9.77 - Shared Error Tuples, Kaggle Log Polling and Test Fixtures
 

@@ -52,6 +52,25 @@ def create_yolo_model(weights: str | Path) -> Any:
     return load_ultralytics().YOLO(str(weights))
 
 
+def restore_trainer_checkpoint_state(trainer: Any, ckpt: dict[str, Any]) -> None:
+    """Restore optimizer, EMA and epoch state from ``ckpt`` into an Ultralytics trainer.
+
+    Private-API adapter: Ultralytics ``BaseTrainer`` restores this state only through its
+    private ``_load_checkpoint_state``. The public ``resume_training`` does nothing unless
+    the trainer was started with ``resume=True``, and it also resets ``start_epoch`` and
+    ``epochs``, which this governor sets itself for each curriculum stage. The method is
+    looked up by name, so an Ultralytics release that drops it raises ``AttributeError``,
+    which the caller already handles.
+    """
+    load_state = getattr(trainer, "_load_checkpoint_state", None)
+    if load_state is None:
+        raise AttributeError(
+            f"{type(trainer).__name__} has no _load_checkpoint_state; "
+            "this Ultralytics release cannot resume a curriculum stage in place"
+        )
+    load_state(ckpt)
+
+
 @dataclass
 class YOLOLadderStage:
     """Configuration for an individual curriculum resolution ladder stage."""
@@ -925,7 +944,7 @@ class YOLOCurriculumGovernor:
                     trainer.epochs = max(_stage_total, _start_epoch + 100)
                     if _stage_resume and _ckpt_dict:
                         try:
-                            trainer._load_checkpoint_state(_ckpt_dict)
+                            restore_trainer_checkpoint_state(trainer, _ckpt_dict)
                         except (
                             KeyError,
                             ValueError,

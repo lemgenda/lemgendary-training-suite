@@ -7,11 +7,11 @@ import random
 import sys
 from typing import Any
 
-import cv2
 import numpy as np
 import torch
 from PIL import Image, ImageFilter
 
+from training.utils.lazy_imports import load_cv2
 from training.utils.paths import get_workspace_root
 
 logger = logging.getLogger("lemtrain.degrade")
@@ -60,6 +60,7 @@ def apply_synthetic_degradation(
     conf: float,
 ) -> torch.Tensor:
     """Apply synthetic blur, noise, JPEG and scale degradation to an image tensor [C, H, W]."""
+    cv2 = load_cv2()
     # Convert to numpy HWC for OpenCV operations
     img_np = img_tensor.permute(1, 2, 0).cpu().numpy().copy()
     h, w = img_np.shape[:2]
@@ -100,6 +101,7 @@ def apply_synthetic_degradation(
 
 def apply_film_degradation(img_tensor: torch.Tensor) -> torch.Tensor:
     """Synthesizes vintage film degradation (sepia/grayscale, grain, defocus blur, scratches)."""
+    cv2 = load_cv2()
     img_np = img_tensor.permute(1, 2, 0).cpu().numpy().copy()
 
     # Sepia / Grayscale tint

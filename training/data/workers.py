@@ -119,21 +119,39 @@ def compute_worker_topology(
     )
 
 
+# torch keeps the live worker iterator of a DataLoader in this private attribute.
+_LOADER_ITERATOR_ATTR = "_iterator"
+
+
+def _shutdown_loader_iterator(loader: Any) -> None:
+    """Stop the worker processes of a DataLoader's live iterator and drop the iterator.
+
+    Private-API adapter: torch exposes no public call to stop persistent workers. The
+    multiprocessing iterator only stops them in ``_shutdown_workers`` (also run by its
+    ``__del__``), and the loader keeps that iterator in ``_iterator``. Clearing it lets
+    the next ``iter(loader)`` start fresh workers. The names are read with ``getattr`` so
+    a torch release that renames them makes this a logged no-op instead of a crash.
+    """
+    iterator = getattr(loader, _LOADER_ITERATOR_ATTR, None)
+    if iterator is None:
+        return
+    shutdown_fn = getattr(iterator, "_shutdown_workers", None)
+    if callable(shutdown_fn):
+        try:
+            shutdown_fn()
+        except (RuntimeError, OSError) as exc:
+            logger.warning("Error shutting down DataLoader workers: %s", exc)
+    else:
+        logger.debug("DataLoader iterator has no _shutdown_workers; leaving workers to GC")
+    setattr(loader, _LOADER_ITERATOR_ATTR, None)
+
+
 def dispose_loader(loader: Any) -> None:
     """Terminate DataLoader worker processes and release pinned shared memory."""
     if loader is None:
         return
 
-    # Check for active _iterator attached to the DataLoader
-    iterator = getattr(loader, "_iterator", None)
-    if iterator is not None:
-        shutdown_fn = getattr(iterator, "_shutdown_workers", None)
-        if callable(shutdown_fn):
-            try:
-                shutdown_fn()
-            except (RuntimeError, OSError) as exc:
-                logger.warning("Error shutting down DataLoader workers: %s", exc)
-        loader._iterator = None
+    _shutdown_loader_iterator(loader)
 
     # Clean dataset references if close() or shutdown() protocol exists
     dataset = getattr(loader, "dataset", None)

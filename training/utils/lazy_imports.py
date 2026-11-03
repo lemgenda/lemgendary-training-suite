@@ -55,6 +55,16 @@ def load_ultralytics() -> ModuleType:
     return importlib.import_module("ultralytics")
 
 
+def load_cv2() -> ModuleType:
+    """Return the OpenCV ``cv2`` module.
+
+    OpenCV 5 installs ``cv2`` as a Python loader package whose ``__init__`` replaces
+    itself with the native extension at import time, so static analysers see none of
+    its members. Callers use the module this loader returns, which is the native one.
+    """
+    return importlib.import_module("cv2")
+
+
 def load_onnx() -> ModuleType:
     """Return the ``onnx`` module with its ``external_data_helper`` submodule loaded."""
     importlib.import_module("onnx.external_data_helper")
