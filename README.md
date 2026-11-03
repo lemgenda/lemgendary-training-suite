@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.111-STABLE`
+- **Version**: `v16.9.112-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,15 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.112 - Smaller Functions in Export, Registry and Services
+
+- **Refactor**: `export_all` (`_export_targets`, `_export_forex_checkpoint`,
+  `_stage_dist`), LLM FP32 ONNX sidecar export, Forex ONNX dummy inputs, the
+  Forex exporter (`.pt`, tracing, sidecar + FP16 steps), registry spec
+  building, notebook generator CLI, training-service preset and notebook
+  pre-flight, and GPU SSIM (kernel and local moments; 300 seeded runs
+  identical). Removes 8 too-many-locals findings.
 
 ### v16.9.111 - Smaller Functions in Manifolds, Ladder and Losses
 

@@ -28,60 +28,23 @@ from training.registry import ModelSpecification
 logger = logging.getLogger("lemtrain.export.llm")
 
 
-def export_llm_tri_format(
-    model: nn.Module,
-    model_key: str = "ai_helper_lemgend",
-    output_dir: Path | str | None = None,
-) -> dict[str, Path]:
-    """Export Causal LLM into all 3 required isolated Kaggle variations."""
-    target_dir = (
-        Path(output_dir).resolve()
-        if output_dir
-        else Path(f"../LemGendaryModels/{model_key}").resolve()
-    )
-    target_dir.mkdir(parents=True, exist_ok=True)
+_LLM_STEMS = {
+    "ai_helper_lemgend": "AIHelperLemGend",
+    "test_llm": "TestLLM",
+}
 
-    dist_dir = target_dir / "dist" / "kaggle"
-    pytorch_dir = dist_dir / "pytorch"
-    onnx_fp32_dir = dist_dir / "onnx_fp32"
-    onnx_fp16_dir = dist_dir / "onnx_fp16"
 
-    pytorch_dir.mkdir(parents=True, exist_ok=True)
-    onnx_fp32_dir.mkdir(parents=True, exist_ok=True)
-    onnx_fp16_dir.mkdir(parents=True, exist_ok=True)
-
-    exported_files: dict[str, Path] = {}
-
-    model_to_export = unwrap_export_model(model)
-    device = torch.device("cpu")
-    model_to_export.eval()
-    model_to_export.to(device)
-
-    stem_map = {
-        "ai_helper_lemgend": "AIHelperLemGend",
-        "test_llm": "TestLLM",
-    }
-    binary_stem = stem_map.get(model_key, "".join(part.title() for part in model_key.split("_")))
-
-    # 1. PyTorch Standalone Binary (.pt)
-    pt_path = pytorch_dir / f"{binary_stem}.pt"
-    logger.info("Saving standalone PyTorch LLM weights to %s...", pt_path)
-    try:
-        torch.save(model_to_export.state_dict(), str(pt_path))
-        exported_files["pt"] = pt_path
-    except MODEL_IO_ERRORS as exc:
-        logger.error("Failed saving PyTorch LLM weights to %s: %s", pt_path, exc)
-
-    # 2. ONNX FP32 with External Tensor Data Sidecar
-    fp32_onnx_path = onnx_fp32_dir / f"{binary_stem}_FP32.onnx"
-    fp32_data_path = onnx_fp32_dir / f"{binary_stem}_FP32.onnx.data"
+def _export_fp32_with_sidecar(model: nn.Module, fp32_onnx_path: Path) -> dict[str, Path]:
+    """FP32 ONNX graph with weights detached to a ``.onnx.data`` sidecar; {} on failure."""
+    fp32_data_path = fp32_onnx_path.with_name(f"{fp32_onnx_path.name}.data")
     logger.info("Exporting FP32 ONNX LLM graph to %s...", fp32_onnx_path)
+    device = torch.device("cpu")
     try:
         dummy_input = torch.randint(1, 1000, (1, 16), dtype=torch.long, device=device)
         dummy_mask = torch.ones((1, 16), dtype=torch.long, device=device)
 
         run_onnx_export(
-            model_to_export,
+            model,
             (dummy_input, dummy_mask),
             fp32_onnx_path,
             OnnxGraphSpec(
@@ -96,14 +59,53 @@ def export_llm_tri_format(
             ),
         )
         detach_onnx_weights(fp32_onnx_path, fp32_data_path.name)
-
-        exported_files["onnx_fp32"] = fp32_onnx_path
-        exported_files["onnx_fp32_data"] = fp32_data_path
     except EXPORT_ERRORS as exc:
         logger.warning("FP32 ONNX sidecar export note: %s", exc)
+        return {}
+    return {"onnx_fp32": fp32_onnx_path, "onnx_fp32_data": fp32_data_path}
+
+
+def export_llm_tri_format(
+    model: nn.Module,
+    model_key: str = "ai_helper_lemgend",
+    output_dir: Path | str | None = None,
+) -> dict[str, Path]:
+    """Export Causal LLM into all 3 required isolated Kaggle variations."""
+    target_dir = (
+        Path(output_dir).resolve()
+        if output_dir
+        else Path(f"../LemGendaryModels/{model_key}").resolve()
+    )
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    dist_dir = target_dir / "dist" / "kaggle"
+    dirs = {name: dist_dir / name for name in ("pytorch", "onnx_fp32", "onnx_fp16")}
+    for variation_dir in dirs.values():
+        variation_dir.mkdir(parents=True, exist_ok=True)
+
+    exported_files: dict[str, Path] = {}
+
+    model_to_export = unwrap_export_model(model)
+    model_to_export.eval()
+    model_to_export.to(torch.device("cpu"))
+
+    binary_stem = _LLM_STEMS.get(model_key, "".join(part.title() for part in model_key.split("_")))
+
+    # 1. PyTorch Standalone Binary (.pt)
+    pt_path = dirs["pytorch"] / f"{binary_stem}.pt"
+    logger.info("Saving standalone PyTorch LLM weights to %s...", pt_path)
+    try:
+        torch.save(model_to_export.state_dict(), str(pt_path))
+        exported_files["pt"] = pt_path
+    except MODEL_IO_ERRORS as exc:
+        logger.error("Failed saving PyTorch LLM weights to %s: %s", pt_path, exc)
+
+    # 2. ONNX FP32 with External Tensor Data Sidecar
+    fp32_onnx_path = dirs["onnx_fp32"] / f"{binary_stem}_FP32.onnx"
+    exported_files.update(_export_fp32_with_sidecar(model_to_export, fp32_onnx_path))
 
     # 3. ONNX FP16 with Integrated Weights
-    fp16_onnx_path = onnx_fp16_dir / f"{binary_stem}.onnx"
+    fp16_onnx_path = dirs["onnx_fp16"] / f"{binary_stem}.onnx"
     logger.info("Exporting FP16 ONNX LLM graph to %s...", fp16_onnx_path)
     try:
         if fp32_onnx_path.exists():

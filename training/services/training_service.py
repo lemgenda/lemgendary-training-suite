@@ -103,6 +103,28 @@ class TrainingService:
         presets = self.load_presets()
         return presets.get(preset_name)
 
+    def _sync_notebooks(self, model_key: str) -> None:
+        """Regenerate the model's notebooks; failures only skip this pre-flight step."""
+        try:
+            nb_service = NotebookService(project_root=self.project_root)
+            nb_service.generate_notebooks(model_key=model_key, platform="all")
+        except (OSError, yaml.YAMLError, ValueError, KeyError, TypeError, AttributeError) as e:
+            logger.warning("Pre-flight notebook generation skipped for %s: %s", model_key, e)
+
+    def _with_preset(self, hyper: Any) -> tuple[Any, Any, Any]:
+        """``(epochs, batch_size, lr)``; unset values come from ``hyper.preset`` if given."""
+        epochs, batch_size, lr = hyper.epochs, hyper.batch_size, hyper.lr
+        if hyper.preset:
+            preset_cfg = self.get_preset(hyper.preset)
+            if preset_cfg:
+                if epochs is None:
+                    epochs = preset_cfg.get("epochs")
+                if batch_size is None:
+                    batch_size = preset_cfg.get("batch_size")
+                if lr is None:
+                    lr = preset_cfg.get("learning_rate")
+        return epochs, batch_size, lr
+
     def train(
         self,
         request: TrainRequest,
@@ -121,25 +143,12 @@ class TrainingService:
             TrainingSummary: Completed run metrics and summary.
         """
         model_key, hyper = request.model_key, request.hyper
-        epochs, batch_size, lr = hyper.epochs, hyper.batch_size, hyper.lr
         # 0. Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds,
         # and training dirs
-        try:
-            nb_service = NotebookService(project_root=self.project_root)
-            nb_service.generate_notebooks(model_key=model_key, platform="all")
-        except (OSError, yaml.YAMLError, ValueError, KeyError, TypeError, AttributeError) as e:
-            logger.warning("Pre-flight notebook generation skipped for %s: %s", model_key, e)
+        self._sync_notebooks(model_key)
 
         # 1. Resolve preset parameters if requested
-        if hyper.preset:
-            preset_cfg = self.get_preset(hyper.preset)
-            if preset_cfg:
-                if epochs is None:
-                    epochs = preset_cfg.get("epochs")
-                if batch_size is None:
-                    batch_size = preset_cfg.get("batch_size")
-                if lr is None:
-                    lr = preset_cfg.get("learning_rate")
+        epochs, batch_size, lr = self._with_preset(hyper)
 
         # 2. Build synthetic CLI namespace for deterministic context builder
         args = argparse.Namespace(

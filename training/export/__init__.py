@@ -149,6 +149,33 @@ def _export_model_targets(
     return results
 
 
+def _export_targets(model_key: str, model_info: dict[str, Any], plan: ExportPlan) -> list[str]:
+    """``["forex"]`` for Forex models, else the plan's targets or the three defaults."""
+    if model_info.get("dataset_type") == "forex" or "forex" in model_key.lower():
+        return ["forex"]
+    return plan.targets or ["onnx_fp32", "onnx_fp16", "torch_pt"]
+
+
+def _export_forex_checkpoint(
+    model_key: str, model_info: dict[str, Any], ckpt_file: Path | None, out_path: Path
+) -> Path:
+    """Export a Forex checkpoint to ONNX over the model's active timeframes."""
+    if not ckpt_file:
+        raise ExportError("CKPT_MISSING", f"No checkpoint found for forex model {model_key}")
+    active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
+    return export_forex_onnx(ckpt_file, out_path, active_timeframes=active_tfs)
+
+
+def _stage_dist(
+    model_key: str, results: dict[str, Path], destination_dir: Path, staging_dir: Path
+) -> None:
+    """Stage exported files into isolated variations, add them to ``results``, drop staging."""
+    staged_res = VariationStagingService().stage_variations(model_key, results, destination_dir)
+    results.update(staged_res.staged_files)
+    if staging_dir.exists():
+        remove_tree(staging_dir, purpose="export staging cleanup")
+
+
 def export_all(
     model_key: str,
     checkpoint_path: Path | str | None = None,
@@ -161,8 +188,9 @@ def export_all(
     project_root = get_project_root()
     cfg = _load_export_config(config, project_root)
     model_info = _load_export_registry(cfg, project_root).get(model_key, {})
-    base_name, default_out_dir = resolve_export_paths(model_key, model_info, cfg, project_root)
-    destination_dir = Path(output_dir).resolve() if output_dir else default_out_dir
+    base_name, destination_dir = resolve_export_paths(model_key, model_info, cfg, project_root)
+    if output_dir:
+        destination_dir = Path(output_dir).resolve()
     destination_dir.mkdir(parents=True, exist_ok=True)
 
     ckpt_file = resolve_checkpoint_file(
@@ -173,42 +201,30 @@ def export_all(
         user_checkpoint=checkpoint_path,
     )
 
-    is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
-    export_targets = plan.targets or (
-        ["forex"] if is_forex else ["onnx_fp32", "onnx_fp16", "torch_pt"]
-    )
-
-    results: dict[str, Path] = {}
-
-    if is_forex or "forex" in export_targets:
-        if not ckpt_file:
-            raise ExportError("CKPT_MISSING", f"No checkpoint found for forex model {model_key}")
-        forex_out = destination_dir / f"{base_name}.onnx"
-        active_tfs = model_info.get("kwargs", {}).get(
-            "active_timeframes", [1, 5, 15, 60, 240, 1440]
-        )
-        exported_path = export_forex_onnx(ckpt_file, forex_out, active_timeframes=active_tfs)
-        results["forex"] = exported_path
+    export_targets = _export_targets(model_key, model_info, plan)
+    if "forex" in export_targets:
+        results = {
+            "forex": _export_forex_checkpoint(
+                model_key, model_info, ckpt_file, destination_dir / f"{base_name}.onnx"
+            )
+        }
         if plan.stage_dist:
             VariationStagingService().stage_variations(model_key, results, destination_dir)
         return results
 
     model = _load_export_model(model_key, cfg, ckpt_file, model_info)
-    h, w = extract_input_dimensions(model_info)
-
     staging_dir = (destination_dir / ".export_staging") if plan.stage_dist else destination_dir
     staging_dir.mkdir(parents=True, exist_ok=True)
     results = _export_model_targets(
-        model, model_key, export_targets, staging_dir, (base_name, (1, 3, h, w))
+        model,
+        model_key,
+        export_targets,
+        staging_dir,
+        (base_name, (1, 3, *extract_input_dimensions(model_info))),
     )
 
     if plan.stage_dist:
-        staging_svc = VariationStagingService()
-        staged_res = staging_svc.stage_variations(model_key, results, destination_dir)
-        results.update(staged_res.staged_files)
-        if staging_dir.exists():
-            remove_tree(staging_dir, purpose="export staging cleanup")
-
+        _stage_dist(model_key, results, destination_dir, staging_dir)
     logger.info("Completed export_all for %s: %d targets exported.", model_key, len(results))
     return results
 

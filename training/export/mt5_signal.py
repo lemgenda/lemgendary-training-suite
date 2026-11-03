@@ -33,6 +33,20 @@ class _OnnxForexWrapper(nn.Module):
         return out["direction_logits"], out["magnitude"]
 
 
+def _dummy_inputs(model: nn.Module, timeframes: list[int]) -> tuple[torch.Tensor, ...]:
+    """Zero tensors ``(tf_1, ..., tf_n, pair_idx)`` for batch 1 on the model's device."""
+    batch_size = 1
+    in_feats = getattr(model, "in_features", FOREX_FEATURES_PER_BAR)
+    device = next(model.parameters()).device if list(model.parameters()) else torch.device("cpu")
+
+    tf_inputs = [
+        torch.zeros(batch_size, TIMEFRAME_LOOKBACK.get(tf, 48), in_feats, device=device)
+        for tf in timeframes
+    ]
+    pair_dummy = torch.zeros(batch_size, dtype=torch.long, device=device)
+    return (*tf_inputs, pair_dummy)
+
+
 def export_forex_onnx_from_model(
     model: nn.Module,
     out_path: Path | str,
@@ -48,18 +62,8 @@ def export_forex_onnx_from_model(
     )
     model.eval()
 
-    batch_size = 1
-    in_feats = getattr(model, "in_features", FOREX_FEATURES_PER_BAR)
-    device = next(model.parameters()).device if list(model.parameters()) else torch.device("cpu")
-
-    tf_inputs = [
-        torch.zeros(batch_size, TIMEFRAME_LOOKBACK.get(tf, 48), in_feats, device=device)
-        for tf in timeframes
-    ]
-    pair_dummy = torch.zeros(batch_size, dtype=torch.long, device=device)
-
-    tf_keys = [str(tf) for tf in timeframes]
-    wrapper = _OnnxForexWrapper(model, tf_keys)
+    dummy_inputs = _dummy_inputs(model, timeframes)
+    wrapper = _OnnxForexWrapper(model, [str(tf) for tf in timeframes])
     wrapper.eval()
 
     input_names = [f"tf_{tf}" for tf in timeframes] + ["pair_idx"]
@@ -70,7 +74,7 @@ def export_forex_onnx_from_model(
     try:
         torch.onnx.export(
             wrapper,
-            (*tf_inputs, pair_dummy),
+            dummy_inputs,
             str(out_file),
             input_names=input_names,
             output_names=output_names,

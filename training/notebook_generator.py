@@ -43,6 +43,34 @@ __all__ = [
 ]
 
 
+def _load_config(config_path: Path) -> dict[str, Any]:
+    """``config.yaml`` as a dict (empty when missing or not a mapping)."""
+    if not config_path.exists():
+        return {}
+    with open(config_path, "r", encoding="utf-8") as f:
+        loaded_cfg = yaml.safe_load(f)
+    return loaded_cfg if isinstance(loaded_cfg, dict) else {}
+
+
+def _generate_model_notebooks(
+    m_key: str, export_root: str, registry: dict[str, Any], config: dict[str, Any]
+) -> None:
+    """Write the Kaggle and Colab inference/usage notebooks for ``m_key``; drop stray copies."""
+    m_dir = os.path.join(export_root, m_key, "notebooks")
+    os.makedirs(m_dir, exist_ok=True)
+    generate_inference_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
+    generate_usage_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
+    generate_colab_inference_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
+    generate_colab_usage_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
+
+    # Ensure no duplicate notebook binaries remain in model root
+    for stray in (Path(export_root) / m_key).glob("*.ipynb"):
+        try:
+            stray.unlink()
+        except OSError as exc:
+            logger.warning("Could not remove stray notebook %s: %s", stray, exc)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Generate training/inference/usage notebooks for one model or the whole registry."""
     parser = argparse.ArgumentParser(
@@ -59,15 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     project_root = get_project_root()
-    config_path = project_root / "config.yaml"
-
-    config: dict[str, Any] = {}
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            loaded_cfg = yaml.safe_load(f)
-            if isinstance(loaded_cfg, dict):
-                config = loaded_cfg
-
+    config = _load_config(project_root / "config.yaml")
     registry = load_registry(config, project_root)
 
     default_export = str((project_root / config.get("export_dir", "../LemGendaryModels")).resolve())
@@ -89,22 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     for m_key in models_to_gen:
-        m_dir = os.path.join(export_root, m_key, "notebooks")
-        os.makedirs(m_dir, exist_ok=True)
-        generate_inference_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
-        generate_usage_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
-        generate_colab_inference_notebook(
-            m_key, m_dir, unified_models_registry=registry, config=config
-        )
-        generate_colab_usage_notebook(m_key, m_dir, unified_models_registry=registry, config=config)
-
-        # Ensure no duplicate notebook binaries remain in model root
-        hub_root_m = Path(export_root) / m_key
-        for stray in hub_root_m.glob("*.ipynb"):
-            try:
-                stray.unlink()
-            except OSError as exc:
-                logger.warning("Could not remove stray notebook %s: %s", stray, exc)
+        _generate_model_notebooks(m_key, export_root, registry, config)
 
     print("\n[SUCCESS] Notebook Matrix Synchronized.")
     return 0

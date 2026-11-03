@@ -93,6 +93,42 @@ def safe_backward(
     return grad_norm
 
 
+def _gaussian_kernel(
+    window_size: int, sigma: float, channel: int, device: torch.device
+) -> torch.Tensor:
+    """Normalised 2-D Gaussian window, one copy per channel: ``[C, 1, k, k]``."""
+    coords = torch.arange(window_size, dtype=torch.float32, device=device) - (window_size - 1) / 2.0
+    gauss = torch.exp(-(coords**2) / (2 * sigma**2))
+    gauss = (gauss / gauss.sum()).unsqueeze(1)
+
+    kernel_2d = gauss.mm(gauss.t()).unsqueeze(0).unsqueeze(0)
+    return kernel_2d.expand(channel, 1, window_size, window_size).contiguous()
+
+
+def _local_moments(
+    img1: torch.Tensor, img2: torch.Tensor, kernel: torch.Tensor
+) -> tuple[torch.Tensor, ...]:
+    """Windowed ``mu1^2, mu2^2, mu1*mu2, sigma1^2, sigma2^2, sigma12`` for SSIM."""
+    channel, pad = kernel.size(0), kernel.size(-1) // 2
+
+    def blur(x: torch.Tensor) -> torch.Tensor:
+        return F.conv2d(x, kernel, padding=pad, groups=channel)
+
+    mu1 = blur(img1)
+    mu2 = blur(img2)
+    mu1_sq = mu1.pow(2)
+    mu2_sq = mu2.pow(2)
+    mu1_mu2 = mu1 * mu2
+    return (
+        mu1_sq,
+        mu2_sq,
+        mu1_mu2,
+        blur(img1 * img1) - mu1_sq,
+        blur(img2 * img2) - mu2_sq,
+        blur(img1 * img2) - mu1_mu2,
+    )
+
+
 def compute_ssim_gpu(
     img1: torch.Tensor,
     img2: torch.Tensor,
@@ -101,30 +137,12 @@ def compute_ssim_gpu(
     data_range: float = 1.0,
 ) -> torch.Tensor:
     """Compute GPU-accelerated vectorized Structural Similarity Index (SSIM)."""
-    channel = img1.size(1)
-
-    coords = (
-        torch.arange(window_size, dtype=torch.float32, device=img1.device) - (window_size - 1) / 2.0
-    )
-    gauss = torch.exp(-(coords**2) / (2 * sigma**2))
-    gauss = (gauss / gauss.sum()).unsqueeze(1)
-
-    kernel_2d = gauss.mm(gauss.t()).unsqueeze(0).unsqueeze(0)
-    kernel = kernel_2d.expand(channel, 1, window_size, window_size).contiguous()
+    kernel = _gaussian_kernel(window_size, sigma, img1.size(1), img1.device)
 
     c1 = (0.01 * data_range) ** 2
     c2 = (0.03 * data_range) ** 2
 
-    mu1 = F.conv2d(img1, kernel, padding=window_size // 2, groups=channel)
-    mu2 = F.conv2d(img2, kernel, padding=window_size // 2, groups=channel)
-
-    mu1_sq = mu1.pow(2)
-    mu2_sq = mu2.pow(2)
-    mu1_mu2 = mu1 * mu2
-
-    sigma1_sq = F.conv2d(img1 * img1, kernel, padding=window_size // 2, groups=channel) - mu1_sq
-    sigma2_sq = F.conv2d(img2 * img2, kernel, padding=window_size // 2, groups=channel) - mu2_sq
-    sigma12 = F.conv2d(img1 * img2, kernel, padding=window_size // 2, groups=channel) - mu1_mu2
+    mu1_sq, mu2_sq, mu1_mu2, sigma1_sq, sigma2_sq, sigma12 = _local_moments(img1, img2, kernel)
 
     ssim_map = ((2 * mu1_mu2 + c1) * (2 * sigma12 + c2)) / (
         (mu1_sq + mu2_sq + c1) * (sigma1_sq + sigma2_sq + c2)
