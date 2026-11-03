@@ -11,11 +11,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.74-STABLE` |
+| **Version** | `v16.9.75-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.75 - `max_seq_length` Removed From the LLM Train API
+
+- **HTTP API**: `LLMTrainRequest` (`POST /api/training/llm/train`) no longer has a `max_seq_length` field. No training service parameter ever read it; the `lemtrain llm train --max-seq-length` CLI flag was removed in v16.9.73 for the same reason. `openapi.json` was regenerated. Clients that still send the field get no error, because Pydantic ignores unknown fields.
+- **Unchanged**: the registry value `curriculum.max_seq_length` of `ai_helper_lemgend` in `unified_models_v2.yaml` stays. The GUI model endpoint still uses it to show the context-token ladder.
+- **GUI follow-up** (other owner): remove `max_seq_length` from `LLMTrainingConfig` in `lemgendary-ai-studio-gui/src/api/contracts/training.ts`.
+- **Tests**: 260 passed, 0 failed.
 
 ### v16.9.74 - One Loader Module for Optional Imports, `import-outside-toplevel` Enabled
 

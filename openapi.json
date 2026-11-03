@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.74"
+    "version": "16.9.75"
   },
   "paths": {
     "/api/health": {
@@ -2054,12 +2054,6 @@
             "title": "Lr",
             "description": "Learning rate",
             "default": 0.0002
-          },
-          "max_seq_length": {
-            "type": "integer",
-            "title": "Max Seq Length",
-            "description": "Context window maximum token length",
-            "default": 2048
           },
           "env": {
             "type": "string",

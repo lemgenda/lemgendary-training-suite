@@ -321,7 +321,6 @@ class LLMTrainRequest(BaseModel):
     epochs: int = Field(3, description="Training epochs")
     batch_size: int = Field(2, description="Per-device micro batch size")
     lr: float = Field(0.0002, description="Learning rate")
-    max_seq_length: int = Field(2048, description="Context window maximum token length")
     env: str = Field("local", description="Training environment ('local', 'kaggle', 'colab')")
 
 
