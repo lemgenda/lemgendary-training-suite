@@ -35,6 +35,12 @@ logger = logging.getLogger("lemtrain.core_loop")
 
 LLM_TASKS = ("text_instruction", "llm")
 
+DEFAULT_DATASETS_ROOT = "../LemGendaryDatasets"
+"""``paths.datasets_root`` when ``config.yaml`` does not set it (relative to the project root)."""
+
+DEFAULT_INSTRUCTION_DATASET = "LemGendizedAIHelperLemGend"
+"""Instruction dataset used when the model entry declares no ``datasets``."""
+
 # Failure modes of dataset construction (missing shards, malformed manifests, bad config values).
 DATASET_BUILD_ERRORS: tuple[type[BaseException], ...] = (
     OSError,
@@ -120,7 +126,7 @@ def resolve_batch_size(spec: RunSpec, raw_model: Any) -> int:
 
 def _forex_datasets(spec: RunSpec, sample_fraction: float):
     """Walk-forward Forex train and validation shards (validation is optional)."""
-    shard_root = str(spec.config.get("paths", {}).get("datasets_root", "../LemGendaryDatasets"))
+    shard_root = str(spec.config.get("paths", {}).get("datasets_root", DEFAULT_DATASETS_ROOT))
     kwargs = spec.model_info.get("kwargs", {})
     pairs = getattr(spec.args, "pairs", None) or spec.model_info.get("pairs") or kwargs.get("pairs")
     timeframes = (
@@ -153,11 +159,17 @@ def _forex_datasets(spec: RunSpec, sample_fraction: float):
     return train_ds, val_ds
 
 
+def datasets_root(spec: RunSpec) -> Path:
+    """``paths.datasets_root`` of ``config.yaml``; a relative value is taken from the project root."""
+    root = Path(str(spec.config.get("paths", {}).get("datasets_root") or DEFAULT_DATASETS_ROOT))
+    return root if root.is_absolute() else spec.project_root / root
+
+
 def instruction_jsonl_paths(spec: RunSpec) -> tuple[Path, Path]:
     """Locate the train and validation JSONL files of an instruction dataset."""
     declared_datasets = spec.model_info.get("datasets", [])
-    dataset_name = declared_datasets[0] if declared_datasets else "LemGendizedAIHelperLemGend"
-    data_dir = spec.project_root.parent / "LemGendaryDatasets" / dataset_name / "data"
+    dataset_name = declared_datasets[0] if declared_datasets else DEFAULT_INSTRUCTION_DATASET
+    data_dir = datasets_root(spec) / dataset_name / "data"
 
     train_jsonl = data_dir / f"{spec.model_key}_train.jsonl"
     val_jsonl = data_dir / f"{spec.model_key}_val.jsonl"

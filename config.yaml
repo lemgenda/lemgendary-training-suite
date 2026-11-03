@@ -46,6 +46,12 @@ governor:
   min_softmax_temp: 0.1
   stabilization_lock_epochs: 3
   logit_clamp: 10.0
+  # Resume of face and synthesis models: a restored best quality above `above` is the
+  # artificial anchor of older runs and is reset to `reset_to` (review D-15).
+  # Remove the section to keep restored values unchanged.
+  quality_anchor_recalibration:
+    above: 600.0
+    reset_to: 555.0
 
 # --- Fleet & Synchronization (Task 12.3) ---
 fleet:
