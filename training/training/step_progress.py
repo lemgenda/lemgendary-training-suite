@@ -85,18 +85,22 @@ def progress_payload(
     model: torch.nn.Module,
     extra: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build the intra-epoch progress checkpoint payload.
+    """Build a checkpoint payload (intra-epoch progress or end-of-epoch latest/best).
 
     ``extra`` holds the phase-specific entries (the accumulator snapshot, and for validation
-    the last training metrics).
+    the last training metrics; the best/current metrics at the end of an epoch).
     """
     payload: dict[str, Any] = {
         "epoch": epoch,
         "model_name": ctx.model_name,
         "model_state": model.state_dict(),
-        "optimizer_state": ctx.optimizer.state_dict(),
-        "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
-        "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
+        "optimizer_state": ctx.models.optimizer.state_dict(),
+        "scheduler_state": ctx.models.scheduler.state_dict()
+        if ctx.models.scheduler is not None
+        else None,
+        "governor_state": ctx.governance.governor.get_state()
+        if hasattr(ctx.governance.governor, "get_state")
+        else None,
     }
     payload.update(extra)
     return payload

@@ -27,7 +27,6 @@ needed to resume is kept in the ``swa_state.pth`` sidecar, so ``latest.pth``,
 
 from __future__ import annotations
 
-import dataclasses
 import itertools
 import logging
 from collections.abc import Iterable, Iterator
@@ -41,7 +40,7 @@ from torch.optim.swa_utils import SWALR, AveragedModel, update_bn
 from training.checkpoint import safe_atomic_save, safe_load_checkpoint
 from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS
 from training.swa_config import SwaConfig, SwaLrSchedule
-from training.training.context import TrainingContext
+from training.training.context import TrainingContext, detached_copy
 from training.training.epoch import _unpack_batch
 from training.training.step_progress import is_main_process
 from training.training.validation import validate_one_epoch
@@ -190,13 +189,16 @@ class SwaPhase:
         module = self.averager.module
         if module is None:
             return {}
-        self.averager.refresh_bn(ctx.train_loader, ctx.device_info.device)
-        swa_ctx = dataclasses.replace(
-            ctx, model=module, raw_model=module, lifecycle_manager=None, resume_state=None, swa=None
-        )
+        self.averager.refresh_bn(ctx.data.train_loader, ctx.hardware.device_info.device)
+        swa_ctx = detached_copy(ctx)
+        swa_ctx.models.model = module
+        swa_ctx.models.raw_model = module
+        swa_ctx.governance.lifecycle_manager = None
+        swa_ctx.state.resume_state = None
+        swa_ctx.governance.swa = None
         metrics = validate_one_epoch(swa_ctx, epoch)
         self.evaluated_epoch = epoch
-        ctx.metadata["swa_metrics"] = dict(metrics)
+        ctx.state.metadata["swa_metrics"] = dict(metrics)
         if is_main_process():
             shown = " | ".join(
                 f"{key}: {value:.4f}"
@@ -256,7 +258,11 @@ class SwaPhase:
         module = self.averager.module
         if path is None or module is None or not is_main_process():
             return
-        governor_state = ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None
+        governor_state = (
+            ctx.governance.governor.get_state()
+            if hasattr(ctx.governance.governor, "get_state")
+            else None
+        )
         payload = {
             "epoch": epoch,
             "model_name": ctx.model_name,
@@ -287,21 +293,23 @@ class SwaPhase:
 
 
 def attach_swa(ctx: TrainingContext) -> SwaPhase | None:
-    """Build the run's :class:`SwaPhase` from ``ctx.config`` (``None`` when SWA is disabled)."""
-    config = SwaConfig.from_config(ctx.config)
+    """Build the run's :class:`SwaPhase` from ``ctx.run.config`` (``None`` when SWA is disabled)."""
+    config = SwaConfig.from_config(ctx.run.config)
     if not config.enabled:
         return None
-    model = ctx.raw_model if ctx.raw_model is not None else ctx.model
+    model = ctx.models.raw_model if ctx.models.raw_model is not None else ctx.models.model
     checkpoints_dir = (
-        ctx.lifecycle_manager.checkpoints_dir if ctx.lifecycle_manager is not None else None
+        ctx.governance.lifecycle_manager.checkpoints_dir
+        if ctx.governance.lifecycle_manager is not None
+        else None
     )
     phase = SwaPhase(
         config,
-        SwaAverager(model, ctx.optimizer, config),
-        config.first_epoch(ctx.total_epochs),
+        SwaAverager(model, ctx.models.optimizer, config),
+        config.first_epoch(ctx.run.total_epochs),
         checkpoints_dir,
     )
-    phase.restore(ctx.resume_state)
+    phase.restore(ctx.state.resume_state)
     if is_main_process():
         lr_note = f"SWALR to {config.lr.swa_lr:g}" if config.lr is not None else "main LR schedule"
         print(

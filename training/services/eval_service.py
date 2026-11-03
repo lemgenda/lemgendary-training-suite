@@ -71,18 +71,20 @@ class EvaluationService:
         if checkpoint_path is not None:
             resolved_ckpt = Path(checkpoint_path).resolve()
             if resolved_ckpt.exists():
-                ckpt_data = safe_load_checkpoint(resolved_ckpt, map_location=ctx.device_info.device)
+                ckpt_data = safe_load_checkpoint(
+                    resolved_ckpt, map_location=ctx.hardware.device_info.device
+                )
                 if ckpt_data and "model_state" in ckpt_data:
-                    ctx.model.load_state_dict(ckpt_data["model_state"], strict=False)
+                    ctx.models.model.load_state_dict(ckpt_data["model_state"], strict=False)
                 elif ckpt_data and "state_dict" in ckpt_data:
-                    ctx.model.load_state_dict(ckpt_data["state_dict"], strict=False)
+                    ctx.models.model.load_state_dict(ckpt_data["state_dict"], strict=False)
         else:
             recovery_engine = CheckpointRecoveryEngine(
                 workspace_root=self.project_root.parent,
                 project_root=self.project_root,
                 env=env,
             )
-            candidate_roots = recovery_engine.find_candidate_roots(model_key, config=ctx.config)
+            candidate_roots = recovery_engine.find_candidate_roots(model_key, config=ctx.run.config)
             discovered = recovery_engine.discover_checkpoints(candidate_roots, model_key)
             resolved_ckpt = next(
                 (
@@ -93,9 +95,11 @@ class EvaluationService:
                 None,
             )
             if resolved_ckpt and resolved_ckpt.exists():
-                ckpt_data = safe_load_checkpoint(resolved_ckpt, map_location=ctx.device_info.device)
+                ckpt_data = safe_load_checkpoint(
+                    resolved_ckpt, map_location=ctx.hardware.device_info.device
+                )
                 if ckpt_data and "model_state" in ckpt_data:
-                    ctx.model.load_state_dict(ckpt_data["model_state"], strict=False)
+                    ctx.models.model.load_state_dict(ckpt_data["model_state"], strict=False)
 
         # 3. Execute validation pass
         metrics = validate_one_epoch(ctx, epoch=1)
@@ -104,6 +108,6 @@ class EvaluationService:
             "model_key": model_key,
             "checkpoint_path": str(resolved_ckpt) if resolved_ckpt else None,
             "metrics": metrics,
-            "device": str(ctx.device_info.device),
+            "device": str(ctx.hardware.device_info.device),
         }
         return result

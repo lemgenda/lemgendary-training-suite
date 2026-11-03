@@ -86,7 +86,7 @@ def _is_llm(ctx: Any) -> bool:
     return (
         model_name.startswith("ai_helper")
         or "llm" in model_name
-        or getattr(ctx.model, "__class__", type(None)).__name__ in _LLM_CLASS_NAMES
+        or getattr(ctx.models.model, "__class__", type(None)).__name__ in _LLM_CLASS_NAMES
     )
 
 

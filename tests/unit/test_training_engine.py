@@ -14,13 +14,16 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from training.checkpoint import MetricVault
-from training.governance import SmartTrainingGovernor, SotaTracker
+from tests.fixtures.training_context import fresh_governance
 from training.hardware.discovery import discover_device
 from training.hardware.policy import ExecutionPolicy
 from training.hardware.sentinel import SentinelGuard
 from training.training import (
+    DataComponents,
     GradClip,
+    HardwareComponents,
+    ModelStack,
+    RunSettings,
     TrainingContext,
     TrainingPaths,
     build_optimizer,
@@ -97,7 +100,6 @@ class TestTrainingEngine(unittest.TestCase):
         paths = TrainingPaths(
             project_root=tmp_path,
             local_checkpoint_dir=tmp_path / "checkpoints",
-            hub_checkpoint_dir=tmp_path / "hub",
             export_dir=tmp_path / "export",
             progress_local_path=tmp_path / "progress.pth",
             best_checkpoint_path=tmp_path / "best.pth",
@@ -105,23 +107,29 @@ class TestTrainingEngine(unittest.TestCase):
         )
         return TrainingContext(
             model_name="test_model",
-            model=model,
-            optimizer=optimizer,
-            scheduler=torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9),
-            criterion=nn.MSELoss(),
-            train_loader=loaders[0],
-            val_loader=loaders[1],
-            device_info=self.device_info,
-            policy=self.policy,
-            sentinel=SentinelGuard(device=self.device),
-            governor=SmartTrainingGovernor(model_info={}),
-            sota_tracker=SotaTracker(),
-            vault=MetricVault(),
-            paths=paths,
-            config={},
-            model_info={},
-            args=None,
-            total_epochs=2,
+            models=ModelStack(
+                model=model,
+                optimizer=optimizer,
+                scheduler=torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9),
+                criterion=nn.MSELoss(),
+            ),
+            data=DataComponents(
+                train_loader=loaders[0],
+                val_loader=loaders[1],
+            ),
+            hardware=HardwareComponents(
+                device_info=self.device_info,
+                policy=self.policy,
+                sentinel=SentinelGuard(device=self.device),
+            ),
+            governance=fresh_governance({}),
+            run=RunSettings(
+                paths=paths,
+                config={},
+                model_info={},
+                args=None,
+                total_epochs=2,
+            ),
         )
 
     def test_train_and_validate_one_epoch(self) -> None:
@@ -147,14 +155,14 @@ class TestTrainingEngine(unittest.TestCase):
             optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
             loaders = (_tensor_loader(12), _tensor_loader(4))
             ctx = self._make_context(Path(tmp_dir), model, optimizer, loaders)
-            ctx.paths.local_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            ctx.paths.export_dir.mkdir(parents=True, exist_ok=True)
+            ctx.run.paths.local_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            ctx.run.paths.export_dir.mkdir(parents=True, exist_ok=True)
 
             summary = run_training(ctx)
 
             # Assertions
-            self.assertTrue(ctx.lifecycle_manager.best_path.exists())
-            self.assertTrue(ctx.lifecycle_manager.metrics_csv_path.exists())
+            self.assertTrue(ctx.governance.lifecycle_manager.best_path.exists())
+            self.assertTrue(ctx.governance.lifecycle_manager.metrics_csv_path.exists())
             self.assertTrue(len(summary.best_metrics) > 0)
 
     def test_validate_one_epoch_forex(self) -> None:
@@ -201,31 +209,36 @@ class TestTrainingEngine(unittest.TestCase):
         val_loader = MockForexValLoader()
         ctx = TrainingContext(
             model_name="forex_predictor",
-            model=model,
-            optimizer=torch.optim.SGD(model.parameters(), lr=1e-3),
-            scheduler=None,
-            criterion=criterion,
-            train_loader=None,
-            val_loader=val_loader,
-            device_info=self.device_info,
-            policy=self.policy,
-            sentinel=SentinelGuard(device=self.device),
-            governor=SmartTrainingGovernor(model_info={"category": "forex"}),
-            sota_tracker=SotaTracker(),
-            vault=MetricVault(),
-            paths=TrainingPaths(
-                project_root=Path("."),
-                local_checkpoint_dir=Path("."),
-                hub_checkpoint_dir=Path("."),
-                export_dir=Path("."),
-                progress_local_path=Path("."),
-                best_checkpoint_path=Path("."),
-                history_csv_path=Path("."),
+            models=ModelStack(
+                model=model,
+                optimizer=torch.optim.SGD(model.parameters(), lr=1e-3),
+                scheduler=None,
+                criterion=criterion,
             ),
-            config={},
-            model_info={"category": "forex"},
-            args=None,
-            total_epochs=1,
+            data=DataComponents(
+                train_loader=None,
+                val_loader=val_loader,
+            ),
+            hardware=HardwareComponents(
+                device_info=self.device_info,
+                policy=self.policy,
+                sentinel=SentinelGuard(device=self.device),
+            ),
+            governance=fresh_governance({"category": "forex"}),
+            run=RunSettings(
+                paths=TrainingPaths(
+                    project_root=Path("."),
+                    local_checkpoint_dir=Path("."),
+                    export_dir=Path("."),
+                    progress_local_path=Path("."),
+                    best_checkpoint_path=Path("."),
+                    history_csv_path=Path("."),
+                ),
+                config={},
+                model_info={"category": "forex"},
+                args=None,
+                total_epochs=1,
+            ),
         )
 
         val_metrics = validate_one_epoch(ctx, 1)

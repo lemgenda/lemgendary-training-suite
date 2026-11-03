@@ -91,31 +91,35 @@ def _log_due(clock: BatchClock, batch_num: int, session_step: int, now: float) -
 
 
 class _TrainingPass:
-    """One training epoch over ``ctx.train_loader``."""
+    """One training epoch over ``ctx.data.train_loader``."""
 
     def __init__(self, ctx: TrainingContext, epoch: int) -> None:
         self.ctx = ctx
         self.epoch = epoch
-        self.autocast_ctx = get_autocast_context(ctx.policy, ctx.device_info.device)
+        self.autocast_ctx = get_autocast_context(
+            ctx.hardware.policy, ctx.hardware.device_info.device
+        )
         self.totals = _TrainTotals()
         start_time = time.time()
-        ctx.optimizer.zero_grad(set_to_none=True)
-        num_batches = len(ctx.train_loader) if hasattr(ctx.train_loader, "__len__") else 0
+        ctx.models.optimizer.zero_grad(set_to_none=True)
+        num_batches = len(ctx.data.train_loader) if hasattr(ctx.data.train_loader, "__len__") else 0
         self.clock = BatchClock(num_batches, start_time, start_time)
 
     def resume(self) -> None:
         """Restore the totals of an interrupted epoch, if any."""
         ctx = self.ctx
-        resume_step = resume_iteration(ctx.resume_state, "train", ctx.resumed_train_step_handled)
+        resume_step = resume_iteration(
+            ctx.state.resume_state, "train", ctx.state.guards.train_step_handled
+        )
         if resume_step <= 0:
             return
         self.clock.resume_step = resume_step
-        ctx.resumed_train_step_handled = True
+        ctx.state.guards.train_step_handled = True
         print(
             f"[RESUME] Fast-forwarding {resume_step} completed batches in Epoch {self.epoch}...",
             flush=True,
         )
-        saved = getattr(ctx.resume_state, "train_accumulators", {})
+        saved = getattr(ctx.state.resume_state, "train_accumulators", {})
         if saved:
             self.totals.total_loss = float(saved.get("total_loss", 0.0))
             self.totals.total_grad_norm = float(saved.get("total_grad_norm", 0.0))
@@ -126,26 +130,28 @@ class _TrainingPass:
     def forward(self, inputs: Any, targets: Any, task_idx: Any) -> Any:
         """Return the unscaled loss of one batch."""
         ctx = self.ctx
-        train_step_fn = getattr(ctx.model, "train_step", None)
+        train_step_fn = getattr(ctx.models.model, "train_step", None)
         if callable(train_step_fn):
             loss_dict = train_step_fn(inputs)
             return loss_dict["loss"] if isinstance(loss_dict, dict) else loss_dict
-        preds = ctx.model(inputs)
+        preds = ctx.models.model(inputs)
         if task_idx is not None:
-            return ctx.criterion(preds, targets, task_idx)
-        return ctx.criterion(preds, targets)
+            return ctx.models.criterion(preds, targets, task_idx)
+        return ctx.models.criterion(preds, targets)
 
     def is_boundary(self, batch_idx: int, accumulated: int) -> bool:
         """True when ``accumulated`` micro-batches complete a step, or on the last batch."""
         ctx = self.ctx
-        return accumulated % ctx.accumulation_steps == 0 or (batch_idx + 1) == len(ctx.train_loader)
+        return accumulated % ctx.data.accumulation_steps == 0 or (batch_idx + 1) == len(
+            ctx.data.train_loader
+        )
 
     def step(self, batch: tuple[Any, Any, Any], batch_idx: int) -> tuple[Any, float]:
         """Forward and backward one unpacked batch; return ``(raw loss, gradient norm)``."""
         ctx = self.ctx
         with self.autocast_ctx:
             raw_loss = self.forward(*batch)
-            scaled_loss = raw_loss / max(1, ctx.accumulation_steps)
+            scaled_loss = raw_loss / max(1, ctx.data.accumulation_steps)
 
         is_update_step = self.is_boundary(batch_idx, self.totals.accumulated_steps + 1)
 
@@ -153,30 +159,30 @@ class _TrainingPass:
         bwd_ctx: Any = nullcontext()
         if (
             not is_update_step
-            and ctx.parallel_strategy is not None
-            and hasattr(ctx.parallel_strategy, "backward_context")
+            and ctx.models.parallel_strategy is not None
+            and hasattr(ctx.models.parallel_strategy, "backward_context")
         ):
-            bwd_ctx = ctx.parallel_strategy.backward_context()
+            bwd_ctx = ctx.models.parallel_strategy.backward_context()
 
         # Scale loss, compute backward, and collect gradient norm at step boundary
         with bwd_ctx:
             grad_norm = safe_backward(
                 loss=scaled_loss,
-                optimizer=ctx.optimizer,
-                scaler=ctx.scaler,
-                clip=GradClip(model=ctx.model, max_norm=1.0, should_unscale=is_update_step),
+                optimizer=ctx.models.optimizer,
+                scaler=ctx.models.scaler,
+                clip=GradClip(model=ctx.models.model, max_norm=1.0, should_unscale=is_update_step),
             )
         return raw_loss, grad_norm
 
     def relieve_oom(self, batch_idx: int) -> None:
         """Drop the gradients and let the governor shrink the batch (or flush the cache)."""
         ctx = self.ctx
-        if ctx.optimizer is not None:
-            ctx.optimizer.zero_grad(set_to_none=True)
-        if hasattr(ctx.governor, "handle_oom"):
-            curr_b = getattr(ctx.train_loader, "batch_size", 16) or 16
-            _, new_acc = ctx.governor.handle_oom(current_batch=curr_b)
-            ctx.accumulation_steps = new_acc
+        if ctx.models.optimizer is not None:
+            ctx.models.optimizer.zero_grad(set_to_none=True)
+        if hasattr(ctx.governance.governor, "handle_oom"):
+            curr_b = getattr(ctx.data.train_loader, "batch_size", 16) or 16
+            _, new_acc = ctx.governance.governor.handle_oom(current_batch=curr_b)
+            ctx.data.accumulation_steps = new_acc
         else:
             release_cuda_cache()
         print(
@@ -190,20 +196,20 @@ class _TrainingPass:
         ctx = self.ctx
         if not self.is_boundary(batch_idx, self.totals.accumulated_steps):
             return
-        if ctx.scaler is not None:
-            ctx.scaler.step(ctx.optimizer)
-            ctx.scaler.update()
+        if ctx.models.scaler is not None:
+            ctx.models.scaler.step(ctx.models.optimizer)
+            ctx.models.scaler.update()
         else:
-            ctx.optimizer.step()
-        ctx.optimizer.zero_grad(set_to_none=True)
+            ctx.models.optimizer.step()
+        ctx.models.optimizer.zero_grad(set_to_none=True)
 
     def save_progress(self, batch_idx: int) -> None:
         """Offer an intra-epoch progress checkpoint to the lifecycle manager."""
         ctx = self.ctx
-        if ctx.lifecycle_manager is None:
+        if ctx.governance.lifecycle_manager is None:
             return
-        raw_m = ctx.raw_model if ctx.raw_model is not None else ctx.model
-        ctx.lifecycle_manager.check_and_save_progress(
+        raw_m = ctx.models.raw_model if ctx.models.raw_model is not None else ctx.models.model
+        ctx.governance.lifecycle_manager.check_and_save_progress(
             epoch=self.epoch,
             phase="train",
             step=batch_idx + 1,
@@ -226,7 +232,7 @@ class _TrainingPass:
         if not (is_main_process() and _log_due(clock, batch_num, session_step, now)):
             return
         clock.last_log_time = now
-        cur_lr = float(self.ctx.optimizer.param_groups[0]["lr"])
+        cur_lr = float(self.ctx.models.optimizer.param_groups[0]["lr"])
         rate, elapsed_batch = clock.rate(batch_num, now)
         metrics = (
             f"Loss: {float(raw_loss.item()):.4f} | "
@@ -245,18 +251,20 @@ class _TrainingPass:
             print(flush=True)
         elapsed = time.time() - self.clock.start_time
         steps = max(1, self.totals.step_count)
-        current_lr = float(ctx.optimizer.param_groups[0]["lr"])
+        current_lr = float(ctx.models.optimizer.param_groups[0]["lr"])
         if (
-            ctx.scheduler is not None
-            and not hasattr(ctx.scheduler, "step_batch")
-            and not (ctx.swa is not None and ctx.swa.owns_lr(self.epoch))
+            ctx.models.scheduler is not None
+            and not hasattr(ctx.models.scheduler, "step_batch")
+            and not (ctx.governance.swa is not None and ctx.governance.swa.owns_lr(self.epoch))
         ):
             try:
-                ctx.scheduler.step()
+                ctx.models.scheduler.step()
             except (TypeError, ValueError, RuntimeError) as exc:
                 # e.g. ReduceLROnPlateau requires a metrics argument; the LR is left unchanged.
                 logger.warning(
-                    "Epoch scheduler step skipped for %s: %s", type(ctx.scheduler).__name__, exc
+                    "Epoch scheduler step skipped for %s: %s",
+                    type(ctx.models.scheduler).__name__,
+                    exc,
                 )
         return {
             "train_loss": self.totals.total_loss / steps,
@@ -281,17 +289,17 @@ def train_one_epoch(
     Returns:
         dict[str, float]: Telemetry dictionary containing loss, lr, grad_norm, and elapsed time.
     """
-    ctx.model.train()
+    ctx.models.model.train()
     run = _TrainingPass(ctx, epoch)
     run.resume()
 
-    for batch_idx, batch in enumerate(ctx.train_loader):
+    for batch_idx, batch in enumerate(ctx.data.train_loader):
         if run.clock.skip_resumed(batch_idx, "BATCH", "training"):
             continue
         if cancel_check is not None and cancel_check():
             raise InterruptedError("Training cancelled by user request.")
 
-        unpacked = _unpack_batch(batch, ctx.device_info.device)
+        unpacked = _unpack_batch(batch, ctx.hardware.device_info.device)
         try:
             raw_loss, grad_norm = run.step(unpacked, batch_idx)
         except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
