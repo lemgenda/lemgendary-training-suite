@@ -108,9 +108,9 @@ def _detect_container(path: Path, meta: dict[str, Any]) -> str:
     if "container" in meta and isinstance(meta["container"], dict):
         container_type = meta["container"].get("primary", "directory")
     elif meta.get("canonical_format"):
-        container_type = meta.get("canonical_format")
+        container_type = meta["canonical_format"]
     elif meta.get("format"):
-        container_type = meta.get("format")
+        container_type = meta["format"]
     elif (path / "shards").exists() or any(
         f.suffix in (".tar", ".data") for f in path.iterdir() if f.is_file()
     ):

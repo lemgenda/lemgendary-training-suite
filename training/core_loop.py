@@ -240,13 +240,16 @@ def build_training_paths(project_root: Path, model_key: str) -> TrainingPaths:
 def clean_previous_run(paths: TrainingPaths, model_key: str) -> None:
     """Delete the previous run's checkpoints and metric logs (``--clean``)."""
     checkpoint_dir = paths.models_hub_checkpoint_dir
+    hub_dir = paths.models_hub_dir
+    if checkpoint_dir is None or hub_dir is None:
+        raise ValueError("clean_previous_run needs the LemGendaryModels paths of the run")
     for clean_target in [
         checkpoint_dir / "progress.pth",
         checkpoint_dir / "best.pth",
         checkpoint_dir / f"{model_key}_latest.pth",
         checkpoint_dir / f"{model_key}_best.pth",
-        paths.models_hub_dir / "history.csv",
-        paths.models_hub_dir / "metrics.csv",
+        hub_dir / "history.csv",
+        hub_dir / "metrics.csv",
     ]:
         if clean_target.exists():
             try:

@@ -119,15 +119,17 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
 
         # Apply chat template or manual turn construction
         if hasattr(self.tokenizer, "apply_chat_template"):
-            encoded = self._chat_template_encode(messages)
+            encoded = self._chat_template_encode(self.tokenizer, messages)
             if encoded is not None:
                 return encoded
-        return self._manual_encode(messages)
+        return self._manual_encode(self.tokenizer, messages)
 
-    def _chat_template_encode(self, messages: list) -> dict[str, torch.Tensor] | None:
+    def _chat_template_encode(
+        self, tokenizer: Any, messages: list
+    ) -> dict[str, torch.Tensor] | None:
         """Tokenize with the tokenizer's chat template; ``None`` when the template fails."""
         try:
-            input_ids = self.tokenizer.apply_chat_template(
+            input_ids = tokenizer.apply_chat_template(
                 messages,
                 tokenize=True,
                 max_length=self.max_length,
@@ -143,7 +145,7 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
             "labels": input_ids.clone(),
         }
 
-    def _manual_encode(self, messages: list) -> dict[str, torch.Tensor]:
+    def _manual_encode(self, tokenizer: Any, messages: list) -> dict[str, torch.Tensor]:
         """ChatML turns with prompt tokens masked out of the labels."""
         # Manual turn concatenation with label masking
         formatted_prompt = ""
@@ -156,8 +158,8 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
             elif role == "assistant":
                 assistant_reply += f"<|im_start|>assistant\n{content}<|im_end|>\n"
 
-        prompt_tokens = self.tokenizer.encode(formatted_prompt, add_special_tokens=False)
-        reply_tokens = self.tokenizer.encode(assistant_reply, add_special_tokens=False)
+        prompt_tokens = tokenizer.encode(formatted_prompt, add_special_tokens=False)
+        reply_tokens = tokenizer.encode(assistant_reply, add_special_tokens=False)
 
         combined_tokens = (prompt_tokens + reply_tokens)[: self.max_length]
         prompt_len = min(len(prompt_tokens), len(combined_tokens))
