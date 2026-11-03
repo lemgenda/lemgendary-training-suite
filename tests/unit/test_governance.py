@@ -286,6 +286,12 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         )
         self.assertGreaterEqual(gov.current_fraction, 0.80)
 
+    def test_plateau_patience_from_manifold_config(self) -> None:
+        """Review D-07: ``governor.manifold.plateau_patience`` of config.yaml is honoured."""
+        config = {"governor": {"manifold": {"plateau_patience": 9}}}
+        gov = SmartTrainingGovernor(self.model_info, config=config)
+        self.assertEqual(gov.plateau_patience, 9)
+
     def test_legacy_shim_compatibility(self) -> None:
         """Verify the legacy governor shim is a SmartTrainingGovernor."""
         gov = SmartTrainingGovernor(self.model_info)

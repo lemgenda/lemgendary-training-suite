@@ -74,7 +74,7 @@ class SmartTrainingGovernor(EpochAuditMixin, PropulsionMixin, GovernorStateMixin
         )
         self.sota.plateau_patience = opt.get(
             "plateau_patience",
-            self.config.get("governor", {}).get("plateau_patience", 6),
+            manifold_defaults.get("plateau_patience", 6),
         )
 
         self.plateau_priority: str = opt.get("plateau_priority", "data")
