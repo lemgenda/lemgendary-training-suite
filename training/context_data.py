@@ -15,7 +15,7 @@ from typing import Any
 from torch.utils.data import DataLoader
 
 from data.dataset import MultiTaskDataset
-from data.forex_dataset import ForexDataset
+from data.forex_dataset import ForexDataset, ForexSplit
 from data.forex_sampler import RowGroupAwareSampler
 from training.data import build_train_loader, rebuild_train_loader
 from training.data import build_val_loader as canonical_build_val_loader
@@ -122,20 +122,19 @@ def _forex_datasets(spec: RunSpec, sample_fraction: float):
     )
     fold = getattr(spec.args, "fold", 1)
     train_ds = ForexDataset(
-        shard_root=shard_root,
-        pairs=pairs,
-        active_timeframes=timeframes,
-        is_train=True,
-        sample_fraction=sample_fraction,
-        fold=fold,
+        shard_root,
+        ForexSplit(
+            pairs=pairs,
+            active_timeframes=timeframes,
+            is_train=True,
+            sample_fraction=sample_fraction,
+            fold=fold,
+        ),
     )
     try:
         val_ds = ForexDataset(
-            shard_root=shard_root,
-            pairs=pairs,
-            active_timeframes=timeframes,
-            is_train=False,
-            fold=fold,
+            shard_root,
+            ForexSplit(pairs=pairs, active_timeframes=timeframes, is_train=False, fold=fold),
         )
     except DATASET_BUILD_ERRORS as forex_val_err:
         logger.warning(

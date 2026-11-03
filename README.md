@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.89-STABLE` |
+| **Version** | `v16.9.90-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.90 - Forex Dataset Split into Roots, Shards and Index
+
+- **`data/forex_dataset.py`** (913 -> 345 lines): `ForexDataset` now takes `shard_root` and a `ForexSplit` record (pairs, timeframes, train or validation, sample fraction, fold, spread stress) instead of seven arguments; the training context builder passes `ForexSplit`. `__getitem__` (38 local variables, 75 statements) is now a dispatch to `_parquet_item` and `_legacy_item`; aligned windows of the other timeframes and the spread-stressed labels are shared helpers.
+- **`data/forex_roots.py`** (new): shard root discovery for local, Colab and Kaggle runs and the Google Drive download fallback, which was inline in `__init__` (30 local variables, 39 branches, 95 statements, 6 levels of nesting). The Colab, local and download scans share one directory scanner.
+- **`data/forex_index.py`** (new): `ForexIndexMixin.build_index` (was `_build_index`: 66 local variables, 64 branches, 174 statements, 10 levels of nesting) uses a `YearSources` registry for Parquet years and year directories, one function per source (Parquet year, year directory with chunked or unchunked shards, legacy folds) and `YearSources.target_years` for the walk-forward fold selection.
+- **`data/forex_shards.py`** (new): `ParquetRowGroupCache` and `load_shard`, moved. The cache now builds the row-group-of-row array itself (`row_group_of_rows`) and derives `num_row_groups` and `metadata` instead of storing them.
+- **Behaviour is unchanged**: an old-vs-new comparison built 400 synthetic Forex layouts (Parquet years with several row groups, year directories with chunked and unchunked shards, legacy fold shards behind an unreadable root, dataset-hub discovery, missing roots) and drove both versions through construction, up to 40 items per step and three `update_strategy` calls. Indexes, discovered roots, row-group maps, every tensor, stdout, log records and exceptions were identical. One existing fault was kept as is: rebuilding a Parquet-backed index after a timeframe change raises `AttributeError` (the per-timeframe row lists are already arrays).
+- **Tests**: 260 passed.
 
 ### v16.9.89 - Model Card Renderer Split out of the Doc Generator
 
