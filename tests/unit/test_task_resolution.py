@@ -2,6 +2,7 @@
 
 import itertools
 import json
+import logging
 import shutil
 from pathlib import Path
 
@@ -91,14 +92,10 @@ def test_unknown_task_type_raises(tmp_path: Path) -> None:
 @pytest.mark.usefixtures("taxonomy_env")
 @pytest.mark.parametrize(
     "markers",
-    [
-        combo
-        for size in range(1, len(MARKERS) + 1)
-        for combo in itertools.combinations(MARKERS, size)
-    ],
+    [combo for size in range(len(MARKERS) + 1) for combo in itertools.combinations(MARKERS, size)],
 )
 def test_legacy_layouts_match_the_old_heuristic(tmp_path: Path, markers: tuple[str, ...]) -> None:
-    """Old-vs-new: every layout the old heuristic read a signal from resolves the same way."""
+    """Old-vs-new: every legacy layout (64, images only included) resolves the same way."""
     path = _manifold(tmp_path, markers)
     container = "parquet" if "parquet" in markers else "directory"
     expected = _old_heuristic(path, path.name, container)
@@ -106,11 +103,29 @@ def test_legacy_layouts_match_the_old_heuristic(tmp_path: Path, markers: tuple[s
 
 
 @pytest.mark.usefixtures("taxonomy_env")
-def test_legacy_manifold_without_any_signal_raises(tmp_path: Path) -> None:
-    """Images only and no task_type: the old silent ``restoration`` default is now an error."""
+def test_images_only_legacy_manifold_keeps_restoration_with_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Images only and no task_type: published manifolds keep ``restoration``, with a warning."""
     path = _manifold(tmp_path, ())
-    with pytest.raises(TaskResolutionError, match="task_type"):
-        _inspect(path)
+    with caplog.at_level(logging.WARNING, logger="lemtrain.task_resolution"):
+        assert _inspect(path) == "restoration"
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert str(path) in message
+    assert "task_type" in message
+
+
+@pytest.mark.usefixtures("taxonomy_env")
+def test_declared_task_type_logs_no_legacy_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The legacy default only applies when ``task_type`` is missing."""
+    path = _manifold(tmp_path, (), info="task_type: segmentation\n")
+    with caplog.at_level(logging.WARNING, logger="lemtrain.task_resolution"):
+        assert _inspect(path) == "segmentation"
+    assert not caplog.records
 
 
 def test_taxonomy_found_under_the_workspace_root(tmp_path: Path, fake_workspace: Path) -> None:

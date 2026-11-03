@@ -9,7 +9,9 @@ Order:
    (forex markers, then ``masks/``, ``labels/``, ``targets/``) names a datasets task id
    (:data:`LEGACY_LAYOUT_TASKS`), which must exist in the datasets
    ``task_taxonomy.json`` with that split folder as its ``layout_dir``.
-3. Otherwise :class:`TaskResolutionError`; there is no silent default.
+3. A legacy manifold with none of those folders (images only) keeps the old
+   ``restoration`` default, with a warning naming the manifold
+   (:data:`LEGACY_DEFAULT_TASK`). Published manifolds predate ``task_type``.
 
 :data:`DATASETS_TO_INTERNAL_TASK` is the one table that turns a datasets task id into
 the training suite's internal task name.
@@ -22,6 +24,7 @@ The taxonomy file is ``LEMGENDARY_TASK_TAXONOMY_FILE`` when set, else
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -31,6 +34,8 @@ from types import MappingProxyType
 from typing import Any
 
 from training.utils.paths import WORKSPACE_ROOT_ENV, get_workspace_root
+
+logger = logging.getLogger("lemtrain.task_resolution")
 
 TASK_TAXONOMY_ENV = "LEMGENDARY_TASK_TAXONOMY_FILE"
 """Environment variable that overrides the taxonomy file location."""
@@ -71,6 +76,9 @@ LEGACY_LAYOUT_TASKS: tuple[tuple[str, str], ...] = (
     ("targets", "restoration"),
 )
 """Split folder of a legacy manifold -> datasets task id, first present folder wins."""
+
+LEGACY_DEFAULT_TASK = "restoration"
+"""Datasets task id of a legacy manifold with no ``task_type`` and no layout folder."""
 
 
 class TaskResolutionError(RuntimeError):
@@ -193,11 +201,15 @@ def _legacy_task_id(layout: ManifoldLayout, taxonomy: TaskTaxonomy) -> str:
                     taxonomy.path, f"legacy layout '{folder}/' expects task '{task_id}' with it"
                 )
             return task_id
-    raise TaskResolutionError(
-        f"Cannot determine the task of manifold {layout.path}: dataset_info.yaml has no "
-        f"task_type and the folder has no forex marker, masks/, labels/ or targets/. "
-        f"Add 'task_type: <task id>' to {layout.path / 'dataset_info.yaml'}."
+    logger.warning(
+        "Manifold %s has no task_type in dataset_info.yaml and no forex marker, masks/, "
+        "labels/ or targets/; using the legacy default '%s'. Add 'task_type: <task id>' to "
+        "%s.",
+        layout.path,
+        LEGACY_DEFAULT_TASK,
+        layout.path / "dataset_info.yaml",
     )
+    return LEGACY_DEFAULT_TASK
 
 
 def resolve_manifold_task(layout: ManifoldLayout) -> str:
