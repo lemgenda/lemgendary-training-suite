@@ -11,11 +11,22 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.83-STABLE` |
+| **Version** | `v16.9.84-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.84 - lemtrain CLI Split into Command-Group Modules
+
+- **`training/cli/lemtrain.py`** (954 lines) is split by command group. `app` keeps its import path, and the command tree, options and help text are unchanged (an old-vs-new comparison of all 35 commands and their help output matched).
+  - `lemtrain.py` (507): the root app, model commands, checkpoints, presets, audit and notebooks groups.
+  - `server_commands.py` (161): the `server` group and the sidecar probe and daemon launcher.
+  - `sync_commands.py` (231): the `sync` group.
+  - `llm_commands.py` (77): the `llm` group.
+  - `service_calls.py` (35): the sidecar notice and the in-process training and export calls that `train`, `export`, `llm train` and `llm export` share. Keeping the two copies would have added two `duplicate-code` findings.
+- A mojibake section comment above the LLM commands is now plain text.
+- **Tests**: 260 passed.
 
 ### v16.9.83 - MultiTaskDataset Source and Container Mixins
 
