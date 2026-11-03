@@ -11,11 +11,22 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.90-STABLE` |
+| **Version** | `v16.9.91-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.91 - Validation Pass Split into Metric Families
+
+- **`training/training/validation.py`** (791 -> 255 lines): `validate_one_epoch` (188 local variables, 81 branches, 399 statements) now drives a `_ValidationPass` (resume fast-forward, forward pass, OOM recovery, progress checkpoint, telemetry line) and runs every batch through the metric updaters in order.
+- **`training/training/val_accumulators.py`** (new): the 28 running totals are grouped into `ImageTotals`, `ForexDirectionTotals`, `ForexTradeTotals`, `QualityTotals` and `TaskTotals` inside `ValAccumulators`. `snapshot()` and `restore()` keep the flat `val_accumulators` checkpoint format (same keys, order and casts; the rank-margin totals stay out of it as before), so existing intra-epoch checkpoints resume unchanged.
+- **`training/training/val_metrics.py`** (new): one updater per metric family (image fidelity with LPIPS and 2048-feature FID in chunks of at most 2, quality ranking, classification, parameter MAE, segmentation, detection, Forex), listed in `BATCH_METRICS`; a new family is a new updater, not an edit of the loop. An unused pairwise difference in the rank-margin code was removed.
+- **`training/training/val_summary.py`** (new): end-of-pass results, with the trade statistics (profit factor, Sharpe, Sortino, maximum drawdown) in `trade_stats`.
+- **`training/training/step_progress.py`** (new): OOM detection, CUDA cache release, rank-0 check, the progress-checkpoint payload and the batch telemetry line, for use by both loops (removes three duplicate-code pairs between `epoch.py` and `validation.py`).
+- **`.pylintrc`**: `too-many-lines` is no longer disabled (no module exceeds the limit).
+- **Behaviour is unchanged**: an old-vs-new comparison drove 600 synthetic validation passes (image, quality, classification, segmentation, detection, Forex, LLM and mixed batches; eval-step models; OOM and other forward failures; LPIPS/FID/SSIM failures; resumes with full, partial and empty accumulators; cancellation; progress checkpoints with payloads; ranks 0 and 1) through both versions. Results, stdout, log records, call order, payloads and exceptions were identical.
+- **Tests**: 260 passed.
 
 ### v16.9.90 - Forex Dataset Split into Roots, Shards and Index
 
