@@ -13,9 +13,15 @@ logger = logging.getLogger("lemtrain.export.onnx_cli")
 
 def main() -> None:
     """CLI entrypoint for ONNX model export."""
-    parser = argparse.ArgumentParser(description="LemGendary SOTA Exporter: Checkpoint to FP32/FP16 ONNX")
-    parser.add_argument("--model", type=str, required=True, help="Model key from unified_models.yaml")
-    parser.add_argument("--checkpoint", type=str, default=None, help="Path to specific .pth checkpoint to export")
+    parser = argparse.ArgumentParser(
+        description="LemGendary SOTA Exporter: Checkpoint to FP32/FP16 ONNX"
+    )
+    parser.add_argument(
+        "--model", type=str, required=True, help="Model key from unified_models.yaml"
+    )
+    parser.add_argument(
+        "--checkpoint", type=str, default=None, help="Path to specific .pth checkpoint to export"
+    )
     parser.add_argument("--yes", action="store_true", help="Bypass interactive prompts")
     args = parser.parse_args()
 

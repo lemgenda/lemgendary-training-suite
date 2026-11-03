@@ -23,12 +23,17 @@ logger = logging.getLogger("lemtrain.tools.train_all")
 
 try:
     import kagglesdk.kaggle_env as ke
+
     if not hasattr(ke, "get_web_endpoint"):
+
         def get_web_endpoint(env: Any) -> str:
-            endpoint = ke.get_endpoint(env) if hasattr(ke, "get_endpoint") else "https://api.kaggle.com"
+            endpoint = (
+                ke.get_endpoint(env) if hasattr(ke, "get_endpoint") else "https://api.kaggle.com"
+            )
             if "api.kaggle.com" in endpoint:
                 return "https://www.kaggle.com"
             return str(endpoint)
+
         ke.get_web_endpoint = get_web_endpoint
 except ImportError as _kaggle_env_err:
     logger.debug("kagglesdk not installed; get_web_endpoint shim not applied: %s", _kaggle_env_err)
@@ -144,11 +149,14 @@ def main() -> None:
 
     scheduled_models = set(m for p in PHASES for m in p["models"])
     unscheduled = [
-        m for m, info in registry.items()
+        m
+        for m, info in registry.items()
         if isinstance(info, dict) and m not in scheduled_models and not m.startswith("_")
     ]
     if unscheduled:
-        PHASES.append({"name": "Phase 6: Dynamic Fleet Extensions", "datasets": [], "models": unscheduled})
+        PHASES.append(
+            {"name": "Phase 6: Dynamic Fleet Extensions", "datasets": [], "models": unscheduled}
+        )
 
     for phase in PHASES:
         approved_models: list[str] = []
@@ -156,9 +164,17 @@ def main() -> None:
             if model_key not in registry:
                 continue
 
-            final_pth = project_root.parent / "LemGendaryModels" / model_key / "checkpoints" / f"{model_key}_best.pth"
+            final_pth = (
+                project_root.parent
+                / "LemGendaryModels"
+                / model_key
+                / "checkpoints"
+                / f"{model_key}_best.pth"
+            )
             if final_pth.exists() and not args.force:
-                print(f"[SKIP] Model '{model_key}' has existing SOTA artifacts. Use --force to re-train.")
+                print(
+                    f"[SKIP] Model '{model_key}' has existing SOTA artifacts. Use --force to re-train."
+                )
                 continue
 
             if args.epochs == 1:
@@ -168,28 +184,46 @@ def main() -> None:
                     has_onnx = any(f.endswith(".onnx") for f in files)
                     has_pt = any(f.endswith(".pt") or f.endswith(".pth") for f in files)
                     if has_onnx and has_pt:
-                        print(f"[SKIP] Model '{model_key}' already has exported ONNX and PT binaries.")
+                        print(
+                            f"[SKIP] Model '{model_key}' already has exported ONNX and PT binaries."
+                        )
                         continue
 
-            if auto_accept or input(f"Train >> {model_key} << ? (y/n/all): ").strip().lower() in ["y", "all"]:
+            if auto_accept or input(f"Train >> {model_key} << ? (y/n/all): ").strip().lower() in [
+                "y",
+                "all",
+            ]:
                 approved_models.append(model_key)
                 if not auto_accept and "all" in sys.stdin.readline():
                     auto_accept = True
 
         if approved_models:
-            active_phases.append({"name": phase["name"], "datasets": phase["datasets"], "models": approved_models})
+            active_phases.append(
+                {"name": phase["name"], "datasets": phase["datasets"], "models": approved_models}
+            )
 
     for phase in active_phases:
         print(f"\n[FAST] Initiating {phase['name']}...")
         for model_key in phase["models"]:
             print(f"\nMatrix: {model_key}\n")
-            cmd = [sys.executable, str(train_script), "--model", model_key, "--epochs", str(args.epochs), "--env", args.env]
+            cmd = [
+                sys.executable,
+                str(train_script),
+                "--model",
+                model_key,
+                "--epochs",
+                str(args.epochs),
+                "--env",
+                args.env,
+            ]
             try:
                 subprocess.check_call(cmd)
                 print(f"[OK] {model_key} converged.")
             except subprocess.CalledProcessError as e:
                 print(f"[ERROR] {model_key} structural failure.")
-                failure_report["failures"].append({"model": model_key, "phase": phase["name"], "code": e.returncode})
+                failure_report["failures"].append(
+                    {"model": model_key, "phase": phase["name"], "code": e.returncode}
+                )
                 with open(failure_log_path, "w", encoding="utf-8") as f:
                     json.dump(failure_report, f, indent=4)
                 if not args.yes and input("Proceed to next? (y/n): ").lower() != "y":

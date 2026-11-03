@@ -117,15 +117,17 @@ class WebDatasetReader:
                                 mask_member = roles.get("mask")
                                 txt_member = roles.get("text")
                                 json_member = roles.get("json")
-                                self.index_map.append((
-                                    "tar",
-                                    t_path,
-                                    img_member,
-                                    tgt_member,
-                                    mask_member,
-                                    txt_member,
-                                    json_member,
-                                ))
+                                self.index_map.append(
+                                    (
+                                        "tar",
+                                        t_path,
+                                        img_member,
+                                        tgt_member,
+                                        mask_member,
+                                        txt_member,
+                                        json_member,
+                                    )
+                                )
                 except (OSError, tarfile.TarError, EOFError) as exc:
                     logger.warning("Failed opening tar file %s: %s", t_path, exc)
         else:
@@ -160,15 +162,17 @@ class WebDatasetReader:
                             mask_path = roles.get("mask")
                             txt_path = roles.get("text")
                             json_path = roles.get("json")
-                            self.index_map.append((
-                                "file",
-                                None,
-                                img_path,
-                                tgt_path,
-                                mask_path,
-                                txt_path,
-                                json_path,
-                            ))
+                            self.index_map.append(
+                                (
+                                    "file",
+                                    None,
+                                    img_path,
+                                    tgt_path,
+                                    mask_path,
+                                    txt_path,
+                                    json_path,
+                                )
+                            )
 
                 if self.index_map:
                     break
@@ -184,7 +188,9 @@ class WebDatasetReader:
 
     def __getitem__(self, index: int) -> Sample:
         if index < 0 or index >= len(self.index_map):
-            raise IndexError(f"WebDataset index {index} out of range (0..{len(self.index_map) - 1}).")
+            raise IndexError(
+                f"WebDataset index {index} out of range (0..{len(self.index_map) - 1})."
+            )
 
         entry = self.index_map[index]
         mode = entry[0]
@@ -195,8 +201,12 @@ class WebDatasetReader:
             stem = img_path.stem.split(".")[0]
             fmt = img_path.suffix.lstrip(".").lower()
 
-            target_bytes = tgt_path.read_bytes() if tgt_path is not None and tgt_path.exists() else None
-            mask_bytes = mask_path.read_bytes() if mask_path is not None and mask_path.exists() else None
+            target_bytes = (
+                tgt_path.read_bytes() if tgt_path is not None and tgt_path.exists() else None
+            )
+            mask_bytes = (
+                mask_path.read_bytes() if mask_path is not None and mask_path.exists() else None
+            )
 
             label: Any = None
             meta: dict[str, Any] = {"file": str(img_path)}
@@ -205,7 +215,9 @@ class WebDatasetReader:
                 try:
                     label = txt_path.read_text(encoding="utf-8").strip()
                 except (OSError, UnicodeDecodeError) as exc:
-                    logger.warning("Unreadable text label %s; sample has no text label: %s", txt_path, exc)
+                    logger.warning(
+                        "Unreadable text label %s; sample has no text label: %s", txt_path, exc
+                    )
 
             if json_path is not None and json_path.exists():
                 try:
@@ -214,7 +226,11 @@ class WebDatasetReader:
                     if label is None and isinstance(parsed_json, dict):
                         nima_data = parsed_json.get("nima_scores")
                         if isinstance(nima_data, dict):
-                            label = nima_data.get("distribution") or nima_data.get("scores") or nima_data.get("mean_score")
+                            label = (
+                                nima_data.get("distribution")
+                                or nima_data.get("scores")
+                                or nima_data.get("mean_score")
+                            )
                         if label is None:
                             label = (
                                 parsed_json.get("distribution")
@@ -223,7 +239,9 @@ class WebDatasetReader:
                                 or parsed_json.get("score")
                             )
                 except (OSError, ValueError) as exc:
-                    logger.warning("Unreadable JSON sidecar %s; metadata skipped: %s", json_path, exc)
+                    logger.warning(
+                        "Unreadable JSON sidecar %s; metadata skipped: %s", json_path, exc
+                    )
 
             return Sample(
                 name=stem,
@@ -238,7 +256,9 @@ class WebDatasetReader:
         # Mode: tar
         _, t_path, img_m, tgt_m, mask_m, txt_m, json_m = entry
         if t_path is None or not isinstance(t_path, Path):
-            raise ValueError(f"Corrupted WebDataset index entry: tar archive path is None at index {index}.")
+            raise ValueError(
+                f"Corrupted WebDataset index entry: tar archive path is None at index {index}."
+            )
         assert isinstance(t_path, Path)
 
         tf = self._tar_handles.get(t_path)
@@ -272,7 +292,12 @@ class WebDatasetReader:
                 try:
                     label = txt_extracted.read().decode("utf-8").strip()
                 except (OSError, tarfile.TarError, UnicodeDecodeError) as exc:
-                    logger.warning("Unreadable text label %s in %s; sample has no text label: %s", txt_m, t_path, exc)
+                    logger.warning(
+                        "Unreadable text label %s in %s; sample has no text label: %s",
+                        txt_m,
+                        t_path,
+                        exc,
+                    )
 
         if json_m is not None:
             json_extracted = tf.extractfile(json_m)
@@ -283,7 +308,11 @@ class WebDatasetReader:
                     if label is None and isinstance(parsed_json, dict):
                         nima_data = parsed_json.get("nima_scores")
                         if isinstance(nima_data, dict):
-                            label = nima_data.get("distribution") or nima_data.get("scores") or nima_data.get("mean_score")
+                            label = (
+                                nima_data.get("distribution")
+                                or nima_data.get("scores")
+                                or nima_data.get("mean_score")
+                            )
                         if label is None:
                             label = (
                                 parsed_json.get("distribution")
@@ -292,7 +321,12 @@ class WebDatasetReader:
                                 or parsed_json.get("score")
                             )
                 except (OSError, tarfile.TarError, ValueError) as exc:
-                    logger.warning("Unreadable JSON sidecar %s in %s; metadata skipped: %s", json_m, t_path, exc)
+                    logger.warning(
+                        "Unreadable JSON sidecar %s in %s; metadata skipped: %s",
+                        json_m,
+                        t_path,
+                        exc,
+                    )
 
         return Sample(
             name=stem,

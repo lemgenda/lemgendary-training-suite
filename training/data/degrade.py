@@ -23,6 +23,7 @@ core_parse_profile: Any = None
 
 try:
     import importlib
+
     datasets_root = get_workspace_root() / "lemgendary-datasets"
     if datasets_root.exists() and str(datasets_root) not in sys.path:
         sys.path.append(str(datasets_root))
@@ -176,7 +177,12 @@ class DynamicOnTheFlyDegrader:
                 prof = core_parse_profile(mode, intensity=str(intensity))
                 self._core_degrader = CoreDynamicDegrader(prof)
             except (ValueError, KeyError, TypeError, RuntimeError) as exc:
-                logger.warning("Core degrader rejected profile %r (intensity=%s); using standalone degradation: %s", mode, intensity, exc)
+                logger.warning(
+                    "Core degrader rejected profile %r (intensity=%s); using standalone degradation: %s",
+                    mode,
+                    intensity,
+                    exc,
+                )
                 self._core_degrader = None
 
     def __call__(

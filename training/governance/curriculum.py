@@ -37,7 +37,11 @@ class CurriculumState:
 
         if curr_idx < len(self.res_ladder) - 1:
             self.current_res = self.res_ladder[curr_idx + 1]
-            logger.info("Promoted curriculum resolution: %d -> %d px", self.res_ladder[curr_idx], self.current_res)
+            logger.info(
+                "Promoted curriculum resolution: %d -> %d px",
+                self.res_ladder[curr_idx],
+                self.current_res,
+            )
             return True
 
         return False
@@ -51,7 +55,11 @@ class CurriculumState:
         if new_frac > self.current_fraction:
             old_frac = self.current_fraction
             self.current_fraction = max(self.current_fraction, new_frac)
-            logger.info("Expanded curriculum sample fraction: %.1f%% -> %.1f%%", old_frac * 100.0, new_frac * 100.0)
+            logger.info(
+                "Expanded curriculum sample fraction: %.1f%% -> %.1f%%",
+                old_frac * 100.0,
+                new_frac * 100.0,
+            )
             return True
 
         return False
@@ -77,7 +85,9 @@ class CurriculumState:
     def update_batch_and_accumulation(self, new_batch: int) -> None:
         """Adjust batch size and gradient accumulation to preserve target effective batch."""
         self.current_batch = max(1, new_batch)
-        self.current_acc = max(1, round(float(self.target_effective_batch) / float(self.current_batch)))
+        self.current_acc = max(
+            1, round(float(self.target_effective_batch) / float(self.current_batch))
+        )
         logger.debug(
             "Curriculum batch updated: batch=%d, accum=%d (effective=%d)",
             self.current_batch,

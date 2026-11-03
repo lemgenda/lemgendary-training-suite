@@ -62,6 +62,7 @@ class _ModelPapersProxy(dict):
 
 MODEL_PAPERS = _ModelPapersProxy()
 
+
 # [SENIOR HARDENING v16.0 - SYNC_ID: 9942]
 def build_model_readme(
     model_key,
@@ -100,11 +101,18 @@ def build_model_readme(
             if task != "forex" and m_res > 0:
                 res_str = f"{m_res}x{m_res}"
         except (ValueError, TypeError):
-            logger.debug("Non-numeric Res %r in metrics for %s; keeping %s", metrics.get("Res"), model_key, res_str)
+            logger.debug(
+                "Non-numeric Res %r in metrics for %s; keeping %s",
+                metrics.get("Res"),
+                model_key,
+                res_str,
+            )
 
     # --- 2026 Resilience: v16.0 Stealth Usage Snippets ---
     if task == "quality":
-        usage_snippet = "```" + f"""python
+        usage_snippet = (
+            "```"
+            + f"""python
 import torch, base64
 from PIL import Image
 
@@ -135,8 +143,11 @@ scores = torch.arange(1, 11).float().to(device)
 mean_score = torch.sum(probs * scores).item()
 print(f"Quality Score: {{mean_score:.2f}}")
 ```"""
+        )
     elif task in ["restoration", "enhancement"]:
-         usage_snippet = "```" + f"""python
+        usage_snippet = (
+            "```"
+            + f"""python
 import torch, base64
 from PIL import Image
 
@@ -166,8 +177,11 @@ with torch.no_grad():
 restored_img = Image.fromarray((restored.squeeze().permute(1,2,0).cpu().numpy() * 255).astype('uint8'))
 restored_img.save("restored.png")
 ```"""
+        )
     elif task == "forex":
-        usage_snippet = "```" + f"""python
+        usage_snippet = (
+            "```"
+            + f"""python
 import torch, os
 
 # 1. Hardware-Agnostic Setup
@@ -202,8 +216,11 @@ with torch.no_grad():
     signal = torch.argmax(probs, dim=-1).item()
     print(f"Trade Signal: {{signal}}, Predicted TP/SL Pips: {{tp_sl_pips.cpu().numpy()}}")
 ```"""
+        )
     else:
-        usage_snippet = "```python\n# Premium CLI Integration provided for generative/VLM tasks.\n```"
+        usage_snippet = (
+            "```python\n# Premium CLI Integration provided for generative/VLM tasks.\n```"
+        )
 
     # --- 2026: Nuclear Badging (Task 7.1) ---
     badge_res = res_str.replace(" ", "_").replace("(", "").replace(")", "")
@@ -211,7 +228,7 @@ with torch.no_grad():
         "![SOTA](https://img.shields.io/badge/Status-SOTA-brightgreen)",
         "![Hardware](https://img.shields.io/badge/Hardware-Accelerated-blue)",
         f"![Epochs](https://img.shields.io/badge/Epochs-{epochs_trained}-orange)",
-        f"![Resolution](https://img.shields.io/badge/Res-{badge_res}-blueviolet)"
+        f"![Resolution](https://img.shields.io/badge/Res-{badge_res}-blueviolet)",
     ]
     badge_str = " ".join(badges)
 
@@ -243,13 +260,13 @@ graph TD
     loss_fn = model_info.get("loss_fn", "l1").upper()
     if loss_fn == "EMD":
         softmax_temp = model_info.get("stabilizers", {}).get("softmax_temp", 0.1)
-        stability_str = (
-            f"Trained using **Earth Mover's Distance (EMD)** with strict {softmax_temp} Temperature Anchoring."
-        )
+        stability_str = f"Trained using **Earth Mover's Distance (EMD)** with strict {softmax_temp} Temperature Anchoring."
     else:
         stability_str = f"Trained using **{loss_fn} Loss** to enforce strict manifold alignment."
     if task == "quality":
-        metrics_summary = f"**PLCC**: {metrics.get('plcc', '0.90+')} | **SRCC**: {metrics.get('srcc', '0.83+')}"
+        metrics_summary = (
+            f"**PLCC**: {metrics.get('plcc', '0.90+')} | **SRCC**: {metrics.get('srcc', '0.83+')}"
+        )
         focus = "Aesthetics" if "aesthetic" in model_key else "Technical Integrity"
         targets = (
             "Composition, Color, Lighting, Artistic Intent"
@@ -263,11 +280,11 @@ graph TD
         )
     elif task == "forex":
         sota = model_info.get("sota_targets", {})
-        dir_acc = metrics.get('dir_acc') or sota.get('dir_acc', '58.5')
-        win_rate = metrics.get('win_rate') or sota.get('win_rate', '56.0')
-        pf = metrics.get('profit_factor') or sota.get('profit_factor', '1.65')
-        sharpe = metrics.get('sharpe_ratio') or sota.get('sharpe_ratio', '1.85')
-        max_dd = metrics.get('max_drawdown') or sota.get('max_drawdown', '12.0')
+        dir_acc = metrics.get("dir_acc") or sota.get("dir_acc", "58.5")
+        win_rate = metrics.get("win_rate") or sota.get("win_rate", "56.0")
+        pf = metrics.get("profit_factor") or sota.get("profit_factor", "1.65")
+        sharpe = metrics.get("sharpe_ratio") or sota.get("sharpe_ratio", "1.85")
+        max_dd = metrics.get("max_drawdown") or sota.get("max_drawdown", "12.0")
         metrics_summary = (
             f"**Dir Acc**: {dir_acc}% | **Win Rate**: {win_rate}% | **PF**: {pf} | "
             f"**Sharpe**: {sharpe} | **MaxDD**: {max_dd}%"
@@ -285,40 +302,46 @@ graph TD
         metrics_summary = f"**mAP50**: {m50} | **mAP50-95**: {m95} | **Box Loss**: {b_loss} | **Cls Loss**: {c_loss}"
         vector_section = ""
     elif task == "face_detection" or model_key == "retinaface":
-        m_easy = metrics.get('map_easy', '0.915')
-        m_med = metrics.get('map_med', '0.890')
-        m_hard = metrics.get('map_hard', '0.750')
-        metrics_summary = f"**mAP (Easy)**: {m_easy} | **mAP (Medium)**: {m_med} | **mAP (Hard)**: {m_hard}"
+        m_easy = metrics.get("map_easy", "0.915")
+        m_med = metrics.get("map_med", "0.890")
+        m_hard = metrics.get("map_hard", "0.750")
+        metrics_summary = (
+            f"**mAP (Easy)**: {m_easy} | **mAP (Medium)**: {m_med} | **mAP (Hard)**: {m_hard}"
+        )
         vector_section = ""
     elif task == "segmentation" or model_key == "parsenet":
-        miou = metrics.get('miou', '0.860')
-        p_acc = metrics.get('pixel_acc', '0.945')
+        miou = metrics.get("miou", "0.860")
+        p_acc = metrics.get("pixel_acc", "0.945")
         metrics_summary = f"**mIoU**: {miou} | **Pixel Accuracy**: {p_acc}"
         vector_section = ""
     elif task == "parameter_prediction" or model_key == "upn_v2":
-        metrics_summary = f"**MAE**: {metrics.get('mae', '0.050')} | **MSE**: {metrics.get('mse', '0.004')}"
+        metrics_summary = (
+            f"**MAE**: {metrics.get('mae', '0.050')} | **MSE**: {metrics.get('mse', '0.004')}"
+        )
         vector_section = ""
     elif task == "classification":
-        top1 = metrics.get('acc', metrics.get('accuracy', '0.980'))
-        top5 = metrics.get('acc_top5', '0.995')
+        top1 = metrics.get("acc", metrics.get("accuracy", "0.980"))
+        top5 = metrics.get("acc_top5", "0.995")
         metrics_summary = f"**Top-1 Accuracy**: {top1} | **Top-5 Accuracy**: {top5}"
         vector_section = ""
     else:
-        psnr = metrics.get('psnr', '32.5+')
-        ssim = metrics.get('ssim', '0.94+')
-        lpips = metrics.get('lpips', '0.06-')
-        fid = metrics.get('fid', '2.5-')
-        metrics_summary = f"**PSNR**: {psnr} | **SSIM**: {ssim} | **LPIPS**: {lpips} | **FID**: {fid}"
+        psnr = metrics.get("psnr", "32.5+")
+        ssim = metrics.get("ssim", "0.94+")
+        lpips = metrics.get("lpips", "0.06-")
+        fid = metrics.get("fid", "2.5-")
+        metrics_summary = (
+            f"**PSNR**: {psnr} | **SSIM**: {ssim} | **LPIPS**: {lpips} | **FID**: {fid}"
+        )
         vector_section = ""
 
     vector_spacer = "\n" if vector_section else ""
 
     # --- Dataset Manifest ---
     ds_sizes = []
-    metadata = unified_models.get('_registry_metadata', {})
-    ds_registry = metadata.get('datasets', {})
+    metadata = unified_models.get("_registry_metadata", {})
+    ds_registry = metadata.get("datasets", {})
     for d in datasets:
-        count = ds_registry.get(d, {}).get('count', 'N/A')
+        count = ds_registry.get(d, {}).get("count", "N/A")
         if isinstance(count, int) and count >= 1000:
             count = f"{round(count / 1000)}k"
         if task == "forex":
@@ -340,7 +363,9 @@ graph TD
             "- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats.\n"
             "- **Failures**: Small bounding box occlusion and extreme aspect ratio distortions."
         )
-        eval_split_str = "- **Validation Protocol**: 80/20 train/validate with zero ground-truth label leakage."
+        eval_split_str = (
+            "- **Validation Protocol**: 80/20 train/validate with zero ground-truth label leakage."
+        )
         metrics_label = "Target Detection SOTA"
     else:
         input_reqs_str = (
@@ -380,22 +405,25 @@ graph TD
     whitepaper_link_line = ""
     try:
         from training.cloud.metadata_generator import resolve_whitepaper_url
+
         wp_url = resolve_whitepaper_url(model_key)
         if wp_url:
-            whitepaper_link_line = f"- **Ecosystem Architecture Whitepaper**: [{wp_url}]({wp_url})\n"
+            whitepaper_link_line = (
+                f"- **Ecosystem Architecture Whitepaper**: [{wp_url}]({wp_url})\n"
+            )
     except ImportError as exc:
         logger.warning("Whitepaper URL resolver unavailable for %s: %s", model_key, exc)
 
     if paper:
         paper_section = f"""## Scientific Research & Reference Paper
 
-- **Title**: {paper['title']}
-- **Authors**: {paper['authors']}
-- **Publication**: {paper['venue']} ({paper['year']})
-- **Canonical Source / Link**: [{paper['link']}]({paper['link']})
+- **Title**: {paper["title"]}
+- **Authors**: {paper["authors"]}
+- **Publication**: {paper["venue"]} ({paper["year"]})
+- **Canonical Source / Link**: [{paper["link"]}]({paper["link"]})
 {whitepaper_link_line}
 ```bibtex
-{paper['bibtex']}
+{paper["bibtex"]}
 ```
 
 """
@@ -480,17 +508,21 @@ within the LemGendary Training Suite.
 **LemGendary AI Training Suite** | *SOTA-Autonomous & Nuclear-Hardened Matrix*
 """
 
+
 def save_readme(path, content):
-    with open(path, 'w', encoding='utf-8') as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+
 
 def _get_file_count(path):
     if not os.path.isdir(path):
         return "N/A"
     return sum(1 for e in os.scandir(path) if e.is_file())
 
+
 def build_dataset_readme(dataset_name, dataset_path):
     import os
+
     readme_path = os.path.join(dataset_path, "README.md")
     existing_content = ""
     if os.path.exists(readme_path):
@@ -503,7 +535,7 @@ def build_dataset_readme(dataset_name, dataset_path):
         "## Physical Data Manifest",
         "",
         "| Folder | Train | Val |",
-        "| :--- | :--- | :--- |"
+        "| :--- | :--- | :--- |",
     ]
 
     has_data = False
@@ -602,9 +634,15 @@ if __name__ == "__main__":
     import csv
 
     parser = argparse.ArgumentParser(description="LemGendary Model Documentation Generator")
-    parser.add_argument("--all", action="store_true", help="Regenerate READMEs for all registered models")
+    parser.add_argument(
+        "--all", action="store_true", help="Regenerate READMEs for all registered models"
+    )
     parser.add_argument("--model", type=str, help="Regenerate README for a specific model key")
-    parser.add_argument("--stage-variations", action="store_true", help="Stage binary variations (pytorch, onnx_fp32, onnx_fp16) under dist/kaggle/")
+    parser.add_argument(
+        "--stage-variations",
+        action="store_true",
+        help="Stage binary variations (pytorch, onnx_fp32, onnx_fp16) under dist/kaggle/",
+    )
     args = parser.parse_args()
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -660,9 +698,11 @@ if __name__ == "__main__":
 
             staging_svc = VariationStagingService()
             st_res = staging_svc.stage_variations(model_key=m_key, validate=True)
-            print(f"[OK] Staged variations for model: {m_key} (staged={len(st_res.staged_files)}, errors={len(st_res.errors)})")
+            print(
+                f"[OK] Staged variations for model: {m_key} (staged={len(st_res.staged_files)}, errors={len(st_res.errors)})"
+            )
 
     from training.hub_readme_generator import generate_hub_readme
+
     generate_hub_readme(base_dir)
     print("\n[SUCCESS] Model README Matrix Synchronized.")
-

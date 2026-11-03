@@ -34,7 +34,9 @@ def build_optimizer(
 
     opt_type = opt_config.get("type", "adamw").lower()
     base_lr = float(lr if lr is not None else opt_config.get("lr", 1e-4))
-    base_wd = float(weight_decay if weight_decay is not None else opt_config.get("weight_decay", 1e-2))
+    base_wd = float(
+        weight_decay if weight_decay is not None else opt_config.get("weight_decay", 1e-2)
+    )
 
     decay_params: list[torch.nn.Parameter] = []
     no_decay_params: list[torch.nn.Parameter] = []
@@ -42,7 +44,12 @@ def build_optimizer(
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if param.ndim <= 1 or name.endswith(".bias") or "norm" in name.lower() or "bn" in name.lower():
+        if (
+            param.ndim <= 1
+            or name.endswith(".bias")
+            or "norm" in name.lower()
+            or "bn" in name.lower()
+        ):
             no_decay_params.append(param)
         else:
             decay_params.append(param)
@@ -120,7 +127,9 @@ def build_scheduler(
         mode = sched_config.get("mode", "min")
         factor = float(sched_config.get("factor", 0.5))
         patience = int(sched_config.get("patience", 5))
-        return ReduceLROnPlateau(optimizer, mode=mode, factor=factor, patience=patience, min_lr=min_lr)
+        return ReduceLROnPlateau(
+            optimizer, mode=mode, factor=factor, patience=patience, min_lr=min_lr
+        )
 
     if sched_type == "restarts":
         t_0 = int(sched_config.get("t_0", 10))

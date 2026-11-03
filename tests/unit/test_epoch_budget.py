@@ -92,7 +92,9 @@ class EpochBudgetPolicyTests(unittest.TestCase):
 
     def test_continue_before_budget(self) -> None:
         policy = EpochBudgetPolicy(3, EpochBudgetConfig())
-        decision = policy.decide(2, converged=False, early_stop=False, governor_reports_improvement=True)
+        decision = policy.decide(
+            2, converged=False, early_stop=False, governor_reports_improvement=True
+        )
         self.assertIs(decision.action, EpochAction.CONTINUE)
         self.assertIsNone(decision.stop_reason)
 
@@ -107,26 +109,36 @@ class EpochBudgetPolicyTests(unittest.TestCase):
         )
 
     def test_extension_is_bounded_by_ceiling(self) -> None:
-        policy = EpochBudgetPolicy(10, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=25))
+        policy = EpochBudgetPolicy(
+            10, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=25)
+        )
         last_epoch, reason = _run_loop(policy, improving=True)
         self.assertEqual(last_epoch, 35)
         self.assertIs(reason, StopReason.EXTENSION_LIMIT)
         self.assertEqual(policy.extension_used, 25)
 
     def test_extension_reports_new_budget(self) -> None:
-        policy = EpochBudgetPolicy(5, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=30))
-        decision = policy.decide(5, converged=False, early_stop=False, governor_reports_improvement=True)
+        policy = EpochBudgetPolicy(
+            5, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=30)
+        )
+        decision = policy.decide(
+            5, converged=False, early_stop=False, governor_reports_improvement=True
+        )
         self.assertIs(decision.action, EpochAction.EXTEND)
         self.assertEqual(decision.total_epochs, 15)
         self.assertEqual(decision.extension_used, 10)
 
     def test_no_extension_without_governor_improvement(self) -> None:
-        policy = EpochBudgetPolicy(10, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=30))
+        policy = EpochBudgetPolicy(
+            10, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=30)
+        )
         self.assertEqual(_run_loop(policy, improving=False), (10, StopReason.BUDGET_REACHED))
         self.assertEqual(policy.extension_used, 0)
 
     def test_early_stop_during_extension_stops(self) -> None:
-        policy = EpochBudgetPolicy(10, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=30))
+        policy = EpochBudgetPolicy(
+            10, EpochBudgetConfig(extension_epochs=10, max_extension_epochs=30)
+        )
         self.assertEqual(_run_loop(policy, early_stop_at=14), (14, StopReason.EARLY_STOP))
 
 

@@ -43,8 +43,12 @@ presets_app = typer.Typer(name="presets", help="Preset profile exploration and m
 audit_app = typer.Typer(name="audit", help="System resources, model topology, and judicial audits.")
 sync_app = typer.Typer(name="sync", help="Cloud storage synchronization and provider telemetry.")
 server_app = typer.Typer(name="server", help="FastAPI sidecar daemon process management.")
-notebooks_app = typer.Typer(name="notebooks", help="Jupyter training, inference, and usage notebook generation.")
-llm_app = typer.Typer(name="llm", help="Causal LLM instruction tuning and tri-format export operations.")
+notebooks_app = typer.Typer(
+    name="notebooks", help="Jupyter training, inference, and usage notebook generation."
+)
+llm_app = typer.Typer(
+    name="llm", help="Causal LLM instruction tuning and tri-format export operations."
+)
 
 app.add_typer(checkpoints_app, name="checkpoints")
 app.add_typer(presets_app, name="presets")
@@ -68,9 +72,14 @@ def is_sidecar_online(port: int = SIDECAR_PORT) -> bool:
 def soup(
     model: str = typer.Argument(..., help="Model key to blend vault checkpoints for."),
     donors: str | None = typer.Option(
-        None, "--donors", "-d", help="Comma-separated vault metrics (psnr,lpips). Default: every vault_*.pth."
+        None,
+        "--donors",
+        "-d",
+        help="Comma-separated vault metrics (psnr,lpips). Default: every vault_*.pth.",
     ),
-    weights: str | None = typer.Option(None, "--weights", "-w", help="Comma-separated weights (0.6,0.4)"),
+    weights: str | None = typer.Option(
+        None, "--weights", "-w", help="Comma-separated weights (0.6,0.4)"
+    ),
     output: str | None = typer.Option(None, "--output", "-o", help="Output filename or path"),
 ) -> None:
     """Blend specialized vault checkpoints using Pareto Model Soup."""
@@ -103,7 +112,7 @@ def soup(
 @app.command("version")
 def version() -> None:
     """Show LemGendary Training Suite version."""
-    typer.echo("LemGendary Model Training Suite v16.9.71 (Refactored & Hardened)")
+    typer.echo("LemGendary Model Training Suite v16.9.72 (Refactored & Hardened)")
 
 
 @app.command("train")
@@ -112,18 +121,28 @@ def train(
     epochs: int | None = typer.Option(None, "--epochs", "-e", help="Total epochs to train."),
     batch_size: int | None = typer.Option(None, "--batch-size", "-b", help="Batch size per step."),
     lr: float | None = typer.Option(None, "--lr", help="Base learning rate."),
-    preset: str | None = typer.Option(None, "--preset", "-p", help="Canonical preset profile from presets.yaml."),
-    env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."),
+    preset: str | None = typer.Option(
+        None, "--preset", "-p", help="Canonical preset profile from presets.yaml."
+    ),
+    env: str = typer.Option(
+        "local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."
+    ),
     clean: bool = typer.Option(False, "--clean", help="Wipe local checkpoints and start fresh."),
-    auto_sync: bool = typer.Option(False, "--auto-sync", help="Enable cloud checkpoint synchronization."),
-    parallel: str = typer.Option("auto", "--parallel", help="Parallel execution strategy ('auto', 'single', 'dp', 'ddp')."),
+    auto_sync: bool = typer.Option(
+        False, "--auto-sync", help="Enable cloud checkpoint synchronization."
+    ),
+    parallel: str = typer.Option(
+        "auto", "--parallel", help="Parallel execution strategy ('auto', 'single', 'dp', 'ddp')."
+    ),
 ) -> None:
     """Launch model training workflow in-process."""
     sidecar_active = is_sidecar_online()
     if sidecar_active:
         typer.echo(f"[INFO] Detected active LemGendary Sidecar Daemon on port {SIDECAR_PORT}.")
 
-    typer.echo(f"[START] Initiating training run for model '{model}' (preset={preset}, env={env})...")
+    typer.echo(
+        f"[START] Initiating training run for model '{model}' (preset={preset}, env={env})..."
+    )
 
     service = TrainingService()
     summary = service.train(
@@ -147,9 +166,15 @@ def train(
 @app.command("eval")
 def evaluate(
     model: str = typer.Argument(..., help="Model architecture key to evaluate."),
-    checkpoint: str | None = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
-    batch_size: int | None = typer.Option(None, "--batch-size", "-b", help="Evaluation batch size."),
-    env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."),
+    checkpoint: str | None = typer.Option(
+        None, "--checkpoint", "-c", help="Path to checkpoint file."
+    ),
+    batch_size: int | None = typer.Option(
+        None, "--batch-size", "-b", help="Evaluation batch size."
+    ),
+    env: str = typer.Option(
+        "local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."
+    ),
 ) -> None:
     """Evaluate a trained model checkpoint in-process."""
     typer.echo(f"[EVAL] Evaluating model '{model}'...")
@@ -171,9 +196,18 @@ def evaluate(
 @app.command("export")
 def export(
     model: str = typer.Argument(..., help="Model key to export."),
-    checkpoint: str | None = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
-    target: list[str] | None = typer.Option(None, "--target", "-t", help="Target formats ('onnx_fp32', 'onnx_fp16', 'torch_pt', 'webgpu', 'forex')."),
-    output_dir: str | None = typer.Option(None, "--output-dir", "-o", help="Target directory for binaries."),
+    checkpoint: str | None = typer.Option(
+        None, "--checkpoint", "-c", help="Path to checkpoint file."
+    ),
+    target: list[str] | None = typer.Option(
+        None,
+        "--target",
+        "-t",
+        help="Target formats ('onnx_fp32', 'onnx_fp16', 'torch_pt', 'webgpu', 'forex').",
+    ),
+    output_dir: str | None = typer.Option(
+        None, "--output-dir", "-o", help="Target directory for binaries."
+    ),
 ) -> None:
     """Compile and export model binaries into deployment targets."""
     typer.echo(f"[EXPORT] Compiling export targets for '{model}'...")
@@ -192,9 +226,15 @@ def export(
 
 @app.command("test-all")
 def test_all(
-    epochs: int = typer.Option(1, "--epochs", "-e", help="Epochs per model (default: 1 for unit test)."),
-    yes: bool = typer.Option(True, "--yes", "-y", help="Auto-confirm all models without interactive prompt."),
-    force: bool = typer.Option(False, "--force", "-f", help="Force execution even if artifacts exist."),
+    epochs: int = typer.Option(
+        1, "--epochs", "-e", help="Epochs per model (default: 1 for unit test)."
+    ),
+    yes: bool = typer.Option(
+        True, "--yes", "-y", help="Auto-confirm all models without interactive prompt."
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Force execution even if artifacts exist."
+    ),
     env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle')."),
 ) -> None:
     """Run sequential diagnostic unit-test pass across all registered neural models."""
@@ -215,8 +255,12 @@ def test_all(
 @app.command("notebooks")
 def notebooks(
     model: str = typer.Argument(..., help="Model key for notebook generation."),
-    platform: str = typer.Option("kaggle", "--platform", "-p", help="Target platform ('kaggle' or 'colab')."),
-    output_dir: str | None = typer.Option(None, "--output-dir", "-o", help="Directory for generated .ipynb files."),
+    platform: str = typer.Option(
+        "kaggle", "--platform", "-p", help="Target platform ('kaggle' or 'colab')."
+    ),
+    output_dir: str | None = typer.Option(
+        None, "--output-dir", "-o", help="Directory for generated .ipynb files."
+    ),
 ) -> None:
     """Generate standalone training, inference, and usage notebooks."""
     typer.echo(f"[NOTEBOOKS] Synthesizing {platform} notebooks for '{model}'...")
@@ -234,7 +278,9 @@ def notebooks(
 
 @checkpoints_app.command("list")
 def checkpoints_list(
-    model: str | None = typer.Option(None, "--model", "-m", help="Filter checkpoints by model key."),
+    model: str | None = typer.Option(
+        None, "--model", "-m", help="Filter checkpoints by model key."
+    ),
 ) -> None:
     """List stored model checkpoints."""
     service = CheckpointService()
@@ -247,7 +293,9 @@ def checkpoints_list(
     for r in records:
         best_tag = "[BEST]" if r["is_best"] else ""
         epoch_tag = f"Epoch {r['epoch']}" if r["epoch"] is not None else "Epoch ?"
-        typer.echo(f"  [{r['model_key']}] {r['filename']} ({r['size_mb']} MB) {epoch_tag} {best_tag}")
+        typer.echo(
+            f"  [{r['model_key']}] {r['filename']} ({r['size_mb']} MB) {epoch_tag} {best_tag}"
+        )
 
 
 @checkpoints_app.command("inspect")
@@ -271,12 +319,18 @@ def checkpoints_inspect(
 @checkpoints_app.command("prune")
 def checkpoints_prune(
     model: str = typer.Argument(..., help="Model key whose checkpoints to prune."),
-    keep_last_k: int = typer.Option(3, "--keep", "-k", help="Number of recent checkpoints to retain."),
-    keep_best: bool = typer.Option(True, "--keep-best/--no-keep-best", help="Retain best checkpoint."),
+    keep_last_k: int = typer.Option(
+        3, "--keep", "-k", help="Number of recent checkpoints to retain."
+    ),
+    keep_best: bool = typer.Option(
+        True, "--keep-best/--no-keep-best", help="Retain best checkpoint."
+    ),
 ) -> None:
     """Prune intermediate checkpoints to free disk space."""
     service = CheckpointService()
-    deleted = service.prune_checkpoints(model_key=model, keep_last_k=keep_last_k, keep_best=keep_best)
+    deleted = service.prune_checkpoints(
+        model_key=model, keep_last_k=keep_last_k, keep_best=keep_best
+    )
     if deleted:
         typer.echo(f"Pruned {len(deleted)} checkpoints:")
         for name in deleted:
@@ -329,7 +383,9 @@ def audit_system() -> None:
     typer.echo(f"  Python: {info['python_version']} | PyTorch: {info['torch_version']}")
     typer.echo(f"  Compute Device: {info['device_name']} ({info['device_type']})")
     typer.echo(f"  CUDA Available: {info['cuda_available']} (GPUs: {info['gpu_count']})")
-    typer.echo(f"  VRAM Total: {info['vram_total_gb']} GB (Allocated: {info['vram_allocated_gb']} GB, Reserved: {info['vram_reserved_gb']} GB)")
+    typer.echo(
+        f"  VRAM Total: {info['vram_total_gb']} GB (Allocated: {info['vram_allocated_gb']} GB, Reserved: {info['vram_reserved_gb']} GB)"
+    )
     typer.echo(f"  CPU Threads: {info['cpu_threads']}")
     typer.echo(f"  Disk Free: {info['disk_free_gb']} GB (Healthy: {info['disk_healthy']})")
 
@@ -355,10 +411,16 @@ def audit_model(
 @audit_app.command("judicial")
 def audit_judicial(
     model_path: str = typer.Option(..., "--model-path", "-m", help="Path to .pth or .onnx model."),
-    dataset_dir: str = typer.Option(..., "--dataset-dir", "-d", help="Directory of evaluation images."),
+    dataset_dir: str = typer.Option(
+        ..., "--dataset-dir", "-d", help="Directory of evaluation images."
+    ),
     labels_csv: str = typer.Option(..., "--labels-csv", "-l", help="Ground truth labels CSV."),
-    output_json: str | None = typer.Option(None, "--output-json", "-o", help="Path to save report."),
-    model_type: str = typer.Option("nima_aesthetic_mobile", "--model-type", help="Architecture key."),
+    output_json: str | None = typer.Option(
+        None, "--output-json", "-o", help="Path to save report."
+    ),
+    model_type: str = typer.Option(
+        "nima_aesthetic_mobile", "--model-type", help="Architecture key."
+    ),
     batch_size: int = typer.Option(32, "--batch-size", help="Batch size."),
     device: str = typer.Option("cpu", "--device", help="Execution device ('cuda' or 'cpu')."),
 ) -> None:
@@ -398,7 +460,9 @@ def sync_probe() -> None:
 @sync_app.command("run")
 def sync_run(
     model: str = typer.Argument(..., help="Model key to sync."),
-    target: str = typer.Option("gdrive", "--target", "-t", help="Target provider ('gdrive', 'kaggle', 'github')."),
+    target: str = typer.Option(
+        "gdrive", "--target", "-t", help="Target provider ('gdrive', 'kaggle', 'github')."
+    ),
     epoch: int = typer.Option(1, "--epoch", "-e", help="Epoch checkpoint to sync."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate without transferring files."),
 ) -> None:
@@ -414,13 +478,30 @@ def sync_run(
 
 @sync_app.command("push")
 def sync_push(
-    model: str | None = typer.Argument(None, help="Model key to upload to Kaggle Models (optional if --all is specified)."),
-    all_models: bool = typer.Option(False, "--all", "-a", help="Push all 22 registered models to Kaggle Models Hub."),
-    variation: str = typer.Option("all", "--variation", "-v", help="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')."),
-    version_notes: str | None = typer.Option(None, "--notes", "-n", help="Optional release version notes."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Validate isolation and metadata without uploading to Kaggle."),
-    source_dir: str | None = typer.Option(None, "--source-dir", "-s", help="Optional custom source directory."),
-    username: str | None = typer.Option(None, "--username", "-u", help="Optional Kaggle username override."),
+    model: str | None = typer.Argument(
+        None, help="Model key to upload to Kaggle Models (optional if --all is specified)."
+    ),
+    all_models: bool = typer.Option(
+        False, "--all", "-a", help="Push all 22 registered models to Kaggle Models Hub."
+    ),
+    variation: str = typer.Option(
+        "all",
+        "--variation",
+        "-v",
+        help="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16').",
+    ),
+    version_notes: str | None = typer.Option(
+        None, "--notes", "-n", help="Optional release version notes."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Validate isolation and metadata without uploading to Kaggle."
+    ),
+    source_dir: str | None = typer.Option(
+        None, "--source-dir", "-s", help="Optional custom source directory."
+    ),
+    username: str | None = typer.Option(
+        None, "--username", "-u", help="Optional Kaggle username override."
+    ),
 ) -> None:
     """Stage and upload local model checkpoints, variations, and metrics to Kaggle Models."""
     if not model and not all_models:
@@ -438,7 +519,9 @@ def sync_push(
         reg = get_model_registry()
         models = reg.list_models()
         total_models = len(models)
-        typer.echo(f"[START] Commencing fleet Kaggle push for all {total_models} models (variation: {variation}, dry_run: {dry_run})...")
+        typer.echo(
+            f"[START] Commencing fleet Kaggle push for all {total_models} models (variation: {variation}, dry_run: {dry_run})..."
+        )
         succeeded = 0
         failed = 0
 
@@ -469,15 +552,22 @@ def sync_push(
                 logger.exception("Fleet Kaggle push failed for model '%s'", m_key)
                 typer.echo(f"  [ERROR] Exception for '{m_key}': {e}")
 
-        typer.echo(f"[COMPLETED] Fleet push finished: {succeeded} succeeded, {failed} failed/skipped out of {total_models} models.")
+        typer.echo(
+            f"[COMPLETED] Fleet push finished: {succeeded} succeeded, {failed} failed/skipped out of {total_models} models."
+        )
         if failed > 0 and not dry_run and succeeded == 0:
             raise typer.Exit(code=1)
     else:
         if not model:
-            typer.echo("[ERROR] No target model specified. Provide a --model argument or use --all-models.", err=True)
+            typer.echo(
+                "[ERROR] No target model specified. Provide a --model argument or use --all-models.",
+                err=True,
+            )
             raise typer.Exit(code=1)
 
-        typer.echo(f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {variation}, dry_run: {dry_run})...")
+        typer.echo(
+            f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {variation}, dry_run: {dry_run})..."
+        )
         sync_mgr.ensure_model_metadata(model)
         staged = staging_service.stage_variations(model)
         if staged.staged_files:
@@ -499,9 +589,18 @@ def sync_push(
 @sync_app.command("pull")
 def sync_pull(
     model: str = typer.Argument(..., help="Target model key to download from Kaggle Models Hub."),
-    variation: str = typer.Option("all", "--variation", "-v", help="Variation to pull ('all', 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32')."),
-    force_download: bool = typer.Option(False, "--force", "-f", help="Force re-download even if already present locally."),
-    username: str | None = typer.Option(None, "--username", "-u", help="Optional Kaggle username override."),
+    variation: str = typer.Option(
+        "all",
+        "--variation",
+        "-v",
+        help="Variation to pull ('all', 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32').",
+    ),
+    force_download: bool = typer.Option(
+        False, "--force", "-f", help="Force re-download even if already present locally."
+    ),
+    username: str | None = typer.Option(
+        None, "--username", "-u", help="Optional Kaggle username override."
+    ),
 ) -> None:
     """Download model variation(s) from Kaggle Models Hub into canonical directories."""
     from training.cloud.kaggle_model_sync import KaggleModelSyncManager
@@ -520,7 +619,9 @@ def sync_pull(
         target_dir = sync_mgr.get_variation_dir(model, var_key)
         typer.echo(f"[{idx}/{total}] Pulling variation [{var_key}] <- {handle}...")
         try:
-            ok = sync_mgr.pull_variation(model_key=model, variation=var_key, force_download=force_download)
+            ok = sync_mgr.pull_variation(
+                model_key=model, variation=var_key, force_download=force_download
+            )
             if ok:
                 succeeded += 1
                 typer.echo(f"  [SUCCESS] Downloaded to {target_dir}")
@@ -534,7 +635,9 @@ def sync_pull(
             typer.echo(f"  [ERROR] Failed to pull {var_key}: {e}")
 
     if succeeded == total:
-        typer.echo(f"[SUCCESS] Model '{model}' pulled successfully from Kaggle ({total} variations).")
+        typer.echo(
+            f"[SUCCESS] Model '{model}' pulled successfully from Kaggle ({total} variations)."
+        )
     else:
         typer.echo(f"[ERROR] Pull incomplete for '{model}': {succeeded}/{total} succeeded.")
         raise typer.Exit(code=1)
@@ -552,11 +655,24 @@ def notebooks_list() -> None:
 
 @notebooks_app.command("generate")
 def notebooks_generate(
-    model: str | None = typer.Option(None, "--model", "-m", help="Target model key (e.g. nima_aesthetic_mobile)."),
-    platform: str = typer.Option("all", "--platform", "-p", help="Target platform ('kaggle', 'colab', 'all')."),
-    kind: list[str] | None = typer.Option(None, "--kind", "-k", help="Notebook kind ('training', 'inference', 'usage'). Default is all."),
-    output_dir: str | None = typer.Option(None, "--output-dir", "-o", help="Custom output directory."),
-    all_models: bool = typer.Option(False, "--all", "-a", help="Generate notebooks for all registered models."),
+    model: str | None = typer.Option(
+        None, "--model", "-m", help="Target model key (e.g. nima_aesthetic_mobile)."
+    ),
+    platform: str = typer.Option(
+        "all", "--platform", "-p", help="Target platform ('kaggle', 'colab', 'all')."
+    ),
+    kind: list[str] | None = typer.Option(
+        None,
+        "--kind",
+        "-k",
+        help="Notebook kind ('training', 'inference', 'usage'). Default is all.",
+    ),
+    output_dir: str | None = typer.Option(
+        None, "--output-dir", "-o", help="Custom output directory."
+    ),
+    all_models: bool = typer.Option(
+        False, "--all", "-a", help="Generate notebooks for all registered models."
+    ),
 ) -> None:
     """Generate Jupyter training, inference, and usage notebooks."""
     if not model and not all_models:
@@ -606,9 +722,20 @@ def server_start(
         return
 
     if daemon:
-        typer.echo(f"[START] Launching LemGendary Sidecar Daemon on http://{host}:{port} (daemon mode)...")
+        typer.echo(
+            f"[START] Launching LemGendary Sidecar Daemon on http://{host}:{port} (daemon mode)..."
+        )
         proc = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "training.server.app:app", "--host", host, "--port", str(port)],
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "training.server.app:app",
+                "--host",
+                host,
+                "--port",
+                str(port),
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -621,8 +748,11 @@ def server_start(
         typer.echo(f"  Interactive Docs: http://{host}:{port}/docs")
         typer.echo(f"  Auth Token: {token}")
     else:
-        typer.echo(f"[START] Starting LemGendary Sidecar Daemon on http://{host}:{port} (foreground)...")
+        typer.echo(
+            f"[START] Starting LemGendary Sidecar Daemon on http://{host}:{port} (foreground)..."
+        )
         import uvicorn
+
         uvicorn.run("training.server.app:app", host=host, port=port)
 
 
@@ -692,7 +822,9 @@ def server_status(
 
 @server_app.command("openapi")
 def server_openapi(
-    output: str | None = typer.Option(None, "--output", "-o", help="File path to save openapi.json. If omitted, prints to stdout."),
+    output: str | None = typer.Option(
+        None, "--output", "-o", help="File path to save openapi.json. If omitted, prints to stdout."
+    ),
 ) -> None:
     """Export the OpenAPI 3.1 schema specification of the sidecar daemon."""
     from training.server.app import app as application
@@ -711,18 +843,31 @@ def server_openapi(
 if __name__ == "__main__":
     app()
 
+
 # ??? LLM Operations Sub-Commands ?????????????????????????????????????????????
 @llm_app.command("train")
 def llm_train(
-    model: str = typer.Argument("ai_helper_lemgend", help="LLM model key (e.g. ai_helper_lemgend, test_llm)."),
+    model: str = typer.Argument(
+        "ai_helper_lemgend", help="LLM model key (e.g. ai_helper_lemgend, test_llm)."
+    ),
     epochs: int | None = typer.Option(None, "--epochs", "-e", help="Total training epochs."),
-    batch_size: int | None = typer.Option(None, "--batch-size", "-b", help="Per-device micro-batch size."),
+    batch_size: int | None = typer.Option(
+        None, "--batch-size", "-b", help="Per-device micro-batch size."
+    ),
     lr: float | None = typer.Option(None, "--lr", help="Learning rate for LoRA adapters."),
-    max_seq_length: int | None = typer.Option(2048, "--max-seq-length", help="Maximum sequence context length."),
-    preset: str | None = typer.Option(None, "--preset", "-p", help="Canonical preset profile from presets.yaml."),
-    env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."),
+    max_seq_length: int | None = typer.Option(
+        2048, "--max-seq-length", help="Maximum sequence context length."
+    ),
+    preset: str | None = typer.Option(
+        None, "--preset", "-p", help="Canonical preset profile from presets.yaml."
+    ),
+    env: str = typer.Option(
+        "local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."
+    ),
     clean: bool = typer.Option(False, "--clean", help="Wipe local checkpoints and start fresh."),
-    auto_sync: bool = typer.Option(False, "--auto-sync", help="Enable cloud checkpoint synchronization."),
+    auto_sync: bool = typer.Option(
+        False, "--auto-sync", help="Enable cloud checkpoint synchronization."
+    ),
 ) -> None:
     """Launch instruction fine-tuning for any causal LLM architecture."""
     if is_sidecar_online():
@@ -746,9 +891,18 @@ def llm_train(
 @llm_app.command("export")
 def llm_export(
     model: str = typer.Argument("ai_helper_lemgend", help="LLM model key to export."),
-    checkpoint: str | None = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
-    output_dir: str | None = typer.Option(None, "--output-dir", "-o", help="Target directory for binaries."),
-    target: list[str] | None = typer.Option(None, "--target", "-t", help="Target formats ('qlora_adapter', 'merged_safetensors', 'gguf_fp16')."),
+    checkpoint: str | None = typer.Option(
+        None, "--checkpoint", "-c", help="Path to checkpoint file."
+    ),
+    output_dir: str | None = typer.Option(
+        None, "--output-dir", "-o", help="Target directory for binaries."
+    ),
+    target: list[str] | None = typer.Option(
+        None,
+        "--target",
+        "-t",
+        help="Target formats ('qlora_adapter', 'merged_safetensors', 'gguf_fp16').",
+    ),
 ) -> None:
     """Compile and export tri-format binaries for an LLM."""
     typer.echo(f"[EXPORT] Compiling tri-format LLM export targets for '{model}'...")
@@ -763,12 +917,16 @@ def llm_export(
     for tgt, path in results.items():
         typer.echo(f"  [{tgt}] -> {path}")
 
+
 @app.command("test")
 def test_unit(
-    pattern: str = typer.Option("test_*.py", "--pattern", "-p", help="Test file pattern to execute (e.g. 'test_llm*.py')."),
+    pattern: str = typer.Option(
+        "test_*.py", "--pattern", "-p", help="Test file pattern to execute (e.g. 'test_llm*.py')."
+    ),
 ) -> None:
     """Run unit test suites for the Model Training Suite in-process using unittest."""
     import unittest
+
     project_root = Path(__file__).resolve().parent.parent.parent
     tests_dir = project_root / "tests" / "unit"
     typer.echo(f"[TEST] Running Training Suite unit tests in {tests_dir} (pattern: {pattern})...")
@@ -777,7 +935,8 @@ def test_unit(
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     if not result.wasSuccessful():
-        typer.echo(f"[FAIL] Unit tests failed ({len(result.failures)} failures, {len(result.errors)} errors)")
+        typer.echo(
+            f"[FAIL] Unit tests failed ({len(result.failures)} failures, {len(result.errors)} errors)"
+        )
         raise typer.Exit(1)
     typer.echo(f"[SUCCESS] All {result.testsRun} unit tests passed successfully!")
-

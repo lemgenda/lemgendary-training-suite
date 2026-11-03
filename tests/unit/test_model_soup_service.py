@@ -57,7 +57,9 @@ class TestSoupPathResolution(_SoupTree):
 
     def test_models_root_defaults_to_sibling_repo_without_config(self) -> None:
         (self.project_root / "config.yaml").unlink()
-        self.assertEqual(resolve_models_root(self.project_root), self.workspace / "LemGendaryModels")
+        self.assertEqual(
+            resolve_models_root(self.project_root), self.workspace / "LemGendaryModels"
+        )
 
     def test_absolute_configured_root_is_rejected(self) -> None:
         (self.project_root / "config.yaml").write_text(
@@ -76,7 +78,9 @@ class TestSoupPathResolution(_SoupTree):
         self.add_vaults("psnr", "lpips", "ssim")
         (self.ckpt_dir / "best.pth").write_bytes(b"x")
         paths = resolve_vault_checkpoints(MODEL, self.project_root)
-        self.assertEqual([p.name for p in paths], ["vault_lpips.pth", "vault_psnr.pth", "vault_ssim.pth"])
+        self.assertEqual(
+            [p.name for p in paths], ["vault_lpips.pth", "vault_psnr.pth", "vault_ssim.pth"]
+        )
 
     def test_missing_requested_vault_lists_it(self) -> None:
         self.add_vaults("psnr")
@@ -113,16 +117,22 @@ class TestBlendService(_SoupTree):
     def test_passes_file_list_to_soup_function(self) -> None:
         self.add_vaults("psnr", "lpips")
         fn = mock.Mock(return_value={})
-        result = blend_model_soup(MODEL, self.project_root, ["psnr", "lpips"], [0.6, 0.4], soup_function=fn)
+        result = blend_model_soup(
+            MODEL, self.project_root, ["psnr", "lpips"], [0.6, 0.4], soup_function=fn
+        )
         args, kwargs = fn.call_args
-        self.assertEqual(args[0], [self.ckpt_dir / "vault_psnr.pth", self.ckpt_dir / "vault_lpips.pth"])
+        self.assertEqual(
+            args[0], [self.ckpt_dir / "vault_psnr.pth", self.ckpt_dir / "vault_lpips.pth"]
+        )
         self.assertEqual(kwargs["weights"], [0.6, 0.4])
         self.assertEqual(kwargs["output_path"], self.ckpt_dir / "best_soup.pth")
         self.assertEqual(result.output_path, self.ckpt_dir / "best_soup.pth")
 
     def test_bare_output_name_lands_in_checkpoints(self) -> None:
         self.add_vaults("psnr", "lpips")
-        result = blend_model_soup(MODEL, self.project_root, output="mix.pth", soup_function=mock.Mock())
+        result = blend_model_soup(
+            MODEL, self.project_root, output="mix.pth", soup_function=mock.Mock()
+        )
         self.assertEqual(result.output_path, self.ckpt_dir / "mix.pth")
 
     def test_weight_count_mismatch_is_invalid(self) -> None:
@@ -193,10 +203,17 @@ class TestCliUsesSharedService(unittest.TestCase):
         tree = ast.parse(src_path.read_text(encoding="utf-8"))
         fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "soup")
         imports = {
-            (n.module, a.name) for n in ast.walk(fn) if isinstance(n, ast.ImportFrom) for a in n.names
+            (n.module, a.name)
+            for n in ast.walk(fn)
+            if isinstance(n, ast.ImportFrom)
+            for a in n.names
         }
         self.assertIn(("training.model_soup", "blend_model_soup"), imports)
-        calls = {n.func.id for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+        calls = {
+            n.func.id
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        }
         self.assertIn("blend_model_soup", calls)
         self.assertNotIn("create_pareto_model_soup", calls)
         self.assertNotIn("LemGendaryModels", ast.unparse(fn))

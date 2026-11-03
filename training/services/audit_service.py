@@ -43,12 +43,14 @@ class AuditService:
         vram_total_gb = 0.0
 
         if device_info.is_cuda:
-            vram_allocated_gb = round(torch.cuda.memory_allocated() / (1024 ** 3), 3)
-            vram_reserved_gb = round(torch.cuda.memory_reserved() / (1024 ** 3), 3)
+            vram_allocated_gb = round(torch.cuda.memory_allocated() / (1024**3), 3)
+            vram_reserved_gb = round(torch.cuda.memory_reserved() / (1024**3), 3)
             device_props = torch.cuda.get_device_properties(0)
-            vram_total_gb = round(device_props.total_memory / (1024 ** 3), 3)
+            vram_total_gb = round(device_props.total_memory / (1024**3), 3)
 
-        primary_device_name = device_info.device_names[0] if device_info.device_names else str(device_info.device)
+        primary_device_name = (
+            device_info.device_names[0] if device_info.device_names else str(device_info.device)
+        )
 
         return {
             "platform": platform.platform(),

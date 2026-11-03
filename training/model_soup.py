@@ -82,9 +82,13 @@ def resolve_models_root(project_root: Path) -> Path:
         configured = (cfg.get("paths") or {}).get("checkpoints_root")
         if configured is not None:
             if not isinstance(configured, str) or not configured.strip():
-                raise ValueError("config.yaml 'paths.checkpoints_root' must be a non-empty relative path string.")
+                raise ValueError(
+                    "config.yaml 'paths.checkpoints_root' must be a non-empty relative path string."
+                )
             if Path(configured).is_absolute():
-                raise ValueError("config.yaml 'paths.checkpoints_root' must be relative to the project root.")
+                raise ValueError(
+                    "config.yaml 'paths.checkpoints_root' must be relative to the project root."
+                )
             rel = configured
     return (project_root / rel).resolve()
 
@@ -169,7 +173,9 @@ def _validate_weights(weights: Sequence[float] | None, donor_count: int) -> list
     if len(values) != donor_count:
         raise SoupInvalidRequest(f"Got {len(values)} weights for {donor_count} donors.")
     if any(not math.isfinite(w) or w < 0 for w in values) or sum(values) <= 0:
-        raise SoupInvalidRequest("Weights must be finite, non-negative and sum to a positive value.")
+        raise SoupInvalidRequest(
+            "Weights must be finite, non-negative and sum to a positive value."
+        )
     return values
 
 
@@ -206,4 +212,6 @@ def blend_model_soup(
     out_path = _resolve_output(output, paths[0].parent)
     fn = soup_function or _default_soup_function()
     fn(paths, weights=checked_weights, output_path=out_path)
-    return SoupResult(model_key=model_key, donors=paths, weights=checked_weights, output_path=out_path)
+    return SoupResult(
+        model_key=model_key, donors=paths, weights=checked_weights, output_path=out_path
+    )

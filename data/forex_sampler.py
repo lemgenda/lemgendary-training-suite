@@ -51,7 +51,7 @@ class RowGroupAwareSampler(Sampler):
         self._groups = {}
         self._flat_order = []
 
-        index = getattr(dataset, '_index', [])
+        index = getattr(dataset, "_index", [])
         for i, entry in enumerate(index):
             try:
                 _p_idx, _tf, key, row = entry
@@ -69,20 +69,20 @@ class RowGroupAwareSampler(Sampler):
     def _locality_key(self, key, row):
         """Derive a cache-locality key for a dataset entry."""
         # Parquet branch: key is ('parquet', year_name)
-        if isinstance(key, tuple) and len(key) == 2 and key[0] == 'parquet':
+        if isinstance(key, tuple) and len(key) == 2 and key[0] == "parquet":
             yr_name = key[1]
-            meta = getattr(self.dataset, '_parquet_meta', {}).get(yr_name, {})
-            rg_of_row = meta.get('rg_of_row')
+            meta = getattr(self.dataset, "_parquet_meta", {}).get(yr_name, {})
+            rg_of_row = meta.get("rg_of_row")
             if rg_of_row is not None and 0 <= row < len(rg_of_row):
-                return ('parquet', yr_name, int(rg_of_row[row]))
-            return ('parquet', yr_name, -1)
+                return ("parquet", yr_name, int(rg_of_row[row]))
+            return ("parquet", yr_name, -1)
 
         # Legacy shard branch: key is (pair, tf, year_ident, chunk_idx)
         if isinstance(key, tuple):
-            return ('shard',) + tuple(str(x) for x in key)
+            return ("shard",) + tuple(str(x) for x in key)
 
         # Fallback
-        return ('unknown', str(key))
+        return ("unknown", str(key))
 
     def set_epoch(self, epoch: int):
         """Reseed shuffling for a new epoch."""

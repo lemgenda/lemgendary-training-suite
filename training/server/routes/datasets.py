@@ -32,21 +32,25 @@ def list_datasets() -> list[dict[str, Any]]:
             data = yaml.safe_load(f) or {}
             meta_datasets = data.get("_registry_metadata", {}).get("datasets", {})
             for name, meta in meta_datasets.items():
-                datasets_list.append({
-                    "name": name,
-                    "count": meta.get("count"),
-                    "type": meta.get("type", "compiled_manifold"),
-                })
+                datasets_list.append(
+                    {
+                        "name": name,
+                        "count": meta.get("count"),
+                        "type": meta.get("type", "compiled_manifold"),
+                    }
+                )
 
     # 2. Check local data directory
     data_dir = root / "data" / "datasets"
     if data_dir.exists():
         for d in data_dir.iterdir():
             if d.is_dir() and not any(x["name"] == d.name for x in datasets_list):
-                datasets_list.append({
-                    "name": d.name,
-                    "path": str(d),
-                    "type": "local_directory",
-                })
+                datasets_list.append(
+                    {
+                        "name": d.name,
+                        "path": str(d),
+                        "type": "local_directory",
+                    }
+                )
 
     return datasets_list

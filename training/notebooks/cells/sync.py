@@ -267,28 +267,32 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
             "    print('[OK] Subprocess successfully killed. VRAM and CPU are clean.')\n",
         ]
 
-    source = [
-        "import os, subprocess, sys\n",
-        f"suite_candidates = {suite_candidates!r}\n",
-        f"active_suite_dir = next((p for p in suite_candidates if os.path.exists(os.path.join(p, 'training', 'train.py'))), '{default_dir}')\n",
-        "os.chdir(active_suite_dir)\n",
-        "print(f'[OK] [SUITE] Active working directory set to: {os.getcwd()}')\n",
-        "\n",
-        "try:\n",
-        "    current_pid = os.getpid()\n",
-        "    ps_out = subprocess.check_output(['ps', '-ef'], text=True)\n",
-        "    for line in ps_out.split('\\n'):\n",
-        "        if 'train.py' in line and str(current_pid) not in line:\n",
-        "            parts = line.split()\n",
-        "            if len(parts) > 1:\n",
-        "                pid = int(parts[1])\n",
-        "                print(f'[JANITOR] Killing stale zombie training process (PID {pid})...')\n",
-        "                subprocess.run(['kill', '-9', str(pid)], capture_output=True)\n",
-        "except Exception:\n",
-        "    pass\n",
-        "\n",
-        f"print(f'[LAUNCH] [NUCLEAR] Initiating {launch_msg} for {meta.model_key}...')\n",
-    ] + cmd_dispatch + exec_lines
+    source = (
+        [
+            "import os, subprocess, sys\n",
+            f"suite_candidates = {suite_candidates!r}\n",
+            f"active_suite_dir = next((p for p in suite_candidates if os.path.exists(os.path.join(p, 'training', 'train.py'))), '{default_dir}')\n",
+            "os.chdir(active_suite_dir)\n",
+            "print(f'[OK] [SUITE] Active working directory set to: {os.getcwd()}')\n",
+            "\n",
+            "try:\n",
+            "    current_pid = os.getpid()\n",
+            "    ps_out = subprocess.check_output(['ps', '-ef'], text=True)\n",
+            "    for line in ps_out.split('\\n'):\n",
+            "        if 'train.py' in line and str(current_pid) not in line:\n",
+            "            parts = line.split()\n",
+            "            if len(parts) > 1:\n",
+            "                pid = int(parts[1])\n",
+            "                print(f'[JANITOR] Killing stale zombie training process (PID {pid})...')\n",
+            "                subprocess.run(['kill', '-9', str(pid)], capture_output=True)\n",
+            "except Exception:\n",
+            "    pass\n",
+            "\n",
+            f"print(f'[LAUNCH] [NUCLEAR] Initiating {launch_msg} for {meta.model_key}...')\n",
+        ]
+        + cmd_dispatch
+        + exec_lines
+    )
     return make_code_cell(source)
 
 
@@ -303,12 +307,17 @@ def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str
     metadata_yaml_str = ""
     try:
         from training.cloud.metadata_generator import KaggleMetadataService
+
         meta_svc = KaggleMetadataService(owner_slug=meta.k_username)
         metadata_obj = meta_svc.build(meta.model_key)
         metadata_yaml_str = metadata_obj.to_yaml()
     except (ImportError, OSError, ValueError, KeyError, yaml.YAMLError) as exc:
         # ValueError includes MetadataValidationError (model missing from registry / invalid fields).
-        logger.warning("Could not embed Kaggle metadata for %s; push cell ships without it: %s", meta.model_key, exc)
+        logger.warning(
+            "Could not embed Kaggle metadata for %s; push cell ships without it: %s",
+            meta.model_key,
+            exc,
+        )
         metadata_yaml_str = ""
 
     source = [

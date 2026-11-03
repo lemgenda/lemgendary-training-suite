@@ -35,7 +35,7 @@ class TestLemTrainCLI(unittest.TestCase):
         """Verify version command."""
         result = runner.invoke(app, ["version"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("LemGendary Model Training Suite v16.9.71", result.output)
+        self.assertIn("LemGendary Model Training Suite v16.9.72", result.output)
 
     def test_cli_presets_list(self) -> None:
         """Verify presets list outputs registered profiles."""
@@ -92,9 +92,16 @@ class TestLemTrainCLI(unittest.TestCase):
 
         from training.model_soup import SoupResult
 
-        result_obj = SoupResult("m", [Path("vault_psnr.pth"), Path("vault_lpips.pth")], [0.6, 0.4], Path("best_soup.pth"))
+        result_obj = SoupResult(
+            "m",
+            [Path("vault_psnr.pth"), Path("vault_lpips.pth")],
+            [0.6, 0.4],
+            Path("best_soup.pth"),
+        )
         with mock.patch("training.model_soup.blend_model_soup", return_value=result_obj) as svc:
-            result = runner.invoke(app, ["soup", "m", "--donors", "psnr,lpips", "--weights", "0.6,0.4"])
+            result = runner.invoke(
+                app, ["soup", "m", "--donors", "psnr,lpips", "--weights", "0.6,0.4"]
+            )
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(svc.call_args.kwargs["donors"], ["psnr", "lpips"])
         self.assertEqual(svc.call_args.kwargs["weights"], [0.6, 0.4])
@@ -105,7 +112,9 @@ class TestLemTrainCLI(unittest.TestCase):
 
         from training.model_soup import SoupCheckpointsMissing
 
-        err = SoupCheckpointsMissing("Missing vault checkpoints: vault_lpips.pth", ["vault_lpips.pth"])
+        err = SoupCheckpointsMissing(
+            "Missing vault checkpoints: vault_lpips.pth", ["vault_lpips.pth"]
+        )
         with mock.patch("training.model_soup.blend_model_soup", side_effect=err):
             result = runner.invoke(app, ["soup", "m"])
         self.assertEqual(result.exit_code, 1)

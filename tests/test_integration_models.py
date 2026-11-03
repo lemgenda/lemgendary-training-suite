@@ -48,6 +48,7 @@ class TestIntegrationModels(unittest.TestCase):
             # Verify metadata content
             self.assertEqual(meta_file.name, "model_metadata.yaml")
             from training.cloud.model_metadata import ModelMetadata
+
             metadata = ModelMetadata.load(meta_file)
             self.assertEqual(metadata.model.license, "CC BY-NC 4.0")
             self.assertFalse(metadata.model.is_private)

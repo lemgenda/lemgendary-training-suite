@@ -18,6 +18,7 @@ logger = logging.getLogger("lemtrain.kaggle_cloud_manager")
 def get_kernel_slug(model_name: str, username: str) -> str:
     """Generate standardized Kaggle kernel slug."""
     from training.cloud.kaggle_hub import KaggleHubManager
+
     mgr = KaggleHubManager(username=username)
     return mgr.get_kernel_slug(model_name)
 
@@ -25,6 +26,7 @@ def get_kernel_slug(model_name: str, username: str) -> str:
 def create_cloud_kernel_bundle(model_name: str, username: str, gpu: str = "T4") -> Path:
     """Package a standalone Kaggle kernel bundle containing metadata and execution script."""
     from training.cloud.kaggle_hub import KaggleHubManager
+
     mgr = KaggleHubManager(username=username)
     return mgr.create_cloud_kernel_bundle(model_name, gpu=gpu)
 
@@ -39,6 +41,7 @@ def launch_kaggle_training(
     """Pushes and launches a training kernel to Kaggle GPU Cloud headlessly."""
     from training.cloud.credentials import resolve_kaggle_credentials
     from training.cloud.kaggle_hub import KaggleHubManager
+
     user, _ = resolve_kaggle_credentials(override_user=username, override_key=key)
     mgr = KaggleHubManager(username=user, key=key, config=config)
     kernel_dir = mgr.create_cloud_kernel_bundle(model_name, gpu=gpu)
@@ -58,7 +61,9 @@ def launch_kaggle_training(
         logger.warning("Kaggle Python SDK push notice: %s. Trying CLI fallback...", err)
 
     try:
-        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+        cflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+        )
         res = subprocess.run(
             ["kaggle", "kernels", "push", "-p", str(kernel_dir)],
             capture_output=True,
@@ -76,10 +81,13 @@ def launch_kaggle_training(
     return False
 
 
-def monitor_kaggle_training(model_name: str, username: str | None = None, poll_interval: int = 5) -> None:
+def monitor_kaggle_training(
+    model_name: str, username: str | None = None, poll_interval: int = 5
+) -> None:
     """Stream status and logs from Kaggle for specified model kernel."""
     from training.cloud.credentials import resolve_kaggle_credentials
     from training.cloud.kaggle_hub import KaggleHubManager
+
     user, _ = resolve_kaggle_credentials(override_user=username)
     mgr = KaggleHubManager(username=user)
     slug = mgr.get_kernel_slug(model_name)
@@ -166,18 +174,37 @@ def main() -> None:
         ],
     )
     parser.add_argument("--model", type=str, default="nima_technical", help="Model manifold name")
-    parser.add_argument("--variation", type=str, default="all", choices=["all", "pytorch", "onnx_fp32", "onnx_fp16"], help="Variation to push")
-    parser.add_argument("--dry-run", action="store_true", help="Validate staging without pushing to Kaggle")
+    parser.add_argument(
+        "--variation",
+        type=str,
+        default="all",
+        choices=["all", "pytorch", "onnx_fp32", "onnx_fp16"],
+        help="Variation to push",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Validate staging without pushing to Kaggle"
+    )
     parser.add_argument("--username", type=str, default=None, help="Kaggle Username override")
     parser.add_argument("--key", type=str, default=None, help="Kaggle API Key override")
-    parser.add_argument("--gpu", type=str, default="T4", choices=["P100", "T4", "T4x2"], help="Kaggle GPU accelerator")
-    parser.add_argument("--output_dir", type=str, default=None, help="Target destination for downloaded artifacts")
+    parser.add_argument(
+        "--gpu",
+        type=str,
+        default="T4",
+        choices=["P100", "T4", "T4x2"],
+        help="Kaggle GPU accelerator",
+    )
+    parser.add_argument(
+        "--output_dir", type=str, default=None, help="Target destination for downloaded artifacts"
+    )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
 
     if args.action == "setup_auth":
         from training.cloud.credentials import resolve_kaggle_credentials
+
         u, _ = resolve_kaggle_credentials()
         logger.info("Authentication verified for Kaggle user: %s", u)
     elif args.action == "launch":
@@ -198,6 +225,7 @@ def main() -> None:
         )
     elif args.action == "status":
         from training.cloud.credentials import resolve_kaggle_credentials
+
         u, _ = resolve_kaggle_credentials(override_user=args.username)
         slug = get_kernel_slug(args.model, u)
         try:
@@ -213,4 +241,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

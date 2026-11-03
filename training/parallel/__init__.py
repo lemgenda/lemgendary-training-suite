@@ -80,4 +80,4 @@ def build_parallel_strategy(
         raise ValueError(
             f"Unknown parallel strategy '{name}'. Available: {', '.join(available_strategies())}"
         )
-    return _STRATEGIES[name](model, device, model_key=model_key, config=config)
+    return _STRATEGIES[name](model, device, model_key=model_key, config=config)

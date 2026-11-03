@@ -110,7 +110,9 @@ class ModelTopologyRestructuringService:
             if remove_tree(runs_dir, purpose="runs/ relocation"):
                 actions.append("Relocated runs/ directory to local scratch")
             else:
-                actions.append("Relocated runs/ contents; could not remove the empty runs/ directory")
+                actions.append(
+                    "Relocated runs/ contents; could not remove the empty runs/ directory"
+                )
 
         # Clean up rogue training/ directory if present
         training_dir = model_dir / "training"
@@ -143,7 +145,11 @@ class ModelTopologyRestructuringService:
                         epochs_trained = len(rows)
                         metrics = rows[-1]
             except (OSError, csv.Error, UnicodeDecodeError) as csv_err:
-                logger.warning("Could not parse %s for README metrics; using empty metrics: %s", metrics_csv, csv_err)
+                logger.warning(
+                    "Could not parse %s for README metrics; using empty metrics: %s",
+                    metrics_csv,
+                    csv_err,
+                )
 
         readme_file = self.doc_service.write_readme(
             model_key=model_key,

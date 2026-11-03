@@ -102,7 +102,9 @@ def export_all(
         if not ckpt_file:
             raise ExportError("CKPT_MISSING", f"No checkpoint found for forex model {model_key}")
         forex_out = destination_dir / f"{base_name}.onnx"
-        active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
+        active_tfs = model_info.get("kwargs", {}).get(
+            "active_timeframes", [1, 5, 15, 60, 240, 1440]
+        )
         exported_path = export_forex_onnx(ckpt_file, forex_out, active_timeframes=active_tfs)
         results["forex"] = exported_path
         if stage_dist:
@@ -117,11 +119,12 @@ def export_all(
     if ckpt_file and ckpt_file.exists():
         logger.info("Loading weights from checkpoint: %s", ckpt_file)
         ckpt = torch.load(str(ckpt_file), map_location="cpu", weights_only=False)
-        raw_state = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt)) if isinstance(ckpt, dict) else ckpt
-        state_dict = {
-            k.removeprefix("module."): v
-            for k, v in raw_state.items()
-        }
+        raw_state = (
+            ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
+            if isinstance(ckpt, dict)
+            else ckpt
+        )
+        state_dict = {k.removeprefix("module."): v for k, v in raw_state.items()}
         model.load_state_dict(state_dict, strict=False)
 
     model.eval()

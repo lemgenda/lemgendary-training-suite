@@ -32,11 +32,17 @@ class PyTorchModelExporter(BaseModelExporter):
         """PyTorch exporter handles non-YOLO, non-LLM, non-forex models."""
         resolved_spec = self.resolve_spec(model_key, spec)
         if not resolved_spec:
-            return model_key != "yolov8n" and "forex" not in model_key.lower() and "ai_helper" not in model_key.lower()
+            return (
+                model_key != "yolov8n"
+                and "forex" not in model_key.lower()
+                and "ai_helper" not in model_key.lower()
+            )
 
         cat = (resolved_spec.category or "").lower()
         d_type = resolved_spec.dataset_type
-        d_types = [x.lower() for x in d_type] if isinstance(d_type, list) else [(d_type or "").lower()]
+        d_types = (
+            [x.lower() for x in d_type] if isinstance(d_type, list) else [(d_type or "").lower()]
+        )
         if cat in ("llm",) or "text_instruction" in d_types or "forex" in d_types:
             return False
         if resolved_spec.key == "yolov8n" or resolved_spec.class_name == "YOLOv8n":
@@ -94,7 +100,11 @@ class PyTorchModelExporter(BaseModelExporter):
         pt_path = target_dir / f"{model_key}.pt"
         logger.info("Saving FP32 PyTorch model to %s...", pt_path)
         try:
-            state_dict = model_to_export.state_dict() if hasattr(model_to_export, "state_dict") else model_to_export
+            state_dict = (
+                model_to_export.state_dict()
+                if hasattr(model_to_export, "state_dict")
+                else model_to_export
+            )
             torch.save(state_dict, str(pt_path))
             exported_files["pt"] = pt_path
             logger.info("Successfully saved FP32 PyTorch model to %s", pt_path)

@@ -62,9 +62,7 @@ ALLOWED_METHODS: Final[tuple[str, ...]] = (
     "DELETE",
     "OPTIONS",
 )
-STATE_CHANGING_METHODS: Final[frozenset[str]] = frozenset(
-    {"POST", "PUT", "PATCH", "DELETE"}
-)
+STATE_CHANGING_METHODS: Final[frozenset[str]] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # RFC 6455 close code for "policy violation".
 _WS_POLICY_VIOLATION: Final[int] = 1008

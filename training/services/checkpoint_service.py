@@ -41,7 +41,12 @@ class CheckpointService:
                     if candidate.exists():
                         hub_path = candidate
             except (OSError, yaml.YAMLError, AttributeError, TypeError) as cfg_err:
-                logger.warning("Could not read checkpoints_root from %s; using default hub %s: %s", cfg_path, hub_path, cfg_err)
+                logger.warning(
+                    "Could not read checkpoints_root from %s; using default hub %s: %s",
+                    cfg_path,
+                    hub_path,
+                    cfg_err,
+                )
         self.hub_root = hub_path if hub_path.exists() else None
 
     def list_checkpoints(self, model_key: str | None = None) -> list[dict[str, Any]]:
@@ -114,15 +119,17 @@ class CheckpointService:
                 epoch = int(epoch_match.group(1)) if epoch_match else max_epoch_from_csv
                 is_best = "best" in file_path.name.lower() or file_path.suffix == ".pt"
 
-                results.append({
-                    "model_key": key,
-                    "filename": file_path.name,
-                    "path": str(file_path),
-                    "size_mb": round(stat.st_size / (1024 * 1024), 2),
-                    "epoch": epoch,
-                    "is_best": is_best,
-                    "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                })
+                results.append(
+                    {
+                        "model_key": key,
+                        "filename": file_path.name,
+                        "path": str(file_path),
+                        "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                        "epoch": epoch,
+                        "is_best": is_best,
+                        "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    }
+                )
 
         return sorted(results, key=lambda x: (x["model_key"], x["filename"]))
 
@@ -169,7 +176,9 @@ class CheckpointService:
                     if isinstance(param, torch.Tensor):
                         param_count += param.numel()
             except (AttributeError, TypeError, RuntimeError) as param_err:
-                logger.warning("Could not enumerate parameters of pickled model in %s: %s", path, param_err)
+                logger.warning(
+                    "Could not enumerate parameters of pickled model in %s: %s", path, param_err
+                )
 
         return {
             "path": str(path),

@@ -99,7 +99,9 @@ class VariationStagingService:
                         return
                     dest.unlink()
                 except OSError as pre_err:
-                    logger.debug("Could not compare/replace existing %s before copy: %s", dest, pre_err)
+                    logger.debug(
+                        "Could not compare/replace existing %s before copy: %s", dest, pre_err
+                    )
             shutil.copy2(str(src), str(dest))
 
         def _transfer(src: Path, dest: Path) -> None:
@@ -113,7 +115,9 @@ class VariationStagingService:
                         return
                     dest.unlink()
                 except OSError as pre_err:
-                    logger.debug("Could not compare/replace existing %s before move: %s", dest, pre_err)
+                    logger.debug(
+                        "Could not compare/replace existing %s before move: %s", dest, pre_err
+                    )
             shutil.move(str(src), str(dest))
 
         # ---------------------------------------------------------------------
@@ -254,7 +258,8 @@ class VariationStagingService:
                     break
             if not fp16_src or not fp16_src.exists():
                 root_fp16 = [
-                    f for f in hub_dir.glob("*.onnx")
+                    f
+                    for f in hub_dir.glob("*.onnx")
                     if f.is_file() and not f.name.endswith("_FP32.onnx")
                 ]
                 if root_fp16:
@@ -274,7 +279,11 @@ class VariationStagingService:
                 logger.debug("Removed non-FP16 file from onnx_fp16 variation: %s", child.name)
 
         for leftover_fp16 in hub_dir.glob("*.onnx"):
-            if leftover_fp16.is_file() and not leftover_fp16.name.endswith("_FP32.onnx") and dest_fp16.exists():
+            if (
+                leftover_fp16.is_file()
+                and not leftover_fp16.name.endswith("_FP32.onnx")
+                and dest_fp16.exists()
+            ):
                 try:
                     leftover_fp16.unlink()
                 except OSError as unlink_err:

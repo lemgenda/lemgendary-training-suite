@@ -278,6 +278,7 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
 
     def test_ladder_intra_resolution_fractions(self) -> None:
         from training.governance.yolo_governor import build_ladder_curriculum
+
         opt_cfg = {"initial_fraction": 0.15, "plateau_patience": 10}
         stages = build_ladder_curriculum(
             res_ladder=[320, 480, 640],
@@ -315,6 +316,7 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
 
     def test_ladder_start_resolution_override(self) -> None:
         from training.governance.yolo_governor import build_ladder_curriculum
+
         stages = build_ladder_curriculum(
             res_ladder=[320, 480, 640],
             total_epochs=100,
@@ -337,6 +339,7 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
 
     def test_ladder_single_resolution(self) -> None:
         from training.governance.yolo_governor import build_ladder_curriculum
+
         stages = build_ladder_curriculum(
             res_ladder=[640],
             total_epochs=50,
@@ -348,7 +351,6 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
         self.assertEqual(len(stages), 5)
         self.assertEqual([s.fraction for s in stages], [0.15, 0.35, 0.55, 0.75, 1.00])
         self.assertEqual(sum(s.target_epochs for s in stages), 50)
-
 
 
 class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
@@ -466,8 +468,16 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
                 (output_dir / f"{model_key}.pt").write_bytes(fake_weight.read_bytes())
                 (output_dir / f"{model_key}.onnx").write_bytes(fake_onnx_source.read_bytes())
 
-            with patch("training.governance.yolo_governor.create_yolo_model", return_value=mock_yolo_instance), \
-                 patch("training.governance.yolo_governor.export_tri_format_yolo", side_effect=mock_tri_format):
+            with (
+                patch(
+                    "training.governance.yolo_governor.create_yolo_model",
+                    return_value=mock_yolo_instance,
+                ),
+                patch(
+                    "training.governance.yolo_governor.export_tri_format_yolo",
+                    side_effect=mock_tri_format,
+                ),
+            ):
                 governor._export_sota_models(fake_weight, resolution=640)
 
             # Verify PyTorch model and ONNX model were exported to LemGendaryModels/yolov8n
@@ -515,6 +525,7 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             )
 
             call_count = 0
+
             def mock_train(**kwargs):
                 nonlocal call_count
                 call_count += 1
@@ -528,8 +539,15 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             fake_onnx.write_bytes(b"ONNXDATA")
             mock_yolo_instance.export.return_value = str(fake_onnx)
 
-            with patch("training.governance.yolo_governor.create_yolo_model", return_value=mock_yolo_instance), \
-                 patch("training.governance.yolo_governor.generate_yolo_yaml", return_value="mock.yaml"):
+            with (
+                patch(
+                    "training.governance.yolo_governor.create_yolo_model",
+                    return_value=mock_yolo_instance,
+                ),
+                patch(
+                    "training.governance.yolo_governor.generate_yolo_yaml", return_value="mock.yaml"
+                ),
+            ):
                 summary = governor.run()
 
             # Governor executed 4 planned stages (50%, 65%, 80%, 100%) + 1 extension cycle until SOTA
@@ -537,16 +555,18 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             self.assertTrue(governor.sota_achieved)
             self.assertEqual(summary.status, "completed")
 
-
     def test_compute_safe_batch_size_yolo_480px(self) -> None:
         from training.governance.yolo_governor import compute_safe_batch_size
+
         # 4.0 GB VRAM GPU (e.g. GTX 1650)
         vram_4gb = 4.0
         # At resolution 480, safe batch size must allow 16
         safe_batch_480 = compute_safe_batch_size(imgsz=480, vram_gb=vram_4gb, requested_batch=16)
         self.assertEqual(safe_batch_480, 16)
         # When requested batch is 32, clamped to safe max of 16
-        safe_batch_clamped = compute_safe_batch_size(imgsz=480, vram_gb=vram_4gb, requested_batch=32)
+        safe_batch_clamped = compute_safe_batch_size(
+            imgsz=480, vram_gb=vram_4gb, requested_batch=32
+        )
         self.assertEqual(safe_batch_clamped, 16)
         # At 320px on 4GB, allows 32
         safe_batch_320 = compute_safe_batch_size(imgsz=320, vram_gb=vram_4gb, requested_batch=32)
@@ -555,6 +575,3 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-

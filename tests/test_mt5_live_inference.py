@@ -50,14 +50,16 @@ def generate_synthetic_candles(n_bars: int = 600) -> pd.DataFrame:
     open_ = close + np.random.randn(n_bars) * 0.0002
     volume = np.random.randint(100, 5000, size=n_bars)
 
-    df = pd.DataFrame({
-        "time": dt_index,
-        "open": open_,
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": volume,
-    })
+    df = pd.DataFrame(
+        {
+            "time": dt_index,
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+        }
+    )
     return df
 
 
@@ -68,7 +70,10 @@ def test_multi_timeframe_live_pipeline():
 
     # 1. MT5 Terminal Discovery
     mt5_active = connect_mt5()
-    print(f" -> MT5 Terminal Connection: {'LIVE' if mt5_active else 'OFFLINE (Running Synthetic Mock)'}", flush=True)
+    print(
+        f" -> MT5 Terminal Connection: {'LIVE' if mt5_active else 'OFFLINE (Running Synthetic Mock)'}",
+        flush=True,
+    )
 
     # 2. Multi-Timeframe Tensors Setup
     active_tfs = [1, 5, 15, 60, 240, 1440]
@@ -83,7 +88,10 @@ def test_multi_timeframe_live_pipeline():
         if mt5_active:
             raw_df = download_bars(test_pair, tf, n_bars=seq_len + 50)
             if raw_df is None or len(raw_df) < seq_len:
-                print(f"    [WARN] Live pull failed for {test_pair}@{tf}m, falling back to mock.", flush=True)
+                print(
+                    f"    [WARN] Live pull failed for {test_pair}@{tf}m, falling back to mock.",
+                    flush=True,
+                )
                 raw_df = generate_synthetic_candles(seq_len + 50)
         else:
             raw_df = generate_synthetic_candles(seq_len + 50)
@@ -91,8 +99,12 @@ def test_multi_timeframe_live_pipeline():
         df_ind = compute_indicators(raw_df)
         df_norm = normalize_ohlcv(df_ind)
         features = df_norm[FEATURES].values[-seq_len:]
-        tf_inputs[tf] = torch.from_numpy(np.array(features, copy=True)).float().unsqueeze(0)  # [1, seq_len, 14]
-        print(f"    [OK] Timeframe {tf}m Tensor Built: Shape {list(tf_inputs[tf].shape)}", flush=True)
+        tf_inputs[tf] = (
+            torch.from_numpy(np.array(features, copy=True)).float().unsqueeze(0)
+        )  # [1, seq_len, 14]
+        print(
+            f"    [OK] Timeframe {tf}m Tensor Built: Shape {list(tf_inputs[tf].shape)}", flush=True
+        )
 
     # 3. Model Instantiation & Forward Pass
     print("\n -> Instantiating ForexPredictor (4 Heads, Cross-Timeframe Fusion)...", flush=True)
@@ -124,7 +136,10 @@ def test_multi_timeframe_live_pipeline():
 
     avg_lat = np.mean(latencies)
     p95_lat = np.percentile(latencies, 95)
-    print(f"    [LATENCY] Mean: {avg_lat:.2f} ms | P95: {p95_lat:.2f} ms | Sub-5ms Target: {'PASS' if avg_lat < 5.0 else 'EXCEEDED'}", flush=True)
+    print(
+        f"    [LATENCY] Mean: {avg_lat:.2f} ms | P95: {p95_lat:.2f} ms | Sub-5ms Target: {'PASS' if avg_lat < 5.0 else 'EXCEEDED'}",
+        flush=True,
+    )
 
     # 5. Output Signal Parsing
     dir_logits = preds["direction_logits"]
@@ -139,7 +154,10 @@ def test_multi_timeframe_live_pipeline():
     print("\n" + "-" * 80, flush=True)
     print(f" [SIGNAL RESULT] Asset: {test_pair}", flush=True)
     print(f"  -> Direction:       {dir_map[pred_dir_idx]}", flush=True)
-    print(f"  -> Confidence:      {probs[pred_dir_idx]*100:.2f}% (Probabilities: Sell={probs[0]*100:.1f}%, Hold={probs[1]*100:.1f}%, Buy={probs[2]*100:.1f}%)", flush=True)
+    print(
+        f"  -> Confidence:      {probs[pred_dir_idx] * 100:.2f}% (Probabilities: Sell={probs[0] * 100:.1f}%, Hold={probs[1] * 100:.1f}%, Buy={probs[2] * 100:.1f}%)",
+        flush=True,
+    )
     print(f"  -> Target Take-Profit: {tp_pips:.1f} pips", flush=True)
     print(f"  -> Risk Stop-Loss:     {sl_pips:.1f} pips", flush=True)
     print(f"  -> Risk/Reward Ratio:  {tp_pips / max(0.1, sl_pips):.2f}", flush=True)

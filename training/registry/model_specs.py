@@ -92,7 +92,9 @@ class ModelRegistryService:
         if not manifest_path.exists():
             manifest_path = project_root / "unified_models.yaml"
 
-        caps_path = (project_root.parent / "lemgendary-docs" / "canonical_capabilities.yaml").resolve()
+        caps_path = (
+            project_root.parent / "lemgendary-docs" / "canonical_capabilities.yaml"
+        ).resolve()
 
         caps_by_id: dict[str, Any] = {}
         if caps_path.exists():
@@ -126,7 +128,9 @@ class ModelRegistryService:
 
                     # 2. Parse academic reference (from canonical_capabilities first, then manifest)
                     cap_info = caps_by_id.get(m_key, {})
-                    acad_raw = cap_info.get("academic_reference") or raw_val.get("academic_reference", {})
+                    acad_raw = cap_info.get("academic_reference") or raw_val.get(
+                        "academic_reference", {}
+                    )
                     acad_ref = None
                     if acad_raw:
                         acad_ref = AcademicReference(

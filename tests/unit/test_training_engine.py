@@ -211,6 +211,7 @@ class TestTrainingEngine(unittest.TestCase):
 
     def test_validate_one_epoch_forex(self) -> None:
         """Verify validate_one_epoch computes directional and pip regression metrics for Forex models."""
+
         class MockForexModel(nn.Module):
             def __init__(self) -> None:
                 super().__init__()
@@ -237,6 +238,7 @@ class TestTrainingEngine(unittest.TestCase):
         class MockForexValLoader:
             def __iter__(self):
                 yield x_val, targets
+
             def __len__(self):
                 return 1
 

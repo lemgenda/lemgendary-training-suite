@@ -11,11 +11,16 @@ from typing import Any
 
 logger = logging.getLogger("lemtrain.notebooks.registry")
 
+
 def _get_project_root() -> Path:
     """Resolve project root directory across training suite or datasets repositories."""
     here = Path(__file__).resolve()
     for parent in [here] + list(here.parents):
-        if (parent / "config.yaml").exists() or (parent / "unified_data.yaml").exists() or (parent / "pyproject.toml").exists():
+        if (
+            (parent / "config.yaml").exists()
+            or (parent / "unified_data.yaml").exists()
+            or (parent / "pyproject.toml").exists()
+        ):
             return parent
     return here.parent.parent.parent
 
@@ -86,13 +91,24 @@ def resolve_model_metadata(
     # Resolve canonical Kaggle username and handles using SSOT variations
     try:
         from training.cloud.credentials import resolve_kaggle_credentials
+
         user_cred, _ = resolve_kaggle_credentials()
-        k_username = user_cred or (config.get("kaggle_username", "lemtreursi") if config else "lemtreursi")
+        k_username = user_cred or (
+            config.get("kaggle_username", "lemtreursi") if config else "lemtreursi"
+        )
     except (ImportError, OSError, ValueError) as exc:
-        logger.warning("Kaggle credential resolution failed for %s; using configured username: %s", model_key, exc)
+        logger.warning(
+            "Kaggle credential resolution failed for %s; using configured username: %s",
+            model_key,
+            exc,
+        )
         k_username = config.get("kaggle_username", "lemtreursi") if config else "lemtreursi"
 
-    k_slug = model_info.get("kaggle_metadata", {}).get("slug") if isinstance(model_info.get("kaggle_metadata"), dict) else None
+    k_slug = (
+        model_info.get("kaggle_metadata", {}).get("slug")
+        if isinstance(model_info.get("kaggle_metadata"), dict)
+        else None
+    )
     if not k_slug:
         k_slug = model_key.replace("_", "-").lower()
 
@@ -102,6 +118,7 @@ def resolve_model_metadata(
         PYTORCH_DEFAULT,
         PYTORCH_FP32,
     )
+
     handle_pytorch_default = PYTORCH_DEFAULT.handle(k_username, k_slug)
     handle_pytorch_fp32 = PYTORCH_FP32.handle(k_username, k_slug)
     handle_onnx_fp16 = ONNX_FP16.handle(k_username, k_slug)
@@ -120,7 +137,7 @@ def resolve_model_metadata(
         if urls:
             kaggle_ref = urls[0]
     if kaggle_ref.startswith("kaggle://"):
-        clean_kaggle_repo = kaggle_ref[len("kaggle://"):].strip()
+        clean_kaggle_repo = kaggle_ref[len("kaggle://") :].strip()
     elif "kaggle.com/datasets/" in kaggle_ref:
         clean_kaggle_repo = kaggle_ref.split("kaggle.com/datasets/")[-1].strip().strip("/")
     else:

@@ -70,7 +70,13 @@ def _is_progress_line(text: str) -> bool:
 
 # Failures a tee line handler (JobManager._broadcast_log) can raise: job-state DB access (sqlite3),
 # log-file I/O (OSError), payload encoding (TypeError/ValueError) and a closed event loop (RuntimeError).
-_LINE_HANDLER_ERRORS: tuple[type[Exception], ...] = (sqlite3.Error, OSError, RuntimeError, TypeError, ValueError)
+_LINE_HANDLER_ERRORS: tuple[type[Exception], ...] = (
+    sqlite3.Error,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+)
 
 # Failures writing to the wrapped console stream: broken pipe / detached console (OSError) and
 # closed stream or unencodable text (ValueError, incl. UnicodeEncodeError).
@@ -101,7 +107,9 @@ class _GlobalOutputTee:
         finally:
             self._diag_state.active = False
 
-    def _dispatch(self, handler: Callable[[str], None], line: str, failures: list[Exception]) -> None:
+    def _dispatch(
+        self, handler: Callable[[str], None], line: str, failures: list[Exception]
+    ) -> None:
         try:
             handler(line)
         except _LINE_HANDLER_ERRORS as exc:
@@ -198,7 +206,9 @@ class JobManager:
     def __init__(self, state: ServerState | None = None, max_workers: int = 2) -> None:
         self.project_root = get_project_root()
         self.state = state or ServerState(project_root=self.project_root)
-        self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="lemtrain-worker")
+        self.executor = ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="lemtrain-worker"
+        )
         self._cancellation_events: dict[str, threading.Event] = {}
         self._job_subscribers: dict[str, set[asyncio.Queue[str]]] = {}
         self._global_subscribers: set[asyncio.Queue[str]] = set()
@@ -223,13 +233,17 @@ class JobManager:
         job_id = f"job_{timestamp}_{clean_uuid}"
 
         job_params = params or {}
-        self.state.insert_job(job_id=job_id, job_type=job_type, model_key=model_key, params=job_params)
+        self.state.insert_job(
+            job_id=job_id, job_type=job_type, model_key=model_key, params=job_params
+        )
 
         cancel_event = threading.Event()
         with self._lock:
             self._cancellation_events[job_id] = cancel_event
 
-        self.executor.submit(self._run_job_worker, job_id, job_type, model_key, job_params, cancel_event)
+        self.executor.submit(
+            self._run_job_worker, job_id, job_type, model_key, job_params, cancel_event
+        )
         return job_id
 
     def cancel_job(self, job_id: str) -> bool:
@@ -244,7 +258,9 @@ class JobManager:
             return False
 
         if job["status"] in ("pending", "running"):
-            self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
+            self.state.update_job_status(
+                job_id=job_id, status="cancelled", error_message="Cancelled by user request"
+            )
             self._broadcast_log(job_id, f"[STATUS] Job {job_id} was cancelled.")
             return True
 
@@ -307,7 +323,11 @@ class JobManager:
         # Determine contextual job type and step name for telemetry isolation
         job = self.state.get_job(job_id)
         job_type = job.get("job_type", "train") if job else "train"
-        step_name = "Cloud Training" if job_type in ("kaggle_train", "kaggle_monitor", "cloud_push") else "Training"
+        step_name = (
+            "Cloud Training"
+            if job_type in ("kaggle_train", "kaggle_monitor", "cloud_push")
+            else "Training"
+        )
 
         payload_dict = {
             "timestamp": timestamp,
@@ -333,7 +353,9 @@ class JobManager:
         # Threadsafe push to asyncio queues
         if self._loop and self._loop.is_running():
             with self._lock:
-                target_queues = list(self._job_subscribers.get(job_id, set())) + list(self._global_subscribers)
+                target_queues = list(self._job_subscribers.get(job_id, set())) + list(
+                    self._global_subscribers
+                )
             for q in target_queues:
                 self._loop.call_soon_threadsafe(q.put_nowait, log_payload)
 
@@ -350,6 +372,7 @@ class JobManager:
         self._broadcast_log(job_id, f"[START] Commencing execution of {job_type} on {model_key}...")
 
         tid = threading.get_ident()
+
         def _job_log_filter(line: str) -> None:
             if job_type in ("kaggle_push", "kaggle_push_all"):
                 # Suppress noisy library lines; keep structured steps, errors, and success summaries
@@ -370,7 +393,9 @@ class JobManager:
 
         try:
             if cancel_event.is_set():
-                self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled before start")
+                self.state.update_job_status(
+                    job_id=job_id, status="cancelled", error_message="Cancelled before start"
+                )
                 self._broadcast_log(job_id, "[CANCEL] Job aborted prior to dispatch.")
                 return
 
@@ -397,7 +422,9 @@ class JobManager:
 
         except (InterruptedError, KeyboardInterrupt):
             logger.info("Job %s was cancelled by user request.", job_id)
-            self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
+            self.state.update_job_status(
+                job_id=job_id, status="cancelled", error_message="Cancelled by user request"
+            )
             self._broadcast_log(job_id, f"[CANCEL] Job {job_id} halted by cancellation signal.")
         except Exception as exc:
             logger.exception("Job %s encountered unexpected failure: %s", job_id, exc)
@@ -451,8 +478,12 @@ class JobManager:
         }
 
         if summary.status == "cancelled" or cancel_event.is_set():
-            self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
-            self._broadcast_log(job_id, f"[CANCEL] Training halted for '{summary.model_name}' by user request.")
+            self.state.update_job_status(
+                job_id=job_id, status="cancelled", error_message="Cancelled by user request"
+            )
+            self._broadcast_log(
+                job_id, f"[CANCEL] Training halted for '{summary.model_name}' by user request."
+            )
             return
 
         self.state.update_job_status(job_id=job_id, status="completed", metrics=metrics)
@@ -485,8 +516,12 @@ class JobManager:
             env=params.get("env", "local"),
         )
 
-        self.state.update_job_status(job_id=job_id, status="completed", metrics=result.get("metrics", {}))
-        self._broadcast_log(job_id, f"[SUCCESS] Evaluation complete. Metrics: {result.get('metrics', {})}")
+        self.state.update_job_status(
+            job_id=job_id, status="completed", metrics=result.get("metrics", {})
+        )
+        self._broadcast_log(
+            job_id, f"[SUCCESS] Evaluation complete. Metrics: {result.get('metrics', {})}"
+        )
 
     def _execute_export(
         self,
@@ -521,8 +556,12 @@ class JobManager:
         auto_pull = params.get("auto_pull", True)
         poll_interval = params.get("poll_interval", 5)
 
-        user, key = resolve_kaggle_credentials(override_user=username_override, override_key=key_override)
-        self._broadcast_log(job_id, f"[KAGGLE] Authenticating Kaggle API for user: '{user}' (Accelerator: {gpu})...")
+        user, key = resolve_kaggle_credentials(
+            override_user=username_override, override_key=key_override
+        )
+        self._broadcast_log(
+            job_id, f"[KAGGLE] Authenticating Kaggle API for user: '{user}' (Accelerator: {gpu})..."
+        )
 
         api = authenticate_kaggle_user(user, key) if (user and key) else None
         if not api:
@@ -536,16 +575,26 @@ class JobManager:
 
         mgr = KaggleHubManager(username=user, key=key)
         kernel_slug = mgr.get_kernel_slug(model_key)
-        self._broadcast_log(job_id, f"[KAGGLE] Packaging standalone kernel bundle for {model_key}...")
+        self._broadcast_log(
+            job_id, f"[KAGGLE] Packaging standalone kernel bundle for {model_key}..."
+        )
         kernel_dir = mgr.create_cloud_kernel_bundle(model_key, gpu=gpu)
-        self._broadcast_log(job_id, f"[KAGGLE] Deploying kernel bundle {kernel_slug} to Kaggle Cloud...")
+        self._broadcast_log(
+            job_id, f"[KAGGLE] Deploying kernel bundle {kernel_slug} to Kaggle Cloud..."
+        )
 
         try:
             api.kernels_push(str(kernel_dir))
             self._broadcast_log(job_id, f"[KAGGLE] Kernel successfully pushed: {kernel_slug}")
         except KAGGLE_API_ERRORS as sdk_err:
-            self._broadcast_log(job_id, f"[WARN] Python SDK push notice: {sdk_err}. Trying CLI fallback...")
-            cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+            self._broadcast_log(
+                job_id, f"[WARN] Python SDK push notice: {sdk_err}. Trying CLI fallback..."
+            )
+            cflags = (
+                getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                if sys.platform == "win32"
+                else 0
+            )
             res = subprocess.run(
                 ["kaggle", "kernels", "push", "-p", str(kernel_dir)],
                 capture_output=True,
@@ -578,7 +627,12 @@ class JobManager:
                     )
                     last_status = status_val
             except KAGGLE_API_ERRORS as exc:
-                logger.debug("Kaggle status poll failed for %s; keeping %s: %s", kernel_slug, last_status, exc)
+                logger.debug(
+                    "Kaggle status poll failed for %s; keeping %s: %s",
+                    kernel_slug,
+                    last_status,
+                    exc,
+                )
                 status_val = last_status
 
             try:
@@ -604,10 +658,14 @@ class JobManager:
                                 try:
                                     pull_kaggle_artifacts(model_key, username=user)
                                 except _PULL_ERRORS as pull_err:
-                                    self._broadcast_log(job_id, f"[WARN] Auto-pull notice: {pull_err}")
+                                    self._broadcast_log(
+                                        job_id, f"[WARN] Auto-pull notice: {pull_err}"
+                                    )
                     printed_lines_count = len(all_lines)
             except KAGGLE_API_ERRORS as exc:
-                logger.debug("Kaggle log poll failed for %s; retrying next interval: %s", kernel_slug, exc)
+                logger.debug(
+                    "Kaggle log poll failed for %s; retrying next interval: %s", kernel_slug, exc
+                )
 
             if status_val in ["COMPLETE", "ERROR", "CANCELACK"]:
                 if status_val == "COMPLETE":
@@ -629,20 +687,26 @@ class JobManager:
                         status="completed",
                         metrics={"kaggle_status": "COMPLETE", "kernel_slug": kernel_slug},
                     )
-                    self._broadcast_log(job_id, f"[SUCCESS] Kaggle training completed successfully for {model_key}!")
+                    self._broadcast_log(
+                        job_id, f"[SUCCESS] Kaggle training completed successfully for {model_key}!"
+                    )
                 else:
                     self.state.update_job_status(
                         job_id=job_id,
                         status="failed",
                         error_message=f"Kaggle kernel halted with status: {status_val}",
                     )
-                    self._broadcast_log(job_id, f"[ERROR] Kaggle cloud job ended with status: {status_val}")
+                    self._broadcast_log(
+                        job_id, f"[ERROR] Kaggle cloud job ended with status: {status_val}"
+                    )
                 return
 
             time.sleep(poll_interval)
 
         if cancel_event.is_set():
-            self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
+            self.state.update_job_status(
+                job_id=job_id, status="cancelled", error_message="Cancelled by user request"
+            )
             self._broadcast_log(
                 job_id,
                 f"[CANCEL] Telemetry stream detached for {kernel_slug}. Remote kernel may continue running on Kaggle.",
@@ -662,12 +726,16 @@ class JobManager:
         auto_pull = params.get("auto_pull", False)
         poll_interval = params.get("poll_interval", 5)
 
-        user, key = resolve_kaggle_credentials(override_user=username_override, override_key=key_override)
+        user, key = resolve_kaggle_credentials(
+            override_user=username_override, override_key=key_override
+        )
         if not kernel_slug:
             mgr = KaggleHubManager(username=user)
             kernel_slug = mgr.get_kernel_slug(model_key)
 
-        self._broadcast_log(job_id, f"[KAGGLE] Connecting to telemetry stream for '{kernel_slug}'...")
+        self._broadcast_log(
+            job_id, f"[KAGGLE] Connecting to telemetry stream for '{kernel_slug}'..."
+        )
         api = authenticate_kaggle_user(user, key) if (user and key) else None
         if not api:
             try:
@@ -690,7 +758,12 @@ class JobManager:
                     )
                     last_status = status_val
             except KAGGLE_API_ERRORS as exc:
-                logger.debug("Kaggle status poll failed for %s; keeping %s: %s", kernel_slug, last_status, exc)
+                logger.debug(
+                    "Kaggle status poll failed for %s; keeping %s: %s",
+                    kernel_slug,
+                    last_status,
+                    exc,
+                )
                 status_val = last_status
 
             try:
@@ -715,10 +788,14 @@ class JobManager:
                                 try:
                                     pull_kaggle_artifacts(model_key, username=user)
                                 except _PULL_ERRORS as pull_err:
-                                    self._broadcast_log(job_id, f"[WARN] Auto-pull notice: {pull_err}")
+                                    self._broadcast_log(
+                                        job_id, f"[WARN] Auto-pull notice: {pull_err}"
+                                    )
                     printed_lines_count = len(all_lines)
             except KAGGLE_API_ERRORS as exc:
-                logger.debug("Kaggle log poll failed for %s; retrying next interval: %s", kernel_slug, exc)
+                logger.debug(
+                    "Kaggle log poll failed for %s; retrying next interval: %s", kernel_slug, exc
+                )
 
             if status_val in ["COMPLETE", "ERROR", "CANCELACK"]:
                 if status_val == "COMPLETE" and auto_pull and model_key:
@@ -728,7 +805,10 @@ class JobManager:
                     )
                     try:
                         pull_kaggle_artifacts(model_key, username=user)
-                        self._broadcast_log(job_id, f"[SUCCESS] Final artifacts saved to LemGendaryModels/{model_key}!")
+                        self._broadcast_log(
+                            job_id,
+                            f"[SUCCESS] Final artifacts saved to LemGendaryModels/{model_key}!",
+                        )
                     except _PULL_ERRORS as pe:
                         self._broadcast_log(job_id, f"[WARN] Pull notice: {pe}")
 
@@ -743,7 +823,9 @@ class JobManager:
             time.sleep(poll_interval)
 
         if cancel_event.is_set():
-            self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
+            self.state.update_job_status(
+                job_id=job_id, status="cancelled", error_message="Cancelled by user request"
+            )
             self._broadcast_log(job_id, "[CANCEL] Disconnected from telemetry stream.")
 
     def _execute_test_all(
@@ -804,10 +886,14 @@ class JobManager:
                     else:
                         proc.kill()
                 except (OSError, subprocess.SubprocessError) as exc:
-                    logger.warning("Failed to terminate test process %s after cancellation: %s", proc.pid, exc)
+                    logger.warning(
+                        "Failed to terminate test process %s after cancellation: %s", proc.pid, exc
+                    )
 
         if cancel_event.is_set():
-            self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
+            self.state.update_job_status(
+                job_id=job_id, status="cancelled", error_message="Cancelled by user request"
+            )
             self._broadcast_log(job_id, "[CANCEL] Fleet diagnostic pass halted by cancellation.")
             return
 
@@ -824,7 +910,9 @@ class JobManager:
                 status="failed",
                 error_message=f"Exit code: {proc.returncode}",
             )
-            self._broadcast_log(job_id, f"[ERROR] Fleet diagnostic pass failed with return code {proc.returncode}.")
+            self._broadcast_log(
+                job_id, f"[ERROR] Fleet diagnostic pass failed with return code {proc.returncode}."
+            )
 
     def _push_model_with_telemetry(
         self,
@@ -899,12 +987,17 @@ class JobManager:
             self._broadcast_log(job_id, f"{prefix}[ERROR] {model_key} metadata sync: {err_str}")
 
         # 3. Emit exact 2 clean summary log entries on success
-        if result.success and (not result.metadata_sync_result or not result.metadata_sync_result.get("errors")):
+        if result.success and (
+            not result.metadata_sync_result or not result.metadata_sync_result.get("errors")
+        ):
             self._broadcast_log(
                 job_id,
                 f"{prefix}[SUCCESS] Model {model_key} pushed successfully to Kaggle ({total} variations)",
             )
-            self._broadcast_log(job_id, f"{prefix}[SUCCESS] Kaggle metadata was successfully updated for {model_key}")
+            self._broadcast_log(
+                job_id,
+                f"{prefix}[SUCCESS] Kaggle metadata was successfully updated for {model_key}",
+            )
         elif result.errors:
             self._broadcast_log(
                 job_id,
@@ -933,11 +1026,15 @@ class JobManager:
             dry_run=dry_run,
             cancel_event=cancel_event,
         )
-        if res.success and (not res.metadata_sync_result or not res.metadata_sync_result.get("errors")):
+        if res.success and (
+            not res.metadata_sync_result or not res.metadata_sync_result.get("errors")
+        ):
             self.state.update_job_status(job_id=job_id, status="completed", metrics=res.to_dict())
         else:
             err = "; ".join(res.errors) if res.errors else "Kaggle push failed"
-            self.state.update_job_status(job_id=job_id, status="failed", error_message=err, metrics=res.to_dict())
+            self.state.update_job_status(
+                job_id=job_id, status="failed", error_message=err, metrics=res.to_dict()
+            )
 
     def _execute_kaggle_push_all(
         self,
@@ -972,7 +1069,9 @@ class JobManager:
                     status="cancelled",
                     error_message="Cancelled by user request",
                 )
-                self._broadcast_log(job_id, f"[CANCEL] Fleet push cancelled before processing '{model_spec.key}'.")
+                self._broadcast_log(
+                    job_id, f"[CANCEL] Fleet push cancelled before processing '{model_spec.key}'."
+                )
                 return
 
             model_key = model_spec.key
@@ -995,7 +1094,8 @@ class JobManager:
                 )
 
                 if push_res.success and (
-                    not push_res.metadata_sync_result or not push_res.metadata_sync_result.get("errors")
+                    not push_res.metadata_sync_result
+                    or not push_res.metadata_sync_result.get("errors")
                 ):
                     successful_count += 1
                 else:
@@ -1072,7 +1172,9 @@ class JobManager:
                     )
                 else:
                     errors.append(f"[{var_key}] Pull returned False")
-                    self._broadcast_log(job_id, f"[ERROR] {model_key} [{var_key}]: pull returned False")
+                    self._broadcast_log(
+                        job_id, f"[ERROR] {model_key} [{var_key}]: pull returned False"
+                    )
             except (*kagglehub_errors(), RuntimeError) as exc:
                 # RuntimeError: kagglehub SDK missing (raised by pull_variation).
                 logger.warning("Kaggle pull failed for %s [%s]: %s", model_key, var_key, exc)

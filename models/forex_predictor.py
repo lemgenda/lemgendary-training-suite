@@ -25,12 +25,12 @@ TIMEFRAME_RUNGS = [1, 5, 15, 60, 240, 1440]
 
 # Canonical lookback windows per timeframe (covers ~1 trading week each)
 TIMEFRAME_LOOKBACK = {
-    1:    512,   # M1  → ~8.5 hours
-    5:    288,   # M5  → ~1 day
-    15:   192,   # M15 → ~2 days
-    60:   168,   # H1  → ~1 week
-    240:   90,   # H4  → ~2.5 weeks
-    1440:  252,  # D1  → ~1 year
+    1: 512,  # M1  → ~8.5 hours
+    5: 288,  # M5  → ~1 day
+    15: 192,  # M15 → ~2 days
+    60: 168,  # H1  → ~1 week
+    240: 90,  # H4  → ~2.5 weeks
+    1440: 252,  # D1  → ~1 year
 }
 
 # Currency Universe: Titan 4 starting core, extensible up to 16 professional assets
@@ -39,14 +39,25 @@ MAJOR_PAIRS = TITAN_PAIRS
 
 EXTENDED_PAIRS = [
     # G7 Majors (4 Core + 4 G7)
-    "EURUSD", "GBPUSD", "USDJPY", "XAUUSD",
-    "USDCAD", "USDCHF", "AUDUSD", "NZDUSD",
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "XAUUSD",
+    "USDCAD",
+    "USDCHF",
+    "AUDUSD",
+    "NZDUSD",
     # High-Beta Crosses
-    "EURJPY", "GBPJPY", "EURGBP",
+    "EURJPY",
+    "GBPJPY",
+    "EURGBP",
     # Commodities & Energy
-    "XAGUSD", "USOIL",
+    "XAGUSD",
+    "USOIL",
     # Global Equity Indices
-    "US500", "NAS100", "DE40"
+    "US500",
+    "NAS100",
+    "DE40",
 ]
 
 # Alias mapping for alternate CFD broker tickers
@@ -63,12 +74,24 @@ NUM_PAIRS = len(EXTENDED_PAIRS)
 
 # Canonical pip scaling factors (Normalized Pip Units / NPU)
 PAIR_PIP_SCALE = {
-    "EURUSD": 1.0, "GBPUSD": 1.0, "USDJPY": 1.0, "USDCAD": 1.0,
-    "USDCHF": 1.0, "AUDUSD": 1.0, "NZDUSD": 1.0,
-    "EURGBP": 1.0, "EURJPY": 1.0, "GBPJPY": 1.0,
-    "XAGUSD": 5.0, "USOIL": 5.0, "XAUUSD": 10.0,
-    "US500": 20.0, "DE40": 20.0, "GER40": 20.0,
-    "NAS100": 40.0, "USTEC": 40.0
+    "EURUSD": 1.0,
+    "GBPUSD": 1.0,
+    "USDJPY": 1.0,
+    "USDCAD": 1.0,
+    "USDCHF": 1.0,
+    "AUDUSD": 1.0,
+    "NZDUSD": 1.0,
+    "EURGBP": 1.0,
+    "EURJPY": 1.0,
+    "GBPJPY": 1.0,
+    "XAGUSD": 5.0,
+    "USOIL": 5.0,
+    "XAUUSD": 10.0,
+    "US500": 20.0,
+    "DE40": 20.0,
+    "GER40": 20.0,
+    "NAS100": 40.0,
+    "USTEC": 40.0,
 }
 
 # 2026 v1.1: Single source of truth for magnitude ceiling.
@@ -95,6 +118,7 @@ def _select_valid_n_heads(d_model: int, n_tf: int, preferred: int) -> int:
 # Building Blocks
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class CausalConv1DBlock(nn.Module):
     """
     Causal (no future lookahead) dilated Conv1D block with stochastic depth.
@@ -110,6 +134,7 @@ class CausalConv1DBlock(nn.Module):
         dropout:        Dropout probability.
         drop_path_rate: Probability of dropping the entire block (stochastic depth).
     """
+
     def __init__(
         self,
         in_channels: int,
@@ -125,19 +150,21 @@ class CausalConv1DBlock(nn.Module):
         self.drop_path_rate = drop_path_rate
 
         self.conv = nn.Conv1d(
-            in_channels, out_channels,
+            in_channels,
+            out_channels,
             kernel_size=kernel_size,
             padding=0,
             dilation=dilation,
         )
         self.norm = nn.LayerNorm(out_channels)
-        self.act  = nn.GELU()
+        self.act = nn.GELU()
         self.drop = nn.Dropout(dropout)
 
         # Projection shortcut when channel dims differ
         self.shortcut = (
             nn.Conv1d(in_channels, out_channels, kernel_size=1)
-            if in_channels != out_channels else nn.Identity()
+            if in_channels != out_channels
+            else nn.Identity()
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -147,8 +174,8 @@ class CausalConv1DBlock(nn.Module):
         if self.training and self.drop_path_rate > 0.0:
             if torch.rand(1).item() < self.drop_path_rate:
                 return residual
-        x = F.pad(x, (self.causal_pad, 0))       # Causal left-pad only
-        x = self.conv(x)                           # [B, out_channels, T]
+        x = F.pad(x, (self.causal_pad, 0))  # Causal left-pad only
+        x = self.conv(x)  # [B, out_channels, T]
         x = self.norm(x.transpose(1, 2)).transpose(1, 2)  # LayerNorm over channels
         x = self.act(x)
         x = self.drop(x)
@@ -172,6 +199,7 @@ class TimeframeEncoder(nn.Module):
         dropout:      Dropout probability.
         pair_d_model: Dimension of pair embedding to inject as input bias (0 = disabled).
     """
+
     def __init__(
         self,
         seq_len: int,
@@ -194,14 +222,16 @@ class TimeframeEncoder(nn.Module):
         layers = []
         in_ch = in_features
         for i in range(n_layers):
-            dilation = 2 ** i
-            layers.append(CausalConv1DBlock(in_ch, d_model, kernel_size=3, dilation=dilation, dropout=dropout))
+            dilation = 2**i
+            layers.append(
+                CausalConv1DBlock(in_ch, d_model, kernel_size=3, dilation=dilation, dropout=dropout)
+            )
             in_ch = d_model
         self.tcn = nn.Sequential(*layers)
 
         # Multi-scale pooling: concat mean + last-step -> 2*d_model
         self.project = nn.Linear(2 * d_model, d_model)
-        self.norm    = nn.LayerNorm(d_model)
+        self.norm = nn.LayerNorm(d_model)
 
     def forward(self, x: torch.Tensor, pair_emb: torch.Tensor | None = None) -> torch.Tensor:
         """
@@ -214,13 +244,13 @@ class TimeframeEncoder(nn.Module):
         if pair_emb is not None and self.pair_proj is not None:
             # Inject pair embedding as additive bias across all time steps
             pair_bias = self.pair_proj(pair_emb).unsqueeze(1)  # [B, 1, in_features]
-            x = x + pair_bias                                   # [B, seq_len, in_features]
-        x = x.transpose(1, 2)          # [B, F, T]
-        x = self.tcn(x)                 # [B, d_model, T]
+            x = x + pair_bias  # [B, seq_len, in_features]
+        x = x.transpose(1, 2)  # [B, F, T]
+        x = self.tcn(x)  # [B, d_model, T]
 
-        mean_pool = x.mean(dim=2)       # [B, d_model]  -- macro context
-        last_step = x[:, :, -1]         # [B, d_model]  -- most recent state
-        pooled    = torch.cat([mean_pool, last_step], dim=1)  # [B, 2*d_model]
+        mean_pool = x.mean(dim=2)  # [B, d_model]  -- macro context
+        last_step = x[:, :, -1]  # [B, d_model]  -- most recent state
+        pooled = torch.cat([mean_pool, last_step], dim=1)  # [B, 2*d_model]
 
         feat = self.project(pooled)
         feat = self.norm(feat)
@@ -239,7 +269,10 @@ class CrossTimeframeAttention(nn.Module):
         dropout:    Dropout probability.
         tf_dropout: Timeframe dropout probability during training.
     """
-    def __init__(self, d_model: int = 128, n_heads: int = 4, dropout: float = 0.1, tf_dropout: float = 0.15):
+
+    def __init__(
+        self, d_model: int = 128, n_heads: int = 4, dropout: float = 0.1, tf_dropout: float = 0.15
+    ):
         super().__init__()
         self.attn = nn.MultiheadAttention(
             embed_dim=d_model,
@@ -259,10 +292,15 @@ class CrossTimeframeAttention(nn.Module):
             out: [B, num_timeframes * d_model]  (flattened for head input)
         """
         if self.training and self.tf_dropout > 0.0 and tf_feats.shape[1] > 1:
-            mask = (torch.rand(tf_feats.shape[0], tf_feats.shape[1], 1, device=tf_feats.device) >= self.tf_dropout).float()
-            all_masked = (mask.sum(dim=1, keepdim=True) == 0)
+            mask = (
+                torch.rand(tf_feats.shape[0], tf_feats.shape[1], 1, device=tf_feats.device)
+                >= self.tf_dropout
+            ).float()
+            all_masked = mask.sum(dim=1, keepdim=True) == 0
             if all_masked.any():
-                rand_idx = torch.randint(0, tf_feats.shape[1], (tf_feats.shape[0],), device=tf_feats.device)
+                rand_idx = torch.randint(
+                    0, tf_feats.shape[1], (tf_feats.shape[0],), device=tf_feats.device
+                )
                 for b in range(tf_feats.shape[0]):
                     if all_masked[b, 0, 0]:
                         mask[b, rand_idx[b], 0] = 1.0
@@ -271,7 +309,7 @@ class CrossTimeframeAttention(nn.Module):
         residual = tf_feats
         attn_out, _ = self.attn(tf_feats, tf_feats, tf_feats)
         out = self.norm(residual + self.drop(attn_out))  # [B, n_tf, d_model]
-        return out.flatten(1)                             # [B, n_tf * d_model]
+        return out.flatten(1)  # [B, n_tf * d_model]
 
 
 class DirectionHead(nn.Module):
@@ -284,6 +322,7 @@ class DirectionHead(nn.Module):
         hidden_dim:  Hidden layer dimension.
         dropout:     Dropout probability.
     """
+
     def __init__(self, in_features: int, hidden_dim: int = 256, dropout: float = 0.2):
         super().__init__()
         self.head = nn.Sequential(
@@ -294,7 +333,7 @@ class DirectionHead(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.head(x)   # [B, 3]
+        return self.head(x)  # [B, 3]
 
 
 class MagnitudeHead(nn.Module):
@@ -308,6 +347,7 @@ class MagnitudeHead(nn.Module):
         hidden_dim:  Hidden layer dimension.
         dropout:     Dropout probability.
     """
+
     def __init__(self, in_features: int, hidden_dim: int = 384, dropout: float = 0.2):
         super().__init__()
         self.trunk = nn.Sequential(
@@ -315,9 +355,9 @@ class MagnitudeHead(nn.Module):
             nn.GELU(),
             nn.Dropout(dropout),
         )
-        self.tp_head = nn.Linear(hidden_dim, 1)   # Take-Profit pips
-        self.sl_head = nn.Linear(hidden_dim, 1)   # Stop-Loss pips
-        self.act     = nn.Softplus()               # Ensures positive pip outputs
+        self.tp_head = nn.Linear(hidden_dim, 1)  # Take-Profit pips
+        self.sl_head = nn.Linear(hidden_dim, 1)  # Stop-Loss pips
+        self.act = nn.Softplus()  # Ensures positive pip outputs
         # 2026 v1.1: Sourced from the module-level constant for loss-head parity
         self.max_pips = MAX_PIPS_CEILING
 
@@ -326,7 +366,7 @@ class MagnitudeHead(nn.Module):
         Returns:
             mag: [B, 2]  -- (tp_pips, sl_pips), positive, clamped to max_pips
         """
-        h  = self.trunk(x)
+        h = self.trunk(x)
         tp = torch.clamp(self.act(self.tp_head(h)), max=self.max_pips)
         sl = torch.clamp(self.act(self.sl_head(h)), max=self.max_pips)
         return torch.cat([tp, sl], dim=1)  # [B, 2]
@@ -335,6 +375,7 @@ class MagnitudeHead(nn.Module):
 # ─────────────────────────────────────────────────────────────────────────────
 # Main Model
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class ForexPredictor(nn.Module):
     """
@@ -378,6 +419,7 @@ class ForexPredictor(nn.Module):
         in_features:       Features per bar (default: FOREX_FEATURES_PER_BAR = 14).
         pairs:             Optional subset of pairs for pair-embedding sizing.
     """
+
     def __init__(
         self,
         active_timeframes: list | None = None,
@@ -408,22 +450,24 @@ class ForexPredictor(nn.Module):
         self.num_pairs = max(len(self.pairs), NUM_PAIRS)
 
         # Pair embedding: early projection for TCN input conditioning
-        self.pair_embed   = nn.Embedding(self.num_pairs, d_model)
+        self.pair_embed = nn.Embedding(self.num_pairs, d_model)
         self.pair_project = nn.Linear(d_model, d_model)
 
         # Build one TCN encoder per active timeframe
         # Each encoder receives the pair embedding as an additive input bias
-        self.encoders = nn.ModuleDict({
-            str(tf): TimeframeEncoder(
-                seq_len      = TIMEFRAME_LOOKBACK[tf],
-                in_features  = in_features,
-                d_model      = d_model,
-                n_layers     = n_layers,
-                dropout      = dropout,
-                pair_d_model = d_model,
-            )
-            for tf in self.active_timeframes
-        })
+        self.encoders = nn.ModuleDict(
+            {
+                str(tf): TimeframeEncoder(
+                    seq_len=TIMEFRAME_LOOKBACK[tf],
+                    in_features=in_features,
+                    d_model=d_model,
+                    n_layers=n_layers,
+                    dropout=dropout,
+                    pair_d_model=d_model,
+                )
+                for tf in self.active_timeframes
+            }
+        )
 
         n_tf = len(self.active_timeframes)
 
@@ -432,10 +476,10 @@ class ForexPredictor(nn.Module):
 
         # Cross-timeframe attention fuses multiple timeframe embeddings
         self.cross_attn = CrossTimeframeAttention(
-            d_model    = d_model,
-            n_heads    = valid_n_heads,
-            dropout    = dropout,
-            tf_dropout = tf_dropout,
+            d_model=d_model,
+            n_heads=valid_n_heads,
+            dropout=dropout,
+            tf_dropout=tf_dropout,
         )
 
         # Fused manifold dimension: n_tf * d_model (from cross_attn) + d_model (pair embed)
@@ -487,7 +531,7 @@ class ForexPredictor(nn.Module):
     def forward(
         self,
         tf_inputs: dict,
-        pair_idx:  torch.Tensor | None = None,
+        pair_idx: torch.Tensor | None = None,
     ) -> dict:
         """
         Args:
@@ -510,8 +554,8 @@ class ForexPredictor(nn.Module):
         pair_idx = self._safe_pair_idx(pair_idx, batch_size, device)
 
         # Pair embedding: used both for TCN input conditioning and final manifold fusion
-        pair_emb_raw = self.pair_embed(pair_idx)        # [B, d_model]
-        pair_emb     = self.pair_project(pair_emb_raw)  # [B, d_model]
+        pair_emb_raw = self.pair_embed(pair_idx)  # [B, d_model]
+        pair_emb = self.pair_project(pair_emb_raw)  # [B, d_model]
 
         # Encode each active timeframe with pair-conditioned TCN
         tf_feats = []
@@ -533,19 +577,19 @@ class ForexPredictor(nn.Module):
 
         # Stack -> [B, n_tf, d_model] -> cross-timeframe attention -> [B, n_tf * d_model]
         tf_stack = torch.stack(tf_feats, dim=1)
-        fused_tf = self.cross_attn(tf_stack)               # [B, n_tf * d_model]
+        fused_tf = self.cross_attn(tf_stack)  # [B, n_tf * d_model]
 
         # Final manifold fusion with pair embedding
-        fused    = torch.cat([fused_tf, pair_emb], dim=1)  # [B, n_tf*d_model + d_model]
-        manifold = self.fused_project(fused)                # [B, head_hidden]
+        fused = torch.cat([fused_tf, pair_emb], dim=1)  # [B, n_tf*d_model + d_model]
+        manifold = self.fused_project(fused)  # [B, head_hidden]
 
-        direction = self.direction_head(manifold)            # [B, 3]
-        magnitude = self.magnitude_head(manifold)            # [B, 2]
+        direction = self.direction_head(manifold)  # [B, 3]
+        magnitude = self.magnitude_head(manifold)  # [B, 2]
 
         return {
-            "direction":        direction,
+            "direction": direction,
             "direction_logits": direction,
-            "magnitude":        magnitude,
+            "magnitude": magnitude,
         }
 
     def expand_timeframe(self, new_tf: int):
@@ -573,15 +617,15 @@ class ForexPredictor(nn.Module):
         # 2026 v1.1 Fix: inherit pair_d_model from an existing encoder so the
         # new branch stays pair-conditioned like its siblings.
         ref_encoder = next(iter(self.encoders.values()))
-        ref_pair_d_model = getattr(ref_encoder, 'pair_d_model', self.d_model)
+        ref_pair_d_model = getattr(ref_encoder, "pair_d_model", self.d_model)
 
         self.encoders[key] = TimeframeEncoder(
-            seq_len      = TIMEFRAME_LOOKBACK[new_tf],
-            in_features  = self.in_features,
-            d_model      = self.d_model,
-            n_layers     = self.n_layers,
-            dropout      = self.dropout,
-            pair_d_model = ref_pair_d_model,
+            seq_len=TIMEFRAME_LOOKBACK[new_tf],
+            in_features=self.in_features,
+            d_model=self.d_model,
+            n_layers=self.n_layers,
+            dropout=self.dropout,
+            pair_d_model=ref_pair_d_model,
         )
         self.active_timeframes.append(new_tf)
 
@@ -592,12 +636,14 @@ class ForexPredictor(nn.Module):
         n_tf = len(self.active_timeframes)
         # 2026 v1.1 Fix: use the divisibility helper (was relying on nn.MultiheadAttention
         # to raise an obscure AssertionError on non-divisible configs).
-        valid_n_heads = _select_valid_n_heads(self.d_model, n_tf, preferred=old_cross_attn.attn.num_heads)
+        valid_n_heads = _select_valid_n_heads(
+            self.d_model, n_tf, preferred=old_cross_attn.attn.num_heads
+        )
 
         self.cross_attn = CrossTimeframeAttention(
-            d_model    = self.d_model,
-            n_heads    = valid_n_heads,
-            tf_dropout = self.tf_dropout,
+            d_model=self.d_model,
+            n_heads=valid_n_heads,
+            tf_dropout=self.tf_dropout,
         )
 
         # 2026 v1.1 Warm-Start: MultiheadAttention's in_proj / out_proj / LayerNorm
@@ -605,10 +651,14 @@ class ForexPredictor(nn.Module):
         # any structurally-incompatible keys fall back to fresh init.
         try:
             self.cross_attn.load_state_dict(old_cross_state, strict=False)
-            print(f" [ForexPredictor] cross_attn warm-started (heads={valid_n_heads}, n_tf={n_tf}).")
+            print(
+                f" [ForexPredictor] cross_attn warm-started (heads={valid_n_heads}, n_tf={n_tf})."
+            )
         except RuntimeError as e:
             # load_state_dict raises RuntimeError on tensor shape mismatches.
-            logger.warning("cross_attn warm-start skipped (heads=%d, n_tf=%d): %s", valid_n_heads, n_tf, e)
+            logger.warning(
+                "cross_attn warm-start skipped (heads=%d, n_tf=%d): %s", valid_n_heads, n_tf, e
+            )
 
         # ── Rebuild fused_project with partial warm-start ────────────────────
         old_proj = self.fused_project
@@ -617,7 +667,11 @@ class ForexPredictor(nn.Module):
         m0 = old_proj[0]
         m2 = old_proj[2]
         m3 = old_proj[3]
-        if not (isinstance(m0, nn.Linear) and isinstance(m2, nn.Dropout) and isinstance(m3, nn.LayerNorm)):
+        if not (
+            isinstance(m0, nn.Linear)
+            and isinstance(m2, nn.Dropout)
+            and isinstance(m3, nn.LayerNorm)
+        ):
             return
 
         old_in_dim = m0.in_features
@@ -644,11 +698,17 @@ class ForexPredictor(nn.Module):
             if new_first_linear.bias is not None and m0.bias is not None:
                 new_first_linear.bias.copy_(m0.bias)
             # LayerNorm at the tail is shape-invariant (hidden-dim); copy directly
-            if m3.weight is not None and new_ln.weight is not None and m3.weight.shape == new_ln.weight.shape:
+            if (
+                m3.weight is not None
+                and new_ln.weight is not None
+                and m3.weight.shape == new_ln.weight.shape
+            ):
                 new_ln.weight.copy_(m3.weight)
                 if new_ln.bias is not None and m3.bias is not None:
                     new_ln.bias.copy_(m3.bias)
         self.fused_project = new_proj
 
         print(f" [ForexPredictor] Expanded to {n_tf} timeframes. Added: {new_tf}min rung.")
-        print(f" [ForexPredictor] fused_project warm-started: old_in_dim={old_in_dim} -> new_in_dim={fused_dim}.")
+        print(
+            f" [ForexPredictor] fused_project warm-started: old_in_dim={old_in_dim} -> new_in_dim={fused_dim}."
+        )

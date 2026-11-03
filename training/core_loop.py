@@ -80,7 +80,13 @@ load_pat = load_secrets
 _active_processes = _ACTIVE_PROCESSES
 
 # Failure modes of dataset construction (missing shards, malformed manifests, bad config values).
-_DATASET_BUILD_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError, KeyError, TypeError, RuntimeError)
+_DATASET_BUILD_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    ValueError,
+    KeyError,
+    TypeError,
+    RuntimeError,
+)
 # Failure modes of torch.load on a corrupt/truncated/incompatible checkpoint.
 _CHECKPOINT_LOAD_ERRORS: tuple[type[BaseException], ...] = (
     OSError,
@@ -100,10 +106,18 @@ _STATE_RESTORE_ERRORS: tuple[type[BaseException], ...] = (
     OSError,
 )
 # Failure modes of post-training artefact generation (docs, notebooks, sync, teardown).
-_ARTEFACT_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError, KeyError, TypeError, RuntimeError)
+_ARTEFACT_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    ValueError,
+    KeyError,
+    TypeError,
+    RuntimeError,
+)
 
 
-def _build_instruction_train_loader(dataset: InstructionDataset, batch_size: int) -> DataLoader[dict[str, Any]]:
+def _build_instruction_train_loader(
+    dataset: InstructionDataset, batch_size: int
+) -> DataLoader[dict[str, Any]]:
     """Build the instruction-tuning train loader with dynamic-padding collation."""
     return DataLoader(
         dataset=dataset,
@@ -124,7 +138,12 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Model key from unified_models.yaml",
     )
     parser.add_argument("--epochs", type=int, default=None, help="Number of training epochs")
-    parser.add_argument("--batch_size", type=str, default=None, help="Batch size per step (positive integer or 'auto')")
+    parser.add_argument(
+        "--batch_size",
+        type=str,
+        default=None,
+        help="Batch size per step (positive integer or 'auto')",
+    )
     parser.add_argument("--lr", type=float, default=None, help="Base learning rate")
     parser.add_argument(
         "--env",
@@ -140,7 +159,9 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Comma-separated kaggle endpoints natively executed asynchronously",
     )
     parser.add_argument("--hub_user", type=str, default=None, help="GitHub username for model hub")
-    parser.add_argument("--hub_repo", type=str, default=None, help="GitHub repository name for model hub")
+    parser.add_argument(
+        "--hub_repo", type=str, default=None, help="GitHub repository name for model hub"
+    )
     parser.add_argument(
         "--auto_sync",
         action="store_true",
@@ -158,7 +179,9 @@ def build_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Start training fresh from epoch 1, wiping local checkpoints and ignoring hub checkpoints",
     )
-    parser.add_argument("--phase", type=int, default=1, help="Training Phase (e.g. Pre-training=1, Fine-tuning=2)")
+    parser.add_argument(
+        "--phase", type=int, default=1, help="Training Phase (e.g. Pre-training=1, Fine-tuning=2)"
+    )
     parser.add_argument("--fold", type=int, default=1, help="Walk-forward fold index (1..6)")
     parser.add_argument(
         "--pairs",
@@ -174,7 +197,9 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default=None,
         help="List of active timeframes in minutes (e.g. 60 240 1440)",
     )
-    parser.add_argument("--num_workers", type=int, default=None, help="Force a specific number of workers")
+    parser.add_argument(
+        "--num_workers", type=int, default=None, help="Force a specific number of workers"
+    )
     parser.add_argument(
         "--val_num_workers",
         type=int,
@@ -240,7 +265,6 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     device_info = discover_device()
     policy = apply_hardware_policy(model_key, model_info, device_info, config)
 
-
     # 2. Directory structure â€” exclusively under LemGendaryModels
     # Training suite project is code-only; all artifacts, checkpoints, exports, and metrics go to LemGendaryModels
     models_hub_dir = (project_root.parent / "LemGendaryModels" / model_key).resolve()
@@ -294,7 +318,11 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     model = parallel_strategy.setup()
 
     # 4. Total epochs resolution
-    epochs_val = args.epochs or model_info.get("epochs") or config.get("training", {}).get("default_epochs", 100)
+    epochs_val = (
+        args.epochs
+        or model_info.get("epochs")
+        or config.get("training", {}).get("default_epochs", 100)
+    )
     total_epochs = int(epochs_val)
 
     # 5. Optimizer & Scheduler
@@ -316,7 +344,11 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     task_type = raw_task_type[0] if isinstance(raw_task_type, list) else str(raw_task_type)
     loss_fn_name = str(model_info.get("loss_fn") or "").lower()
 
-    if loss_fn_name == "forex_dual" or task_type in ("forex", "forex_dual") or args.model == "forex_predictor":
+    if (
+        loss_fn_name == "forex_dual"
+        or task_type in ("forex", "forex_dual")
+        or args.model == "forex_predictor"
+    ):
         criterion = ForexDualLoss()
     else:
         criterion = CombinedLoss(task_type=task_type, stabilizers=model_info.get("stabilizers"))
@@ -376,9 +408,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         )
         kwargs = model_info.get("kwargs", {})
         _forex_pairs = (
-            getattr(args, "pairs", None)
-            or model_info.get("pairs")
-            or kwargs.get("pairs")
+            getattr(args, "pairs", None) or model_info.get("pairs") or kwargs.get("pairs")
         )
         _forex_timeframes = (
             getattr(args, "timeframes", None)
@@ -403,7 +433,10 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 fold=_forex_fold,
             )
         except _DATASET_BUILD_ERRORS as forex_val_err:
-            logger.warning("Forex val dataset could not be built; running without validation: %s", forex_val_err)
+            logger.warning(
+                "Forex val dataset could not be built; running without validation: %s",
+                forex_val_err,
+            )
             val_ds = None
     elif task_type in ("text_instruction", "llm"):
         # Resolve dataset folder dynamically from model_info or fallback to LemGendizedAIHelperLemGend
@@ -416,8 +449,16 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
 
         if not train_jsonl.exists():
             # Check for generic *_train.jsonl candidates in data/
-            candidates_train = list((data_root / "data").glob("*_train.jsonl")) if (data_root / "data").exists() else []
-            candidates_val = list((data_root / "data").glob("*_val.jsonl")) if (data_root / "data").exists() else []
+            candidates_train = (
+                list((data_root / "data").glob("*_train.jsonl"))
+                if (data_root / "data").exists()
+                else []
+            )
+            candidates_val = (
+                list((data_root / "data").glob("*_val.jsonl"))
+                if (data_root / "data").exists()
+                else []
+            )
             if candidates_train:
                 train_jsonl = candidates_train[0]
             if candidates_val:
@@ -435,11 +476,15 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             max_length=int(model_info.get("input_size", 2048)),
             sample_fraction=sample_fraction,
         )
-        val_ds = InstructionDataset(
-            val_jsonl,
-            tokenizer=tokenizer,
-            max_length=int(model_info.get("input_size", 2048)),
-        ) if val_jsonl.exists() else None
+        val_ds = (
+            InstructionDataset(
+                val_jsonl,
+                tokenizer=tokenizer,
+                max_length=int(model_info.get("input_size", 2048)),
+            )
+            if val_jsonl.exists()
+            else None
+        )
     else:
         train_ds = MultiTaskDataset(
             config,
@@ -460,7 +505,9 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 logger.info("Validation dataset contains 0 samples; running without validation.")
                 val_ds = None
         except _DATASET_BUILD_ERRORS as val_err:
-            logger.warning("Validation dataset could not be built; running without validation: %s", val_err)
+            logger.warning(
+                "Validation dataset could not be built; running without validation: %s", val_err
+            )
             val_ds = None
 
     collate_fn = None
@@ -507,7 +554,10 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 collate_fn=collate_fn,
             )
         except _DATASET_BUILD_ERRORS as val_loader_err:
-            logger.warning("Validation loader could not be built; running without validation: %s", val_loader_err)
+            logger.warning(
+                "Validation loader could not be built; running without validation: %s",
+                val_loader_err,
+            )
             val_loader = None
     else:
         val_loader = None
@@ -534,12 +584,16 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                     c_data = safe_load_checkpoint(cand_p, map_location="cpu")
                     c_ep = int(c_data.get("epoch", 0)) if isinstance(c_data, dict) else 0
                     c_mt = cand_p.stat().st_mtime
-                    if c_ep > best_cand_epoch or (c_ep == best_cand_epoch and c_mt > best_cand_mtime):
+                    if c_ep > best_cand_epoch or (
+                        c_ep == best_cand_epoch and c_mt > best_cand_mtime
+                    ):
                         best_candidate = cand_p
                         best_cand_epoch = c_ep
                         best_cand_mtime = c_mt
                 except _CHECKPOINT_LOAD_ERRORS as cand_err:
-                    logger.warning("Checkpoint candidate %s could not be inspected: %s", cand_p, cand_err)
+                    logger.warning(
+                        "Checkpoint candidate %s could not be inspected: %s", cand_p, cand_err
+                    )
                     if best_candidate is None:
                         best_candidate = cand_p
 
@@ -554,13 +608,17 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 )
                 if isinstance(model_sd, dict):
                     raw_model.load_state_dict(model_sd, strict=False)
-                opt_state = loaded_data.get("optimizer_state") or loaded_data.get("optimizer_state_dict")
+                opt_state = loaded_data.get("optimizer_state") or loaded_data.get(
+                    "optimizer_state_dict"
+                )
                 if isinstance(opt_state, dict):
                     try:
                         optimizer.load_state_dict(opt_state)
                     except _STATE_RESTORE_ERRORS as opt_err:
                         logger.warning("Optimizer state could not be loaded cleanly: %s", opt_err)
-                sched_state = loaded_data.get("scheduler_state") or loaded_data.get("scheduler_state_dict")
+                sched_state = loaded_data.get("scheduler_state") or loaded_data.get(
+                    "scheduler_state_dict"
+                )
                 if isinstance(sched_state, dict) and scheduler is not None:
                     try:
                         scheduler.load_state_dict(sched_state)
@@ -569,25 +627,40 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 gov_state = dict(loaded_data.get("governor_state") or {})
                 ckpt_epoch = int(loaded_data.get("epoch", 0) or 0)
                 if ckpt_epoch > 0:
-                    gov_state["epoch_count"] = max(int(gov_state.get("epoch_count", 0) or 0), ckpt_epoch)
+                    gov_state["epoch_count"] = max(
+                        int(gov_state.get("epoch_count", 0) or 0), ckpt_epoch
+                    )
                 if hasattr(governor, "load_state"):
                     try:
                         governor.load_state(gov_state)
                         # Calibrate artificial pre-fix quality score anchor
-                        if model_info.get("needs_synthesis") or model_info.get("dataset_type") == "face":
+                        if (
+                            model_info.get("needs_synthesis")
+                            or model_info.get("dataset_type") == "face"
+                        ):
                             if float(getattr(governor, "best_quality", 0.0) or 0.0) > 600.0:
-                                logger.info("[CALIBRATION] Calibrating artificial quality anchor (%.2f -> 555.0)", float(governor.best_quality))
+                                logger.info(
+                                    "[CALIBRATION] Calibrating artificial quality anchor (%.2f -> 555.0)",
+                                    float(governor.best_quality),
+                                )
                                 governor.best_quality = 555.0
                         # Reconcile curriculum state against canonical metrics.csv if available
-                        if paths.models_hub_metrics_csv is not None and paths.models_hub_metrics_csv.exists():
+                        if (
+                            paths.models_hub_metrics_csv is not None
+                            and paths.models_hub_metrics_csv.exists()
+                        ):
                             try:
                                 import csv
 
-                                with open(paths.models_hub_metrics_csv, "r", encoding="utf-8") as mf:
+                                with open(
+                                    paths.models_hub_metrics_csv, "r", encoding="utf-8"
+                                ) as mf:
                                     rows = list(csv.DictReader(mf))
                                 if rows:
                                     curr_res_val = int(getattr(governor, "current_res", 256))
-                                    max_frac_at_res = float(getattr(governor, "current_fraction", sample_fraction))
+                                    max_frac_at_res = float(
+                                        getattr(governor, "current_fraction", sample_fraction)
+                                    )
                                     max_quality_csv = float(getattr(governor, "best_quality", 0.0))
                                     for r in rows:
                                         try:
@@ -598,19 +671,32 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                                 max_frac_at_res = r_frac
                                             max_quality_csv = max(max_quality_csv, r_qual)
                                         except (ValueError, TypeError) as row_err:
-                                            logger.debug("Skipping malformed metrics.csv row %r: %s", r, row_err)
+                                            logger.debug(
+                                                "Skipping malformed metrics.csv row %r: %s",
+                                                r,
+                                                row_err,
+                                            )
                                             continue
-                                    if max_frac_at_res > float(getattr(governor, "current_fraction", 0.0)):
+                                    if max_frac_at_res > float(
+                                        getattr(governor, "current_fraction", 0.0)
+                                    ):
                                         governor.current_fraction = min(1.0, max_frac_at_res)
-                                    if max_quality_csv > float(getattr(governor, "best_quality", 0.0)):
+                                    if max_quality_csv > float(
+                                        getattr(governor, "best_quality", 0.0)
+                                    ):
                                         governor.best_quality = max_quality_csv
                             except OSError as csv_err:
-                                logger.debug("Could not reconcile metrics.csv on resume: %s", csv_err)
+                                logger.debug(
+                                    "Could not reconcile metrics.csv on resume: %s", csv_err
+                                )
 
                         # Synchronize train dataset and train DataLoader with restored governor state
                         rec_res = getattr(governor, "current_res", None)
                         rec_frac = getattr(governor, "current_fraction", None)
-                        if task_type in ("text_instruction", "llm") or model_info.get("category") == "llm":
+                        if (
+                            task_type in ("text_instruction", "llm")
+                            or model_info.get("category") == "llm"
+                        ):
                             rec_frac = 1.0
                             governor.current_fraction = 1.0
                         if rec_frac is not None or rec_res is not None:
@@ -645,7 +731,9 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
 
                             # Rebuild train loader with the restored dataset state
                             if task_type == "forex":
-                                train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+                                train_sampler = RowGroupAwareSampler(
+                                    train_ds, shuffle=True, seed=42
+                                )
                                 train_loader = rebuild_train_loader(
                                     old_loader=train_loader,
                                     dataset=train_ds,
@@ -667,7 +755,9 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                     env=args.env,
                                     config=config,
                                 )
-                            total_ds_samples = len(getattr(train_ds, "all_samples", [])) or len(train_ds)
+                            total_ds_samples = len(getattr(train_ds, "all_samples", [])) or len(
+                                train_ds
+                            )
                             if os.environ.get("RANK", "0") == "0":
                                 print(
                                     f"[CURRICULUM] Active training manifold: {len(train_ds)}/{total_ds_samples} samples "
@@ -690,9 +780,15 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                     )
                     if saved_best is not None:
                         try:
-                            sota_tracker.best_quality = max(float(sota_tracker.best_quality), float(saved_best))
+                            sota_tracker.best_quality = max(
+                                float(sota_tracker.best_quality), float(saved_best)
+                            )
                         except (ValueError, TypeError) as best_err:
-                            logger.warning("Ignoring non-numeric saved best quality %r: %s", saved_best, best_err)
+                            logger.warning(
+                                "Ignoring non-numeric saved best quality %r: %s",
+                                saved_best,
+                                best_err,
+                            )
                 resume_state = parse_resume_state(loaded_data)
 
     # If resuming from an existing checkpoint whose epoch already meets the budget, grant a
@@ -780,7 +876,9 @@ def main(raw_args: list[str] | None = None) -> None:
 
     try:
         summary = run_training(ctx)
-        print(f"[SUCCESS] Training completed at epoch {summary.final_epoch} with status: {summary.status}")
+        print(
+            f"[SUCCESS] Training completed at epoch {summary.final_epoch} with status: {summary.status}"
+        )
 
         # Post-training export
         export_all(

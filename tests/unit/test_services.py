@@ -154,7 +154,9 @@ class TestServicesLayer(unittest.TestCase):
             service.generate_notebooks("nima_aesthetic_mobile", platform="invalid_platform")
 
         with self.assertRaises(ValueError):
-            service.generate_notebooks("nima_aesthetic_mobile", platform="kaggle", kinds=["invalid_kind"])
+            service.generate_notebooks(
+                "nima_aesthetic_mobile", platform="kaggle", kinds=["invalid_kind"]
+            )
 
     def test_audit_service_system_and_model(self) -> None:
         """Verify AuditService system resource and model topology auditing."""

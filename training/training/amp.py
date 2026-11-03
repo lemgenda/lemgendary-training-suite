@@ -89,8 +89,10 @@ def compute_ssim_gpu(
     """Compute GPU-accelerated vectorized Structural Similarity Index (SSIM)."""
     channel = img1.size(1)
 
-    coords = torch.arange(window_size, dtype=torch.float32, device=img1.device) - (window_size - 1) / 2.0
-    gauss = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
+    coords = (
+        torch.arange(window_size, dtype=torch.float32, device=img1.device) - (window_size - 1) / 2.0
+    )
+    gauss = torch.exp(-(coords**2) / (2 * sigma**2))
     gauss = (gauss / gauss.sum()).unsqueeze(1)
 
     kernel_2d = gauss.mm(gauss.t()).unsqueeze(0).unsqueeze(0)
@@ -110,5 +112,7 @@ def compute_ssim_gpu(
     sigma2_sq = F.conv2d(img2 * img2, kernel, padding=window_size // 2, groups=channel) - mu2_sq
     sigma12 = F.conv2d(img1 * img2, kernel, padding=window_size // 2, groups=channel) - mu1_mu2
 
-    ssim_map = ((2 * mu1_mu2 + c1) * (2 * sigma12 + c2)) / ((mu1_sq + mu2_sq + c1) * (sigma1_sq + sigma2_sq + c2))
+    ssim_map = ((2 * mu1_mu2 + c1) * (2 * sigma12 + c2)) / (
+        (mu1_sq + mu2_sq + c1) * (sigma1_sq + sigma2_sq + c2)
+    )
     return ssim_map.mean()

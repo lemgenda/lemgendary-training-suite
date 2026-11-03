@@ -39,7 +39,9 @@ def blend_state_dicts(
         coeffs = [1.0 / n] * n
     else:
         if len(weights) != n:
-            raise ValueError(f"Weights count ({len(weights)}) does not match state_dicts count ({n}).")
+            raise ValueError(
+                f"Weights count ({len(weights)}) does not match state_dicts count ({n})."
+            )
         total_w = sum(weights)
         if total_w <= 0:
             raise ValueError("Sum of weights must be positive.")
@@ -111,4 +113,3 @@ def create_pareto_model_soup(
         logger.info("Successfully exported Pareto Model Soup to %s", output_path)
 
     return out_payload
-

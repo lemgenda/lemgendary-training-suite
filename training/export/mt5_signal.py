@@ -42,7 +42,9 @@ def export_forex_onnx_from_model(
     out_file = Path(out_path).resolve()
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
-    timeframes = active_timeframes or getattr(model, "active_timeframes", None) or [1, 5, 15, 60, 240, 1440]
+    timeframes = (
+        active_timeframes or getattr(model, "active_timeframes", None) or [1, 5, 15, 60, 240, 1440]
+    )
     model.eval()
 
     batch_size = 1
@@ -108,18 +110,21 @@ def export_forex_onnx(
     try:
         from models.forex_predictor import ForexPredictor
     except ImportError as exc:
-        raise ExportError("MODEL_DEF_MISSING", f"ForexPredictor class could not be imported: {exc}") from exc
+        raise ExportError(
+            "MODEL_DEF_MISSING", f"ForexPredictor class could not be imported: {exc}"
+        ) from exc
 
     raw_kwargs = ckpt.get("model_kwargs", {}) if isinstance(ckpt, dict) else {}
     model_kwargs: dict[str, Any] = dict(raw_kwargs)
     model_kwargs["active_timeframes"] = timeframes
     model = ForexPredictor(**model_kwargs)
 
-    raw_state = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt)) if isinstance(ckpt, dict) else ckpt
-    state_dict = {
-        k.removeprefix("module."): v
-        for k, v in raw_state.items()
-    }
+    raw_state = (
+        ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
+        if isinstance(ckpt, dict)
+        else ckpt
+    )
+    state_dict = {k.removeprefix("module."): v for k, v in raw_state.items()}
     model.load_state_dict(state_dict, strict=False)
 
     return export_forex_onnx_from_model(

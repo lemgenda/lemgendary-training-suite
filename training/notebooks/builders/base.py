@@ -13,11 +13,14 @@ import yaml
 
 logger = logging.getLogger("lemtrain.notebooks.builders.base")
 
+
 def _get_workspace_root() -> Path:
     """Resolve the canonical workspace root containing sibling LemGendary projects."""
     here = Path(__file__).resolve()
     for parent in [here] + list(here.parents):
-        if (parent / "lemgendary-datasets").exists() and (parent / "lemgendary-training-suite").exists():
+        if (parent / "lemgendary-datasets").exists() and (
+            parent / "lemgendary-training-suite"
+        ).exists():
             return parent
     return _get_project_root().parent
 
@@ -26,7 +29,11 @@ def _get_project_root() -> Path:
     """Resolve project root directory across training suite or datasets repositories."""
     here = Path(__file__).resolve()
     for parent in [here] + list(here.parents):
-        if (parent / "unified_data.yaml").exists() or (parent / "unified_models_v2.yaml").exists() or ((parent / "config.yaml").exists() and parent.name == "lemgendary-training-suite"):
+        if (
+            (parent / "unified_data.yaml").exists()
+            or (parent / "unified_models_v2.yaml").exists()
+            or ((parent / "config.yaml").exists() and parent.name == "lemgendary-training-suite")
+        ):
             return parent
     return here.parent.parent.parent
 
@@ -49,7 +56,9 @@ def write_notebook(content: dict[str, Any], output_path: str | Path) -> str | No
         # TypeError: non-JSON-serializable cell content; ValueError: circular refs / decode check.
         logger.error("JSON validation/write failed for %s: %s", out_path, e)
         print(f"[ERROR] JSON Validation failed for {out_path.name}: {e}")
-        print("[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings.")
+        print(
+            "[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings."
+        )
         return None
 
 
@@ -66,9 +75,12 @@ def sync_manifold_notebooks(
     if not unified_models_registry:
         try:
             from ..registry import load_registry
+
             unified_models_registry = load_registry()
         except (ImportError, OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-            logger.warning("Could not load model registry for manifold sync of %s: %s", model_key, exc)
+            logger.warning(
+                "Could not load model registry for manifold sync of %s: %s", model_key, exc
+            )
             unified_models_registry = {}
 
     if not unified_models_registry:
@@ -84,7 +96,10 @@ def sync_manifold_notebooks(
         ds_list = []
 
     if model_key == "professional_multitask_restoration":
-        target_candidates = ["LemGendizedMultitaskRestorationPro", "professional_multitask_restoration"]
+        target_candidates = [
+            "LemGendizedMultitaskRestorationPro",
+            "professional_multitask_restoration",
+        ]
     else:
         target_candidates = list(ds_list)
         if model_key not in target_candidates:
@@ -96,7 +111,9 @@ def sync_manifold_notebooks(
             continue
         clean_name = target_folder
         if "_" in clean_name or "-" in clean_name:
-            pascal_name = "".join(part.capitalize() for part in clean_name.replace("-", "_").split("_"))
+            pascal_name = "".join(
+                part.capitalize() for part in clean_name.replace("-", "_").split("_")
+            )
         else:
             pascal_name = clean_name
 
@@ -119,7 +136,9 @@ def sync_manifold_notebooks(
                         f.write(json_str)
                     print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
                 except OSError as exc:
-                    logger.warning("Failed syncing manifold notebook to %s: %s", ds_output_path, exc)
+                    logger.warning(
+                        "Failed syncing manifold notebook to %s: %s", ds_output_path, exc
+                    )
 
 
 def sync_workspace_training_notebook(
@@ -138,4 +157,6 @@ def sync_workspace_training_notebook(
             f.write(json_str)
         print(f"[OK] Synchronized {display_title} Training Notebook: {out_file}")
     except OSError as exc:
-        logger.warning("Failed syncing %s training notebook to %s: %s", display_title, out_file, exc)
+        logger.warning(
+            "Failed syncing %s training notebook to %s: %s", display_title, out_file, exc
+        )

@@ -26,7 +26,9 @@ class TestUtilsPaths(unittest.TestCase):
     def test_get_project_root(self) -> None:
         root = get_project_root()
         self.assertTrue(root.exists())
-        self.assertTrue((root / "unified_models_v2.yaml").exists() or (root / "config.yaml").exists())
+        self.assertTrue(
+            (root / "unified_models_v2.yaml").exists() or (root / "config.yaml").exists()
+        )
 
     def test_get_workspace_root(self) -> None:
         ws_root = get_workspace_root()
@@ -69,17 +71,23 @@ class TestUtilsSubprocess(unittest.TestCase):
     """Tests run_command wrapper."""
 
     def test_run_command_success(self) -> None:
-        res = run_command([sys.executable, "-c", "print('subprocess_ok')"], timeout=10.0, check=True)
+        res = run_command(
+            [sys.executable, "-c", "print('subprocess_ok')"], timeout=10.0, check=True
+        )
         self.assertEqual(res.returncode, 0)
         self.assertIn("subprocess_ok", res.stdout)
 
     def test_run_command_failure(self) -> None:
         with self.assertRaises(SubprocessExecutionError):
-            run_command([sys.executable, "-c", "import sys; sys.exit(42)"], timeout=10.0, check=True)
+            run_command(
+                [sys.executable, "-c", "import sys; sys.exit(42)"], timeout=10.0, check=True
+            )
 
     def test_run_command_timeout(self) -> None:
         with self.assertRaises(SubprocessExecutionError):
-            run_command([sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.2, check=False)
+            run_command(
+                [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.2, check=False
+            )
 
 
 class TestUtilsInterrupt(unittest.TestCase):
@@ -91,9 +99,11 @@ class TestUtilsInterrupt(unittest.TestCase):
 
     def test_register_emergency_sync(self) -> None:
         called = False
+
         def handler() -> None:
             nonlocal called
             called = True
+
         register_emergency_sync(handler)
 
 

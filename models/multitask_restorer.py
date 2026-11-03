@@ -25,6 +25,7 @@ class TaskClassifier(nn.Module):
         logits = self.fc(x)
         return logits
 
+
 class MultiTaskRestorer(nn.Module):
     def __init__(self, num_tasks=11, **kwargs):
         super().__init__()
@@ -32,40 +33,49 @@ class MultiTaskRestorer(nn.Module):
         self.encoder = SharedEncoder()
         self.classifier = TaskClassifier(in_ch=64, num_tasks=num_tasks)
 
-        self.heads = nn.ModuleList([
-            DenoiseHead(),             # denoise
-            DeblurHead(),              # deblur
-            DerainHead(),              # derain
-            DehazeHead(),              # dehaze_indoor
-            DehazeHead(),              # dehaze_outdoor
-            LowLightHead(),            # lowlight
-            LowLightHead(),            # exposure
-            SuperResHead(),            # superres
-            VintageHead(),             # vintage
-            FaceRestoreHead(),         # face_restorer
-            FaceParseHead()            # face_parser
-        ])
-        
+        self.heads = nn.ModuleList(
+            [
+                DenoiseHead(),  # denoise
+                DeblurHead(),  # deblur
+                DerainHead(),  # derain
+                DehazeHead(),  # dehaze_indoor
+                DehazeHead(),  # dehaze_outdoor
+                LowLightHead(),  # lowlight
+                LowLightHead(),  # exposure
+                SuperResHead(),  # superres
+                VintageHead(),  # vintage
+                FaceRestoreHead(),  # face_restorer
+                FaceParseHead(),  # face_parser
+            ]
+        )
+
         self.task_names = [
-            "denoise", "deblur", "derain", 
-            "dehaze_indoor", "dehaze_outdoor", 
-            "lowlight", "exposure", "superres", 
-            "vintage", "face_restorer", "face_parser"
+            "denoise",
+            "deblur",
+            "derain",
+            "dehaze_indoor",
+            "dehaze_outdoor",
+            "lowlight",
+            "exposure",
+            "superres",
+            "vintage",
+            "face_restorer",
+            "face_parser",
         ]
 
     def forward(self, x, task=None):
         feat = self.encoder(x)
-        
+
         # Soft Routing (Mixture of Experts)
-        logits = self.classifier(feat) # [B, num_tasks]
+        logits = self.classifier(feat)  # [B, num_tasks]
         weights = F.softmax(logits, dim=1)
-        
+
         # If a specific task is requested (inference override), we can still support it
         # But by default, we use the learned weights
         if task is not None and task in self.task_names:
             idx = self.task_names.index(task)
             return self.heads[idx](feat), logits
-            
+
         outputs = []
         for i, head in enumerate(self.heads):
             out = head(feat)

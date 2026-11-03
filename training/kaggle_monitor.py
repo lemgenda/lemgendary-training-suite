@@ -33,6 +33,7 @@ logger = logging.getLogger("lemtrain.cloud.kaggle_monitor")
 # pull_kaggle_artifacts reports most failures itself; RuntimeError covers a missing kagglehub SDK.
 _PULL_ERRORS: tuple[type[Exception], ...] = (RuntimeError, *KAGGLE_API_ERRORS)
 
+
 def find_kaggle_users_file(explicit_path: Path | None = None) -> Path | None:
     """
     Locates the .kaggle_users credentials registry file.
@@ -45,7 +46,9 @@ def find_kaggle_users_file(explicit_path: Path | None = None) -> Path | None:
         Path.cwd() / ".kaggle_users",
         Path(__file__).resolve().parent.parent / ".kaggle_users",
         Path.cwd().parent / "lemgendary-training-suite" / ".kaggle_users",
-        Path(__file__).resolve().parent.parent.parent / "lemgendary-training-suite" / ".kaggle_users",
+        Path(__file__).resolve().parent.parent.parent
+        / "lemgendary-training-suite"
+        / ".kaggle_users",
     ]
 
     for candidate in candidates:
@@ -73,10 +76,9 @@ def load_kaggle_users(users_file: Path | None = None) -> tuple[list[dict[str, st
                 m_user = re.search(r"KAGGLE_USERNAME=([^,;\s]+)", line)
                 m_token = re.search(r"KAGGLE_API_TOKEN=([^,;\s]+)", line)
                 if m_user and m_token:
-                    accounts.append({
-                        "username": m_user.group(1).strip(),
-                        "token": m_token.group(1).strip()
-                    })
+                    accounts.append(
+                        {"username": m_user.group(1).strip(), "token": m_token.group(1).strip()}
+                    )
         except OSError as e:
             print(f"[WARN] Failed to read users registry at {target_file}: {e}")
 
@@ -110,6 +112,7 @@ def authenticate_kaggle_user(username: str, token: str) -> Any | None:
 
     try:
         from kaggle.api.kaggle_api_extended import KaggleApi
+
         api = KaggleApi()
         api.authenticate()
         return api
@@ -140,15 +143,12 @@ def fetch_user_kernels(api: Any, username: str, limit: int = 20) -> list[dict[st
         try:
             st = api.kernels_status(ref)
             status_val = str(getattr(st, "status", st)).rsplit(".", maxsplit=1)[-1].upper()
-            failure_msg = getattr(st, "failure_message", None) or getattr(st, "failureMessage", None)
+            failure_msg = getattr(st, "failure_message", None) or getattr(
+                st, "failureMessage", None
+            )
         except KAGGLE_API_ERRORS as exc:
             logger.debug("Could not resolve status for kernel %s: %s", ref, exc)
-        return {
-            "ref": ref,
-            "title": title,
-            "status": status_val,
-            "failure_message": failure_msg
-        }
+        return {"ref": ref, "title": title, "status": status_val, "failure_message": failure_msg}
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         kernels_data = list(executor.map(_resolve_status, raw_kernels))
@@ -223,7 +223,7 @@ def stream_kernel_logs(
     poll_interval: int = 5,
     auto_pull: bool = False,
     username: str | None = None,
-    model_name: str | None = None
+    model_name: str | None = None,
 ) -> None:
     """
     Streams live kernel logs and status telemetry to terminal.
@@ -297,7 +297,12 @@ def stream_kernel_logs(
                     print(f"\n[{time.strftime('%H:%M:%S')}] [SIGNAL] Cloud Status: {status}")
                     last_status = status
             except KAGGLE_API_ERRORS as exc:
-                logger.debug("Status poll failed for %s; keeping last status %s: %s", kernel_slug, last_status, exc)
+                logger.debug(
+                    "Status poll failed for %s; keeping last status %s: %s",
+                    kernel_slug,
+                    last_status,
+                    exc,
+                )
                 status = last_status
 
             # Poll logs
@@ -314,10 +319,12 @@ def stream_kernel_logs(
                             epoch_signal = re.search(
                                 r"epoch\s+\d+\s+complete|saving.*checkpoint|model version.*committed|\[sota\]",
                                 line,
-                                re.IGNORECASE
+                                re.IGNORECASE,
                             )
                             if epoch_signal:
-                                print(f"\n[{time.strftime('%H:%M:%S')}] [AUTO-PULL] New checkpoint detected. Syncing >> {model_name} <<...")
+                                print(
+                                    f"\n[{time.strftime('%H:%M:%S')}] [AUTO-PULL] New checkpoint detected. Syncing >> {model_name} <<..."
+                                )
                                 try:
                                     pull_kaggle_artifacts(model_name, username=username)
                                 except _PULL_ERRORS as pull_err:
@@ -327,13 +334,19 @@ def stream_kernel_logs(
                 logger.debug("Log poll failed for %s; retrying next interval: %s", kernel_slug, exc)
 
             if status in ["COMPLETE", "ERROR", "CANCELACK"]:
-                print(f"\n[{time.strftime('%H:%M:%S')}] [TERMINAL] Cloud job finished with status: {status}")
-                failure_msg = getattr(st, "failure_message", None) or getattr(st, "failureMessage", None)
+                print(
+                    f"\n[{time.strftime('%H:%M:%S')}] [TERMINAL] Cloud job finished with status: {status}"
+                )
+                failure_msg = getattr(st, "failure_message", None) or getattr(
+                    st, "failureMessage", None
+                )
                 if failure_msg:
                     print(f"[FAILURE DETAILS] {failure_msg}")
 
                 if auto_pull and model_name and status == "COMPLETE":
-                    print(f"\n[SYNC] Training complete. Performing final artifact pull for >> {model_name} <<...")
+                    print(
+                        f"\n[SYNC] Training complete. Performing final artifact pull for >> {model_name} <<..."
+                    )
                     try:
                         pull_kaggle_artifacts(model_name, username=username)
                     except _PULL_ERRORS as pull_err:
@@ -343,7 +356,9 @@ def stream_kernel_logs(
             time.sleep(poll_interval)
 
     except KeyboardInterrupt:
-        print(f"\n\n[INFO] Detached from telemetry stream for {kernel_slug}. Process continues on Kaggle.")
+        print(
+            f"\n\n[INFO] Detached from telemetry stream for {kernel_slug}. Process continues on Kaggle."
+        )
 
 
 def interactive_kernel_monitor(api: Any, username: str) -> None:
@@ -361,9 +376,9 @@ def interactive_kernel_monitor(api: Any, username: str) -> None:
         if kernels:
             for idx, k in enumerate(kernels, start=1):
                 status_tag = f"[{k['status']}]"
-                if k['status'] in ["RUNNING", "QUEUED"]:
+                if k["status"] in ["RUNNING", "QUEUED"]:
                     status_tag = f"[ACTIVE: {k['status']}]"
-                slug_name = k['ref'].split('/')[-1]
+                slug_name = k["ref"].split("/")[-1]
                 print(f"  {idx}. {slug_name:<40} {status_tag}")
         else:
             print("  No recent kernels found on Kaggle for this user.")
@@ -388,7 +403,9 @@ def interactive_kernel_monitor(api: Any, username: str) -> None:
             if 1 <= val <= len(kernels):
                 target_slug = kernels[val - 1]["ref"]
             elif val == custom_opt_idx:
-                raw_input = input("\nEnter kernel slug (e.g. username/kernel-name or kernel-name): ").strip()
+                raw_input = input(
+                    "\nEnter kernel slug (e.g. username/kernel-name or kernel-name): "
+                ).strip()
                 if raw_input:
                     if "/" in raw_input:
                         target_slug = raw_input
@@ -416,15 +433,17 @@ def interactive_train_launcher(api: Any, username: str) -> None:
         if kernels:
             for idx, k in enumerate(kernels, start=1):
                 status_tag = f"[{k['status']}]"
-                if k['status'] in ["RUNNING", "QUEUED"]:
+                if k["status"] in ["RUNNING", "QUEUED"]:
                     status_tag = f"[ACTIVE: {k['status']}]"
-                slug_name = k['ref'].split('/')[-1]
+                slug_name = k["ref"].split("/")[-1]
                 print(f"  {idx}. {slug_name:<40} {status_tag}")
         else:
             print("  No existing notebooks found on Kaggle.")
 
         new_opt_idx = len(kernels) + 1
-        print(f"\n  {new_opt_idx}. [DEPLOY NEW MODEL] Deploy and launch a registered model from local suite")
+        print(
+            f"\n  {new_opt_idx}. [DEPLOY NEW MODEL] Deploy and launch a registered model from local suite"
+        )
         print("  B. [BACK] Return to User Selection")
         print()
 
@@ -442,10 +461,12 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                 selected_slug = kernels[val - 1]["ref"]
                 target_model = match_model_from_slug(selected_slug)
                 if not target_model:
-                    prompt_m = input("Enter target model key for checkpoint saving (e.g. mirnet_exposure): ").strip()
+                    prompt_m = input(
+                        "Enter target model key for checkpoint saving (e.g. mirnet_exposure): "
+                    ).strip()
                     if prompt_m:
                         target_model = prompt_m
-                
+
                 print(f"\n[LAUNCH] Pulling notebook definition for '{selected_slug}'...")
                 with tempfile.TemporaryDirectory() as td:
                     try:
@@ -463,7 +484,9 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                                 # Normalize legacy or non-specific shapes (like 'Gpu' or empty) to explicit accelerator
                                 if not raw_shape or raw_shape.lower() in ["gpu", "none", "cpu"]:
                                     meta_data["machine_shape"] = "NvidiaTeslaT4"
-                                meta_file.write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
+                                meta_file.write_text(
+                                    json.dumps(meta_data, indent=2), encoding="utf-8"
+                                )
                             except (OSError, ValueError, TypeError) as meta_err:
                                 # ValueError: json.JSONDecodeError; TypeError: non-object metadata JSON.
                                 print(f"[REMEDY] Metadata update notice: {meta_err}")
@@ -477,26 +500,40 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                                 for cell in nb_json.get("cells", []):
                                     if cell.get("cell_type") == "code":
                                         src = "".join(cell.get("source", []))
-                                        if "NO GPU DETECTED! Training aborted to preserve quota." in src and "sys.exit(1)" in src:
+                                        if (
+                                            "NO GPU DETECTED! Training aborted to preserve quota."
+                                            in src
+                                            and "sys.exit(1)" in src
+                                        ):
                                             # Replace hard abort with non-fatal warning matching notebook_generator standard
                                             src_mod = src.replace(
                                                 "    print('[ERROR] [CRITICAL] NO GPU DETECTED! Training aborted to preserve quota.')\n    sys.exit(1)",
-                                                "    print('[WARNING] NO GPU DETECTED!')\n    print('   -> Continuing in fallback execution mode...')"
+                                                "    print('[WARNING] NO GPU DETECTED!')\n    print('   -> Continuing in fallback execution mode...')",
                                             )
                                             cell["source"] = src_mod
                                             modified_nb = True
                                 if modified_nb:
-                                    nb_path.write_text(json.dumps(nb_json, indent=2), encoding="utf-8")
+                                    nb_path.write_text(
+                                        json.dumps(nb_json, indent=2), encoding="utf-8"
+                                    )
                         except (OSError, ValueError, TypeError, AttributeError) as nb_patch_err:
                             # ValueError: json.JSONDecodeError; Type/AttributeError: malformed notebook cells.
                             print(f"[REMEDY] Notebook sentinel sync notice: {nb_patch_err}")
 
-                        chosen_acc = meta_data.get("machine_shape", "NvidiaTeslaT4") if meta_data else "NvidiaTeslaT4"
+                        chosen_acc = (
+                            meta_data.get("machine_shape", "NvidiaTeslaT4")
+                            if meta_data
+                            else "NvidiaTeslaT4"
+                        )
                         if str(chosen_acc).lower() in ["gpu", "none", "cpu"]:
                             chosen_acc = "NvidiaTeslaT4"
-                        print(f"[LAUNCH] Pushing kernel bundle to trigger execution on Kaggle GPU ({chosen_acc})...")
+                        print(
+                            f"[LAUNCH] Pushing kernel bundle to trigger execution on Kaggle GPU ({chosen_acc})..."
+                        )
                         api.kernels_push(td, acc=chosen_acc)
-                        print(f"[SUCCESS] Kernel '{selected_slug}' pushed and queued on Kaggle GPU!")
+                        print(
+                            f"[SUCCESS] Kernel '{selected_slug}' pushed and queued on Kaggle GPU!"
+                        )
                     except KAGGLE_API_ERRORS as push_err:
                         print(f"[ERROR] Failed to launch kernel: {push_err}")
                         input("\nPress Enter to continue...")
@@ -512,10 +549,14 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                     target_model = models[int(m_choice) - 1]
                     kernel_dir = create_cloud_kernel_bundle(target_model, username, gpu="T4")
                     selected_slug = get_kernel_slug(target_model, username)
-                    print(f"[LAUNCH] Pushing bundle for '{target_model}' to Kaggle GPU (Dual T4: {selected_slug})...")
+                    print(
+                        f"[LAUNCH] Pushing bundle for '{target_model}' to Kaggle GPU (Dual T4: {selected_slug})..."
+                    )
                     try:
                         api.kernels_push(str(kernel_dir), acc="NvidiaTeslaT4")
-                        print(f"[SUCCESS] Kernel '{selected_slug}' pushed and queued on Kaggle GPU!")
+                        print(
+                            f"[SUCCESS] Kernel '{selected_slug}' pushed and queued on Kaggle GPU!"
+                        )
                     except KAGGLE_API_ERRORS as push_err:
                         print(f"[ERROR] Failed to push kernel: {push_err}")
                         input("\nPress Enter to continue...")
@@ -531,12 +572,14 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                 poll_interval=5,
                 auto_pull=True,
                 username=username,
-                model_name=target_model
+                model_name=target_model,
             )
             input("\nPress Enter to return to notebooks list...")
 
 
-def prompt_user_account_selection(users_file_override: str | None = None) -> tuple[str, str, Path] | None:
+def prompt_user_account_selection(
+    users_file_override: str | None = None,
+) -> tuple[str, str, Path] | None:
     """
     Presents the user account selection menu from .kaggle_users with new user addition.
     """
@@ -551,7 +594,7 @@ def prompt_user_account_selection(users_file_override: str | None = None) -> tup
     if accounts:
         print("Select Kaggle User Account:")
         for idx, acc in enumerate(accounts, start=1):
-            token_masked = acc['token'][:8] + "..." if len(acc['token']) > 8 else "***"
+            token_masked = acc["token"][:8] + "..." if len(acc["token"]) > 8 else "***"
             print(f"  {idx}. {acc['username']:<20} (Token: {token_masked})")
     else:
         print("No saved Kaggle accounts found in .kaggle_users.")
@@ -581,7 +624,11 @@ def prompt_user_account_selection(users_file_override: str | None = None) -> tup
             if inp_user and inp_token:
                 selected_user = inp_user
                 selected_token = inp_token
-                save_prompt = input("Save this new user to .kaggle_users? (y/n) [Default: y]: ").strip().lower()
+                save_prompt = (
+                    input("Save this new user to .kaggle_users? (y/n) [Default: y]: ")
+                    .strip()
+                    .lower()
+                )
                 if save_prompt in ["", "y", "yes"]:
                     if save_kaggle_user(users_file, inp_user, inp_token):
                         print(f"[SUCCESS] User '{inp_user}' saved to {users_file}.")
@@ -636,14 +683,19 @@ def main():
     Entry point for CLI execution.
     """
     import argparse
+
     parser = argparse.ArgumentParser(description="LemGendary Kaggle Cloud Training & Monitor")
-    parser.add_argument("--action", type=str, default="monitor", choices=["train", "monitor", "stream"])
+    parser.add_argument(
+        "--action", type=str, default="monitor", choices=["train", "monitor", "stream"]
+    )
     parser.add_argument("--users_file", type=str, default=None, help="Path to .kaggle_users file")
     parser.add_argument("--user", type=str, default=None, help="Target Kaggle username")
     parser.add_argument("--token", type=str, default=None, help="Kaggle API token for direct auth")
     parser.add_argument("--kernel", type=str, default=None, help="Specific kernel slug to stream")
     parser.add_argument("--model", type=str, default=None, help="Associated model manifold name")
-    parser.add_argument("--auto_pull", action="store_true", help="Enable per-epoch checkpoint auto-pull")
+    parser.add_argument(
+        "--auto_pull", action="store_true", help="Enable per-epoch checkpoint auto-pull"
+    )
     args = parser.parse_args()
 
     if args.user and args.token and args.kernel:
@@ -651,11 +703,7 @@ def main():
         if api:
             slug = args.kernel if "/" in args.kernel else f"{args.user}/{args.kernel}"
             stream_kernel_logs(
-                api,
-                slug,
-                auto_pull=args.auto_pull,
-                username=args.user,
-                model_name=args.model
+                api, slug, auto_pull=args.auto_pull, username=args.user, model_name=args.model
             )
         else:
             sys.exit(1)

@@ -28,7 +28,7 @@ def run_command(
 ) -> subprocess.CompletedProcess[str]:
     """
     Run an external command with timeout and structured diagnostic logging.
-    
+
     Raises:
         SubprocessExecutionError: If command times out or returns non-zero when check=True.
     """
@@ -61,7 +61,9 @@ def run_command(
         raise SubprocessExecutionError(err_msg, exit_code=None, stderr="") from exc
 
     if check and res.returncode != 0:
-        err_msg = f"Command failed with exit code {res.returncode}: '{cmd_str}'\nStderr: {res.stderr}"
+        err_msg = (
+            f"Command failed with exit code {res.returncode}: '{cmd_str}'\nStderr: {res.stderr}"
+        )
         logger.error(err_msg)
         raise SubprocessExecutionError(err_msg, exit_code=res.returncode, stderr=res.stderr)
 

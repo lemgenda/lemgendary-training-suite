@@ -55,7 +55,9 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertEqual(loaded["epoch"], 5)
         self.assertEqual(loaded["iteration"], 150)
         self.assertEqual(loaded["best_score"], 0.88)
-        self.assertTrue(torch.equal(loaded["model_state_dict"]["weight"], torch.tensor([1.0, 2.0, 3.0])))
+        self.assertTrue(
+            torch.equal(loaded["model_state_dict"]["weight"], torch.tensor([1.0, 2.0, 3.0]))
+        )
 
         # Audit disk space returns valid headroom
         headroom = audit_disk_space(self.root)
@@ -77,10 +79,14 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertIsNotNone(state.optimizer_state_dict)
 
         # Scale resume progress when loader size shrinks or expands
-        scaled_half = scale_resume_progress(resume_iteration=50, source_loader_len=100, new_loader_len=50)
+        scaled_half = scale_resume_progress(
+            resume_iteration=50, source_loader_len=100, new_loader_len=50
+        )
         self.assertEqual(scaled_half, 25)
 
-        scaled_double = scale_resume_progress(resume_iteration=25, source_loader_len=50, new_loader_len=100)
+        scaled_double = scale_resume_progress(
+            resume_iteration=25, source_loader_len=50, new_loader_len=100
+        )
         self.assertEqual(scaled_double, 50)
 
     def test_stretch_scheduler_runway(self) -> None:
@@ -100,7 +106,9 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertEqual(sched_state["last_epoch"], 100)
 
     def test_checkpoint_recovery_engine(self) -> None:
-        engine = CheckpointRecoveryEngine(workspace_root=self.root, project_root=self.root, env="local")
+        engine = CheckpointRecoveryEngine(
+            workspace_root=self.root, project_root=self.root, env="local"
+        )
 
         # Create mock checkpoint tree
         ckpt_dir = self.root / "checkpoints"
@@ -174,21 +182,33 @@ class TestCheckpointSubsystem(unittest.TestCase):
 
         # 1. Progress bounds test: < 2% rejected
         saved_low = mgr.check_and_save_progress(
-            epoch=1, phase="train", step=1, total_steps=100, payload_builder=lambda: dict(dummy_payload)
+            epoch=1,
+            phase="train",
+            step=1,
+            total_steps=100,
+            payload_builder=lambda: dict(dummy_payload),
         )
         self.assertFalse(saved_low)
         self.assertFalse(mgr.progress_path.exists())
 
         # 2. Progress bounds test: > 98% rejected
         saved_high = mgr.check_and_save_progress(
-            epoch=1, phase="train", step=99, total_steps=100, payload_builder=lambda: dict(dummy_payload)
+            epoch=1,
+            phase="train",
+            step=99,
+            total_steps=100,
+            payload_builder=lambda: dict(dummy_payload),
         )
         self.assertFalse(saved_high)
         self.assertFalse(mgr.progress_path.exists())
 
         # 3. Progress bounds test: within [2%, 98%] (e.g. 25%) accepted
         saved_valid = mgr.check_and_save_progress(
-            epoch=1, phase="train", step=25, total_steps=100, payload_builder=lambda: dict(dummy_payload)
+            epoch=1,
+            phase="train",
+            step=25,
+            total_steps=100,
+            payload_builder=lambda: dict(dummy_payload),
         )
         self.assertTrue(saved_valid)
         self.assertTrue(mgr.progress_path.exists())
@@ -289,4 +309,3 @@ class TestCheckpointSubsystem(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

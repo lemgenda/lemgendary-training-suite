@@ -73,7 +73,9 @@ class BaseModelExporter(ABC):
     def supports(self, model_key: str, spec: ModelSpecification | None = None) -> bool:
         """Determine whether this exporter handles the specified model key and specification."""
 
-    def resolve_spec(self, model_key: str, spec: ModelSpecification | None = None) -> ModelSpecification | None:
+    def resolve_spec(
+        self, model_key: str, spec: ModelSpecification | None = None
+    ) -> ModelSpecification | None:
         """Helper to resolve ModelSpecification from registry if not provided directly."""
         if spec is not None:
             return spec

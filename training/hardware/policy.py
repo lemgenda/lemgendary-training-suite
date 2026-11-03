@@ -14,6 +14,7 @@ logger = logging.getLogger("lemtrain.hardware.policy")
 @dataclass(frozen=True)
 class HardwarePolicyResult:
     """Configured execution parameters and mixed-precision state."""
+
     amp_enabled: bool
     amp_dtype: torch.dtype
     cudnn_benchmark: bool
@@ -33,7 +34,7 @@ def apply_hardware_policy(
 ) -> HardwarePolicyResult:
     """
     Apply global execution and mixed-precision policies based on accelerator capabilities and task domain.
-    
+
     Forex tasks disable AMP by default due to high dynamic range / overflow risks in return distributions.
     Vision and restoration models on CUDA sm_70+ utilize AMP FP16 and cuDNN benchmarking.
     """
@@ -73,12 +74,19 @@ def apply_hardware_policy(
 
         if is_gtx16xx:
             amp_enabled = False
-            logger.info("AMP disabled on %s to prevent known Turing non-Tensor-Core FP16 convolution NaNs.", gpu_name)
+            logger.info(
+                "AMP disabled on %s to prevent known Turing non-Tensor-Core FP16 convolution NaNs.",
+                gpu_name,
+            )
         else:
             amp_enabled = hw_cfg.get("amp_enabled", True)
 
         # Check for BF16 support on sm_80+
-        use_bf16 = hw_cfg.get("use_bf16", False) and device_info.capability[0] >= 8 and torch.cuda.is_bf16_supported()
+        use_bf16 = (
+            hw_cfg.get("use_bf16", False)
+            and device_info.capability[0] >= 8
+            and torch.cuda.is_bf16_supported()
+        )
         amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
     # 4. GradScaler
@@ -93,7 +101,12 @@ def apply_hardware_policy(
 
     logger.debug(
         "Hardware policy applied for %s: AMP=%s (%s), cuDNN Benchmark=%s, TF32=%s, Channels-Last=%s",
-        model_key, amp_enabled, amp_dtype, cudnn_benchmark, tf32_enabled, channels_last
+        model_key,
+        amp_enabled,
+        amp_dtype,
+        cudnn_benchmark,
+        tf32_enabled,
+        channels_last,
     )
 
     return HardwarePolicyResult(

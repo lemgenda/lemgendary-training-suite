@@ -136,7 +136,10 @@ def canonicalize_checkpoints(model_hub_dir: Path, checkpoints_dir: Path) -> list
 
         # Strictly ignore transient staging directories
         pth_resolved_parents = pth.resolve().parents
-        if any(parent.name in (".kaggle_upload_stage", ".export_staging") for parent in pth_resolved_parents):
+        if any(
+            parent.name in (".kaggle_upload_stage", ".export_staging")
+            for parent in pth_resolved_parents
+        ):
             continue
 
         name_lower = pth.name.lower()
@@ -169,7 +172,9 @@ def canonicalize_checkpoints(model_hub_dir: Path, checkpoints_dir: Path) -> list
                 actions.append(msg)
                 logger.info(msg)
             except OSError as move_err:
-                logger.warning("Failed renaming checkpoint %s -> %s: %s", pth, target_path, move_err)
+                logger.warning(
+                    "Failed renaming checkpoint %s -> %s: %s", pth, target_path, move_err
+                )
         else:
             try:
                 pth.unlink()
@@ -222,7 +227,12 @@ class CheckpointLifecycleManager:
                 l_ep = int(l_meta.get("epoch", 0)) if isinstance(l_meta, dict) else 0
                 if l_ep >= p_ep:
                     self.progress_path.unlink()
-                    logger.info("Purged obsolete progress checkpoint %s (progress ep %d <= latest ep %d)", self.progress_path, p_ep, l_ep)
+                    logger.info(
+                        "Purged obsolete progress checkpoint %s (progress ep %d <= latest ep %d)",
+                        self.progress_path,
+                        p_ep,
+                        l_ep,
+                    )
             except CHECKPOINT_LOAD_ERRORS as clean_err:
                 logger.debug("Progress checkpoint clean check notice: %s", clean_err)
 
@@ -250,11 +260,14 @@ class CheckpointLifecycleManager:
     def run_preflight(self, force: bool = False) -> dict[str, Path]:
         """Generate pre-flight deployment documentation and cloud training notebooks (Rank 0 only)."""
         import torch.distributed as dist
+
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return {}
         try:
             assets = generate_preflight_assets(self.model_name, self.root, force=force)
-            logger.info("Pre-flight assets verified for %s: %s", self.model_name, list(assets.keys()))
+            logger.info(
+                "Pre-flight assets verified for %s: %s", self.model_name, list(assets.keys())
+            )
             return assets
         except PREFLIGHT_ERRORS as exc:
             logger.warning("Pre-flight generation notice for %s: %s", self.model_name, exc)
@@ -276,7 +289,12 @@ class CheckpointLifecycleManager:
                                 q_val = float(row[q_key])
                                 self.best_quality_score = max(self.best_quality_score, q_val)
                             except ValueError as q_err:
-                                logger.debug("Skipping non-numeric %s value %r in metrics.csv: %s", q_key, row[q_key], q_err)
+                                logger.debug(
+                                    "Skipping non-numeric %s value %r in metrics.csv: %s",
+                                    q_key,
+                                    row[q_key],
+                                    q_err,
+                                )
 
                     # SOTA target metric baselines
                     for target_key in self.sota_targets:
@@ -295,7 +313,12 @@ class CheckpointLifecycleManager:
                                     elif val > cur:
                                         self.vault_bests[target_key] = val
                                 except ValueError as v_err:
-                                    logger.debug("Skipping non-numeric %s value %r in metrics.csv: %s", k, v, v_err)
+                                    logger.debug(
+                                        "Skipping non-numeric %s value %r in metrics.csv: %s",
+                                        k,
+                                        v,
+                                        v_err,
+                                    )
         except OSError as exc:
             logger.debug("Failed parsing metrics.csv history for vault baselines: %s", exc)
 
@@ -308,6 +331,7 @@ class CheckpointLifecycleManager:
         payload_builder: Callable[[], dict[str, Any]],
     ) -> bool:
         import torch.distributed as dist
+
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return False
         """Evaluate and conditionally persist progress.pth checkpoint.
@@ -369,6 +393,7 @@ class CheckpointLifecycleManager:
     def save_latest(self, epoch: int, payload: dict[str, Any]) -> bool:
         """Save latest.pth at epoch completion and immediately purge progress.pth (Rank 0 only)."""
         import torch.distributed as dist
+
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return True
         success = safe_atomic_save(payload, self.latest_path)
@@ -382,7 +407,10 @@ class CheckpointLifecycleManager:
         if self.progress_path.exists():
             try:
                 self.progress_path.unlink()
-                logger.info("Purged intra-epoch progress checkpoint %s after saving latest.pth", self.progress_path)
+                logger.info(
+                    "Purged intra-epoch progress checkpoint %s after saving latest.pth",
+                    self.progress_path,
+                )
             except OSError as unlink_err:
                 logger.debug("Failed unlinking progress checkpoint: %s", unlink_err)
 
@@ -403,6 +431,7 @@ class CheckpointLifecycleManager:
     ) -> bool:
         """Save best.pth, invoke universal tri-format export, and refresh README (Rank 0 only)."""
         import torch.distributed as dist
+
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return False
         if quality_score <= self.best_quality_score:
@@ -449,6 +478,7 @@ class CheckpointLifecycleManager:
         payload: dict[str, Any],
     ) -> list[str]:
         import torch.distributed as dist
+
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return []
         """Check all target metrics against historical vault milestones.
@@ -468,7 +498,13 @@ class CheckpointLifecycleManager:
                         val = float(v)
                         break
                     except (ValueError, TypeError) as conv_err:
-                        logger.debug("Ignoring non-numeric metric %s=%r for vault %s: %s", k, v, target_key, conv_err)
+                        logger.debug(
+                            "Ignoring non-numeric metric %s=%r for vault %s: %s",
+                            k,
+                            v,
+                            target_key,
+                            conv_err,
+                        )
 
             if val is None:
                 continue
@@ -479,9 +515,9 @@ class CheckpointLifecycleManager:
             if prev_best is None:
                 is_milestone = True
             elif lower_better:
-                is_milestone = (val < prev_best)
+                is_milestone = val < prev_best
             else:
-                is_milestone = (val > prev_best)
+                is_milestone = val > prev_best
 
             if is_milestone:
                 self.vault_bests[target_key] = val
@@ -520,7 +556,9 @@ class CheckpointLifecycleManager:
         yolo_trainer: Any | None = None,
     ) -> dict[str, Path]:
         """Trigger universal tri-format export to LemGendaryModels/[ModelName]/."""
-        print(f"[EXPORT] Initiating universal tri-format export for {self.model_name}...", flush=True)
+        print(
+            f"[EXPORT] Initiating universal tri-format export for {self.model_name}...", flush=True
+        )
         try:
             target_model = yolo_trainer if is_yolo else model
             exported, _ = export_universal_model(

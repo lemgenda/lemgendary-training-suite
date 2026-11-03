@@ -24,6 +24,7 @@ router = APIRouter(prefix="/gui", tags=["gui"])
 
 class QuickTrainRequest(BaseModel):
     """Payload for quick train trigger."""
+
     model_key: str = Field(..., description="Target model key")
     preset: str = Field("quick-sota", description="Preset name from presets.yaml")
     clean: bool = Field(False, description="Wipe checkpoints and start fresh")
@@ -31,8 +32,12 @@ class QuickTrainRequest(BaseModel):
     batch_size: int | None = Field(None, description="Optional override for batch size")
     learning_rate: float | None = Field(None, description="Optional override for learning rate")
     env: str = Field("local", description="Execution environment ('local', 'kaggle', 'colab')")
-    ladder_stage: int | None = Field(None, description="Selected spatial ladder resolution or timeframe minute stage")
-    enable_sawtooth: bool | None = Field(True, description="Enable Sawtooth VRAM Governor memory guard")
+    ladder_stage: int | None = Field(
+        None, description="Selected spatial ladder resolution or timeframe minute stage"
+    )
+    enable_sawtooth: bool | None = Field(
+        True, description="Enable Sawtooth VRAM Governor memory guard"
+    )
 
 
 def _get_root(request: Request) -> Path:
@@ -179,16 +184,26 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
         if is_forex:
             ladder_type = "timeframe"
             res_ladder = [1, 5, 15, 60, 240, 1440]
-            if isinstance(opt_cfg, dict) and "res_ladder" in opt_cfg and isinstance(opt_cfg["res_ladder"], list):
+            if (
+                isinstance(opt_cfg, dict)
+                and "res_ladder" in opt_cfg
+                and isinstance(opt_cfg["res_ladder"], list)
+            ):
                 res_ladder = opt_cfg["res_ladder"]
         elif is_llm:
             ladder_type = "context_tokens"
-            ctx_len = info.get("curriculum", {}).get("max_seq_length") or info.get("input_size") or 2048
+            ctx_len = (
+                info.get("curriculum", {}).get("max_seq_length") or info.get("input_size") or 2048
+            )
             res_ladder = [int(ctx_len)]
         else:
             ladder_type = "spatial"
             res_ladder = [256, 384, 512]
-            if isinstance(opt_cfg, dict) and "res_ladder" in opt_cfg and isinstance(opt_cfg["res_ladder"], list):
+            if (
+                isinstance(opt_cfg, dict)
+                and "res_ladder" in opt_cfg
+                and isinstance(opt_cfg["res_ladder"], list)
+            ):
                 res_ladder = opt_cfg["res_ladder"]
             elif info.get("input_size"):
                 inp = info["input_size"]
@@ -251,7 +266,9 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                 primary_sota_key = first_k
                 metric_name = first_k.upper()
                 sota_target_val = sota[first_k]
-                lower_is_better = any(m in first_k.lower() for m in ["mae", "loss", "fid", "lpips", "max_drawdown"])
+                lower_is_better = any(
+                    m in first_k.lower() for m in ["mae", "loss", "fid", "lpips", "max_drawdown"]
+                )
 
         csv_epochs = 0
         csv_max_res = 0
@@ -271,71 +288,80 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
         if chosen_csv is not None:
             try:
                 with open(chosen_csv, encoding="utf-8", errors="ignore") as f:
-                        reader = csv.DictReader(f)
-                        for row in reader:
-                            ep_val = row.get("Epoch") or row.get("epoch")
-                            if ep_val:
-                                try:
-                                    ep_num = int(ep_val)
-                                    csv_epochs = max(csv_epochs, ep_num)
-                                except ValueError:
-                                    logger.debug("Non-integer Epoch %r in %s", ep_val, chosen_csv)
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        ep_val = row.get("Epoch") or row.get("epoch")
+                        if ep_val:
+                            try:
+                                ep_num = int(ep_val)
+                                csv_epochs = max(csv_epochs, ep_num)
+                            except ValueError:
+                                logger.debug("Non-integer Epoch %r in %s", ep_val, chosen_csv)
 
-                            res_val = (
-                                row.get("Res")
-                                or row.get("res")
-                                or row.get("resolution")
-                                or row.get("Resolution")
-                                or row.get("imgsz")
-                            )
-                            if res_val:
-                                try:
-                                    res_num = int(float(res_val))
-                                    latest_res = res_num
-                                    csv_max_res = max(csv_max_res, res_num)
-                                except ValueError:
-                                    logger.debug("Non-numeric resolution %r in %s", res_val, chosen_csv)
+                        res_val = (
+                            row.get("Res")
+                            or row.get("res")
+                            or row.get("resolution")
+                            or row.get("Resolution")
+                            or row.get("imgsz")
+                        )
+                        if res_val:
+                            try:
+                                res_num = int(float(res_val))
+                                latest_res = res_num
+                                csv_max_res = max(csv_max_res, res_num)
+                            except ValueError:
+                                logger.debug("Non-numeric resolution %r in %s", res_val, chosen_csv)
 
-                            fold_val = row.get("Fold") or row.get("fold")
-                            if fold_val:
-                                try:
-                                    fold_num = int(fold_val)
-                                    latest_fold = fold_num
-                                    csv_max_fold = max(csv_max_fold, fold_num)
-                                except ValueError:
-                                    logger.debug("Non-integer Fold %r in %s", fold_val, chosen_csv)
+                        fold_val = row.get("Fold") or row.get("fold")
+                        if fold_val:
+                            try:
+                                fold_num = int(fold_val)
+                                latest_fold = fold_num
+                                csv_max_fold = max(csv_max_fold, fold_num)
+                            except ValueError:
+                                logger.debug("Non-integer Fold %r in %s", fold_val, chosen_csv)
 
-                            data_val = (
-                                row.get("Data")
-                                or row.get("data")
-                                or row.get("sample_fraction")
-                                or row.get("Data_Fraction")
-                            )
-                            if data_val:
-                                try:
-                                    clean_d = data_val.replace("%", "").strip()
-                                    d_num = float(clean_d)
-                                    if d_num > 1.0:
-                                        d_num = d_num / 100.0
-                                    latest_data = d_num
-                                    csv_max_data = max(csv_max_data, d_num)
-                                except ValueError:
-                                    logger.debug("Non-numeric data fraction %r in %s", data_val, chosen_csv)
+                        data_val = (
+                            row.get("Data")
+                            or row.get("data")
+                            or row.get("sample_fraction")
+                            or row.get("Data_Fraction")
+                        )
+                        if data_val:
+                            try:
+                                clean_d = data_val.replace("%", "").strip()
+                                d_num = float(clean_d)
+                                if d_num > 1.0:
+                                    d_num = d_num / 100.0
+                                latest_data = d_num
+                                csv_max_data = max(csv_max_data, d_num)
+                            except ValueError:
+                                logger.debug(
+                                    "Non-numeric data fraction %r in %s", data_val, chosen_csv
+                                )
 
-                            # Collect all recognized metrics for model domain
-                            for ykey, (col_name, _is_lower, _lbl, is_fx_col) in METRIC_REGISTRY.items():
-                                if is_forex != is_fx_col:
-                                    continue
-                                if row.get(col_name):
-                                    try:
-                                        c_val = float(row[col_name])
-                                        if ykey not in csv_metrics_history:
-                                            csv_metrics_history[ykey] = []
-                                        csv_metrics_history[ykey].append(c_val)
-                                    except (ValueError, TypeError):
-                                        logger.debug("Non-numeric %s value %r in %s", col_name, row.get(col_name), chosen_csv)
+                        # Collect all recognized metrics for model domain
+                        for ykey, (col_name, _is_lower, _lbl, is_fx_col) in METRIC_REGISTRY.items():
+                            if is_forex != is_fx_col:
+                                continue
+                            if row.get(col_name):
+                                try:
+                                    c_val = float(row[col_name])
+                                    if ykey not in csv_metrics_history:
+                                        csv_metrics_history[ykey] = []
+                                    csv_metrics_history[ykey].append(c_val)
+                                except (ValueError, TypeError):
+                                    logger.debug(
+                                        "Non-numeric %s value %r in %s",
+                                        col_name,
+                                        row.get(col_name),
+                                        chosen_csv,
+                                    )
             except (OSError, csv.Error) as exc:
-                logger.warning("Failed reading metrics CSV %s for %s: %s", chosen_csv, model_key, exc)
+                logger.warning(
+                    "Failed reading metrics CSV %s for %s: %s", chosen_csv, model_key, exc
+                )
 
         has_hub_weights = False
         if hub_dir.exists():
@@ -377,7 +403,10 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                     col_name, is_low, lbl, _ = reg_entry
                 else:
                     col_name = ykey.upper()
-                    is_low = any(m in ykey.lower() for m in ["mae", "loss", "fid", "lpips", "max_drawdown", "margin"])
+                    is_low = any(
+                        m in ykey.lower()
+                        for m in ["mae", "loss", "fid", "lpips", "max_drawdown", "margin"]
+                    )
                     lbl = ykey.replace("_", " ").title()
 
                 achieved_vals = csv_metrics_history.get(ykey, [])
@@ -389,19 +418,23 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                         tgt_num = float(tgt_val)
                         passed = (achieved <= tgt_num) if is_low else (achieved >= tgt_num)
                     except (ValueError, TypeError):
-                        logger.debug("Non-numeric SOTA target %r for %s.%s", tgt_val, model_key, ykey)
+                        logger.debug(
+                            "Non-numeric SOTA target %r for %s.%s", tgt_val, model_key, ykey
+                        )
 
                 if passed:
                     sota_targets_met += 1
 
-                sota_details.append({
-                    "key": ykey,
-                    "label": lbl,
-                    "target": tgt_val,
-                    "achieved": round(achieved, 4) if achieved is not None else None,
-                    "lower_is_better": is_low,
-                    "passed": passed,
-                })
+                sota_details.append(
+                    {
+                        "key": ykey,
+                        "label": lbl,
+                        "target": tgt_val,
+                        "achieved": round(achieved, 4) if achieved is not None else None,
+                        "lower_is_better": is_low,
+                        "passed": passed,
+                    }
+                )
 
         # Collect all best achieved metrics across SOTA targets and metrics history
         best_metrics_details: list[dict[str, Any]] = []
@@ -412,16 +445,22 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             passed_sota = (
                 b_val is not None
                 and s["target"] is not None
-                and ((b_val <= float(s["target"])) if s["lower_is_better"] else (b_val >= float(s["target"])))
+                and (
+                    (b_val <= float(s["target"]))
+                    if s["lower_is_better"]
+                    else (b_val >= float(s["target"]))
+                )
             )
-            best_metrics_details.append({
-                "key": s["key"],
-                "label": s["label"],
-                "value": b_val,
-                "target": s["target"],
-                "lower_is_better": s["lower_is_better"],
-                "passed": s["passed"] or passed_sota,
-            })
+            best_metrics_details.append(
+                {
+                    "key": s["key"],
+                    "label": s["label"],
+                    "value": b_val,
+                    "target": s["target"],
+                    "lower_is_better": s["lower_is_better"],
+                    "passed": s["passed"] or passed_sota,
+                }
+            )
 
         known_metric_keys = {s["key"] for s in sota_details}
         for ykey, (_col_name, is_low, lbl, is_fx_col) in METRIC_REGISTRY.items():
@@ -430,18 +469,20 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             if csv_metrics_history.get(ykey):
                 vals = csv_metrics_history[ykey]
                 ach = min(vals) if is_low else max(vals)
-                best_metrics_details.append({
-                    "key": ykey,
-                    "label": lbl,
-                    "value": round(ach, 4),
-                    "target": None,
-                    "lower_is_better": is_low,
-                    "passed": True,
-                })
+                best_metrics_details.append(
+                    {
+                        "key": ykey,
+                        "label": lbl,
+                        "value": round(ach, 4),
+                        "target": None,
+                        "lower_is_better": is_low,
+                        "passed": True,
+                    }
+                )
 
         # SOTA condition: ALL target metrics defined for this model must be met!
         if sota_targets_total > 0:
-            sota_reached = (sota_targets_met == sota_targets_total)
+            sota_reached = sota_targets_met == sota_targets_total
         else:
             sota_reached = has_checkpoint
 
@@ -459,10 +500,22 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
         )
 
         # Target resolution from spatial ladder or model metadata
-        target_res = max(res_ladder) if res_ladder else (info.get("resolution") or (512 if not is_forex else 1440))
+        target_res = (
+            max(res_ladder)
+            if res_ladder
+            else (info.get("resolution") or (512 if not is_forex else 1440))
+        )
 
         # Active ladder resolution rung
-        curr_data = 1.0 if (is_forex or is_llm) else (latest_data if latest_data is not None else (csv_max_data if csv_max_data > 0 else 0.0))
+        curr_data = (
+            1.0
+            if (is_forex or is_llm)
+            else (
+                latest_data
+                if latest_data is not None
+                else (csv_max_data if csv_max_data > 0 else 0.0)
+            )
+        )
         if is_forex:
             ladder_default = res_ladder[0] if res_ladder else 1
             active_ladder_val = (
@@ -487,7 +540,9 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             else:
                 active_res = target_res
 
-            ladder_passed = (csv_max_res >= target_res) if target_res is not None else (completed_epochs >= 20)
+            ladder_passed = (
+                (csv_max_res >= target_res) if target_res is not None else (completed_epochs >= 20)
+            )
             data_fraction_passed = curr_data >= 0.999 and ladder_passed
 
         # Authoritative criteria:
@@ -497,10 +552,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
         # 3. It has trained with 100% data fraction (Data >= 1.0)
         # 4. Model weights have reached or exceeded ALL SOTA values set in unified_models_v2.yaml
         is_fully_trained = (
-            completed_epochs >= 20
-            and sota_reached
-            and ladder_passed
-            and data_fraction_passed
+            completed_epochs >= 20 and sota_reached and ladder_passed and data_fraction_passed
         )
 
         if is_fully_trained:
@@ -533,61 +585,65 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
             else (csv_max_fold if is_forex and csv_max_fold > 0 else active_res)
         )
 
-        results.append({
-            "model_key": model_key,
-            "name": info.get("name", model_key),
-            "category": info.get("category", "general"),
-            "class_name": info.get("class_name"),
-            "checkpoints_count": len(model_ckpts),
-            "has_best_checkpoint": has_checkpoint,
-            "best_checkpoint_size_mb": best_ckpt["size_mb"] if best_ckpt else None,
-            "best_checkpoint_epoch": best_ckpt["epoch"] if best_ckpt else None,
-            "latest_checkpoint_epoch": latest_ckpt["epoch"] if latest_ckpt else None,
-            "resolution": info.get("resolution"),
-            "key": model_key,
-            "display_name": info.get("name", model_key),
-            "architecture": info.get("architecture_type") or info.get("class_name") or "PyTorch Model",
-            "task_type": info.get("category") or info.get("dataset_type") or "general",
-            "canonical_format": info.get("canonical_format", "webdataset"),
-            "parameters_m": KNOWN_PARAMS_M.get(model_key, 10.0),
-            "spatial_ladder": res_ladder,
-            "ladder_type": ladder_type,
-            "is_forex": is_forex,
-            "is_llm": is_llm,
-            "ladder_passed": ladder_passed,
-            "active_res": active_res,
-            "max_res_completed": max_res_completed,
-            "target_res": target_res,
-            "active_fold": active_res if is_forex else None,
-            "total_folds": 6 if is_forex else None,
-            "fold_years_label": (
-                f"{2019}-{2019 + min(active_res, 6)} -> {2019 + min(active_res, 6) + 1}"
-                if is_forex and isinstance(active_res, int) and active_res >= 1
-                else None
-            ),
-            "data_fraction_completed": 1.0 if is_forex else round(curr_data, 2),
-            "data_fraction_passed": True if is_forex else data_fraction_passed,
-            "checkpoint_exists": has_checkpoint,
-            "is_fully_trained": is_fully_trained,
-            "preferred_parallel": info.get("preferred_parallel", "single"),
-            "epochs_completed": completed_epochs,
-            "best_metric": best_metric_val,
-            "metric_name": metric_name,
-            "sota_target": sota_target_val,
-            "sota_targets_total": sota_targets_total,
-            "sota_targets_met": sota_targets_met,
-            "sota_all_met": sota_reached,
-            "sota_details": sota_details,
-            "best_metrics_details": best_metrics_details,
-            "sota_reached": sota_reached,
-            "training_status": training_status,
-            "status": info.get("status", "VALIDATED"),
-            "authoritative_status": info.get("status", "VALIDATED"),
-            "learning_rate": resolved_lr,
-            "batch_size": resolved_bs,
-            "default_epochs": resolved_ep,
-            "description": info.get("description", "").strip(),
-        })
+        results.append(
+            {
+                "model_key": model_key,
+                "name": info.get("name", model_key),
+                "category": info.get("category", "general"),
+                "class_name": info.get("class_name"),
+                "checkpoints_count": len(model_ckpts),
+                "has_best_checkpoint": has_checkpoint,
+                "best_checkpoint_size_mb": best_ckpt["size_mb"] if best_ckpt else None,
+                "best_checkpoint_epoch": best_ckpt["epoch"] if best_ckpt else None,
+                "latest_checkpoint_epoch": latest_ckpt["epoch"] if latest_ckpt else None,
+                "resolution": info.get("resolution"),
+                "key": model_key,
+                "display_name": info.get("name", model_key),
+                "architecture": info.get("architecture_type")
+                or info.get("class_name")
+                or "PyTorch Model",
+                "task_type": info.get("category") or info.get("dataset_type") or "general",
+                "canonical_format": info.get("canonical_format", "webdataset"),
+                "parameters_m": KNOWN_PARAMS_M.get(model_key, 10.0),
+                "spatial_ladder": res_ladder,
+                "ladder_type": ladder_type,
+                "is_forex": is_forex,
+                "is_llm": is_llm,
+                "ladder_passed": ladder_passed,
+                "active_res": active_res,
+                "max_res_completed": max_res_completed,
+                "target_res": target_res,
+                "active_fold": active_res if is_forex else None,
+                "total_folds": 6 if is_forex else None,
+                "fold_years_label": (
+                    f"{2019}-{2019 + min(active_res, 6)} -> {2019 + min(active_res, 6) + 1}"
+                    if is_forex and isinstance(active_res, int) and active_res >= 1
+                    else None
+                ),
+                "data_fraction_completed": 1.0 if is_forex else round(curr_data, 2),
+                "data_fraction_passed": True if is_forex else data_fraction_passed,
+                "checkpoint_exists": has_checkpoint,
+                "is_fully_trained": is_fully_trained,
+                "preferred_parallel": info.get("preferred_parallel", "single"),
+                "epochs_completed": completed_epochs,
+                "best_metric": best_metric_val,
+                "metric_name": metric_name,
+                "sota_target": sota_target_val,
+                "sota_targets_total": sota_targets_total,
+                "sota_targets_met": sota_targets_met,
+                "sota_all_met": sota_reached,
+                "sota_details": sota_details,
+                "best_metrics_details": best_metrics_details,
+                "sota_reached": sota_reached,
+                "training_status": training_status,
+                "status": info.get("status", "VALIDATED"),
+                "authoritative_status": info.get("status", "VALIDATED"),
+                "learning_rate": resolved_lr,
+                "batch_size": resolved_bs,
+                "default_epochs": resolved_ep,
+                "description": info.get("description", "").strip(),
+            }
+        )
 
     return sorted(results, key=lambda x: x["model_key"])
 
@@ -653,4 +709,3 @@ def quick_train(payload: QuickTrainRequest, request: Request) -> dict[str, Any]:
         "preset": payload.preset,
         "params": params,
     }
-

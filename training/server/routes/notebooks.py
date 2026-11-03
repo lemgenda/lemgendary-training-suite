@@ -114,4 +114,6 @@ def refresh_all_notebooks_endpoint(
         }
     except _NOTEBOOK_ERRORS as e:
         logger.warning("Failed to batch generate notebooks (platform=%s): %s", payload.platform, e)
-        raise HTTPException(status_code=400, detail=f"Failed to batch generate notebooks: {e}") from e
+        raise HTTPException(
+            status_code=400, detail=f"Failed to batch generate notebooks: {e}"
+        ) from e

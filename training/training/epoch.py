@@ -46,12 +46,18 @@ def _unpack_batch(batch: Any, device: torch.device) -> tuple[Any, Any, Any]:
     if isinstance(inputs, torch.Tensor):
         inputs = inputs.to(device, non_blocking=True)
     elif isinstance(inputs, dict):
-        inputs = {k: (v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v) for k, v in inputs.items()}
+        inputs = {
+            k: (v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v)
+            for k, v in inputs.items()
+        }
 
     if isinstance(targets, torch.Tensor):
         targets = targets.to(device, non_blocking=True)
     elif isinstance(targets, dict):
-        targets = {k: (v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v) for k, v in targets.items()}
+        targets = {
+            k: (v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v)
+            for k, v in targets.items()
+        }
 
     if isinstance(task_idx, torch.Tensor):
         task_idx = task_idx.to(device, non_blocking=True)
@@ -100,7 +106,10 @@ def train_one_epoch(
     ):
         resume_step = ctx.resume_state.iteration
         ctx._resumed_train_step_handled = True
-        print(f"[RESUME] Fast-forwarding {resume_step} completed batches in Epoch {epoch}...", flush=True)
+        print(
+            f"[RESUME] Fast-forwarding {resume_step} completed batches in Epoch {epoch}...",
+            flush=True,
+        )
 
         acc = getattr(ctx.resume_state, "train_accumulators", {})
         if acc:
@@ -144,14 +153,17 @@ def train_one_epoch(
 
                 scaled_loss = raw_loss / max(1, ctx.accumulation_steps)
 
-            is_update_step = (
-                (accumulated_steps + 1) % ctx.accumulation_steps == 0
-                or (batch_idx + 1) == len(ctx.train_loader)
-            )
+            is_update_step = (accumulated_steps + 1) % ctx.accumulation_steps == 0 or (
+                batch_idx + 1
+            ) == len(ctx.train_loader)
 
             # In multi-GPU DDP, suppress all-reduce on micro-batches before the update step boundary
             bwd_ctx = nullcontext()
-            if not is_update_step and ctx.parallel_strategy is not None and hasattr(ctx.parallel_strategy, "backward_context"):
+            if (
+                not is_update_step
+                and ctx.parallel_strategy is not None
+                and hasattr(ctx.parallel_strategy, "backward_context")
+            ):
                 bwd_ctx = ctx.parallel_strategy.backward_context(ctx.accumulation_steps)
 
             # Scale loss, compute backward, and collect gradient norm at step boundary
@@ -165,7 +177,9 @@ def train_one_epoch(
                     should_unscale=is_update_step,
                 )
         except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
-            if "out of memory" in str(oom_err).lower() or isinstance(oom_err, torch.cuda.OutOfMemoryError):
+            if "out of memory" in str(oom_err).lower() or isinstance(
+                oom_err, torch.cuda.OutOfMemoryError
+            ):
                 if ctx.optimizer is not None:
                     ctx.optimizer.zero_grad(set_to_none=True)
 
@@ -178,10 +192,14 @@ def train_one_epoch(
                     ctx.accumulation_steps = new_acc
                 else:
                     import gc
+
                     gc.collect()
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                print(f"\n  [TRAIN WARNING] VRAM OOM intercepted on batch {batch_idx + 1}. Governor active mitigation applied.", flush=True)
+                print(
+                    f"\n  [TRAIN WARNING] VRAM OOM intercepted on batch {batch_idx + 1}. Governor active mitigation applied.",
+                    flush=True,
+                )
                 continue
             raise oom_err
 
@@ -190,7 +208,9 @@ def train_one_epoch(
         step_count += 1
         accumulated_steps += 1
 
-        if accumulated_steps % ctx.accumulation_steps == 0 or (batch_idx + 1) == len(ctx.train_loader):
+        if accumulated_steps % ctx.accumulation_steps == 0 or (batch_idx + 1) == len(
+            ctx.train_loader
+        ):
             if ctx.scaler is not None:
                 ctx.scaler.step(ctx.optimizer)
                 ctx.scaler.update()
@@ -217,8 +237,12 @@ def train_one_epoch(
                     "model_name": ctx.model_name,
                     "model_state": raw_m.state_dict(),
                     "optimizer_state": ctx.optimizer.state_dict(),
-                    "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
-                    "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
+                    "scheduler_state": ctx.scheduler.state_dict()
+                    if ctx.scheduler is not None
+                    else None,
+                    "governor_state": ctx.governor.get_state()
+                    if hasattr(ctx.governor, "get_state")
+                    else None,
                     "train_accumulators": dict(train_acc_snapshot),
                 },
             )
@@ -227,10 +251,11 @@ def train_one_epoch(
         is_warmup = (batch_idx + 1) in (1, 2, 5, 10) or (step_count - resume_step in (1, 2, 5, 10))
         time_elapsed_since_log = now - last_log_time
         is_periodic = ((batch_idx + 1) % log_interval == 0) or ((batch_idx + 1) == num_batches)
-        is_heartbeat = (time_elapsed_since_log >= 8.0 and (batch_idx + 1) > 10)
+        is_heartbeat = time_elapsed_since_log >= 8.0 and (batch_idx + 1) > 10
 
         # In multi-GPU DDP, only rank 0 prints progress
         import torch.distributed as dist
+
         is_main_proc = not (dist.is_available() and dist.is_initialized() and dist.get_rank() != 0)
 
         if is_main_proc and (is_warmup or is_periodic or is_heartbeat):
@@ -251,7 +276,9 @@ def train_one_epoch(
                 eta_s = int(remaining / max(1e-4, rate))
                 eta_m, eta_sec = divmod(eta_s, 60)
                 eta_h, eta_m = divmod(eta_m, 60)
-                eta_str = f"ETA {eta_h}h{eta_m:02d}m" if eta_h > 0 else f"ETA {eta_m:02d}m{eta_sec:02d}s"
+                eta_str = (
+                    f"ETA {eta_h}h{eta_m:02d}m" if eta_h > 0 else f"ETA {eta_m:02d}m{eta_sec:02d}s"
+                )
 
                 line = (
                     f"\r  [BATCH {batch_idx + 1:>{len(str(num_batches))}}/{num_batches}] "
@@ -276,6 +303,7 @@ def train_one_epoch(
                 print(line.ljust(90), end=end_char, flush=True)
 
     import torch.distributed as dist
+
     if not (dist.is_available() and dist.is_initialized() and dist.get_rank() != 0):
         print(flush=True)
     elapsed = time.time() - start_time
@@ -289,7 +317,9 @@ def train_one_epoch(
             ctx.scheduler.step()
         except (TypeError, ValueError, RuntimeError) as exc:
             # e.g. ReduceLROnPlateau requires a metrics argument; the LR is left unchanged.
-            logger.warning("Epoch scheduler step skipped for %s: %s", type(ctx.scheduler).__name__, exc)
+            logger.warning(
+                "Epoch scheduler step skipped for %s: %s", type(ctx.scheduler).__name__, exc
+            )
 
     return {
         "train_loss": avg_loss,

@@ -62,6 +62,7 @@ class GenericCausalLLM(nn.Module):
             if load_in_4bit:
                 try:
                     from transformers import BitsAndBytesConfig
+
                     quant_config = BitsAndBytesConfig(
                         load_in_4bit=True,
                         bnb_4bit_quant_type="nf4",
@@ -69,7 +70,9 @@ class GenericCausalLLM(nn.Module):
                         bnb_4bit_use_double_quant=True,
                     )
                 except ImportError:
-                    logger.warning("bitsandbytes not installed; loading without 4-bit quantization.")
+                    logger.warning(
+                        "bitsandbytes not installed; loading without 4-bit quantization."
+                    )
 
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.base_model_name,
@@ -92,7 +95,15 @@ class GenericCausalLLM(nn.Module):
 
                     target_modules = kwargs.get(
                         "target_modules",
-                        ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+                        [
+                            "q_proj",
+                            "k_proj",
+                            "v_proj",
+                            "o_proj",
+                            "gate_proj",
+                            "up_proj",
+                            "down_proj",
+                        ],
                     )
                     peft_config = LoraConfig(
                         r=lora_r,
@@ -103,15 +114,20 @@ class GenericCausalLLM(nn.Module):
                         task_type="CAUSAL_LM",
                     )
                     self.model = get_peft_model(self.model, peft_config)
-                    logger.info("Injected LoRA adapter into GenericCausalLLM backbone (r=%d)", lora_r)
+                    logger.info(
+                        "Injected LoRA adapter into GenericCausalLLM backbone (r=%d)", lora_r
+                    )
                 except ImportError:
-                    logger.warning("PEFT not installed. GenericCausalLLM operating in standard mode.")
+                    logger.warning(
+                        "PEFT not installed. GenericCausalLLM operating in standard mode."
+                    )
 
         except (ImportError, OSError, ValueError, RuntimeError) as exc:
             # ImportError: transformers missing; OSError: weights/tokenizer not found or
             # not downloadable; ValueError: unsupported config; RuntimeError: backend/device failure.
             logger.warning(
-                "Could not initialize full transformers model (%s). Using lightweight mock for testing.", exc
+                "Could not initialize full transformers model (%s). Using lightweight mock for testing.",
+                exc,
             )
             self._init_mock_model()
 
@@ -144,7 +160,9 @@ class GenericCausalLLM(nn.Module):
             if labels is not None:
                 shift_logits = logits[..., :-1, :].contiguous()
                 shift_labels = labels[..., 1:].contiguous()
-                loss = self.loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                loss = self.loss_fct(
+                    shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+                )
             return {"loss": loss if loss is not None else torch.tensor(0.0), "logits": logits}
 
         outputs = self.model(

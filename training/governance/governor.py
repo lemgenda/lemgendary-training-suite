@@ -145,7 +145,11 @@ class SmartTrainingGovernor:
         if self.task_type == "forex":
             self.sota.plateau_patience = max(self.sota.plateau_patience, 15)
 
-        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if torch.cuda.is_available() else 8.0
+        vram_gb = (
+            torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            if torch.cuda.is_available()
+            else 8.0
+        )
         if self.task_type in ["restoration", "enhancement", "face", "parameter_prediction"]:
             if vram_gb < 4.5:
                 max_safe_res = 256 if self.task_type == "parameter_prediction" else 384
@@ -160,10 +164,15 @@ class SmartTrainingGovernor:
             if cfg_max_res:
                 max_safe_res = min(max_safe_res, int(cfg_max_res))
 
-            self.curriculum.res_ladder = [r for r in self.curriculum.res_ladder if r <= max_safe_res]
+            self.curriculum.res_ladder = [
+                r for r in self.curriculum.res_ladder if r <= max_safe_res
+            ]
             if not self.curriculum.res_ladder:
                 self.curriculum.res_ladder = [max_safe_res]
-            if self.curriculum.current_res is not None and self.curriculum.current_res > max_safe_res:
+            if (
+                self.curriculum.current_res is not None
+                and self.curriculum.current_res > max_safe_res
+            ):
                 logger.info(
                     "Hardware VRAM Cap Active (%.1fGB): Clamping %dpx -> %dpx for memory stability.",
                     vram_gb,
@@ -172,7 +181,11 @@ class SmartTrainingGovernor:
                 )
                 self.curriculum.current_res = max_safe_res
 
-        if self.curriculum.res_ladder and self.curriculum.current_res != self.curriculum.res_ladder[0] and self.task_type != "forex":
+        if (
+            self.curriculum.res_ladder
+            and self.curriculum.current_res != self.curriculum.res_ladder[0]
+            and self.task_type != "forex"
+        ):
             logger.info(
                 "Aligning start resolution %dpx -> lowest rung %dpx.",
                 self.curriculum.current_res,
@@ -180,14 +193,23 @@ class SmartTrainingGovernor:
             )
             self.curriculum.current_res = self.curriculum.res_ladder[0]
 
-        if self.curriculum.current_res is not None and self.curriculum.current_res not in self.curriculum.res_ladder:
-            self.curriculum.res_ladder = sorted(list(set(self.curriculum.res_ladder + [self.curriculum.current_res])))
+        if (
+            self.curriculum.current_res is not None
+            and self.curriculum.current_res not in self.curriculum.res_ladder
+        ):
+            self.curriculum.res_ladder = sorted(
+                list(set(self.curriculum.res_ladder + [self.curriculum.current_res]))
+            )
 
         if self.task_type == "forex":
             self.min_temp = max(0.75, float(self.stab.get("min_temp", 0.75)))
             self.current_temp = max(self.min_temp, float(self.stab.get("softmax_temp", 1.0)))
         else:
-            default_min = 0.5 if self.task_type == "quality" else (0.01 if self.task_type == "parameter_prediction" else 0.1)
+            default_min = (
+                0.5
+                if self.task_type == "quality"
+                else (0.01 if self.task_type == "parameter_prediction" else 0.1)
+            )
             self.min_temp = float(self.stab.get("min_temp", default_min))
             self.current_temp = float(self.stab.get("softmax_temp", self.min_temp))
         self.thermal.temperature = self.current_temp
@@ -234,7 +256,9 @@ class SmartTrainingGovernor:
         self.spatial_lock_remaining: int = 0
         self.last_res_jump_epoch: int = 0
 
-        self.sota_targets: dict[str, float] = opt.get("sota_targets", model_info.get("sota_targets", {}))
+        self.sota_targets: dict[str, float] = opt.get(
+            "sota_targets", model_info.get("sota_targets", {})
+        )
         self.sota.sota_targets = self.sota_targets
         self.sota.target_quality_score = 1.0
         if self.sota_targets:
@@ -523,6 +547,7 @@ class SmartTrainingGovernor:
             Tuple of (new_batch, new_accumulation_steps).
         """
         import gc
+
         gc.collect()
         if torch.cuda.is_available():
             try:
@@ -597,7 +622,9 @@ class SmartTrainingGovernor:
         if primary_metric in ["srcc", "plcc"]:
             self.current_spearman_weight = min(3.0, self.current_spearman_weight * 1.5)
             self.current_rank_weight = min(2.5, self.current_rank_weight * 1.3)
-            msg_parts.append(f"TARGETED: Boosting rank weights for {primary_metric} (deficit={deficit:.2%})")
+            msg_parts.append(
+                f"TARGETED: Boosting rank weights for {primary_metric} (deficit={deficit:.2%})"
+            )
         elif primary_metric in ["dir_acc", "win_rate"]:
             self.current_dir_weight = min(3.0, self.current_dir_weight * 1.4)
             msg_parts.append(f"TARGETED: Elevating directional weight for {primary_metric}")
@@ -609,7 +636,10 @@ class SmartTrainingGovernor:
         if self.curriculum.current_fraction < 1.0:
             return "FOUNDATION" if self.curriculum.current_fraction <= 0.40 else "EXPANSION"
 
-        if self.curriculum.res_ladder and self.curriculum.current_res < self.curriculum.res_ladder[-1]:
+        if (
+            self.curriculum.res_ladder
+            and self.curriculum.current_res < self.curriculum.res_ladder[-1]
+        ):
             return "DEEPENING"
 
         return "REFINEMENT"
@@ -696,7 +726,11 @@ class SmartTrainingGovernor:
                     f"[GUARD] [HARDENING] SOTA hit early, but locking at {self.current_res}px for weight stabilization (Manifold Maturity: {epochs_at_res}/{self.manifold_maturity}).",
                 )
 
-            current_idx = self.res_ladder.index(self.current_res) if self.current_res in self.res_ladder else -1
+            current_idx = (
+                self.res_ladder.index(self.current_res)
+                if self.current_res in self.res_ladder
+                else -1
+            )
             if 0 <= current_idx < len(self.res_ladder) - 1:
                 next_res = self.res_ladder[current_idx + 1]
                 self._commit_rung(next_res, 0.5)
@@ -727,7 +761,11 @@ class SmartTrainingGovernor:
 
         if sentinel_trigger_rate == 0:
             self.recovery_streak += 1
-            if self.recovery_streak >= 2 and self.stabilization_epochs > 0 and self.spatial_lock_remaining == 0:
+            if (
+                self.recovery_streak >= 2
+                and self.stabilization_epochs > 0
+                and self.spatial_lock_remaining == 0
+            ):
                 self.stabilization_epochs = 0
                 logger.info("[LAUNCH] [NPP] Stress at zero. Breaking stabilization lock.")
         else:
@@ -740,8 +778,13 @@ class SmartTrainingGovernor:
 
         msg_parts: list[str] = []
         if self.stabilization_epochs > 0:
-            if current_quality < self.best_quality * (1.0 - self.breakout_threshold) and self.best_quality > 0:
-                msg_parts.append(f"[BREAKOUT] Shield shattered! Quality dropped {(1-current_quality/self.best_quality)*100:.1f}%.")
+            if (
+                current_quality < self.best_quality * (1.0 - self.breakout_threshold)
+                and self.best_quality > 0
+            ):
+                msg_parts.append(
+                    f"[BREAKOUT] Shield shattered! Quality dropped {(1 - current_quality / self.best_quality) * 100:.1f}%."
+                )
                 self.stabilization_epochs = 0
             else:
                 self.stabilization_epochs -= 1
@@ -749,7 +792,9 @@ class SmartTrainingGovernor:
                 if current_quality - self.prev_quality > recovery_delta:
                     self.cooldown_remaining = max(0, self.cooldown_remaining - 2)
                     self.stabilization_epochs = max(0, self.stabilization_epochs - 1)
-                    msg_parts.append("[RECOVERY] Rapid quality gain detected. Cooldown and Lock shortened.")
+                    msg_parts.append(
+                        "[RECOVERY] Rapid quality gain detected. Cooldown and Lock shortened."
+                    )
 
                 self.prev_quality = current_quality
                 if current_loss:
@@ -817,15 +862,21 @@ class SmartTrainingGovernor:
             if is_flat:
                 msg_parts.append("[TRAPPED] Fidelity Floor reached. Relaxing stagnation guard.")
 
-        regress_threshold = -0.03 if self.task_type in ["quality", "parameter_prediction"] else -0.01
-        is_regressing = delta_q < (self.prev_quality * regress_threshold) if self.prev_quality else False
+        regress_threshold = (
+            -0.03 if self.task_type in ["quality", "parameter_prediction"] else -0.01
+        )
+        is_regressing = (
+            delta_q < (self.prev_quality * regress_threshold) if self.prev_quality else False
+        )
 
         if self.task_type == "forex":
             is_collapsed = current_quality < 45.0
         else:
             is_collapsed = (current_quality < 0.05) or (plcc < -0.1)
 
-        loss_is_stable = (current_loss <= self.prev_loss * 1.05) if current_loss and self.prev_loss else True
+        loss_is_stable = (
+            (current_loss <= self.prev_loss * 1.05) if current_loss and self.prev_loss else True
+        )
         is_expanding = phase in ["FOUNDATION", "EXPANSION"]
 
         if plcc < -0.01 and self.current_temp > 0.7 and (target_std is None or target_std >= 0.15):
@@ -836,10 +887,14 @@ class SmartTrainingGovernor:
 
         if self.spatial_lock_remaining > 0:
             self.spatial_lock_remaining -= 1
-            loss_is_exploding = (current_loss > self.prev_loss * 1.25) if current_loss and self.prev_loss else False
+            loss_is_exploding = (
+                (current_loss > self.prev_loss * 1.25) if current_loss and self.prev_loss else False
+            )
             if is_regressing and not loss_is_exploding:
                 is_regressing = False
-                msg_parts.append(f"[SPATIAL LOCK] Buffering transition (Patience: {self.spatial_lock_remaining})")
+                msg_parts.append(
+                    f"[SPATIAL LOCK] Buffering transition (Patience: {self.spatial_lock_remaining})"
+                )
 
         current_state = (self.current_res, round(self.current_fraction, 2))
         failures = self.failure_log.get(str(current_state), 0)
@@ -847,31 +902,43 @@ class SmartTrainingGovernor:
         if self.task_type in ["quality", "forex"]:
             is_turbulent = False
             if is_expanding:
-                msg_parts.append("[SIGNAL] [RESONANCE] Turbulence detected but shielded. Holding manifold.")
+                msg_parts.append(
+                    "[SIGNAL] [RESONANCE] Turbulence detected but shielded. Holding manifold."
+                )
 
         should_retreat = is_regressing or is_turbulent or is_collapsed
         if is_expanding and loss_is_stable and not is_collapsed:
             should_retreat = False
             if is_regressing:
-                msg_parts.append("[GUARD] [MOMENTUM] Jitter detected but Loss is stable. Holding manifold.")
+                msg_parts.append(
+                    "[GUARD] [MOMENTUM] Jitter detected but Loss is stable. Holding manifold."
+                )
 
         if is_overfitting and is_expanding:
             should_retreat = False
             self.cooldown_remaining = 0
-            msg_parts.append("[RESCUE] [OVERFITTING] Overfitting detected. Forcing dataset expansion to introduce variety.")
+            msg_parts.append(
+                "[RESCUE] [OVERFITTING] Overfitting detected. Forcing dataset expansion to introduce variety."
+            )
         elif is_overfitting and self.current_fraction >= 1.0:
             should_retreat = False
             self.cooldown_remaining = 0
             if self.task_type == "forex":
                 self.current_stress = min(2.0, self.current_stress + 0.5)
-                msg_parts.append(f"[REGULARIZE] [OVERFITTING] Temporal fold divergence detected. Applying mild stabilization (Level {self.current_stress}).")
+                msg_parts.append(
+                    f"[REGULARIZE] [OVERFITTING] Temporal fold divergence detected. Applying mild stabilization (Level {self.current_stress})."
+                )
             else:
                 self.current_stress = min(5.0, self.current_stress + 1.0)
-                msg_parts.append(f"[RESCUE] [OVERFITTING] Dataset exhausted. Deploying Stress Protocol (Level {self.current_stress}).")
+                msg_parts.append(
+                    f"[RESCUE] [OVERFITTING] Dataset exhausted. Deploying Stress Protocol (Level {self.current_stress})."
+                )
 
         if should_retreat:
             self.failure_log[str(current_state)] = failures + 1
-            msg_parts.append(f"[WARNING] NPP FAILURE: State {current_state} (Count: {self.failure_log[str(current_state)]})")
+            msg_parts.append(
+                f"[WARNING] NPP FAILURE: State {current_state} (Count: {self.failure_log[str(current_state)]})"
+            )
 
             if self.failure_log[str(current_state)] >= 2:
                 self.current_clamp = max(10.0, self.current_clamp - 5.0)
@@ -880,7 +947,9 @@ class SmartTrainingGovernor:
                 t_changed = True
                 msg_parts.append("NPP LOOP: Forcing Numerical Shakeup")
 
-            proven_threshold = max(85.0 if self.task_type == "quality" else 0.85, self.target_quality_score * 0.75)
+            proven_threshold = max(
+                85.0 if self.task_type == "quality" else 0.85, self.target_quality_score * 0.75
+            )
             is_proven_manifold = self.best_quality >= proven_threshold
 
             # Monotonic ratchet: Spatial resolution and data fraction retreat strictly forbidden in production
@@ -891,7 +960,9 @@ class SmartTrainingGovernor:
                 lr_changed = True
                 self.stabilization_epochs = self.stabilization_lock
                 self.cooldown_remaining = 5
-                msg_parts.append(f"RECOIL: Retaining data fraction at {self.current_fraction*100:.0f}% | Cooling LR to stabilize manifold")
+                msg_parts.append(
+                    f"RECOIL: Retaining data fraction at {self.current_fraction * 100:.0f}% | Cooling LR to stabilize manifold"
+                )
 
         elif sentinel_trigger_rate > 0.15:
             self.current_temp = min(1.2, self.current_temp * 1.2)
@@ -900,9 +971,13 @@ class SmartTrainingGovernor:
             lr_changed = True
             t_changed = True
             self.stabilization_epochs = 2
-            msg_parts.append(f"COOLING: Stress {sentinel_trigger_rate*100:.1f}% -> Temp {self.current_temp:.2f} | DataStress {self.current_stress:.1f}")
+            msg_parts.append(
+                f"COOLING: Stress {sentinel_trigger_rate * 100:.1f}% -> Temp {self.current_temp:.2f} | DataStress {self.current_stress:.1f}"
+            )
 
-        stride_threshold = 0.75 if (self.current_res is not None and self.current_res < 512) else 0.90
+        stride_threshold = (
+            0.75 if (self.current_res is not None and self.current_res < 512) else 0.90
+        )
         if self.target_quality_score > 1.0:
             stride_threshold = stride_threshold * self.target_quality_score
         propulsion_allowed = not should_retreat and self.cooldown_remaining == 0
@@ -923,28 +998,36 @@ class SmartTrainingGovernor:
             or (
                 not_regressing
                 and (
-                    (is_flat_leg and not is_expanding)
-                    or fraction_soak_complete
-                    or deepening_ready
+                    (is_flat_leg and not is_expanding) or fraction_soak_complete or deepening_ready
                 )
             )
         )
 
         if self.jolt_window_remaining > 0:
             self.jolt_window_remaining -= 1
-            collapse_threshold = (self.prev_quality * -0.03) if (self.prev_quality and self.prev_quality > 1.0) else -0.015
+            collapse_threshold = (
+                (self.prev_quality * -0.03)
+                if (self.prev_quality and self.prev_quality > 1.0)
+                else -0.015
+            )
             if delta_q < collapse_threshold or should_retreat or is_regressing:
                 self.jolt_window_remaining = 0
                 self.lr_multiplier = self.cooling_factor
                 self.head_lr_multiplier = self.cooling_factor
                 lr_changed = True
-                msg_parts.append(f"[JOLT SHIELD] Early collapse triggered (Regression: {delta_q:.4f} < {collapse_threshold:.4f}). Cooling LR.")
+                msg_parts.append(
+                    f"[JOLT SHIELD] Early collapse triggered (Regression: {delta_q:.4f} < {collapse_threshold:.4f}). Cooling LR."
+                )
             else:
                 lr_changed = True
-                msg_parts.append(f"SUSTAINED JOLT: Window Active ({self.jolt_window_remaining} epochs remaining | Head LR: {self.head_lr_multiplier:.2f}x | Backbone LR: {self.lr_multiplier:.2f}x)")
+                msg_parts.append(
+                    f"SUSTAINED JOLT: Window Active ({self.jolt_window_remaining} epochs remaining | Head LR: {self.head_lr_multiplier:.2f}x | Backbone LR: {self.lr_multiplier:.2f}x)"
+                )
 
         if trigger_propulsion:
-            jolt_ready = (self.epoch_count - self.last_jolt_epoch) > self.jolt_cooldown and self.cooldown_remaining == 0
+            jolt_ready = (
+                self.epoch_count - self.last_jolt_epoch
+            ) > self.jolt_cooldown and self.cooldown_remaining == 0
             if is_flat and jolt_ready and self.jolt_window_remaining == 0:
                 jolt = self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5)
                 if is_trapped:
@@ -955,7 +1038,9 @@ class SmartTrainingGovernor:
 
                 if phase == "REFINEMENT":
                     self.lr_multiplier = round(jolt_base * 0.5, 3)
-                    self.head_lr_multiplier = min(round(self.lr_multiplier * 3.0, 3), round(jolt_base * 1.5, 3))
+                    self.head_lr_multiplier = min(
+                        round(self.lr_multiplier * 3.0, 3), round(jolt_base * 1.5, 3)
+                    )
                 else:
                     self.lr_multiplier = jolt_base
                     self.head_lr_multiplier = jolt_base
@@ -964,7 +1049,9 @@ class SmartTrainingGovernor:
                 self.jolt_window_remaining = window_size
                 lr_changed = True
                 self.last_jolt_epoch = self.epoch_count
-                msg_parts.append(f"JOLT: Breaking Plateau with Head-Differential Propulsion (Head: {self.head_lr_multiplier:.2f}x, Backbone: {self.lr_multiplier:.2f}x | {window_size}-Epoch Window)")
+                msg_parts.append(
+                    f"JOLT: Breaking Plateau with Head-Differential Propulsion (Head: {self.head_lr_multiplier:.2f}x, Backbone: {self.lr_multiplier:.2f}x | {window_size}-Epoch Window)"
+                )
 
             next_frac = expand_fraction(self.current_fraction, self.fraction_increment)
             next_state = (self.current_res, round(next_frac, 2))
@@ -980,16 +1067,23 @@ class SmartTrainingGovernor:
                     self._commit_rung(self.current_res, next_frac)
                     self.last_action_epoch = self.epoch_count
                     f_changed = True
-                    msg_parts.append(f"PROPULSION: Data -> {self.current_fraction*100:.0f}%")
+                    msg_parts.append(f"PROPULSION: Data -> {self.current_fraction * 100:.0f}%")
                     cooldown_soak = max(3, self.manifold_maturity)
                     self.stabilization_epochs = cooldown_soak
                     self.cooldown_remaining = cooldown_soak
                     self.best_quality = current_quality
-            elif phase == "DEEPENING" and self.current_res is not None and self.current_res in self.res_ladder:
+            elif (
+                phase == "DEEPENING"
+                and self.current_res is not None
+                and self.current_res in self.res_ladder
+            ):
                 current_idx = self.res_ladder.index(self.current_res)
                 next_res = self.res_ladder[current_idx + 1]
 
-                if self.best_quality < self.target_quality_score * 0.80 and self.target_quality_score > 1.0:
+                if (
+                    self.best_quality < self.target_quality_score * 0.80
+                    and self.target_quality_score > 1.0
+                ):
                     self.lr_multiplier = self.cooling_factor
                     self.head_lr_multiplier = self.cooling_factor
                     lr_changed = True
@@ -999,7 +1093,9 @@ class SmartTrainingGovernor:
                     init_frac = float(
                         self.model_info.get("optimization", {}).get(
                             "initial_fraction",
-                            self.config.get("governor", {}).get("manifold", {}).get("initial_fraction", 0.15),
+                            self.config.get("governor", {})
+                            .get("manifold", {})
+                            .get("initial_fraction", 0.15),
                         )
                     )
                     self._commit_rung(next_res, init_frac)
@@ -1008,43 +1104,71 @@ class SmartTrainingGovernor:
                     self.last_res_jump_epoch = self.epoch_count
                     self.last_action_epoch = self.epoch_count
                     self.spatial_lock_remaining = self.stabilization_lock
-                    msg_parts.append(f"SPATIAL JUMP: {next_res}px | Data Reset {init_frac*100:.0f}% | Lock: ON")
+                    msg_parts.append(
+                        f"SPATIAL JUMP: {next_res}px | Data Reset {init_frac * 100:.0f}% | Lock: ON"
+                    )
                     self.stabilization_epochs = self.stabilization_lock
             else:
                 if self.task_type == "forex":
-                    if self.current_stress < 2.0 and self.target_quality_score > 0 and self.best_quality < self.target_quality_score * 0.90:
+                    if (
+                        self.current_stress < 2.0
+                        and self.target_quality_score > 0
+                        and self.best_quality < self.target_quality_score * 0.90
+                    ):
                         self.current_stress = min(2.0, self.current_stress + 0.5)
                         self.lr_multiplier = 1.0
                         self.head_lr_multiplier = 1.10
                         self.jolt_window_remaining = 2
                         lr_changed = True
-                        msg_parts.append("REFINEMENT: Plateau in Temporal Fold. Deploying Gentle Fold Tuning (Head LR: 1.10x)")
+                        msg_parts.append(
+                            "REFINEMENT: Plateau in Temporal Fold. Deploying Gentle Fold Tuning (Head LR: 1.10x)"
+                        )
                     else:
                         if self.jolt_window_remaining == 0:
                             self.lr_multiplier = self.cooling_factor
                             self.head_lr_multiplier = self.cooling_factor
                             lr_changed = True
                             msg_parts.append("REFINEMENT: Precision Cooling")
-                elif self.current_stress < 5.0 and self.target_quality_score > 0 and self.best_quality < self.target_quality_score * 0.90:
+                elif (
+                    self.current_stress < 5.0
+                    and self.target_quality_score > 0
+                    and self.best_quality < self.target_quality_score * 0.90
+                ):
                     self.current_stress = min(5.0, self.current_stress + 1.0)
-                    jolt_base = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
+                    jolt_base = float(
+                        self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5)
+                    )
                     self.lr_multiplier = round(jolt_base * 0.5, 3)
-                    self.head_lr_multiplier = min(round(self.lr_multiplier * 3.0, 3), round(jolt_base * 1.5, 3))
+                    self.head_lr_multiplier = min(
+                        round(self.lr_multiplier * 3.0, 3), round(jolt_base * 1.5, 3)
+                    )
                     self.jolt_window_remaining = 3
                     lr_changed = True
                     self.max_stress_stuck_epochs = 0
-                    msg_parts.append(f"REFINEMENT: Trapped in Plateau. Deploying Stress Protocol (Level {self.current_stress}) & Differential Jolt")
-                elif self.current_stress >= 5.0 and self.target_quality_score > 0 and self.best_quality < self.target_quality_score * 0.90:
-                    jolt_base = float(self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5))
+                    msg_parts.append(
+                        f"REFINEMENT: Trapped in Plateau. Deploying Stress Protocol (Level {self.current_stress}) & Differential Jolt"
+                    )
+                elif (
+                    self.current_stress >= 5.0
+                    and self.target_quality_score > 0
+                    and self.best_quality < self.target_quality_score * 0.90
+                ):
+                    jolt_base = float(
+                        self.model_info.get("optimization", {}).get("jolt_multiplier", 1.5)
+                    )
                     self.lr_multiplier = jolt_base
                     self.head_lr_multiplier = jolt_base
                     lr_changed = True
                     self.max_stress_stuck_epochs = self.max_stress_stuck_epochs + 1
                     stuck_patience = self.plateau_patience * 2
-                    msg_parts.append(f"REFINEMENT: [MAX STRESS] Forcing Jolt (x{jolt_base:.2f}) to maintain momentum (Stuck: {self.max_stress_stuck_epochs}/{stuck_patience})")
+                    msg_parts.append(
+                        f"REFINEMENT: [MAX STRESS] Forcing Jolt (x{jolt_base:.2f}) to maintain momentum (Stuck: {self.max_stress_stuck_epochs}/{stuck_patience})"
+                    )
                     if self.max_stress_stuck_epochs >= stuck_patience:
                         self.trigger_mini_swa = True
-                        msg_parts.append(f"[MINI-SWA PULSE] Triggering weight averaging pulse across top checkpoints (Stuck: {self.max_stress_stuck_epochs} epochs)")
+                        msg_parts.append(
+                            f"[MINI-SWA PULSE] Triggering weight averaging pulse across top checkpoints (Stuck: {self.max_stress_stuck_epochs} epochs)"
+                        )
                 else:
                     if self.jolt_window_remaining == 0:
                         self.lr_multiplier = self.cooling_factor
@@ -1060,7 +1184,10 @@ class SmartTrainingGovernor:
                         adjustments = self._apply_targeted_optimizations(lagging, metrics_dict)
                         msg_parts.extend(adjustments)
 
-        if not (is_regressing or is_turbulent or sentinel_trigger_rate > 0.15) and self.current_temp > self.min_temp:
+        if (
+            not (is_regressing or is_turbulent or sentinel_trigger_rate > 0.15)
+            and self.current_temp > self.min_temp
+        ):
             if self.task_type == "forex":
                 phase_min = self.min_temp
             elif self.task_type != "quality":
@@ -1089,9 +1216,15 @@ class SmartTrainingGovernor:
 
         early_stop_triggered = False
         if epochs_no_improve >= self.plateau_patience:
-            if self.metric_focus_epochs_remaining == 0 and self.stabilization_epochs == 0 and self.cooldown_remaining == 0:
+            if (
+                self.metric_focus_epochs_remaining == 0
+                and self.stabilization_epochs == 0
+                and self.cooldown_remaining == 0
+            ):
                 early_stop_triggered = True
-                msg_parts.append(f"[EARLY STOPPING] Patience exceeded ({epochs_no_improve}/{self.plateau_patience}). Fold exhausted.")
+                msg_parts.append(
+                    f"[EARLY STOPPING] Patience exceeded ({epochs_no_improve}/{self.plateau_patience}). Fold exhausted."
+                )
 
         final_msg = f"[LAUNCH] [{phase}] " + " | ".join(msg_parts) if msg_parts else ""
 
@@ -1119,7 +1252,9 @@ class SmartTrainingGovernor:
             return 0.5
         return max(0.15, min(0.5, target_pct))
 
-    def veto_resolution_jump(self, fallback_res: int, reason: str = "VRAM physical ceiling") -> None:
+    def veto_resolution_jump(
+        self, fallback_res: int, reason: str = "VRAM physical ceiling"
+    ) -> None:
         """Anchor training at fallback_res and prevent higher resolution attempts.
 
         The veto stops a pending jump; it never retreats. A fallback below the
@@ -1144,7 +1279,7 @@ class SmartTrainingGovernor:
         if self.task_type == "quality":
             self.current_temp = min(1.0, self.current_temp)
         self.stabilization_epochs = 3
-        return f"[NPP] RECOIL: Retaining data fraction at {self.current_fraction*100:.0f}% | Temp Heatup {self.current_temp:.2f}"
+        return f"[NPP] RECOIL: Retaining data fraction at {self.current_fraction * 100:.0f}% | Temp Heatup {self.current_temp:.2f}"
 
     def reset_best(self) -> None:
         """Reset historical SOTA tracking."""
@@ -1242,14 +1377,19 @@ class SmartTrainingGovernor:
 
             # The saved fraction is restored as-is: lowering it at the same
             # resolution would break the Monotonic Ratchet (pair rule).
-            if self.task_type in ("forex", "llm", "text_instruction") or self.model_info.get("category") == "llm":
+            if (
+                self.task_type in ("forex", "llm", "text_instruction")
+                or self.model_info.get("category") == "llm"
+            ):
                 self.current_fraction = 1.0
 
             if self.current_res is not None and self.current_res not in self.res_ladder:
                 self.res_ladder = sorted(list(set(self.res_ladder + [self.current_res])))
         else:
             raw_res = state.get(RESOLUTION_STATE_KEY, self.current_res)
-            self.sota_resolution = int(raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res)
+            self.sota_resolution = int(
+                raw_res[1] if isinstance(raw_res, (list, tuple)) else raw_res
+            )
 
         self.current_temp = max(self.min_temp, float(state.get("softmax_temp", self.current_temp)))
         if self.task_type == "quality":

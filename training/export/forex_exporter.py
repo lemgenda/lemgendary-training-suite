@@ -29,7 +29,11 @@ class ForexModelExporter(BaseModelExporter):
         resolved_spec = self.resolve_spec(model_key, spec)
         if resolved_spec:
             d_type = resolved_spec.dataset_type
-            d_types = [x.lower() for x in d_type] if isinstance(d_type, list) else [(d_type or "").lower()]
+            d_types = (
+                [x.lower() for x in d_type]
+                if isinstance(d_type, list)
+                else [(d_type or "").lower()]
+            )
             return "forex" in d_types or "forex" in resolved_spec.key.lower()
         return "forex" in model_key.lower()
 
@@ -49,7 +53,9 @@ class ForexModelExporter(BaseModelExporter):
         active_timeframes: list[int] | None = kwargs.get("active_timeframes")
         if active_timeframes is None and resolved_spec:
             raw_cfg = resolved_spec.raw_config or {}
-            active_timeframes = raw_cfg.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
+            active_timeframes = raw_cfg.get("kwargs", {}).get(
+                "active_timeframes", [1, 5, 15, 60, 240, 1440]
+            )
 
         exported_files: dict[str, Path] = {}
 
@@ -67,7 +73,9 @@ class ForexModelExporter(BaseModelExporter):
                 state = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
                 torch.save(state, str(pt_path))
                 exported_files["pt"] = pt_path
-                logger.info("Saved Forex FP32 PyTorch model state dict from checkpoint to %s", pt_path)
+                logger.info(
+                    "Saved Forex FP32 PyTorch model state dict from checkpoint to %s", pt_path
+                )
         except MODEL_IO_ERRORS as exc:
             logger.warning("Failed saving Forex .pt state dict: %s", exc)
 
@@ -93,7 +101,9 @@ class ForexModelExporter(BaseModelExporter):
                     active_timeframes=active_timeframes,
                 )
             else:
-                logger.warning("No model instance or checkpoint file provided for Forex ONNX tracing.")
+                logger.warning(
+                    "No model instance or checkpoint file provided for Forex ONNX tracing."
+                )
 
             if exported_base and exported_base.exists():
                 # Load the full FP32 model into memory before converting to sidecar

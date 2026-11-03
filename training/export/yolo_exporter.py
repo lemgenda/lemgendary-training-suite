@@ -100,7 +100,9 @@ class YOLOModelExporter(BaseModelExporter):
                     onnx.save(onnx_model, str(fp32_onnx_path))
                     exported_files["onnx_fp32"] = fp32_onnx_path
                     exported_files["onnx_fp32_data"] = fp32_data_path
-                    logger.info("Successfully exported YOLO FP32 ONNX with sidecar to %s", fp32_onnx_path)
+                    logger.info(
+                        "Successfully exported YOLO FP32 ONNX with sidecar to %s", fp32_onnx_path
+                    )
         except EXPORT_ERRORS as exc:
             logger.error("Failed exporting YOLO FP32 ONNX sidecar: %s", exc)
 
@@ -115,7 +117,9 @@ class YOLOModelExporter(BaseModelExporter):
                     if Path(raw_half_onnx).resolve() != fp16_onnx_path.resolve():
                         shutil.copy2(str(raw_half_onnx), str(fp16_onnx_path))
                     exported_files["onnx_fp16"] = fp16_onnx_path
-                    logger.info("Successfully exported YOLO FP16 integrated ONNX to %s", fp16_onnx_path)
+                    logger.info(
+                        "Successfully exported YOLO FP16 integrated ONNX to %s", fp16_onnx_path
+                    )
         except EXPORT_ERRORS as exc:
             logger.error("Failed exporting YOLO FP16 ONNX: %s", exc)
 
@@ -126,6 +130,8 @@ class YOLOModelExporter(BaseModelExporter):
                 orphaned_data.unlink()
                 logger.info("Cleaned up orphaned sidecar data %s", orphaned_data)
             except OSError as unlink_err:
-                logger.warning("Could not remove orphaned sidecar data %s: %s", orphaned_data, unlink_err)
+                logger.warning(
+                    "Could not remove orphaned sidecar data %s: %s", orphaned_data, unlink_err
+                )
 
         return exported_files

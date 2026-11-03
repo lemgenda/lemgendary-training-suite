@@ -18,6 +18,7 @@ class DummyRestorationModel(nn.Module):
             x = x["pixel_values"]
         return self.conv(x)
 
+
 class TestVRAMSafetyGovernor(unittest.TestCase):
     def test_governor_hardware_cap_restoration(self):
         model_info = {
@@ -25,15 +26,9 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
             "dataset_type": "restoration",
             "input_size": 256,
             "batch_size": "auto",
-            "optimization": {
-                "res_ladder": [256, 384, 512, 640, 768]
-            }
+            "optimization": {"res_ladder": [256, 384, 512, 640, 768]},
         }
-        config = {
-            "hardware": {
-                "max_allowed_resolution": 384
-            }
-        }
+        config = {"hardware": {"max_allowed_resolution": 384}}
         gov = SmartTrainingGovernor(model_info, config=config)
         # All rungs > 384 should be clamped
         self.assertTrue(all(r <= 384 for r in gov.res_ladder))
@@ -48,9 +43,7 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
             "dataset_type": "restoration",
             "input_size": 256,
             "batch_size": "auto",
-            "optimization": {
-                "res_ladder": [256, 384, 512]
-            }
+            "optimization": {"res_ladder": [256, 384, 512]},
         }
         gov = SmartTrainingGovernor(model_info)
         gov.current_res = 384
@@ -66,9 +59,7 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
             "dataset_type": "restoration",
             "input_size": 256,
             "batch_size": "auto",
-            "optimization": {
-                "res_ladder": [256, 384, 512]
-            }
+            "optimization": {"res_ladder": [256, 384, 512]},
         }
         gov = SmartTrainingGovernor(model_info)
         gov.current_res = 512
@@ -81,13 +72,16 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
             "name": "test_nafnet",
             "dataset_type": "restoration",
             "input_size": 256,
-            "batch_size": "auto"
+            "batch_size": "auto",
         }
         config = {"defaults": {"batch_size": 8}}
         model = DummyRestorationModel()
         device = torch.device("cpu")
-        batch = audit_hardware_vram("nafnet_debluring", model_info, config, device, model, res_override=256)
+        batch = audit_hardware_vram(
+            "nafnet_debluring", model_info, config, device, model, res_override=256
+        )
         self.assertEqual(batch, 8)
+
 
 if __name__ == "__main__":
     unittest.main()

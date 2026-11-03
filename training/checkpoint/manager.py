@@ -48,7 +48,11 @@ def audit_disk_space(target_dir: Path, min_free_gb: float = 5.0) -> float:
         return 999.0
 
     if free_gb < 1.0:
-        logger.warning("Low disk space on %s: %.2f GB available. Pruning stale temporary files...", target_dir, free_gb)
+        logger.warning(
+            "Low disk space on %s: %.2f GB available. Pruning stale temporary files...",
+            target_dir,
+            free_gb,
+        )
         try:
             for item in target_dir.iterdir():
                 if item.is_file() and (item.suffix == ".tmp" or "_progress.pth" in item.name):
@@ -68,12 +72,19 @@ def audit_disk_space(target_dir: Path, min_free_gb: float = 5.0) -> float:
         )
 
     if free_gb < min_free_gb:
-        logger.warning("Disk space warning on %s: %.2f GB remaining (< %.1f GB threshold).", target_dir, free_gb, min_free_gb)
+        logger.warning(
+            "Disk space warning on %s: %.2f GB remaining (< %.1f GB threshold).",
+            target_dir,
+            free_gb,
+            min_free_gb,
+        )
 
     return free_gb
 
 
-def _resilient_replace(src: Path, dst: Path, max_retries: int = 8, initial_delay: float = 0.1) -> None:
+def _resilient_replace(
+    src: Path, dst: Path, max_retries: int = 8, initial_delay: float = 0.1
+) -> None:
     """Atomically replace dst with src, retrying with exponential backoff on transient Windows file lock errors (WinError 5 / 32)."""
     last_err: Exception | None = None
     for attempt in range(max_retries):
@@ -94,7 +105,9 @@ def _resilient_replace(src: Path, dst: Path, max_retries: int = 8, initial_delay
                 try:
                     dst.unlink()
                 except OSError as unlink_err:
-                    logger.debug("Could not unlink locked destination %s before retry: %s", dst, unlink_err)
+                    logger.debug(
+                        "Could not unlink locked destination %s before retry: %s", dst, unlink_err
+                    )
     if last_err:
         raise last_err
 
@@ -145,6 +158,8 @@ def safe_load_checkpoint(path: Path | str, map_location: Any = "cpu") -> dict[st
         payload = torch.load(str(ckpt_path), map_location=map_location)
 
     if not isinstance(payload, dict):
-        raise ValueError(f"Expected dict payload from checkpoint {ckpt_path}, got {type(payload).__name__}")
+        raise ValueError(
+            f"Expected dict payload from checkpoint {ckpt_path}, got {type(payload).__name__}"
+        )
 
     return payload

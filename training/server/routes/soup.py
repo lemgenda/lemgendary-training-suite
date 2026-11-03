@@ -33,7 +33,9 @@ def _get_root(request: Request) -> Path:
 
 
 @router.post("/{model_key}/soup")
-def blend_model_soup_route(model_key: str, request: Request, body: SoupRequest | None = None) -> dict[str, Any]:
+def blend_model_soup_route(
+    model_key: str, request: Request, body: SoupRequest | None = None
+) -> dict[str, Any]:
     """Blend specialized vault checkpoints using Pareto Model Soup."""
     params = body or SoupRequest()
     try:

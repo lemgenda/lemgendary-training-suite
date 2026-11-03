@@ -187,7 +187,9 @@ class ModelMetadata:
             license=str(raw_model.get("license", "CC BY-NC 4.0")),
             keywords=[str(k) for k in raw_model.get("keywords") or []],
             provenance_sources=[str(s) for s in raw_model.get("provenance_sources") or []],
-            publish_time=(str(raw_model["publish_time"]) if raw_model.get("publish_time") else None),
+            publish_time=(
+                str(raw_model["publish_time"]) if raw_model.get("publish_time") else None
+            ),
         )
         variations: dict[str, VariationSection] = {}
         for key, raw in (doc.get("variations") or {}).items():
@@ -233,7 +235,9 @@ class ModelMetadata:
         p = Path(path)
         doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         if not isinstance(doc, dict):
-            raise MetadataValidationError(p.parent.name, ["top-level YAML document must be a mapping"])
+            raise MetadataValidationError(
+                p.parent.name, ["top-level YAML document must be a mapping"]
+            )
         return cls.from_dict(doc)
 
     # ------------------------------------------------------------------ Kaggle payloads

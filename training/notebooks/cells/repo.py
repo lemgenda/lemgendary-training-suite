@@ -29,7 +29,7 @@ def build_clone_cell(target: str = "kaggle") -> dict[str, Any]:
         "if pat:\n",
         "    _safe_pat = _url_quote(pat, safe='')\n",
         "    auth_url = repo_url.replace('https://', f'https://x-access-token:{_safe_pat}@')\n",
-        "    print(f'[AUTH] Using {\"SUITE_PAT\" if os.environ.get(\"SUITE_PAT\") else \"GITHUB_PAT\"} for cloning...')\n",
+        '    print(f\'[AUTH] Using {"SUITE_PAT" if os.environ.get("SUITE_PAT") else "GITHUB_PAT"} for cloning...\')\n',
         "else:\n",
         "    print('[WARNING] No PAT found in environment. Attempting public clone (will fail for private repos)...')\n",
         f"    print('[ACTION REQUIRED] If clone fails, add SUITE_PAT or GITHUB_PAT to {secret_ui_action}.')\n",

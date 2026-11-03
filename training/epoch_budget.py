@@ -149,7 +149,9 @@ class EpochBudgetPolicy:
         if converged:
             return self._stop(StopReason.CONVERGED, f"all completion criteria met at epoch {epoch}")
         if early_stop:
-            return self._stop(StopReason.EARLY_STOP, f"governor signalled early stop at epoch {epoch}")
+            return self._stop(
+                StopReason.EARLY_STOP, f"governor signalled early stop at epoch {epoch}"
+            )
         if epoch < self.total_epochs:
             return EpochDecision(
                 action=EpochAction.CONTINUE,

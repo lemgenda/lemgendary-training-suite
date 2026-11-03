@@ -73,7 +73,9 @@ class TestHardwareProbe(unittest.TestCase):
         model = DummyModel()
         model_info = {"dataset_type": "forex", "batch_size": 128}
         config = {}
-        batch = audit_hardware_vram("forex_predictor", model_info, config, torch.device("cpu"), model)
+        batch = audit_hardware_vram(
+            "forex_predictor", model_info, config, torch.device("cpu"), model
+        )
         self.assertEqual(batch, 128)
 
 

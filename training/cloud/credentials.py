@@ -44,6 +44,7 @@ def resolve_github_credentials(override_pat: str | None = None) -> str | None:
 def load_secrets_yaml_registry() -> list[dict[str, Any]]:
     """Load secrets registry from workspace .secrets.yaml."""
     from training.utils.paths import get_workspace_root
+
     candidates = [
         get_workspace_root() / ".secrets.yaml",
         get_project_root() / ".secrets.yaml",
@@ -89,16 +90,20 @@ def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, Any]]:
     if secrets:
         kaggle_secrets = [s for s in secrets if str(s.get("service", "")).lower() == "kaggle"]
         if kaggle_secrets:
-            sorted_secrets = sorted(kaggle_secrets, key=lambda s: not bool(s.get("is_default", False)))
+            sorted_secrets = sorted(
+                kaggle_secrets, key=lambda s: not bool(s.get("is_default", False))
+            )
             for s in sorted_secrets:
                 u = s.get("username") or ""
                 t = s.get("secret_value") or ""
                 if u and t:
-                    accounts.append({
-                        "username": u,
-                        "token": t,
-                        "is_default": bool(s.get("is_default", False)),
-                    })
+                    accounts.append(
+                        {
+                            "username": u,
+                            "token": t,
+                            "is_default": bool(s.get("is_default", False)),
+                        }
+                    )
             if accounts:
                 return accounts
 
@@ -115,11 +120,13 @@ def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, Any]]:
                 m_token = re.search(r"KAGGLE_API_TOKEN=([^,;\s]+)", line)
                 if m_user and m_token:
                     u = m_user.group(1).strip()
-                    accounts.append({
-                        "username": u,
-                        "token": m_token.group(1).strip(),
-                        "is_default": u == "lemtreursi",
-                    })
+                    accounts.append(
+                        {
+                            "username": u,
+                            "token": m_token.group(1).strip(),
+                            "is_default": u == "lemtreursi",
+                        }
+                    )
             accounts.sort(key=lambda a: not a.get("is_default", False))
         except OSError as e:
             logger.warning("Could not read .kaggle_users at %s: %s", target_file, e)
@@ -246,4 +253,3 @@ def resolve_gdrive_credentials(override_token: str | None = None) -> str | None:
         return json_cred.strip()
 
     return None
-

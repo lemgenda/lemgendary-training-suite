@@ -311,7 +311,7 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "        drive_cands = [\n",
             "            f'/content/drive/MyDrive/LemGendaryDatasets/{primary_manifold}',\n",
             "            f'/content/drive/MyDrive/{primary_manifold}',\n",
-            "            f'/content/drive/MyDrive/LemGendaryDatasets/{primary_manifold.replace(\"Large\", \"\")}',\n",
+            '            f\'/content/drive/MyDrive/LemGendaryDatasets/{primary_manifold.replace("Large", "")}\',\n',
             "        ]\n",
             "        for cand in drive_cands:\n",
             "            if os.path.exists(cand):\n",

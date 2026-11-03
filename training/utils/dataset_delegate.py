@@ -56,7 +56,9 @@ class DatasetCompilerDelegate:
             return target
 
         # 2. Check local data/datasets cache inside training suite
-        local_target = self.workspace_root / "lemgendary-training-suite" / "data" / "datasets" / manifold_name
+        local_target = (
+            self.workspace_root / "lemgendary-training-suite" / "data" / "datasets" / manifold_name
+        )
         if local_target.exists() and local_target.is_dir():
             return local_target
 

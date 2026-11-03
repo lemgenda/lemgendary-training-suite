@@ -22,6 +22,7 @@ KAGGLE_API_ERRORS: tuple[type[Exception], ...] = (
     KeyError,
 )
 
+
 def kagglehub_errors() -> tuple[type[Exception], ...]:
     """Return KAGGLE_API_ERRORS plus every exception class published by ``kagglehub.exceptions``.
 

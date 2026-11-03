@@ -42,7 +42,9 @@ def cleanup_active_processes(*args: Any) -> None:
                 else:
                     p.terminate()
             except (OSError, subprocess.SubprocessError) as exc:
-                logger.warning("Failed to terminate subprocess PID %s: %s", getattr(p, "pid", "unknown"), exc)
+                logger.warning(
+                    "Failed to terminate subprocess PID %s: %s", getattr(p, "pid", "unknown"), exc
+                )
     _ACTIVE_PROCESSES.clear()
 
 
@@ -57,6 +59,7 @@ def register_emergency_sync(handler: Callable[[], None]) -> None:
 
 _EXITING: bool = False
 
+
 def graceful_exit(signum: int, frame: Any) -> None:
     """Signal handler executing emergency sync before termination."""
     global _EXITING
@@ -69,6 +72,7 @@ def graceful_exit(signum: int, frame: Any) -> None:
 
     # Only rank 0 / MainProcess runs emergency remote sync
     import multiprocessing
+
     is_main = multiprocessing.current_process().name == "MainProcess"
     rank_env = os.environ.get("RANK", "0")
     if is_main and rank_env in ("0", "") and _EMERGENCY_SYNC_HANDLER is not None:
@@ -84,7 +88,9 @@ def graceful_exit(signum: int, frame: Any) -> None:
     sys.exit(128 + signum)
 
 
-def silent_worker_excepthook(exc_type: type[BaseException], exc_value: BaseException, exc_traceback: Any) -> None:
+def silent_worker_excepthook(
+    exc_type: type[BaseException], exc_value: BaseException, exc_traceback: Any
+) -> None:
     """Quiet excepthook for multiprocessing workers to prevent SIGINT trace dump spam."""
     if issubclass(exc_type, (KeyboardInterrupt, EOFError, BrokenPipeError, ConnectionResetError)):
         return

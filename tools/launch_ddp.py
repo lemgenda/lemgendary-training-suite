@@ -97,11 +97,14 @@ def main() -> None:
     # GPU count resolution.
     try:
         import torch
+
         detected_gpus = torch.cuda.device_count()
     except ImportError:
         detected_gpus = 0
 
-    nproc = launcher_args.nproc_per_node if launcher_args.nproc_per_node is not None else detected_gpus
+    nproc = (
+        launcher_args.nproc_per_node if launcher_args.nproc_per_node is not None else detected_gpus
+    )
 
     if nproc <= 0:
         print(
@@ -111,8 +114,10 @@ def main() -> None:
         cmd = [
             sys.executable,
             str(train_script),
-            "--model", launcher_args.model,
-            "--parallel", "single",
+            "--model",
+            launcher_args.model,
+            "--parallel",
+            "single",
         ] + train_argv
         sys.exit(subprocess.call(cmd))
 
@@ -125,8 +130,10 @@ def main() -> None:
         cmd = [
             sys.executable,
             str(train_script),
-            "--model", launcher_args.model,
-            "--parallel", "single",
+            "--model",
+            launcher_args.model,
+            "--parallel",
+            "single",
         ] + train_argv
         sys.exit(subprocess.call(cmd))
 
@@ -140,9 +147,15 @@ def main() -> None:
         if arg == "--batch_size" and i + 1 < len(train_argv):
             try:
                 per_proc_bs = int(train_argv[i + 1])
-                effective_batch_note = f" (effective batch = {per_proc_bs * nproc} across {nproc} GPUs)"
+                effective_batch_note = (
+                    f" (effective batch = {per_proc_bs * nproc} across {nproc} GPUs)"
+                )
             except ValueError as exc:
-                logger.warning("Non-integer --batch_size %r; effective batch note omitted: %s", train_argv[i + 1], exc)
+                logger.warning(
+                    "Non-integer --batch_size %r; effective batch note omitted: %s",
+                    train_argv[i + 1],
+                    exc,
+                )
 
     print("=" * 70, flush=True)
     print(" LemGendary DDP Launcher", flush=True)
@@ -155,14 +168,18 @@ def main() -> None:
 
     # Build the torchrun command.
     torchrun_cmd = [
-        sys.executable, "-m", "torch.distributed.run",
+        sys.executable,
+        "-m",
+        "torch.distributed.run",
         f"--nproc_per_node={nproc}",
         "--nnodes=1",
         f"--master_addr={master_addr}",
         f"--master_port={master_port}",
         str(train_script),
-        "--model", launcher_args.model,
-        "--parallel", "ddp",
+        "--model",
+        launcher_args.model,
+        "--parallel",
+        "ddp",
     ] + train_argv
 
     # Ensure PYTHONPATH includes project root and tune NCCL parameters for multi-GPU resilience.

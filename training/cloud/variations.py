@@ -31,7 +31,9 @@ class KaggleVariation:
         return f"{owner}/{model_slug}/{self.framework}/{self.instance_slug}"
 
 
-PYTORCH_DEFAULT = KaggleVariation("pytorch/default", "pytorch", "default", "pytorch_default", "PyTorch Checkpoints")
+PYTORCH_DEFAULT = KaggleVariation(
+    "pytorch/default", "pytorch", "default", "pytorch_default", "PyTorch Checkpoints"
+)
 PYTORCH_FP32 = KaggleVariation("pytorch/fp32", "pytorch", "fp32", "pytorch_fp32", "PyTorch FP32")
 ONNX_FP16 = KaggleVariation("onnx/fp16", "onnx", "fp16", "onnx_fp16", "ONNX FP16")
 ONNX_FP32 = KaggleVariation("onnx/fp32", "onnx", "fp32", "onnx_fp32", "ONNX FP32")

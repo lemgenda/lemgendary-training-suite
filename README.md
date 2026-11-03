@@ -11,11 +11,17 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.71-STABLE` |
+| **Version** | `v16.9.72-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.72 - One Formatter, 18 Pylint Disables Removed
+
+- **`ruff format`** now formats the whole repository. `pyproject.toml` has a `[tool.ruff]` section with `line-length = 100`, which matches pylint's default `max-line-length`, and `target-version = "py310"`, which matches `requires-python`. 170 files were reformatted, without changes to logic or string contents. This fixed every trailing-whitespace, bad-indentation, multiple-statements, trailing-newline and missing-final-newline finding. `line-too-long` findings dropped from 1307 to 458; the rest are long strings and comments.
+- **`.pylintrc`**: 18 entries were removed from `disable=` because the checks now pass. They are `bad-indentation`, `bare-except`, `consider-using-from-import`, `consider-using-max-builtin`, `duplicate-except`, `f-string-without-interpolation`, `multiple-imports`, `multiple-statements`, `no-else-break`, `not-callable`, `possibly-unused-variable`, `self-assigning-variable`, `simplifiable-if-expression`, `trailing-whitespace`, `ungrouped-imports`, `unnecessary-dunder-call`, `used-before-assignment` and `use-dict-literal`. 30 disables remain, and later releases remove them one at a time.
+- **Tests**: 260 passed, 0 failed.
 
 ### v16.9.71 - Ruff Autofix Pass and Explicit Re-exports
 

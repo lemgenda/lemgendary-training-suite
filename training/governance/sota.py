@@ -45,7 +45,9 @@ class SotaTracker:
         if len(self.history) > 5:
             self.history.pop(0)
 
-        is_new_sota = (current_quality > self.best_quality) or (self.best_quality == 0.0 and current_quality > 0.0)
+        is_new_sota = (current_quality > self.best_quality) or (
+            self.best_quality == 0.0 and current_quality > 0.0
+        )
         if is_new_sota:
             self.current_stress = min(self.current_stress, 0.0)
             self.best_quality = current_quality

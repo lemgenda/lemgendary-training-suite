@@ -85,6 +85,7 @@ def export_onnx(
 
         if external_data:
             import onnx
+
             data_filename = f"{out_file.name}.data"
             onnx_model = onnx.load(str(out_file))
             onnx.external_data_helper.convert_model_to_external_data(

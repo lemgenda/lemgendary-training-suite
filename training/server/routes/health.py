@@ -27,7 +27,9 @@ async def get_health() -> dict[str, Any]:
         "port": 8200,
         "timestamp": datetime.now().isoformat(),
         "device": {
-            "name": device_info.device_names[0] if device_info.device_names else str(device_info.device),
+            "name": device_info.device_names[0]
+            if device_info.device_names
+            else str(device_info.device),
             "type": device_info.device_type,
             "cuda_available": torch.cuda.is_available(),
             "gpu_count": device_info.device_count if device_info.is_cuda else 0,

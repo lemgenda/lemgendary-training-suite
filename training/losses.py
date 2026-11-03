@@ -19,6 +19,7 @@ logger = logging.getLogger("lemtrain.losses")
 # Forex Dual Loss
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class ForexDualLoss(nn.Module):
     """
     LemGendary Forex Dual Loss Engine v2.0.
@@ -47,6 +48,7 @@ class ForexDualLoss(nn.Module):
         focal_gamma:      Focal loss focusing parameter (default 2.0).
         label_smoothing:  Label smoothing for direction targets (default 0.05).
     """
+
     def __init__(
         self,
         *,
@@ -60,14 +62,14 @@ class ForexDualLoss(nn.Module):
         super().__init__()
         self.direction_weight = direction_weight
         self.magnitude_weight = magnitude_weight
-        self.huber_delta      = huber_delta
-        self.focal_gamma      = focal_gamma
-        self.label_smoothing  = label_smoothing
-        self.max_pips         = 100.0
-        self.stab             = stabilizers or {}
+        self.huber_delta = huber_delta
+        self.focal_gamma = focal_gamma
+        self.label_smoothing = label_smoothing
+        self.max_pips = 100.0
+        self.stab = stabilizers or {}
         # Asymmetric class weights: stronger Sideways penalty to prevent collapse
         # Weight vector: [Down=1.3, Sideways=0.7, Up=1.3]
-        self.register_buffer('class_weights', torch.tensor([1.3, 0.7, 1.3]))
+        self.register_buffer("class_weights", torch.tensor([1.3, 0.7, 1.3]))
 
     def forward(self, pred: dict, labels: dict, *args, **kwargs) -> torch.Tensor:
         """
@@ -78,15 +80,17 @@ class ForexDualLoss(nn.Module):
         Returns:
             Combined scalar loss.
         """
-        dir_logits  = pred["direction_logits"] if "direction_logits" in pred else pred["direction"]  # [B, 3]
-        mag_pred    = pred["magnitude"]              # [B, 2]
-        dir_target  = labels["direction"]            # [B] long
-        mag_target  = labels["magnitude"]            # [B, 2] float
+        dir_logits = (
+            pred["direction_logits"] if "direction_logits" in pred else pred["direction"]
+        )  # [B, 3]
+        mag_pred = pred["magnitude"]  # [B, 2]
+        dir_target = labels["direction"]  # [B] long
+        mag_target = labels["magnitude"]  # [B, 2] float
 
         # Governor stabilizer integration: apply temperature scaling and logit clamping
-        stab = getattr(self, 'stab', {})
-        softmax_temp = float(stab.get('softmax_temp', 1.0)) if stab else 1.0
-        logit_clamp  = float(stab.get('logit_clamp', 15.0)) if stab else 15.0
+        stab = getattr(self, "stab", {})
+        softmax_temp = float(stab.get("softmax_temp", 1.0)) if stab else 1.0
+        logit_clamp = float(stab.get("logit_clamp", 15.0)) if stab else 15.0
         if logit_clamp > 0:
             dir_logits = torch.clamp(dir_logits, min=-logit_clamp, max=logit_clamp)
         if softmax_temp != 1.0 and softmax_temp > 0:
@@ -95,27 +99,30 @@ class ForexDualLoss(nn.Module):
         # Focal Loss for direction: down-weights easy Sideways, focuses on hard Buy/Sell
         class_weights = self.class_weights.to(dir_logits.device)
         ce_loss = F.cross_entropy(
-            dir_logits, dir_target,
+            dir_logits,
+            dir_target,
             weight=class_weights,
-            reduction='none',
+            reduction="none",
             label_smoothing=self.label_smoothing,
         )
         pt = torch.exp(-ce_loss)
         dir_loss = (((1.0 - pt) ** self.focal_gamma) * ce_loss).mean()
 
         # Confidence gate: high-entropy bars get lower magnitude weight
-        conf_gate_strength = float(getattr(self, 'conf_gate_strength', 1.0))
+        conf_gate_strength = float(getattr(self, "conf_gate_strength", 1.0))
         with torch.no_grad():
-            probs     = torch.softmax(dir_logits, dim=-1)           # [B, 3]
-            entropy   = -(probs * (probs + 1e-8).log()).sum(dim=-1)  # [B]
-            max_ent   = torch.log(torch.tensor(3.0, device=probs.device))
+            probs = torch.softmax(dir_logits, dim=-1)  # [B, 3]
+            entropy = -(probs * (probs + 1e-8).log()).sum(dim=-1)  # [B]
+            max_ent = torch.log(torch.tensor(3.0, device=probs.device))
             conf_gate = (1.0 - (entropy / max_ent).clamp(0.0, 1.0)) ** conf_gate_strength  # [B]
 
         # Clamp magnitude predictions before Huber to prevent runaway pip gradients
         mag_pred_clamped = torch.clamp(mag_pred, max=self.max_pips)
 
         # Huber loss for magnitude, gated by direction confidence
-        huber    = F.smooth_l1_loss(mag_pred_clamped, mag_target, reduction='none', beta=self.huber_delta)  # [B, 2]
+        huber = F.smooth_l1_loss(
+            mag_pred_clamped, mag_target, reduction="none", beta=self.huber_delta
+        )  # [B, 2]
         mag_loss = (huber.mean(dim=1) * conf_gate).mean()
 
         return self.direction_weight * dir_loss + self.magnitude_weight * mag_loss
@@ -128,6 +135,7 @@ class SoftSpearmanLoss(nn.Module):
         r_i = 1 + \\sum_{j \\ne i} \\sigma((p_i - p_j) / \\tau)
     Optimizes Spearman rank correlation directly with smooth gradients.
     """
+
     def __init__(self, temperature: float = 0.1, eps: float = 1e-6):
         super().__init__()
         self.temperature = temperature
@@ -160,8 +168,8 @@ class SoftSpearmanLoss(nn.Module):
 
         # Pearson correlation of soft ranks
         cov = (p_ranks_c * t_ranks_c).sum()
-        var_p = (p_ranks_c ** 2).sum()
-        var_t = (t_ranks_c ** 2).sum()
+        var_p = (p_ranks_c**2).sum()
+        var_t = (t_ranks_c**2).sum()
 
         # N=1 variance guard: both variances must be non-zero
         if var_p < self.eps or var_t < self.eps:
@@ -180,6 +188,7 @@ class RankMemoryBank:
     allowing effective pairwise ranking over (N_batch + N_memory) samples
     even when local VRAM forces micro-batch size b=2.
     """
+
     def __init__(self, capacity: int = 32):
         self.capacity = capacity
         self.p_memory = []
@@ -221,13 +230,16 @@ class FocalLoss(nn.Module):
     Multi-Class Focal Loss for Safety / NSFW Categorical Classification.
     Down-weights easy well-classified negatives to focus on hard boundary triggers.
     """
+
     def __init__(self, gamma: float = 2.0, label_smoothing: float = 0.05):
         super().__init__()
         self.gamma = gamma
         self.label_smoothing = label_smoothing
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        ce_loss = F.cross_entropy(pred, target, reduction='none', label_smoothing=self.label_smoothing)
+        ce_loss = F.cross_entropy(
+            pred, target, reduction="none", label_smoothing=self.label_smoothing
+        )
         pt = torch.exp(-ce_loss)
         focal_loss = ((1.0 - pt) ** self.gamma) * ce_loss
         return focal_loss.mean()
@@ -238,13 +250,16 @@ class CombinedLoss(nn.Module):
     LemGendary 2026 Unified Loss Engine
     Supports Restoration (L1+LPIPS), Quality (EMD+SoftSpearman+RankBoost), and Classification (CE/Focal).
     """
+
     def __init__(self, task_type="restoration", stabilizers=None, use_perc=False):
         super().__init__()
         self.task_type = task_type
         # 2026 Resilience: Dynamic injection from config hierarchy
         self.stab = stabilizers or {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0}
-        self.l1 = nn.L1Loss(reduction='mean')
-        self.mse = nn.MSELoss(reduction='mean') # Legacy fallback for face and segmentation topology
+        self.l1 = nn.L1Loss(reduction="mean")
+        self.mse = nn.MSELoss(
+            reduction="mean"
+        )  # Legacy fallback for face and segmentation topology
         self.ce = nn.CrossEntropyLoss(ignore_index=255)
         self.focal = FocalLoss(gamma=2.0, label_smoothing=0.05)
         self.soft_spearman = SoftSpearmanLoss(temperature=0.1)
@@ -256,24 +271,30 @@ class CombinedLoss(nn.Module):
         self.perc = None
 
         # 2026: SOTA Rank-Boost Weights (Standard 10..1 mapping)
-        self.register_buffer('rank_weights', torch.arange(1, 11).float())
+        self.register_buffer("rank_weights", torch.arange(1, 11).float())
 
         # 2026: MoE 11-Manifold Perceptual Scaling Coefficients
         # Balances LPIPS gradients to prevent high-frequency tasks (Face, SuperRes) from
         # overwhelming intensity-based tasks (Denoise, Lowlight).
-        self.register_buffer('task_lpips_weights', torch.tensor([
-            0.010, # 0: denoise
-            0.025, # 1: deblur
-            0.020, # 2: derain
-            0.015, # 3: dehaze_indoor
-            0.015, # 4: dehaze_outdoor
-            0.010, # 5: lowlight
-            0.010, # 6: exposure
-            0.030, # 7: superres
-            0.050, # 8: vintage
-            0.050, # 9: face_restorer
-            0.005  # 10: face_parser
-        ], dtype=torch.float32))
+        self.register_buffer(
+            "task_lpips_weights",
+            torch.tensor(
+                [
+                    0.010,  # 0: denoise
+                    0.025,  # 1: deblur
+                    0.020,  # 2: derain
+                    0.015,  # 3: dehaze_indoor
+                    0.015,  # 4: dehaze_outdoor
+                    0.010,  # 5: lowlight
+                    0.010,  # 6: exposure
+                    0.030,  # 7: superres
+                    0.050,  # 8: vintage
+                    0.050,  # 9: face_restorer
+                    0.005,  # 10: face_parser
+                ],
+                dtype=torch.float32,
+            ),
+        )
 
         if self.task_type in ["restoration", "enhancement"] and use_perc:
             try:
@@ -282,12 +303,15 @@ class CombinedLoss(nn.Module):
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-                print(" [MISSION] Initializing Neural Perceptual Engine (TorchMetrics LPIPS/VGG)...")
+                print(
+                    " [MISSION] Initializing Neural Perceptual Engine (TorchMetrics LPIPS/VGG)..."
+                )
 
                 class AutocastLPIPS(torch.nn.Module):
                     def __init__(self, perc_module):
                         super().__init__()
                         self.perc = perc_module
+
                     def forward(self, x, y):
                         with torch.autocast(device_type="cuda", enabled=True):
                             return self.perc(x, y)
@@ -295,21 +319,26 @@ class CombinedLoss(nn.Module):
                 if LearnedPerceptualImagePatchSimilarity is None:
                     raise ImportError("TorchMetrics LPIPS is not installed")
 
-                self.perc = AutocastLPIPS(LearnedPerceptualImagePatchSimilarity(net_type="vgg", normalize=False))
+                self.perc = AutocastLPIPS(
+                    LearnedPerceptualImagePatchSimilarity(net_type="vgg", normalize=False)
+                )
 
                 self.perc.eval()
                 for param in self.perc.parameters():
                     param.requires_grad = False
             except ImportError:
-                print("[WARNING] [RESILIENCE] TorchMetrics not found. Run: pip install torchmetrics[image]")
+                print(
+                    "[WARNING] [RESILIENCE] TorchMetrics not found. Run: pip install torchmetrics[image]"
+                )
                 print("[WARNING] [RESILIENCE] Defaulting to pure L1.")
             except (OSError, RuntimeError, ValueError) as e:
                 # Weight download/cache failures (OSError incl. URLError) or CUDA/state-dict errors.
                 logger.warning("LPIPS failed to bind (%s). Defaulting to pure L1.", e)
 
-
     def forward(self, pred, target, task_idx=None):
-        is_forex_pred = isinstance(pred, dict) and ("direction" in pred or "direction_logits" in pred)
+        is_forex_pred = isinstance(pred, dict) and (
+            "direction" in pred or "direction_logits" in pred
+        )
         if self.task_type in ("forex", "forex_dual") or is_forex_pred:
             self.forex_dual.stab = self.stab
             return self.forex_dual(pred, target)
@@ -360,7 +389,9 @@ class CombinedLoss(nn.Module):
         tgt_f = target.float()
 
         p_probs = F.softmax(pred_f / float(self.stab.get("softmax_temp", 1.0)), dim=-1)
-        t_sum = torch.clamp(tgt_f.sum(dim=-1, keepdim=True), min=float(self.stab.get("emd_epsilon", 1e-6)))
+        t_sum = torch.clamp(
+            tgt_f.sum(dim=-1, keepdim=True), min=float(self.stab.get("emd_epsilon", 1e-6))
+        )
         t_probs = tgt_f / t_sum
 
         cdf_p = torch.cumsum(p_probs, dim=-1)
@@ -376,7 +407,7 @@ class CombinedLoss(nn.Module):
         else:
             p_eval, t_eval = p_mean, t_mean
 
-        emd_weight = float(self.stab.get('emd_weight', 1.0))
+        emd_weight = float(self.stab.get("emd_weight", 1.0))
         total_loss = emd_weight * emd
 
         use_soft_spearman = self.stab.get("use_soft_spearman", True)
@@ -385,21 +416,21 @@ class CombinedLoss(nn.Module):
             spearman_weight = float(self.stab.get("soft_spearman_weight", 0.5))
             total_loss = total_loss + (spearman_weight * spearman_loss)
 
-        ssim_w = float(self.stab.get('ssim_weight', 0.0))
+        ssim_w = float(self.stab.get("ssim_weight", 0.0))
         if ssim_w > 0.0 and p_eval.size(0) > 1:
             p_c = p_eval - p_eval.mean()
             t_c = t_eval - t_eval.mean()
-            denom_ssim = torch.sqrt(torch.clamp((p_c ** 2).sum() * (t_c ** 2).sum(), min=1e-8))
+            denom_ssim = torch.sqrt(torch.clamp((p_c**2).sum() * (t_c**2).sum(), min=1e-8))
             ssim_proxy = 1.0 - (p_c * t_c).sum() / denom_ssim
             total_loss = total_loss + ssim_w * ssim_proxy
 
-        rank_weight = float(self.stab.get('rank_weight', 0.0))
+        rank_weight = float(self.stab.get("rank_weight", 0.0))
         if rank_weight > 0 and p_eval.size(0) > 1:
             p_diff = p_eval.unsqueeze(0) - p_eval.unsqueeze(1)
             t_diff = t_eval.unsqueeze(0) - t_eval.unsqueeze(1)
             t_sign = torch.sign(t_diff)
 
-            margin = float(self.stab.get('rank_margin', 0.05))
+            margin = float(self.stab.get("rank_margin", 0.05))
             rank_loss = F.relu(margin - t_sign * p_diff)
             mask = (t_sign != 0).float()
             avg_rank_loss = (rank_loss * mask).sum() / torch.clamp(mask.sum(), min=1.0)
@@ -415,7 +446,7 @@ class CombinedLoss(nn.Module):
             if pred_norm.shape[-1] >= 3:
                 pred_norm[:, 1] = pred_norm[:, 1] / 3.14159265  # theta / pi -> [0,1]
                 target_norm[:, 1] = target_norm[:, 1] / 3.14159265
-            huber_delta = float(self.stab.get('huber_delta', 1.0))
+            huber_delta = float(self.stab.get("huber_delta", 1.0))
             return F.smooth_l1_loss(pred_norm, target_norm, beta=huber_delta)
 
         if self.task_type == "classification":
@@ -425,22 +456,32 @@ class CombinedLoss(nn.Module):
             if target.dim() == 4:
                 target = target.squeeze(1)
             elif target.dim() == 2 and target.size(1) == 1:
-                target = torch.zeros((pred.size(0), pred.size(2), pred.size(3)), dtype=torch.long, device=pred.device)
+                target = torch.zeros(
+                    (pred.size(0), pred.size(2), pred.size(3)), dtype=torch.long, device=pred.device
+                )
             return self.ce(pred, target.long())
 
-        if self.task_type == "face_detection" and isinstance(pred, (tuple, list)) and len(pred) == 3:
+        if (
+            self.task_type == "face_detection"
+            and isinstance(pred, (tuple, list))
+            and len(pred) == 3
+        ):
             p_bbox, p_conf, p_landm = pred
             t_conf = target[:, 0:1]
             t_bbox = target[:, 1:5]
             t_landm = target[:, 5:15]
 
-            with torch.autocast(device_type='cuda', enabled=False):
+            with torch.autocast(device_type="cuda", enabled=False):
                 loss_conf = F.binary_cross_entropy(p_conf.float(), t_conf.float())
 
             pos_mask = t_conf > 0.5
             if pos_mask.sum() > 0:
-                loss_bbox = F.smooth_l1_loss(p_bbox[pos_mask.squeeze(-1)], t_bbox[pos_mask.squeeze(-1)])
-                loss_landm = F.smooth_l1_loss(p_landm[pos_mask.squeeze(-1)], t_landm[pos_mask.squeeze(-1)])
+                loss_bbox = F.smooth_l1_loss(
+                    p_bbox[pos_mask.squeeze(-1)], t_bbox[pos_mask.squeeze(-1)]
+                )
+                loss_landm = F.smooth_l1_loss(
+                    p_landm[pos_mask.squeeze(-1)], t_landm[pos_mask.squeeze(-1)]
+                )
             else:
                 loss_bbox = torch.tensor(0.0, device=p_bbox.device)
                 loss_landm = torch.tensor(0.0, device=p_landm.device)

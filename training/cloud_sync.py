@@ -44,13 +44,18 @@ class CloudSyncManager:
     def sync(self) -> None:
         """Coordinate multi-target cloud synchronization."""
         logger.info("Starting Cloud Synchronization Phase (Epoch %d)...", self.epoch)
-        is_kaggle = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.environ.get("KAGGLE_WORKING_DIR"))
+        is_kaggle = bool(
+            os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.environ.get("KAGGLE_WORKING_DIR")
+        )
 
         if is_kaggle:
             logger.info("Operating in Kaggle-Native mode. GitHub sync bypassed.")
             kaggle_success = self._sync_to_kaggle()
             if not self.is_mid_epoch and kaggle_success:
-                logger.info("Epoch %d finished and Kaggle version confirmed. Syncing to Google Drive...", self.epoch)
+                logger.info(
+                    "Epoch %d finished and Kaggle version confirmed. Syncing to Google Drive...",
+                    self.epoch,
+                )
                 self._sync_to_gdrive()
         else:
             logger.info("Operating in Hybrid mode. Syncing to GitHub, Kaggle, and Google Drive.")
@@ -111,6 +116,7 @@ def trigger_cloud_sync(
         with _sync_lock:
             manager.sync()
     else:
+
         def _worker() -> None:
             with _sync_lock:
                 manager.sync()

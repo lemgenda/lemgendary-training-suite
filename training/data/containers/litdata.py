@@ -52,7 +52,11 @@ class LitDataReader:
         except ImportError as exc:
             logger.debug("LitData library not available, scanning raw chunks: %s", exc)
         except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
-            logger.warning("LitData StreamingDataset initialization failed for %s, scanning raw chunks: %s", self.data_dir, exc)
+            logger.warning(
+                "LitData StreamingDataset initialization failed for %s, scanning raw chunks: %s",
+                self.data_dir,
+                exc,
+            )
 
         # Fallback: scan for chunk / bin files in data_dir
         self._chunks = sorted(set(self.data_dir.glob("*.bin")))
@@ -80,10 +84,16 @@ class LitDataReader:
                     meta.update(item["metadata"])
                 return Sample(
                     name=name,
-                    image_bytes=bytes(image_bytes) if isinstance(image_bytes, (bytes, bytearray)) else b"",
+                    image_bytes=bytes(image_bytes)
+                    if isinstance(image_bytes, (bytes, bytearray))
+                    else b"",
                     image_format=str(item.get("image_format", "webp")),
-                    target_bytes=bytes(target_bytes) if isinstance(target_bytes, (bytes, bytearray)) else None,
-                    mask_bytes=bytes(mask_bytes) if isinstance(mask_bytes, (bytes, bytearray)) else None,
+                    target_bytes=bytes(target_bytes)
+                    if isinstance(target_bytes, (bytes, bytearray))
+                    else None,
+                    mask_bytes=bytes(mask_bytes)
+                    if isinstance(mask_bytes, (bytes, bytearray))
+                    else None,
                     label=label,
                     metadata=meta,
                 )

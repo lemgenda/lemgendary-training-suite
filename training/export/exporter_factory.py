@@ -49,6 +49,8 @@ class ExporterFactory:
         return cls._exporters[-1]
 
 
-def get_exporter_for_model(model_key: str, spec: ModelSpecification | None = None) -> BaseModelExporter:
+def get_exporter_for_model(
+    model_key: str, spec: ModelSpecification | None = None
+) -> BaseModelExporter:
     """Convenience accessor to obtain an exporter for a model."""
     return ExporterFactory.get_exporter(model_key, spec)

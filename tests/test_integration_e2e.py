@@ -226,7 +226,9 @@ class TestFullProductionPipelinePass(unittest.TestCase):
             ckpt_dir.mkdir(parents=True)
 
             # 1. Simulate 1 training step on dummy model
-            model = nn.Sequential(nn.Conv2d(3, 8, kernel_size=3, padding=1), nn.ReLU(), nn.Conv2d(8, 3, 1))
+            model = nn.Sequential(
+                nn.Conv2d(3, 8, kernel_size=3, padding=1), nn.ReLU(), nn.Conv2d(8, 3, 1)
+            )
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
             x = torch.randn(1, 3, 32, 32)
             y = torch.randn(1, 3, 32, 32)
@@ -238,7 +240,9 @@ class TestFullProductionPipelinePass(unittest.TestCase):
 
             # 2. Save best checkpoint
             ckpt_path = ckpt_dir / "mirnet_exposure_best.pth"
-            torch.save({"model_state": model.state_dict(), "epoch": 1, "loss": loss.item()}, ckpt_path)
+            torch.save(
+                {"model_state": model.state_dict(), "epoch": 1, "loss": loss.item()}, ckpt_path
+            )
             self.assertTrue(ckpt_path.exists())
 
             # 3. Export binaries into temporary export staging

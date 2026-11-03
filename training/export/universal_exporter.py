@@ -76,7 +76,9 @@ def export_tri_format_pytorch(
 
     if stage_dist:
         staging_svc = VariationStagingService()
-        st_res = staging_svc.stage_variations(model_key=model_key, source_files=exported, base_dir=target_dir)
+        st_res = staging_svc.stage_variations(
+            model_key=model_key, source_files=exported, base_dir=target_dir
+        )
         if staging_dir.exists():
             remove_tree(staging_dir, purpose="export staging cleanup")
         if st_res.staged_files:
@@ -105,7 +107,9 @@ def export_tri_format_yolo(
 
     if stage_dist:
         staging_svc = VariationStagingService()
-        st_res = staging_svc.stage_variations(model_key=model_key, source_files=exported, base_dir=target_dir)
+        st_res = staging_svc.stage_variations(
+            model_key=model_key, source_files=exported, base_dir=target_dir
+        )
         if staging_dir.exists():
             remove_tree(staging_dir, purpose="export staging cleanup")
         if st_res.staged_files:
@@ -162,10 +166,18 @@ def export_universal_model(
 def main() -> None:
     """CLI entrypoint for universal exporter."""
     parser = argparse.ArgumentParser(description="Universal Model Exporter & Variation Stager")
-    parser.add_argument("--model", type=str, required=True, help="Model key (e.g. yolov8n, ai_helper_lemgend)")
+    parser.add_argument(
+        "--model", type=str, required=True, help="Model key (e.g. yolov8n, ai_helper_lemgend)"
+    )
     parser.add_argument("--output-dir", type=str, default=None, help="Custom export destination")
-    parser.add_argument("--stage-dist", action="store_true", default=True, help="Stage into dist/kaggle/ subfolders")
-    parser.add_argument("--stage-only", action="store_true", help="Only stage existing binaries without re-exporting")
+    parser.add_argument(
+        "--stage-dist", action="store_true", default=True, help="Stage into dist/kaggle/ subfolders"
+    )
+    parser.add_argument(
+        "--stage-only",
+        action="store_true",
+        help="Only stage existing binaries without re-exporting",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")

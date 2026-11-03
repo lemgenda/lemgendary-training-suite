@@ -27,14 +27,19 @@ def _probe_kagglehub_checkpoints(kh_mod: Any, model_name: str, cfg: dict[str, An
     if not callable(model_download_fn):
         return None
     if os.environ.get("RANK", "0") == "0":
-        print(f"[RECOVERY] Probing KaggleHub checkpoints for '{k_handle}' (5s timeout)...", flush=True)
+        print(
+            f"[RECOVERY] Probing KaggleHub checkpoints for '{k_handle}' (5s timeout)...", flush=True
+        )
     probe_errors = (RuntimeError, *kagglehub_errors())
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(model_download_fn, k_handle)
             dl_res = future.result(timeout=5.0)
     except concurrent.futures.TimeoutError:
-        print("[RECOVERY] KaggleHub checkpoint probe timed out (5s). Skipping remote probe.", flush=True)
+        print(
+            "[RECOVERY] KaggleHub checkpoint probe timed out (5s). Skipping remote probe.",
+            flush=True,
+        )
         return None
     except probe_errors as kh_exc:
         logger.debug("KaggleHub checkpoint probe notice for %s: %s", k_handle, kh_exc)
@@ -79,8 +84,12 @@ class CheckpointRecoveryEngine:
         ]
         p_paths = cfg.get("paths", {})
         export_root = p_paths.get("export_root", "../LemGendaryModels")
-        hub_candidates.append((self.project_root / export_root / model_name / "checkpoints").resolve())
-        hub_candidates.append((self.workspace_root / export_root / model_name / "checkpoints").resolve())
+        hub_candidates.append(
+            (self.project_root / export_root / model_name / "checkpoints").resolve()
+        )
+        hub_candidates.append(
+            (self.workspace_root / export_root / model_name / "checkpoints").resolve()
+        )
 
         for hc in hub_candidates:
             if hc.exists() and hc not in roots:
@@ -124,7 +133,9 @@ class CheckpointRecoveryEngine:
             try:
                 kh_mod = importlib.import_module("kagglehub")
             except ImportError as kh_imp_err:
-                logger.debug("kagglehub not installed; skipping remote checkpoint probe: %s", kh_imp_err)
+                logger.debug(
+                    "kagglehub not installed; skipping remote checkpoint probe: %s", kh_imp_err
+                )
             else:
                 dl_path = _probe_kagglehub_checkpoints(kh_mod, model_name, cfg)
                 if dl_path is not None:
@@ -162,7 +173,9 @@ class CheckpointRecoveryEngine:
                 try:
                     entries = list(curr_dir.iterdir())
                 except OSError as list_err:
-                    logger.debug("Skipping unreadable checkpoint search dir %s: %s", curr_dir, list_err)
+                    logger.debug(
+                        "Skipping unreadable checkpoint search dir %s: %s", curr_dir, list_err
+                    )
                     continue
 
                 for entry in entries:
@@ -180,12 +193,17 @@ class CheckpointRecoveryEngine:
                         # If file is directly inside checkpoints or mixed folder, ensure it belongs to this model
                         parent_norm = entry.parent.name.lower().replace("_", "").replace("-", "")
                         entry_file_norm = name_lower.replace("_", "").replace("-", "")
-                        if parent_norm not in {model_norm, "checkpoints", "runs"} and model_norm not in parent_norm:
+                        if (
+                            parent_norm not in {model_norm, "checkpoints", "runs"}
+                            and model_norm not in parent_norm
+                        ):
                             # If parent directory doesn't match model_name, skip unless file name itself specifies model
                             if model_norm not in entry_file_norm:
                                 continue
 
-                        if ("latest" in name_lower or "last" in name_lower) and "latest" not in discovered:
+                        if (
+                            "latest" in name_lower or "last" in name_lower
+                        ) and "latest" not in discovered:
                             discovered["latest"] = entry
                         elif "best" in name_lower and "best" not in discovered:
                             discovered["best"] = entry
@@ -230,7 +248,9 @@ class CheckpointRecoveryEngine:
                     logger.warning("Failed syncing metrics.csv: %s", exc)
 
         # Ensure canonical subdirectories exist
-        checkpoints_dir = target_dir if target_dir.name == "checkpoints" else (target_dir / "checkpoints")
+        checkpoints_dir = (
+            target_dir if target_dir.name == "checkpoints" else (target_dir / "checkpoints")
+        )
         checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
         dist_dir = target_dir / "dist" / "kaggle"

@@ -17,6 +17,7 @@ router = APIRouter(prefix="/training", tags=["training"])
 
 class TrainRequest(BaseModel):
     """Payload for submitting training job."""
+
     model: str = Field(..., description="Target model key")
     epochs: int | None = Field(None, description="Total epochs override")
     batch_size: int | None = Field(None, description="Batch size override")
@@ -30,6 +31,7 @@ class TrainRequest(BaseModel):
 
 class EvalRequest(BaseModel):
     """Payload for submitting evaluation job."""
+
     model: str = Field(..., description="Target model key")
     checkpoint_path: str | None = Field(None, description="Path to checkpoint (.pth)")
     batch_size: int | None = Field(None, description="Evaluation batch size")
@@ -38,6 +40,7 @@ class EvalRequest(BaseModel):
 
 class ExportRequest(BaseModel):
     """Payload for submitting export job."""
+
     model: str = Field(..., description="Target model key")
     checkpoint_path: str | None = Field(None, description="Path to checkpoint")
     output_dir: str | None = Field(None, description="Export output directory")
@@ -50,7 +53,11 @@ def enqueue_training(payload: TrainRequest, request: Request) -> dict[str, Any]:
     manager = request.app.state.job_manager
     params = payload.model_dump()
     job_id = manager.submit_job(job_type="train", model_key=payload.model, params=params)
-    return {"job_id": job_id, "status": "pending", "message": f"Training job enqueued for {payload.model}"}
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "message": f"Training job enqueued for {payload.model}",
+    }
 
 
 @router.post("/evaluate")
@@ -59,7 +66,11 @@ def enqueue_evaluation(payload: EvalRequest, request: Request) -> dict[str, Any]
     manager = request.app.state.job_manager
     params = payload.model_dump()
     job_id = manager.submit_job(job_type="eval", model_key=payload.model, params=params)
-    return {"job_id": job_id, "status": "pending", "message": f"Evaluation job enqueued for {payload.model}"}
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "message": f"Evaluation job enqueued for {payload.model}",
+    }
 
 
 @router.post("/export")
@@ -68,11 +79,16 @@ def enqueue_export(payload: ExportRequest, request: Request) -> dict[str, Any]:
     manager = request.app.state.job_manager
     params = payload.model_dump()
     job_id = manager.submit_job(job_type="export", model_key=payload.model, params=params)
-    return {"job_id": job_id, "status": "pending", "message": f"Export job enqueued for {payload.model}"}
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "message": f"Export job enqueued for {payload.model}",
+    }
 
 
 class UnitTestAllRequest(BaseModel):
     """Payload for submitting single-epoch diagnostic unit test across all registered models."""
+
     epochs: int = Field(1, description="Diagnostic epochs per model (default: 1)")
     env: str = Field("local", description="Execution environment ('local', 'kaggle')")
     force: bool = Field(False, description="Force re-train even if SOTA checkpoint exists")
@@ -93,8 +109,10 @@ def enqueue_unit_test_all(payload: UnitTestAllRequest, request: Request) -> dict
 
 # ─── Kaggle Cloud Engine Endpoints ───────────────────────────────────────────
 
+
 class KaggleTrainRequest(BaseModel):
     """Payload for launching Kaggle cloud training."""
+
     model: str = Field(..., description="Target model key")
     gpu: str = Field("T4", description="Kaggle accelerator ('T4', 'P100', 'None')")
     auto_pull: bool = Field(True, description="Auto-pull checkpoints to LemGendaryModels per epoch")
@@ -103,6 +121,7 @@ class KaggleTrainRequest(BaseModel):
 
 class KaggleMonitorRequest(BaseModel):
     """Payload for connecting to active Kaggle kernel stream."""
+
     kernel_slug: str = Field(..., description="Kaggle kernel slug (e.g. username/kernel-slug)")
     model: str | None = Field(None, description="Optional associated model key for auto-pull")
     auto_pull: bool = Field(False, description="Enable auto-pull on epoch completion")
@@ -111,14 +130,21 @@ class KaggleMonitorRequest(BaseModel):
 
 class KagglePullRequest(BaseModel):
     """Payload for downloading model variations from Kaggle Models Hub."""
+
     model: str = Field(..., description="Target model key")
-    variation: str = Field("all", description="Variation to pull ('all', 'pytorch', 'pytorch_fp32', 'onnx_fp16', 'onnx_fp32')")
-    force_download: bool = Field(False, description="Force re-download even if cached version is current")
+    variation: str = Field(
+        "all",
+        description="Variation to pull ('all', 'pytorch', 'pytorch_fp32', 'onnx_fp16', 'onnx_fp32')",
+    )
+    force_download: bool = Field(
+        False, description="Force re-download even if cached version is current"
+    )
     username: str | None = Field(None, description="Optional Kaggle username override")
 
 
 class KagglePushRequest(BaseModel):
     """Payload for uploading model checkpoints to Kaggle Models."""
+
     model: str = Field(..., description="Target model key")
     source_dir: str | None = Field(None, description="Optional custom source directory")
     username: str | None = Field(None, description="Optional Kaggle username override")
@@ -227,10 +253,15 @@ def push_kaggle_model_artifacts(payload: KagglePushRequest, request: Request) ->
 
 class KagglePushModelRequest(BaseModel):
     """Payload for pushing validated isolated variations to Kaggle Models Hub."""
+
     model: str = Field(..., description="Target model key")
-    variation: str = Field("all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')")
+    variation: str = Field(
+        "all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')"
+    )
     version_notes: str | None = Field(None, description="Optional release version notes")
-    dry_run: bool = Field(False, description="Validate payload and isolation without publishing to Kaggle")
+    dry_run: bool = Field(
+        False, description="Validate payload and isolation without publishing to Kaggle"
+    )
 
 
 @router.post("/kaggle/push-model")
@@ -250,9 +281,14 @@ def push_kaggle_model_variations(payload: KagglePushModelRequest) -> dict[str, A
 
 class KagglePushAllRequest(BaseModel):
     """Payload for staging and pushing all registered models to Kaggle Models Hub."""
-    variation: str = Field("all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')")
+
+    variation: str = Field(
+        "all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')"
+    )
     version_notes: str | None = Field(None, description="Optional release version notes")
-    dry_run: bool = Field(False, description="Validate payload and isolation without publishing to Kaggle")
+    dry_run: bool = Field(
+        False, description="Validate payload and isolation without publishing to Kaggle"
+    )
 
 
 @router.post("/kaggle/push-all")
@@ -272,6 +308,7 @@ def push_all_kaggle_models(payload: KagglePushAllRequest, request: Request) -> d
 
 class LLMTrainRequest(BaseModel):
     """Payload for dispatching QLoRA instruction fine-tuning for assistant LLM."""
+
     model: str = Field("ai_helper_lemgend", description="Target LLM model key")
     epochs: int = Field(3, description="Training epochs")
     batch_size: int = Field(2, description="Per-device micro batch size")
@@ -293,12 +330,16 @@ def enqueue_llm_training(payload: LLMTrainRequest, request: Request) -> dict[str
         "config": params,
     }
 
+
 class LLMExportRequest(BaseModel):
     """Payload for compiling and exporting tri-format LLM binaries."""
+
     model: str = Field("ai_helper_lemgend", description="Target LLM model key")
     checkpoint: str | None = Field(None, description="Path to checkpoint file")
     output_dir: str | None = Field(None, description="Output directory for exported binaries")
-    targets: list[str] | None = Field(None, description="Target export formats (e.g. ['adapter', 'merged', 'gguf'])")
+    targets: list[str] | None = Field(
+        None, description="Target export formats (e.g. ['adapter', 'merged', 'gguf'])"
+    )
 
 
 @router.post("/llm/export")
@@ -317,6 +358,7 @@ def enqueue_llm_export(payload: LLMExportRequest, request: Request) -> dict[str,
 
 class UnitTestsRunRequest(BaseModel):
     """Payload for executing unit test suites."""
+
     pattern: str = Field("test_*.py", description="Test discovery file pattern")
 
 
@@ -326,6 +368,7 @@ def run_unit_tests(payload: UnitTestsRunRequest) -> dict[str, Any]:
     import unittest
 
     from training.utils.paths import get_project_root
+
     project_root = get_project_root()
     tests_dir = project_root / "tests" / "unit"
     loader = unittest.TestLoader()
@@ -340,4 +383,3 @@ def run_unit_tests(payload: UnitTestsRunRequest) -> dict[str, Any]:
         "failures": [str(f[0]) for f in result.failures],
         "errors": [str(e[0]) for e in result.errors],
     }
-

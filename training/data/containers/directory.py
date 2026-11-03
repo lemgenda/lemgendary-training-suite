@@ -38,15 +38,25 @@ class DirectoryReader:
         self.lbl_dir = self._resolve_subfolder("labels")
 
         # Index samples
-        self.sample_files: list[Path] = sorted([
-            f for f in self.img_dir.iterdir()
-            if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS and not f.name.startswith(".")
-        ])
+        self.sample_files: list[Path] = sorted(
+            [
+                f
+                for f in self.img_dir.iterdir()
+                if f.is_file()
+                and f.suffix.lower() in SUPPORTED_EXTENSIONS
+                and not f.name.startswith(".")
+            ]
+        )
         if not self.sample_files:
-            self.sample_files = sorted([
-                f for f in self.img_dir.rglob("*")
-                if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS and not f.name.startswith(".")
-            ])
+            self.sample_files = sorted(
+                [
+                    f
+                    for f in self.img_dir.rglob("*")
+                    if f.is_file()
+                    and f.suffix.lower() in SUPPORTED_EXTENSIONS
+                    and not f.name.startswith(".")
+                ]
+            )
 
     def _resolve_subfolder(self, folder_name: str) -> Path | None:
         """Resolve split-aware folder or root folder."""
@@ -72,7 +82,9 @@ class DirectoryReader:
 
     def __getitem__(self, index: int) -> Sample:
         if index < 0 or index >= len(self.sample_files):
-            raise IndexError(f"Sample index {index} out of range (0..{len(self.sample_files) - 1}).")
+            raise IndexError(
+                f"Sample index {index} out of range (0..{len(self.sample_files) - 1})."
+            )
 
         img_path = self.sample_files[index]
         stem = img_path.stem

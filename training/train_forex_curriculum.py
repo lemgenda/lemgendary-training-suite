@@ -15,9 +15,12 @@ logger = logging.getLogger("lemtrain.forex_curriculum")
 NUM_FOLDS = 6
 MODEL_KEY = "forex_predictor"
 
+
 def get_latest_epoch(model_key, project_root):
     """Dynamically reads the latest epoch from metrics.csv."""
-    metrics_path = os.path.abspath(os.path.join(project_root, "..", "LemGendaryModels", model_key, "metrics.csv"))
+    metrics_path = os.path.abspath(
+        os.path.join(project_root, "..", "LemGendaryModels", model_key, "metrics.csv")
+    )
     if not os.path.exists(metrics_path):
         return 0
     try:
@@ -26,16 +29,51 @@ def get_latest_epoch(model_key, project_root):
             if len(reader) > 0:
                 return int(reader[-1].get("Epoch", 0))
     except (OSError, ValueError, TypeError, csv.Error) as e:
-        logger.warning("Failed to parse %s for dynamic target; assuming epoch 0: %s", metrics_path, e)
+        logger.warning(
+            "Failed to parse %s for dynamic target; assuming epoch 0: %s", metrics_path, e
+        )
     return 0
 
+
 def main():
-    parser = argparse.ArgumentParser(description="LemGendary Forex Walk-Forward Curriculum Orchestrator")
-    parser.add_argument("--clean", "--fresh", dest="clean", action="store_true", help="Start curriculum fresh from fold 1 epoch 1, wiping all checkpoints and states")
-    parser.add_argument("--folds", type=int, nargs='+', default=None, help="Explicit list of active folds to train (e.g. 1 2 3 4 5 6)")
-    parser.add_argument("--timeframes", type=int, nargs='+', default=None, help="Force specific active timeframes in minutes (e.g. 60 240 1440)")
-    parser.add_argument("--epochs-per-fold", type=int, default=200, help="Max base epochs per fold before early stopping checks")
-    parser.add_argument("--batch_size", "--batch-size", dest="batch_size", type=str, default=None, help="Batch size per step (positive integer or 'auto')")
+    parser = argparse.ArgumentParser(
+        description="LemGendary Forex Walk-Forward Curriculum Orchestrator"
+    )
+    parser.add_argument(
+        "--clean",
+        "--fresh",
+        dest="clean",
+        action="store_true",
+        help="Start curriculum fresh from fold 1 epoch 1, wiping all checkpoints and states",
+    )
+    parser.add_argument(
+        "--folds",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Explicit list of active folds to train (e.g. 1 2 3 4 5 6)",
+    )
+    parser.add_argument(
+        "--timeframes",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Force specific active timeframes in minutes (e.g. 60 240 1440)",
+    )
+    parser.add_argument(
+        "--epochs-per-fold",
+        type=int,
+        default=200,
+        help="Max base epochs per fold before early stopping checks",
+    )
+    parser.add_argument(
+        "--batch_size",
+        "--batch-size",
+        dest="batch_size",
+        type=str,
+        default=None,
+        help="Batch size per step (positive integer or 'auto')",
+    )
     args = parser.parse_args()
 
     print("================================================================================")
@@ -52,7 +90,7 @@ def main():
     resolved_roots = []
     base_search_dirs = [
         os.path.abspath(os.path.join(project_root, "..", "LemGendaryDatasets")),
-        os.path.abspath(os.path.join(project_root, "data"))
+        os.path.abspath(os.path.join(project_root, "data")),
     ]
     if os.path.exists("/kaggle/input"):
         base_search_dirs.append("/kaggle/input")
@@ -102,14 +140,18 @@ def main():
             all_year_dirs.add(bname)
         try:
             for d in os.listdir(root):
-                if d.startswith("ForexUniverse") and not d.endswith(".zip") and os.path.isdir(os.path.join(root, d)):
+                if (
+                    d.startswith("ForexUniverse")
+                    and not d.endswith(".zip")
+                    and os.path.isdir(os.path.join(root, d))
+                ):
                     all_year_dirs.add(d)
         except OSError as exc:
             logger.debug("Cannot list forex root %s: %s", root, exc)
 
-    if os.path.exists('/kaggle/input') and len(all_year_dirs) < 8:
+    if os.path.exists("/kaggle/input") and len(all_year_dirs) < 8:
         try:
-            for root_dir, dirs, _ in os.walk('/kaggle/input'):
+            for root_dir, dirs, _ in os.walk("/kaggle/input"):
                 for d in dirs:
                     if d.startswith("ForexUniverse") and not d.endswith(".zip"):
                         all_year_dirs.add(d)
@@ -118,16 +160,24 @@ def main():
 
     if all_year_dirs:
         total_folds = max(1, len(all_year_dirs) - 2)
-        print(f" [DISCOVERY] [FOREX] Identified {len(all_year_dirs)} year manifolds ({', '.join(sorted(all_year_dirs))}) -> {total_folds} Walk-Forward Folds.")
+        print(
+            f" [DISCOVERY] [FOREX] Identified {len(all_year_dirs)} year manifolds ({', '.join(sorted(all_year_dirs))}) -> {total_folds} Walk-Forward Folds."
+        )
     else:
         manifold_folds = {}
         for root in resolved_roots:
             if not os.path.exists(root):
                 continue
-            pairs = [d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)) and not d.startswith('.')]
+            pairs = [
+                d
+                for d in os.listdir(root)
+                if os.path.isdir(os.path.join(root, d)) and not d.startswith(".")
+            ]
             if pairs:
                 first_pair = pairs[0]
-                fold_dirs = [d for d in os.listdir(os.path.join(root, first_pair)) if d.startswith("fold_")]
+                fold_dirs = [
+                    d for d in os.listdir(os.path.join(root, first_pair)) if d.startswith("fold_")
+                ]
                 manifold_folds[root] = len(fold_dirs)
 
         if manifold_folds:
@@ -136,25 +186,41 @@ def main():
                 print("\n[ERROR] Fold Mismatch Detected across attached manifolds!")
                 for m, count in manifold_folds.items():
                     print(f" - {os.path.basename(os.path.dirname(m))}: {count} folds")
-                print("\n[REQUIRED ACTION] Please ensure all mounted manifolds have the exact same number of folds.")
+                print(
+                    "\n[REQUIRED ACTION] Please ensure all mounted manifolds have the exact same number of folds."
+                )
                 sys.exit(1)
 
-    ckpt_dir = os.path.abspath(os.path.join(project_root, "..", "LemGendaryModels", MODEL_KEY, "checkpoints"))
+    ckpt_dir = os.path.abspath(
+        os.path.join(project_root, "..", "LemGendaryModels", MODEL_KEY, "checkpoints")
+    )
     os.makedirs(ckpt_dir, exist_ok=True)
 
-    if getattr(args, 'clean', False):
-        print(" [CLEAN] [RESET] Fresh curriculum run requested. Wiping checkpoints, state file, and telemetry...")
+    if getattr(args, "clean", False):
+        print(
+            " [CLEAN] [RESET] Fresh curriculum run requested. Wiping checkpoints, state file, and telemetry..."
+        )
         target_root = os.path.dirname(ckpt_dir)
-        purge_targets = [
-            os.path.join(target_root, "metrics.csv"),
-            *[os.path.join(ckpt_dir, f) for f in os.listdir(ckpt_dir) if f.endswith((".pth", ".json", ".processing"))]
-        ] if os.path.exists(ckpt_dir) else [os.path.join(target_root, "metrics.csv")]
+        purge_targets = (
+            [
+                os.path.join(target_root, "metrics.csv"),
+                *[
+                    os.path.join(ckpt_dir, f)
+                    for f in os.listdir(ckpt_dir)
+                    if f.endswith((".pth", ".json", ".processing"))
+                ],
+            ]
+            if os.path.exists(ckpt_dir)
+            else [os.path.join(target_root, "metrics.csv")]
+        )
         for artifact in purge_targets:
             if os.path.isfile(artifact):
                 try:
                     os.unlink(artifact)
                 except OSError as purge_err:
-                    print(f" [PURGE] Note: could not delete {os.path.basename(artifact)}: {purge_err}")
+                    print(
+                        f" [PURGE] Note: could not delete {os.path.basename(artifact)}: {purge_err}"
+                    )
 
     state_file = os.path.join(ckpt_dir, "curriculum_state.json")
     if os.path.exists(state_file):
@@ -162,7 +228,9 @@ def main():
             with open(state_file, "r", encoding="utf-8") as f:
                 state = json.load(f)
         except (OSError, ValueError) as e:
-            logger.warning("Curriculum state %s unreadable; starting with empty state: %s", state_file, e)
+            logger.warning(
+                "Curriculum state %s unreadable; starting with empty state: %s", state_file, e
+            )
             state = {}
     else:
         state = {}
@@ -179,11 +247,11 @@ def main():
         except (OSError, yaml.YAMLError, AttributeError, TypeError) as e:
             logger.warning("Failed to parse %s; using default active folds: %s", yaml_path, e)
 
-    if getattr(args, 'folds', None):
+    if getattr(args, "folds", None):
         active_folds = [f for f in args.folds if 1 <= f <= NUM_FOLDS]
 
     print(f" [ORCHESTRATOR] Active Walk-Forward Folds: {active_folds}")
-    max_epochs_per_fold = getattr(args, 'epochs_per_fold', 200)
+    max_epochs_per_fold = getattr(args, "epochs_per_fold", 200)
 
     for fold in active_folds:
         fold_key = f"fold_{fold}"
@@ -233,31 +301,43 @@ def main():
         # toward VRAM ceiling. Workers default to the env-based count (4 for
         # Kaggle) — the LRU row-group cache needs them to keep the GPU fed.
         cmd = [
-            sys.executable, train_script,
-            "--model", MODEL_KEY,
-            "--epochs", str(target_epoch),
-            "--fold", str(fold),
+            sys.executable,
+            train_script,
+            "--model",
+            MODEL_KEY,
+            "--epochs",
+            str(target_epoch),
+            "--fold",
+            str(fold),
             "--enable-batch-growth",
         ]
 
-        if getattr(args, 'batch_size', None):
+        if getattr(args, "batch_size", None):
             cmd.extend(["--batch_size", str(args.batch_size)])
 
-        if getattr(args, 'timeframes', None):
+        if getattr(args, "timeframes", None):
             cmd.append("--timeframes")
             cmd.extend([str(t) for t in args.timeframes])
 
-        if getattr(args, 'clean', False) and fold == active_folds[0]:
+        if getattr(args, "clean", False) and fold == active_folds[0]:
             cmd.append("--clean")
 
-        env_type = "kaggle" if os.path.exists("/kaggle") else ("colab" if os.path.exists("/content") else "local")
+        env_type = (
+            "kaggle"
+            if os.path.exists("/kaggle")
+            else ("colab" if os.path.exists("/content") else "local")
+        )
         if env_type in ["kaggle", "colab"]:
             cmd.extend(["--env", env_type, "--auto_sync"])
 
         print(f" [EXEC] {' '.join(cmd)}")
 
         try:
-            cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+            cflags = (
+                getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                if sys.platform == "win32"
+                else 0
+            )
             res = subprocess.run(cmd, check=False, creationflags=cflags)
             if res.returncode != 0:
                 print(f"\n [ERROR] Training crashed during Fold {fold}. Exiting curriculum.")
@@ -272,7 +352,9 @@ def main():
                 json.dump(state, f, indent=2)
 
         except KeyboardInterrupt:
-            print("\n [INTERRUPT] Caught KeyboardInterrupt. Exiting curriculum orchestrator safely.")
+            print(
+                "\n [INTERRUPT] Caught KeyboardInterrupt. Exiting curriculum orchestrator safely."
+            )
             sys.exit(0)
         except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError) as e:
             logger.error("Fold %s subprocess or state persistence failed: %s", fold, e)
@@ -285,13 +367,16 @@ def main():
                 shutil.copy2(latest_ckpt, archive_ckpt)
                 print(f" [ARCHIVE] Preserved state: {archive_ckpt}")
             except OSError as e:
-                logger.warning("Failed to archive checkpoint %s -> %s: %s", latest_ckpt, archive_ckpt, e)
+                logger.warning(
+                    "Failed to archive checkpoint %s -> %s: %s", latest_ckpt, archive_ckpt, e
+                )
 
         time.sleep(2)
 
     print("\n================================================================================")
     print(" [SUCCESS] FULL FOREX WALK-FORWARD CURRICULUM COMPLETED.")
     print("================================================================================")
+
 
 if __name__ == "__main__":
     main()

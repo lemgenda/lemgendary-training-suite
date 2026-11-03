@@ -19,6 +19,7 @@ def generate_all_preflight_assets(*args, **kwargs):
 
     return _fn(*args, **kwargs)
 
+
 from training.checkpoint.manager import (
     CheckpointSaveError,
     audit_disk_space,
@@ -51,4 +52,3 @@ __all__ = [
     "scale_resume_progress",
     "stretch_scheduler_runway",
 ]
-

@@ -48,7 +48,13 @@ _GOVERNOR_AUDIT_ERRORS: tuple[type[BaseException], ...] = (
     OSError,
 )
 # Failure modes of starting a cloud sync (manager construction, thread start, filesystem).
-_CLOUD_SYNC_ERRORS: tuple[type[BaseException], ...] = (OSError, RuntimeError, ValueError, TypeError, KeyError)
+_CLOUD_SYNC_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    KeyError,
+)
 
 
 def run_training(
@@ -145,7 +151,10 @@ def run_training(
                 train_metrics["epoch_time"] = 0.0
         else:
             if os.environ.get("RANK", "0") == "0":
-                print(f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for {ctx.model_name}...", flush=True)
+                print(
+                    f"\n[EPOCH {epoch}/{ctx.total_epochs}] Initiating training pass for {ctx.model_name}...",
+                    flush=True,
+                )
 
             # Reseed sampler epoch if supported (e.g. RowGroupAwareSampler)
             sampler = getattr(ctx.train_loader, "sampler", None)
@@ -160,7 +169,10 @@ def run_training(
         ctx.last_train_metrics = train_metrics
 
         if cancel_check is not None and cancel_check():
-            print(f"[CANCEL] Training aborted after epoch {epoch} training pass by user cancellation.", flush=True)
+            print(
+                f"[CANCEL] Training aborted after epoch {epoch} training pass by user cancellation.",
+                flush=True,
+            )
             return TrainingSummary(
                 model_name=ctx.model_name,
                 final_epoch=epoch,
@@ -191,7 +203,9 @@ def run_training(
             current_quality = float(combined_metrics["quality_score"])
         elif sota_targets:
             dummy_telemetry = TelemetryEngine(".", task_type="forex" if is_forex else "image")
-            computed_qs, _ = dummy_telemetry.compute_quality_score(combined_metrics, sota_targets, task_type_str)
+            computed_qs, _ = dummy_telemetry.compute_quality_score(
+                combined_metrics, sota_targets, task_type_str
+            )
             current_quality = float(computed_qs)
             combined_metrics["quality_score"] = current_quality
         else:
@@ -239,7 +253,9 @@ def run_training(
         ctx.vault.record_epoch(
             epoch=epoch,
             metrics=combined_metrics,
-            checkpoint_path=str(ctx.lifecycle_manager.best_path) if (is_best and ctx.lifecycle_manager) else None,
+            checkpoint_path=str(ctx.lifecycle_manager.best_path)
+            if (is_best and ctx.lifecycle_manager)
+            else None,
         )
         if ctx.paths.history_csv_path is not None:
             ctx.vault.export_csv(ctx.paths.history_csv_path)
@@ -284,15 +300,17 @@ def run_training(
         if hasattr(ctx.governor, "audit_epoch"):
             try:
                 best_q = float(ctx.sota_tracker.best_quality)
-                f_chg, r_chg, lr_chg, _t_chg, _c_chg, _b_chg, stop_trig, gov_msg = ctx.governor.audit_epoch(
-                    current_quality=current_quality,
-                    best_quality=best_q,
-                    epochs_no_improve=epochs_no_improve,
-                    regression_epochs=0,
-                    current_lr=combined_metrics.get("lr"),
-                    current_loss=current_loss,
-                    train_loss=train_loss,
-                    metrics_dict=combined_metrics,
+                f_chg, r_chg, lr_chg, _t_chg, _c_chg, _b_chg, stop_trig, gov_msg = (
+                    ctx.governor.audit_epoch(
+                        current_quality=current_quality,
+                        best_quality=best_q,
+                        epochs_no_improve=epochs_no_improve,
+                        regression_epochs=0,
+                        current_lr=combined_metrics.get("lr"),
+                        current_loss=current_loss,
+                        train_loss=train_loss,
+                        metrics_dict=combined_metrics,
+                    )
                 )
                 if gov_msg:
                     print(f"{gov_msg}", flush=True)
@@ -312,15 +330,24 @@ def run_training(
                             stress=stress_val,
                         )
                         fallback_batch = ctx.train_loader.batch_size or 16
-                        curr_batch = int(getattr(ctx.governor.curriculum, "current_batch", fallback_batch))
+                        curr_batch = int(
+                            getattr(ctx.governor.curriculum, "current_batch", fallback_batch)
+                        )
                         ctx.accumulation_steps = max(
                             1, int(getattr(ctx.governor, "current_acc", ctx.accumulation_steps))
                         )
                         curr_sampler = getattr(ctx.train_loader, "sampler", None)
-                        if curr_sampler is not None and type(curr_sampler).__name__ == "RowGroupAwareSampler":
+                        if (
+                            curr_sampler is not None
+                            and type(curr_sampler).__name__ == "RowGroupAwareSampler"
+                        ):
                             curr_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
-                        elif curr_sampler is not None and type(curr_sampler).__name__ == "DistributedSampler":
+                        elif (
+                            curr_sampler is not None
+                            and type(curr_sampler).__name__ == "DistributedSampler"
+                        ):
                             from torch.utils.data.distributed import DistributedSampler
+
                             curr_sampler = DistributedSampler(train_ds, shuffle=True)
                         elif curr_sampler is not None and type(curr_sampler).__name__ in (
                             "RandomSampler",
@@ -333,7 +360,9 @@ def run_training(
                             batch_size=curr_batch,
                             sampler=curr_sampler,
                             shuffle=(curr_sampler is None),
-                            num_workers=ctx.args.num_workers if hasattr(ctx.args, "num_workers") else None,
+                            num_workers=ctx.args.num_workers
+                            if hasattr(ctx.args, "num_workers")
+                            else None,
                             device=ctx.device_info.device,
                             env=getattr(ctx.args, "env", "local"),
                             config=ctx.config,
@@ -362,7 +391,9 @@ def run_training(
                     logger.debug("Applied governor learning rate multiplier: %.3fx", lr_mult)
 
             except _GOVERNOR_AUDIT_ERRORS as gov_err:
-                logger.warning("Governor audit or loader rebuild failed at epoch %d: %s", epoch, gov_err)
+                logger.warning(
+                    "Governor audit or loader rebuild failed at epoch %d: %s", epoch, gov_err
+                )
 
         # 8. Checkpoint serialization payload (persists post-audit governor state for next epoch resume)
         raw_model = ctx.raw_model if ctx.raw_model is not None else ctx.model
@@ -374,7 +405,9 @@ def run_training(
             "model_state": model_state,
             "optimizer_state": ctx.optimizer.state_dict(),
             "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
-            "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
+            "governor_state": ctx.governor.get_state()
+            if hasattr(ctx.governor, "get_state")
+            else None,
             "best_quality_score": float(ctx.sota_tracker.best_quality),
             "best_metrics": best_metrics,
             "current_metrics": combined_metrics,
@@ -388,7 +421,12 @@ def run_training(
                 raw_size = ctx.model_info.get("input_size")
                 if isinstance(raw_size, list):
                     if len(raw_size) == 3:
-                        dummy_shape: tuple[int, ...] = (1, int(raw_size[0]), int(raw_size[1]), int(raw_size[2]))
+                        dummy_shape: tuple[int, ...] = (
+                            1,
+                            int(raw_size[0]),
+                            int(raw_size[1]),
+                            int(raw_size[2]),
+                        )
                     elif len(raw_size) == 2:
                         dummy_shape = (1, 3, int(raw_size[0]), int(raw_size[1]))
                     elif len(raw_size) == 1:
@@ -434,7 +472,9 @@ def run_training(
             try:
                 trigger_cloud_sync(ctx.model_name, epoch, ctx.config)
             except _CLOUD_SYNC_ERRORS as sync_err:
-                logger.warning("Automated cloud sync trigger failed at epoch %d: %s", epoch, sync_err)
+                logger.warning(
+                    "Automated cloud sync trigger failed at epoch %d: %s", epoch, sync_err
+                )
 
         # 10. External telemetry callback
         if on_epoch_end is not None:
@@ -472,14 +512,19 @@ def run_training(
         # a spatial jump during the audit must not count as training there.
         executed_res, executed_frac = executed_rung(pre_audit_gov_state)
         if is_forex:
-            res_ladder = opt_cfg.get("res_ladder") or getattr(ctx.governor, "res_ladder", None) or [1, 5, 15, 60, 240, 1440]
-            target_res = max(res_ladder) if res_ladder else 1440
-            ladder_passed = (
-                getattr(ctx.args, "fold", 1) >= 6
-                or executed_res >= target_res
+            res_ladder = (
+                opt_cfg.get("res_ladder")
+                or getattr(ctx.governor, "res_ladder", None)
+                or [1, 5, 15, 60, 240, 1440]
             )
+            target_res = max(res_ladder) if res_ladder else 1440
+            ladder_passed = getattr(ctx.args, "fold", 1) >= 6 or executed_res >= target_res
         else:
-            res_ladder = opt_cfg.get("res_ladder") or getattr(ctx.governor, "res_ladder", None) or [256, 384, 512]
+            res_ladder = (
+                opt_cfg.get("res_ladder")
+                or getattr(ctx.governor, "res_ladder", None)
+                or [256, 384, 512]
+            )
             ladder_passed = top_resolution_reached(executed_res, res_ladder)
 
         data_fraction_passed = executed_frac >= FULL_FRACTION_THRESHOLD
@@ -499,10 +544,7 @@ def run_training(
                     break
 
         is_fully_completed = (
-            last_epoch_executed >= 20
-            and ladder_passed
-            and data_fraction_passed
-            and sota_all_met
+            last_epoch_executed >= 20 and ladder_passed and data_fraction_passed and sota_all_met
         )
 
         decision = budget_policy.decide(

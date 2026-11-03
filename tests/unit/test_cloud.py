@@ -34,7 +34,9 @@ class TestCloudCredentials(unittest.TestCase):
         gh_token = resolve_github_credentials(override_pat="test_gh_token")
         self.assertEqual(gh_token, "test_gh_token")
 
-        k_user, k_key = resolve_kaggle_credentials(override_user="custom_user", override_key="custom_key")
+        k_user, k_key = resolve_kaggle_credentials(
+            override_user="custom_user", override_key="custom_key"
+        )
         self.assertEqual(k_user, "custom_user")
         self.assertEqual(k_key, "custom_key")
 
@@ -87,6 +89,7 @@ class TestKaggleHubManager(unittest.TestCase):
             self.assertTrue((bundle_dir / "train_cloud.py").exists())
         finally:
             import shutil
+
             if bundle_dir.exists():
                 shutil.rmtree(bundle_dir)
 
@@ -95,7 +98,11 @@ class TestGDriveBitExactParity(unittest.TestCase):
     """Gate 7: Verify bit-exact SHA256 parity during push and pull."""
 
     def test_push_and_pull_bit_exact_parity(self) -> None:
-        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as mount_tmp, tempfile.TemporaryDirectory() as dest_tmp:
+        with (
+            tempfile.TemporaryDirectory() as source_tmp,
+            tempfile.TemporaryDirectory() as mount_tmp,
+            tempfile.TemporaryDirectory() as dest_tmp,
+        ):
             source_dir = Path(source_tmp)
             mount_dir = Path(mount_tmp)
             dest_dir = Path(dest_tmp)
@@ -115,7 +122,9 @@ class TestGDriveBitExactParity(unittest.TestCase):
             self.assertTrue(sync_ok)
 
             # Verify synced file on mount
-            mounted_ckpt = mount_dir / "LemGendaryModels" / "test_model" / "checkpoints" / "best_model.pth"
+            mounted_ckpt = (
+                mount_dir / "LemGendaryModels" / "test_model" / "checkpoints" / "best_model.pth"
+            )
             self.assertTrue(mounted_ckpt.exists())
             self.assertEqual(compute_file_sha256(mounted_ckpt), src_hash)
 

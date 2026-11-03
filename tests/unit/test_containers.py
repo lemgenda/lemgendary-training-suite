@@ -120,10 +120,12 @@ class TestContainers(unittest.TestCase):
         Image.new("L", (16, 16), color=128).save(buf_mask, format="WEBP")
         mask_bytes = buf_mask.getvalue()
 
-        meta_json = json.dumps({
-            "distribution": [0.05, 0.05, 0.1, 0.1, 0.2, 0.2, 0.1, 0.1, 0.05, 0.05],
-            "task": "restoration",
-        }).encode("utf-8")
+        meta_json = json.dumps(
+            {
+                "distribution": [0.05, 0.05, 0.1, 0.1, 0.2, 0.2, 0.1, 0.1, 0.05, 0.05],
+                "task": "restoration",
+            }
+        ).encode("utf-8")
 
         with tarfile.open(tar_path, mode="w") as tf:
             # Add input image

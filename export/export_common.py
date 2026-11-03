@@ -56,7 +56,9 @@ def load_export_configs(project_root: str) -> tuple[dict[str, Any] | None, dict[
     return config, registry
 
 
-def resolve_export_paths(model_key: str, model_info: dict[str, Any], config: dict[str, Any], project_root: str) -> tuple[str, str]:
+def resolve_export_paths(
+    model_key: str, model_info: dict[str, Any], config: dict[str, Any], project_root: str
+) -> tuple[str, str]:
     """Compute base artifact name and production directory."""
     base_name, prod_dir = canonical_resolve_export_paths(
         model_key=model_key,
@@ -85,10 +87,13 @@ def resolve_checkpoint_file(
     return str(res) if res else None
 
 
-def build_export_model(model_key: str, config: dict[str, Any], device: torch.device = torch.device("cpu")) -> nn.Module | None:
+def build_export_model(
+    model_key: str, config: dict[str, Any], device: torch.device = torch.device("cpu")
+) -> nn.Module | None:
     """Instantiate model architecture on designated device."""
     try:
         from models.factory import get_model
+
         return get_model(model_key, config).to(device)
     except (ValueError, TypeError, RuntimeError, OSError, ImportError, yaml.YAMLError) as err:
         # ValueError: unknown/unsupported architecture; TypeError: bad constructor kwargs;

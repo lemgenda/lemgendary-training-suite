@@ -7,7 +7,7 @@ from torch.nn.modules.utils import _pair
 # 0. ALIGNMENT HOTFIX FOR DATAPARALLEL
 # ==========================================
 # DataParallel's parameter broadcasting flattens modules without padding.
-# Since `self.ending.bias` has size 3, all subsequent parameters are shifted off 
+# Since `self.ending.bias` has size 3, all subsequent parameters are shifted off
 # 16-byte alignment, causing cuDNN's Conv2d/ConvTranspose2d to crash on Turing+ GPUs.
 # This monkey-patch reallocates unaligned weights on the fly to restore alignment.
 
@@ -17,19 +17,24 @@ _orig_conv2d_forward = nn.Conv2d.forward
 def _aligned_conv2d_forward(self, x):
     is_unaligned = False
     try:
-        is_unaligned = (self.weight.data_ptr() % 16 != 0)
+        is_unaligned = self.weight.data_ptr() % 16 != 0
     except RuntimeError:
         pass  # FakeTensor during ONNX/FX tracing
     if is_unaligned:
         w = self.weight.clone()
         b = self.bias.clone() if self.bias is not None else None
 
-        if self.padding_mode != 'zeros':
-            return F.conv2d(F.pad(x, self._reversed_padding_repeated_twice, mode=self.padding_mode),
-                            w, b, self.stride,
-                            _pair(0), self.dilation, self.groups)
-        return F.conv2d(x, w, b, self.stride,
-                        self.padding, self.dilation, self.groups)
+        if self.padding_mode != "zeros":
+            return F.conv2d(
+                F.pad(x, self._reversed_padding_repeated_twice, mode=self.padding_mode),
+                w,
+                b,
+                self.stride,
+                _pair(0),
+                self.dilation,
+                self.groups,
+            )
+        return F.conv2d(x, w, b, self.stride, self.padding, self.dilation, self.groups)
     return _orig_conv2d_forward(self, x)
 
 
@@ -39,34 +44,78 @@ nn.Conv2d.forward = _aligned_conv2d_forward
 # 1. NAFNet (Nonlinear Activation Free Network)
 # ==========================================
 
+
 class SimpleGate(nn.Module):
     def forward(self, x):
         x1, x2 = x.chunk(2, dim=1)
         return (x1.contiguous() * x2.contiguous()).contiguous()
+
 
 class SimplifiedChannelAttention(nn.Module):
     def __init__(self, c):
         super().__init__()
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.conv = nn.Conv2d(c, c, 1, 1, 0)
+
     def forward(self, x):
         x = x.contiguous()
         return (x * self.conv(self.pool(x)).contiguous()).contiguous()
 
+
 class NAFBlock(nn.Module):
-    def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
+    def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.0):
         super().__init__()
         dw_channel = c * DW_Expand
-        self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
-        self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        self.conv1 = nn.Conv2d(
+            in_channels=c,
+            out_channels=dw_channel,
+            kernel_size=1,
+            padding=0,
+            stride=1,
+            groups=1,
+            bias=True,
+        )
+        self.conv2 = nn.Conv2d(
+            in_channels=dw_channel,
+            out_channels=dw_channel,
+            kernel_size=3,
+            padding=1,
+            stride=1,
+            groups=dw_channel,
+            bias=True,
+        )
+        self.conv3 = nn.Conv2d(
+            in_channels=dw_channel // 2,
+            out_channels=c,
+            kernel_size=1,
+            padding=0,
+            stride=1,
+            groups=1,
+            bias=True,
+        )
         self.sca = SimplifiedChannelAttention(dw_channel // 2)
         self.sg = SimpleGate()
 
         ffn_channel = FFN_Expand * c
-        self.conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        self.conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        
+        self.conv4 = nn.Conv2d(
+            in_channels=c,
+            out_channels=ffn_channel,
+            kernel_size=1,
+            padding=0,
+            stride=1,
+            groups=1,
+            bias=True,
+        )
+        self.conv5 = nn.Conv2d(
+            in_channels=ffn_channel // 2,
+            out_channels=c,
+            kernel_size=1,
+            padding=0,
+            stride=1,
+            groups=1,
+            bias=True,
+        )
+
         self.norm1 = nn.InstanceNorm2d(c)
         self.norm2 = nn.InstanceNorm2d(c)
 
@@ -89,16 +138,43 @@ class NAFBlock(nn.Module):
         x = self.conv5(x)
         return (y + x.contiguous() * self.gamma.clone()).contiguous()
 
+
 class NAFNet(nn.Module):
     """Real NAFNet Architecture for Denoising/Deblurring"""
-    def __init__(self, in_ch=3, out_ch=3, width=32, middle_blk_num=1, enc_blk_nums=None, dec_blk_nums=None, **kwargs):
+
+    def __init__(
+        self,
+        in_ch=3,
+        out_ch=3,
+        width=32,
+        middle_blk_num=1,
+        enc_blk_nums=None,
+        dec_blk_nums=None,
+        **kwargs,
+    ):
         super().__init__()
         if enc_blk_nums is None:
             enc_blk_nums = [1, 1, 1, 1]
         if dec_blk_nums is None:
             dec_blk_nums = [1, 1, 1, 1]
-        self.intro = nn.Conv2d(in_channels=in_ch, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1, bias=True)
-        self.ending = nn.Conv2d(in_channels=width, out_channels=out_ch, kernel_size=3, padding=1, stride=1, groups=1, bias=True)
+        self.intro = nn.Conv2d(
+            in_channels=in_ch,
+            out_channels=width,
+            kernel_size=3,
+            padding=1,
+            stride=1,
+            groups=1,
+            bias=True,
+        )
+        self.ending = nn.Conv2d(
+            in_channels=width,
+            out_channels=out_ch,
+            kernel_size=3,
+            padding=1,
+            stride=1,
+            groups=1,
+            bias=True,
+        )
 
         self.encoders = nn.ModuleList()
         self.decoders = nn.ModuleList()
@@ -108,13 +184,13 @@ class NAFNet(nn.Module):
         chan = width
         for num in enc_blk_nums:
             self.encoders.append(nn.Sequential(*[NAFBlock(chan) for _ in range(num)]))
-            self.downs.append(nn.Conv2d(chan, chan*2, 2, 2))
+            self.downs.append(nn.Conv2d(chan, chan * 2, 2, 2))
             chan = chan * 2
 
         self.middle_blks = nn.Sequential(*[NAFBlock(chan) for _ in range(middle_blk_num)])
 
         for num in dec_blk_nums:
-            self.ups.append(nn.ConvTranspose2d(chan, chan//2, kernel_size=2, stride=2))
+            self.ups.append(nn.ConvTranspose2d(chan, chan // 2, kernel_size=2, stride=2))
             chan = chan // 2
             self.decoders.append(nn.Sequential(*[NAFBlock(chan) for _ in range(num)]))
 
@@ -126,8 +202,8 @@ class NAFNet(nn.Module):
         # Pad to generic multiple
         pad_h = (self.padder_size - H % self.padder_size) % self.padder_size
         pad_w = (self.padder_size - W % self.padder_size) % self.padder_size
-        inp_padded = F.pad(inp, (0, pad_w, 0, pad_h), 'reflect')
-        
+        inp_padded = F.pad(inp, (0, pad_w, 0, pad_h), "reflect")
+
         x = self.intro(inp_padded)
         encs = []
         for encoder, down in zip(self.encoders, self.downs):
@@ -158,34 +234,40 @@ class NAFNet(nn.Module):
 
         return x[:, :, :H, :W]
 
+
 # ==========================================
 # 2. FFANet (Feature Fusion Attention Network)
 # ==========================================
+
 
 class PALayer(nn.Module):
     def __init__(self, channel):
         super().__init__()
         self.pa = nn.Sequential(
-                nn.Conv2d(channel, channel // 8, 1, padding=0, bias=True),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(channel // 8, 1, 1, padding=0, bias=True),
-                nn.Sigmoid()
+            nn.Conv2d(channel, channel // 8, 1, padding=0, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channel // 8, 1, 1, padding=0, bias=True),
+            nn.Sigmoid(),
         )
+
     def forward(self, x):
         return (x.contiguous() * self.pa(x).contiguous()).contiguous()
+
 
 class CALayer(nn.Module):
     def __init__(self, channel):
         super().__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.ca = nn.Sequential(
-                nn.Conv2d(channel, channel // 8, 1, padding=0, bias=True),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(channel // 8, channel, 1, padding=0, bias=True),
-                nn.Sigmoid()
+            nn.Conv2d(channel, channel // 8, 1, padding=0, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channel // 8, channel, 1, padding=0, bias=True),
+            nn.Sigmoid(),
         )
+
     def forward(self, x):
         return (x.contiguous() * self.ca(self.avg_pool(x)).contiguous()).contiguous()
+
 
 class Block(nn.Module):
     def __init__(self, conv, dim, kernel_size):
@@ -205,8 +287,10 @@ class Block(nn.Module):
         res += x
         return res
 
+
 class FFANet(nn.Module):
     """Real FFANet Architecture for Dehazing"""
+
     def __init__(self, gps=3, blocks=3, **kwargs):
         super().__init__()
         dim = 32
@@ -219,7 +303,10 @@ class FFANet(nn.Module):
 
     def make_group(self, blocks, dim):
         def default_conv(in_channels, out_channels, kernel_size, bias=True):
-            return nn.Conv2d(in_channels, out_channels, kernel_size, padding=(kernel_size//2), bias=bias)
+            return nn.Conv2d(
+                in_channels, out_channels, kernel_size, padding=(kernel_size // 2), bias=bias
+            )
+
         g = nn.Sequential(*[Block(default_conv, dim, 3) for _ in range(blocks)])
         return g
 
@@ -235,12 +322,13 @@ class FFANet(nn.Module):
         output = self.conv2(res) + x
         return output
 
+
 class YOLOv8AnchorBasedHead(nn.Module):
     def __init__(self, in_channels, num_classes=80, num_anchors=3):
         super().__init__()
         self.num_classes = num_classes
         self.num_anchors = num_anchors
-        
+
         # Stride 32 downsampling (from 256x256 to 8x8)
         self.downsample = nn.Sequential(
             nn.Conv2d(in_channels, 64, 3, stride=2, padding=1),
@@ -257,9 +345,9 @@ class YOLOv8AnchorBasedHead(nn.Module):
             nn.LeakyReLU(0.1),
             nn.Conv2d(256, 256, 3, stride=2, padding=1),
             nn.BatchNorm2d(256),
-            nn.LeakyReLU(0.1)
+            nn.LeakyReLU(0.1),
         )
-        
+
         # Output: [B, num_anchors * (5 + num_classes), H, W]
         # For each anchor: 4 bbox coords + 1 objectness + num_classes
         out_channels = num_anchors * (5 + num_classes)
@@ -270,8 +358,10 @@ class YOLOv8AnchorBasedHead(nn.Module):
         preds = self.pred(features)
         return preds
 
+
 class BranchedFFANet(nn.Module):
     """Multi-Task FFANet Architecture for Dehazing + Detection"""
+
     def __init__(self, gps=3, blocks=3, num_classes=80, **kwargs):
         super().__init__()
         dim = 32
@@ -281,13 +371,16 @@ class BranchedFFANet(nn.Module):
         self.c = nn.Sequential(nn.Conv2d(dim * gps, dim, 1, padding=0, bias=True), nn.ReLU())
         self.w = nn.Conv2d(dim, dim, 3, padding=1, bias=True)
         self.conv2 = nn.Conv2d(dim, 3, 3, padding=1, bias=True)
-        
+
         # Branched Detection Head
         self.detection_head = YOLOv8AnchorBasedHead(dim, num_classes=num_classes)
 
     def make_group(self, blocks, dim):
         def default_conv(in_channels, out_channels, kernel_size, bias=True):
-            return nn.Conv2d(in_channels, out_channels, kernel_size, padding=(kernel_size//2), bias=bias)
+            return nn.Conv2d(
+                in_channels, out_channels, kernel_size, padding=(kernel_size // 2), bias=bias
+            )
+
         g = nn.Sequential(*[Block(default_conv, dim, 3) for _ in range(blocks)])
         return g
 
@@ -300,15 +393,16 @@ class BranchedFFANet(nn.Module):
             cat.append(res)
         cat = torch.cat(cat, dim=1)
         c_out = self.c(cat)
-        
+
         # Restoration Branch
         res_out = self.w(c_out) + res
         restored_img = self.conv2(res_out) + x
-        
+
         # Detection Branch
         detections = self.detection_head(c_out)
-        
+
         return {"restored_image": restored_img, "detections": detections}
+
 
 # ==========================================
 # 3. MIRNet / MPRNet (Multi-Scale & Progressive) Proxys
@@ -316,22 +410,26 @@ class BranchedFFANet(nn.Module):
 # Note: MIRNet/MPRNet are intensely complex mathematically. These are structurally functionally
 # equivalent down-scaled core variants strictly engineered for local GTX convergence stability.
 
+
 class CSFF(nn.Module):
     def __init__(self, in_c):
         super().__init__()
         self.conv = nn.Conv2d(in_c, in_c, 1)
+
     def forward(self, x, prev):
         return self.conv(x) + prev
 
+
 class MPRNet_Proxy(nn.Module):
     """Cross-Stage Progressive Network Proxy for Deraining"""
+
     def __init__(self, in_c=3, out_c=3, channels=32, **kwargs):
         super().__init__()
         self.stage1_enc = nn.Sequential(nn.Conv2d(in_c, channels, 3, 1, 1), nn.ReLU())
         self.stage1_dec = nn.Sequential(nn.Conv2d(channels, out_c, 3, 1, 1))
-        
+
         self.csff = CSFF(channels)
-        
+
         self.stage2_enc = nn.Sequential(nn.Conv2d(in_c, channels, 3, 1, 1), nn.ReLU())
         self.stage2_dec = nn.Sequential(nn.Conv2d(channels, out_c, 3, 1, 1))
 
@@ -339,22 +437,26 @@ class MPRNet_Proxy(nn.Module):
         x = x.contiguous()
         f1 = self.stage1_enc(x)
         out1 = self.stage1_dec(f1) + x
-        
+
         f2 = self.stage2_enc(x)
         f2 = self.csff(f2, f1)
         out2 = self.stage2_dec(f2) + out1
         return out2
 
+
 class MIRNet_Proxy(nn.Module):
     """Multi-Scale Residual Network Proxy for Low-Light/Exposure"""
+
     def __init__(self, in_c=3, out_c=3, width=32, **kwargs):
         super().__init__()
         self.intro = nn.Conv2d(in_c, width, 3, 1, 1)
         self.branch1 = nn.Sequential(nn.Conv2d(width, width, 3, 1, 1), nn.ReLU())
-        self.branch2 = nn.Sequential(nn.Conv2d(width, width, 5, 1, 2), nn.ReLU()) # Spatial scale capture
-        self.skff = nn.Conv2d(width*2, width, 1)
+        self.branch2 = nn.Sequential(
+            nn.Conv2d(width, width, 5, 1, 2), nn.ReLU()
+        )  # Spatial scale capture
+        self.skff = nn.Conv2d(width * 2, width, 1)
         self.outro = nn.Conv2d(width, out_c, 3, 1, 1)
-        
+
     def forward(self, x):
         x = x.contiguous()
         feat = self.intro(x)
@@ -363,9 +465,11 @@ class MIRNet_Proxy(nn.Module):
         fused = self.skff(torch.cat([b1, b2], dim=1)) + feat
         return self.outro(fused) + x
 
+
 # ==========================================
 # 4. Foundation Restoration Blocks (RDB / ESPCN)
 # ==========================================
+
 
 class ResidualDenseBlock(nn.Module):
     def __init__(self, channels):
@@ -381,24 +485,25 @@ class ResidualDenseBlock(nn.Module):
         x3 = self.conv3(torch.cat((x, x1, x2), 1))
         return x3 * 0.2 + x
 
+
 class GenericRestorationModel(nn.Module):
     """Real High-Fidelity Residual Restoration Model."""
+
     def __init__(self, **kwargs):
         super().__init__()
         self.intro = nn.Conv2d(3, 32, 3, padding=1)
-        self.body = nn.Sequential(
-            ResidualDenseBlock(32),
-            ResidualDenseBlock(32)
-        )
+        self.body = nn.Sequential(ResidualDenseBlock(32), ResidualDenseBlock(32))
         self.outro = nn.Conv2d(32, 3, 3, padding=1)
-        
+
     def forward(self, x):
         feat = self.intro(x)
         out = self.body(feat)
         return x + self.outro(out)
 
+
 class UltraZoomModel(nn.Module):
     """Real Super-Resolution Model (ESPCN based)."""
+
     def __init__(self, scale_factor=2, **kwargs):
         super().__init__()
         self.scale_factor = scale_factor
@@ -406,54 +511,60 @@ class UltraZoomModel(nn.Module):
         self.body = nn.Sequential(
             nn.Conv2d(64, 32, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(32, 3 * (scale_factor ** 2), 3, padding=1)
+            nn.Conv2d(32, 3 * (scale_factor**2), 3, padding=1),
         )
         self.pixel_shuffle = nn.PixelShuffle(scale_factor)
-        
+
     def forward(self, x):
         feat = self.body(self.intro(x))
         return self.pixel_shuffle(feat)
 
+
 class UniversalFilmRestorer(nn.Module):
     """Autoencoder-style film restorer using Residual Dense Blocks."""
+
     def __init__(self, **kwargs):
         super().__init__()
         self.encoder = nn.Sequential(
             nn.Conv2d(3, 64, 3, padding=1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(64, 64, 4, stride=2, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
+            nn.LeakyReLU(0.2, inplace=True),
         )
         self.bottleneck = nn.Sequential(
             ResidualDenseBlock(64),
             ResidualDenseBlock(64),
             ResidualDenseBlock(64),
-            ResidualDenseBlock(64)
+            ResidualDenseBlock(64),
         )
         self.decoder = nn.Sequential(
             nn.ConvTranspose2d(64, 64, 4, stride=2, padding=1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(64, 32, 3, padding=1),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(32, 3, 3, padding=1)
+            nn.Conv2d(32, 3, 3, padding=1),
         )
+
     def forward(self, x):
         feat = self.encoder(x)
         feat = self.bottleneck(feat)
         out = self.decoder(feat)
         return out + x  # Global residual connection
 
+
 class UPN_v2_Model(nn.Module):
     """Universal Parameter Predictor with MobileNetV3-Small backbone.
-    
+
     Outputs 3 bounded parameters:
       - deg   ∈ [0, 1]  — degradation degree (blur sigma, noise level, etc.)
       - theta ∈ [0, π]  — degradation orientation/angle
       - conf  ∈ [0, 1]  — confidence/severity
     """
+
     def __init__(self, backbone="mobilenet_v3_small", **kwargs):
         super().__init__()
         from torchvision import models
+
         if backbone == "cnn_lite":
             self.backbone = nn.Sequential(
                 nn.Conv2d(3, 16, 3, stride=2, padding=1),
@@ -465,12 +576,14 @@ class UPN_v2_Model(nn.Module):
             )
             in_features = 64
         else:
-            self.backbone = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1).features
+            self.backbone = models.mobilenet_v3_small(
+                weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
+            ).features
             in_features = 576
 
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(in_features, 3)  # deg, theta, conf
-        
+
     def forward(self, x):
         feat = self.pool(self.backbone(x)).flatten(1)
         raw = self.fc(feat)

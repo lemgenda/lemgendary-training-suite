@@ -50,8 +50,12 @@ class EnvManagerDelegate:
     def validate_codebase(self) -> bool:
         """Run full multi-gate validation on lemgendary-training-suite via lem-env."""
         cmd = [
-            "python", "-m", "env_manager.cli", "validate",
-            "-p", "lemgendary-training-suite",
+            "python",
+            "-m",
+            "env_manager.cli",
+            "validate",
+            "-p",
+            "lemgendary-training-suite",
         ]
         try:
             res = run_command(cmd, cwd=self.workspace_root, timeout=120.0, check=False)

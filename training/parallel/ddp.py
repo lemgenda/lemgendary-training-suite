@@ -75,14 +75,18 @@ class DistributedDataParallelStrategy(ParallelStrategy):
                 self.raw_model,
                 device_ids=[self._local_rank],
                 output_device=self._local_rank,
-                find_unused_parameters=bool(self.config.get("find_unused_parameters", False)) if hasattr(self, "config") and isinstance(self.config, dict) else False,
+                find_unused_parameters=bool(self.config.get("find_unused_parameters", False))
+                if hasattr(self, "config") and isinstance(self.config, dict)
+                else False,
             )
         else:
             # CPU fallback (Gloo backend).
             self.raw_model.to(self.device)
             self._wrapped = nn.parallel.DistributedDataParallel(
                 self.raw_model,
-                find_unused_parameters=bool(self.config.get("find_unused_parameters", False)) if hasattr(self, "config") and isinstance(self.config, dict) else False,
+                find_unused_parameters=bool(self.config.get("find_unused_parameters", False))
+                if hasattr(self, "config") and isinstance(self.config, dict)
+                else False,
             )
         logger.info(
             "DDP model wrapped: rank=%d local_rank=%d world_size=%d",
@@ -96,6 +100,7 @@ class DistributedDataParallelStrategy(ParallelStrategy):
         """Tear down the distributed process group on exit."""
         if self._initialized:
             import torch.distributed as dist
+
             if dist.is_initialized():
                 dist.destroy_process_group()
                 logger.debug("DDP process group destroyed for rank %d.", self._rank)
@@ -115,9 +120,7 @@ class DistributedDataParallelStrategy(ParallelStrategy):
 
     def prepare_batch(self, inputs: Any, targets: Any, tasks: Any) -> tuple[Any, Any, Any]:
         local_device = (
-            torch.device(f"cuda:{self._local_rank}")
-            if torch.cuda.is_available()
-            else self.device
+            torch.device(f"cuda:{self._local_rank}") if torch.cuda.is_available() else self.device
         )
         inputs, targets, _ = generic_prepare_batch(
             inputs, targets, tasks, local_device, self._task_type()
@@ -128,7 +131,11 @@ class DistributedDataParallelStrategy(ParallelStrategy):
 
     def backward_context(self, accumulation_steps: int) -> AbstractContextManager[Any]:
         """Suppress all-reduce on non-final gradient accumulation micro-batches."""
-        if accumulation_steps > 1 and self._wrapped is not None and hasattr(self._wrapped, "no_sync"):
+        if (
+            accumulation_steps > 1
+            and self._wrapped is not None
+            and hasattr(self._wrapped, "no_sync")
+        ):
             return self._wrapped.no_sync()
         return nullcontext()
 

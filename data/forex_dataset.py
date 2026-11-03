@@ -50,14 +50,25 @@ TIMEFRAME_LOOKBACK = {
 MAJOR_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
 EXTENDED_PAIRS = [
     # G7 Majors (4 Core + 4 G7)
-    "EURUSD", "GBPUSD", "USDJPY", "XAUUSD",
-    "USDCAD", "USDCHF", "AUDUSD", "NZDUSD",
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "XAUUSD",
+    "USDCAD",
+    "USDCHF",
+    "AUDUSD",
+    "NZDUSD",
     # High-Beta Crosses
-    "EURJPY", "GBPJPY", "EURGBP",
+    "EURJPY",
+    "GBPJPY",
+    "EURGBP",
     # Commodities & Energy
-    "XAGUSD", "USOIL",
+    "XAGUSD",
+    "USOIL",
     # Global Equity Indices
-    "US500", "NAS100", "DE40"
+    "US500",
+    "NAS100",
+    "DE40",
 ]
 
 # Alias mapping for alternate broker tickers
@@ -71,12 +82,24 @@ PAIR_INDEX["USTEC"] = PAIR_INDEX["NAS100"]
 PAIR_INDEX["GER40"] = PAIR_INDEX["DE40"]
 
 PAIR_PIP_SCALE = {
-    "EURUSD": 1.0, "GBPUSD": 1.0, "USDJPY": 1.0, "USDCAD": 1.0,
-    "USDCHF": 1.0, "AUDUSD": 1.0, "NZDUSD": 1.0,
-    "EURGBP": 1.0, "EURJPY": 1.0, "GBPJPY": 1.0,
-    "XAGUSD": 5.0, "USOIL": 5.0, "XAUUSD": 10.0,
-    "US500": 20.0, "DE40": 20.0, "GER40": 20.0,
-    "NAS100": 40.0, "USTEC": 40.0
+    "EURUSD": 1.0,
+    "GBPUSD": 1.0,
+    "USDJPY": 1.0,
+    "USDCAD": 1.0,
+    "USDCHF": 1.0,
+    "AUDUSD": 1.0,
+    "NZDUSD": 1.0,
+    "EURGBP": 1.0,
+    "EURJPY": 1.0,
+    "GBPJPY": 1.0,
+    "XAGUSD": 5.0,
+    "USOIL": 5.0,
+    "XAUUSD": 10.0,
+    "US500": 20.0,
+    "DE40": 20.0,
+    "GER40": 20.0,
+    "NAS100": 40.0,
+    "USTEC": 40.0,
 }
 
 
@@ -102,8 +125,10 @@ class ParquetRowGroupCache:
     groups that's ~1.7 GB peak. On Kaggle (30 GB RAM) this is negligible;
     on a 4 GB local machine, consider lowering max_cached_groups to 4.
     """
+
     def __init__(self, parquet_path: str, max_cached_groups: int = 12):
         import pyarrow.parquet as pq
+
         self.parquet_path = parquet_path
         self.max_cached = max_cached_groups
         self.pf = pq.ParquetFile(parquet_path)
@@ -126,26 +151,23 @@ class ParquetRowGroupCache:
         buffer, detached from the pyarrow chunked-array machinery, so
         subsequent reads are pure numpy slicing.
         """
-        rg_tbl = self.pf.read_row_group(
-            rg_idx, columns=['features', 'seq_len', 'n_features']
-        )
-        feats = rg_tbl['features'].combine_chunks()
-        seq_lens = rg_tbl['seq_len'].to_numpy()
-        n_feats = rg_tbl['n_features'].to_numpy()
+        rg_tbl = self.pf.read_row_group(rg_idx, columns=["features", "seq_len", "n_features"])
+        feats = rg_tbl["features"].combine_chunks()
+        seq_lens = rg_tbl["seq_len"].to_numpy()
+        n_feats = rg_tbl["n_features"].to_numpy()
         num_rows = len(seq_lens)
 
         decoded = []
         append = decoded.append
         for i in range(num_rows):
             buf = feats[i].as_buffer()
-            arr = np.frombuffer(buf, dtype=np.float32).reshape(
-                int(seq_lens[i]), int(n_feats[i])
-            )
+            arr = np.frombuffer(buf, dtype=np.float32).reshape(int(seq_lens[i]), int(n_feats[i]))
             append(np.ascontiguousarray(arr))
         return decoded
 
     def get_row_features(self, global_row_idx: int) -> np.ndarray:
         import bisect
+
         rg_idx = bisect.bisect_right(self.rg_starts, global_row_idx) - 1
         rg_offset = global_row_idx - self.rg_starts[rg_idx]
 
@@ -167,22 +189,22 @@ class ParquetRowGroupCache:
 def load_shard(
     shard_dir: str,
     chunk_idx: int | None = None,
-    mmap_mode: Literal['c', 'r', 'r+', 'w+'] | None = None
+    mmap_mode: Literal["c", "r", "r+", "w+"] | None = None,
 ) -> tuple:
     """
     Loads OHLCV indicator tensor, direction targets, magnitude targets, and timestamps.
     Supports both unchunked shards (X.npy) and chunked shards (X_chunk{c}.npy).
     """
     if chunk_idx is not None and chunk_idx >= 0:
-        X_path = os.path.join(shard_dir, f'X_chunk{chunk_idx}.npy')
-        ydir_path = os.path.join(shard_dir, f'y_dir_chunk{chunk_idx}.npy')
-        ymag_path = os.path.join(shard_dir, f'y_mag_chunk{chunk_idx}.npy')
-        ts_path = os.path.join(shard_dir, f'timestamps_chunk{chunk_idx}.npy')
+        X_path = os.path.join(shard_dir, f"X_chunk{chunk_idx}.npy")
+        ydir_path = os.path.join(shard_dir, f"y_dir_chunk{chunk_idx}.npy")
+        ymag_path = os.path.join(shard_dir, f"y_mag_chunk{chunk_idx}.npy")
+        ts_path = os.path.join(shard_dir, f"timestamps_chunk{chunk_idx}.npy")
     else:
-        X_path = os.path.join(shard_dir, 'X.npy')
-        ydir_path = os.path.join(shard_dir, 'y_dir.npy')
-        ymag_path = os.path.join(shard_dir, 'y_mag.npy')
-        ts_path = os.path.join(shard_dir, 'timestamps.npy')
+        X_path = os.path.join(shard_dir, "X.npy")
+        ydir_path = os.path.join(shard_dir, "y_dir.npy")
+        ymag_path = os.path.join(shard_dir, "y_mag.npy")
+        ts_path = os.path.join(shard_dir, "timestamps.npy")
 
     if not (os.path.exists(X_path) and os.path.exists(ydir_path) and os.path.exists(ymag_path)):
         return (None, None, None, None)
@@ -222,35 +244,43 @@ class ForexDataset(Dataset):
         spread_stress_pips: float = 0.0,
     ):
         import yaml
-        unified_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "unified_models_v2.yaml")
+
+        unified_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "unified_models_v2.yaml"
+        )
         gdrive_ids = []
         if os.path.exists(unified_path):
             try:
-                with open(unified_path, 'r', encoding="utf-8") as f:
+                with open(unified_path, "r", encoding="utf-8") as f:
                     um = yaml.safe_load(f)
                     gdrive_ids = um.get("forex_predictor", {}).get("google_drive_dataset_ids", [])
             except (OSError, yaml.YAMLError, AttributeError) as exc:
                 # AttributeError: the YAML root (or forex_predictor entry) is not a mapping.
-                logger.warning("Could not read google_drive_dataset_ids from %s: %s", unified_path, exc)
+                logger.warning(
+                    "Could not read google_drive_dataset_ids from %s: %s", unified_path, exc
+                )
 
         env = os.environ.get("ENV", "local")
         import sys
-        if 'colab' in sys.modules or os.path.exists('/content'):
-            env = 'colab'
-        elif os.path.exists('/kaggle'):
-            env = 'kaggle'
+
+        if "colab" in sys.modules or os.path.exists("/content"):
+            env = "colab"
+        elif os.path.exists("/kaggle"):
+            env = "kaggle"
 
         resolved_roots = []
         if shard_root and os.path.exists(shard_root):
             resolved_roots.append(os.path.abspath(shard_root))
 
-        if env == 'colab':
+        if env == "colab":
             colab_base = "/content/LemGendaryDatasets"
             if os.path.exists(colab_base):
                 for d in os.listdir(colab_base):
                     if "forex" in d.lower():
                         cand_forex = os.path.join(colab_base, d, "forex")
-                        cand = cand_forex if os.path.isdir(cand_forex) else os.path.join(colab_base, d)
+                        cand = (
+                            cand_forex if os.path.isdir(cand_forex) else os.path.join(colab_base, d)
+                        )
                         if os.path.isdir(cand) and cand not in resolved_roots:
                             resolved_roots.append(cand)
             base_drive = "/content/drive/MyDrive/LemGendaryDatasets"
@@ -258,18 +288,20 @@ class ForexDataset(Dataset):
                 for d in os.listdir(base_drive):
                     if "forex" in d.lower():
                         cand_forex = os.path.join(base_drive, d, "forex")
-                        cand = cand_forex if os.path.isdir(cand_forex) else os.path.join(base_drive, d)
+                        cand = (
+                            cand_forex if os.path.isdir(cand_forex) else os.path.join(base_drive, d)
+                        )
                         if os.path.isdir(cand) and cand not in resolved_roots:
                             resolved_roots.append(cand)
             if not resolved_roots:
                 print(f"\n[ERROR] Colab requires dataset packages at {colab_base} or {base_drive}")
                 sys.exit(1)
 
-        elif env == 'kaggle':
-            if os.path.exists('/kaggle/input'):
-                for root_dir, dirs, _ in os.walk('/kaggle/input'):
-                    if 'forex' in dirs:
-                        p = os.path.join(root_dir, 'forex')
+        elif env == "kaggle":
+            if os.path.exists("/kaggle/input"):
+                for root_dir, dirs, _ in os.walk("/kaggle/input"):
+                    if "forex" in dirs:
+                        p = os.path.join(root_dir, "forex")
                         if p not in resolved_roots:
                             resolved_roots.append(p)
                     for d in dirs:
@@ -282,8 +314,18 @@ class ForexDataset(Dataset):
 
         else:  # Local
             base_search = [
-                os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "LemGendaryDatasets")),
-                os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"))
+                os.path.abspath(
+                    os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "..",
+                        "LemGendaryDatasets",
+                    )
+                ),
+                os.path.abspath(
+                    os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"
+                    )
+                ),
             ]
             for bs in base_search:
                 if not os.path.exists(bs):
@@ -301,21 +343,36 @@ class ForexDataset(Dataset):
                             resolved_roots.append(cand)
 
             if not resolved_roots and gdrive_ids:
-                print(f"\n[DATA] Local forex dataset not found. Attempting gdown from {len(gdrive_ids)} Google Drive IDs...")
+                print(
+                    f"\n[DATA] Local forex dataset not found. Attempting gdown from {len(gdrive_ids)} Google Drive IDs..."
+                )
                 import subprocess
                 import zipfile
-                base_out = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "LemGendaryDatasets"))
+
+                base_out = os.path.abspath(
+                    os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "..",
+                        "LemGendaryDatasets",
+                    )
+                )
                 os.makedirs(base_out, exist_ok=True)
                 for gid in gdrive_ids:
                     dest = os.path.join(base_out, f"dataset_{gid}.zip")
-                    subprocess.run([sys.executable, "-m", "gdown", "--id", gid, "-O", dest], check=False)
+                    subprocess.run(
+                        [sys.executable, "-m", "gdown", "--id", gid, "-O", dest], check=False
+                    )
                     if os.path.exists(dest):
-                        with zipfile.ZipFile(dest, 'r') as zip_ref:
+                        with zipfile.ZipFile(dest, "r") as zip_ref:
                             zip_ref.extractall(base_out)
                         os.remove(dest)
                 for d in os.listdir(base_out):
                     if "forex" in d.lower():
-                        cand = os.path.join(base_out, d, "forex") if os.path.isdir(os.path.join(base_out, d, "forex")) else os.path.join(base_out, d)
+                        cand = (
+                            os.path.join(base_out, d, "forex")
+                            if os.path.isdir(os.path.join(base_out, d, "forex"))
+                            else os.path.join(base_out, d)
+                        )
                         if os.path.exists(cand) and cand not in resolved_roots:
                             resolved_roots.append(cand)
 
@@ -387,9 +444,21 @@ class ForexDataset(Dataset):
             if not os.path.exists(root):
                 continue
             bname = os.path.basename(root)
-            if ("forex" in bname.lower() or "universe" in bname.lower() or re.search(r"20\d\d", bname)) and bname.endswith(".parquet") and os.path.isfile(root):
+            if (
+                (
+                    "forex" in bname.lower()
+                    or "universe" in bname.lower()
+                    or re.search(r"20\d\d", bname)
+                )
+                and bname.endswith(".parquet")
+                and os.path.isfile(root)
+            ):
                 _register_parquet(root, bname)
-            elif ("forex" in bname.lower() or "universe" in bname.lower() or re.search(r"20\d\d", bname)) and os.path.isdir(root):
+            elif (
+                "forex" in bname.lower()
+                or "universe" in bname.lower()
+                or re.search(r"20\d\d", bname)
+            ) and os.path.isdir(root):
                 _register_dir(root, bname)
             try:
                 for sd in os.listdir(root):
@@ -403,20 +472,33 @@ class ForexDataset(Dataset):
                 logger.warning("Skipping unreadable forex root %s: %s", root, exc)
                 continue
 
-        if os.path.exists('/kaggle/input') and (len(year_parquet_map) + len(year_dirs_map)) < 8:
+        if os.path.exists("/kaggle/input") and (len(year_parquet_map) + len(year_dirs_map)) < 8:
             try:
-                for root_dir, dirs, files in os.walk('/kaggle/input'):
+                for root_dir, dirs, files in os.walk("/kaggle/input"):
                     for f in files:
-                        if f.endswith(".parquet") and ("forex" in f.lower() or "universe" in f.lower() or re.search(r"20\d\d", f)):
+                        if f.endswith(".parquet") and (
+                            "forex" in f.lower()
+                            or "universe" in f.lower()
+                            or re.search(r"20\d\d", f)
+                        ):
                             _register_parquet(os.path.join(root_dir, f), f)
                     for d in dirs:
-                        if not d.endswith(".zip") and ("forex" in d.lower() or "universe" in d.lower() or re.search(r"20\d\d", d)):
+                        if not d.endswith(".zip") and (
+                            "forex" in d.lower()
+                            or "universe" in d.lower()
+                            or re.search(r"20\d\d", d)
+                        ):
                             cand = os.path.join(root_dir, d)
                             try:
-                                if any(p in os.listdir(cand) for p in ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'XAUUSD']):
+                                if any(
+                                    p in os.listdir(cand)
+                                    for p in ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "XAUUSD"]
+                                ):
                                     _register_dir(cand, d)
                             except OSError as exc:
-                                logger.debug("Skipping unreadable Kaggle input dir %s: %s", cand, exc)
+                                logger.debug(
+                                    "Skipping unreadable Kaggle input dir %s: %s", cand, exc
+                                )
             except OSError as exc:
                 logger.warning("Scan of /kaggle/input failed: %s", exc)
 
@@ -427,13 +509,18 @@ class ForexDataset(Dataset):
             else:
                 candidate_years = [f"ForexUniverse{2019 + fold_idx + 1}"]
 
-            valid_targets = [y for y in candidate_years if y in year_parquet_map or y in year_dirs_map]
+            valid_targets = [
+                y for y in candidate_years if y in year_parquet_map or y in year_dirs_map
+            ]
             if not valid_targets:
                 # Dynamic fallback: Use whatever years are present on disk
-                available = sorted({
-                    k for k in list(year_parquet_map.keys()) + list(year_dirs_map.keys())
-                    if k.startswith("ForexUniverse") and re.search(r"\d{4}", k)
-                })
+                available = sorted(
+                    {
+                        k
+                        for k in list(year_parquet_map.keys()) + list(year_dirs_map.keys())
+                        if k.startswith("ForexUniverse") and re.search(r"\d{4}", k)
+                    }
+                )
                 if not available:
                     available = sorted(list(year_parquet_map.keys()) + list(year_dirs_map.keys()))
                 if available:
@@ -452,24 +539,36 @@ class ForexDataset(Dataset):
                     rg_of_row = np.empty(cache.total_rows, dtype=np.int32)
                     for rg_idx in range(cache.num_row_groups):
                         rg_start = cache.rg_starts[rg_idx]
-                        rg_end = (cache.rg_starts[rg_idx + 1]
-                                  if rg_idx + 1 < cache.num_row_groups
-                                  else cache.total_rows)
+                        rg_end = (
+                            cache.rg_starts[rg_idx + 1]
+                            if rg_idx + 1 < cache.num_row_groups
+                            else cache.total_rows
+                        )
                         rg_of_row[rg_start:rg_end] = rg_idx
 
                     import pyarrow.parquet as pq
+
                     meta_tbl = pq.read_table(
                         p_path,
-                        columns=['pair', 'timeframe', 'timestamp', 'y_dir', 'tp_pips', 'sl_pips', 'seq_len', 'n_features']
+                        columns=[
+                            "pair",
+                            "timeframe",
+                            "timestamp",
+                            "y_dir",
+                            "tp_pips",
+                            "sl_pips",
+                            "seq_len",
+                            "n_features",
+                        ],
                     )
-                    pairs_arr = meta_tbl['pair'].to_numpy(zero_copy_only=False)
-                    tfs_arr = meta_tbl['timeframe'].to_numpy()
-                    ts_arr = meta_tbl['timestamp'].to_numpy()
-                    ydir_arr = meta_tbl['y_dir'].to_numpy()
-                    tp_arr = meta_tbl['tp_pips'].to_numpy()
-                    sl_arr = meta_tbl['sl_pips'].to_numpy()
-                    seqlen_arr = meta_tbl['seq_len'].to_numpy()
-                    nfeat_arr = meta_tbl['n_features'].to_numpy()
+                    pairs_arr = meta_tbl["pair"].to_numpy(zero_copy_only=False)
+                    tfs_arr = meta_tbl["timeframe"].to_numpy()
+                    ts_arr = meta_tbl["timestamp"].to_numpy()
+                    ydir_arr = meta_tbl["y_dir"].to_numpy()
+                    tp_arr = meta_tbl["tp_pips"].to_numpy()
+                    sl_arr = meta_tbl["sl_pips"].to_numpy()
+                    seqlen_arr = meta_tbl["seq_len"].to_numpy()
+                    nfeat_arr = meta_tbl["n_features"].to_numpy()
 
                     self._parquet_meta[yr_name] = {
                         "pair": pairs_arr,
@@ -501,8 +600,12 @@ class ForexDataset(Dataset):
 
                     for tf_key in list(self._parquet_tf_rows.keys()):
                         if tf_key[2] == yr_name and isinstance(self._parquet_tf_rows[tf_key], list):
-                            self._parquet_tf_rows[tf_key] = np.asarray(self._parquet_tf_rows[tf_key], dtype=np.int64)
-                            self._parquet_tf_ts[tf_key] = np.asarray(self._parquet_tf_ts[tf_key], dtype=np.int64)
+                            self._parquet_tf_rows[tf_key] = np.asarray(
+                                self._parquet_tf_rows[tf_key], dtype=np.int64
+                            )
+                            self._parquet_tf_ts[tf_key] = np.asarray(
+                                self._parquet_tf_ts[tf_key], dtype=np.int64
+                            )
 
                 elif yr_name in year_dirs_map:
                     yr_dir = year_dirs_map.get(yr_name)
@@ -536,9 +639,18 @@ class ForexDataset(Dataset):
                                     for row in range(length):
                                         self._index.append((p_idx, tf, key, row))
                             else:
-                                chunk_files = [f for f in os.listdir(tf_dir) if f.startswith("X_chunk") and f.endswith(".npy")]
+                                chunk_files = [
+                                    f
+                                    for f in os.listdir(tf_dir)
+                                    if f.startswith("X_chunk") and f.endswith(".npy")
+                                ]
                                 if chunk_files:
-                                    chunk_indices = sorted([int(f.replace("X_chunk", "").replace(".npy", "")) for f in chunk_files])
+                                    chunk_indices = sorted(
+                                        [
+                                            int(f.replace("X_chunk", "").replace(".npy", ""))
+                                            for f in chunk_files
+                                        ]
+                                    )
                                     for c in chunk_indices:
                                         key = (pair, tf, yr_name, c)
                                         self._shard_paths[key] = (tf_dir, c)
@@ -610,7 +722,7 @@ class ForexDataset(Dataset):
         active_timeframes: list | None = None,
         size: float | tuple | None = None,
         stress: float | None = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Governor hook: update sampling fraction or active timeframes mid-training.
@@ -625,8 +737,12 @@ class ForexDataset(Dataset):
 
         if fraction is not None and fraction != self.sample_fraction:
             self.sample_fraction = fraction
-            if not rebuild and hasattr(self, 'all_samples') and self.all_samples:
-                stride = max(1, round(1.0 / max(1e-4, self.sample_fraction))) if (self.is_train and self.sample_fraction < 1.0) else 1
+            if not rebuild and hasattr(self, "all_samples") and self.all_samples:
+                stride = (
+                    max(1, round(1.0 / max(1e-4, self.sample_fraction)))
+                    if (self.is_train and self.sample_fraction < 1.0)
+                    else 1
+                )
                 self._index = self.all_samples[::stride]
                 return
 
@@ -658,10 +774,13 @@ class ForexDataset(Dataset):
             return None
 
         if (
-            other_ts is not None and len(other_ts) > 1 and len(prim_ts) > 1 and
-            prim_ts[-1] > prim_ts[0] and other_ts[-1] > other_ts[0]
+            other_ts is not None
+            and len(other_ts) > 1
+            and len(prim_ts) > 1
+            and prim_ts[-1] > prim_ts[0]
+            and other_ts[-1] > other_ts[0]
         ):
-            aligned = np.searchsorted(other_ts, prim_ts, side='right') - 1
+            aligned = np.searchsorted(other_ts, prim_ts, side="right") - 1
             aligned = np.clip(aligned, 0, len(other_X) - 1).astype(np.int64)
         else:
             prim_tf = primary_key[1]
@@ -685,8 +804,14 @@ class ForexDataset(Dataset):
         other_ts = self._parquet_tf_ts.get(other_key)
         prim_ts = self._parquet_tf_ts.get(primary_key)
 
-        if (other_rows is None or other_ts is None or prim_ts is None
-                or len(other_rows) == 0 or len(other_ts) == 0 or len(prim_ts) == 0):
+        if (
+            other_rows is None
+            or other_ts is None
+            or prim_ts is None
+            or len(other_rows) == 0
+            or len(other_ts) == 0
+            or len(prim_ts) == 0
+        ):
             self._parquet_alignment_cache[align_key] = None
             return None
 
@@ -718,11 +843,16 @@ class ForexDataset(Dataset):
             pair_idx:  Long tensor (scalar)
         """
         if len(self._index) == 0:
-            tf_inputs = {tf: torch.zeros(TIMEFRAME_LOOKBACK.get(tf, 168), 14) for tf in self.active_timeframes}
+            tf_inputs = {
+                tf: torch.zeros(TIMEFRAME_LOOKBACK.get(tf, 168), 14)
+                for tf in self.active_timeframes
+            }
             return (
                 tf_inputs,
-                {"direction": torch.tensor(1, dtype=torch.long),
-                 "magnitude": torch.zeros(2, dtype=torch.float32)},
+                {
+                    "direction": torch.tensor(1, dtype=torch.long),
+                    "magnitude": torch.zeros(2, dtype=torch.float32),
+                },
                 torch.tensor(0, dtype=torch.long),
             )
 
@@ -760,13 +890,16 @@ class ForexDataset(Dataset):
                     continue
 
                 import bisect as _bisect
+
                 pos = _bisect.bisect_left(prim_rows, row)
                 if pos >= len(prim_rows) or int(prim_rows[pos]) != int(row):
                     tf_inputs[other_tf] = torch.zeros(other_target_len, n_features)
                     continue
 
                 aligned_row = int(other_rows[int(mapped[pos])])
-                other_sample = self._fit_window(cache.get_row_features(aligned_row), other_target_len)
+                other_sample = self._fit_window(
+                    cache.get_row_features(aligned_row), other_target_len
+                )
 
                 tf_inputs[other_tf] = _safe_from_numpy(other_sample)
 

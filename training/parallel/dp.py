@@ -9,7 +9,9 @@ from training.parallel.base import ParallelStrategy, generic_prepare_batch
 class DataParallelStrategy(ParallelStrategy):
     name = "dp"
 
-    def __init__(self, model, device, *, model_key="", config=None, device_ids=None, output_device=0):
+    def __init__(
+        self, model, device, *, model_key="", config=None, device_ids=None, output_device=0
+    ):
         super().__init__(model, device, model_key=model_key, config=config)
         self.device_ids = device_ids or list(range(torch.cuda.device_count()))
         self.output_device = output_device

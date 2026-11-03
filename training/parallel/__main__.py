@@ -48,7 +48,9 @@ def _cmd_resolve(args):
         choice = resolve_auto(stub, args.model, {}, model_info=model_info)
     preferred = model_info.get("preferred_parallel", "(auto)")
     print(f"model         = {args.model}")
-    print(f"devices       = {args.devices if args.devices is not None else torch.cuda.device_count()}")
+    print(
+        f"devices       = {args.devices if args.devices is not None else torch.cuda.device_count()}"
+    )
     print(f"cuda          = {torch.cuda.is_available()}")
     print(f"preferred     = {preferred}")
     print(f"resolved      = {choice}")

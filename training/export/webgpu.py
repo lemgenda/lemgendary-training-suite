@@ -25,7 +25,12 @@ def export_webgpu_onnx(
     out_file = Path(save_path).resolve()
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Exporting WebGPU ONNX payload to %s (opset=%d, shape=%s)...", out_file, opset, dummy_input_shape)
+    logger.info(
+        "Exporting WebGPU ONNX payload to %s (opset=%d, shape=%s)...",
+        out_file,
+        opset,
+        dummy_input_shape,
+    )
 
     model_to_export: nn.Module
     if hasattr(model, "module") and isinstance(model.module, nn.Module):

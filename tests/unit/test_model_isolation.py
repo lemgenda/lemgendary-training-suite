@@ -99,7 +99,6 @@ class TestModelIsolation(unittest.TestCase):
             self.assertTrue(report.is_valid)
             self.assertEqual(len(report.variations), 4)
 
-
     def test_validate_all_single_source_of_truth(self) -> None:
         """Verify validate_all passes when pytorch/default is directly in model root checkpoints without duplicates."""
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -20,7 +20,9 @@ class ThermalState:
     def step_epoch(self) -> float:
         """Apply cooling factor to decay softmax temperature toward min_temperature."""
         old_temp = self.temperature
-        self.temperature = max(self.min_temperature, round(self.temperature * self.cooling_factor, 4))
+        self.temperature = max(
+            self.min_temperature, round(self.temperature * self.cooling_factor, 4)
+        )
         logger.debug("Thermal step: temperature %.4f -> %.4f", old_temp, self.temperature)
         return self.temperature
 

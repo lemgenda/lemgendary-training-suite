@@ -45,7 +45,11 @@ def audit_hardware_vram(
     if is_forex:
         configured_batch = model_info.get("batch_size", "auto")
         gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
-        vram_gb = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) if torch.cuda.is_available() else 0.0
+        vram_gb = (
+            (torch.cuda.get_device_properties(0).total_memory / (1024**3))
+            if torch.cuda.is_available()
+            else 0.0
+        )
         free_gb = 0.0
         if torch.cuda.is_available():
             try:
@@ -82,7 +86,9 @@ def audit_hardware_vram(
                 free_gb = 0.0
                 per_device = 16
 
-            is_ddp = os.environ.get("RANK") is not None or int(os.environ.get("WORLD_SIZE", "1")) > 1
+            is_ddp = (
+                os.environ.get("RANK") is not None or int(os.environ.get("WORLD_SIZE", "1")) > 1
+            )
             final_batch = per_device * gpu_count if (gpu_count > 1 and not is_ddp) else per_device
             if mode == "val":
                 final_batch *= 2
@@ -91,7 +97,13 @@ def audit_hardware_vram(
         fold_str = str(fold) if fold else "MAIN"
         logger.info(
             "Forex Dynamic Hardware Probe: %s (Free: %.1fGB / Total: %.1fGB) | Phase: %s | Batch: %d | Fold: %s | Symbols: %s",
-            gpu_name, free_gb if torch.cuda.is_available() else 0.0, vram_gb, mode.capitalize(), final_batch, fold_str, symbols_str
+            gpu_name,
+            free_gb if torch.cuda.is_available() else 0.0,
+            vram_gb,
+            mode.capitalize(),
+            final_batch,
+            fold_str,
+            symbols_str,
         )
         return final_batch
 
@@ -104,8 +116,16 @@ def audit_hardware_vram(
         or any(
             x in model_key.lower()
             for x in [
-                "nafnet", "mprnet", "mirnet", "ffanet", "codeformer",
-                "film_restorer", "parsenet", "ultrazoom", "multitask", "retinaface"
+                "nafnet",
+                "mprnet",
+                "mirnet",
+                "ffanet",
+                "codeformer",
+                "film_restorer",
+                "parsenet",
+                "ultrazoom",
+                "multitask",
+                "retinaface",
             ]
         )
     )
@@ -127,7 +147,10 @@ def audit_hardware_vram(
         if "ECC" in err_str or "uncorrectable" in err_str.lower():
             logger.critical("Uncorrectable ECC error detected on GPU memory.")
             sys.exit(1)
-        if "no kernel image is available" in err_str or "cudaErrorNoKernelImageForDevice" in err_str:
+        if (
+            "no kernel image is available" in err_str
+            or "cudaErrorNoKernelImageForDevice" in err_str
+        ):
             logger.critical("No CUDA kernel image available for active GPU architecture.")
             sys.exit(1)
         raise exc
@@ -171,7 +194,11 @@ def audit_hardware_vram(
         model.eval() if mode == "val" else model.train()
         out = model(dummy)
         if mode == "train":
-            loss = sum(v.mean() for v in out.values() if isinstance(v, torch.Tensor)) if isinstance(out, dict) else out.mean()
+            loss = (
+                sum(v.mean() for v in out.values() if isinstance(v, torch.Tensor))
+                if isinstance(out, dict)
+                else out.mean()
+            )
             if isinstance(loss, torch.Tensor):
                 loss.backward()
             model.zero_grad(set_to_none=True)
@@ -179,7 +206,10 @@ def audit_hardware_vram(
         torch.cuda.empty_cache()
     except _PROBE_ERRORS as exc:
         err_msg = str(exc)
-        if "no kernel image is available" in err_msg or "cudaErrorNoKernelImageForDevice" in err_msg:
+        if (
+            "no kernel image is available" in err_msg
+            or "cudaErrorNoKernelImageForDevice" in err_msg
+        ):
             raise
         logger.debug("Warmup pass non-fatal notification: %s", exc)
 
@@ -195,7 +225,11 @@ def audit_hardware_vram(
         if mode == "train":
             model.train()
             output = model(dummy_input)
-            loss = sum(v.mean() for v in output.values() if isinstance(v, torch.Tensor)) if isinstance(output, dict) else output.mean()
+            loss = (
+                sum(v.mean() for v in output.values() if isinstance(v, torch.Tensor))
+                if isinstance(output, dict)
+                else output.mean()
+            )
             if isinstance(loss, torch.Tensor):
                 loss.backward()
             peak_probe = torch.cuda.max_memory_allocated(0)
@@ -239,9 +273,12 @@ def audit_hardware_vram(
 
     # System RAM safeguard
     sys_ram_gb: float = 64.0
-    is_kaggle: bool = os.path.exists("/kaggle/working") or os.environ.get("KAGGLE_KERNEL_RUN_TYPE") is not None
+    is_kaggle: bool = (
+        os.path.exists("/kaggle/working") or os.environ.get("KAGGLE_KERNEL_RUN_TYPE") is not None
+    )
     try:
         import psutil
+
         sys_ram_gb = psutil.virtual_memory().total / (1024**3)
         if sys_ram_gb < 35.0 or is_kaggle:
             system_cap = min(system_cap, 32 if mode == "val" else 24)
@@ -251,9 +288,13 @@ def audit_hardware_vram(
     if is_restoration:
         if mode == "train":
             dynamic_cap_train = 8 if vram_gb < 8.0 else (16 if vram_gb < 16.5 else 32)
-            system_cap = config.get("hardware", {}).get("cudnn_workspace_cap_train", dynamic_cap_train)
+            system_cap = config.get("hardware", {}).get(
+                "cudnn_workspace_cap_train", dynamic_cap_train
+            )
         else:
-            dynamic_cap_val = 4 if vram_gb < 4.5 else (8 if vram_gb < 8.5 else (16 if vram_gb < 16.5 else 32))
+            dynamic_cap_val = (
+                4 if vram_gb < 4.5 else (8 if vram_gb < 8.5 else (16 if vram_gb < 16.5 else 32))
+            )
             system_cap = config.get("hardware", {}).get("cudnn_workspace_cap_val", dynamic_cap_val)
 
     final_batch = max(1, min(dynamic_batch, pixel_cap, system_cap))
@@ -265,7 +306,9 @@ def audit_hardware_vram(
     gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
     gpu_count = torch.cuda.device_count() if device.type == "cuda" else 1
     is_ddp = os.environ.get("RANK") is not None or int(os.environ.get("WORLD_SIZE", "1")) > 1
-    is_dataparallel = isinstance(model, torch.nn.DataParallel) or (hasattr(model, "module") and gpu_count > 1)
+    is_dataparallel = isinstance(model, torch.nn.DataParallel) or (
+        hasattr(model, "module") and gpu_count > 1
+    )
 
     # In DDP each process operates on a single device, so batch must NEVER be multiplied by gpu_count
     if gpu_count > 1 and not is_ddp:
@@ -301,18 +344,25 @@ def audit_hardware_vram(
         if dynamic_batch < 1:
             logger.critical(
                 "Hardware bottleneck reached on %s (%.1f GB). Required memory for single image exceeds available VRAM.",
-                gpu_name, vram_gb
+                gpu_name,
+                vram_gb,
             )
             sys.exit(1)
         else:
             logger.warning(
                 "Hardware limit reached. Batch size forced to 1 to prevent OOM crash on %s (%.1f GB).",
-                gpu_name, vram_gb
+                gpu_name,
+                vram_gb,
             )
 
     logger.info(
         "Memory Probe: %s (%.1f GB) | %s @ %dpx | Batch: %d (Pixels: %.1fM) | Fraction: %.1f%%",
-        gpu_name, vram_gb, mode.capitalize(), h, final_batch, (h * w * final_batch) / 1e6, sample_fraction * 100
+        gpu_name,
+        vram_gb,
+        mode.capitalize(),
+        h,
+        final_batch,
+        (h * w * final_batch) / 1e6,
+        sample_fraction * 100,
     )
     return final_batch
-

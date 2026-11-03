@@ -130,7 +130,13 @@ class MetricRegistry:
             profit_factor = metrics.get("profit_factor", 0.0)
             sharpe = metrics.get("sharpe_ratio", 0.0)
             max_dd = metrics.get("max_drawdown", 0.0)
-            score = (dir_acc * 40.0) + (win_rate * 30.0) + (min(profit_factor, 3.0) * 10.0) + (min(sharpe, 3.0) * 10.0) - (max_dd * 20.0)
+            score = (
+                (dir_acc * 40.0)
+                + (win_rate * 30.0)
+                + (min(profit_factor, 3.0) * 10.0)
+                + (min(sharpe, 3.0) * 10.0)
+                - (max_dd * 20.0)
+            )
             return round(score, 4)
 
         # Vision composite score

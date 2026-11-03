@@ -91,6 +91,7 @@ class TrainingService:
         # 0. Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds, and training dirs
         try:
             from training.services.notebook_service import NotebookService
+
             nb_service = NotebookService(project_root=self.project_root)
             nb_service.generate_notebooks(model_key=model_key, platform="all")
         except (OSError, yaml.YAMLError, ValueError, KeyError, TypeError, AttributeError) as e:
@@ -138,6 +139,7 @@ class TrainingService:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
             from training.core_loop import _run_yolo_native
+
             return _run_yolo_native(
                 args,
                 config,

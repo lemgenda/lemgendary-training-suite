@@ -64,7 +64,14 @@ def resolve_whitepaper_url(model_key: str) -> str:
                         model_key == "ai_helper_lemgend" and doc.get("id") == "foundation-llm"
                     ):
                         return f"{DOCS_BASE_URL}/{doc.get('html_path')}"
-    except (OSError, UnicodeDecodeError, ValueError, yaml.YAMLError, AttributeError, TypeError) as exc:
+    except (
+        OSError,
+        UnicodeDecodeError,
+        ValueError,
+        yaml.YAMLError,
+        AttributeError,
+        TypeError,
+    ) as exc:
         # OSError: unreadable docs files; ValueError: json.JSONDecodeError;
         # Attribute/TypeError: capability/manifest entries of unexpected shape.
         logger.warning("Could not resolve whitepaper URL for %s: %s", model_key, exc)
@@ -97,7 +104,9 @@ class KaggleMetadataService:
         """Build the metadata document for a model from registry data."""
         resolved = spec or self.registry.get_model(model_key)
         if resolved is None:
-            raise MetadataValidationError(model_key, [f"model '{model_key}' is not in the registry"])
+            raise MetadataValidationError(
+                model_key, [f"model '{model_key}' is not in the registry"]
+            )
 
         owner = owner_slug or self.owner_slug
         k_meta = resolved.kaggle_metadata
@@ -125,7 +134,9 @@ class KaggleMetadataService:
             slug=slug,
             title=title,
             subtitle=subtitle,
-            description=self._build_description(resolved, owner, slug, dataset_urls, whitepaper_url, keywords),
+            description=self._build_description(
+                resolved, owner, slug, dataset_urls, whitepaper_url, keywords
+            ),
             is_private=False,
             license=license_name,
             keywords=keywords,
@@ -163,7 +174,11 @@ class KaggleMetadataService:
                 value = existing.get_path(dotted)
                 merged = merged.with_path(dotted, value)
             except KeyError:
-                logger.warning("hand_edited path '%s' no longer exists for %s; dropped", dotted, generated.model_key)
+                logger.warning(
+                    "hand_edited path '%s' no longer exists for %s; dropped",
+                    dotted,
+                    generated.model_key,
+                )
                 continue
             kept.append(dotted)
         merged.hand_edited = kept
@@ -227,11 +242,15 @@ class KaggleMetadataService:
                 continue
             out_dir = (Path(base_dir).resolve() / key) if base_dir else None
             try:
-                written[key] = self.write_metadata(key, output_dir=out_dir, spec=spec, owner_slug=owner_slug)
+                written[key] = self.write_metadata(
+                    key, output_dir=out_dir, spec=spec, owner_slug=owner_slug
+                )
             except MetadataValidationError as exc:
                 failures[key] = exc.errors
                 logger.error("Metadata generation failed for %s: %s", key, exc)
-        logger.info("Metadata generation complete: %d written, %d failed", len(written), len(failures))
+        logger.info(
+            "Metadata generation complete: %d written, %d failed", len(written), len(failures)
+        )
         return written, failures
 
     # ------------------------------------------------------------------ content builders
@@ -281,14 +300,18 @@ class KaggleMetadataService:
         lines.append("")
         lines.append("### Citations & Technical Documentation")
         if resolved_whitepaper:
-            lines.append(f"- **Architecture Whitepaper:** [Whitepaper Reference]({resolved_whitepaper})")
+            lines.append(
+                f"- **Architecture Whitepaper:** [Whitepaper Reference]({resolved_whitepaper})"
+            )
 
         ref = spec.academic_reference
         if ref and ref.title:
             citation = f"{ref.authors} ({ref.year}). {ref.title}. {ref.venue}".strip()
             full_ref = f"- **Academic Reference:** {citation} {ref.link}".strip()
             if len(full_ref) > 120:
-                wrapped_ref = textwrap.fill(full_ref, width=120, break_long_words=False, break_on_hyphens=False)
+                wrapped_ref = textwrap.fill(
+                    full_ref, width=120, break_long_words=False, break_on_hyphens=False
+                )
                 lines.append(wrapped_ref)
             else:
                 lines.append(full_ref)

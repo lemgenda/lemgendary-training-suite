@@ -48,7 +48,9 @@ class MetricVault:
         checkpoint_path: Path | str | None = None,
     ) -> bool:
         """Record an epoch snapshot, evaluating whether it sets a new best primary metric."""
-        val = metrics.get(self.primary_metric, float("inf") if self.mode == "min" else float("-inf"))
+        val = metrics.get(
+            self.primary_metric, float("inf") if self.mode == "min" else float("-inf")
+        )
 
         is_best = False
         if self.best_record is None or self._is_better(val, self.best_record.primary_value):
@@ -139,11 +141,20 @@ class MetricVault:
                     ckpt_path = row.get("checkpoint_path") or None
                     metrics: dict[str, float] = {}
                     for k, v in row.items():
-                        if k not in {"epoch", "timestamp", "is_best", "checkpoint_path"} and v != "":
+                        if (
+                            k not in {"epoch", "timestamp", "is_best", "checkpoint_path"}
+                            and v != ""
+                        ):
                             try:
                                 metrics[k] = float(v)
                             except ValueError as conv_err:
-                                logger.debug("Skipping non-numeric metric %s=%r in %s: %s", k, v, target, conv_err)
+                                logger.debug(
+                                    "Skipping non-numeric metric %s=%r in %s: %s",
+                                    k,
+                                    v,
+                                    target,
+                                    conv_err,
+                                )
                     self.record_epoch(epoch, metrics, checkpoint_path=ckpt_path)
         except (OSError, csv.Error, ValueError, TypeError, AttributeError) as exc:
             logger.warning("Error reading metrics CSV from %s: %s", target, exc)

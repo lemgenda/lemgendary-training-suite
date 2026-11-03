@@ -74,7 +74,9 @@ class ModelPushResult:
                 }
                 for k, v in self.variations.items()
             },
-            "is_valid_isolation": self.isolation_report.is_valid if self.isolation_report else False,
+            "is_valid_isolation": self.isolation_report.is_valid
+            if self.isolation_report
+            else False,
             "metadata_sync": self.metadata_sync_result,
             "errors": self.errors,
         }
@@ -108,6 +110,7 @@ class KaggleModelSyncManager:
     def staging_service(self):
         if self._staging_service is None:
             from training.export.staging import VariationStagingService
+
             self._staging_service = VariationStagingService()
         return self._staging_service
 
@@ -210,7 +213,9 @@ class KaggleModelSyncManager:
         file_names = [f.name for f in files]
 
         if dry_run:
-            logger.info("[DRY-RUN] Verified Kaggle model variation payload %s (%s)", handle, variation_dir)
+            logger.info(
+                "[DRY-RUN] Verified Kaggle model variation payload %s (%s)", handle, variation_dir
+            )
             return VariationPushResult(
                 variation=variation,
                 handle=handle,
@@ -243,6 +248,7 @@ class KaggleModelSyncManager:
             temp_staging_dir = None
             if variation == PYTORCH_DEFAULT.key and variation_dir == self.get_model_dir(model_key):
                 import tempfile
+
                 temp_staging_dir = tempfile.TemporaryDirectory()
                 temp_path = Path(temp_staging_dir.name)
                 temp_ckpt_dir = temp_path / "checkpoints"
@@ -250,12 +256,14 @@ class KaggleModelSyncManager:
                 src_ckpts = variation_dir / "checkpoints"
                 if src_ckpts.exists():
                     import shutil
+
                     for pth in src_ckpts.glob("*.pth"):
                         shutil.copy2(pth, temp_ckpt_dir / pth.name)
                 for root_f in ("README.md", "metrics.csv"):
                     src_f = variation_dir / root_f
                     if src_f.exists():
                         import shutil
+
                         shutil.copy2(src_f, temp_path / root_f)
                 upload_dir = temp_path
 
@@ -311,11 +319,7 @@ class KaggleModelSyncManager:
 
         isolation_rep = self.validate_isolation(model_key)
 
-        variations_to_push = (
-            list(VARIATION_BY_KEY.keys())
-            if variation == "all"
-            else [variation]
-        )
+        variations_to_push = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
 
         push_result = ModelPushResult(
             model_key=model_key,
@@ -358,7 +362,9 @@ class KaggleModelSyncManager:
     ) -> bool:
         """Download one variation from Kaggle Models Hub into canonical model directory."""
         if variation not in VARIATION_BY_KEY:
-            raise ValueError(f"Unknown variation '{variation}'. Allowed: {list(VARIATION_BY_KEY.keys())}")
+            raise ValueError(
+                f"Unknown variation '{variation}'. Allowed: {list(VARIATION_BY_KEY.keys())}"
+            )
 
         handle = self.get_handle(model_key, variation)
         target_dir = self.get_variation_dir(model_key, variation)
@@ -387,6 +393,7 @@ class KaggleModelSyncManager:
                 for f in src_ckpt_dir.iterdir():
                     if f.is_file():
                         import shutil
+
                         dest_f = dst_ckpt_dir / f.name
                         if not dest_f.exists() or f.stat().st_size != dest_f.stat().st_size:
                             shutil.copy2(f, dest_f)
@@ -396,6 +403,7 @@ class KaggleModelSyncManager:
                 dst_rf = model_root / rf_name
                 if src_rf.exists() and src_rf.resolve() != dst_rf.resolve():
                     import shutil
+
                     if not dst_rf.exists() or src_rf.stat().st_size != dst_rf.stat().st_size:
                         shutil.copy2(src_rf, dst_rf)
 

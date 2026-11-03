@@ -232,7 +232,9 @@ def generate_all_preflight_assets(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LemGendary Pre-Flight Asset Generator")
     parser.add_argument("--model", type=str, help="Model key to generate preflight assets for")
-    parser.add_argument("--all", action="store_true", help="Generate preflight assets for all registered models")
+    parser.add_argument(
+        "--all", action="store_true", help="Generate preflight assets for all registered models"
+    )
     parser.add_argument("--force", action="store_true", help="Force overwrite existing assets")
     args = parser.parse_args()
 

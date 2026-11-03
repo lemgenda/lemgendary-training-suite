@@ -77,7 +77,10 @@ class KaggleHubManager:
         }
 
         import json
-        (kernel_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+        (kernel_dir / "kernel-metadata.json").write_text(
+            json.dumps(metadata, indent=2), encoding="utf-8"
+        )
 
         script_content = f'''"""Automated Headless Kaggle Cloud Training Job for {model_name}."""
 import os
@@ -101,7 +104,11 @@ sys.exit(res.returncode)
     ) -> bool:
         """Stage artifacts and upload model version to Kaggle Model Hub."""
         handle = self.get_handle(model_name)
-        staging_dir = Path("/kaggle/working/.kaggle_upload_stage") if os.name != "nt" else (src_dir / ".kaggle_upload_stage")
+        staging_dir = (
+            Path("/kaggle/working/.kaggle_upload_stage")
+            if os.name != "nt"
+            else (src_dir / ".kaggle_upload_stage")
+        )
 
         try:
             if staging_dir.exists():
@@ -198,7 +205,9 @@ sys.exit(res.returncode)
                             shutil.copytree(item, target, dirs_exist_ok=True)
                         else:
                             shutil.copy2(item, target)
-                logger.info("Successfully pulled Kaggle artifact %s -> %s", remote_identifier, dest_dir)
+                logger.info(
+                    "Successfully pulled Kaggle artifact %s -> %s", remote_identifier, dest_dir
+                )
                 return True
             return False
         except kagglehub_errors() as exc:

@@ -19,8 +19,7 @@ class ParallelStrategy(ABC):
         self._wrapped = None
 
     @abstractmethod
-    def setup(self) -> nn.Module:
-        ...
+    def setup(self) -> nn.Module: ...
 
     def cleanup(self) -> None:
         return None
@@ -47,8 +46,7 @@ class ParallelStrategy(ABC):
         return self.config.get("task_type", "")
 
     @abstractmethod
-    def prepare_batch(self, inputs: Any, targets: Any, tasks: Any) -> tuple[Any, Any, Any]:
-        ...
+    def prepare_batch(self, inputs: Any, targets: Any, tasks: Any) -> tuple[Any, Any, Any]: ...
 
     def backward_context(self, accumulation_steps: int) -> AbstractContextManager[Any]:
         return nullcontext()

@@ -12,7 +12,13 @@ from training.data.containers.base import Sample
 logger = logging.getLogger("lemtrain.containers.mds")
 
 # Failure modes of the optional `streaming` library when opening a local shard directory.
-_STREAMING_INIT_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError, RuntimeError, KeyError, TypeError)
+_STREAMING_INIT_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    ValueError,
+    RuntimeError,
+    KeyError,
+    TypeError,
+)
 
 
 class MdsReader:
@@ -43,11 +49,15 @@ class MdsReader:
         try:
             self.index_data = json.loads(self.index_file.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError(f"Failed parsing MDS index.json at '{self.index_file}': {exc}") from exc
+            raise ValueError(
+                f"Failed parsing MDS index.json at '{self.index_file}': {exc}"
+            ) from exc
 
         self.shards: list[dict[str, Any]] = self.index_data.get("shards", [])
         self._sample_count = 0
-        self._shard_offsets: list[tuple[int, int, dict[str, Any]]] = []  # (start_idx, end_idx, shard)
+        self._shard_offsets: list[
+            tuple[int, int, dict[str, Any]]
+        ] = []  # (start_idx, end_idx, shard)
 
         for shard in self.shards:
             samples = shard.get("samples", 0)
@@ -61,6 +71,7 @@ class MdsReader:
         """Attempt initializing via official streaming library if available."""
         try:
             import importlib
+
             streaming_pkg = importlib.import_module("streaming")
             local_ds_cls = getattr(streaming_pkg, "LocalDataset", None)
             streaming_cls = getattr(streaming_pkg, "StreamingDataset", None)
@@ -69,7 +80,9 @@ class MdsReader:
                     self._streaming_ds = local_ds_cls(local=str(self.mds_dir))
                     return
                 except _STREAMING_INIT_ERRORS as exc:
-                    logger.debug("LocalDataset initialization failed, trying StreamingDataset: %s", exc)
+                    logger.debug(
+                        "LocalDataset initialization failed, trying StreamingDataset: %s", exc
+                    )
             if streaming_cls is not None:
                 self._streaming_ds = streaming_cls(
                     local=str(self.mds_dir),
@@ -80,7 +93,11 @@ class MdsReader:
             logger.debug("Streaming library not available, operating via raw index: %s", exc)
             self._streaming_ds = None
         except _STREAMING_INIT_ERRORS as exc:
-            logger.warning("Streaming library initialization failed for %s, operating via raw index: %s", self.mds_dir, exc)
+            logger.warning(
+                "Streaming library initialization failed for %s, operating via raw index: %s",
+                self.mds_dir,
+                exc,
+            )
             self._streaming_ds = None
 
     def __len__(self) -> int:
@@ -105,10 +122,16 @@ class MdsReader:
                 meta.update(record["metadata"])
             return Sample(
                 name=name,
-                image_bytes=bytes(image_bytes) if isinstance(image_bytes, (bytes, bytearray)) else b"",
+                image_bytes=bytes(image_bytes)
+                if isinstance(image_bytes, (bytes, bytearray))
+                else b"",
                 image_format=fmt,
-                target_bytes=bytes(target_bytes) if isinstance(target_bytes, (bytes, bytearray)) else None,
-                mask_bytes=bytes(mask_bytes) if isinstance(mask_bytes, (bytes, bytearray)) else None,
+                target_bytes=bytes(target_bytes)
+                if isinstance(target_bytes, (bytes, bytearray))
+                else None,
+                mask_bytes=bytes(mask_bytes)
+                if isinstance(mask_bytes, (bytes, bytearray))
+                else None,
                 label=label,
                 metadata=meta,
             )
@@ -122,7 +145,9 @@ class MdsReader:
                 local_idx = index - start
                 break
 
-        shard_name = target_shard.get("raw_data", {}).get("basename", "shard") if target_shard else "shard"
+        shard_name = (
+            target_shard.get("raw_data", {}).get("basename", "shard") if target_shard else "shard"
+        )
         return Sample(
             name=f"mds_sample_{index:08d}",
             image_bytes=b"",

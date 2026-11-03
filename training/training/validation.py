@@ -23,7 +23,13 @@ logger = logging.getLogger("lemtrain.training.validation")
 # Failure modes of per-batch metric math on model outputs (shape/dtype mismatch, CUDA/OOM, bad indexing).
 _METRIC_ERRORS: tuple[type[BaseException], ...] = (RuntimeError, ValueError, TypeError, IndexError)
 # Failure modes of constructing torchmetrics modules (missing backends, weight download/cache, device move).
-_METRIC_INIT_ERRORS: tuple[type[BaseException], ...] = (ImportError, OSError, RuntimeError, ValueError, TypeError)
+_METRIC_INIT_ERRORS: tuple[type[BaseException], ...] = (
+    ImportError,
+    OSError,
+    RuntimeError,
+    ValueError,
+    TypeError,
+)
 
 try:
     from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
@@ -37,6 +43,7 @@ except ImportError:
 
 try:
     from scipy.stats import pearsonr, spearmanr
+
     _HAS_SCIPY_STATS = True
 except ImportError:
     pearsonr = None
@@ -160,7 +167,10 @@ def validate_one_epoch(
     ):
         resume_step = ctx.resume_state.iteration
         ctx._resumed_val_step_handled = True
-        print(f"[RESUME] Fast-forwarding {resume_step} completed validation batches in Epoch {epoch}...", flush=True)
+        print(
+            f"[RESUME] Fast-forwarding {resume_step} completed validation batches in Epoch {epoch}...",
+            flush=True,
+        )
 
         # Restore running accumulators if available
         acc = getattr(ctx.resume_state, "val_accumulators", {})
@@ -222,7 +232,9 @@ def validate_one_epoch(
                     if callable(eval_step_fn):
                         val_out = eval_step_fn(inputs)
                         loss = val_out["loss"] if isinstance(val_out, dict) else val_out
-                        preds = val_out.get("preds", inputs) if isinstance(val_out, dict) else inputs
+                        preds = (
+                            val_out.get("preds", inputs) if isinstance(val_out, dict) else inputs
+                        )
                     elif task_idx is not None:
                         preds = ctx.model(inputs)
                         loss = ctx.criterion(preds, targets, task_idx)
@@ -230,15 +242,21 @@ def validate_one_epoch(
                         preds = ctx.model(inputs)
                         loss = ctx.criterion(preds, targets)
             except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
-                if "out of memory" in str(oom_err).lower() or isinstance(oom_err, torch.cuda.OutOfMemoryError):
+                if "out of memory" in str(oom_err).lower() or isinstance(
+                    oom_err, torch.cuda.OutOfMemoryError
+                ):
                     if hasattr(ctx.governor, "handle_oom"):
                         ctx.governor.handle_oom()
                     else:
                         import gc
+
                         gc.collect()
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
-                    print(f"\n  [VAL WARNING] VRAM OOM intercepted on val batch {batch_idx + 1}. Cache evacuated and recovered.", flush=True)
+                    print(
+                        f"\n  [VAL WARNING] VRAM OOM intercepted on val batch {batch_idx + 1}. Cache evacuated and recovered.",
+                        flush=True,
+                    )
                     continue
                 raise oom_err
 
@@ -286,8 +304,12 @@ def validate_one_epoch(
                         "model_name": ctx.model_name,
                         "model_state": target_model.state_dict(),
                         "optimizer_state": ctx.optimizer.state_dict(),
-                        "scheduler_state": ctx.scheduler.state_dict() if ctx.scheduler is not None else None,
-                        "governor_state": ctx.governor.get_state() if hasattr(ctx.governor, "get_state") else None,
+                        "scheduler_state": ctx.scheduler.state_dict()
+                        if ctx.scheduler is not None
+                        else None,
+                        "governor_state": ctx.governor.get_state()
+                        if hasattr(ctx.governor, "get_state")
+                        else None,
                         "train_metrics": getattr(ctx, "last_train_metrics", {}),
                         "val_accumulators": acc_dict,
                     }
@@ -305,10 +327,13 @@ def validate_one_epoch(
             is_warmup = step_count in (1, 2, 5, 10)
             time_elapsed_since_log = now - last_log_time
             is_periodic = (step_count % log_interval == 0) or (step_count == num_val_batches)
-            is_heartbeat = (time_elapsed_since_log >= 8.0 and step_count > 10)
+            is_heartbeat = time_elapsed_since_log >= 8.0 and step_count > 10
 
             import torch.distributed as dist
-            is_main_proc = not (dist.is_available() and dist.is_initialized() and dist.get_rank() != 0)
+
+            is_main_proc = not (
+                dist.is_available() and dist.is_initialized() and dist.get_rank() != 0
+            )
 
             if is_main_proc and (is_warmup or is_periodic or is_heartbeat):
                 last_log_time = now
@@ -316,7 +341,9 @@ def validate_one_epoch(
                 elapsed_batch = now - start_time
                 processed_in_session = max(1, step_count - resume_step)
                 rate = processed_in_session / max(0.001, elapsed_batch)
-                rate_str = f"{rate:.2f} it/s" if rate >= 1.0 else f"{1.0 / max(1e-4, rate):.1f} s/it"
+                rate_str = (
+                    f"{rate:.2f} it/s" if rate >= 1.0 else f"{1.0 / max(1e-4, rate):.1f} s/it"
+                )
 
                 is_last_val = step_count == num_val_batches
                 end_char = "\n" if is_last_val else ""
@@ -327,7 +354,11 @@ def validate_one_epoch(
                     eta_s = int(remaining / max(1e-4, rate))
                     eta_m, eta_sec = divmod(eta_s, 60)
                     eta_h, eta_m = divmod(eta_m, 60)
-                    eta_str = f"ETA {eta_h}h{eta_m:02d}m" if eta_h > 0 else f"ETA {eta_m:02d}m{eta_sec:02d}s"
+                    eta_str = (
+                        f"ETA {eta_h}h{eta_m:02d}m"
+                        if eta_h > 0
+                        else f"ETA {eta_m:02d}m{eta_sec:02d}s"
+                    )
 
                     line = (
                         f"\r  [VAL BATCH {step_count:>{len(str(num_val_batches))}}/{num_val_batches}] "
@@ -401,7 +432,9 @@ def validate_one_epoch(
                             for m_idx in range(0, b_sz, micro_chunk):
                                 p_chunk = p_scaled[m_idx : m_idx + micro_chunk]
                                 t_chunk = t_scaled[m_idx : m_idx + micro_chunk]
-                                chunk_lpips_sum += float(lpips_metric_module(p_chunk, t_chunk).item()) * p_chunk.size(0)
+                                chunk_lpips_sum += float(
+                                    lpips_metric_module(p_chunk, t_chunk).item()
+                                ) * p_chunk.size(0)
                             batch_lpips = chunk_lpips_sum / max(1, b_sz)
                             total_lpips += batch_lpips
                             lpips_count += 1
@@ -429,15 +462,19 @@ def validate_one_epoch(
 
                     if fid_metric_module is not None and fid_metric_module is not False:
                         try:
-                            p_u8 = torch.clamp(eval_pred.detach() * 255.0, 0.0, 255.0).to(torch.uint8)
-                            t_u8 = torch.clamp(eval_target.detach() * 255.0, 0.0, 255.0).to(torch.uint8)
+                            p_u8 = torch.clamp(eval_pred.detach() * 255.0, 0.0, 255.0).to(
+                                torch.uint8
+                            )
+                            t_u8 = torch.clamp(eval_target.detach() * 255.0, 0.0, 255.0).to(
+                                torch.uint8
+                            )
                             if p_u8.shape[1] == 1:
                                 p_u8 = p_u8.repeat(1, 3, 1, 1)
                                 t_u8 = t_u8.repeat(1, 3, 1, 1)
                             chunk_size = 2
                             for c_idx in range(0, p_u8.size(0), chunk_size):
-                                p_chunk = p_u8[c_idx:c_idx + chunk_size]
-                                t_chunk = t_u8[c_idx:c_idx + chunk_size]
+                                p_chunk = p_u8[c_idx : c_idx + chunk_size]
+                                t_chunk = t_u8[c_idx : c_idx + chunk_size]
                                 fid_metric_module.update(t_chunk, real=True)
                                 fid_metric_module.update(p_chunk, real=False)
                             fid_batches_accumulated += 1
@@ -449,11 +486,22 @@ def validate_one_epoch(
                 any(k in sota_cfg for k in ("plcc", "srcc", "rank_margin"))
                 or ctx.model_info.get("dataset_type") == "quality"
             )
-            if is_quality_model and isinstance(preds, torch.Tensor) and isinstance(targets, torch.Tensor):
-                if preds.ndim >= 2 and targets.ndim >= 2 and preds.shape[-1] >= 10 and targets.shape[-1] >= 10:
+            if (
+                is_quality_model
+                and isinstance(preds, torch.Tensor)
+                and isinstance(targets, torch.Tensor)
+            ):
+                if (
+                    preds.ndim >= 2
+                    and targets.ndim >= 2
+                    and preds.shape[-1] >= 10
+                    and targets.shape[-1] >= 10
+                ):
                     try:
                         p_probs = torch.softmax(preds.float(), dim=-1)
-                        t_probs = targets.float() / torch.clamp(targets.float().sum(dim=-1, keepdim=True), min=1e-6)
+                        t_probs = targets.float() / torch.clamp(
+                            targets.float().sum(dim=-1, keepdim=True), min=1e-6
+                        )
                         rank_w = torch.arange(1, 11, dtype=torch.float32, device=preds.device)
                         p_mean = (p_probs * rank_w).sum(dim=-1).detach().cpu().numpy().tolist()
                         t_mean = (t_probs * rank_w).sum(dim=-1).detach().cpu().numpy().tolist()
@@ -462,7 +510,11 @@ def validate_one_epoch(
 
                         # Rank margin loss tracking
                         if preds.size(0) > 1 and "rank_margin" in sota_cfg:
-                            p_diff = preds.float()[:, 0] - preds.float()[:, 1] if preds.size(0) == 2 else None
+                            p_diff = (
+                                preds.float()[:, 0] - preds.float()[:, 1]
+                                if preds.size(0) == 2
+                                else None
+                            )
                             p_m_t = (p_probs * rank_w).sum(dim=-1)
                             t_m_t = (t_probs * rank_w).sum(dim=-1)
                             p_diff = p_m_t.unsqueeze(0) - p_m_t.unsqueeze(1)
@@ -472,7 +524,9 @@ def validate_one_epoch(
                             rank_loss = torch.relu(margin_val - t_sign * p_diff)
                             mask = (t_sign != 0).float()
                             if mask.sum() > 0:
-                                total_rank_margin_loss += float((rank_loss * mask).sum().item() / mask.sum().item())
+                                total_rank_margin_loss += float(
+                                    (rank_loss * mask).sum().item() / mask.sum().item()
+                                )
                                 rank_margin_count += 1
                     except _METRIC_ERRORS as exc:
                         logger.warning("Quality metrics evaluation error: %s", exc)
@@ -517,10 +571,16 @@ def validate_one_epoch(
                     logger.warning("Segmentation mIoU evaluation error: %s", exc)
 
             # 6. Object / Face Detection (retinaface, yolov8n)
-            has_det_cfg = any(k in sota_cfg for k in ("map50", "map50_95", "map_easy", "map_medium", "map_hard"))
+            has_det_cfg = any(
+                k in sota_cfg for k in ("map50", "map50_95", "map_easy", "map_medium", "map_hard")
+            )
             if has_det_cfg:
                 try:
-                    if isinstance(preds, (tuple, list)) and len(preds) >= 2 and isinstance(targets, torch.Tensor):
+                    if (
+                        isinstance(preds, (tuple, list))
+                        and len(preds) >= 2
+                        and isinstance(targets, torch.Tensor)
+                    ):
                         p_conf = preds[1] if isinstance(preds[1], torch.Tensor) else preds[0]
                         t_conf = targets[:, 0:1] if targets.ndim >= 2 else targets
                         conf_diff = torch.abs(torch.sigmoid(p_conf.float()) - t_conf.float()).mean()
@@ -539,7 +599,7 @@ def validate_one_epoch(
                 correct_forex_samples += int((pred_dir == dir_targets).sum().item())
 
                 # Directional trades: non-HOLD predictions (0 = SELL, 2 = BUY)
-                directional_mask = (pred_dir != 1)
+                directional_mask = pred_dir != 1
                 total_trades += int(directional_mask.sum().item())
                 winning_trades += int(((pred_dir == dir_targets) & directional_mask).sum().item())
 
@@ -595,10 +655,12 @@ def validate_one_epoch(
     is_llm_model = (
         getattr(ctx, "model_name", "").lower().startswith("ai_helper")
         or "llm" in getattr(ctx, "model_name", "").lower()
-        or getattr(ctx.model, "__class__", type(None)).__name__ in ("GenericCausalLLM", "AIHelperLemGend")
+        or getattr(ctx.model, "__class__", type(None)).__name__
+        in ("GenericCausalLLM", "AIHelperLemGend")
     )
     if is_llm_model and avg_loss < 20.0:
         import math
+
         try:
             results["perplexity"] = float(math.exp(avg_loss))
         except OverflowError:
@@ -611,7 +673,11 @@ def validate_one_epoch(
         if lpips_count > 0:
             results["lpips"] = total_lpips / lpips_count
 
-        if fid_metric_module is not None and fid_metric_module is not False and fid_batches_accumulated > 0:
+        if (
+            fid_metric_module is not None
+            and fid_metric_module is not False
+            and fid_batches_accumulated > 0
+        ):
             try:
                 fid_res = float(fid_metric_module.compute().item())
                 results["fid"] = max(0.0, fid_res)
@@ -619,7 +685,13 @@ def validate_one_epoch(
                 logger.warning("FID compute error: %s", exc)
 
     # Aggregate Quality metrics (NIMA)
-    if len(quality_preds_list) > 1 and len(quality_targets_list) > 1 and _HAS_SCIPY_STATS and pearsonr and spearmanr:
+    if (
+        len(quality_preds_list) > 1
+        and len(quality_targets_list) > 1
+        and _HAS_SCIPY_STATS
+        and pearsonr
+        and spearmanr
+    ):
         try:
             qp_arr = np.array(quality_preds_list, dtype=np.float64)
             qt_arr = np.array(quality_targets_list, dtype=np.float64)
@@ -706,17 +778,19 @@ def validate_one_epoch(
             - (max_drawdown * 20.0)
         )
 
-        results.update({
-            "dir_acc": dir_acc,
-            "win_rate": win_rate,
-            "profit_factor": profit_factor,
-            "sharpe_ratio": sharpe_ratio,
-            "sortino_ratio": sortino_ratio,
-            "max_drawdown": max_drawdown,
-            "tp_mae": tp_mae,
-            "sl_mae": sl_mae,
-            "dir_entropy": dir_entropy,
-            "quality_score": max(0.0, float(forex_quality)),
-        })
+        results.update(
+            {
+                "dir_acc": dir_acc,
+                "win_rate": win_rate,
+                "profit_factor": profit_factor,
+                "sharpe_ratio": sharpe_ratio,
+                "sortino_ratio": sortino_ratio,
+                "max_drawdown": max_drawdown,
+                "tp_mae": tp_mae,
+                "sl_mae": sl_mae,
+                "dir_entropy": dir_entropy,
+                "quality_score": max(0.0, float(forex_quality)),
+            }
+        )
 
     return results

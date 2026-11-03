@@ -92,7 +92,9 @@ class GDriveSyncManager:
                 retryable=False,
             )
 
-        logger.info("Google Drive REST API synchronization configured for folder ID %s", self.root_folder_id)
+        logger.info(
+            "Google Drive REST API synchronization configured for folder ID %s", self.root_folder_id
+        )
         return True
 
     def pull(self, remote_identifier: str, dest_dir: Path, **kwargs: Any) -> bool:
@@ -102,7 +104,9 @@ class GDriveSyncManager:
         if self.mount_root is not None and self.mount_root.exists():
             src_target = self.mount_root / "LemGendaryModels" / remote_identifier
             if src_target.exists():
-                logger.info("Pulling artifacts from mounted Google Drive: %s -> %s", src_target, dest_dir)
+                logger.info(
+                    "Pulling artifacts from mounted Google Drive: %s -> %s", src_target, dest_dir
+                )
                 try:
                     if src_target.is_file():
                         shutil.copy2(src_target, dest_dir / src_target.name)

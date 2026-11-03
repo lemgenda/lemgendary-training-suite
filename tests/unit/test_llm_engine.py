@@ -80,7 +80,9 @@ class TestLLMEngine(unittest.TestCase):
             unmasked_count = (labels != -100).sum().item()
 
             self.assertGreater(masked_count, 0, "System and user tokens must be masked with -100")
-            self.assertGreater(unmasked_count, 0, "Assistant response tokens must have valid supervised labels")
+            self.assertGreater(
+                unmasked_count, 0, "Assistant response tokens must have valid supervised labels"
+            )
 
     def test_collate_instruction_batch(self) -> None:
         """Verify dynamic batch padding and attention mask alignment."""

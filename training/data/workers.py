@@ -41,6 +41,7 @@ def compute_worker_topology(
     ram_gb = 16.0
     try:
         import psutil
+
         ram_gb = psutil.virtual_memory().total / (1024**3)
     except (ImportError, OSError) as exc:
         logger.debug("psutil unavailable for worker topology calculation: %s", exc)
@@ -94,7 +95,9 @@ def compute_worker_topology(
     pin_memory = dev.type == "cuda"
     persistent_workers = num_workers > 0 and ram_gb >= 16.0 and sys.platform != "win32"
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    prefetch_factor = (2 if (env in {"kaggle", "colab"} or world_size > 1) else 4) if num_workers > 0 else None
+    prefetch_factor = (
+        (2 if (env in {"kaggle", "colab"} or world_size > 1) else 4) if num_workers > 0 else None
+    )
 
     logger.info(
         "Worker topology computed: train_workers=%d, val_workers=%d, persistent=%s, pin_mem=%s, prefetch=%s",
@@ -158,6 +161,7 @@ def dataloader_worker_init_fn(worker_id: int) -> None:
     and BrokenPipeError during shutdown.
     """
     import signal
+
     try:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
     except (ValueError, OSError) as exc:

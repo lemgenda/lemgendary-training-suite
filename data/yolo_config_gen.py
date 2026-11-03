@@ -29,15 +29,86 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
     }
 
     COCO_CLASSES = [
-        "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-        "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-        "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-        "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-        "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-        "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-        "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-        "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-        "hair drier", "toothbrush",
+        "person",
+        "bicycle",
+        "car",
+        "motorcycle",
+        "airplane",
+        "bus",
+        "train",
+        "truck",
+        "boat",
+        "traffic light",
+        "fire hydrant",
+        "stop sign",
+        "parking meter",
+        "bench",
+        "bird",
+        "cat",
+        "dog",
+        "horse",
+        "sheep",
+        "cow",
+        "elephant",
+        "bear",
+        "zebra",
+        "giraffe",
+        "backpack",
+        "umbrella",
+        "handbag",
+        "tie",
+        "suitcase",
+        "frisbee",
+        "skis",
+        "snowboard",
+        "sports ball",
+        "kite",
+        "baseball bat",
+        "baseball glove",
+        "skateboard",
+        "surfboard",
+        "tennis racket",
+        "bottle",
+        "wine glass",
+        "cup",
+        "fork",
+        "knife",
+        "spoon",
+        "bowl",
+        "banana",
+        "apple",
+        "sandwich",
+        "orange",
+        "broccoli",
+        "carrot",
+        "hot dog",
+        "pizza",
+        "donut",
+        "cake",
+        "chair",
+        "couch",
+        "potted plant",
+        "bed",
+        "dining table",
+        "toilet",
+        "tv",
+        "laptop",
+        "mouse",
+        "remote",
+        "keyboard",
+        "cell phone",
+        "microwave",
+        "oven",
+        "toaster",
+        "sink",
+        "refrigerator",
+        "book",
+        "clock",
+        "vase",
+        "scissors",
+        "teddy bear",
+        "hair drier",
+        "toothbrush",
     ]
 
     names = class_map.get(model_key, ["object"])
@@ -58,7 +129,9 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
                 if c_names and len(c_names) >= 80 or c_names and model_key != "yolov8n":
                     names = c_names
             except (OSError, UnicodeDecodeError) as exc:
-                logger.warning("Could not read %s; keeping default class names: %s", classes_file, exc)
+                logger.warning(
+                    "Could not read %s; keeping default class names: %s", classes_file, exc
+                )
 
         if (resolved_path / "images" / "train").exists():
             rel_train = "images/train"
@@ -116,16 +189,21 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
     os.makedirs(cache_dir, exist_ok=True)
     temp_cfg_path = os.path.join(cache_dir, f"yolo_{model_key}_config.yaml")
 
-    legacy_hub_training_dir = os.path.join(os.path.dirname(suite_root), "LemGendaryModels", model_key, "training")
+    legacy_hub_training_dir = os.path.join(
+        os.path.dirname(suite_root), "LemGendaryModels", model_key, "training"
+    )
     if os.path.exists(legacy_hub_training_dir):
         try:
             shutil.rmtree(legacy_hub_training_dir)
         except OSError as exc:
-            logger.warning("Could not remove legacy hub training dir %s: %s", legacy_hub_training_dir, exc)
+            logger.warning(
+                "Could not remove legacy hub training dir %s: %s", legacy_hub_training_dir, exc
+            )
 
     with open(temp_cfg_path, "w", encoding="utf-8") as f:
         yaml.dump(yolo_cfg, f, default_flow_style=False)
 
-    print(f"[YOLO GEN] Dynamic config materialized for {model_key} with {len(names)} classes at {temp_cfg_path}.")
+    print(
+        f"[YOLO GEN] Dynamic config materialized for {model_key} with {len(names)} classes at {temp_cfg_path}."
+    )
     return temp_cfg_path
-

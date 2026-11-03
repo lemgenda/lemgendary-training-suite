@@ -44,9 +44,7 @@ def _schema_operations(routes: list, prefix: str = "") -> set[tuple[str, str]]:
     for route in routes:
         if isinstance(route, APIRoute):
             if route.include_in_schema:
-                operations.update(
-                    (method, prefix + route.path) for method in route.methods
-                )
+                operations.update((method, prefix + route.path) for method in route.methods)
         elif hasattr(route, "original_router"):
             context = route.include_context
             if context.include_in_schema:

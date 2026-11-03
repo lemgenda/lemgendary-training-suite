@@ -17,23 +17,28 @@ _OPTIONAL_IMPORT_ERRORS = (ImportError, OSError, RuntimeError, AttributeError)
 # --- Dynamic Architecture Registry (Task 10.2) ---
 _MODEL_REGISTRY = {}
 
+
 def register_model(name):
     def decorator(cls):
         _MODEL_REGISTRY[name] = cls
         return cls
+
     return decorator
+
 
 # Lazily import models to populate registry (Robust dependency shielding)
 def _populate_registry():
     # 1. Base Restoration & Core Models (Always available)
     try:
         from models.multitask_restorer import MultiTaskRestorer
+
         _MODEL_REGISTRY["MultiTaskRestorer"] = MultiTaskRestorer
     except _OPTIONAL_IMPORT_ERRORS as e:
         logger.warning("Failed to import %s: %s", "MultiTaskRestorer", e)
 
     try:
         from models.nima import AuthenticityScorer, NIMA_Model, UniversalClassifier
+
         _MODEL_REGISTRY["NIMA_Model"] = NIMA_Model
         _MODEL_REGISTRY["AuthenticityScorer"] = AuthenticityScorer
         _MODEL_REGISTRY["UniversalClassifier"] = UniversalClassifier
@@ -42,13 +47,14 @@ def _populate_registry():
 
     try:
         from models.forex_predictor import ForexPredictor
+
         _MODEL_REGISTRY["ForexPredictor"] = ForexPredictor
     except _OPTIONAL_IMPORT_ERRORS as e:
         logger.warning("Failed to import %s: %s", "ForexPredictor", e)
 
-
     try:
         from models.face_restoration import CodeFormer, ParseNet
+
         _MODEL_REGISTRY["CodeFormer"] = CodeFormer
         _MODEL_REGISTRY["ParseNet"] = ParseNet
     except _OPTIONAL_IMPORT_ERRORS as e:
@@ -56,6 +62,7 @@ def _populate_registry():
 
     try:
         from models.detection import RetinaFace_MobileNet
+
         _MODEL_REGISTRY["RetinaFace"] = RetinaFace_MobileNet
     except _OPTIONAL_IMPORT_ERRORS as e:
         logger.warning("Failed to import %s: %s", "Detection models", e)
@@ -72,24 +79,28 @@ def _populate_registry():
             UniversalFilmRestorer,
             UPN_v2_Model,
         )
-        _MODEL_REGISTRY.update({
-            "GenericRestoration": GenericRestorationModel,
-            "NAFNet": NAFNet,
-            "FFANet": FFANet,
-            "BranchedFFANet": BranchedFFANet,
-            "MIRNet": MIRNet_Proxy,
-            "MPRNet": MPRNet_Proxy,
-            "UltraZoom": UltraZoomModel,
-            "UltraZoomMaster": UltraZoomModel,
-            "UniversalFilmRestorer": UniversalFilmRestorer,
-            "UPN_v2": UPN_v2_Model
-        })
+
+        _MODEL_REGISTRY.update(
+            {
+                "GenericRestoration": GenericRestorationModel,
+                "NAFNet": NAFNet,
+                "FFANet": FFANet,
+                "BranchedFFANet": BranchedFFANet,
+                "MIRNet": MIRNet_Proxy,
+                "MPRNet": MPRNet_Proxy,
+                "UltraZoom": UltraZoomModel,
+                "UltraZoomMaster": UltraZoomModel,
+                "UniversalFilmRestorer": UniversalFilmRestorer,
+                "UPN_v2": UPN_v2_Model,
+            }
+        )
     except _OPTIONAL_IMPORT_ERRORS as e:
         logger.warning("Failed to import %s: %s", "Core Restoration models", e)
 
     # 2. Heavy Generative Models (May lack 'diffusers')
     try:
         from models.master_generative import Flux1_Master, StableDiffusionXL
+
         _MODEL_REGISTRY["StableDiffusionXL"] = StableDiffusionXL
         _MODEL_REGISTRY["Flux1_Master"] = Flux1_Master
     except _OPTIONAL_IMPORT_ERRORS as generative_err:
@@ -98,6 +109,7 @@ def _populate_registry():
     # 3. Heavy Multimodal Models (May lack 'transformers')
     try:
         from models.master_multimodal import BLIP_2, LLaVA_v1_5
+
         _MODEL_REGISTRY["LLaVA_v1_5"] = LLaVA_v1_5
         _MODEL_REGISTRY["BLIP_2"] = BLIP_2
     except _OPTIONAL_IMPORT_ERRORS as multimodal_err:
@@ -106,6 +118,7 @@ def _populate_registry():
     # 4. Causal Assistant Language Models
     try:
         from models.generic_causal_llm import AIHelperLemGend, GenericCausalLLM
+
         _MODEL_REGISTRY["GenericCausalLLM"] = GenericCausalLLM
         _MODEL_REGISTRY["AIHelperLemGend"] = AIHelperLemGend
     except _OPTIONAL_IMPORT_ERRORS as llm_err:
@@ -118,7 +131,11 @@ def get_model(model_key, config=None):
         _populate_registry()
 
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    unified_name = config.get("unified_models", "unified_models_v2.yaml") if config else "unified_models_v2.yaml"
+    unified_name = (
+        config.get("unified_models", "unified_models_v2.yaml")
+        if config
+        else "unified_models_v2.yaml"
+    )
     unified_models_path = os.path.join(project_root, unified_name)
 
     model_class_name = config.get("class_name") if isinstance(config, dict) else None
@@ -146,12 +163,17 @@ def get_model(model_key, config=None):
         kwargs = kwargs or {}
         try:
             sig = inspect.signature(cls.__init__)
-            has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-            filtered_kwargs = kwargs if has_var_kw else {k: v for k, v in kwargs.items() if k in sig.parameters}
+            has_var_kw = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            )
+            filtered_kwargs = (
+                kwargs if has_var_kw else {k: v for k, v in kwargs.items() if k in sig.parameters}
+            )
         except (ValueError, TypeError) as sig_err:
             logger.debug("Signature inspection failed for %s: %s", model_class_name, sig_err)
             filtered_kwargs = kwargs
         return cls(**filtered_kwargs)
 
-    raise ValueError(f" [FACTORY ERROR] Model architecture '{model_class_name}' not found or implemented.")
-
+    raise ValueError(
+        f" [FACTORY ERROR] Model architecture '{model_class_name}' not found or implemented."
+    )

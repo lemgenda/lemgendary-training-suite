@@ -114,7 +114,9 @@ def stretch_scheduler_runway(
             sched_dict["last_epoch"] = new_last
             sched_dict["_step_count"] = new_last + 1
 
-            if "_schedule_phases" in sched_dict and isinstance(sched_dict["_schedule_phases"], list):
+            if "_schedule_phases" in sched_dict and isinstance(
+                sched_dict["_schedule_phases"], list
+            ):
                 phases = list(sched_dict["_schedule_phases"])
                 for i, phase in enumerate(phases):
                     if isinstance(phase, dict) and "end_step" in phase:
@@ -126,12 +128,22 @@ def stretch_scheduler_runway(
                             phase["end_step"] = max(0, min(current_total_steps - 1, scaled_end))
                 sched_dict["_schedule_phases"] = phases
 
-            logger.info("Stretched scheduler runway: %d -> %d steps (last_epoch %d -> %d)", old_total, current_total_steps, old_last, new_last)
+            logger.info(
+                "Stretched scheduler runway: %d -> %d steps (last_epoch %d -> %d)",
+                old_total,
+                current_total_steps,
+                old_last,
+                new_last,
+            )
 
         elif expected_step is not None:
             old_last = sched_dict.get("last_epoch", 0)
             if old_last != expected_step:
-                logger.info("Re-anchoring de-synced scheduler step (%d vs expected %d)", old_last, expected_step)
+                logger.info(
+                    "Re-anchoring de-synced scheduler step (%d vs expected %d)",
+                    old_last,
+                    expected_step,
+                )
                 expected_clamped = max(0, min(current_total_steps - 1, expected_step))
                 sched_dict["last_epoch"] = expected_clamped
                 sched_dict["_step_count"] = expected_clamped + 1

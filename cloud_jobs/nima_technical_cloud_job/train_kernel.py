@@ -22,11 +22,15 @@ sys.path.insert(0, work_dir)
 # Launch Cloud Training with Auto-Sync
 print("[CLOUD] Launching SOTA Matrix for >> nima_technical <<...")
 cmd = [
-    sys.executable, "-m", "training.train",
-    "--model", "nima_technical",
-    "--env", "kaggle",
+    sys.executable,
+    "-m",
+    "training.train",
+    "--model",
+    "nima_technical",
+    "--env",
+    "kaggle",
     "--auto_sync",
-    "--yes"
+    "--yes",
 ]
 subprocess.run(cmd)
 print("[CLOUD] Training Execution Completed.")

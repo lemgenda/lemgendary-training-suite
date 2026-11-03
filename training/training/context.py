@@ -75,4 +75,3 @@ class TrainingContext:
     metadata: dict[str, Any] = field(default_factory=dict)
     _resumed_val_handled: bool = False
     _resumed_val_step_handled: bool = False
-

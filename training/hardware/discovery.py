@@ -11,6 +11,7 @@ logger = logging.getLogger("lemtrain.hardware.discovery")
 @dataclass(frozen=True)
 class DeviceInfo:
     """Hardware device capabilities and memory profile."""
+
     device: torch.device
     device_type: str
     device_count: int
@@ -28,7 +29,7 @@ _CACHED_DEVICE_INFO: dict[str | None, DeviceInfo] = {}
 def discover_device(force_device: str | None = None) -> DeviceInfo:
     """
     Probe host hardware and select the optimal execution accelerator.
-    
+
     Checks CUDA, Apple Silicon (MPS), Intel XPU, DirectML, and falls back to CPU.
     """
     if force_device in _CACHED_DEVICE_INFO:
@@ -70,18 +71,27 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             del probe
         except RuntimeError as exc:
             err_msg = str(exc)
-            if "no kernel image is available" in err_msg or "cudaErrorNoKernelImageForDevice" in err_msg:
+            if (
+                "no kernel image is available" in err_msg
+                or "cudaErrorNoKernelImageForDevice" in err_msg
+            ):
                 logger.error(
                     "No CUDA kernel image available for %s (Compute Capability sm_%d%d). "
                     "Current PyTorch binary lacks kernels for this architecture.",
-                    names[0], cap[0], cap[1]
+                    names[0],
+                    cap[0],
+                    cap[1],
                 )
                 raise RuntimeError(f"CUDA kernel image incompatibility on {names[0]}") from exc
             logger.warning("Pre-flight CUDA probe raised non-fatal exception: %s", exc)
 
         logger.info(
             "Discovered %d CUDA GPU(s): %s (Compute sm_%d%d) | Total VRAM: %.1f GB",
-            count, ", ".join(names), cap[0], cap[1], vram
+            count,
+            ", ".join(names),
+            cap[0],
+            cap[1],
+            vram,
         )
         info = DeviceInfo(
             device=device,
@@ -98,7 +108,11 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
         return info
 
     # 2. Apple Silicon (Metal)
-    if hasattr(torch, "mps") and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    if (
+        hasattr(torch, "mps")
+        and hasattr(torch.backends, "mps")
+        and torch.backends.mps.is_available()
+    ):
         logger.info("Discovered Apple Silicon Metal (MPS) acceleration.")
         info = DeviceInfo(
             device=torch.device("mps"),

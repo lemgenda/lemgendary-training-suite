@@ -30,7 +30,11 @@ def export_llm_tri_format(
     max_seq_length: int = 512,
 ) -> dict[str, Path]:
     """Export Causal LLM into all 3 required isolated Kaggle variations."""
-    target_dir = Path(output_dir).resolve() if output_dir else Path(f"../LemGendaryModels/{model_key}").resolve()
+    target_dir = (
+        Path(output_dir).resolve()
+        if output_dir
+        else Path(f"../LemGendaryModels/{model_key}").resolve()
+    )
     target_dir.mkdir(parents=True, exist_ok=True)
 
     dist_dir = target_dir / "dist" / "kaggle"
@@ -87,16 +91,16 @@ def export_llm_tri_format(
                 (dummy_input, dummy_mask),
                 str(fp32_onnx_path),
                 input_names=["input_ids", "attention_mask"],
-            output_names=["logits"],
-            dynamic_axes={
-                "input_ids": {0: "batch", 1: "sequence"},
-                "attention_mask": {0: "batch", 1: "sequence"},
-                "logits": {0: "batch", 1: "sequence"},
-            },
-            opset_version=17,
-            do_constant_folding=True,
-            dynamo=False,
-        )
+                output_names=["logits"],
+                dynamic_axes={
+                    "input_ids": {0: "batch", 1: "sequence"},
+                    "attention_mask": {0: "batch", 1: "sequence"},
+                    "logits": {0: "batch", 1: "sequence"},
+                },
+                opset_version=17,
+                do_constant_folding=True,
+                dynamo=False,
+            )
 
         onnx_model = onnx.load(str(fp32_onnx_path))
         onnx.external_data_helper.convert_model_to_external_data(
@@ -135,8 +139,14 @@ class LLMModelExporter(BaseModelExporter):
         if resolved_spec:
             cat = (resolved_spec.category or "").lower()
             d_type = resolved_spec.dataset_type
-            d_types = [x.lower() for x in d_type] if isinstance(d_type, list) else [(d_type or "").lower()]
-            return cat == "llm" or "text_instruction" in d_types or "llm" in resolved_spec.key.lower()
+            d_types = (
+                [x.lower() for x in d_type]
+                if isinstance(d_type, list)
+                else [(d_type or "").lower()]
+            )
+            return (
+                cat == "llm" or "text_instruction" in d_types or "llm" in resolved_spec.key.lower()
+            )
         return "llm" in model_key.lower() or "ai_helper" in model_key.lower()
 
     def export(

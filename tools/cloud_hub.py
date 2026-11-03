@@ -29,11 +29,15 @@ class LemGendaryCloudHub:
         """Register newly connected node."""
         self.connected_nodes.add(websocket)
         logging.info("Node connected. Total nodes: %d", len(self.connected_nodes))
-        await websocket.send(json.dumps({
-            "type": "SYNC_STATE",
-            "global_epoch": self.global_epoch,
-            "global_lr": self.global_lr,
-        }))
+        await websocket.send(
+            json.dumps(
+                {
+                    "type": "SYNC_STATE",
+                    "global_epoch": self.global_epoch,
+                    "global_lr": self.global_lr,
+                }
+            )
+        )
 
     async def unregister(self, websocket: Any) -> None:
         """Unregister disconnected node."""
@@ -59,20 +63,32 @@ class LemGendaryCloudHub:
             elif msg_type == "LR_RECOIL":
                 logging.warning("Learning Rate Recoil broadcasted by node: %s", data.get("lr"))
                 self.global_lr = data.get("lr")
-                websockets.broadcast(self.connected_nodes, json.dumps({
-                    "type": "LR_RECOIL_SYNC",
-                    "global_lr": self.global_lr,
-                }))
+                websockets.broadcast(
+                    self.connected_nodes,
+                    json.dumps(
+                        {
+                            "type": "LR_RECOIL_SYNC",
+                            "global_lr": self.global_lr,
+                        }
+                    ),
+                )
 
             elif msg_type == "GRADIENT_PUSH":
                 self.accumulated_gradients += 1
-                logging.info("Federated gradient chunk received. Total: %d", self.accumulated_gradients)
+                logging.info(
+                    "Federated gradient chunk received. Total: %d", self.accumulated_gradients
+                )
                 if self.accumulated_gradients >= max(1, len(self.connected_nodes)):
                     logging.info("Broadcasting unified average-sync gradient vector to all nodes.")
-                    websockets.broadcast(self.connected_nodes, json.dumps({
-                        "type": "GRADIENT_AVERAGE_SYNC",
-                        "status": "success",
-                    }))
+                    websockets.broadcast(
+                        self.connected_nodes,
+                        json.dumps(
+                            {
+                                "type": "GRADIENT_AVERAGE_SYNC",
+                                "status": "success",
+                            }
+                        ),
+                    )
                     self.accumulated_gradients = 0
 
         except json.JSONDecodeError:

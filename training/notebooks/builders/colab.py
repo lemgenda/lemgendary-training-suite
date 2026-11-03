@@ -46,7 +46,9 @@ def generate_colab_inference_notebook(
     **extra_kwargs: Any,
 ) -> str | None:
     """Generate a nuclear-hardened training execution notebook for Google Colab."""
-    is_legacy = isinstance(unified_models_registry, (str, Path)) and not isinstance(unified_models_registry, dict)
+    is_legacy = isinstance(unified_models_registry, (str, Path)) and not isinstance(
+        unified_models_registry, dict
+    )
     if extra_args or is_legacy:
         # Legacy call signature: (pascal_name, model_key, output_path)
         actual_model_key = str(export_dir)
@@ -59,6 +61,7 @@ def generate_colab_inference_notebook(
         reg = unified_models_registry if isinstance(unified_models_registry, dict) else None
         if not reg:
             from ..registry import load_registry
+
             reg = load_registry(config=config)
         meta = resolve_model_metadata(actual_model_key, reg, config)
 
@@ -76,14 +79,18 @@ def generate_colab_inference_notebook(
         "nbformat_minor": 4,
         "nbformat": 4,
         "cells": [
-            make_markdown_cell([
-                f"# LemGendary Master Execution: {meta.pascal_name} (v16.2.9 Nuclear-Hardened Colab Edition)\n",
-                "This unified notebook handles environment synchronization and automated cloud training.\n",
-            ]),
-            make_markdown_cell([
-                "## 1. Hardware Sentinel\n",
-                "Ensure the manifold has the required hardware acceleration.\n",
-            ]),
+            make_markdown_cell(
+                [
+                    f"# LemGendary Master Execution: {meta.pascal_name} (v16.2.9 Nuclear-Hardened Colab Edition)\n",
+                    "This unified notebook handles environment synchronization and automated cloud training.\n",
+                ]
+            ),
+            make_markdown_cell(
+                [
+                    "## 1. Hardware Sentinel\n",
+                    "Ensure the manifold has the required hardware acceleration.\n",
+                ]
+            ),
             build_sentinel_cell("colab"),
             make_markdown_cell(["## 2. Cloud Auth & Secrets\n"]),
             build_secrets_cell("colab"),
@@ -93,10 +100,12 @@ def generate_colab_inference_notebook(
             build_install_cell("colab"),
             make_markdown_cell(["## 5. SOTA Hub Synchronization (Pull)\n"]),
             build_hub_prep_cell(meta, "colab"),
-            make_markdown_cell([
-                "## 6. Google Drive Mount\n",
-                "Mount Google Drive FUSE for streaming datasets directly.\n",
-            ]),
+            make_markdown_cell(
+                [
+                    "## 6. Google Drive Mount\n",
+                    "Mount Google Drive FUSE for streaming datasets directly.\n",
+                ]
+            ),
             build_fuse_mount_cell(),
             make_markdown_cell(["## 7. Kaggle Dataset Acquisition & Manifold Resolution\n"]),
             build_symlink_cell(meta, "colab"),
@@ -106,7 +115,9 @@ def generate_colab_inference_notebook(
             build_continuous_sync_cell(meta),
             make_markdown_cell(["## 10. Nuclear Training Matrix\n"]),
             build_training_cell(meta, "colab"),
-            make_markdown_cell(["## 11. SOTA Models Hub & Google Drive Publishing (4 Variations)\n"]),
+            make_markdown_cell(
+                ["## 11. SOTA Models Hub & Google Drive Publishing (4 Variations)\n"]
+            ),
             build_push_cell(meta, "colab"),
         ],
     }
@@ -124,7 +135,9 @@ def generate_colab_inference_notebook(
         model_key=actual_model_key,
         json_str=json_str,
         filename=output_filename,
-        unified_models_registry=unified_models_registry if isinstance(unified_models_registry, dict) else None,
+        unified_models_registry=unified_models_registry
+        if isinstance(unified_models_registry, dict)
+        else None,
     )
 
     sync_workspace_training_notebook(
@@ -154,26 +167,34 @@ def generate_colab_usage_notebook(
         "nbformat_minor": 4,
         "nbformat": 4,
         "cells": [
-            make_markdown_cell([
-                f"# LemGendary SOTA Usage: {meta.pascal_name}\n",
-                "Implementation guide for production-grade model integration.\n",
-            ]),
-            make_markdown_cell([
-                "## 1. PyTorch Standalone (FP32)\n",
-                "Best for local research, further training, or high-fidelity Python backends. "
-                "This format includes the full architecture definition.\n",
-            ]),
+            make_markdown_cell(
+                [
+                    f"# LemGendary SOTA Usage: {meta.pascal_name}\n",
+                    "Implementation guide for production-grade model integration.\n",
+                ]
+            ),
+            make_markdown_cell(
+                [
+                    "## 1. PyTorch Standalone (FP32)\n",
+                    "Best for local research, further training, or high-fidelity Python backends. "
+                    "This format includes the full architecture definition.\n",
+                ]
+            ),
             build_pth_cell(meta),
-            make_markdown_cell([
-                "## 2. ONNX Matrix (FP32 + External Weights)\n",
-                "Optimized for desktop deployment where precision is critical. "
-                "Uses a decoupled `.data` file for stability.\n",
-            ]),
+            make_markdown_cell(
+                [
+                    "## 2. ONNX Matrix (FP32 + External Weights)\n",
+                    "Optimized for desktop deployment where precision is critical. "
+                    "Uses a decoupled `.data` file for stability.\n",
+                ]
+            ),
             build_onnx_fp32_cell(meta),
-            make_markdown_cell([
-                "## 3. ONNX Production (FP16 Embedded)\n",
-                "Production-ready standalone matrix. Optimized for WebGPU, mobile, and low-latency edge inference.\n",
-            ]),
+            make_markdown_cell(
+                [
+                    "## 3. ONNX Production (FP16 Embedded)\n",
+                    "Production-ready standalone matrix. Optimized for WebGPU, mobile, and low-latency edge inference.\n",
+                ]
+            ),
             build_onnx_fp16_cell(meta),
         ],
     }

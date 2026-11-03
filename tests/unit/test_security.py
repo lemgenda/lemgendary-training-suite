@@ -92,9 +92,7 @@ class TestOriginGuard(unittest.TestCase):
         self.assertIn(CLIENT_HEADER, resp.json()["detail"])
 
     def test_gui_origin_write_with_wrong_header_refused(self) -> None:
-        resp = self.client.post(
-            "/write", headers={"Origin": GUI_ORIGIN, CLIENT_HEADER: "other"}
-        )
+        resp = self.client.post("/write", headers={"Origin": GUI_ORIGIN, CLIENT_HEADER: "other"})
         self.assertEqual(resp.status_code, 403)
 
     def test_gui_origin_write_with_header_allowed(self) -> None:
@@ -207,9 +205,7 @@ class TestServerWiring(unittest.TestCase):
         self.assertNotIn("CORSMiddleware", APP_SOURCE.read_text(encoding="utf-8"))
 
     def test_token_header_comes_from_security_module(self) -> None:
-        key_headers = [
-            call for call in self._calls() if self._name(call.func) == "APIKeyHeader"
-        ]
+        key_headers = [call for call in self._calls() if self._name(call.func) == "APIKeyHeader"]
         self.assertEqual(len(key_headers), 1)
         name_kw = next(kw for kw in key_headers[0].keywords if kw.arg == "name")
         self.assertIsInstance(name_kw.value, ast.Name)

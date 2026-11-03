@@ -99,6 +99,7 @@ def wrap_quality_model(model: nn.Module, model_info: dict[str, Any]) -> nn.Modul
     if model_info.get("dataset_type") == "quality":
         try:
             from models.nima import SoftmaxWrapper
+
             temp_raw = getattr(model, "softmax_temp", torch.tensor(1.0))
             temp = float(temp_raw.item() if isinstance(temp_raw, torch.Tensor) else temp_raw)
             if temp == 1.0:

@@ -52,16 +52,18 @@ def list_models(request: Request) -> list[dict[str, Any]]:
     registry = _load_registry(root)
     results: list[dict[str, Any]] = []
     for k, info in registry.items():
-        results.append({
-            "model_key": k,
-            "name": info.get("name", k),
-            "class_name": info.get("class_name"),
-            "category": info.get("category", "general"),
-            "resolution": info.get("resolution"),
-            "batch_size": info.get("batch_size"),
-            "checkpoint": info.get("checkpoint"),
-            "status": info.get("status", "VALIDATED"),
-        })
+        results.append(
+            {
+                "model_key": k,
+                "name": info.get("name", k),
+                "class_name": info.get("class_name"),
+                "category": info.get("category", "general"),
+                "resolution": info.get("resolution"),
+                "batch_size": info.get("batch_size"),
+                "checkpoint": info.get("checkpoint"),
+                "status": info.get("status", "VALIDATED"),
+            }
+        )
     return sorted(results, key=lambda x: x["model_key"])
 
 
@@ -121,7 +123,9 @@ def generate_model_docs(model_key: str, request: Request) -> dict[str, Any]:
     except (ImportError, OSError, ValueError, yaml.YAMLError) as e:
         # ValueError includes MetadataValidationError raised for invalid/missing registry metadata.
         logger.error("Failed generating docs for %s: %s", model_key, e)
-        raise HTTPException(status_code=500, detail=f"Failed generating docs for '{model_key}': {e}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed generating docs for '{model_key}': {e}"
+        ) from e
 
 
 @router.post("/{model_key}/export/stage")
@@ -148,7 +152,9 @@ def stage_model_variations(model_key: str, request: Request) -> dict[str, Any]:
         }
     except (ImportError, OSError, ValueError) as e:
         logger.error("Failed staging variations for %s: %s", model_key, e)
-        raise HTTPException(status_code=500, detail=f"Failed staging variations for '{model_key}': {e}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed staging variations for '{model_key}': {e}"
+        ) from e
 
 
 @router.get("/{model_key}/variations/validate")
@@ -182,4 +188,6 @@ def validate_model_variations(model_key: str, request: Request) -> dict[str, Any
         }
     except (ImportError, OSError, ValueError) as e:
         logger.error("Failed validating variations for %s: %s", model_key, e)
-        raise HTTPException(status_code=500, detail=f"Failed validating variations for '{model_key}': {e}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed validating variations for '{model_key}': {e}"
+        ) from e

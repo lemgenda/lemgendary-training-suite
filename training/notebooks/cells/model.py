@@ -12,7 +12,9 @@ from .base import make_code_cell
 
 def build_hub_prep_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
     """Build the model hub structure initialization code cell."""
-    hub_root = "/kaggle/working/LemGendaryModels" if target == "kaggle" else "/content/LemGendaryModels"
+    hub_root = (
+        "/kaggle/working/LemGendaryModels" if target == "kaggle" else "/content/LemGendaryModels"
+    )
     source = [
         "import os\n",
         f"hub_root = '{hub_root}'\n",
@@ -35,7 +37,9 @@ def build_hub_prep_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
     return make_code_cell(source)
 
 
-def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
+def build_checkpoint_recovery_cell(
+    meta: ModelNotebookMeta, target: str = "kaggle"
+) -> dict[str, Any]:
     """Build the deep checkpoint and metrics recovery code cell."""
     if target == "kaggle":
         source = [
@@ -266,7 +270,9 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
 
 def build_stealth_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
     """Build the stealth model loading and hydration code cell."""
-    hub_root = "/kaggle/working/LemGendaryModels" if target == "kaggle" else "/content/LemGendaryModels"
+    hub_root = (
+        "/kaggle/working/LemGendaryModels" if target == "kaggle" else "/content/LemGendaryModels"
+    )
     source = [
         "import os, base64, torch, shutil\n",
         f"model_key = '{meta.model_key}'\n",

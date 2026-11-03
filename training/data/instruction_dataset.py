@@ -20,13 +20,21 @@ from torch.utils.data import Dataset
 logger = logging.getLogger("lemtrain.data.instruction")
 
 # Failure modes of tokenizer.apply_chat_template (missing/invalid template, bad message shape).
-_CHAT_TEMPLATE_ERRORS: tuple[type[BaseException], ...] = (ValueError, TypeError, KeyError, IndexError, RuntimeError)
+_CHAT_TEMPLATE_ERRORS: tuple[type[BaseException], ...] = (
+    ValueError,
+    TypeError,
+    KeyError,
+    IndexError,
+    RuntimeError,
+)
 try:
     import jinja2
 
     _CHAT_TEMPLATE_ERRORS = (*_CHAT_TEMPLATE_ERRORS, jinja2.TemplateError)
 except ImportError as _jinja_err:
-    logger.debug("jinja2 unavailable; chat template errors limited to builtin types: %s", _jinja_err)
+    logger.debug(
+        "jinja2 unavailable; chat template errors limited to builtin types: %s", _jinja_err
+    )
 
 
 class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
@@ -173,9 +181,15 @@ def collate_instruction_batch(
         pad_len = max_len - cur_len
 
         if pad_len > 0:
-            padded_ids = torch.cat([item["input_ids"], torch.full((pad_len,), pad_token_id, dtype=torch.long)])
-            padded_mask = torch.cat([item["attention_mask"], torch.zeros(pad_len, dtype=torch.long)])
-            padded_labels = torch.cat([item["labels"], torch.full((pad_len,), -100, dtype=torch.long)])
+            padded_ids = torch.cat(
+                [item["input_ids"], torch.full((pad_len,), pad_token_id, dtype=torch.long)]
+            )
+            padded_mask = torch.cat(
+                [item["attention_mask"], torch.zeros(pad_len, dtype=torch.long)]
+            )
+            padded_labels = torch.cat(
+                [item["labels"], torch.full((pad_len,), -100, dtype=torch.long)]
+            )
         else:
             padded_ids = item["input_ids"]
             padded_mask = item["attention_mask"]

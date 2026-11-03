@@ -47,7 +47,9 @@ class GitHubSyncManager:
         """
         run_cwd = cwd or self.hub_root
         cmd = ["git"] + args
-        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+        cflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+        )
         try:
             res = subprocess.run(
                 cmd,
@@ -89,7 +91,9 @@ class GitHubSyncManager:
             logger.info("Hub repository not initialized at %s. Skipping Git sync.", self.hub_root)
             return False
 
-        is_cloud = bool(os.environ.get("KAGGLE_WORKING_DIR") or "/kaggle/working" in str(self.hub_root))
+        is_cloud = bool(
+            os.environ.get("KAGGLE_WORKING_DIR") or "/kaggle/working" in str(self.hub_root)
+        )
         if not self.pat and is_cloud:
             logger.warning("GITHUB_PAT missing in cloud environment. Skipping push.")
             return False
@@ -120,7 +124,11 @@ class GitHubSyncManager:
             logger.info("Attempting atomic Git push (Try %d/%d)...", attempt, max_retries)
             push_code, _, push_err = self.run_git(["push", "origin", branch])
             if push_code == 0:
-                logger.info("Successfully pushed manifold artifacts to GitHub (%s/%s).", self.hub_user, self.hub_repo)
+                logger.info(
+                    "Successfully pushed manifold artifacts to GitHub (%s/%s).",
+                    self.hub_user,
+                    self.hub_repo,
+                )
                 return True
 
             logger.warning("Push collision detected: %s. Rebase-syncing...", push_err.strip())
@@ -149,7 +157,9 @@ class GitHubSyncManager:
         if self.pat:
             clone_url = f"https://{self.pat}@github.com/{self.hub_user}/{remote_identifier}.git"
 
-        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+        cflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+        )
         try:
             res = subprocess.run(
                 ["git", "clone", "--depth", "1", clone_url, str(dest_dir)],
@@ -176,7 +186,9 @@ class GitHubSyncManager:
     def probe_health(self) -> dict[str, Any]:
         """Verify Git installation, hub directory existence, and credentials."""
         git_installed = False
-        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+        cflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+        )
         try:
             res = subprocess.run(
                 ["git", "--version"],
@@ -185,7 +197,7 @@ class GitHubSyncManager:
                 timeout=5,
                 creationflags=cflags,
             )
-            git_installed = (res.returncode == 0)
+            git_installed = res.returncode == 0
         except OSError as exc:
             logger.debug("git executable not available: %s", exc)
 
@@ -206,4 +218,3 @@ def git_hub_sync(
     """Synchronize repository path to GitHub model hub."""
     mgr = GitHubSyncManager(hub_root=Path(repo_path))
     return mgr.sync(model_name="checkpoint", epoch=1, src_dir=Path(repo_path))
-

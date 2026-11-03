@@ -57,6 +57,7 @@ class TestNotebookSubsystem(unittest.TestCase):
         self.project_root = get_project_root()
 
         import yaml
+
         config_path = self.project_root / "config.yaml"
         self.config: dict[str, Any] = {}
         if config_path.exists():
@@ -184,16 +185,22 @@ class TestNotebookSubsystem(unittest.TestCase):
         with open(nb_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         self.assertEqual(data.get("nbformat"), 4, f"Invalid nbformat in {nb_path.name}")
-        self.assertGreaterEqual(data.get("nbformat_minor", 0), 2, f"Invalid nbformat_minor in {nb_path.name}")
+        self.assertGreaterEqual(
+            data.get("nbformat_minor", 0), 2, f"Invalid nbformat_minor in {nb_path.name}"
+        )
         self.assertIn("cells", data, f"Missing cells in {nb_path.name}")
         cells = data["cells"]
-        self.assertGreater(len(cells), 5, f"Notebook {nb_path.name} has too few cells ({len(cells)})")
+        self.assertGreater(
+            len(cells), 5, f"Notebook {nb_path.name} has too few cells ({len(cells)})"
+        )
 
         cell_types = [c.get("cell_type") for c in cells]
         self.assertIn("markdown", cell_types, f"No markdown cells in {nb_path.name}")
         self.assertIn("code", cell_types, f"No code cells in {nb_path.name}")
         for idx, cell in enumerate(cells):
-            self.assertIn(cell.get("cell_type"), ("code", "markdown"), f"Invalid cell type at index {idx}")
+            self.assertIn(
+                cell.get("cell_type"), ("code", "markdown"), f"Invalid cell type at index {idx}"
+            )
             self.assertIn("source", cell, f"Missing source in cell {idx}")
             self.assertIsInstance(cell["source"], list, f"Cell source should be list in cell {idx}")
 
@@ -213,7 +220,9 @@ class TestNotebookSubsystem(unittest.TestCase):
 
         gen_cells = gen_data["cells"]
         base_cells = base_data["cells"]
-        self.assertEqual(len(gen_cells), len(base_cells), f"Cell count mismatch in {generated_path.name}")
+        self.assertEqual(
+            len(gen_cells), len(base_cells), f"Cell count mismatch in {generated_path.name}"
+        )
 
         for i, (g_cell, b_cell) in enumerate(zip(gen_cells, base_cells)):
             self.assertEqual(
@@ -263,7 +272,10 @@ class TestNotebookSubsystem(unittest.TestCase):
         """Verify that lemgendary-datasets delegates to training suite SSOT notebook generator."""
         ds_repo = Path(__file__).resolve().parent.parent.parent.parent / "lemgendary-datasets"
         manifold_compile_path = ds_repo / "core" / "manifold_compile.py"
-        self.assertTrue(manifold_compile_path.exists(), f"manifold_compile.py missing at: {manifold_compile_path}")
+        self.assertTrue(
+            manifold_compile_path.exists(),
+            f"manifold_compile.py missing at: {manifold_compile_path}",
+        )
 
         # Verify that manifold_compile.py declares the SSOT dynamic import
         with open(manifold_compile_path, "r", encoding="utf-8") as f:
@@ -282,7 +294,9 @@ class TestNotebookSubsystem(unittest.TestCase):
         out_dir.mkdir(parents=True, exist_ok=True)
 
         p_train = generate_training_notebook(model_key, str(out_dir), self.registry, self.config)
-        p_colab = generate_colab_training_notebook(model_key, str(out_dir), self.registry, self.config)
+        p_colab = generate_colab_training_notebook(
+            model_key, str(out_dir), self.registry, self.config
+        )
 
         self.assertIsNotNone(p_train)
         self.assertIsNotNone(p_colab)
@@ -297,4 +311,3 @@ class TestNotebookSubsystem(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

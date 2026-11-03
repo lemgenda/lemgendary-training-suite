@@ -61,9 +61,7 @@ def main(argv: list[str] | None = None) -> int:
 
     rendered = render_openapi(build_schema())
     if args.check:
-        current = (
-            OPENAPI_FILE.read_text(encoding="utf-8") if OPENAPI_FILE.exists() else ""
-        )
+        current = OPENAPI_FILE.read_text(encoding="utf-8") if OPENAPI_FILE.exists() else ""
         if current != rendered:
             print(
                 "openapi.json is out of date; run: python tools/export_openapi.py",
