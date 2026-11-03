@@ -51,6 +51,12 @@ EXPORT_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+def spec_dataset_types(spec: ModelSpecification) -> list[str]:
+    """Lower-cased dataset type(s) of a model specification (``[""]`` when unset)."""
+    d_type = spec.dataset_type
+    return [x.lower() for x in d_type] if isinstance(d_type, list) else [(d_type or "").lower()]
+
+
 class BaseModelExporter(ABC):
     """Abstract interface for all model exporters."""
 

@@ -7,6 +7,7 @@ implementation based on architecture type, category, and model key.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import ClassVar
 
 from training.export.base import BaseModelExporter
@@ -19,6 +20,7 @@ from training.registry import ModelSpecification, get_model_registry
 logger = logging.getLogger("lemtrain.export.factory")
 
 
+@dataclass(frozen=True)
 class ExporterFactory:
     """Factory creating and resolving concrete model exporters."""
 

@@ -41,12 +41,7 @@ def export_webgpu_onnx(
     dummy_input = torch.randn(dummy_input_shape, device=model_device(model_to_export))
 
     try:
-        run_onnx_export(
-            model_to_export,
-            (dummy_input,),
-            out_file,
-            OnnxGraphSpec(opset=opset),
-        )
+        run_onnx_export(model_to_export, (dummy_input,), out_file, OnnxGraphSpec(opset=opset))
         logger.info("WebGPU ONNX export successful! Opset: %d, Shape: %s", opset, dummy_input_shape)
         return True
     except Exception as exc:

@@ -16,6 +16,7 @@ from training.export.common import (
     ExportError,
     OnnxGraphSpec,
     extract_input_dimensions,
+    load_checkpoint_weights,
     resolve_checkpoint_file,
     resolve_export_paths,
     wrap_quality_model,
@@ -98,13 +99,7 @@ def _load_export_model(
     if ckpt_file and ckpt_file.exists():
         logger.info("Loading weights from checkpoint: %s", ckpt_file)
         ckpt = torch.load(str(ckpt_file), map_location="cpu", weights_only=False)
-        raw_state = (
-            ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
-            if isinstance(ckpt, dict)
-            else ckpt
-        )
-        state_dict = {k.removeprefix("module."): v for k, v in raw_state.items()}
-        model.load_state_dict(state_dict, strict=False)
+        load_checkpoint_weights(model, ckpt)
 
     model.eval()
     return wrap_quality_model(model, model_info)
