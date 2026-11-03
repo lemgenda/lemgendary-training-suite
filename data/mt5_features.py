@@ -93,7 +93,47 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     high = np.asarray(df["high"], dtype=np.float64)
     low = np.asarray(df["low"], dtype=np.float64)
 
-    computed_ta = False
+    if not _ta_indicators(df, close):
+        _manual_indicators(df, close, high, low)
+
+    df.fillna(0.0, inplace=True)
+    df.replace([np.inf, -np.inf], 0.0, inplace=True)
+
+    # Session encoding: cyclical hour-of-day (works for both datetime index and 'time' column)
+    hour_norm = np.asarray(_bar_hours(df), dtype=np.float64) / 23.0 * 2.0 * np.pi
+    df["session_sin"] = np.sin(hour_norm).tolist()
+    df["session_cos"] = np.cos(hour_norm).tolist()
+
+    _add_regime_features(df)
+
+    df.fillna(0.0, inplace=True)
+    df.replace([np.inf, -np.inf], 0.0, inplace=True)
+    return df
+
+
+def _ta_columns(columns) -> tuple:
+    """Names of the RSI, MACD, MACD signal, ATR and upper/lower Bollinger columns (or None)."""
+    rsi_col = next((c for c in columns if c.upper().startswith("RSI_")), None)
+    macd_col = next(
+        (
+            c
+            for c in columns
+            if "MACD_" in c.upper() and "H" not in c.upper() and "S" not in c.upper()
+        ),
+        None,
+    )
+    macds_col = next((c for c in columns if "MACDS_" in c.upper()), None)
+    atr_col = next(
+        (c for c in columns if c.upper().startswith("ATRR_") or c.upper().startswith("ATR")),
+        None,
+    )
+    bbu_col = next((c for c in columns if "BBU_" in c.upper()), None)
+    bbl_col = next((c for c in columns if "BBL_" in c.upper()), None)
+    return rsi_col, macd_col, macds_col, atr_col, bbu_col, bbl_col
+
+
+def _ta_indicators(df: pd.DataFrame, close: np.ndarray) -> bool:
+    """Write the five indicator columns with pandas-ta; False when it is unusable."""
     try:
         ta = load_pandas_ta()
 
@@ -110,28 +150,9 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
             axis=1,
         )
 
-        rsi_col = next((c for c in df_ta.columns if c.upper().startswith("RSI_")), None)
-        macd_col = next(
-            (
-                c
-                for c in df_ta.columns
-                if "MACD_" in c.upper() and "H" not in c.upper() and "S" not in c.upper()
-            ),
-            None,
-        )
-        macds_col = next((c for c in df_ta.columns if "MACDS_" in c.upper()), None)
-        atr_col = next(
-            (
-                c
-                for c in df_ta.columns
-                if c.upper().startswith("ATRR_") or c.upper().startswith("ATR")
-            ),
-            None,
-        )
-        bbu_col = next((c for c in df_ta.columns if "BBU_" in c.upper()), None)
-        bbl_col = next((c for c in df_ta.columns if "BBL_" in c.upper()), None)
-
-        if rsi_col and macd_col and macds_col and atr_col and bbu_col and bbl_col:
+        cols = _ta_columns(df_ta.columns)
+        if all(cols):
+            rsi_col, macd_col, macds_col, atr_col, bbu_col, bbl_col = cols
             df["rsi"] = (np.asarray(df_ta[rsi_col], dtype=np.float64) / 100.0).tolist()
             df["macd"] = (np.asarray(df_ta[macd_col], dtype=np.float64) / (close + 1e-8)).tolist()
             df["macd_signal"] = (
@@ -145,40 +166,41 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
                 )
                 / (close + 1e-8)
             ).tolist()
-            computed_ta = True
+            return True
     except ImportError as exc:
         logger.debug("pandas_ta_classic not installed; using manual indicators: %s", exc)
-        computed_ta = False
     except (AttributeError, ValueError, KeyError, TypeError) as exc:
         # pandas_ta accessor missing or incompatible with the installed pandas/numpy.
         logger.warning(
             "pandas_ta_classic indicator computation failed; using manual indicators: %s", exc
         )
-        computed_ta = False
+    return False
 
-    if not computed_ta:
-        df["rsi"] = _rsi_manual(close, 14).tolist()
-        macd_line, sig = _macd_manual(close, 12, 26, 9)
-        df["macd"] = (macd_line / (close + 1e-8)).tolist()
-        df["macd_signal"] = (sig / (close + 1e-8)).tolist()
-        df["atr"] = (_atr_manual(high, low, close, 14) / (close + 1e-8)).tolist()
-        df["bb_width"] = (_bbwidth_manual(close, 20, 2) / (close + 1e-8)).tolist()
 
-    df.fillna(0.0, inplace=True)
-    df.replace([np.inf, -np.inf], 0.0, inplace=True)
+def _manual_indicators(
+    df: pd.DataFrame, close: np.ndarray, high: np.ndarray, low: np.ndarray
+) -> None:
+    """Write the five indicator columns with the NumPy fallbacks."""
+    df["rsi"] = _rsi_manual(close, 14).tolist()
+    macd_line, sig = _macd_manual(close, 12, 26, 9)
+    df["macd"] = (macd_line / (close + 1e-8)).tolist()
+    df["macd_signal"] = (sig / (close + 1e-8)).tolist()
+    df["atr"] = (_atr_manual(high, low, close, 14) / (close + 1e-8)).tolist()
+    df["bb_width"] = (_bbwidth_manual(close, 20, 2) / (close + 1e-8)).tolist()
 
-    # Session encoding: cyclical hour-of-day (works for both datetime index and 'time' column)
+
+def _bar_hours(df: pd.DataFrame) -> list:
+    """Hour of day per bar from the 'time' column or a datetime index (0 otherwise)."""
     if "time" in df.columns:
         time_vals = df["time"].tolist()
-        hours = [pd.Timestamp(t).hour for t in time_vals]
-    elif isinstance(df.index, pd.DatetimeIndex):
-        hours = list(df.index.hour)
-    else:
-        hours = [0.0] * len(df)
-    hour_norm = np.asarray(hours, dtype=np.float64) / 23.0 * 2.0 * np.pi
-    df["session_sin"] = np.sin(hour_norm).tolist()
-    df["session_cos"] = np.cos(hour_norm).tolist()
+        return [pd.Timestamp(t).hour for t in time_vals]
+    if isinstance(df.index, pd.DatetimeIndex):
+        return list(df.index.hour)
+    return [0.0] * len(df)
 
+
+def _add_regime_features(df: pd.DataFrame) -> None:
+    """Add ``atr_percentile`` and ``bar_range_ratio`` from the raw (unnormalized) ATR."""
     # Volatility regime features using the already-computed raw ATR
     raw_atr = _atr_manual(
         np.asarray(df["high"], dtype=np.float64),
@@ -197,10 +219,6 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     high_arr = np.asarray(df["high"], dtype=np.float64)
     low_arr = np.asarray(df["low"], dtype=np.float64)
     df["bar_range_ratio"] = ((high_arr - low_arr) / (raw_atr + 1e-8)).astype(np.float32).tolist()
-
-    df.fillna(0.0, inplace=True)
-    df.replace([np.inf, -np.inf], 0.0, inplace=True)
-    return df
 
 
 def _rsi_manual(close: np.ndarray, period: int = 14) -> np.ndarray:
@@ -270,23 +288,16 @@ def generate_labels(
         US500/USTEC/GER40/USOIL: index-specific pip sizes
         Others: 0.0001 pip size
     """
-    if any(x in pair for x in ["JPY"]):
-        pip_size = 0.01
-    elif "XAU" in pair:
-        pip_size = 0.1
-    elif any(x in pair for x in ["US500", "USTEC", "GER40"]):
-        pip_size = 1.0
-    elif "USOIL" in pair or "XAG" in pair:
-        pip_size = 0.01
-    else:
-        pip_size = 0.0001
+    pip_size = _pip_size(pair)
 
     # Per-pair average spread in pips for realistic label economics
     spread_pips = PAIR_SPREADS_PIPS.get(pair, 2.0)
 
-    close_arr = np.asarray(df["close"], dtype=np.float64)
-    high_arr = np.asarray(df["high"], dtype=np.float64)
-    low_arr = np.asarray(df["low"], dtype=np.float64)
+    bars = (
+        np.asarray(df["close"], dtype=np.float64),
+        np.asarray(df["high"], dtype=np.float64),
+        np.asarray(df["low"], dtype=np.float64),
+    )
     n = len(df)
 
     directions = np.ones(n, dtype=np.int64)  # Default: Sideways
@@ -294,11 +305,7 @@ def generate_labels(
     sl_pips = np.zeros(n, dtype=np.float32)
 
     for i in range(n - horizon):
-        entry = close_arr[i]
-        fut_high = high_arr[i + 1 : i + 1 + horizon].max()
-        fut_low = low_arr[i + 1 : i + 1 + horizon].min()
-        up_move = (fut_high - entry) / pip_size
-        down_move = (entry - fut_low) / pip_size
+        up_move, down_move = _future_moves(bars, i, horizon, pip_size)
 
         # Spread-adjusted magnitudes: TP shrinks (spread cost), SL grows (spread widens stop)
         tp_pips[i] = max(0.0, float(up_move) - spread_pips)
@@ -315,6 +322,30 @@ def generate_labels(
     df["tp_pips"] = tp_pips.tolist()
     df["sl_pips"] = sl_pips.tolist()
     return df
+
+
+def _pip_size(pair: str) -> float:
+    """Price change of one pip for ``pair``."""
+    if any(x in pair for x in ["JPY"]):
+        return 0.01
+    if "XAU" in pair:
+        return 0.1
+    if any(x in pair for x in ["US500", "USTEC", "GER40"]):
+        return 1.0
+    if "USOIL" in pair or "XAG" in pair:
+        return 0.01
+    return 0.0001
+
+
+def _future_moves(bars: tuple, i: int, horizon: int, pip_size: float) -> tuple:
+    """Peak up and down moves (pips) within ``horizon`` bars after bar ``i``."""
+    close_arr, high_arr, low_arr = bars
+    entry = close_arr[i]
+    fut_high = high_arr[i + 1 : i + 1 + horizon].max()
+    fut_low = low_arr[i + 1 : i + 1 + horizon].min()
+    up_move = (fut_high - entry) / pip_size
+    down_move = (entry - fut_low) / pip_size
+    return up_move, down_move
 
 
 def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:

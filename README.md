@@ -11,11 +11,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.95-STABLE` |
+| **Version** | `v16.9.96-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.96 - MT5 Feature Engineering Split into Steps
+
+- **`data/mt5_features.py`**: `compute_indicators` (24 local variables, 57 statements, a 6-term `and` chain) now calls `_ta_indicators` (pandas-ta path; column lookup in `_ta_columns`, checked with `all()`), `_manual_indicators` (NumPy fallback), `_bar_hours` (session encoding) and `_add_regime_features` (ATR percentile, bar range ratio). `generate_labels` (19 local variables) takes the pip size from `_pip_size` and the per-bar moves from `_future_moves`. The file has no design-check findings left (4 before).
+- **`.pylintrc`**: `too-many-boolean-expressions` is enabled again; it has no findings left.
+- **Behaviour is unchanged**: an old-vs-new comparison ran 3,000 random OHLCV frames (0 to 150 bars, `time` column, datetime index or neither, missing closes, ten pairs, three horizons and thresholds) through `compute_indicators`, `generate_labels` and `normalize_ohlcv` with pandas-ta missing, faked, faked with a missing column, returning `None` or raising; every output column, dtype and value, the input frame, exceptions and log records were identical.
+- **Tests**: 289 passed.
 
 ### v16.9.95 - Dataset Discovery Split into Lookup Steps
 

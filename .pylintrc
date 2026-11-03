@@ -14,7 +14,6 @@ disable=
     too-many-positional-arguments,
     too-many-instance-attributes,
     too-many-nested-blocks,
-    too-many-boolean-expressions,
 
 [REPORTS]
 output-format=text
