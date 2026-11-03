@@ -11,11 +11,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.85-STABLE` |
+| **Version** | `v16.9.86-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.86 - Training Context Builder Split into Phases
+
+- **`training/core_loop.py`** (926 -> 552 lines): `build_training_context` was 605 lines with 109 local variables, 76 branches and 10 levels of nesting. It is now 55 lines that call one function per phase: `resolve_run` (configs, device, hardware policy, directories), `build_model_stack`, `build_criterion`, `resolve_batch_size`, `build_data` and `resume_from_checkpoint`. Config loading, path layout, `--clean`, task type, epoch budget and the resume budget extension are small named functions. `main` reuses `load_workspace_config` for the YOLO path. Two mojibake comment dashes are now plain text.
+- **`training/context_data.py`** (new): `RunSpec` (the resolved run inputs), batch-size resolution, the Forex, instruction and image dataset builders, and the train and validation loader builders. The Forex row-group sampler arguments are shared by the first build and the resume rebuild.
+- **`training/context_resume.py`** (new): checkpoint selection, weight, optimizer and scheduler restore, governor restore, `metrics.csv` reconciliation, train-loader resynchronization and SOTA best-quality carry-over. Data-fraction and resolution assignments are moved unchanged.
+- **Behaviour is unchanged**: an old-vs-new comparison ran 500 randomized scenarios through both versions with recording fakes for every collaborator (task types, CLI and configured batch sizes, `--clean`, `--reset-scheduler`, checkpoint sets with corrupt, empty and partial entries, fixed modification times, governor and optimizer restore failures, malformed `metrics.csv` rows, empty or failing validation splits, instruction JSONL fallbacks). Calls, arguments, returned context, stdout, log records and files on disk were identical in all 500.
+- **Tests**: 260 passed.
 
 ### v16.9.85 - MultiTaskDataset Item Builders per Task Type
 
