@@ -160,7 +160,7 @@ def _forex_datasets(spec: RunSpec, sample_fraction: float):
 
 
 def datasets_root(spec: RunSpec) -> Path:
-    """``paths.datasets_root`` of ``config.yaml``; a relative value is taken from the project root."""
+    """``paths.datasets_root`` of ``config.yaml``; relative values start at the project root."""
     root = Path(str(spec.config.get("paths", {}).get("datasets_root") or DEFAULT_DATASETS_ROOT))
     return root if root.is_absolute() else spec.project_root / root
 

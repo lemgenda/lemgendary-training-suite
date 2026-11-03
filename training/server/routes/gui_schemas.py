@@ -77,7 +77,8 @@ class ModelWithStats(BaseModel):
     task_type: str = "general"
     canonical_format: str | None = None
     parameters_m: float | None = Field(
-        None, description="Parameter count in millions from the registry; null when unknown"
+        default=None,
+        description="Parameter count in millions from the registry; null when unknown",
     )
     spatial_ladder: list[int] = Field(default_factory=list)
     ladder_type: LadderType = "spatial"

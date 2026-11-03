@@ -76,7 +76,7 @@ class TestVersionConsumers(unittest.TestCase):
     def test_console_script_target_resolves(self) -> None:
         """``[project.scripts] lemtrain`` names an importable, packaged callable."""
         text = PYPROJECT_FILE.read_text(encoding="utf-8")
-        match = re.search(r'^lemtrain\s*=\s*"(?P<module>[\w.]+):(?P<attr>\w+)"', text, re.M)
+        match = re.search(r'^lemtrain\s*=\s*"(?P<module>[\w.]+):(?P<attr>\w+)"', text, re.MULTILINE)
         if match is None:
             self.fail("pyproject.toml declares no lemtrain console script")
         self.assertTrue(match.group("module").startswith("training."))

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 from unittest import mock
 
 import torch
@@ -23,7 +23,7 @@ from training.training.val_summary import summarize
 class _RecordingFid:
     """Records constructor arguments and every ``update`` call."""
 
-    instances: list[_RecordingFid] = []
+    instances: ClassVar[list[_RecordingFid]] = []
     fail_fake_update = False
 
     def __init__(self, **kwargs: Any) -> None:
