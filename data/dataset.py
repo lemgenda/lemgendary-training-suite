@@ -1,15 +1,11 @@
 """Universal multi-task image dataset backed by dataset manifolds and container readers."""
 
-import io
 import json
 import logging
 import math
 import multiprocessing
 import os
 import random
-import subprocess
-import sys
-import zipfile
 from typing import Any
 
 import numpy as np
@@ -19,13 +15,13 @@ from PIL import Image, ImageFile
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-from training.data.containers import resolve_container_reader
+from data.dataset_containers import DatasetContainerMixin
+from data.dataset_sources import DatasetSourcesMixin
 from training.data.degrade import (
     apply_film_degradation,
     apply_synthetic_degradation,
     synthesize_degradation,
 )
-from training.data.manifold import ManifoldResolver
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
 
@@ -35,7 +31,7 @@ logger = logging.getLogger("lemtrain.dataset")
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1152]
 
 
-class MultiTaskDataset(Dataset):
+class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin):
     """
     Nuclear-Hardened Universal Dataset (v16.0).
     Implements Fallback Shields, LANCZOS scaling, and stratified distribution analytics.
@@ -88,7 +84,7 @@ class MultiTaskDataset(Dataset):
         self.all_samples = []
         self.path_cache = {}
         self._container_readers: dict[str, Any] = {}
-        self._load_manifest(config)
+        self.load_manifest(config)
 
         self.nima_scores = {}
         if self.model_key == "nima_authenticity":
@@ -104,179 +100,6 @@ class MultiTaskDataset(Dataset):
                         logger.debug("Failed loading NIMA index from %s: %s", idx_path, nima_err)
 
         self.build_transforms()
-
-    def _get_split_path(self, ds_path, folder_name, fname, ext=""):
-        base_name = os.path.splitext(fname)[0] if ext else fname
-        suffix = ext if ext else ""
-        cands = [
-            os.path.join(ds_path, folder_name, self.split, base_name + suffix),
-            os.path.join(
-                ds_path,
-                folder_name,
-                ("val" if self.split == "train" else "train"),
-                base_name + suffix,
-            ),
-            os.path.join(ds_path, folder_name, base_name + suffix),
-            os.path.join(ds_path, self.split, folder_name, base_name + suffix),
-            os.path.join(ds_path, self.split, base_name + suffix),
-            os.path.join(ds_path, base_name + suffix),
-        ]
-        for c in cands:
-            if os.path.exists(c):
-                return c
-        return cands[0]
-
-    def _load_manifest(self, config):
-        self.all_samples = []
-        self.samples = []
-        if self.env == "kaggle" and config.get("debug", False):
-            print("[SYNC] [DEBUG] Mounted datasets in /kaggle/input:")
-            try:
-                if os.path.exists("/kaggle/input"):
-                    for d in os.listdir("/kaggle/input"):
-                        d_path = os.path.join("/kaggle/input", d)
-                        if os.path.isdir(d_path):
-                            print(f"  -> {d} contains: {os.listdir(d_path)[:10]}")
-                            for sub in os.listdir(d_path):
-                                sub_path = os.path.join(d_path, sub)
-                                if os.path.isdir(sub_path):
-                                    try:
-                                        print(
-                                            f"      -> {sub} contains: {os.listdir(sub_path)[:5]}"
-                                        )
-                                    except OSError as sub_err:
-                                        logger.debug("Failed listing %s: %s", sub_path, sub_err)
-                else:
-                    print("  -> /kaggle/input does not exist!")
-            except OSError as list_err:
-                print("  -> Error listing /kaggle/input:", list_err)
-
-        raw_dataset_names = self.model_info.get("datasets", [])
-        if isinstance(raw_dataset_names, str):
-            raw_dataset_names = [raw_dataset_names]
-        elif not isinstance(raw_dataset_names, list):
-            raw_dataset_names = []
-        if not raw_dataset_names:
-            raw_dataset_names = [self.model_key]
-
-        suffix = (
-            "KaggleReady"
-            if self.env == "kaggle"
-            else config.get("execution", {})
-            .get("suffixes", {})
-            .get(config.get("execution", {}).get("mode", "training"), "")
-        )
-        # 2026 Resilience: auto-add the 'LemGendized' prefix; guard against double-suffixing
-        dataset_names = []
-        for name in raw_dataset_names:
-            dataset_names.append(name)
-            ds_entry = name if (suffix and name.endswith(suffix)) else f"{name}{suffix}"
-            if ds_entry not in dataset_names:
-                dataset_names.append(ds_entry)
-            if not name.lower().startswith("lemgendized"):
-                lem_name = f"LemGendized{name}"
-                if lem_name not in dataset_names:
-                    dataset_names.append(lem_name)
-                lem_entry = f"LemGendized{ds_entry}"
-                if lem_entry not in dataset_names:
-                    dataset_names.append(lem_entry)
-
-        loaded_paths = set()
-        for ds_name in dataset_names:
-            ds_path = self.get_dataset_path(ds_name)
-            if ds_path is None or ds_path in loaded_paths:
-                continue
-            loaded_paths.add(ds_path)
-            self.path_cache[ds_name] = ds_path
-            # 2026: Parameter prediction loads from targets/ (clean source images)
-            tgt_dir = None
-            if self.task_type == "parameter_prediction":
-                img_dir = os.path.join(ds_path, "targets", self.split)
-                if not os.path.exists(img_dir):
-                    img_dir = os.path.join(ds_path, "images", self.split)
-            else:
-                img_dir = os.path.join(ds_path, "images", self.split)
-                tgt_dir = os.path.join(ds_path, "targets", self.split)
-
-            if self.task_type == "parameter_prediction":
-                scan_dir = img_dir
-            else:
-                scan_dir = img_dir if os.path.exists(img_dir) else tgt_dir
-
-            if not scan_dir or not os.path.exists(scan_dir):
-                continue
-
-            items = os.listdir(scan_dir)
-            files = [f for f in items if f.lower().endswith((".jpg", ".png", ".jpeg", ".webp"))]
-            if not files:
-                for root_dir, _, sub_files in os.walk(scan_dir):
-                    for sf in sub_files:
-                        if sf.lower().endswith((".jpg", ".png", ".jpeg", ".webp")):
-                            files.append(
-                                os.path.relpath(os.path.join(root_dir, sf), scan_dir).replace(
-                                    "\\", "/"
-                                )
-                            )
-            for f in files:
-                self.all_samples.append((ds_name, f))
-
-        # Kaggle dynamic discovery: Train on whichever datasets are attached in /kaggle/input
-        if (self.env == "kaggle" or os.path.exists("/kaggle/input")) and not self.all_samples:
-            resolver = ManifoldResolver(env=self.env, config=config)
-            attached_manifolds = resolver.scan_kaggle_input_manifolds()
-            if attached_manifolds:
-                if os.environ.get("RANK", "0") == "0":
-                    print(
-                        f"\n[KAGGLE] Auto-discovered {len(attached_manifolds)} attached "
-                        "dataset manifold(s) in /kaggle/input:"
-                    )
-                    for m_path in attached_manifolds:
-                        print(f"  -> {m_path}")
-                for m_path in attached_manifolds:
-                    m_str = str(m_path)
-                    loaded_paths.add(m_str)
-                    ds_key = m_path.name
-                    self.path_cache[ds_key] = m_str
-                    for sub in ["images", "targets", "shards", "train", "val"]:
-                        sub_dir = (
-                            os.path.join(m_str, sub, self.split)
-                            if os.path.exists(os.path.join(m_str, sub, self.split))
-                            else os.path.join(m_str, sub)
-                        )
-                        if os.path.exists(sub_dir):
-                            items = [
-                                f
-                                for f in os.listdir(sub_dir)
-                                if f.lower().endswith((".jpg", ".png", ".jpeg", ".webp"))
-                            ]
-                            if not items:
-                                for root_dir, _, sub_files in os.walk(sub_dir):
-                                    for sf in sub_files:
-                                        if sf.lower().endswith((".jpg", ".png", ".jpeg", ".webp")):
-                                            items.append(
-                                                os.path.relpath(
-                                                    os.path.join(root_dir, sf), sub_dir
-                                                ).replace("\\", "/")
-                                            )
-                            for f in items:
-                                self.all_samples.append((ds_key, f))
-                            if items:
-                                break
-
-        # Container-format fallback: if no directory samples found, try ContainerReader.
-        if not self.all_samples:
-            self._try_load_container_samples(loaded_paths)
-
-        self._apply_sample_fraction()
-
-    def _apply_sample_fraction(self) -> None:
-        """Apply deterministic curriculum sample-fraction slicing to ``self.all_samples``."""
-        self.samples = list(self.all_samples)
-        if self.is_train and self.sample_fraction < 1.0 and self.samples:
-            rng = random.Random(42)
-            rng.shuffle(self.samples)
-            target_count = max(1, int(len(self.samples) * float(self.sample_fraction)))
-            self.samples = self.samples[:target_count]
 
     def build_transforms(self):
         """Build ``self.transform`` (resize, augmentation, tensor conversion) for this task."""
@@ -356,224 +179,6 @@ class MultiTaskDataset(Dataset):
                 ]
             )
 
-    def _try_load_container_samples(self, loaded_paths: set) -> None:
-        """Attempt container-format loading when no directory images are found.
-
-        Iterates over already-resolved dataset paths and uses ``resolve_container_reader``
-        to detect WebDataset, Parquet, MDS, or LitData layouts. Builds a synthetic
-        ``all_samples`` index as ``(ds_name, int_index)`` tuples and stores an active
-        ``ContainerReader`` per dataset in ``self._container_readers``.
-        """
-        for ds_name, ds_path in self.path_cache.items():
-            if ds_path is None or ds_path not in loaded_paths:
-                continue
-            try:
-                reader = resolve_container_reader(ds_path, split=self.split)
-                count = len(reader)
-                if count == 0:
-                    reader.close()
-                    continue
-                self._container_readers[ds_name] = reader
-                for idx in range(count):
-                    self.all_samples.append((ds_name, idx))
-                logger.info(
-                    "Container reader resolved for '%s': %s (%d samples)",
-                    ds_name,
-                    type(reader).__name__,
-                    count,
-                )
-                if os.environ.get("RANK", "0") == "0":
-                    print(
-                        f"[CONTAINER] Resolved {type(reader).__name__} for '{ds_name}': "
-                        f"{count} samples ({self.split} split)"
-                    )
-            except (FileNotFoundError, OSError, ValueError) as exc:
-                logger.debug("Container reader failed for '%s': %s", ds_name, exc)
-                if self.split == "train":
-                    print(
-                        f"[CONTAINER] Notice: Container reader for '{ds_name}' "
-                        f"({self.split} split): {exc}"
-                    )
-
-    def get_dataset_path(self, ds_name):
-        """Resolve the on-disk directory for dataset ``ds_name`` in the current environment.
-
-        Exits the process when a Colab run cannot locate a required dataset.
-        """
-        resolver = ManifoldResolver(env=self.env, config=self.config)
-        resolved = resolver.resolve_manifold(ds_name)
-        if resolved is not None:
-            return str(resolved)
-
-        model_info = self.unified_models.get(self.model_key, {})
-        gdrive_id = model_info.get("google_drive_dataset_id")
-
-        if self.env == "colab":
-            # Priority 1: Check downloaded Kaggle dataset in /content/LemGendaryDatasets
-            colab_ds_root = "/content/LemGendaryDatasets"
-            cand = os.path.join(colab_ds_root, ds_name)
-            if os.path.exists(cand) and (
-                os.path.exists(os.path.join(cand, "images"))
-                or os.path.exists(os.path.join(cand, "targets"))
-                or any(f.endswith((".parquet", ".csv")) for f in os.listdir(cand))
-            ):
-                return cand
-            if hasattr(self, "data_root") and os.path.exists(self.data_root):
-                cand = os.path.join(self.data_root, ds_name)
-                if os.path.exists(cand):
-                    return cand
-            # Check case-insensitive in colab_ds_root
-            if os.path.exists(colab_ds_root):
-                try:
-                    for item in os.listdir(colab_ds_root):
-                        if item.lower() == ds_name.lower():
-                            cand = os.path.join(colab_ds_root, item)
-                            if os.path.exists(cand):
-                                return cand
-                except OSError as exc:
-                    logger.warning(
-                        "Case-insensitive scan of %s failed for %s: %s", colab_ds_root, ds_name, exc
-                    )
-            # Priority 2: Check Google Drive mount
-            drive_path = f"/content/drive/MyDrive/LemGendaryDatasets/{ds_name}"
-            if os.path.exists(drive_path):
-                return drive_path
-            if gdrive_id:
-                if not os.path.exists(drive_path):
-                    print(
-                        f"\n[ERROR] Colab requires dataset at {cand} "
-                        f"or Google Drive at {drive_path}"
-                    )
-                    sys.exit(1)
-                return drive_path
-            # Priority 3: Fallback check anywhere in /content/LemGendaryDatasets
-            if os.path.exists(colab_ds_root):
-                cand = os.path.join(colab_ds_root, ds_name)
-                if os.path.exists(cand):
-                    return cand
-            print(
-                f"\n[ERROR] Colab could not locate dataset '{ds_name}' in {colab_ds_root} "
-                "or Google Drive."
-            )
-            sys.exit(1)
-
-        elif self.env == "kaggle":
-            # Priority 1: Check symlinked data_root (/kaggle/working/LemGendaryDatasets)
-            if hasattr(self, "data_root") and os.path.exists(self.data_root):
-                cand = os.path.join(self.data_root, ds_name)
-                if (
-                    os.path.exists(os.path.join(cand, "images"))
-                    or os.path.exists(os.path.join(cand, "targets"))
-                    or os.path.exists(os.path.join(cand, "shards"))
-                ):
-                    return cand
-                try:
-                    for item in os.listdir(self.data_root):
-                        if item.lower() == ds_name.lower():
-                            cand = os.path.join(self.data_root, item)
-                            if (
-                                os.path.exists(os.path.join(cand, "images"))
-                                or os.path.exists(os.path.join(cand, "targets"))
-                                or os.path.exists(os.path.join(cand, "shards"))
-                            ):
-                                return cand
-                except OSError as exc:
-                    logger.warning(
-                        "Case-insensitive scan of %s failed for %s: %s",
-                        self.data_root,
-                        ds_name,
-                        exc,
-                    )
-
-            # Priority 2: Scan /kaggle/input for attached manifolds (directory or container format)
-            if os.path.exists("/kaggle/input"):
-                attached = resolver.scan_kaggle_input_manifolds()
-                if attached:
-                    target = (
-                        ds_name.lower()
-                        .replace("-", "")
-                        .replace("_", "")
-                        .replace("lemgendized", "")
-                        .replace("lemgendary", "")
-                    )
-                    for suffix in ["kaggleready", "large", "mini"]:
-                        target = target.replace(suffix, "")
-
-                    # Exact or fuzzy match against attached manifolds
-                    for cand_path in attached:
-                        cand_name = (
-                            cand_path.name.lower()
-                            .replace("-", "")
-                            .replace("_", "")
-                            .replace("lemgendized", "")
-                            .replace("lemgendary", "")
-                        )
-                        cand_parent = (
-                            cand_path.parent.name.lower()
-                            .replace("-", "")
-                            .replace("_", "")
-                            .replace("lemgendized", "")
-                            .replace("lemgendary", "")
-                        )
-                        if target and (target in cand_name or target in cand_parent):
-                            return str(cand_path)
-
-                    # Dynamic Fallback: Auto-bind attached Kaggle dataset manifold
-                    logger.info(
-                        "Auto-bound attached Kaggle dataset '%s' for target '%s'",
-                        attached[0],
-                        ds_name,
-                    )
-                    return str(attached[0])
-
-            print(f"\n[WARNING] No attached dataset found for '{ds_name}' in Kaggle /kaggle/input!")
-            print("Please attach the dataset to your Kaggle Notebook.")
-            return None
-
-        else:  # Local Environment
-            # Priority 1: Check Local Root
-            path = os.path.join(self.data_root, ds_name)
-            if os.path.exists(os.path.join(path, "images")) or os.path.exists(
-                os.path.join(path, "targets")
-            ):
-                return path
-
-            if os.path.exists(self.data_root):
-                try:
-                    for item in os.listdir(self.data_root):
-                        if item.lower() == ds_name.lower():
-                            cand = os.path.join(self.data_root, item)
-                            if os.path.exists(os.path.join(cand, "images")) or os.path.exists(
-                                os.path.join(cand, "targets")
-                            ):
-                                return cand
-                except OSError as local_err:
-                    logger.debug("Failed listing local data root: %s", local_err)
-
-            # Priority 2: Use gdown
-            if gdrive_id:
-                print(
-                    "\n[DATA] Local dataset not found. Falling back to gdown from Google Drive "
-                    f"(ID: {gdrive_id})..."
-                )
-                os.makedirs(self.data_root, exist_ok=True)
-                dest = os.path.join(self.data_root, f"{ds_name}.zip")
-                result = subprocess.run(
-                    [sys.executable, "-m", "gdown", "--id", gdrive_id, "-O", dest], check=False
-                )
-                if result.returncode != 0:
-                    logger.warning(
-                        "gdown exited with code %d for dataset %s", result.returncode, ds_name
-                    )
-                if os.path.exists(dest):
-                    print(f"[DATA] Extracting {dest}...")
-                    with zipfile.ZipFile(dest, "r") as zip_ref:
-                        zip_ref.extractall(self.data_root)
-                    os.remove(dest)
-                    return os.path.join(self.data_root, ds_name)
-
-            return None
-
     def load_image(self, img_path):
         """Fallback Shield: Returns Neutral-Gray tensor on I/O failure (Task 9.1)."""
         try:
@@ -587,124 +192,6 @@ class MultiTaskDataset(Dataset):
     def __len__(self):
         return len(self.samples)
 
-    def _getitem_container(self, ds_name: str, idx: int):
-        """Fetch and decode a sample from a ContainerReader-backed dataset."""
-        reader = self._container_readers[ds_name]
-        try:
-            sample = reader[idx]
-        except (IndexError, OSError, RuntimeError) as exc:
-            logger.debug("Container read failed for %s[%d]: %s", ds_name, idx, exc)
-            return self._get_sync_dummy()
-
-        # Decode image bytes.
-        try:
-            img = Image.open(io.BytesIO(sample.image_bytes)).convert("RGB")
-        except (OSError, ValueError) as dec_err:
-            logger.debug("Image decode failed for %s[%d]: %s", ds_name, idx, dec_err)
-            img = Image.new("RGB", self.size, (128, 128, 128))
-
-        # Decode target bytes if present.
-        target_img = None
-        if sample.target_bytes:
-            try:
-                target_img = Image.open(io.BytesIO(sample.target_bytes)).convert("RGB")
-            except (OSError, ValueError) as tdec_err:
-                logger.debug("Target decode failed for %s[%d]: %s", ds_name, idx, tdec_err)
-
-        seed = random.randint(0, 2**32 - 1)
-        random.seed(seed)
-        torch.manual_seed(seed)
-        img_tensor = self.transform(img)
-
-        if self.task_type in ("restoration", "enhancement", "face"):
-            model_info = self.unified_models.get(self.model_key, {})
-            needs_syn = getattr(self, "needs_synthesis", False) or model_info.get(
-                "needs_synthesis", False
-            )
-
-            if target_img is not None:
-                random.seed(seed)
-                torch.manual_seed(seed)
-                target_tensor = self.transform(target_img)
-            elif needs_syn or self.task_type in ("restoration", "face"):
-                # Clean container sample: synthesize realistic input degradation on-the-fly
-                clean_target = img
-                degraded_input = synthesize_degradation(clean_target)
-                random.seed(seed)
-                torch.manual_seed(seed)
-                target_tensor = self.transform(clean_target)
-                random.seed(seed)
-                torch.manual_seed(seed)
-                img_tensor = self.transform(degraded_input)
-            else:
-                random.seed(seed)
-                torch.manual_seed(seed)
-                target_tensor = self.transform(img)
-            return img_tensor, target_tensor, self.task_type
-
-        if self.task_type == "quality":
-            label = sample.label
-            if isinstance(label, (list, tuple)) and len(label) >= 10:
-                score_tensor = torch.tensor(label[:10], dtype=torch.float32)
-            elif isinstance(label, (int, float)):
-                score_tensor = torch.zeros(10, dtype=torch.float32)
-            else:
-                score_tensor = torch.zeros(10, dtype=torch.float32)
-            return img_tensor, score_tensor, "quality"
-
-        if self.task_type == "classification":
-            label = sample.label
-            class_idx = 0
-            if isinstance(label, (int, float)):
-                class_idx = int(label)
-            elif isinstance(label, str):
-                if label.isdigit():
-                    class_idx = int(label)
-                else:
-                    classes_file = os.path.join(self.path_cache.get(ds_name, ""), "classes.txt")
-                    if os.path.exists(classes_file):
-                        try:
-                            with open(classes_file, "r", encoding="utf-8") as cf:
-                                c_lines = [line.strip() for line in cf if line.strip()]
-                            if label in c_lines:
-                                class_idx = c_lines.index(label)
-                        except (OSError, UnicodeDecodeError) as exc:
-                            logger.warning(
-                                "Could not read %s; using class index 0 for %r: %s",
-                                classes_file,
-                                label,
-                                exc,
-                            )
-            return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
-
-        return img_tensor, torch.zeros(1), self.task_type
-
-    def _get_sync_dummy(self):
-        # 1. Determine input shape
-        if self.model_key == "ultrazoom":
-            in_shape = (3, self.size[0] // 2, self.size[1] // 2)
-        else:
-            in_shape = (3, self.size[0], self.size[1])
-
-        # 2. Determine target shape and task string
-        if self.task_type in ["restoration", "enhancement", "face"]:
-            target_shape = (3, self.size[0], self.size[1])
-            task_str = "denoise"
-        elif self.task_type == "parameter_prediction":
-            target_shape = (3,)
-            task_str = "parameter_prediction"
-        elif self.task_type == "quality":
-            target_shape = (10,)
-            task_str = "quality"
-        elif self.task_type == "segmentation":
-            target_shape = (self.size[0], self.size[1])
-            task_str = "segmentation"
-        else:
-            target_shape = (1,)
-            task_str = self.task_type
-
-        return torch.zeros(in_shape), torch.zeros(target_shape), task_str
-
     def __getitem__(self, index):
         if (
             hasattr(self.sync_mode, "value")
@@ -712,7 +199,7 @@ class MultiTaskDataset(Dataset):
             or not hasattr(self.sync_mode, "value")
             and self.sync_mode
         ):
-            return self._get_sync_dummy()
+            return self.sync_dummy()
 
         ds_name, sample_id = self.samples[index]
 
@@ -722,7 +209,7 @@ class MultiTaskDataset(Dataset):
             and hasattr(self, "_container_readers")
             and ds_name in self._container_readers
         ):
-            return self._getitem_container(ds_name, sample_id)
+            return self.getitem_container(ds_name, sample_id)
 
         fname = sample_id  # Directory-backed path: sample_id is a filename string.
         ds_path = self.path_cache.get(ds_name)
@@ -732,8 +219,8 @@ class MultiTaskDataset(Dataset):
         if ds_path is None:
             ds_path = ""
 
-        img_path = self._get_split_path(ds_path, "images", fname)
-        tgt_path = self._get_split_path(ds_path, "targets", fname)
+        img_path = self.split_path(ds_path, "images", fname)
+        tgt_path = self.split_path(ds_path, "targets", fname)
 
         has_img = os.path.exists(img_path)
         has_tgt = os.path.exists(tgt_path)
@@ -815,7 +302,7 @@ class MultiTaskDataset(Dataset):
             if self.task_type in ["restoration", "enhancement", "face"]:
                 if task_str == "face_parser":
                     # ParseNet: load from masks/
-                    mask_path = self._get_split_path(ds_path, "masks", fname)
+                    mask_path = self.split_path(ds_path, "masks", fname)
                     if os.path.exists(mask_path):
                         mask = Image.open(mask_path).convert("L")
                         random.seed(seed)
@@ -849,7 +336,7 @@ class MultiTaskDataset(Dataset):
                     logger.debug("samefile check failed for %s vs %s: %s", img_path, tgt_path, exc)
 
             if self.model_key.startswith("ffanet"):
-                label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
+                label_path = self.split_path(ds_path, "labels", fname, ".txt")
                 bboxes = []
                 if os.path.exists(label_path):
                     with open(label_path, "r", encoding="utf-8") as f:
@@ -874,7 +361,7 @@ class MultiTaskDataset(Dataset):
         if self.task_type == "parameter_prediction":
             # 2026: On-the-fly Synthetic Degradation for Parameter Prediction
             # Load clean image, sample random params, apply degradation, return both
-            tgt_path = self._get_split_path(ds_path, "targets", fname)
+            tgt_path = self.split_path(ds_path, "targets", fname)
             if os.path.exists(tgt_path):
                 clean_img = self.load_image(tgt_path)
             else:
@@ -908,7 +395,7 @@ class MultiTaskDataset(Dataset):
                     score = [0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
                 return img_tensor, torch.tensor(score, dtype=torch.float32), "quality"
 
-            label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
+            label_path = self.split_path(ds_path, "labels", fname, ".txt")
             if os.path.exists(label_path):
                 with open(label_path, "r", encoding="utf-8") as f:
                     try:
@@ -920,7 +407,7 @@ class MultiTaskDataset(Dataset):
                         logger.debug("Invalid quality label in %s: %s", label_path, lbl_err)
             return img_tensor, torch.zeros(10), "quality"
         if self.task_type == "classification":
-            label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
+            label_path = self.split_path(ds_path, "labels", fname, ".txt")
             if os.path.exists(label_path):
                 with open(label_path, "r", encoding="utf-8") as f:
                     try:
@@ -956,7 +443,7 @@ class MultiTaskDataset(Dataset):
                         logger.debug("Failed reading classes file %s: %s", classes_file, cf_err)
             return img_tensor, torch.tensor(0, dtype=torch.long), "classification"
         if self.task_type == "segmentation":
-            mask_path = self._get_split_path(ds_path, "masks", fname)
+            mask_path = self.split_path(ds_path, "masks", fname)
             if os.path.exists(mask_path):
                 mask = Image.open(mask_path).convert("L")  # Usually masks are grayscale labels
                 random.seed(seed)
@@ -972,7 +459,7 @@ class MultiTaskDataset(Dataset):
                 mask_tensor = torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
             return img_tensor, mask_tensor, "segmentation"
         if self.task_type == "face_detection":
-            label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
+            label_path = self.split_path(ds_path, "labels", fname, ".txt")
             target = torch.zeros(15, dtype=torch.float32)
             if os.path.exists(label_path):
                 with open(label_path, "r", encoding="utf-8") as f:
@@ -1008,7 +495,7 @@ class MultiTaskDataset(Dataset):
             if self.all_samples:
                 self._apply_sample_fraction()
             else:
-                self._load_manifest(self.config)
+                self.load_manifest(self.config)
 
     def get_distribution(self):
         """Task 9.3: Analyze label manifold for stratified balancing."""

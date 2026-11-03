@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.82-STABLE` |
+| **Version** | `v16.9.83-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.83 - MultiTaskDataset Source and Container Mixins
+
+- **`data/dataset.py`** (1,018 lines) is split. `MultiTaskDataset` keeps its import path and constructor. The methods moved verbatim.
+  - `dataset.py` (505): construction, transforms, image loading, `__getitem__` and the stress strategy.
+  - `dataset_sources.py` (374): `DatasetSourcesMixin` with split-path lookup, manifest loading, sample-fraction subsetting and `get_dataset_path`.
+  - `dataset_containers.py` (183): `DatasetContainerMixin` with packed-container loading, container item decoding and the sync-mode dummy sample.
+- Mixin entry points are public so each mixin has an interface: `_get_split_path` became `split_path`, `_load_manifest` became `load_manifest`, `_try_load_container_samples` became `load_container_samples`, `_getitem_container` became `getitem_container` and `_get_sync_dummy` became `sync_dummy`. Nothing outside the dataset called them.
+- **Tests**: 260 passed.
 
 ### v16.9.82 - MT5 Pipeline Split into Terminal and Feature Modules
 
