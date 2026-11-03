@@ -18,14 +18,23 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from training.checkpoint import MetricVault, ResumeState
-from training.governance import SmartTrainingGovernor, SotaTracker
+from tests.fixtures.training_context import fresh_governance
+from training.checkpoint import ResumeState
 from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
 from training.hardware.sentinel import SentinelGuard
 from training.model_soup import SoupRecipe, blend_model_soup
 from training.swa_config import SwaConfig, SwaLrSchedule, SwaStart
-from training.training import TrainingContext, TrainingPaths, run_training, train_one_epoch
+from training.training import (
+    DataComponents,
+    HardwareComponents,
+    ModelStack,
+    RunSettings,
+    TrainingContext,
+    TrainingPaths,
+    run_training,
+    train_one_epoch,
+)
 from training.training.swa import (
     SWA_STATE_FILENAME,
     SWA_VAULT_FILENAME,
@@ -219,7 +228,6 @@ def _build_ctx(root: Path, config: dict[str, Any], total_epochs: int = 3) -> Tra
     paths = TrainingPaths(
         project_root=root,
         local_checkpoint_dir=root / "checkpoints",
-        hub_checkpoint_dir=root / "hub",
         export_dir=root / "export",
         progress_local_path=root / "progress.pth",
         best_checkpoint_path=root / "best.pth",
@@ -229,23 +237,29 @@ def _build_ctx(root: Path, config: dict[str, Any], total_epochs: int = 3) -> Tra
     paths.export_dir.mkdir(parents=True, exist_ok=True)
     return TrainingContext(
         model_name="swa_test_model",
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        criterion=nn.MSELoss(),
-        train_loader=DataLoader(TensorDataset(x_train, y_train), batch_size=4),
-        val_loader=DataLoader(TensorDataset(x_val, y_val), batch_size=4),
-        device_info=cpu,
-        policy=apply_hardware_policy("swa_test_model", {}, cpu),
-        sentinel=SentinelGuard(device=torch.device("cpu")),
-        governor=SmartTrainingGovernor(model_info={}),
-        sota_tracker=SotaTracker(),
-        vault=MetricVault(),
-        paths=paths,
-        config=config,
-        model_info={},
-        args=None,
-        total_epochs=total_epochs,
+        models=ModelStack(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            criterion=nn.MSELoss(),
+        ),
+        data=DataComponents(
+            train_loader=DataLoader(TensorDataset(x_train, y_train), batch_size=4),
+            val_loader=DataLoader(TensorDataset(x_val, y_val), batch_size=4),
+        ),
+        hardware=HardwareComponents(
+            device_info=cpu,
+            policy=apply_hardware_policy("swa_test_model", {}, cpu),
+            sentinel=SentinelGuard(device=torch.device("cpu")),
+        ),
+        governance=fresh_governance({}),
+        run=RunSettings(
+            paths=paths,
+            config=config,
+            model_info={},
+            args=None,
+            total_epochs=total_epochs,
+        ),
     )
 
 
@@ -258,13 +272,15 @@ class TestSwaEngineSeam(unittest.TestCase):
         self.addCleanup(shutil.rmtree, root, True)
         ctx = _build_ctx(root, config)
         snapshots: list[dict[str, torch.Tensor]] = []
-        run_training(ctx, on_epoch_end=lambda _epoch, _m: snapshots.append(_state(ctx.model)))
+        run_training(
+            ctx, on_epoch_end=lambda _epoch, _m: snapshots.append(_state(ctx.models.model))
+        )
         return ctx, snapshots
 
     def test_disabled_run_is_unchanged(self) -> None:
         """No section, ``enabled: false`` and a never-reached start give identical runs."""
         base, base_snaps = self._run({})
-        self.assertIsNone(base.swa)
+        self.assertIsNone(base.governance.swa)
         variants = [
             {"swa": {"enabled": False, "swa_lr": 0.5}},
             {"swa": {"enabled": True, "start_epoch": 99, "swa_lr": 0.5}},
@@ -277,19 +293,20 @@ class TestSwaEngineSeam(unittest.TestCase):
                     for key, value in want.items():
                         torch.testing.assert_close(got[key], value, rtol=0, atol=0)
                 self.assertEqual(
-                    ctx.optimizer.param_groups[0]["lr"], base.optimizer.param_groups[0]["lr"]
+                    ctx.models.optimizer.param_groups[0]["lr"],
+                    base.models.optimizer.param_groups[0]["lr"],
                 )
-                assert ctx.lifecycle_manager is not None
-                ckpt_dir = ctx.lifecycle_manager.checkpoints_dir
+                assert ctx.governance.lifecycle_manager is not None
+                ckpt_dir = ctx.governance.lifecycle_manager.checkpoints_dir
                 self.assertFalse((ckpt_dir / SWA_STATE_FILENAME).exists())
                 self.assertFalse((ckpt_dir / SWA_VAULT_FILENAME).exists())
-                self.assertNotIn("swa_metrics", ctx.metadata)
+                self.assertNotIn("swa_metrics", ctx.state.metadata)
 
     def test_enabled_run_averages_and_publishes(self) -> None:
         """Epochs 2..3 are averaged, evaluated and saved as sidecar plus soup ingredient."""
         ctx, snaps = self._run({"swa": {"enabled": True, "start_epoch": 2}})
-        assert ctx.lifecycle_manager is not None
-        ckpt_dir = ctx.lifecycle_manager.checkpoints_dir
+        assert ctx.governance.lifecycle_manager is not None
+        ckpt_dir = ctx.governance.lifecycle_manager.checkpoints_dir
         ingredient = torch.load(ckpt_dir / SWA_VAULT_FILENAME, weights_only=False)
         self.assertTrue(ingredient["is_swa"])
         self.assertEqual(ingredient["swa_n_averaged"], 2)
@@ -297,13 +314,13 @@ class TestSwaEngineSeam(unittest.TestCase):
         for key, value in ingredient["model_state"].items():
             expected = (snaps[1][key] + snaps[2][key]) / 2.0
             torch.testing.assert_close(value, expected)
-        self.assertIn("val_loss", ctx.metadata["swa_metrics"])
+        self.assertIn("val_loss", ctx.state.metadata["swa_metrics"])
         sidecar = torch.load(ckpt_dir / SWA_STATE_FILENAME, weights_only=False)
         self.assertEqual(sidecar["epoch"], 3)
         self.assertEqual(sidecar["start_epoch"], 2)
         # The live model is not replaced by the average.
         for key, value in snaps[2].items():
-            torch.testing.assert_close(ctx.model.state_dict()[key], value, rtol=0, atol=0)
+            torch.testing.assert_close(ctx.models.model.state_dict()[key], value, rtol=0, atol=0)
 
     def test_swalr_owns_lr_in_phase(self) -> None:
         """In the SWA phase the main scheduler is not stepped; SWALR sets the LR."""
@@ -313,19 +330,21 @@ class TestSwaEngineSeam(unittest.TestCase):
                 {"swa": {"enabled": True, "start_epoch": 1, "swa_lr": 0.001, "anneal_epochs": 0}},
             )
             run_training(ctx)
-            self.assertAlmostEqual(ctx.optimizer.param_groups[0]["lr"], 0.001)
-            self.assertEqual(ctx.scheduler.last_epoch, 0)
+            self.assertAlmostEqual(ctx.models.optimizer.param_groups[0]["lr"], 0.001)
+            self.assertEqual(ctx.models.scheduler.last_epoch, 0)
 
     def test_owns_lr_skips_main_scheduler_in_train_pass(self) -> None:
         """``train_one_epoch`` steps the main scheduler only outside the SWALR phase."""
         with tempfile.TemporaryDirectory() as tmp:
             ctx = _build_ctx(Path(tmp), {})
             config = SwaConfig(enabled=True, lr=SwaLrSchedule(0.01))
-            ctx.swa = SwaPhase(config, SwaAverager(ctx.model, ctx.optimizer, config), 2, None)
+            ctx.governance.swa = SwaPhase(
+                config, SwaAverager(ctx.models.model, ctx.models.optimizer, config), 2, None
+            )
             train_one_epoch(ctx, 1)
-            self.assertEqual(ctx.scheduler.last_epoch, 1)
+            self.assertEqual(ctx.models.scheduler.last_epoch, 1)
             train_one_epoch(ctx, 2)
-            self.assertEqual(ctx.scheduler.last_epoch, 1)
+            self.assertEqual(ctx.models.scheduler.last_epoch, 1)
 
 
 class TestSwaResume(unittest.TestCase):
@@ -413,9 +432,11 @@ class TestSwaSoupIngredient(unittest.TestCase):
 
             with tempfile.TemporaryDirectory() as run_tmp:
                 ctx = _build_ctx(Path(run_tmp), {})
-                model = ctx.model
+                model = ctx.models.model
                 config = SwaConfig(enabled=True)
-                phase = SwaPhase(config, SwaAverager(model, ctx.optimizer, config), 1, ckpt_dir)
+                phase = SwaPhase(
+                    config, SwaAverager(model, ctx.models.optimizer, config), 1, ckpt_dir
+                )
                 for epoch, value in ((1, 2.0), (2, 4.0)):
                     _fill(model, value)
                     phase.end_epoch(ctx, epoch)

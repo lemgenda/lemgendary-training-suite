@@ -45,19 +45,23 @@ def _log_due(clock: BatchClock, step: int, now: float) -> bool:
 
 
 class _ValidationPass:
-    """One validation pass over ``ctx.val_loader``."""
+    """One validation pass over ``ctx.data.val_loader``."""
 
     def __init__(self, ctx: TrainingContext, epoch: int) -> None:
         self.ctx = ctx
         self.epoch = epoch
-        self.raw_model = ctx.raw_model if ctx.raw_model is not None else ctx.model
-        self.autocast_ctx = get_autocast_context(ctx.policy, ctx.device_info.device)
+        self.raw_model = (
+            ctx.models.raw_model if ctx.models.raw_model is not None else ctx.models.model
+        )
+        self.autocast_ctx = get_autocast_context(
+            ctx.hardware.policy, ctx.hardware.device_info.device
+        )
         self.acc = ValAccumulators()
         self.step_count = 0
         start_time = time.time()
         num_batches = (
-            len(ctx.val_loader)
-            if ctx.val_loader is not None and hasattr(ctx.val_loader, "__len__")
+            len(ctx.data.val_loader)
+            if ctx.data.val_loader is not None and hasattr(ctx.data.val_loader, "__len__")
             else 0
         )
         self.clock = BatchClock(num_batches, start_time, time.time())
@@ -65,18 +69,18 @@ class _ValidationPass:
     def resume(self) -> None:
         """Restore accumulators of an interrupted validation pass, if any."""
         resume_step = resume_iteration(
-            self.ctx.resume_state, "val", self.ctx.resumed_val_step_handled
+            self.ctx.state.resume_state, "val", self.ctx.state.guards.val_step_handled
         )
         if resume_step <= 0:
             return
         self.clock.resume_step = resume_step
-        self.ctx.resumed_val_step_handled = True
+        self.ctx.state.guards.val_step_handled = True
         print(
             f"[RESUME] Fast-forwarding {resume_step} completed validation batches in Epoch "
             f"{self.epoch}...",
             flush=True,
         )
-        saved = getattr(self.ctx.resume_state, "val_accumulators", {})
+        saved = getattr(self.ctx.state.resume_state, "val_accumulators", {})
         if saved:
             self.acc.restore(saved)
             self.step_count = resume_step
@@ -85,16 +89,16 @@ class _ValidationPass:
         """Return ``(preds, loss)`` for one batch under autocast."""
         ctx = self.ctx
         with self.autocast_ctx:
-            eval_step_fn = getattr(ctx.model, "eval_step", None)
+            eval_step_fn = getattr(ctx.models.model, "eval_step", None)
             if callable(eval_step_fn):
                 val_out = eval_step_fn(inputs)
                 if isinstance(val_out, dict):
                     return val_out.get("preds", inputs), val_out["loss"]
                 return inputs, val_out
-            preds = ctx.model(inputs)
+            preds = ctx.models.model(inputs)
             if task_idx is not None:
-                return preds, ctx.criterion(preds, targets, task_idx)
-            return preds, ctx.criterion(preds, targets)
+                return preds, ctx.models.criterion(preds, targets, task_idx)
+            return preds, ctx.models.criterion(preds, targets)
 
     def guarded_forward(
         self, batch_idx: int, batch: tuple[Any, Any, Any]
@@ -110,8 +114,8 @@ class _ValidationPass:
 
     def relieve_oom(self, batch_idx: int) -> None:
         """Let the governor (or a cache flush) recover from an out-of-memory batch."""
-        if hasattr(self.ctx.governor, "handle_oom"):
-            self.ctx.governor.handle_oom()
+        if hasattr(self.ctx.governance.governor, "handle_oom"):
+            self.ctx.governance.governor.handle_oom()
         else:
             release_cuda_cache()
         print(
@@ -123,14 +127,14 @@ class _ValidationPass:
     def save_progress(self) -> None:
         """Offer an intra-epoch progress checkpoint to the lifecycle manager."""
         ctx = self.ctx
-        if ctx.lifecycle_manager is None:
+        if ctx.governance.lifecycle_manager is None:
             return
         total_val = (
-            len(ctx.val_loader)
-            if ctx.val_loader is not None and hasattr(ctx.val_loader, "__len__")
+            len(ctx.data.val_loader)
+            if ctx.data.val_loader is not None and hasattr(ctx.data.val_loader, "__len__")
             else 0
         )
-        ctx.lifecycle_manager.check_and_save_progress(
+        ctx.governance.lifecycle_manager.check_and_save_progress(
             epoch=self.epoch,
             phase="val",
             step=self.step_count,
@@ -163,10 +167,10 @@ class _ValidationPass:
         return ValBatch(
             preds=preds,
             targets=targets,
-            sota_cfg=ctx.model_info.get("sota_targets", {}),
-            dataset_type=ctx.model_info.get("dataset_type"),
-            device=ctx.device_info.device,
-            governor=ctx.governor,
+            sota_cfg=ctx.run.model_info.get("sota_targets", {}),
+            dataset_type=ctx.run.model_info.get("dataset_type"),
+            device=ctx.hardware.device_info.device,
+            governor=ctx.governance.governor,
         )
 
 
@@ -178,7 +182,7 @@ def _val_payload(
         epoch,
         model,
         {
-            "train_metrics": getattr(ctx, "last_train_metrics", {}),
+            "train_metrics": ctx.state.last_train_metrics,
             "val_accumulators": snapshot,
         },
     )
@@ -199,10 +203,10 @@ def validate_one_epoch(
     Returns:
         dict[str, float]: Dictionary of validation metrics.
     """
-    if ctx.val_loader is None or len(ctx.val_loader) == 0:
+    if ctx.data.val_loader is None or len(ctx.data.val_loader) == 0:
         return {"val_loss": 0.0}
 
-    ctx.model.eval()
+    ctx.models.model.eval()
     run = _ValidationPass(ctx, epoch)
     run.resume()
 
@@ -210,13 +214,13 @@ def validate_one_epoch(
         torch.cuda.empty_cache()
 
     with torch.no_grad():
-        for batch_idx, batch in enumerate(ctx.val_loader):
+        for batch_idx, batch in enumerate(ctx.data.val_loader):
             if run.clock.skip_resumed(batch_idx, "VAL BATCH", "validation"):
                 continue
             if cancel_check is not None and cancel_check():
                 raise InterruptedError("Validation cancelled by user request.")
 
-            inputs, targets, task_idx = _unpack_batch(batch, ctx.device_info.device)
+            inputs, targets, task_idx = _unpack_batch(batch, ctx.hardware.device_info.device)
             outcome = run.guarded_forward(batch_idx, (inputs, targets, task_idx))
             if outcome is None:
                 continue

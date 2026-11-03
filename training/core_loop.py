@@ -23,9 +23,11 @@ from training.checkpoint import (
     CheckpointLifecycleManager,
     MetricVault,
 )
+from training.cli_args import add_clean_argument, add_timeframes_argument
 from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
 from training.context_data import (
+    DATASET_BUILD_ERRORS,
     RunSpec,
     build_datasets,
     build_initial_train_loader,
@@ -49,6 +51,13 @@ from training.notebook_generator import (
 )
 from training.parallel import build_parallel_strategy
 from training.training import (
+    DataComponents,
+    GovernanceComponents,
+    HardwareComponents,
+    ModelsHubPaths,
+    ModelStack,
+    RunSettings,
+    RunState,
     TrainingContext,
     TrainingPaths,
     build_optimizer,
@@ -73,14 +82,9 @@ install_signal_handlers()
 load_pat = load_secrets
 _active_processes = _ACTIVE_PROCESSES
 
-# Failure modes of post-training artefact generation (docs, notebooks, sync, teardown).
-_ARTEFACT_ERRORS: tuple[type[BaseException], ...] = (
-    OSError,
-    ValueError,
-    KeyError,
-    TypeError,
-    RuntimeError,
-)
+# Failure modes of post-training artefact generation (docs, notebooks, sync, teardown):
+# the same I/O, bad-value and runtime family as dataset construction.
+_ARTEFACT_ERRORS: tuple[type[BaseException], ...] = DATASET_BUILD_ERRORS
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
@@ -127,15 +131,9 @@ def build_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Bypass loaded scheduler state and re-initialize fresh curve at current step",
     )
-    parser.add_argument(
-        "--clean",
-        "--fresh",
-        dest="clean",
-        action="store_true",
-        help=(
-            "Start training fresh from epoch 1, wiping local checkpoints "
-            "and ignoring hub checkpoints"
-        ),
+    add_clean_argument(
+        parser,
+        "Start training fresh from epoch 1, wiping local checkpoints and ignoring hub checkpoints",
     )
     parser.add_argument(
         "--phase", type=int, default=1, help="Training Phase (e.g. Pre-training=1, Fine-tuning=2)"
@@ -148,13 +146,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default=None,
         help="List of active pairs for Forex dataset (e.g. EURUSD GBPUSD)",
     )
-    parser.add_argument(
-        "--timeframes",
-        type=int,
-        nargs="+",
-        default=None,
-        help="List of active timeframes in minutes (e.g. 60 240 1440)",
-    )
+    add_timeframes_argument(parser, "List of active timeframes in minutes (e.g. 60 240 1440)")
     parser.add_argument(
         "--num_workers", type=int, default=None, help="Force a specific number of workers"
     )
@@ -224,25 +216,27 @@ def build_training_paths(project_root: Path, model_key: str) -> TrainingPaths:
     return TrainingPaths(
         project_root=project_root,
         local_checkpoint_dir=models_hub_checkpoint_dir,
-        hub_checkpoint_dir=models_hub_checkpoint_dir,
         export_dir=models_hub_dir,
         progress_local_path=models_hub_checkpoint_dir / "progress.pth",
         best_checkpoint_path=models_hub_checkpoint_dir / "best.pth",
         history_csv_path=models_hub_dir / "history.csv",
-        models_hub_dir=models_hub_dir,
-        models_hub_checkpoint_dir=models_hub_checkpoint_dir,
-        models_hub_progress_path=models_hub_checkpoint_dir / "progress.pth",
-        models_hub_best_path=models_hub_checkpoint_dir / "best.pth",
-        models_hub_metrics_csv=models_hub_dir / "metrics.csv",
+        models_hub=ModelsHubPaths(
+            root=models_hub_dir,
+            checkpoint_dir=models_hub_checkpoint_dir,
+            progress_path=models_hub_checkpoint_dir / "progress.pth",
+            best_path=models_hub_checkpoint_dir / "best.pth",
+            metrics_csv=models_hub_dir / "metrics.csv",
+        ),
     )
 
 
 def clean_previous_run(paths: TrainingPaths, model_key: str) -> None:
     """Delete the previous run's checkpoints and metric logs (``--clean``)."""
-    checkpoint_dir = paths.models_hub_checkpoint_dir
-    hub_dir = paths.models_hub_dir
-    if checkpoint_dir is None or hub_dir is None:
+    hub = paths.models_hub
+    if hub is None:
         raise ValueError("clean_previous_run needs the LemGendaryModels paths of the run")
+    checkpoint_dir = hub.checkpoint_dir
+    hub_dir = hub.root
     for clean_target in [
         checkpoint_dir / "progress.pth",
         checkpoint_dir / "best.pth",
@@ -426,34 +420,48 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
 
     resume_state = None
     if not args.clean:
-        resume_state = resume_from_checkpoint(spec, train, data, setup.paths.models_hub_metrics_csv)
+        hub = setup.paths.models_hub
+        metrics_csv = hub.metrics_csv if hub is not None else None
+        resume_state = resume_from_checkpoint(spec, train, data, metrics_csv)
     total_epochs = grant_resume_budget(args, resume_state, total_epochs)
 
     return TrainingContext(
         model_name=spec.model_key,
-        model=train.model,
-        optimizer=train.optimizer,
-        scheduler=train.scheduler,
-        criterion=criterion,
-        train_loader=data.train_loader,
-        val_loader=val_loader,
-        device_info=setup.device_info,
-        policy=setup.policy,
-        sentinel=sentinel,
-        governor=train.governor,
-        sota_tracker=train.sota_tracker,
-        vault=vault,
-        paths=setup.paths,
-        config=spec.config,
-        model_info=spec.model_info,
-        args=args,
-        total_epochs=total_epochs,
-        accumulation_steps=max(1, int(getattr(train.governor, "current_acc", 1))),
-        scaler=create_grad_scaler(setup.policy),
-        resume_state=resume_state,
-        raw_model=train.raw_model,
-        parallel_strategy=parallel_strategy,
-        lifecycle_manager=setup.lifecycle_manager,
+        models=ModelStack(
+            model=train.model,
+            optimizer=train.optimizer,
+            scheduler=train.scheduler,
+            criterion=criterion,
+            scaler=create_grad_scaler(setup.policy),
+            raw_model=train.raw_model,
+            parallel_strategy=parallel_strategy,
+        ),
+        data=DataComponents(
+            train_loader=data.train_loader,
+            val_loader=val_loader,
+            accumulation_steps=max(1, int(getattr(train.governor, "current_acc", 1))),
+        ),
+        hardware=HardwareComponents(
+            device_info=setup.device_info,
+            policy=setup.policy,
+            sentinel=sentinel,
+        ),
+        governance=GovernanceComponents(
+            governor=train.governor,
+            sota_tracker=train.sota_tracker,
+            vault=vault,
+            lifecycle_manager=setup.lifecycle_manager,
+        ),
+        run=RunSettings(
+            paths=setup.paths,
+            config=spec.config,
+            model_info=spec.model_info,
+            args=args,
+            total_epochs=total_epochs,
+        ),
+        state=RunState(
+            resume_state=resume_state,
+        ),
     )
 
 
@@ -508,44 +516,44 @@ def main(raw_args: list[str] | None = None) -> None:
         # Post-training export
         export_all(
             model_key=ctx.model_name,
-            checkpoint_path=ctx.paths.best_checkpoint_path,
-            config=ctx.config,
-            output_dir=ctx.paths.export_dir,
+            checkpoint_path=ctx.run.paths.best_checkpoint_path,
+            config=ctx.run.config,
+            output_dir=ctx.run.paths.export_dir,
         )
 
         # Post-training documentation & notebooks
         try:
             readme_text = build_model_readme(
                 ctx.model_name,
-                ctx.config.get("unified_models", {}),
+                ctx.run.config.get("unified_models", {}),
                 summary.final_epoch,
                 summary.best_metrics,
             )
-            with open(ctx.paths.export_dir / "README.md", "w", encoding="utf-8") as f:
+            with open(ctx.run.paths.export_dir / "README.md", "w", encoding="utf-8") as f:
                 f.write(readme_text)
         except _ARTEFACT_ERRORS as doc_err:
             logger.warning("Model README generation failed: %s", doc_err)
 
         try:
-            generate_inference_notebook(ctx.model_name, str(ctx.paths.export_dir))
-            generate_usage_notebook(ctx.model_name, str(ctx.paths.export_dir))
-            generate_colab_inference_notebook(ctx.model_name, str(ctx.paths.export_dir))
-            generate_colab_usage_notebook(ctx.model_name, str(ctx.paths.export_dir))
+            generate_inference_notebook(ctx.model_name, str(ctx.run.paths.export_dir))
+            generate_usage_notebook(ctx.model_name, str(ctx.run.paths.export_dir))
+            generate_colab_inference_notebook(ctx.model_name, str(ctx.run.paths.export_dir))
+            generate_colab_usage_notebook(ctx.model_name, str(ctx.run.paths.export_dir))
         except _ARTEFACT_ERRORS as nb_err:
             logger.warning("Notebook generation failed: %s", nb_err)
 
         # Final cloud synchronization
         if args.env == "kaggle" and not getattr(args, "skip_sync", False):
             try:
-                trigger_cloud_sync(ctx.model_name, summary.final_epoch, ctx.config)
+                trigger_cloud_sync(ctx.model_name, summary.final_epoch, ctx.run.config)
             except _ARTEFACT_ERRORS as sync_err:
                 logger.warning("Final cloud sync failed: %s", sync_err)
 
     finally:
         # Always clean up parallel strategy (destroys DDP process group if active).
-        if ctx.parallel_strategy is not None:
+        if ctx.models.parallel_strategy is not None:
             try:
-                ctx.parallel_strategy.cleanup()
+                ctx.models.parallel_strategy.cleanup()
             except _ARTEFACT_ERRORS as cleanup_err:
                 logger.warning("Parallel strategy cleanup failed: %s", cleanup_err)
         cleanup_active_processes()
