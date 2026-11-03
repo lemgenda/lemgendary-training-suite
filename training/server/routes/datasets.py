@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 from fastapi import APIRouter
 
+from training.server.routes.registry_file import registry_path
 from training.utils.paths import get_project_root
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -19,14 +20,7 @@ def list_datasets() -> list[dict[str, Any]]:
     datasets_list: list[dict[str, Any]] = []
 
     # 1. Inspect config.yaml and unified_models_v2.yaml
-    cfg_path = root / "config.yaml"
-    cfg: dict[str, Any] = {}
-    if cfg_path.exists():
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-
-    reg_name = cfg.get("unified_models", "unified_models_v2.yaml")
-    reg_path = root / reg_name
+    reg_path = registry_path(root)
     if reg_path.exists():
         with open(reg_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}

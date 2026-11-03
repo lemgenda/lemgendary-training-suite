@@ -22,6 +22,20 @@ from training.services.training_service import TrainingService, TrainRequest
 logger = logging.getLogger("lemtrain.server.jobs")
 
 
+def _stop_process_tree(proc: subprocess.Popen[str], posix_stop: Callable[[], None]) -> None:
+    """Kill ``proc`` and its children (``taskkill /T`` on Windows, else ``posix_stop``)."""
+    if os.name == "nt":
+        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+            capture_output=True,
+            check=False,
+            creationflags=cflags,
+        )
+    else:
+        posix_stop()
+
+
 class LocalJobsMixin:
     """In-process training, evaluation, export and test-all job executors."""
 
@@ -164,16 +178,7 @@ class LocalJobsMixin:
                 if proc.stdout:
                     for line in proc.stdout:
                         if cancel_event.is_set():
-                            if os.name == "nt":
-                                cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-                                subprocess.run(
-                                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                                    capture_output=True,
-                                    check=False,
-                                    creationflags=cflags,
-                                )
-                            else:
-                                proc.terminate()
+                            _stop_process_tree(proc, proc.terminate)
                             break
                         clean_line = _clean_console_line(line)
                         if clean_line:
@@ -182,16 +187,7 @@ class LocalJobsMixin:
             finally:
                 if cancel_event.is_set():
                     try:
-                        if os.name == "nt":
-                            cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-                            subprocess.run(
-                                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                                capture_output=True,
-                                check=False,
-                                creationflags=cflags,
-                            )
-                        else:
-                            proc.kill()
+                        _stop_process_tree(proc, proc.kill)
                     except (OSError, subprocess.SubprocessError) as exc:
                         logger.warning(
                             "Failed to terminate test process %s after cancellation: %s",
