@@ -88,7 +88,7 @@ def monitor_kaggle_training(
 
     logger.info("Connecting to telemetry stream for %s...", slug)
     try:
-        km = importlib.import_module("training.kaggle_monitor")
+        km = importlib.import_module("training.kaggle_stream")
         kaggle_mod = importlib.import_module("kaggle.api.kaggle_api_extended")
         api_cls = kaggle_mod.KaggleApi
         api = api_cls()

@@ -38,7 +38,7 @@ class TestLemTrainCLI(unittest.TestCase):
         """Verify version command."""
         result = runner.invoke(app, ["version"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("LemGendary Model Training Suite v16.9.87", result.output)
+        self.assertIn("LemGendary Model Training Suite v16.9.88", result.output)
 
     def test_cli_presets_list(self) -> None:
         """Verify presets list outputs registered profiles."""

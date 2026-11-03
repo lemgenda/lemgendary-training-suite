@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-from training.kaggle_monitor import authenticate_kaggle_user, fetch_user_kernels
+from training.kaggle_accounts import authenticate_kaggle_user, fetch_user_kernels
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.server.routes.training")

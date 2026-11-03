@@ -14,12 +14,9 @@ from kaggle.api.kaggle_api_extended import KaggleApi
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
 from training.cloud.kaggle_hub import KaggleHubManager
+from training.kaggle_accounts import authenticate_kaggle_user
 from training.kaggle_cloud_manager import pull_kaggle_artifacts
-from training.kaggle_monitor import (
-    authenticate_kaggle_user,
-    fetch_new_log_lines,
-    is_epoch_milestone,
-)
+from training.kaggle_stream import fetch_new_log_lines, is_epoch_milestone
 
 logger = logging.getLogger("lemtrain.server.jobs")
 
