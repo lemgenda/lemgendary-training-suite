@@ -153,6 +153,118 @@ def _index_shard_dirs(cand_dirs: list[Path]) -> list[_IndexEntry]:
     return index_map
 
 
+def _json_label(parsed_json: Any, label: Any) -> Any:
+    """Fill a missing ``label`` from a JSON sidecar (NIMA scores first, then generic keys)."""
+    if label is not None or not isinstance(parsed_json, dict):
+        return label
+    nima_data = parsed_json.get("nima_scores")
+    if isinstance(nima_data, dict):
+        label = (
+            nima_data.get("distribution") or nima_data.get("scores") or nima_data.get("mean_score")
+        )
+    if label is None:
+        label = (
+            parsed_json.get("distribution")
+            or parsed_json.get("scores")
+            or parsed_json.get("label")
+            or parsed_json.get("score")
+        )
+    return label
+
+
+def _make_sample(
+    image_name: Path,
+    payload: tuple[bytes, bytes | None, bytes | None],
+    label: Any,
+    meta: dict[str, Any],
+) -> Sample:
+    """``Sample`` named after the image member; ``payload`` is (image, target, mask) bytes."""
+    image_bytes, target_bytes, mask_bytes = payload
+    return Sample(
+        name=image_name.stem.split(".")[0],
+        image_format=image_name.suffix.lstrip(".").lower(),
+        image_bytes=image_bytes,
+        target_bytes=target_bytes,
+        mask_bytes=mask_bytes,
+        label=label,
+        metadata=meta,
+    )
+
+
+def _existing_bytes(path: Path | None) -> bytes | None:
+    """The file's bytes, or ``None`` when ``path`` is unset or missing."""
+    return path.read_bytes() if path is not None and path.exists() else None
+
+
+def _read_member(tf: tarfile.TarFile, name: str | None) -> bytes | None:
+    """The tar member's bytes, or ``None`` when ``name`` is unset or not a regular file."""
+    if name is None:
+        return None
+    extracted = tf.extractfile(name)
+    return extracted.read() if extracted is not None else None
+
+
+def _file_sample(entry: tuple) -> Sample:
+    """Read one extracted-directory sample (image plus target, mask, text and JSON files)."""
+    _, _, img_path, tgt_path, mask_path, txt_path, json_path = entry
+    image_bytes = img_path.read_bytes()
+    payload = (image_bytes, _existing_bytes(tgt_path), _existing_bytes(mask_path))
+
+    label: Any = None
+    meta: dict[str, Any] = {"file": str(img_path)}
+
+    if txt_path is not None and txt_path.exists():
+        try:
+            label = txt_path.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.warning("Unreadable text label %s; sample has no text label: %s", txt_path, exc)
+
+    if json_path is not None and json_path.exists():
+        try:
+            parsed_json = json.loads(json_path.read_text(encoding="utf-8"))
+            meta["json"] = parsed_json
+            label = _json_label(parsed_json, label)
+        except (OSError, ValueError) as exc:
+            logger.warning("Unreadable JSON sidecar %s; metadata skipped: %s", json_path, exc)
+
+    return _make_sample(img_path, payload, label, meta)
+
+
+def _tar_sidecar_label(
+    tf: tarfile.TarFile, t_path: Path, sidecars: tuple[str | None, str | None], meta: dict
+) -> Any:
+    """Label from the text and JSON sidecar members (``sidecars``); JSON goes into ``meta``."""
+    txt_m, json_m = sidecars
+    label = None
+
+    txt_extracted = tf.extractfile(txt_m) if txt_m is not None else None
+    if txt_extracted is not None:
+        try:
+            label = txt_extracted.read().decode("utf-8").strip()
+        except (OSError, tarfile.TarError, UnicodeDecodeError) as exc:
+            logger.warning(
+                "Unreadable text label %s in %s; sample has no text label: %s",
+                txt_m,
+                t_path,
+                exc,
+            )
+
+    json_extracted = tf.extractfile(json_m) if json_m is not None else None
+    if json_extracted is not None:
+        try:
+            parsed_json = json.loads(json_extracted.read().decode("utf-8"))
+            meta["json"] = parsed_json
+            label = _json_label(parsed_json, label)
+        except (OSError, tarfile.TarError, ValueError) as exc:
+            logger.warning(
+                "Unreadable JSON sidecar %s in %s; metadata skipped: %s",
+                json_m,
+                t_path,
+                exc,
+            )
+    return label
+
+
 class WebDatasetReader:
     """Reader for tar-sharded WebDataset archives with support for unpacked shard directories."""
 
@@ -201,74 +313,12 @@ class WebDatasetReader:
             )
 
         entry = self.index_map[index]
-        mode = entry[0]
+        if entry[0] == "file":
+            return _file_sample(entry)
+        return self._tar_sample(entry, index)
 
-        if mode == "file":
-            _, _, img_path, tgt_path, mask_path, txt_path, json_path = entry
-            image_bytes = img_path.read_bytes()
-            stem = img_path.stem.split(".")[0]
-            fmt = img_path.suffix.lstrip(".").lower()
-
-            target_bytes = (
-                tgt_path.read_bytes() if tgt_path is not None and tgt_path.exists() else None
-            )
-            mask_bytes = (
-                mask_path.read_bytes() if mask_path is not None and mask_path.exists() else None
-            )
-
-            label: Any = None
-            meta: dict[str, Any] = {"file": str(img_path)}
-
-            if txt_path is not None and txt_path.exists():
-                try:
-                    label = txt_path.read_text(encoding="utf-8").strip()
-                except (OSError, UnicodeDecodeError) as exc:
-                    logger.warning(
-                        "Unreadable text label %s; sample has no text label: %s", txt_path, exc
-                    )
-
-            if json_path is not None and json_path.exists():
-                try:
-                    parsed_json = json.loads(json_path.read_text(encoding="utf-8"))
-                    meta["json"] = parsed_json
-                    if label is None and isinstance(parsed_json, dict):
-                        nima_data = parsed_json.get("nima_scores")
-                        if isinstance(nima_data, dict):
-                            label = (
-                                nima_data.get("distribution")
-                                or nima_data.get("scores")
-                                or nima_data.get("mean_score")
-                            )
-                        if label is None:
-                            label = (
-                                parsed_json.get("distribution")
-                                or parsed_json.get("scores")
-                                or parsed_json.get("label")
-                                or parsed_json.get("score")
-                            )
-                except (OSError, ValueError) as exc:
-                    logger.warning(
-                        "Unreadable JSON sidecar %s; metadata skipped: %s", json_path, exc
-                    )
-
-            return Sample(
-                name=stem,
-                image_bytes=image_bytes,
-                image_format=fmt,
-                target_bytes=target_bytes,
-                mask_bytes=mask_bytes,
-                label=label,
-                metadata=meta,
-            )
-
-        # Mode: tar
-        _, t_path, img_m, tgt_m, mask_m, txt_m, json_m = entry
-        if t_path is None or not isinstance(t_path, Path):
-            raise ValueError(
-                f"Corrupted WebDataset index entry: tar archive path is None at index {index}."
-            )
-        assert isinstance(t_path, Path)
-
+    def _tar_file(self, t_path: Path) -> tarfile.TarFile:
+        """Return the cached open handle of ``t_path``, opening it on first use."""
         tf = self._tar_handles.get(t_path)
         if tf is None:
             # Open under a temporary stack, then hand ownership to the long-lived one.
@@ -276,78 +326,24 @@ class WebDatasetReader:
                 tf = stack.enter_context(tarfile.open(t_path, mode="r:*"))
                 self._tar_stack.push(stack.pop_all())
             self._tar_handles[t_path] = tf
+        return tf
 
-        extracted = tf.extractfile(img_m)
-        image_bytes = extracted.read() if extracted is not None else b""
-        stem = Path(img_m).stem.split(".")[0]
-        fmt = Path(img_m).suffix.lstrip(".").lower()
+    def _tar_sample(self, entry: tuple, index: int) -> Sample:
+        """Read one sample's members (image, target, mask, text, JSON) from its tar archive."""
+        _, t_path, img_m, tgt_m, mask_m, txt_m, json_m = entry
+        if t_path is None or not isinstance(t_path, Path):
+            raise ValueError(
+                f"Corrupted WebDataset index entry: tar archive path is None at index {index}."
+            )
+        assert isinstance(t_path, Path)
 
-        target_bytes: bytes | None = None
-        if tgt_m is not None:
-            tgt_extracted = tf.extractfile(tgt_m)
-            if tgt_extracted is not None:
-                target_bytes = tgt_extracted.read()
+        tf = self._tar_file(t_path)
+        image_bytes = _read_member(tf, img_m) or b""
+        payload = (image_bytes, _read_member(tf, tgt_m), _read_member(tf, mask_m))
 
-        mask_bytes: bytes | None = None
-        if mask_m is not None:
-            mask_extracted = tf.extractfile(mask_m)
-            if mask_extracted is not None:
-                mask_bytes = mask_extracted.read()
-
-        label = None
-        meta = {"tar_file": str(t_path), "member": img_m}
-
-        if txt_m is not None:
-            txt_extracted = tf.extractfile(txt_m)
-            if txt_extracted is not None:
-                try:
-                    label = txt_extracted.read().decode("utf-8").strip()
-                except (OSError, tarfile.TarError, UnicodeDecodeError) as exc:
-                    logger.warning(
-                        "Unreadable text label %s in %s; sample has no text label: %s",
-                        txt_m,
-                        t_path,
-                        exc,
-                    )
-
-        if json_m is not None:
-            json_extracted = tf.extractfile(json_m)
-            if json_extracted is not None:
-                try:
-                    parsed_json = json.loads(json_extracted.read().decode("utf-8"))
-                    meta["json"] = parsed_json
-                    if label is None and isinstance(parsed_json, dict):
-                        nima_data = parsed_json.get("nima_scores")
-                        if isinstance(nima_data, dict):
-                            label = (
-                                nima_data.get("distribution")
-                                or nima_data.get("scores")
-                                or nima_data.get("mean_score")
-                            )
-                        if label is None:
-                            label = (
-                                parsed_json.get("distribution")
-                                or parsed_json.get("scores")
-                                or parsed_json.get("label")
-                                or parsed_json.get("score")
-                            )
-                except (OSError, tarfile.TarError, ValueError) as exc:
-                    logger.warning(
-                        "Unreadable JSON sidecar %s in %s; metadata skipped: %s",
-                        json_m,
-                        t_path,
-                        exc,
-                    )
-
-        return Sample(
-            name=stem,
-            image_bytes=image_bytes,
-            image_format=fmt,
-            target_bytes=target_bytes,
-            mask_bytes=mask_bytes,
-            label=label,
-            metadata=meta,
-        )
+        meta: dict[str, Any] = {"tar_file": str(t_path), "member": img_m}
+        label = _tar_sidecar_label(tf, t_path, (txt_m, json_m), meta)
+        return _make_sample(Path(img_m), payload, label, meta)
 
     def __getstate__(self) -> dict[str, Any]:
         """Exclude open file handles when pickling across process boundaries."""

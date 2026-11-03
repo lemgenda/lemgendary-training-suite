@@ -9,9 +9,29 @@ from typing import Any
 import yaml
 
 from training.data.task_resolution import ManifoldLayout, resolve_manifold_task
-from training.utils.paths import get_project_root, get_workspace_root
+from training.utils.paths import get_project_root, get_workspace_root, unique_resolved
 
 logger = logging.getLogger("lemtrain.manifold")
+
+
+@dataclass(frozen=True)
+class ManifoldDirs:
+    """A manifold's standard sub-directories (``None`` when absent)."""
+
+    images: Path | None = None
+    targets: Path | None = None
+    masks: Path | None = None
+    labels: Path | None = None
+
+    @classmethod
+    def under(cls, path: Path) -> "ManifoldDirs":
+        """The ``images``/``targets``/``masks``/``labels`` folders that exist under ``path``."""
+        return cls(
+            images=_existing(path, "images"),
+            targets=_existing(path, "targets"),
+            masks=_existing(path, "masks"),
+            labels=_existing(path, "labels"),
+        )
 
 
 @dataclass(frozen=True)
@@ -22,12 +42,29 @@ class ManifoldInfo:
     path: Path
     task_type: str = "restoration"
     container_type: str = "directory"
-    images_dir: Path | None = None
-    targets_dir: Path | None = None
-    masks_dir: Path | None = None
-    labels_dir: Path | None = None
+    dirs: ManifoldDirs = field(default_factory=ManifoldDirs)
     metadata_file: Path | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def images_dir(self) -> Path | None:
+        """The ``images`` folder, if present."""
+        return self.dirs.images
+
+    @property
+    def targets_dir(self) -> Path | None:
+        """The ``targets`` folder, if present."""
+        return self.dirs.targets
+
+    @property
+    def masks_dir(self) -> Path | None:
+        """The ``masks`` folder, if present."""
+        return self.dirs.masks
+
+    @property
+    def labels_dir(self) -> Path | None:
+        """The ``labels`` folder, if present."""
+        return self.dirs.labels
 
 
 def _existing(path: Path, sub: str) -> Path | None:
@@ -179,13 +216,7 @@ class ManifoldResolver:
             ]
         )
 
-        # De-duplicate while preserving order
-        unique_roots: list[Path] = []
-        for r in roots:
-            resolved = r.resolve()
-            if resolved not in unique_roots:
-                unique_roots.append(resolved)
-        return unique_roots
+        return unique_resolved(roots)
 
     def generate_name_candidates(self, manifold_name: str) -> list[str]:
         """Generate common name variations (prefixes, suffixes) for fuzzy resolution."""
@@ -359,10 +390,7 @@ class ManifoldResolver:
             path=path,
             task_type=task_type,
             container_type=container_type,
-            images_dir=_existing(path, "images"),
-            targets_dir=_existing(path, "targets"),
-            masks_dir=_existing(path, "masks"),
-            labels_dir=_existing(path, "labels"),
+            dirs=ManifoldDirs.under(path),
             metadata_file=meta_file,
             metadata=meta,
         )
