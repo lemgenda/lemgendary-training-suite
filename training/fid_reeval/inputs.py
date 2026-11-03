@@ -65,7 +65,8 @@ def registry_entry(project_root: Path, config: dict[str, Any], model_id: str) ->
     path = project_root / config.get("unified_models", "unified_models_v2.yaml")
     with open(path, encoding="utf-8") as f:
         registry = yaml.safe_load(f) or {}
-    models = registry.get("models") if isinstance(registry.get("models"), dict) else registry
+    nested = registry.get("models")
+    models = nested if isinstance(nested, dict) else registry
     entry = models.get(model_id)
     if not isinstance(entry, dict):
         raise InputError(f"unknown model id {model_id!r} (not in {path.name})")

@@ -21,9 +21,9 @@ from torch.utils.data import DataLoader, TensorDataset
 from training.checkpoint import MetricVault, ResumeState
 from training.governance import SmartTrainingGovernor, SotaTracker
 from training.hardware.discovery import discover_device
-from training.hardware.policy import ExecutionPolicy
+from training.hardware.policy import apply_hardware_policy
 from training.hardware.sentinel import SentinelGuard
-from training.model_soup import blend_model_soup
+from training.model_soup import SoupRecipe, blend_model_soup
 from training.swa_config import SwaConfig, SwaLrSchedule, SwaStart
 from training.training import TrainingContext, TrainingPaths, run_training, train_one_epoch
 from training.training.swa import (
@@ -156,7 +156,8 @@ class TestSwaAverager(unittest.TestCase):
         loader = DataLoader(TensorDataset(data, torch.zeros(64, 1)), batch_size=16)
         averager.refresh_bn(loader, torch.device("cpu"))
         assert averager.module is not None
-        bn = averager.module.bn
+        bn = averager.module.get_submodule("bn")
+        assert isinstance(bn, nn.BatchNorm1d)
         torch.testing.assert_close(bn.running_mean, data.mean(dim=0), atol=1e-4, rtol=1e-4)
         # The live model's statistics are not touched.
         torch.testing.assert_close(model.bn.running_mean, torch.zeros(3))
@@ -174,7 +175,9 @@ class TestSwaAverager(unittest.TestCase):
         )
         averager.refresh_bn(loader, torch.device("cpu"))
         assert averager.module is not None
-        torch.testing.assert_close(averager.module.bn.running_mean, torch.ones(3))
+        bn = averager.module.get_submodule("bn")
+        assert isinstance(bn, nn.BatchNorm1d)
+        torch.testing.assert_close(bn.running_mean, torch.ones(3))
 
     def test_state_dict_round_trip(self) -> None:
         """Averaged weights, ``n_averaged`` and the SWALR position survive a round trip."""
@@ -204,19 +207,10 @@ class TestSwaAverager(unittest.TestCase):
         )
 
 
-_CPU_POLICY = ExecutionPolicy(
-    amp_enabled=False,
-    amp_dtype=torch.float32,
-    cudnn_benchmark=False,
-    tf32_enabled=False,
-    channels_last=False,
-    scaler=None,
-)
-
-
 def _build_ctx(root: Path, config: dict[str, Any], total_epochs: int = 3) -> TrainingContext:
     """A deterministic context for ``TinyNet`` on fixed random data under ``root``."""
     torch.manual_seed(1234)
+    cpu = discover_device(force_device="cpu")
     model = TinyNet()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.05, momentum=0.9)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
@@ -241,8 +235,8 @@ def _build_ctx(root: Path, config: dict[str, Any], total_epochs: int = 3) -> Tra
         criterion=nn.MSELoss(),
         train_loader=DataLoader(TensorDataset(x_train, y_train), batch_size=4),
         val_loader=DataLoader(TensorDataset(x_val, y_val), batch_size=4),
-        device_info=discover_device(force_device="cpu"),
-        policy=_CPU_POLICY,
+        device_info=cpu,
+        policy=apply_hardware_policy("swa_test_model", {}, cpu),
         sentinel=SentinelGuard(device=torch.device("cpu")),
         governor=SmartTrainingGovernor(model_info={}),
         sota_tracker=SotaTracker(),
@@ -285,6 +279,7 @@ class TestSwaEngineSeam(unittest.TestCase):
                 self.assertEqual(
                     ctx.optimizer.param_groups[0]["lr"], base.optimizer.param_groups[0]["lr"]
                 )
+                assert ctx.lifecycle_manager is not None
                 ckpt_dir = ctx.lifecycle_manager.checkpoints_dir
                 self.assertFalse((ckpt_dir / SWA_STATE_FILENAME).exists())
                 self.assertFalse((ckpt_dir / SWA_VAULT_FILENAME).exists())
@@ -293,6 +288,7 @@ class TestSwaEngineSeam(unittest.TestCase):
     def test_enabled_run_averages_and_publishes(self) -> None:
         """Epochs 2..3 are averaged, evaluated and saved as sidecar plus soup ingredient."""
         ctx, snaps = self._run({"swa": {"enabled": True, "start_epoch": 2}})
+        assert ctx.lifecycle_manager is not None
         ckpt_dir = ctx.lifecycle_manager.checkpoints_dir
         ingredient = torch.load(ckpt_dir / SWA_VAULT_FILENAME, weights_only=False)
         self.assertTrue(ingredient["is_swa"])
@@ -429,13 +425,15 @@ class TestSwaSoupIngredient(unittest.TestCase):
             _fill(model, 1.0)
             torch.save({"model_state": _state(model), "epoch": 1}, ckpt_dir / "vault_psnr.pth")
 
-            out = blend_model_soup("swa_test_model", project_root, donors=["psnr", "swa"])
+            out = blend_model_soup(
+                "swa_test_model", project_root, SoupRecipe(donors=["psnr", "swa"])
+            )
             soup = torch.load(out.output_path, weights_only=False)
             self.assertEqual(soup["soup_donors"], ["vault_psnr.pth", "vault_swa.pth"])
             for value in soup["model_state"].values():
                 torch.testing.assert_close(value, torch.full_like(value, 2.0))
 
-            default = blend_model_soup("swa_test_model", project_root, output="all.pth")
+            default = blend_model_soup("swa_test_model", project_root, SoupRecipe(output="all.pth"))
             self.assertIn(SWA_VAULT_FILENAME, [p.name for p in default.donors])
 
 

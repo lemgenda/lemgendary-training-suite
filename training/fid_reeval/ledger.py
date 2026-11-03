@@ -8,6 +8,7 @@ rewritten. ``metrics.csv`` is read, never written.
 from __future__ import annotations
 
 import csv
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,7 +88,7 @@ def read_ledger(path: Path) -> list[LedgerRow]:
         return [{k: row.get(k) or "" for k in LEDGER_FIELDS} for row in reader]
 
 
-def _check_header(path: Path, header: list[str] | None) -> None:
+def _check_header(path: Path, header: Sequence[str] | None) -> None:
     if tuple(header or ()) != LEDGER_FIELDS:
         raise LedgerError(
             f"{path} has an unexpected header {header!r}; refusing to append "

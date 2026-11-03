@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.106-STABLE`
+- **Version**: `v16.9.107-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,52 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.107 - Stochastic Weight Averaging and FID Re-evaluation Tool
+
+- **SWA (`training/training/swa.py`, `training/swa_config.py`)**: optional
+  Stochastic Weight Averaging on `torch.optim.swa_utils`. New `swa` section in
+  `config.yaml` (`enabled: false` by default; `start_epoch` or
+  `start_fraction`, `swa_lr`, `anneal_epochs`, `anneal_strategy`,
+  `update_every`, `eval_every`, `bn_update_batches`). `AveragedModel` keeps
+  the running mean from the start epoch, `SWALR` takes over the learning rate
+  when `swa_lr` is set, and `update_bn` re-estimates BatchNorm statistics
+  before the averaged model is validated.
+- **Engine seam**: one `SwaPhase` component; the engine calls it after the
+  governor audit and once after the loop. SWA metrics never reach the SOTA
+  tracker or the governor, so curriculum rungs still change only through
+  `_commit_rung` (Monotonic Ratchet). A disabled run is unchanged (old-vs-new
+  seeded run identical).
+- **Soup ingredient**: the averaged weights are saved as
+  `checkpoints/vault_swa.pth`, so `lemtrain soup` /
+  `POST /api/models/{key}/soup` can blend them with the vault checkpoints
+  (Pareto Model Soup standard: SWA plus soup blending).
+- **Resume**: SWA state (average, `n_averaged`, SWALR) is kept in the
+  `checkpoints/swa_state.pth` sidecar and restored when it matches the
+  resumed epoch; otherwise averaging restarts with a warning. Mini-SWA and
+  MS-SWA remain not implemented.
+- **FID re-evaluation (`training/fid_reeval/`)**:
+  `python -m training.fid_reeval measure --model <id>` computes real FID for
+  a checkpoint (default `best.pth`) on the model's validation split with the
+  validation FID module (`feature=2048`, chunks of at most 2). It checks the
+  feature size and every chunk, refuses a partial FID, loads the checkpoint
+  strictly (`--non-strict` is explicit and noted), and `--dry-run` checks
+  all inputs on CPU. `mark-unverified` records the `metrics.csv` rows
+  rewritten by the removed `tools/recalibrate_fid.py` (`codeformer`,
+  `ffanet_indoor`, `mprnet_deraining`, `mirnet_lowlight`) as `unverified`;
+  `status` summarises the ledger. Exit codes: 0 ok, 2 bad input or ledger,
+  3 FID invariant failure or backend missing.
+- **Provenance ledger**: results are appended to
+  `LemGendaryModels/<model>/fid_provenance.csv` (UTC time, status, source,
+  epoch, value, image count, feature size, max chunk, checkpoint SHA-256,
+  device, note). Rows are only appended; a file with another header is
+  refused. `metrics.csv`, checkpoints and ratchet/rung state are never
+  written. This closes the v16.9.67 known gap ("No re-evaluation tool exists
+  yet"); the measurements themselves need the owner's GPU.
+- **Tests**: `tests/unit/test_swa.py` (18 CPU tests: averaging math, SWALR,
+  BN update, resume round trip, disabled equivalence, soup ingredient) and
+  `tests/unit/test_fid_reeval.py` (23 CPU tests with a fake FID backend).
+  The SWA soup test uses `SoupRecipe` from the v16.9.104 argument grouping.
 
 ### v16.9.106 - Record Dataclasses Kept Within Seven Fields
 
