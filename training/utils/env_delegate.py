@@ -7,6 +7,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from training import ecosystem
 from training.utils.paths import get_project_root, get_workspace_root
 from training.utils.subprocess import SubprocessExecutionError, run_command
 
@@ -14,12 +15,12 @@ logger = logging.getLogger("lemtrain.env_delegate")
 
 
 class EnvManagerDelegate:
-    """Provides typed access to LemGendary Environment Manager CLI and sidecar API (port 8000)."""
+    """Typed access to the LemGendary Environment Manager CLI and sidecar API (ecosystem port)."""
 
-    def __init__(self, project_root: Path | None = None, sidecar_port: int = 8000) -> None:
+    def __init__(self, project_root: Path | None = None, sidecar_url: str | None = None) -> None:
         self.project_root = project_root or get_project_root()
         self.workspace_root = get_workspace_root()
-        self.sidecar_url = f"http://127.0.0.1:{sidecar_port}"
+        self.sidecar_url = sidecar_url or ecosystem.service_url(ecosystem.ENV_MANAGER_SERVICE)
 
     def is_sidecar_online(self) -> bool:
         """Probe environment manager sidecar API health."""

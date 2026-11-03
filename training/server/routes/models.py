@@ -13,8 +13,9 @@ from training.cloud.metadata_generator import KaggleMetadataService
 from training.doc_generator import ModelDocumentationService
 from training.export.staging import VariationStagingService
 from training.export.validation import StrictIsolationValidator
+from training.registry.kaggle_datasets import with_kaggle_dataset_refs
 from training.services.audit_service import AuditService
-from training.utils.paths import get_project_root
+from training.utils.paths import get_project_root, get_workspace_root
 
 logger = logging.getLogger("lemtrain.server.routes.models")
 
@@ -78,7 +79,7 @@ def get_model_info(model_key: str, request: Request) -> dict[str, Any]:
     registry = _load_registry(root)
     if model_key not in registry:
         raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
-    return registry[model_key]
+    return with_kaggle_dataset_refs(registry[model_key])
 
 
 @router.get("/{model_key}/audit")
@@ -111,7 +112,7 @@ def generate_model_docs(model_key: str, request: Request) -> dict[str, Any]:
         doc_service = ModelDocumentationService()
         meta_service = KaggleMetadataService()
 
-        model_hub_dir = (root.parent / "LemGendaryModels" / model_key).resolve()
+        model_hub_dir = (get_workspace_root() / "LemGendaryModels" / model_key).resolve()
         model_hub_dir.mkdir(parents=True, exist_ok=True)
 
         readme_file = doc_service.write_readme(model_key, output_dir=model_hub_dir)

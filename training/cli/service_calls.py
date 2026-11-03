@@ -6,7 +6,7 @@ from typing import Any
 
 import typer
 
-from training.cli.server_commands import SIDECAR_PORT, is_sidecar_online
+from training.cli.server_commands import is_sidecar_online, sidecar_port
 from training.services.export_service import ExportService
 from training.services.training_service import TrainingService
 from training.training.summary import TrainingSummary
@@ -15,7 +15,7 @@ from training.training.summary import TrainingSummary
 def announce_sidecar() -> None:
     """Tell the operator when the sidecar daemon is already listening."""
     if is_sidecar_online():
-        typer.echo(f"[INFO] Detected active LemGendary Sidecar Daemon on port {SIDECAR_PORT}.")
+        typer.echo(f"[INFO] Detected active LemGendary Sidecar Daemon on port {sidecar_port()}.")
 
 
 def run_training(model_key: str, **options: Any) -> TrainingSummary:

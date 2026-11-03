@@ -20,7 +20,7 @@ import yaml
 from training.model_card import DEFAULT_HARDWARE, build_model_readme
 from training.registry import get_model_registry
 from training.utils.lazy_imports import load_hub_readme_generator, load_variation_staging
-from training.utils.paths import get_project_root
+from training.utils.paths import get_workspace_root
 
 logger = logging.getLogger("lemtrain.docs.doc_generator")
 
@@ -124,7 +124,7 @@ class ModelDocumentationService:
         if output_dir:
             dest_dir = Path(output_dir).resolve()
         else:
-            dest_dir = (get_project_root().parent / "LemGendaryModels" / model_key).resolve()
+            dest_dir = (get_workspace_root() / "LemGendaryModels" / model_key).resolve()
         dest_dir.mkdir(parents=True, exist_ok=True)
         content = self.generate_readme(model_key, epochs_trained, metrics, hardware)
         dest_file = dest_dir / "README.md"

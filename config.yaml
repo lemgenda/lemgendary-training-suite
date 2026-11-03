@@ -4,7 +4,7 @@
 # ==========================================================================
 
 # Core Manifold Version
-version: "16.9.92"
+version: "16.9.93"
 unified_models: "unified_models_v2.yaml"
 
 # --- Hardware Profiles (Task 12.4) ---
@@ -51,7 +51,6 @@ governor:
 # --- Fleet & Synchronization (Task 12.3) ---
 fleet:
   auto_sync: true
-  kaggle_username: "lemtreursi"
   kaggle_slug_prefix: ""  # Default prefix for Kaggle Model slugs
   kaggle_slug_suffix: ""  # Standardized suffix for model checkpoints
   force_kaggle_sync: false  # Trigger Kaggle Model upload even on local machine

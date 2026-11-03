@@ -16,6 +16,7 @@ import yaml
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from training.ecosystem import TRAINING_SERVICE, service_port
 from training.server.app import create_app
 from training.server.state import ServerState
 
@@ -142,7 +143,7 @@ class TestServerSubsystem(unittest.TestCase):
             data = resp.json()
             self.assertEqual(data["status"], "ok")
             self.assertEqual(data["service"], "lemgendary-training-suite")
-            self.assertEqual(data["port"], 8200)
+            self.assertEqual(data["port"], service_port(TRAINING_SERVICE))
 
             # 2. Presets
             resp = client.get("/api/presets")

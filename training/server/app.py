@@ -1,7 +1,7 @@
 """FastAPI Sidecar Daemon Application Factory and Lifespan Manager.
 
-Runs on port 8200, exposing REST and WebSocket endpoints for background training,
-evaluations, checkpoint telemetry, and GUI integration.
+Runs on the training-suite port from the shared ecosystem file, exposing REST and WebSocket
+endpoints for background training, evaluations, checkpoint telemetry, and GUI integration.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.security.api_key import APIKeyHeader
 
+from training.ecosystem import TRAINING_SERVICE, service_port
 from training.server.jobs import JobManager
 from training.server.routes import (
     config as config_route,
@@ -96,7 +97,10 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
     @asynccontextmanager
     async def lifespan(_application: FastAPI) -> AsyncGenerator[None, None]:
         # Startup sequence
-        logger.info("Initializing LemGendary Training Suite Sidecar Daemon on port 8200...")
+        logger.info(
+            "Initializing LemGendary Training Suite Sidecar Daemon on port %d...",
+            service_port(TRAINING_SERVICE),
+        )
         server_state.write_pid()
         token = server_state.get_or_create_token()
         recovered = server_state.recover_orphaned_jobs()
@@ -138,7 +142,7 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
 
     application = FastAPI(
         title="LemGendary Model Training Suite Sidecar API",
-        version="16.9.92",
+        version="16.9.93",
         description=(
             "Local background daemon coordinating training runs, evaluations, "
             "exports, and telemetry."

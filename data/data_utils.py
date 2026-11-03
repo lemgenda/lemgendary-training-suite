@@ -7,6 +7,7 @@ import shutil
 import psutil
 
 from training.cloud.errors import kagglehub_errors
+from training.ecosystem import kaggle_owner
 from training.utils.lazy_imports import load_kagglehub
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1212]
@@ -28,7 +29,7 @@ def check_disk_space(required_bytes, target_path):
     return True
 
 
-def download_and_extract_dataset(ds_name, data_dir, config, source_ref=None):
+def download_and_extract_dataset(ds_name, data_dir, source_ref=None):
     """Universal Acquisition Engine (v16.0 Nuclear)."""
     ds_path = os.path.join(data_dir, ds_name)
     if os.path.exists(ds_path):
@@ -40,11 +41,11 @@ def download_and_extract_dataset(ds_name, data_dir, config, source_ref=None):
         pass
 
     if not ref or "kaggle" in ref:
-        return _handle_kaggle(ds_name, data_dir, config, ref)
+        return _handle_kaggle(ds_name, data_dir, ref)
     return False
 
 
-def _handle_kaggle(ds_name, data_dir, config, ref):
+def _handle_kaggle(ds_name, data_dir, ref):
     """Atomic Kaggle Recovery (v16.2 Nuclear)."""
     print(f"[DATA] Recovering {ds_name} from Kaggle Manifold...")
     try:
@@ -56,8 +57,8 @@ def _handle_kaggle(ds_name, data_dir, config, ref):
     # OSError covers file-system failures, shutil.Error and requests' network errors.
     acquisition_errors = kagglehub_errors()
     try:
-        # 2026 Resilience: Use configured username or default to lemtreursi
-        username = config.get("fleet", {}).get("kaggle_username", "lemtreursi")
+        # The Kaggle account owning the manifolds comes from the shared ecosystem file.
+        username = kaggle_owner()
 
         # Inject Kaggle authentication from local token to prevent 403 errors
         token_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".kaggle_token")

@@ -30,21 +30,21 @@ from training.cloud.variations import (
     VARIATIONS,
     KaggleVariation,
 )
+from training.ecosystem import docs_url
 from training.registry import ModelSpecification, get_model_registry
-from training.utils.paths import get_project_root
+from training.registry.kaggle_datasets import model_kaggle_dataset_urls
+from training.utils.paths import get_workspace_root
 
 logger = logging.getLogger("lemtrain.cloud.metadata")
 
 DEFAULT_LICENSE = "CC BY-NC 4.0"
 _DEFAULT_SUBTITLE_PREFIX = "Authoritative checkpoint for"
-DOCS_BASE_URL = "https://lemgenda.github.io/ai-training-whitepapers"
 
 
 def resolve_whitepaper_url(model_key: str) -> str:
     """Resolve the published GitHub Pages HTML URL for a given model's technical whitepaper."""
     try:
-        project_root = get_project_root()
-        docs_dir = (project_root.parent / "lemgendary-docs").resolve()
+        docs_dir = (get_workspace_root() / "lemgendary-docs").resolve()
         caps_path = docs_dir / "canonical_capabilities.yaml"
         manifest_path = docs_dir / "manifest" / "documents.json"
 
@@ -63,7 +63,7 @@ def resolve_whitepaper_url(model_key: str) -> str:
                     if doc_md_filename == md_filename or (
                         model_key == "ai_helper_lemgend" and doc.get("id") == "foundation-llm"
                     ):
-                        return f"{DOCS_BASE_URL}/{doc.get('html_path')}"
+                        return f"{docs_url()}/{doc.get('html_path')}"
     except (
         OSError,
         UnicodeDecodeError,
@@ -76,7 +76,7 @@ def resolve_whitepaper_url(model_key: str) -> str:
         # Attribute/TypeError: capability/manifest entries of unexpected shape.
         logger.warning("Could not resolve whitepaper URL for %s: %s", model_key, exc)
 
-    return f"{DOCS_BASE_URL}/index.html"
+    return f"{docs_url()}/index.html"
 
 
 class KaggleMetadataService:
@@ -190,7 +190,7 @@ class KaggleMetadataService:
         if output_dir:
             base = Path(output_dir).resolve()
         else:
-            base = (get_project_root().parent / "LemGendaryModels" / model_key).resolve()
+            base = (get_workspace_root() / "LemGendaryModels" / model_key).resolve()
         return base / METADATA_FILENAME
 
     def build(
@@ -259,13 +259,7 @@ class KaggleMetadataService:
     # ------------------------------------------------------------------ content builders
     @staticmethod
     def _dataset_urls(spec: ModelSpecification) -> list[str]:
-        raw = spec.raw_config.get("kaggle_dataset_urls") or []
-        urls: list[str] = []
-        for url in raw:
-            text = str(url)
-            if text and text not in urls:
-                urls.append(text)
-        return urls
+        return model_kaggle_dataset_urls(spec.raw_config)
 
     @staticmethod
     def _build_description(
@@ -319,7 +313,8 @@ class KaggleMetadataService:
             else:
                 lines.append(full_ref)
         elif not resolved_whitepaper:
-            lines.append(f"- **Documentation Hub:** [{DOCS_BASE_URL}]({DOCS_BASE_URL})")
+            hub = docs_url()
+            lines.append(f"- **Documentation Hub:** [{hub}]({hub})")
 
         return "\n".join(lines).strip() + "\n"
 

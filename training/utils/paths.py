@@ -21,13 +21,20 @@ def get_project_root() -> Path:
     return candidate
 
 
-@functools.cache
-def get_workspace_root() -> Path:
-    """Discover the workspace root containing sibling LemGendary projects (cached per process).
+WORKSPACE_ROOT_ENV = "LEMGENDARY_WORKSPACE_ROOT"
+"""Environment variable that overrides the workspace root."""
 
-    This is the parent of the project root, where sibling projects such as lemgendary-datasets
-    and lemgendary-env-manager live.
+
+def get_workspace_root() -> Path:
+    """Discover the workspace root containing sibling LemGendary projects.
+
+    ``LEMGENDARY_WORKSPACE_ROOT`` wins when set (read on every call so tests and launchers can
+    switch it); otherwise this is the parent of the project root, where sibling projects such as
+    lemgendary-datasets and lemgendary-env-manager live.
     """
+    override = os.environ.get(WORKSPACE_ROOT_ENV)
+    if override:
+        return Path(override).resolve()
     return get_project_root().parent
 
 

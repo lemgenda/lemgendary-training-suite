@@ -30,11 +30,12 @@ from training.cloud.variations import (
     PYTORCH_FP32,
     VARIATION_BY_KEY,
 )
+from training.ecosystem import kaggle_owner
 from training.export.validation import IsolationReport, StrictIsolationValidator
 from training.registry import get_model_registry
 from training.utils.fs import remove_tree
 from training.utils.lazy_imports import load_variation_staging
-from training.utils.paths import get_project_root
+from training.utils.paths import get_workspace_root
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_model_sync")
 
@@ -96,13 +97,13 @@ class KaggleModelSyncManager:
         hub_root: Path | str | None = None,
     ) -> None:
         user, resolved_key = resolve_kaggle_credentials(override_user=username, override_key=key)
-        self.username = user or "lemtreursi"
+        self.username = user or kaggle_owner()
         self.key = resolved_key
 
         if hub_root:
             self.hub_root = Path(hub_root).resolve()
         else:
-            self.hub_root = (get_project_root().parent / "LemGendaryModels").resolve()
+            self.hub_root = (get_workspace_root() / "LemGendaryModels").resolve()
 
         self.registry = get_model_registry()
         self.metadata_service = KaggleMetadataService(owner_slug=self.username)

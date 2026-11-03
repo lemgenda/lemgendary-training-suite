@@ -9,6 +9,7 @@ from typing import Any
 import torch
 from fastapi import APIRouter
 
+from training.ecosystem import TRAINING_SERVICE, service_port
 from training.hardware.discovery import discover_device
 
 router = APIRouter(tags=["health"])
@@ -24,7 +25,7 @@ async def get_health() -> dict[str, Any]:
         "status": "ok",
         "service": "lemgendary-training-suite",
         "version": "16.2.9",
-        "port": 8200,
+        "port": service_port(TRAINING_SERVICE),
         "timestamp": datetime.now().isoformat(),
         "device": {
             "name": device_info.device_names[0]

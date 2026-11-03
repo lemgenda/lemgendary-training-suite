@@ -12,6 +12,7 @@ from typing import Any
 import yaml
 
 from training.config.secrets import get_secret
+from training.ecosystem import kaggle_owner
 from training.utils.paths import get_project_root, get_workspace_root
 
 logger = logging.getLogger("lemtrain.cloud.credentials")
@@ -110,8 +111,9 @@ def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, Any]]:
     if target_file and target_file.exists():
         try:
             content = target_file.read_text(encoding="utf-8")
+            owner = kaggle_owner()
             accounts.extend(
-                {"username": user, "token": token, "is_default": user == "lemtreursi"}
+                {"username": user, "token": token, "is_default": user == owner}
                 for user, token in parse_kaggle_users_text(content)
             )
             accounts.sort(key=lambda a: not a.get("is_default", False))
@@ -150,7 +152,7 @@ def resolve_kaggle_credentials(
     3. Environment variables (KAGGLE_USERNAME, KAGGLE_KEY)
     4. User home ~/.kaggle/kaggle.json
     5. Sibling/project .kaggle_token or .kaggle_users
-    6. Default fallback account (lemtreursi)
+    6. The ecosystem Kaggle owner (``identity.kaggle_owner`` in ``ecosystem.json``)
     """
     k_user = override_user or ""
     k_key = override_key or ""
@@ -212,7 +214,7 @@ def resolve_kaggle_credentials(
             logger.debug("Failed reading .kaggle_token: %s", e)
 
     if not k_user:
-        k_user = "lemtreursi"
+        k_user = kaggle_owner()
 
     # Export to environment for Kaggle Python SDK and child processes
     if k_user:

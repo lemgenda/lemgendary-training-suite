@@ -15,6 +15,7 @@ import psutil
 import typer
 import uvicorn
 
+from training.ecosystem import TRAINING_SERVICE, bind_host, service_port
 from training.server.app import get_app
 from training.server.state import ServerState
 
@@ -24,14 +25,16 @@ logger = logging.getLogger("lemtrain.cli.lemtrain")
 server_app = typer.Typer(name="server", help="FastAPI sidecar daemon process management.")
 
 
-SIDECAR_PORT = 8200
+def sidecar_port() -> int:
+    """Port of the training-suite sidecar, read from the shared ecosystem file."""
+    return service_port(TRAINING_SERVICE)
 
 
-def is_sidecar_online(port: int = SIDECAR_PORT) -> bool:
-    """Check if the training suite daemon sidecar is listening on port."""
+def is_sidecar_online(port: int | None = None) -> bool:
+    """Check if the training suite daemon sidecar is listening on ``port`` (default: ecosystem)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.1)
-        return s.connect_ex(("127.0.0.1", port)) == 0
+        return s.connect_ex((bind_host(), port or sidecar_port())) == 0
 
 
 def _spawn_detached_daemon(host: str, port: int) -> subprocess.Popen[bytes]:
@@ -59,11 +62,17 @@ def _spawn_detached_daemon(host: str, port: int) -> subprocess.Popen[bytes]:
 
 @server_app.command("start")
 def server_start(
-    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind address"),
-    port: int = typer.Option(8200, "--port", "-p", help="Server port"),
+    host: str | None = typer.Option(
+        None, "--host", "-h", help="Bind address (default: ecosystem.json bind_host)"
+    ),
+    port: int | None = typer.Option(
+        None, "--port", "-p", help="Server port (default: ecosystem.json training-suite port)"
+    ),
     daemon: bool = typer.Option(False, "--daemon", "-d", help="Run detached in background"),
 ) -> None:
     """Start the FastAPI sidecar daemon."""
+    host = host or bind_host()
+    port = port or sidecar_port()
     if is_sidecar_online(port):
         typer.echo(f"[INFO] Server is already running on http://{host}:{port}")
         return
@@ -112,9 +121,12 @@ def server_stop() -> None:
 
 @server_app.command("status")
 def server_status(
-    port: int = typer.Option(8200, "--port", "-p", help="Target port to probe"),
+    port: int | None = typer.Option(
+        None, "--port", "-p", help="Target port to probe (default: ecosystem.json)"
+    ),
 ) -> None:
     """Check sidecar daemon status and health endpoint."""
+    port = port or sidecar_port()
     state = ServerState()
     pid = state.read_pid()
     online = is_sidecar_online(port)
@@ -128,7 +140,7 @@ def server_status(
 
     if online:
         try:
-            url = f"http://127.0.0.1:{port}/api/health"
+            url = f"http://{bind_host()}:{port}/api/health"
             req = urllib.request.Request(url, headers={"User-Agent": "LemTrain-CLI"})
             with urllib.request.urlopen(req, timeout=2.0) as resp:
                 data = json.loads(resp.read().decode("utf-8"))

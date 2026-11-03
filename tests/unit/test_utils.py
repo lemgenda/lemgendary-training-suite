@@ -2,8 +2,11 @@
 
 import io
 import logging
+import os
 import sys
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from training.utils.dataset_delegate import DatasetCompilerDelegate
 from training.utils.env_delegate import EnvManagerDelegate
@@ -32,10 +35,14 @@ class TestUtilsPaths(unittest.TestCase):
         )
 
     def test_get_workspace_root(self) -> None:
-        """Verify get_workspace_root contains the training-suite folder."""
-        ws_root = get_workspace_root()
-        self.assertTrue(ws_root.exists())
-        self.assertTrue((ws_root / "lemgendary-training-suite").exists())
+        """Verify get_workspace_root honours the env override, else is the project's parent."""
+        fake = Path(os.environ["LEMGENDARY_WORKSPACE_ROOT"]).resolve()
+        self.assertEqual(get_workspace_root(), fake)
+        with mock.patch.dict(os.environ):
+            del os.environ["LEMGENDARY_WORKSPACE_ROOT"]
+            ws_root = get_workspace_root()
+        self.assertEqual(ws_root, get_project_root().parent)
+        self.assertTrue((ws_root / get_project_root().name).exists())
 
     def test_resolve_path(self) -> None:
         """Verify resolve_path resolves relative to the project root."""

@@ -10,14 +10,15 @@ from pathlib import Path
 from typing import Any
 
 from training.cloud.errors import kagglehub_errors
+from training.ecosystem import kaggle_owner
 from training.utils.paths import get_project_root, get_workspace_root
 
 logger = logging.getLogger("lemtrain.checkpoint.recovery")
 
 
-def _probe_kagglehub_checkpoints(kh_mod: Any, model_name: str, cfg: dict[str, Any]) -> Path | None:
+def _probe_kagglehub_checkpoints(kh_mod: Any, model_name: str) -> Path | None:
     """Probe KaggleHub (5s timeout) for a published checkpoint directory of ``model_name``."""
-    k_user = cfg.get("kaggle_username", "lemtreursi")
+    k_user = kaggle_owner()
     k_slug = model_name.replace("_", "-")
     if "nima-aesthetic" in k_slug:
         k_slug = k_slug.replace("nima-aesthetic", "nima-aesthetics")
@@ -137,7 +138,7 @@ class CheckpointRecoveryEngine:
                     "kagglehub not installed; skipping remote checkpoint probe: %s", kh_imp_err
                 )
             else:
-                dl_path = _probe_kagglehub_checkpoints(kh_mod, model_name, cfg)
+                dl_path = _probe_kagglehub_checkpoints(kh_mod, model_name)
                 if dl_path is not None:
                     roots.insert(0, dl_path)
 

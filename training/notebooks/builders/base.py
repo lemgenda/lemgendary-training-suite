@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from training.utils.paths import WORKSPACE_ROOT_ENV
+
 from ..cells.base import make_markdown_cell
 from ..cells.deps import build_install_cell
 from ..cells.env import build_sentinel_cell
@@ -30,7 +32,13 @@ logger = logging.getLogger("lemtrain.notebooks.builders.base")
 
 
 def _get_workspace_root() -> Path:
-    """Resolve the canonical workspace root containing sibling LemGendary projects."""
+    """Resolve the canonical workspace root containing sibling LemGendary projects.
+
+    ``LEMGENDARY_WORKSPACE_ROOT`` wins when set, as in :func:`training.utils.paths`.
+    """
+    override = os.environ.get(WORKSPACE_ROOT_ENV)
+    if override:
+        return Path(override).resolve()
     here = Path(__file__).resolve()
     for parent in [here] + list(here.parents):
         if (parent / "lemgendary-datasets").exists() and (

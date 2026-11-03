@@ -188,7 +188,7 @@ class TestDatasetToTrainingE2E(unittest.TestCase):
 
 
 class TestMultiSidecarHealthMeshE2E(unittest.TestCase):
-    """Verifies API schema parity between env-manager port 8000 and datasets port 8100."""
+    """Verifies API schema parity between the env-manager and dataset-compiler health payloads."""
 
     def test_sidecar_health_schemas_align(self) -> None:
         """Verify that health endpoint shapes expected by env-manager are produced by datasets."""

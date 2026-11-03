@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from training import ecosystem
 from training.utils.paths import get_workspace_root
 
 logger = logging.getLogger("lemtrain.dataset_delegate")
@@ -16,11 +17,12 @@ logger = logging.getLogger("lemtrain.dataset_delegate")
 class DatasetCompilerDelegate:
     """Typed resolution of compiled manifolds and metadata from the LemGendary Dataset Compiler."""
 
-    def __init__(self, workspace_root: Path | None = None, sidecar_port: int = 8100) -> None:
+    def __init__(self, workspace_root: Path | None = None, sidecar_url: str | None = None) -> None:
         self.workspace_root = workspace_root or get_workspace_root()
-        self.datasets_dir = self.workspace_root / "lemgendary-datasets"
+        datasets_service = ecosystem.ecosystem().service(ecosystem.DATASETS_SERVICE)
+        self.datasets_dir = self.workspace_root / datasets_service.project
         self.manifolds_repo = self.workspace_root / "LemGendaryDatasets"
-        self.sidecar_url = f"http://127.0.0.1:{sidecar_port}"
+        self.sidecar_url = sidecar_url or ecosystem.service_url(ecosystem.DATASETS_SERVICE)
 
     def is_sidecar_online(self) -> bool:
         """Probe dataset compiler sidecar API health."""

@@ -11,6 +11,8 @@ from typing import Any
 
 import yaml
 
+from training.ecosystem import kaggle_dataset_handle, kaggle_owner
+from training.registry.kaggle_datasets import model_kaggle_dataset_handles
 from training.utils.lazy_imports import load_cloud_module
 
 logger = logging.getLogger("lemtrain.notebooks.registry")
@@ -100,16 +102,14 @@ def resolve_model_metadata(
     try:
         credentials = load_cloud_module("credentials")
         user_cred, _ = credentials.resolve_kaggle_credentials()
-        k_username = user_cred or (
-            config.get("kaggle_username", "lemtreursi") if config else "lemtreursi"
-        )
+        k_username = user_cred or kaggle_owner()
     except (ImportError, OSError, ValueError) as exc:
         logger.warning(
             "Kaggle credential resolution failed for %s; using configured username: %s",
             model_key,
             exc,
         )
-        k_username = config.get("kaggle_username", "lemtreursi") if config else "lemtreursi"
+        k_username = kaggle_owner()
 
     k_slug = (
         model_info.get("kaggle_metadata", {}).get("slug")
@@ -131,25 +131,15 @@ def resolve_model_metadata(
     }
     k_handle = handles[variations.PYTORCH_DEFAULT.key]
 
-    kaggle_ref = model_info.get("kaggle_ref", "")
-    if not kaggle_ref:
-        urls = model_info.get("kaggle_dataset_urls", [])
-        if urls:
-            kaggle_ref = urls[0]
-    if kaggle_ref.startswith("kaggle://"):
-        clean_kaggle_repo = kaggle_ref[len("kaggle://") :].strip()
-    elif "kaggle.com/datasets/" in kaggle_ref:
-        clean_kaggle_repo = kaggle_ref.split("kaggle.com/datasets/")[-1].strip().strip("/")
-    else:
-        clean_kaggle_repo = kaggle_ref.strip()
-
+    dataset_handles = model_kaggle_dataset_handles(model_info)
     primary_manifold = (
         ds_list[0]
         if ds_list
         else (f"LemGendized{pascal_name}" if not is_forex else "LemGendizedForexUniverse")
     )
-    if not clean_kaggle_repo:
-        clean_kaggle_repo = f"lemtreursi/{primary_manifold.lower()}"
+    clean_kaggle_repo = (
+        dataset_handles[0] if dataset_handles else kaggle_dataset_handle(primary_manifold)
+    )
 
     no_download = bool(config.get("notebook_no_download", False)) if config else False
 

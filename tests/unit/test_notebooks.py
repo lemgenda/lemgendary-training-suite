@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 import training.notebook_generator as legacy
+from training.ecosystem import kaggle_owner
 from training.notebooks import (
     ModelNotebookMeta,
     generate_colab_inference_notebook,
@@ -156,6 +157,10 @@ class TestNotebookSubsystem(unittest.TestCase):
 
         secrets_cell = build_secrets_cell("kaggle")
         self.assertEqual(secrets_cell["cell_type"], "code")
+        # The fallback Kaggle owner is substituted from ecosystem.json at generation time.
+        for platform in ("kaggle", "colab"):
+            source = "".join(build_secrets_cell(platform)["source"])
+            self.assertIn(f"k_user = {kaggle_owner()!r}", source)
 
         fuse_cell = build_fuse_mount_cell()
         self.assertEqual(fuse_cell["cell_type"], "code")
@@ -271,23 +276,11 @@ class TestNotebookSubsystem(unittest.TestCase):
         self._assert_valid_notebook(out_dir / f"{model_key}_colab_training.ipynb")
         self._assert_valid_notebook(out_dir / f"{model_key}_colab_usage.ipynb")
 
-    def test_dataset_compiler_notebook_generator_parity(self) -> None:
-        """Verify that lemgendary-datasets delegates to training suite SSOT notebook generator."""
-        ds_repo = Path(__file__).resolve().parent.parent.parent.parent / "lemgendary-datasets"
-        manifold_compile_path = ds_repo / "core" / "manifold_compile.py"
-        self.assertTrue(
-            manifold_compile_path.exists(),
-            f"manifold_compile.py missing at: {manifold_compile_path}",
-        )
+    def test_training_notebook_generators_emit_valid_notebooks(self) -> None:
+        """Training notebook generators (used by lemgendary-datasets) emit valid notebooks.
 
-        # Verify that manifold_compile.py declares the SSOT dynamic import
-        with open(manifold_compile_path, "r", encoding="utf-8") as f:
-            mc_source = f.read()
-        self.assertIn("def _get_training_suite_notebook_generators", mc_source)
-        self.assertIn("from training.notebooks import", mc_source)
-
-        # Verify that the SSOT notebook generators emit valid notebooks
-
+        The delegation itself is covered by the datasets contract test.
+        """
         model_key = "mirnet_exposure"
         out_dir = Path(self.temp_dir) / f"{model_key}_ds_ssot"
         out_dir.mkdir(parents=True, exist_ok=True)

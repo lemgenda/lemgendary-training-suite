@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from training.ecosystem import kaggle_owner
 from training.utils.lazy_imports import load_cloud_module
 
 from ..registry import ModelNotebookMeta
@@ -73,7 +74,7 @@ def build_secrets_cell(target: str = "kaggle") -> dict[str, Any]:
             ),
             "        _os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = _sa_path\n",
             "    \n",
-            "    if not k_user: k_user = 'lemtreursi'\n",
+            f"    if not k_user: k_user = {kaggle_owner()!r}\n",
             "    if k_key:\n",
             "        _os.environ['KAGGLE_KEY'] = k_key\n",
             "        _os.environ['KAGGLE_USERNAME'] = k_user\n",
@@ -141,7 +142,7 @@ def build_secrets_cell(target: str = "kaggle") -> dict[str, Any]:
             "    if s_pat: _os.environ['SUITE_PAT'] = s_pat\n",
             "    if g_drive: _os.environ['GOOGLE_DRIVE'] = g_drive\n",
             "    \n",
-            "    if not k_user: k_user = 'lemtreursi'\n",
+            f"    if not k_user: k_user = {kaggle_owner()!r}\n",
             "    if k_key:\n",
             "        _os.environ['KAGGLE_KEY'] = k_key\n",
             "        _os.environ['KAGGLE_USERNAME'] = k_user\n",

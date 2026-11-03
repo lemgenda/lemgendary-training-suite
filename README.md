@@ -11,11 +11,22 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.92-STABLE` |
+| **Version** | `v16.9.93-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.93 - Ecosystem Facts Read from ecosystem.json
+
+- **`training/ecosystem.py`** (new): cached loader for `lemgendary-env-manager/ecosystem/ecosystem.json`, with the same contract as the datasets loader: `LEMGENDARY_ECOSYSTEM_FILE`, else `<workspace_root>/lemgendary-env-manager/ecosystem/ecosystem.json`. A missing, unreadable or malformed file raises `EcosystemFileError` naming the expected path. Cloud notebooks already clone the env-manager next to the suite, so the default path also resolves on Kaggle and Colab.
+- **`training/utils/paths.py`**: `get_workspace_root` honours `LEMGENDARY_WORKSPACE_ROOT` (read on every call), and so does the notebook builders' workspace lookup. The docs generator, `POST /api/models/{model_key}/docs/generate`, the Kaggle model sync and the metadata generator find `LemGendaryModels` and `lemgendary-docs` through it.
+- **Ports**: `lemtrain server start/status` (`--host`/`--port` now default to the file's `bind_host` and training-suite port), the CLI sidecar notice, `GET /api/health` `port`, the startup log, and the env-manager and dataset-compiler delegates (which now take an optional `sidecar_url`) read the ports from the file. No port number is hard-coded any more.
+- **Kaggle owner**: credential fallback and default-account detection, `KaggleModelSyncManager`, checkpoint recovery, `data/data_utils.py` and notebook metadata use `identity.kaggle_owner`. The generated Kaggle and Colab secrets cells get the owner substituted when the notebook is generated.
+- **Registry and config**: `config.yaml` drops `fleet.kaggle_username`, and `unified_models_v2.yaml` drops every `kaggle_ref` / `kaggle_dataset_urls` entry (all were `<owner>/<lower-cased manifold>`). `training/registry/kaggle_datasets.py` (new) derives them from `datasets` plus the owner. An explicit `kaggle_ref` / `kaggle_dataset_urls` on a model is still honoured as a per-model override for a dataset published under another account or slug. `GET /api/models/{model_key}` returns the derived `kaggle_ref` and `kaggle_dataset_urls`.
+- **Docs URL**: `training/cloud/metadata_generator.py` takes the documentation hub URL from `identity.docs_url` (the `DOCS_BASE_URL` constant is gone).
+- **Tests**: `tests/conftest.py` gives every test a temporary workspace (`LEMGENDARY_WORKSPACE_ROOT`) and points `LEMGENDARY_ECOSYSTEM_FILE` at `tests/fixtures/ecosystem.json`, whose ports, owner and docs URL differ from the real ones. Tests can no longer write into the real sibling folders; before this change the docs-generation and notebook tests rewrote `LemGendaryModels/mirnet_exposure` and `colab_training/` / `kaggle_training/` in the workspace. `tests/unit/test_ecosystem.py` (new) covers the loader, the missing-file error, the workspace override, the delegates and the derived Kaggle references. The cross-repo source-grep in `test_notebooks.py` is removed; lemgendary-datasets has its own delegation contract test. `openapi.json` is regenerated.
+- **Tests**: 270 passed.
 
 ### v16.9.92 - Training Epoch Loop on Shared Step Helpers
 
