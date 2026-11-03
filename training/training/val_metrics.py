@@ -18,6 +18,7 @@ import torch
 from training.training.amp import compute_ssim_gpu
 from training.training.val_accumulators import ImageMetricModules, ValAccumulators
 from training.utils.error_types import METRIC_INIT_ERRORS
+from training.utils.lazy_imports import load_fid_metric, load_lpips_metric, load_optional
 
 logger = logging.getLogger("lemtrain.training.validation")
 
@@ -25,15 +26,8 @@ logger = logging.getLogger("lemtrain.training.validation")
 # indexing).
 METRIC_ERRORS: tuple[type[BaseException], ...] = (RuntimeError, ValueError, TypeError, IndexError)
 
-try:
-    from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
-except ImportError:
-    LearnedPerceptualImagePatchSimilarity = None
-
-try:
-    from torchmetrics.image.fid import FrechetInceptionDistance
-except ImportError:
-    FrechetInceptionDistance = None
+LearnedPerceptualImagePatchSimilarity = load_optional(load_lpips_metric)
+FrechetInceptionDistance = load_optional(load_fid_metric)
 
 _DETECTION_KEYS = ("map50", "map50_95", "map_easy", "map_medium", "map_hard")
 
@@ -61,6 +55,8 @@ def _lpips_module(modules: ImageMetricModules, device: torch.device) -> Any:
     """Build the LPIPS module on first use; returns None or False when unavailable."""
     if modules.lpips is None:
         try:
+            if LearnedPerceptualImagePatchSimilarity is None:
+                raise ImportError("TorchMetrics LPIPS is not installed")
             modules.lpips = LearnedPerceptualImagePatchSimilarity(
                 net_type="vgg",
                 normalize=False,
@@ -78,6 +74,8 @@ def _fid_module(modules: ImageMetricModules, device: torch.device) -> Any:
     """Build the 2048-feature FID module on first use; returns None or False when unavailable."""
     if modules.fid is None:
         try:
+            if FrechetInceptionDistance is None:
+                raise ImportError("TorchMetrics FID is not installed")
             modules.fid = FrechetInceptionDistance(
                 feature=2048,
                 reset_real_features=True,

@@ -16,8 +16,14 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+from collections.abc import Callable
 from types import ModuleType
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
+
+if TYPE_CHECKING:
+    from torch.nn import Module
+
+_T = TypeVar("_T")
 
 
 class KaggleIamTypes(NamedTuple):
@@ -30,6 +36,14 @@ class KaggleIamTypes(NamedTuple):
 def is_installed(package: str) -> bool:
     """Return True when the top-level ``package`` can be imported."""
     return importlib.util.find_spec(package) is not None
+
+
+def load_optional(loader: Callable[[], _T]) -> _T | None:
+    """Return ``loader()``, or None when the package it imports is not installed."""
+    try:
+        return loader()
+    except ImportError:
+        return None
 
 
 # --- Third-party optional packages ---------------------------------------------------
@@ -90,6 +104,18 @@ def load_mean_average_precision() -> Any:
     """Return torchmetrics' ``MeanAveragePrecision`` metric class."""
     module = importlib.import_module("torchmetrics.detection.mean_ap")
     return module.MeanAveragePrecision
+
+
+def load_lpips_metric() -> type[Module]:
+    """Return torchmetrics' ``LearnedPerceptualImagePatchSimilarity`` metric class."""
+    module = importlib.import_module("torchmetrics.image.lpip")
+    return module.LearnedPerceptualImagePatchSimilarity
+
+
+def load_fid_metric() -> type[Module]:
+    """Return torchmetrics' ``FrechetInceptionDistance`` metric class."""
+    module = importlib.import_module("torchmetrics.image.fid")
+    return module.FrechetInceptionDistance
 
 
 def load_streaming() -> ModuleType:
