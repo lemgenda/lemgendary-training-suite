@@ -14,6 +14,99 @@ Severity scale: Critical, High, Medium, Low. Every finding cites
 Statements that could not be verified without executing torch code are
 marked **(unverified at runtime)**.
 
+## Remediation Status
+
+Status of every finding on branch `wip/l10` (base v16.9.120). "L10" marks
+commits of this step; they carry no version until the merge release.
+Severity `-` means the review did not rate the finding. Owner and resource
+items keep today's behaviour; the notes below the table say what is open.
+
+| ID | Sev. | Status | Note |
+| --- | --- | --- | --- |
+| D-01 | High | Fixed v16.9.65 `ab38c8c` | Budget is a hard cap |
+| D-02 | High | Fixed v16.9.66 `f3f5b3d` | One soup service for CLI and API |
+| D-03 | High | Fixed v16.9.67 `de996bb` | Tool removed; old rows: R-2 |
+| D-04 | High | Fixed v16.9.67 `de996bb` | Reads pre-audit `input_size` |
+| D-05 | High | Fixed v16.9.64 `0ca5fdc` | Origin guard, closed CORS; O-1 |
+| D-06 | Medium | Fixed L10 `e10bccd` | Script target, egg-info untracked |
+| D-07 | Medium | Partly fixed L10 `6cfc7e1` | Patience key fixed; O-2 |
+| D-08 | Medium | Fixed L10 `71ee51b` | Measured values only |
+| D-09 | Medium | Owner decision | Dead args gone (v16.9.73); O-3 |
+| D-10 | Medium | Owner decision | O-4 |
+| D-11 | Medium | Fixed v16.9.64 `0ca5fdc` | Secret files ignored |
+| D-12 | Medium | Fixed L10 `aedb4b5` | Dead module deleted |
+| D-13 | Low | Fixed L10 `8e4245e` | Unbalanced FID is not reported |
+| D-14 | Low | Owner decision | O-5 |
+| D-15 | Low | Fixed L10 `2a781f8` | In config.yaml, same values; O-6 |
+| D-16 | Low | Fixed L10 `2a781f8` | Uses `paths.datasets_root` |
+| 5.1 | - | Fixed v16.9.67 `de996bb` | Pair rule via `_commit_rung` |
+| 5.2 | - | Fixed L10 `8e4245e` | Test pins 2048 features, chunks 2 |
+| 5.2-rows | - | Needs real resources | R-2 |
+| 5.3-SWA | - | Fixed v16.9.107 `83ea7b1` | Opt-in SWA with BN update |
+| 5.3-soup | - | Owner decision | O-7 |
+| 6-version | - | Fixed L10 `2dc0510` | pyproject.toml is the source |
+| 6-openapi | - | Fixed v16.9.68 `f2b8273` | Generated, drift test |
+| 6-lint | - | Fixed | README: no inline disable |
+| 6-papers | - | Other repo | lemgendary-docs (L11) |
+| 6-score | - | Owner decision | O-8 |
+| 7.1-inv | - | Fixed L10 `71ee51b` | Params in registry; R-1 |
+| 7.1-dup | - | Deferred | R-3 |
+| 7.1-reqs | - | Owner decision | O-9 |
+| 7.2 | - | Other repo | GUI D3 fixed the modal URL; O-1 |
+| 7.3-drive | - | Owner decision | O-10 |
+| 7.3-cache | - | Fixed L10 `e10bccd` | `.cache/` untracked |
+| 7.3-cloud | - | Deferred | R-3 |
+| 7.4-inline | - | Fixed v16.9.70 `2dff770` | No `type: ignore`, no pragma |
+| 7.4-pylint | - | Deferred | R-4 |
+| 7.4-silent | - | Fixed L10 `3af1ae5` | Notebook cells, worker hook |
+| 7.5 | - | Deferred | R-5 |
+
+Owner decisions (behaviour unchanged):
+
+- O-1: the API token is still optional (`enforce_auth=False`). Turning it
+  on needs the GUI to send `X-LemTrain-Token` in the same release.
+- O-2: `max_allowed_local_resolution` and `max_allowed_cloud_resolution`
+  are not read (the governor asks for `max_allowed_resolution`). Wiring
+  them could cap large-GPU runs at 512 px. `vram_limit_gb`,
+  `safety_headroom_multiplier`, `min_softmax_temp`,
+  `inter_model_cooldown_seconds`, `mask_tokens` and `stealth_mode` have no
+  consumer; wire or delete them. The VRAM tiers stay in code.
+- O-3: the engine and the governor keep separate SOTA trackers. The
+  governor re-baselines `best_quality` at each fraction step; one shared
+  tracker would change when rungs advance.
+- O-4: `register_rollback`, `veto_resolution_jump` and `trigger_mini_swa`
+  still have no production caller. Implement them in the engine or remove
+  them from code and papers.
+- O-5: quick-train takes epochs and batch size from the registry before
+  the preset, but the learning rate from the preset first. Choose one
+  order.
+- O-6: the 600 to 555 resume anchor is now
+  `governor.quality_anchor_recalibration`; delete the section to drop it.
+- O-7: the soup copies the first donor's metadata (`governor_state`),
+  stores the weights as given, and does not re-estimate BatchNorm.
+- O-8: the canonical scalar quality score (ROBOTS.md formula or the
+  weighted code score).
+- O-9: three dependency lists disagree (`requirements.txt`, env-manager
+  requirements, `pyproject.toml`).
+- O-10: `training/cloud/gdrive.py` probes `G:` Drive mount paths.
+
+Real resources and deferred work:
+
+- R-1: the GUI fallback inventory and `canonical_capabilities.json` live in
+  other repositories. `models.md` now lists `ai_helper_lemgend`;
+  `tools/train_all.py` skips unregistered models and schedules
+  `forex_predictor` in its extension phase.
+- R-2: metrics.csv rows that `recalibrate_fid.py` rewrote need a real
+  Inception-2048 re-evaluation (`training/fid_reeval`, data and GPU).
+- R-3: duplicated ladders, metric directions, forex checks, hub paths and
+  cloud mount roots are a refactor left until the pylint work on the main
+  branch lands.
+- R-4: four `too-many-*` disables in `.pylintrc` and seven inline
+  `too-many-arguments` remain; the pylint step on the main branch removes
+  them.
+- R-5: `lemtrain test-all` and `tools/train_all.py` still start scripts as
+  subprocesses (Later Phase L9).
+
 ## 1. Executive Findings
 
 ### 1.1 Strengths
