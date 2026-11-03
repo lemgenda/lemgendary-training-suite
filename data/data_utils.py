@@ -45,6 +45,41 @@ def download_and_extract_dataset(ds_name, data_dir, source_ref=None):
     return False
 
 
+def _inject_kaggle_token(username):
+    """Export Kaggle credentials from the local ``.kaggle_token`` (prevents 403 errors)."""
+    token_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".kaggle_token")
+    if os.path.exists(token_path):
+        with open(token_path, "r", encoding="utf-8") as f:
+            token = f.read().strip()
+        token = token.removeprefix("KGAT_")
+        os.environ["KAGGLE_USERNAME"] = username
+        os.environ["KAGGLE_KEY"] = token
+
+
+def _kaggle_slug(username, ds_name, ref):
+    """Kaggle dataset slug: from ``ref`` (URL or ``kaggle://``) or the owner and name."""
+    slug = f"{username}/{ds_name.lower().replace('_', '-')}"
+    if ref and "datasets/" in ref:
+        slug = ref.split("datasets/")[-1]
+    elif ref and "kaggle://" in ref:
+        slug = ref.replace("kaggle://", "")
+    return slug
+
+
+def _merge_cache(cache_path, ds_path):
+    """Copy a downloaded file, or merge a downloaded directory, into ``ds_path``."""
+    if os.path.isfile(cache_path):
+        shutil.copy2(cache_path, os.path.join(ds_path, os.path.basename(cache_path)))
+        return
+    for item in os.listdir(cache_path):
+        s = os.path.join(cache_path, item)
+        d = os.path.join(ds_path, item)
+        if os.path.isdir(s):
+            shutil.copytree(s, d, dirs_exist_ok=True)
+        else:
+            shutil.copy2(s, d)
+
+
 def _handle_kaggle(ds_name, data_dir, ref):
     """Atomic Kaggle Recovery (v16.2 Nuclear)."""
     print(f"[DATA] Recovering {ds_name} from Kaggle Manifold...")
@@ -60,20 +95,8 @@ def _handle_kaggle(ds_name, data_dir, ref):
         # The Kaggle account owning the manifolds comes from the shared ecosystem file.
         username = kaggle_owner()
 
-        # Inject Kaggle authentication from local token to prevent 403 errors
-        token_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".kaggle_token")
-        if os.path.exists(token_path):
-            with open(token_path, "r", encoding="utf-8") as f:
-                token = f.read().strip()
-            token = token.removeprefix("KGAT_")
-            os.environ["KAGGLE_USERNAME"] = username
-            os.environ["KAGGLE_KEY"] = token
-
-        slug = f"{username}/{ds_name.lower().replace('_', '-')}"
-        if ref and "datasets/" in ref:
-            slug = ref.split("datasets/")[-1]
-        elif ref and "kaggle://" in ref:
-            slug = ref.replace("kaggle://", "")
+        _inject_kaggle_token(username)
+        slug = _kaggle_slug(username, ds_name, ref)
 
         print(f"   -> Pulling: {slug}")
         print("   -> Starting download (this may take a while for large manifolds)...")
@@ -84,18 +107,7 @@ def _handle_kaggle(ds_name, data_dir, ref):
         if not os.path.exists(ds_path):
             os.makedirs(ds_path, exist_ok=True)
 
-        # 2026 Resilience: Move from cache to datasets_root
-        if os.path.isfile(cache_path):
-            shutil.copy2(cache_path, os.path.join(ds_path, os.path.basename(cache_path)))
-        else:
-            # Recursive directory merge
-            for item in os.listdir(cache_path):
-                s = os.path.join(cache_path, item)
-                d = os.path.join(ds_path, item)
-                if os.path.isdir(s):
-                    shutil.copytree(s, d, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(s, d)
+        _merge_cache(cache_path, ds_path)
 
         print(f"[OK] [DATA] {ds_name} successfully synchronized to manifold.")
         return True

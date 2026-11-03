@@ -28,64 +28,75 @@ class ResumeState:
     val_accumulators: dict[str, Any] = field(default_factory=dict)
 
 
+def _model_state(payload: dict[str, Any]) -> dict[str, Any]:
+    """The weights dict under a known key, or the whole payload when it is raw weights."""
+    for key in ("model_state_dict", "state_dict", "model"):
+        if key in payload and isinstance(payload[key], dict):
+            return payload[key]
+    return payload
+
+
+def _progress(payload: dict[str, Any], iteration: int) -> tuple[str, bool, int]:
+    """``(phase, is_intra_epoch, iteration)`` from ``progress_metadata`` or top-level keys."""
+    progress_meta = payload.get("progress_metadata")
+    if isinstance(progress_meta, dict):
+        return (
+            str(progress_meta.get("phase", "train")),
+            True,
+            int(progress_meta.get("step", iteration)),
+        )
+    phase = str(payload.get("phase", "train"))
+    return phase, bool(payload.get("phase") == "train" and "step" in payload), iteration
+
+
+def _first(payload: dict[str, Any], *keys: str) -> Any:
+    """``payload.get(k1) or payload.get(k2) or ...`` (the last value when none is truthy)."""
+    value = None
+    for key in keys:
+        value = payload.get(key)
+        if value:
+            return value
+    return value
+
+
+def _dict_or_none(value: Any) -> dict[str, Any] | None:
+    return value if isinstance(value, dict) else None
+
+
+def _dict_copy(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
 def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
     """Parse a checkpoint dictionary into a structured ResumeState object."""
-    # 1. Resolve model state dict
-    if "model_state_dict" in payload and isinstance(payload["model_state_dict"], dict):
-        model_sd = payload["model_state_dict"]
-    elif "state_dict" in payload and isinstance(payload["state_dict"], dict):
-        model_sd = payload["state_dict"]
-    elif "model" in payload and isinstance(payload["model"], dict):
-        model_sd = payload["model"]
-    else:
-        # Assume whole dict is raw weights
-        model_sd = payload
-
-    epoch = int(payload.get("epoch", 0))
-    iteration = int(payload.get("iteration", payload.get("iter", 0)))
-    opt_sd = payload.get("optimizer_state_dict") or payload.get("optimizer")
-    sched_sd = payload.get("scheduler_state_dict") or payload.get("scheduler")
-    scaler_sd = payload.get("scaler_state_dict") or payload.get("scaler")
-    gov_state = payload.get("governor_state") or payload.get("governor") or {}
-    sota_achieved = bool(payload.get("sota_achieved", False))
+    phase, is_intra, iteration = _progress(
+        payload, int(payload.get("iteration", payload.get("iter", 0)))
+    )
     best_score = payload.get("best_score")
-
     raw_hist = payload.get("metric_history") or payload.get("history")
     history: list[dict[str, Any]] = (
         [dict(entry) for entry in raw_hist if isinstance(entry, dict)]
         if isinstance(raw_hist, list)
         else []
     )
-
-    progress_meta = payload.get("progress_metadata")
-    if isinstance(progress_meta, dict):
-        is_intra = True
-        phase = str(progress_meta.get("phase", "train"))
-        iteration = int(progress_meta.get("step", iteration))
-    else:
-        phase = str(payload.get("phase", "train"))
-        is_intra = bool(payload.get("phase") == "train" and "step" in payload)
-
-    train_metrics = payload.get("train_metrics") or payload.get("current_metrics") or {}
-    train_accumulators = payload.get("train_accumulators") or {}
-    val_accumulators = payload.get("val_accumulators") or payload.get("val_metrics") or {}
+    gov_state = _first(payload, "governor_state", "governor")
 
     return ResumeState(
-        epoch=epoch,
+        epoch=int(payload.get("epoch", 0)),
         iteration=iteration,
-        model_state_dict=model_sd,
-        optimizer_state_dict=opt_sd if isinstance(opt_sd, dict) else None,
-        scheduler_state_dict=sched_sd if isinstance(sched_sd, dict) else None,
-        scaler_state_dict=scaler_sd if isinstance(scaler_sd, dict) else None,
+        model_state_dict=_model_state(payload),
+        optimizer_state_dict=_dict_or_none(_first(payload, "optimizer_state_dict", "optimizer")),
+        scheduler_state_dict=_dict_or_none(_first(payload, "scheduler_state_dict", "scheduler")),
+        scaler_state_dict=_dict_or_none(_first(payload, "scaler_state_dict", "scaler")),
         governor_state=gov_state if isinstance(gov_state, dict) else {},
-        sota_achieved=sota_achieved,
+        sota_achieved=bool(payload.get("sota_achieved", False)),
         best_score=float(best_score) if isinstance(best_score, (int, float)) else None,
         metric_history=history,
         is_intra_epoch=is_intra,
         phase=phase,
-        train_metrics=dict(train_metrics) if isinstance(train_metrics, dict) else {},
-        train_accumulators=dict(train_accumulators) if isinstance(train_accumulators, dict) else {},
-        val_accumulators=dict(val_accumulators) if isinstance(val_accumulators, dict) else {},
+        train_metrics=_dict_copy(_first(payload, "train_metrics", "current_metrics")),
+        train_accumulators=_dict_copy(payload.get("train_accumulators")),
+        val_accumulators=_dict_copy(_first(payload, "val_accumulators", "val_metrics")),
     )
 
 

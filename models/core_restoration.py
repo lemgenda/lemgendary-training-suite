@@ -250,15 +250,7 @@ class NAFNet(nn.Module):
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
             x = x.contiguous()
             if isinstance(up, nn.ConvTranspose2d):
-                try:
-                    w = up.weight
-                    b = up.bias
-                    if isinstance(w, torch.Tensor) and w.data_ptr() % 16 != 0:
-                        w.data = w.data.clone()
-                    if isinstance(b, torch.Tensor) and b.data_ptr() % 16 != 0:
-                        b.data = b.data.clone()
-                except RuntimeError:
-                    pass  # FakeTensor during ONNX/FX tracing
+                _align_transpose_params(up)
             x = up(x)
             x = x + enc_skip
             x = decoder(x)
@@ -267,6 +259,19 @@ class NAFNet(nn.Module):
         x = x + inp_padded
 
         return x[:, :, :height, :width]
+
+
+def _align_transpose_params(up: nn.ConvTranspose2d) -> None:
+    """Re-allocate weight/bias that are not 16-byte aligned (some cuDNN kernels require it)."""
+    try:
+        w = up.weight
+        b = up.bias
+        if isinstance(w, torch.Tensor) and w.data_ptr() % 16 != 0:
+            w.data = w.data.clone()
+        if isinstance(b, torch.Tensor) and b.data_ptr() % 16 != 0:
+            b.data = b.data.clone()
+    except RuntimeError:
+        pass  # FakeTensor during ONNX/FX tracing
 
 
 # ==========================================

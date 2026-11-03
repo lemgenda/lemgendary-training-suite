@@ -19,6 +19,40 @@ from training.utils.lazy_imports import load_peft, load_transformers
 logger = logging.getLogger("lemtrain.models.generic_llm")
 
 
+LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+
+def _load_tokenizer(transformers: Any, name: str) -> Any:
+    """Right-padding tokenizer for ``name``; falls back to EOS as the pad token."""
+    raw_tokenizer: Any = transformers.AutoTokenizer.from_pretrained(
+        name,
+        trust_remote_code=True,
+        padding_side="right",
+    )
+    if raw_tokenizer is not None:
+        pad_token = getattr(raw_tokenizer, "pad_token", None)
+        if pad_token is None:
+            eos_token = getattr(raw_tokenizer, "eos_token", None)
+            raw_tokenizer.pad_token = eos_token
+    return raw_tokenizer
+
+
+def _quant_config(transformers: Any, load_in_4bit: bool) -> Any:
+    """NF4 4-bit ``BitsAndBytesConfig`` when requested and available, else ``None``."""
+    if not load_in_4bit:
+        return None
+    try:
+        return transformers.BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+        )
+    except ImportError:
+        logger.warning("bitsandbytes not installed; loading without 4-bit quantization.")
+        return None
+
+
 class GenericCausalLLM(nn.Module):
     """Universal Causal Language Model fine-tuning backbone wrapper."""
 
@@ -49,75 +83,18 @@ class GenericCausalLLM(nn.Module):
         try:
             transformers = load_transformers()
 
-            raw_tokenizer: Any = transformers.AutoTokenizer.from_pretrained(
-                self.base_model_name,
-                trust_remote_code=True,
-                padding_side="right",
-            )
-            if raw_tokenizer is not None:
-                pad_token = getattr(raw_tokenizer, "pad_token", None)
-                if pad_token is None:
-                    eos_token = getattr(raw_tokenizer, "eos_token", None)
-                    raw_tokenizer.pad_token = eos_token
-            self.tokenizer = raw_tokenizer
-
-            quant_config = None
-            if load_in_4bit:
-                try:
-                    quant_config = transformers.BitsAndBytesConfig(
-                        load_in_4bit=True,
-                        bnb_4bit_quant_type="nf4",
-                        bnb_4bit_compute_dtype=torch.bfloat16,
-                        bnb_4bit_use_double_quant=True,
-                    )
-                except ImportError:
-                    logger.warning(
-                        "bitsandbytes not installed; loading without 4-bit quantization."
-                    )
-
+            self.tokenizer = _load_tokenizer(transformers, self.base_model_name)
             self.model = transformers.AutoModelForCausalLM.from_pretrained(
                 self.base_model_name,
-                quantization_config=quant_config,
+                quantization_config=_quant_config(transformers, load_in_4bit),
                 torch_dtype=torch.float32 if not torch.cuda.is_available() else torch.bfloat16,
                 trust_remote_code=True,
                 low_cpu_mem_usage=True,
             )
 
             if self.use_lora:
-                try:
-                    peft = load_peft()
-
-                    if load_in_4bit:
-                        self.model = peft.prepare_model_for_kbit_training(self.model)
-
-                    target_modules = kwargs.get(
-                        "target_modules",
-                        [
-                            "q_proj",
-                            "k_proj",
-                            "v_proj",
-                            "o_proj",
-                            "gate_proj",
-                            "up_proj",
-                            "down_proj",
-                        ],
-                    )
-                    peft_config = peft.LoraConfig(
-                        r=lora_r,
-                        lora_alpha=lora_alpha,
-                        lora_dropout=lora_dropout,
-                        target_modules=target_modules,
-                        bias="none",
-                        task_type="CAUSAL_LM",
-                    )
-                    self.model = peft.get_peft_model(self.model, peft_config)
-                    logger.info(
-                        "Injected LoRA adapter into GenericCausalLLM backbone (r=%d)", lora_r
-                    )
-                except ImportError:
-                    logger.warning(
-                        "PEFT not installed. GenericCausalLLM operating in standard mode."
-                    )
+                lora = {"r": lora_r, "lora_alpha": lora_alpha, "lora_dropout": lora_dropout}
+                self._inject_lora(lora, load_in_4bit, kwargs.get("target_modules", LORA_TARGETS))
 
         except (ImportError, OSError, ValueError, RuntimeError) as exc:
             # ImportError: transformers missing; OSError: weights/tokenizer not found or not
@@ -128,6 +105,25 @@ class GenericCausalLLM(nn.Module):
                 exc,
             )
             self._init_mock_model()
+
+    def _inject_lora(self, lora: dict, load_in_4bit: bool, target_modules: list) -> None:
+        """Wrap ``self.model`` in a LoRA adapter (``lora``: r, lora_alpha, lora_dropout)."""
+        try:
+            peft = load_peft()
+
+            if load_in_4bit:
+                self.model = peft.prepare_model_for_kbit_training(self.model)
+
+            peft_config = peft.LoraConfig(
+                **lora,
+                target_modules=target_modules,
+                bias="none",
+                task_type="CAUSAL_LM",
+            )
+            self.model = peft.get_peft_model(self.model, peft_config)
+            logger.info("Injected LoRA adapter into GenericCausalLLM backbone (r=%d)", lora["r"])
+        except ImportError:
+            logger.warning("PEFT not installed. GenericCausalLLM operating in standard mode.")
 
     def _init_mock_model(self) -> None:
         """Lightweight mock embedding and linear projection for testing and verification."""

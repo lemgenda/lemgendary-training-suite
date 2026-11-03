@@ -91,85 +91,103 @@ def sync_push(  # pylint: disable=too-many-arguments  # one parameter per CLI op
         raise typer.Exit(code=1)
 
     sync_mgr = KaggleModelSyncManager(username=username, hub_root=source_dir)
-    staging_service = VariationStagingService()
-    # Kaggle/transport/file errors, metadata YAML errors, and RuntimeError (kagglehub missing).
-    push_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), yaml.YAMLError, RuntimeError)
+    push_opts = {"variation": variation, "version_notes": version_notes, "dry_run": dry_run}
 
     if all_models:
-        reg = get_model_registry()
-        models = reg.list_models()
-        total_models = len(models)
+        _push_fleet(sync_mgr, push_opts)
+        return
+    if not model:
         typer.echo(
-            f"[START] Commencing fleet Kaggle push for all {total_models} models (variation: "
-            f"{variation}, dry_run: {dry_run})..."
+            "[ERROR] No target model specified. Provide a --model argument or use --all-models.",
+            err=True,
         )
-        succeeded = 0
-        failed = 0
+        raise typer.Exit(code=1)
 
-        for idx, m_spec in enumerate(models, 1):
-            m_key = m_spec.key
-            typer.echo(f"[{idx}/{total_models}] Processing '{m_key}' ({m_spec.name})...")
-            try:
-                sync_mgr.ensure_model_metadata(m_key)
-                staged = staging_service.stage_variations(
-                    m_key, base_dir=sync_mgr.get_model_dir(m_key)
-                )
-                if staged.staged_files:
-                    typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
-                res = sync_mgr.push_model(
-                    model_key=m_key,
-                    variation=variation,
-                    version_notes=version_notes,
-                    dry_run=dry_run,
-                )
-                if res.success:
-                    succeeded += 1
-                    handles = [v.handle for v in res.variations.values() if v.success]
-                    typer.echo(f"  [SUCCESS] Pushed -> {handles}")
-                else:
-                    failed += 1
-                    typer.echo(f"  [WARN] Failed/skipped: {'; '.join(res.errors)}")
-            except push_errors as e:
-                # Fleet boundary: one model's push failure must not abort the remaining models.
-                failed += 1
-                logger.exception("Fleet Kaggle push failed for model '%s'", m_key)
-                typer.echo(f"  [ERROR] Exception for '{m_key}': {e}")
-
-        typer.echo(
-            f"[COMPLETED] Fleet push finished: {succeeded} succeeded, {failed} failed/skipped out "
-            f"of {total_models} models."
-        )
-        if failed > 0 and not dry_run and succeeded == 0:
-            raise typer.Exit(code=1)
+    typer.echo(
+        f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {variation}, "
+        f"dry_run: {dry_run})..."
+    )
+    res = _stage_and_push(sync_mgr, model, push_opts)
+    if res.success:
+        handles = [v.handle for v in res.variations.values() if v.success]
+        typer.echo(f"[SUCCESS] Model '{model}' pushed successfully -> {handles}")
     else:
-        if not model:
-            typer.echo(
-                "[ERROR] No target model specified. Provide a --model argument or use "
-                "--all-models.",
-                err=True,
-            )
-            raise typer.Exit(code=1)
+        typer.echo(f"[ERROR] Model push failed: {'; '.join(res.errors)}")
+        raise typer.Exit(code=1)
 
-        typer.echo(
-            f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {variation}, "
-            f"dry_run: {dry_run})..."
+
+def _stage_and_push(sync_mgr: KaggleModelSyncManager, model_key: str, push_opts: dict):
+    """Ensure metadata, stage isolated variations, then push (``push_opts`` -> ``push_model``)."""
+    sync_mgr.ensure_model_metadata(model_key)
+    staged = VariationStagingService().stage_variations(
+        model_key, base_dir=sync_mgr.get_model_dir(model_key)
+    )
+    if staged.staged_files:
+        typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
+    return sync_mgr.push_model(model_key=model_key, **push_opts)
+
+
+def _push_fleet(sync_mgr: KaggleModelSyncManager, push_opts: dict) -> None:
+    """Push every registered model; exit 1 only when a real run pushed none."""
+    # Kaggle/transport/file errors, metadata YAML errors, and RuntimeError (kagglehub missing).
+    push_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), yaml.YAMLError, RuntimeError)
+    models = get_model_registry().list_models()
+    total_models = len(models)
+    typer.echo(
+        f"[START] Commencing fleet Kaggle push for all {total_models} models (variation: "
+        f"{push_opts['variation']}, dry_run: {push_opts['dry_run']})..."
+    )
+    succeeded = 0
+    failed = 0
+
+    for idx, m_spec in enumerate(models, 1):
+        m_key = m_spec.key
+        typer.echo(f"[{idx}/{total_models}] Processing '{m_key}' ({m_spec.name})...")
+        try:
+            res = _stage_and_push(sync_mgr, m_key, push_opts)
+            if res.success:
+                succeeded += 1
+                handles = [v.handle for v in res.variations.values() if v.success]
+                typer.echo(f"  [SUCCESS] Pushed -> {handles}")
+            else:
+                failed += 1
+                typer.echo(f"  [WARN] Failed/skipped: {'; '.join(res.errors)}")
+        except push_errors as e:
+            # Fleet boundary: one model's push failure must not abort the remaining models.
+            failed += 1
+            logger.exception("Fleet Kaggle push failed for model '%s'", m_key)
+            typer.echo(f"  [ERROR] Exception for '{m_key}': {e}")
+
+    typer.echo(
+        f"[COMPLETED] Fleet push finished: {succeeded} succeeded, {failed} failed/skipped out "
+        f"of {total_models} models."
+    )
+    if failed > 0 and not push_opts["dry_run"] and succeeded == 0:
+        raise typer.Exit(code=1)
+
+
+def _pull_variation(
+    sync_mgr: KaggleModelSyncManager, model: str, var_key: str, force_download: bool
+) -> bool:
+    """Pull one variation and report its outcome; True on success."""
+    target_dir = sync_mgr.get_variation_dir(model, var_key)
+    # Kaggle/transport/file errors, plus RuntimeError raised when kagglehub is not installed.
+    pull_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), RuntimeError)
+    try:
+        ok = sync_mgr.pull_variation(
+            model_key=model, variation=var_key, force_download=force_download
         )
-        sync_mgr.ensure_model_metadata(model)
-        staged = staging_service.stage_variations(model, base_dir=sync_mgr.get_model_dir(model))
-        if staged.staged_files:
-            typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
-        res = sync_mgr.push_model(
-            model_key=model,
-            variation=variation,
-            version_notes=version_notes,
-            dry_run=dry_run,
-        )
-        if res.success:
-            handles = [v.handle for v in res.variations.values() if v.success]
-            typer.echo(f"[SUCCESS] Model '{model}' pushed successfully -> {handles}")
-        else:
-            typer.echo(f"[ERROR] Model push failed: {'; '.join(res.errors)}")
-            raise typer.Exit(code=1)
+    except pull_errors as e:
+        # Per-variation boundary: report every variation's outcome instead of aborting the pull
+        # batch.
+        logger.exception("Kaggle pull failed for model '%s' variation '%s'", model, var_key)
+        typer.echo(f"  [ERROR] Failed to pull {var_key}: {e}")
+        return False
+    if ok:
+        typer.echo(f"  [SUCCESS] Downloaded to {target_dir}")
+    else:
+        typer.echo(f"  [ERROR] Pull returned false for {var_key}")
+    return bool(ok)
 
 
 @sync_app.command("pull")
@@ -193,8 +211,6 @@ def sync_pull(
 ) -> None:
     """Download model variation(s) from Kaggle Models Hub into canonical directories."""
     sync_mgr = KaggleModelSyncManager(username=username)
-    # Kaggle/transport/file errors, plus RuntimeError raised when kagglehub is not installed.
-    pull_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), RuntimeError)
     vars_to_pull = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
     total = len(vars_to_pull)
 
@@ -203,25 +219,14 @@ def sync_pull(
     failed = 0
 
     for idx, var_key in enumerate(vars_to_pull, 1):
-        handle = sync_mgr.get_handle(model, var_key)
-        target_dir = sync_mgr.get_variation_dir(model, var_key)
-        typer.echo(f"[{idx}/{total}] Pulling variation [{var_key}] <- {handle}...")
-        try:
-            ok = sync_mgr.pull_variation(
-                model_key=model, variation=var_key, force_download=force_download
-            )
-            if ok:
-                succeeded += 1
-                typer.echo(f"  [SUCCESS] Downloaded to {target_dir}")
-            else:
-                failed += 1
-                typer.echo(f"  [ERROR] Pull returned false for {var_key}")
-        except pull_errors as e:
-            # Per-variation boundary: report every variation's outcome instead of aborting the pull
-            # batch.
+        typer.echo(
+            f"[{idx}/{total}] Pulling variation [{var_key}] <- "
+            f"{sync_mgr.get_handle(model, var_key)}..."
+        )
+        if _pull_variation(sync_mgr, model, var_key, force_download):
+            succeeded += 1
+        else:
             failed += 1
-            logger.exception("Kaggle pull failed for model '%s' variation '%s'", model, var_key)
-            typer.echo(f"  [ERROR] Failed to pull {var_key}: {e}")
 
     if succeeded == total:
         typer.echo(

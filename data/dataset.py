@@ -23,6 +23,41 @@ logger = logging.getLogger("lemtrain.dataset")
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1152]
 
 
+def _resolve_data_root(config, env):
+    """Datasets root from the ``paths`` section; relative roots resolve per environment."""
+    data_root = config.get("paths", {}).get(
+        "datasets_root", config.get("datasets_dir", "data/datasets")
+    )
+    if os.path.isabs(data_root):
+        return data_root
+    if env == "kaggle":
+        return "/kaggle/working/LemGendaryDatasets"
+    workspace_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.normpath(os.path.join(workspace_root, data_root))
+
+
+def _input_size(size_raw):
+    """``(H, W)`` from an ``input_size`` entry: an int, ``[H, W]`` or ``[C, H, W]``."""
+    if not isinstance(size_raw, list):
+        return (size_raw, size_raw)
+    if len(size_raw) == 3:
+        return (int(size_raw[1]), int(size_raw[2]))
+    return (int(size_raw[0]), int(size_raw[1]))
+
+
+def _load_nima_scores(idx_path, scores):
+    """Add ``name -> nima_score`` from a manifold ``index.json`` (if present) to ``scores``."""
+    if not os.path.exists(idx_path):
+        return
+    try:
+        with open(idx_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for item in data:
+            scores[item["name"]] = item.get("nima_score", 0.0)
+    except (OSError, ValueError, KeyError, TypeError) as nima_err:
+        logger.debug("Failed loading NIMA index from %s: %s", idx_path, nima_err)
+
+
 class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, DatasetTargetsMixin):
     """
     Nuclear-Hardened Universal Dataset (v16.0).
@@ -37,16 +72,7 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
         self.stress = 0.0  # 2026 Resilience: Dynamic Stress Protocol
         self.sync_mode = multiprocessing.Value("b", False)
         self.split = "train" if is_train else "val"
-        # 2026 Resilience: Map to the modern 'paths' structure in config.yaml
-        p_paths = config.get("paths", {})
-        self.data_root = p_paths.get("datasets_root", config.get("datasets_dir", "data/datasets"))
-
-        if not os.path.isabs(self.data_root):
-            workspace_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            if self.env == "kaggle":
-                self.data_root = "/kaggle/working/LemGendaryDatasets"
-            else:
-                self.data_root = os.path.normpath(os.path.join(workspace_root, self.data_root))
+        self.data_root = _resolve_data_root(config, env)
 
         ImageFile.LOAD_TRUNCATED_IMAGES = True  # Shield against corrupt JPG headers
 
@@ -62,15 +88,9 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
         raw_type = self.model_info.get("dataset_type", "restoration")
         self.task_type = raw_type[0] if isinstance(raw_type, list) else raw_type
 
-        size_raw = self.model_info.get("input_size", config.get("default_img_size", 256))
-        if isinstance(size_raw, list):
-            self.size = (
-                (int(size_raw[1]), int(size_raw[2]))
-                if len(size_raw) == 3
-                else (int(size_raw[0]), int(size_raw[1]))
-            )
-        else:
-            self.size = (size_raw, size_raw)
+        self.size = _input_size(
+            self.model_info.get("input_size", config.get("default_img_size", 256))
+        )
 
         self.samples = []
         self.all_samples = []
@@ -81,15 +101,7 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
         self.nima_scores = {}
         if self.model_key == "nima_authenticity":
             for ds_path in self.path_cache.values():
-                idx_path = os.path.join(ds_path, "index.json")
-                if os.path.exists(idx_path):
-                    try:
-                        with open(idx_path, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                        for item in data:
-                            self.nima_scores[item["name"]] = item.get("nima_score", 0.0)
-                    except (OSError, ValueError, KeyError, TypeError) as nima_err:
-                        logger.debug("Failed loading NIMA index from %s: %s", idx_path, nima_err)
+                _load_nima_scores(os.path.join(ds_path, "index.json"), self.nima_scores)
 
         self.build_transforms()
 

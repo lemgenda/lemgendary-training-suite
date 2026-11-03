@@ -92,20 +92,8 @@ class GitHubSyncManager:
                 retryable=False,
             ) from exc
 
-    def sync(
-        self,
-        model_name: str,
-        epoch: int,
-        src_dir: Path,
-        push: GitPushTarget | None = None,
-    ) -> bool:
-        """Stage, commit, and push model artifacts through an atomic rebase loop.
-
-        ``src_dir`` must live inside the hub repository, since the whole hub working tree is
-        staged and pushed to ``push.remote``/``push.branch``.
-        """
-        push = push or GitPushTarget()
-        branch, remote, max_retries = push.branch, push.remote, push.max_retries
+    def _can_sync(self, src_dir: Path) -> bool:
+        """Hub is a Git repo, ``src_dir`` is inside it, and a PAT is set when in the cloud."""
         if not (self.hub_root / ".git").exists():
             logger.info("Hub repository not initialized at %s. Skipping Git sync.", self.hub_root)
             return False
@@ -123,6 +111,24 @@ class GitHubSyncManager:
         )
         if not self.pat and is_cloud:
             logger.warning("GITHUB_PAT missing in cloud environment. Skipping push.")
+            return False
+        return True
+
+    def sync(
+        self,
+        model_name: str,
+        epoch: int,
+        src_dir: Path,
+        push: GitPushTarget | None = None,
+    ) -> bool:
+        """Stage, commit, and push model artifacts through an atomic rebase loop.
+
+        ``src_dir`` must live inside the hub repository, since the whole hub working tree is
+        staged and pushed to ``push.remote``/``push.branch``.
+        """
+        push = push or GitPushTarget()
+        branch, remote, max_retries = push.branch, push.remote, push.max_retries
+        if not self._can_sync(src_dir):
             return False
 
         # Metric merge-persistence: fetch remote updates
@@ -144,10 +150,13 @@ class GitHubSyncManager:
             return True
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        commit_msg = (
-            push.commit_message or f"SOTA Update: {model_name} | Epoch {epoch} | {timestamp}"
+        self.run_git(
+            [
+                "commit",
+                "-m",
+                push.commit_message or f"SOTA Update: {model_name} | Epoch {epoch} | {timestamp}",
+            ]
         )
-        self.run_git(["commit", "-m", commit_msg])
 
         for attempt in range(1, max_retries + 1):
             logger.info("Attempting atomic Git push (Try %d/%d)...", attempt, max_retries)

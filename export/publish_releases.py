@@ -6,6 +6,35 @@ import os
 import subprocess
 
 
+def _ensure_release(tag, repo):
+    """Create the GitHub Release ``tag`` in ``repo`` unless it exists; False on failure."""
+    check_cmd = ["gh", "release", "view", tag, "--repo", repo]
+    # Non-zero exit just means the release does not exist yet.
+    res = subprocess.run(check_cmd, capture_output=True, text=True, check=False)
+    if res.returncode == 0:
+        return True
+    print(f"[RELEASE] Creating new GitHub Release: {tag} in {repo}...")
+    create_cmd = [
+        "gh",
+        "release",
+        "create",
+        tag,
+        "--repo",
+        repo,
+        "--title",
+        f"LemGendary SOTA Model Weights ({tag})",
+        "--notes",
+        "Official production weights and ONNX exports for LemGendary AI models.",
+    ]
+    res_create = subprocess.run(create_cmd, capture_output=True, text=True, check=False)
+    if res_create.returncode != 0:
+        print(f"[ERROR] Failed to create release: {res_create.stderr}")
+        print("[REMEDY] Ensure GITHUB_PAT is set with 'repo' permissions.")
+        return False
+    print(f"[OK] Release {tag} created successfully.")
+    return True
+
+
 def publish_model_release(
     model_key, models_root, tag="v1.0.0-sota", repo="lemgenda/lemgendary-pretrained-models"
 ):
@@ -33,32 +62,8 @@ def publish_model_release(
         size_mb = os.path.getsize(a) / (1024 * 1024)
         print(f"  -> {os.path.basename(a)} ({size_mb:.2f} MB)")
 
-    # Check if release exists
-    check_cmd = ["gh", "release", "view", tag, "--repo", repo]
-    # Non-zero exit just means the release does not exist yet; handled below.
-    res = subprocess.run(check_cmd, capture_output=True, text=True, check=False)
-
-    if res.returncode != 0:
-        # Create the release
-        print(f"[RELEASE] Creating new GitHub Release: {tag} in {repo}...")
-        create_cmd = [
-            "gh",
-            "release",
-            "create",
-            tag,
-            "--repo",
-            repo,
-            "--title",
-            f"LemGendary SOTA Model Weights ({tag})",
-            "--notes",
-            "Official production weights and ONNX exports for LemGendary AI models.",
-        ]
-        res_create = subprocess.run(create_cmd, capture_output=True, text=True, check=False)
-        if res_create.returncode != 0:
-            print(f"[ERROR] Failed to create release: {res_create.stderr}")
-            print("[REMEDY] Ensure GITHUB_PAT is set with 'repo' permissions.")
-            return False
-        print(f"[OK] Release {tag} created successfully.")
+    if not _ensure_release(tag, repo):
+        return False
 
     # Upload assets
     upload_cmd = ["gh", "release", "upload", tag, "--repo", repo, "--clobber"] + asset_files

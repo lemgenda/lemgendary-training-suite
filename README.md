@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.108-STABLE`
+- **Version**: `v16.9.109-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,15 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.109 - Smaller Functions in Data, Models, Checkpoint and CLI Sync
+
+- **Refactor**: one helper per step in Kaggle dataset recovery, dataset root
+  and input-size resolution, GitHub release creation, NAFNet transpose-conv
+  alignment, the causal-LLM tokenizer/4-bit/LoRA setup,
+  `parse_resume_state` (20,000 random payloads give the same `ResumeState`),
+  Git hub sync preflight and the `sync push`/`sync pull` commands. Removes 9
+  too-many-locals, 1 too-many-branches and 1 too-many-statements finding.
 
 ### v16.9.108 - Test Helpers for WebDataset Shards
 
