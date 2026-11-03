@@ -23,6 +23,12 @@ from training.data.instruction_dataset import (
     InstructionDataset,
     collate_instruction_batch,
 )
+from training.data.loaders import (
+    LoaderPlacement,
+    TrainLoaderOptions,
+    ValLoaderOptions,
+    WorkerOverrides,
+)
 from training.hardware.probe import audit_hardware_vram
 
 logger = logging.getLogger("lemtrain.core_loop")
@@ -231,6 +237,16 @@ def _sampler_kwargs(spec: RunSpec, train_ds: Any) -> dict[str, Any]:
     return {"sampler": RowGroupAwareSampler(train_ds, shuffle=True, seed=42), "shuffle": False}
 
 
+def _placement(spec: RunSpec) -> LoaderPlacement:
+    """Device, environment and config the run's loaders are tuned for."""
+    return LoaderPlacement(device=spec.device, env=spec.args.env, config=spec.config)
+
+
+def _worker_overrides(spec: RunSpec) -> WorkerOverrides:
+    """``--num_workers`` override for the train loader (``None`` keeps the topology default)."""
+    return WorkerOverrides(num_workers=spec.args.num_workers)
+
+
 def build_initial_train_loader(
     spec: RunSpec, train_ds: Any, batch_size: int, sample_fraction: float
 ):
@@ -247,11 +263,8 @@ def build_initial_train_loader(
     return build_train_loader(
         dataset=train_ds,
         batch_size=batch_size,
-        **sampler_kwargs,
-        num_workers=spec.args.num_workers,
-        device=spec.device,
-        env=spec.args.env,
-        config=spec.config,
+        options=TrainLoaderOptions(**sampler_kwargs, workers=_worker_overrides(spec)),
+        placement=_placement(spec),
     )
 
 
@@ -261,11 +274,10 @@ def rebuild_resumed_train_loader(spec: RunSpec, train_ds: Any, old_loader: Any, 
         old_loader=old_loader,
         dataset=train_ds,
         batch_size=batch_size,
-        **_sampler_kwargs(spec, train_ds),
-        num_workers=spec.args.num_workers,
-        device=spec.device,
-        env=spec.args.env,
-        config=spec.config,
+        options=TrainLoaderOptions(
+            **_sampler_kwargs(spec, train_ds), workers=_worker_overrides(spec)
+        ),
+        placement=_placement(spec),
     )
 
 
@@ -277,11 +289,13 @@ def build_val_loader_for(spec: RunSpec, val_ds: Any, batch_size: int):
         return canonical_build_val_loader(
             dataset=val_ds,
             batch_size=batch_size,
-            num_workers=spec.args.val_num_workers or spec.args.num_workers,
-            device=spec.device,
-            env=spec.args.env,
-            config=spec.config,
-            collate_fn=collate_instruction_batch if spec.task_type in LLM_TASKS else None,
+            options=ValLoaderOptions(
+                workers=WorkerOverrides(
+                    num_workers=spec.args.val_num_workers or spec.args.num_workers
+                ),
+                collate_fn=collate_instruction_batch if spec.task_type in LLM_TASKS else None,
+            ),
+            placement=_placement(spec),
         )
     except DATASET_BUILD_ERRORS as val_loader_err:
         logger.warning(

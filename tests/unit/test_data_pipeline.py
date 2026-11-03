@@ -17,6 +17,9 @@ from training.data.degrade import (
     synthesize_degradation,
 )
 from training.data.loaders import (
+    TrainLoaderOptions,
+    ValLoaderOptions,
+    WorkerOverrides,
     build_train_loader,
     build_val_loader,
     rebuild_train_loader,
@@ -117,9 +120,9 @@ class TestDataPipeline(unittest.TestCase):
         train_loader = build_train_loader(
             dataset=dataset,
             batch_size=2,
-            shuffle=True,
-            num_workers=0,
-            drop_last=False,
+            options=TrainLoaderOptions(
+                shuffle=True, drop_last=False, workers=WorkerOverrides(num_workers=0)
+            ),
         )
         self.assertEqual(len(train_loader), 4)
 
@@ -134,8 +137,7 @@ class TestDataPipeline(unittest.TestCase):
             old_loader=train_loader,
             dataset=dataset,
             batch_size=4,
-            shuffle=False,
-            num_workers=0,
+            options=TrainLoaderOptions(shuffle=False, workers=WorkerOverrides(num_workers=0)),
         )
         self.assertEqual(len(rebuilt), 2)
         dispose_loader(rebuilt)
@@ -143,7 +145,7 @@ class TestDataPipeline(unittest.TestCase):
         val_loader = build_val_loader(
             dataset=dataset,
             batch_size=4,
-            num_workers=0,
+            options=ValLoaderOptions(workers=WorkerOverrides(num_workers=0)),
         )
         self.assertEqual(len(val_loader), 2)
         dispose_loader(val_loader)

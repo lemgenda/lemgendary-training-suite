@@ -18,6 +18,7 @@ from data.forex_sampler import RowGroupAwareSampler
 from training.checkpoint import CheckpointLifecycleManager
 from training.cloud_sync import trigger_cloud_sync
 from training.data import rebuild_train_loader
+from training.data.loaders import LoaderPlacement, TrainLoaderOptions, WorkerOverrides
 from training.epoch_budget import (
     EpochAction,
     EpochBudgetConfig,
@@ -354,14 +355,20 @@ def run_training(
                             old_loader=ctx.train_loader,
                             dataset=train_ds,
                             batch_size=curr_batch,
-                            sampler=curr_sampler,
-                            shuffle=(curr_sampler is None),
-                            num_workers=ctx.args.num_workers
-                            if hasattr(ctx.args, "num_workers")
-                            else None,
-                            device=ctx.device_info.device,
-                            env=getattr(ctx.args, "env", "local"),
-                            config=ctx.config,
+                            options=TrainLoaderOptions(
+                                sampler=curr_sampler,
+                                shuffle=(curr_sampler is None),
+                                workers=WorkerOverrides(
+                                    num_workers=ctx.args.num_workers
+                                    if hasattr(ctx.args, "num_workers")
+                                    else None
+                                ),
+                            ),
+                            placement=LoaderPlacement(
+                                device=ctx.device_info.device,
+                                env=getattr(ctx.args, "env", "local"),
+                                config=ctx.config,
+                            ),
                         )
                         print(
                             f"[CURRICULUM] Updated train loader: {len(train_ds)} active samples "

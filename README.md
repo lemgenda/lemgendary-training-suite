@@ -11,11 +11,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.97-STABLE` |
+| **Version** | `v16.9.98-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.98 - DataLoader Factories Take Option Objects
+
+- **`training/data/loaders.py`**: `build_train_loader(dataset, batch_size, options=None, placement=None)`, `build_val_loader(...)` and `rebuild_train_loader(old_loader, dataset, batch_size, options=None, placement=None)` take `TrainLoaderOptions` (`sampler`, `shuffle`, `drop_last`, `collate_fn`, `workers`) or `ValLoaderOptions` (`is_constrained`, `collate_fn`, `workers`), a `WorkerOverrides` (`num_workers`, `persistent_workers`, `pin_memory`, `prefetch_factor`; `None` keeps the hardware topology default) and a `LoaderPlacement` (`device`, `env`, `config`) instead of 10 to 14 arguments. The batch-size fallback is one `_positive_batch_size`; the validation prefetch rule is `_val_prefetch_factor`. `rebuild_train_loader` still inherits the old loader's `collate_fn` when none is given. The file has no design-check findings left (8 before).
+- **Callers**: `training/context_data.py` (shared `_placement` and `_worker_overrides`), `training/training/engine.py` (curriculum loader rebuild) and `tests/unit/test_data_pipeline.py` pass the new objects.
+- **Behaviour is unchanged**: an old-vs-new comparison made 20,000 factory calls (every argument present or absent, invalid batch sizes, DDP initialised or not, `WORLD_SIZE` 1 or 2, CUDA present or not, random worker topologies, old loaders with and without a collate function) and gave identical DataLoader arguments, topology requests, samplers, disposals and log records; the `context_data` builders gave identical DataLoader arguments for 54 run configurations.
+- **Tests**: 289 passed.
 
 ### v16.9.97 - MT5 Pipeline Parameter Objects and Shard Check Helpers
 
