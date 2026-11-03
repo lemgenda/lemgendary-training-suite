@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 
 from training.cli.lemtrain import app
 from training.model_soup import SoupCheckpointsMissing, SoupResult
+from training.version import __version__
 
 runner = CliRunner()
 
@@ -38,7 +39,7 @@ class TestLemTrainCLI(unittest.TestCase):
         """Verify version command."""
         result = runner.invoke(app, ["version"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("LemGendary Model Training Suite v16.9.120", result.output)
+        self.assertIn(f"LemGendary Model Training Suite v{__version__}", result.output)
 
     def test_cli_presets_list(self) -> None:
         """Verify presets list outputs registered profiles."""

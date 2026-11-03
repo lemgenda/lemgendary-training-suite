@@ -28,6 +28,7 @@ from training.services.eval_service import EvaluationService
 from training.services.notebook_service import NotebookService
 from training.services.training_service import TrainingService
 from training.utils.paths import get_project_root
+from training.version import __version__
 
 logger = logging.getLogger("lemtrain.cli.lemtrain")
 
@@ -94,7 +95,7 @@ def soup(
 @app.command("version")
 def version() -> None:
     """Show LemGendary Training Suite version."""
-    typer.echo("LemGendary Model Training Suite v16.9.120 (Refactored & Hardened)")
+    typer.echo(f"LemGendary Model Training Suite v{__version__} (Refactored & Hardened)")
 
 
 @app.command("train")

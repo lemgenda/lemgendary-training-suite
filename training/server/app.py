@@ -56,6 +56,7 @@ from training.server.routes import (
 from training.server.security import AUTH_TOKEN_HEADER, install_security
 from training.server.state import ServerState
 from training.utils.paths import get_project_root
+from training.version import __version__
 
 logger = logging.getLogger("lemtrain.server")
 
@@ -142,7 +143,7 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
 
     application = FastAPI(
         title="LemGendary Model Training Suite Sidecar API",
-        version="16.9.120",
+        version=__version__,
         description=(
             "Local background daemon coordinating training runs, evaluations, "
             "exports, and telemetry."

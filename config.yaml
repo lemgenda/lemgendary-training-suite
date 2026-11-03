@@ -3,8 +3,7 @@
 # [LAUNCH] LemGendary Training Suite - NUCLEAR v16.0 CONFIGURATION
 # ==========================================================================
 
-# Core Manifold Version
-version: "16.9.120"
+# The suite version lives only in pyproject.toml ([project] version).
 unified_models: "unified_models_v2.yaml"
 
 # --- Hardware Profiles (Task 12.4) ---

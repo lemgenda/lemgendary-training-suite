@@ -11,6 +11,7 @@ from fastapi import APIRouter
 
 from training.ecosystem import TRAINING_SERVICE, service_port
 from training.hardware.discovery import discover_device
+from training.version import __version__
 
 router = APIRouter(tags=["health"])
 
@@ -24,7 +25,7 @@ async def get_health() -> dict[str, Any]:
     return {
         "status": "ok",
         "service": "lemgendary-training-suite",
-        "version": "16.2.9",
+        "version": __version__,
         "port": service_port(TRAINING_SERVICE),
         "timestamp": datetime.now().isoformat(),
         "device": {

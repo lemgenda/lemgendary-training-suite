@@ -27,6 +27,7 @@ from training.notebooks.cells.env import (
     _load_runtime_env,
 )
 from training.utils.paths import get_project_root
+from training.version import __version__
 
 logger = logging.getLogger("lemtrain.notebooks.notebook_generator")
 
@@ -74,7 +75,7 @@ def _generate_model_notebooks(
 def main(argv: list[str] | None = None) -> int:
     """Generate training/inference/usage notebooks for one model or the whole registry."""
     parser = argparse.ArgumentParser(
-        description="LemGendary Notebook Orchestrator (v16.2.9 Nuclear)"
+        description=f"LemGendary Notebook Orchestrator (v{__version__})"
     )
     parser.add_argument("--model", type=str, help="Generate notebooks for a specific model key.")
     parser.add_argument("--dataset", type=str, default=None, help="Dataset key context if invoked.")
