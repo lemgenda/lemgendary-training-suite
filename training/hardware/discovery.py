@@ -148,7 +148,8 @@ def _xpu_device_info() -> DeviceInfo | None:
 
 def _dml_device_info() -> DeviceInfo | None:
     """Microsoft DirectML."""
-    if hasattr(torch, "dml") and torch.dml.is_available():
+    dml = getattr(torch, "dml", None)  # Present only with the torch-directml backend.
+    if dml is not None and dml.is_available():
         logger.info("Discovered Microsoft DirectML acceleration.")
         info = DeviceInfo(
             device=torch.device("dml"),

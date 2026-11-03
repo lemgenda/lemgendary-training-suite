@@ -11,6 +11,7 @@ from typing import Any
 
 import onnx
 import torch
+from onnx import external_data_helper
 from onnxconverter_common import float16
 from torch import nn
 
@@ -68,7 +69,7 @@ def _sidecar_and_fp16(
     m_fp32 = onnx.load(str(fp32_onnx_path))
 
     # Convert FP32 model to external data sidecar (.onnx.data)
-    onnx.external_data_helper.convert_model_to_external_data(
+    external_data_helper.convert_model_to_external_data(
         m_fp32,
         all_tensors_to_one_file=True,
         location=fp32_data_filename,

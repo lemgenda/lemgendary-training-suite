@@ -86,9 +86,10 @@ def next_rung_resolution(ladder: Sequence[int], current_res: int) -> int | None:
 def _as_resolution(raw: Any) -> int:
     """Normalize an ``input_size`` value (int or ``[C, H, W]``/``[H, W]``) to pixels."""
     if isinstance(raw, (list, tuple)):
-        if not raw:
+        dims = list(raw)
+        if not dims:
             return 0
-        raw = raw[1] if len(raw) > 1 else raw[0]
+        raw = dims[1] if len(dims) > 1 else dims[0]
     return int(raw or 0)
 
 

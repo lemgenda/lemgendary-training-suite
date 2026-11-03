@@ -137,10 +137,12 @@ class ModelRegistryService:
     _capabilities: ClassVar[dict[str, Any]] = {}
 
     def __new__(cls) -> Self:
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._load()
-        return cls._instance
+        instance = cls._instance
+        if not isinstance(instance, cls):  # None until the first construction.
+            instance = super().__new__(cls)
+            cls._instance = instance
+            instance._load()
+        return instance
 
     def _load(self) -> None:
         """Load and cache unified_models_v2.yaml and canonical_capabilities.yaml."""
