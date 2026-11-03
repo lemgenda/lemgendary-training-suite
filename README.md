@@ -11,11 +11,22 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.79-STABLE` |
+| **Version** | `v16.9.80-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.80 - JobManager Split into Output Tee and Executor Modules
+
+- **`training/server/jobs.py`** (1,235 lines) is split by responsibility. `JobManager` keeps its import path, constructor and public API.
+  - `jobs.py` (273): submission, cancellation, WebSocket subscribers, log broadcasting and the worker that dispatches each job type.
+  - `job_output.py` (177): the process-wide stdout/stderr tee and console-line cleaning. The `_TeeRegistry` holder class is now a module dict, which clears its `too-few-public-methods` finding.
+  - `job_local.py` (214): `LocalJobsMixin` runs in-process training, evaluation, export and test-all jobs.
+  - `job_kaggle_run.py` (303): `KaggleRunJobsMixin` runs Kaggle kernel training and monitoring.
+  - `job_kaggle_sync.py` (338): `KaggleSyncJobsMixin` runs model push, push-all and pull.
+- The executor methods lost their leading underscore (`_execute_training` became `execute_training`, and so on, plus `push_model_with_telemetry`), so each mixin has a public interface. Nothing outside `jobs.py` called them.
+- **Tests**: 260 passed.
 
 ### v16.9.79 - SmartTrainingGovernor Split into Audit, Propulsion and State Modules
 
