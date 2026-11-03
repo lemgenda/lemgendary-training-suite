@@ -32,7 +32,7 @@ from training.ratchet import (
     executed_rung,
     top_resolution_reached,
 )
-from training.telemetry import TelemetryEngine
+from training.telemetry import EpochRow, TelemetryEngine
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
 from training.training.summary import TrainingSummary
@@ -275,17 +275,19 @@ def run_training(
             pairs_cfg = ctx.model_info.get("kwargs", {}).get("pairs", [])
             num_pairs = len(pairs_cfg) if pairs_cfg else 16
             telemetry.write_epoch_row(
-                epoch=epoch,
-                train_loss=train_loss,
-                val_loss=current_loss,
-                lr=float(combined_metrics.get("lr", 0.0)),
-                curr_metrics=combined_metrics,
-                quality_score=quality_score,
-                governor_state=pre_audit_gov_state,
-                stress=pre_audit_stress,
-                num_pairs=num_pairs,
-                phase=phase,
-                fold=fold,
+                EpochRow(
+                    epoch=epoch,
+                    train_loss=train_loss,
+                    val_loss=current_loss,
+                    lr=float(combined_metrics.get("lr", 0.0)),
+                    metrics=combined_metrics,
+                    quality_score=quality_score,
+                    governor_state=pre_audit_gov_state,
+                    stress=pre_audit_stress,
+                    num_pairs=num_pairs,
+                    phase=phase,
+                    fold=fold,
+                )
             )
 
         if is_best:

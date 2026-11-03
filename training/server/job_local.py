@@ -14,7 +14,7 @@ from training.server.job_output import (
 )
 from training.services.eval_service import EvaluationService
 from training.services.export_service import ExportService
-from training.services.training_service import TrainingService
+from training.services.training_service import TrainingService, TrainRequest
 
 logger = logging.getLogger("lemtrain.server.jobs")
 
@@ -39,17 +39,19 @@ class LocalJobsMixin:
             self._broadcast_log(job_id, f"[PROGRESS] Epoch {epoch} completed: {metrics_summary}")
 
         summary = service.train(
-            model_key=model_key,
-            epochs=params.get("epochs"),
-            batch_size=params.get("batch_size"),
-            lr=params.get("learning_rate") or params.get("lr"),
-            preset=params.get("preset"),
-            env=params.get("env", "local"),
-            clean=params.get("clean", False),
-            auto_sync=params.get("auto_sync", False),
-            parallel=params.get("parallel", "auto"),
-            resolution=params.get("resolution"),
-            enable_sawtooth=params.get("enable_sawtooth", True),
+            TrainRequest(
+                model_key=model_key,
+                epochs=params.get("epochs"),
+                batch_size=params.get("batch_size"),
+                lr=params.get("learning_rate") or params.get("lr"),
+                preset=params.get("preset"),
+                env=params.get("env", "local"),
+                clean=params.get("clean", False),
+                auto_sync=params.get("auto_sync", False),
+                parallel=params.get("parallel", "auto"),
+                resolution=params.get("resolution"),
+                enable_sawtooth=params.get("enable_sawtooth", True),
+            ),
             on_epoch_end=epoch_callback,
             cancel_check=cancel_event.is_set,
         )

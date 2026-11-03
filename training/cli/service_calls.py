@@ -8,7 +8,7 @@ import typer
 
 from training.cli.server_commands import is_sidecar_online, sidecar_port
 from training.services.export_service import ExportService
-from training.services.training_service import TrainingService
+from training.services.training_service import TrainingService, TrainRequest
 from training.training.summary import TrainingSummary
 
 
@@ -20,7 +20,7 @@ def announce_sidecar() -> None:
 
 def run_training(model_key: str, **options: Any) -> TrainingSummary:
     """Train ``model_key`` in-process through ``TrainingService``."""
-    return TrainingService().train(model_key=model_key, **options)
+    return TrainingService().train(TrainRequest(model_key=model_key, **options))
 
 
 def export_targets(

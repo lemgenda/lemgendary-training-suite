@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from training.model_soup import SoupError, blend_model_soup
+from training.model_soup import SoupError, SoupRecipe, blend_model_soup
 from training.utils.paths import get_project_root
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -42,8 +42,7 @@ def blend_model_soup_route(
         result = blend_model_soup(
             model_key,
             project_root=_get_root(request),
-            donors=params.donors,
-            weights=params.weights,
+            recipe=SoupRecipe(donors=params.donors, weights=params.weights),
         )
     except SoupError as exc:
         raise HTTPException(status_code=exc.http_status, detail=str(exc)) from exc

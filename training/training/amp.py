@@ -7,6 +7,7 @@ loss accumulation scaling, and GPU-accelerated tensor metrics.
 from __future__ import annotations
 
 from contextlib import nullcontext
+from dataclasses import dataclass
 from typing import Any
 
 import torch
@@ -33,13 +34,28 @@ def get_autocast_context(policy: ExecutionPolicy, device: torch.device) -> Any:
     return nullcontext()
 
 
+@dataclass(frozen=True)
+class GradClip:
+    """Gradient clipping of one :func:`safe_backward` step.
+
+    Attributes:
+        model: Model containing parameters.
+        max_norm: Maximum gradient norm for clipping.
+        should_unscale: Whether to unscale gradients and clip norm on this step.
+            When using gradient accumulation, this must be False until the optimizer
+            update step boundary to comply with PyTorch GradScaler constraints.
+    """
+
+    model: torch.nn.Module | None = None
+    max_norm: float | None = None
+    should_unscale: bool = True
+
+
 def safe_backward(
     loss: torch.Tensor,
     optimizer: torch.optim.Optimizer,
     scaler: Any | None = None,
-    max_norm: float | None = None,
-    model: torch.nn.Module | None = None,
-    should_unscale: bool = True,
+    clip: GradClip | None = None,
 ) -> float:
     """Perform a backward pass with optional AMP scaling, gradient unscaling, and clipping.
 
@@ -47,11 +63,7 @@ def safe_backward(
         loss: Scaled loss tensor.
         optimizer: PyTorch optimizer.
         scaler: GradScaler instance (if AMP active).
-        max_norm: Maximum gradient norm for clipping.
-        model: Model containing parameters.
-        should_unscale: Whether to unscale gradients and clip norm on this step.
-            When using gradient accumulation, this must be False until the optimizer
-            update step boundary to comply with PyTorch GradScaler constraints.
+        clip: Gradient clipping; ``None`` skips unscaling and clipping.
 
     Returns:
         float: Gradient norm after clipping (or 0.0 if not computed/deferred).
@@ -61,6 +73,8 @@ def safe_backward(
     else:
         loss.backward()
 
+    clip = clip or GradClip()
+    model, max_norm, should_unscale = clip.model, clip.max_norm, clip.should_unscale
     grad_norm = 0.0
     if should_unscale and model is not None and max_norm is not None and max_norm > 0:
         if scaler is not None:

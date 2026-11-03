@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from dataclasses import dataclass
 from typing import Any
 
 import yaml
@@ -17,6 +18,16 @@ from training.registry import get_model_registry
 logger = logging.getLogger("lemtrain.server.jobs")
 
 
+@dataclass(frozen=True)
+class PushRequest:
+    """One Kaggle model push: the model, its variation ("all" pushes every one) and notes."""
+
+    model_key: str
+    variation: str
+    version_notes: str | None
+    dry_run: bool
+
+
 class KaggleSyncJobsMixin:
     """Kaggle model push and pull job executors."""
 
@@ -24,15 +35,14 @@ class KaggleSyncJobsMixin:
         self,
         job_id: str,
         sync_mgr: Any,
-        model_key: str,
-        variation: str,
-        version_notes: str | None,
+        request: PushRequest,
         *,
-        dry_run: bool,
         cancel_event: threading.Event,
         prefix: str = "",
     ) -> Any:
         """Stage, then push each variation one by one, emitting progress lines and summary logs."""
+        model_key, variation = request.model_key, request.variation
+        version_notes, dry_run = request.version_notes, request.dry_run
         sync_mgr.ensure_model_metadata(model_key)
         staging_res = VariationStagingService().stage_variations(model_key)
         if staging_res.staged_files:
@@ -141,10 +151,7 @@ class KaggleSyncJobsMixin:
         res = self.push_model_with_telemetry(
             job_id,
             sync_mgr,
-            model_key,
-            variation,
-            params.get("version_notes"),
-            dry_run=dry_run,
+            PushRequest(model_key, variation, params.get("version_notes"), dry_run),
             cancel_event=cancel_event,
         )
         if res.success and (
@@ -209,10 +216,7 @@ class KaggleSyncJobsMixin:
                 push_res = self.push_model_with_telemetry(
                     job_id,
                     sync_mgr,
-                    model_key,
-                    variation,
-                    version_notes,
-                    dry_run=dry_run,
+                    PushRequest(model_key, variation, version_notes, dry_run),
                     cancel_event=cancel_event,
                     prefix="  ",
                 )

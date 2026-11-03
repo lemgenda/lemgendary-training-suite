@@ -7,6 +7,7 @@ epoch runners, validation passes, and the central engine coordinator.
 from __future__ import annotations
 
 from training.training.amp import (
+    GradClip,
     compute_ssim_gpu,
     create_grad_scaler,
     get_autocast_context,
@@ -19,6 +20,7 @@ from training.training.optimizer import build_optimizer, build_scheduler
 from training.training.validation import validate_one_epoch
 
 __all__ = [
+    "GradClip",
     "TrainingContext",
     "TrainingPaths",
     "TrainingSummary",

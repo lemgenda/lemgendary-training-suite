@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from training.governance.yolo_ladder import YOLOLadderStage
+from training.telemetry import EpochRow
 from training.utils.error_types import EPOCH_CALLBACK_ERRORS
 
 if TYPE_CHECKING:
@@ -317,26 +318,28 @@ class GovernedEpochHook:
         if m.map50_95 > best.get("map50_95", 0.0):
             best["map50_95"] = m.map50_95
         gov.telemetry.write_epoch_row(
-            epoch=global_epoch,
-            train_loss=m.train_loss,
-            val_loss=m.val_loss,
-            lr=m.lr,
-            curr_metrics={
-                "map50": m.map50,
-                "map50_95": m.map50_95,
-                "box_loss": m.box_loss,
-                "cls_loss": m.cls_loss,
-                "dfl_loss": m.dfl_loss,
-            },
-            quality_score=(m.map50 * 50.0) + (m.map50_95 * 50.0),
-            governor_state={
-                "input_size": stage.resolution,
-                "sample_fraction": stage.fraction,
-                "batch_size": stage.batch_size,
-                "accumulation_steps": 1,
-                "cooldown_remaining": 0,
-            },
-            stress=0.0,
+            EpochRow(
+                epoch=global_epoch,
+                train_loss=m.train_loss,
+                val_loss=m.val_loss,
+                lr=m.lr,
+                metrics={
+                    "map50": m.map50,
+                    "map50_95": m.map50_95,
+                    "box_loss": m.box_loss,
+                    "cls_loss": m.cls_loss,
+                    "dfl_loss": m.dfl_loss,
+                },
+                quality_score=(m.map50 * 50.0) + (m.map50_95 * 50.0),
+                governor_state={
+                    "input_size": stage.resolution,
+                    "sample_fraction": stage.fraction,
+                    "batch_size": stage.batch_size,
+                    "accumulation_steps": 1,
+                    "cooldown_remaining": 0,
+                },
+                stress=0.0,
+            )
         )
         max_epochs_disp = int(getattr(trainer, "epochs", self.spec.default_total))
         print(

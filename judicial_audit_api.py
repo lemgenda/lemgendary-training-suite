@@ -4,13 +4,20 @@ Delegates directly to tools.judicial_audit.
 """
 
 from tools.judicial_audit import (
+    JudicialAuditRequest,
     SimpleDataset,
     load_pytorch_model,
     main,
     run_judicial_audit,
 )
 
-__all__ = ["SimpleDataset", "load_pytorch_model", "main", "run_judicial_audit"]
+__all__ = [
+    "JudicialAuditRequest",
+    "SimpleDataset",
+    "load_pytorch_model",
+    "main",
+    "run_judicial_audit",
+]
 
 if __name__ == "__main__":
     main()

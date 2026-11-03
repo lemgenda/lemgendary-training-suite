@@ -26,16 +26,24 @@ class WorkerTopology:
     num_threads: int
 
 
+@dataclass(frozen=True)
+class UserWorkerCounts:
+    """User-requested train/validation worker counts; ``None`` keeps the computed default."""
+
+    train: int | None = None
+    val: int | None = None
+
+
 def compute_worker_topology(
     env: str = "local",
     device: torch.device | None = None,
     is_forex: bool = False,
-    user_num_workers: int | None = None,
-    user_val_workers: int | None = None,
+    user_workers: UserWorkerCounts | None = None,
     config: dict[str, Any] | None = None,
 ) -> WorkerTopology:
     """Compute optimal DataLoader worker counts, persistent worker policies, and CPU threads."""
     cfg = config or {}
+    user = user_workers or UserWorkerCounts()
     cpu_count = os.cpu_count() or 2
     dev = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -58,8 +66,8 @@ def compute_worker_topology(
         logger.debug("Failed setting torch CPU threads to %d: %s", num_threads, exc)
 
     # Determine training workers
-    if user_num_workers is not None:
-        num_workers = user_num_workers
+    if user.train is not None:
+        num_workers = user.train
     elif is_forex:
         # Time-series datasets stream efficiently from memory/mmap; multi-process adds IPC overhead
         num_workers = 0
@@ -79,8 +87,8 @@ def compute_worker_topology(
             num_workers = min(cpu_count, 4)
 
     # Determine validation workers
-    if user_val_workers is not None:
-        val_num_workers = user_val_workers
+    if user.val is not None:
+        val_num_workers = user.val
     else:
         cfg_val = cfg.get("hardware", {}).get("val_num_workers", "auto")
         if isinstance(cfg_val, int):

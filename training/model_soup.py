@@ -197,21 +197,34 @@ def _default_soup_function() -> SoupFunction:
     return load_pareto_soup()
 
 
+@dataclass(frozen=True)
+class SoupRecipe:
+    """Which vault donors to blend, with what weights, into which file.
+
+    ``donors`` ``None`` blends every vault checkpoint; ``weights`` ``None`` blends uniformly;
+    ``output`` ``None`` writes ``best_soup.pth`` and a bare file name lands next to the donors.
+    """
+
+    donors: Sequence[str] | None = None
+    weights: Sequence[float] | None = None
+    output: str | Path | None = None
+
+
 def blend_model_soup(
     model_key: str,
     project_root: Path,
-    donors: Sequence[str] | None = None,
-    weights: Sequence[float] | None = None,
-    output: str | Path | None = None,
+    recipe: SoupRecipe | None = None,
+    *,
     soup_function: SoupFunction | None = None,
 ) -> SoupResult:
     """Resolve vault checkpoints and write a Pareto Model Soup checkpoint.
 
     The single entry point for ``lemtrain soup`` and ``POST /api/models/{key}/soup``.
     """
-    paths = resolve_vault_checkpoints(model_key, project_root, donors)
-    checked_weights = _validate_weights(weights, len(paths))
-    out_path = _resolve_output(output, paths[0].parent)
+    recipe = recipe or SoupRecipe()
+    paths = resolve_vault_checkpoints(model_key, project_root, recipe.donors)
+    checked_weights = _validate_weights(recipe.weights, len(paths))
+    out_path = _resolve_output(recipe.output, paths[0].parent)
     fn = soup_function or _default_soup_function()
     fn(paths, weights=checked_weights, output_path=out_path)
     return SoupResult(

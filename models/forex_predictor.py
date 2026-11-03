@@ -358,7 +358,8 @@ class ForexPredictor(nn.Module):
         pairs:             Optional subset of pairs for pair-embedding sizing.
     """
 
-    def __init__(
+    # Keyword arguments are the registry ``model_kwargs`` stored with each checkpoint.
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         active_timeframes: list | None = None,
         *,

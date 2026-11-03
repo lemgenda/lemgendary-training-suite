@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.103-STABLE`
+- **Version**: `v16.9.104-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,42 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.104 - Argument Lists Grouped; Two Design Checks Re-enabled
+
+- **`.pylintrc`**: `too-many-arguments` and `too-many-positional-arguments`
+  are enabled again (30 + 23 findings -> 0). Long argument lists now travel as
+  small frozen dataclasses:
+  - `training.export`: `OnnxGraphSpec` (I/O names, dynamic axes, opset,
+    external weights) for `run_onnx_export` and `export_onnx(..., *, half,
+    graph)`; `export_all(..., plan=ExportPlan(targets, stage_dist))`;
+    `export_tri_format_pytorch` forwards ONNX options as keywords. `export_all`
+    is split into config, registry, weight-loading and per-target helpers.
+  - `blend_model_soup(key, root, SoupRecipe(donors, weights, output))`
+    (CLI, REST route and tests updated; the Pareto Model Soup is unchanged).
+  - `TelemetryEngine.write_epoch_row(EpochRow(...))`; the Forex and vision
+    lines are built by `_forex_line` / `_vision_line` (same columns and
+    formats; 400 random runs wrote identical metrics.csv files).
+  - `TrainingService.train(TrainRequest(...), *, on_epoch_end, cancel_check)`,
+    `audit_hardware_vram(key, info, config, model, VramProbe(device, ...))`,
+    `run_judicial_audit(JudicialAuditRequest(...))` (also the audit service),
+    `safe_backward(..., clip=GradClip(model, max_norm, should_unscale))`,
+    `compute_worker_topology(..., user_workers=UserWorkerCounts(train, val))`,
+    `GitHubSyncManager.sync(..., push=GitPushTarget(...))`,
+    `generate_signal(..., credentials=MT5Credentials(...))`,
+    `ForexDualLoss(ForexLossWeights(...), stabilizers=...)`,
+    `push_model_with_telemetry(job_id, mgr, PushRequest(...), ...)`, and
+    `build_ladder_curriculum` / `sawtooth_batch` take a `BatchBudget`.
+  - `PropulsionMixin.propel(d, phase, signals, trend)` takes the audit's
+    `EpochSignals` and `EpochTrend`.
+  - `run_command` always captures output (no caller turned it off) and takes
+    `env` as a keyword; `build_parallel_strategy` and the DP strategy forward
+    `model_key` / `config` as keywords.
+- **Kept with an inline disable**: the Typer commands `train`,
+  `audit judicial`, `llm train` and `sync push` (one parameter per CLI
+  option; now keyword-only) and the `NAFNet`, `GenericCausalLLM` and
+  `ForexPredictor` constructors, whose keyword arguments are the registry
+  `model_kwargs` stored with checkpoints (`NAFNet` is now keyword-only).
 
 ### v16.9.103 - Checkpoint Lifecycle Manager Split into Steps
 

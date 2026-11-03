@@ -6,6 +6,7 @@ import logging
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,19 @@ from training.cloud.credentials import mask_secret, resolve_github_credentials
 from training.cloud.manager import CloudSyncError
 
 logger = logging.getLogger("lemtrain.cloud.git_hub")
+
+
+@dataclass(frozen=True)
+class GitPushTarget:
+    """Where and how :meth:`GitHubSyncManager.sync` pushes: remote, branch, retries, message.
+
+    ``commit_message`` ``None`` writes ``SOTA Update: <model> | Epoch <n> | <timestamp>``.
+    """
+
+    branch: str = "main"
+    remote: str = "origin"
+    max_retries: int = 3
+    commit_message: str | None = None
 
 
 class GitHubSyncManager:
@@ -83,16 +97,15 @@ class GitHubSyncManager:
         model_name: str,
         epoch: int,
         src_dir: Path,
-        branch: str = "main",
-        max_retries: int = 3,
-        remote: str = "origin",
-        commit_message: str | None = None,
+        push: GitPushTarget | None = None,
     ) -> bool:
         """Stage, commit, and push model artifacts through an atomic rebase loop.
 
         ``src_dir`` must live inside the hub repository, since the whole hub working tree is
-        staged and pushed to ``remote``/``branch``.
+        staged and pushed to ``push.remote``/``push.branch``.
         """
+        push = push or GitPushTarget()
+        branch, remote, max_retries = push.branch, push.remote, push.max_retries
         if not (self.hub_root / ".git").exists():
             logger.info("Hub repository not initialized at %s. Skipping Git sync.", self.hub_root)
             return False
@@ -131,7 +144,9 @@ class GitHubSyncManager:
             return True
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        commit_msg = commit_message or f"SOTA Update: {model_name} | Epoch {epoch} | {timestamp}"
+        commit_msg = (
+            push.commit_message or f"SOTA Update: {model_name} | Epoch {epoch} | {timestamp}"
+        )
         self.run_git(["commit", "-m", commit_msg])
 
         for attempt in range(1, max_retries + 1):
@@ -240,6 +255,5 @@ def git_hub_sync(
         model_name="checkpoint",
         epoch=1,
         src_dir=Path(repo_path),
-        remote=remote_url,
-        commit_message=message,
+        push=GitPushTarget(remote=remote_url, commit_message=message),
     )

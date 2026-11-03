@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import torch
@@ -20,6 +21,17 @@ logger = logging.getLogger("lemtrain.losses")
 # ─────────────────────────────────────────────────────────────────────────────
 # Forex Dual Loss
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ForexLossWeights:
+    """Component weights and shape parameters of :class:`ForexDualLoss` (see its Args)."""
+
+    direction_weight: float = 0.5
+    magnitude_weight: float = 0.02
+    huber_delta: float = 2.0
+    focal_gamma: float = 2.0
+    label_smoothing: float = 0.05
 
 
 class ForexDualLoss(nn.Module):
@@ -43,7 +55,7 @@ class ForexDualLoss(nn.Module):
         to direction logits so the Governor's temperature/clamp adjustments are
         reflected in the forex training signal.
 
-    Args:
+    Args (fields of ``weights``):
         direction_weight: Weight for Focal loss component (default 1.0).
         magnitude_weight: Weight for Huber loss component (default 0.5).
         huber_delta:      Huber delta -- transitions L2->L1 at this pip threshold.
@@ -53,20 +65,17 @@ class ForexDualLoss(nn.Module):
 
     def __init__(
         self,
+        weights: ForexLossWeights | None = None,
         *,
-        direction_weight: float = 0.5,
-        magnitude_weight: float = 0.02,
-        huber_delta: float = 2.0,
-        focal_gamma: float = 2.0,
-        label_smoothing: float = 0.05,
         stabilizers: dict | None = None,
     ):
         super().__init__()
-        self.direction_weight = direction_weight
-        self.magnitude_weight = magnitude_weight
-        self.huber_delta = huber_delta
-        self.focal_gamma = focal_gamma
-        self.label_smoothing = label_smoothing
+        weights = weights or ForexLossWeights()
+        self.direction_weight = weights.direction_weight
+        self.magnitude_weight = weights.magnitude_weight
+        self.huber_delta = weights.huber_delta
+        self.focal_gamma = weights.focal_gamma
+        self.label_smoothing = weights.label_smoothing
         self.max_pips = 100.0
         self.stab = stabilizers or {}
         # Asymmetric class weights: stronger Sideways penalty to prevent collapse

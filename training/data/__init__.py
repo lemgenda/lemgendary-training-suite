@@ -24,6 +24,7 @@ from training.data.loaders import (
 )
 from training.data.manifold import ManifoldInfo, ManifoldResolver
 from training.data.workers import (
+    UserWorkerCounts,
     WorkerTopology,
     compute_worker_topology,
     dispose_loader,
@@ -40,6 +41,7 @@ __all__ = [
     "MdsReader",
     "ParquetReader",
     "Sample",
+    "UserWorkerCounts",
     "WebDatasetReader",
     "WorkerTopology",
     "apply_film_degradation",

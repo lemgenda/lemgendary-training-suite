@@ -20,6 +20,7 @@ from training.hardware.discovery import discover_device
 from training.hardware.policy import ExecutionPolicy
 from training.hardware.sentinel import SentinelGuard
 from training.training import (
+    GradClip,
     TrainingContext,
     TrainingPaths,
     build_optimizer,
@@ -84,7 +85,9 @@ class TestTrainingEngine(unittest.TestCase):
         out = model(x)
         loss = nn.functional.mse_loss(out, y)
 
-        grad_norm = safe_backward(loss, optimizer, scaler=None, max_norm=1.0, model=model)
+        grad_norm = safe_backward(
+            loss, optimizer, scaler=None, clip=GradClip(model=model, max_norm=1.0)
+        )
         self.assertGreaterEqual(grad_norm, 0.0)
 
     def test_train_and_validate_one_epoch(self) -> None:

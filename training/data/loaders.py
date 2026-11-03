@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 from torch.utils.data.distributed import DistributedSampler
 
 from training.data.workers import (
+    UserWorkerCounts,
     compute_worker_topology,
     dataloader_worker_init_fn,
     dispose_loader,
@@ -95,7 +96,7 @@ def build_train_loader(
         env=placement.env,
         device=dev,
         is_forex=is_forex,
-        user_num_workers=opts.workers.num_workers,
+        user_workers=UserWorkerCounts(train=opts.workers.num_workers),
         config=placement.config,
     )
 
@@ -160,7 +161,7 @@ def build_val_loader(
         env=placement.env,
         device=dev,
         is_forex=is_forex,
-        user_val_workers=opts.workers.num_workers,
+        user_workers=UserWorkerCounts(val=opts.workers.num_workers),
         config=placement.config,
     )
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import ClassVar
 
-from training.export import export_all
+from training.export import ExportPlan, export_all
 from training.utils.paths import get_project_root
 
 
@@ -60,7 +60,7 @@ class ExportService:
             model_key=model_key,
             checkpoint_path=checkpoint_path,
             output_dir=output_dir,
-            targets=target_list,
+            plan=ExportPlan(targets=target_list),
         )
 
         return {target: str(path) for target, path in exported_paths.items()}

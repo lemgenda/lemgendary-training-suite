@@ -73,12 +73,16 @@ def build_parallel_strategy(
     model: Any,
     device: Any,
     *,
-    model_key: str = "",
     model_info: dict | None = None,
-    config: dict | None = None,
+    **strategy_options: Any,
 ) -> ParallelStrategy:
-    """Instantiate the named strategy (``auto`` resolves via :func:`resolve_auto`)."""
-    config = config or {}
+    """Instantiate the named strategy (``auto`` resolves via :func:`resolve_auto`).
+
+    ``strategy_options`` (``model_key``, ``config``) go to the strategy constructor;
+    ``model_key`` also steers ``auto``.
+    """
+    model_key = strategy_options.get("model_key", "")
+    config = strategy_options.get("config") or {}
     if name == "auto":
         name = resolve_auto(model_key, model_info=model_info)
     if name not in _STRATEGIES:

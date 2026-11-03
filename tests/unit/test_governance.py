@@ -13,6 +13,7 @@ from training.governance.metrics import MetricRegistry
 from training.governance.sota import SotaTracker
 from training.governance.thermal import ThermalState
 from training.governance.yolo_governor import (
+    BatchBudget,
     YOLOCurriculumGovernor,
     build_ladder_curriculum,
     compute_safe_batch_size,
@@ -301,9 +302,7 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
         stages = build_ladder_curriculum(
             res_ladder=[320, 480, 640],
             total_epochs=300,
-            vram_gb=4.0,
-            requested_batch=16,
-            opt_config=opt_cfg,
+            budget=BatchBudget(vram_gb=4.0, requested_batch=16, opt_config=opt_cfg),
         )
         # 15 stages total: 5 on 320px, 5 on 480px, 5 on 640px
         self.assertEqual(len(stages), 15)
@@ -337,9 +336,7 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
         stages = build_ladder_curriculum(
             res_ladder=[320, 480, 640],
             total_epochs=100,
-            vram_gb=8.0,
-            requested_batch=16,
-            opt_config={},
+            budget=BatchBudget(vram_gb=8.0, requested_batch=16, opt_config={}),
             start_resolution=480,
         )
         # 10 stages total: 5 on 480px, 5 on 640px starting from 15% fraction
@@ -359,9 +356,7 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
         stages = build_ladder_curriculum(
             res_ladder=[640],
             total_epochs=50,
-            vram_gb=8.0,
-            requested_batch=8,
-            opt_config={},
+            budget=BatchBudget(vram_gb=8.0, requested_batch=8, opt_config={}),
         )
         # 5 stages total: 15% -> 35% -> 55% -> 75% -> 100%
         self.assertEqual(len(stages), 5)

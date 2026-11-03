@@ -23,11 +23,13 @@ def run_command(
     cwd: Path | str | None = None,
     timeout: float = 60.0,
     check: bool = False,
-    capture_output: bool = True,
+    *,
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """
     Run an external command with timeout and structured diagnostic logging.
+
+    stdout and stderr are always captured as text; ``env`` is overlaid on ``os.environ``.
 
     Raises:
         SubprocessExecutionError: If command times out or returns non-zero when check=True.
@@ -44,7 +46,7 @@ def run_command(
         res = subprocess.run(
             cmd,
             cwd=cwd_path,
-            capture_output=capture_output,
+            capture_output=True,
             text=True,
             timeout=timeout,
             check=False,

@@ -22,6 +22,7 @@ from training.export.base import EXPORT_ERRORS
 from training.export.universal_exporter import export_tri_format_yolo
 from training.governance.yolo_checkpoint_sync import YoloCheckpointSyncMixin
 from training.governance.yolo_ladder import (
+    BatchBudget,
     YOLOLadderStage,
     build_ladder_curriculum,
     compute_safe_batch_size,
@@ -33,6 +34,7 @@ from training.training.summary import TrainingSummary
 from training.utils.lazy_imports import load_ultralytics
 
 __all__ = [
+    "BatchBudget",
     "YOLOCurriculumGovernor",
     "YOLOLadderStage",
     "build_ladder_curriculum",

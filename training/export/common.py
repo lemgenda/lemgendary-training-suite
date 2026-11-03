@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import logging
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -131,15 +132,26 @@ def model_device(model: nn.Module) -> torch.device:
         return torch.device("cpu")
 
 
+@dataclass(frozen=True)
+class OnnxGraphSpec:
+    """Graph options for one ONNX export: I/O names, dynamic axes, opset and weight layout.
+
+    ``external_data`` moves the weights into a ``<file>.data`` sidecar after the export; it is
+    honoured by :func:`training.export.onnx.export_onnx`, not by :func:`run_onnx_export`.
+    """
+
+    input_names: list[str] = field(default_factory=lambda: ["input"])
+    output_names: list[str] = field(default_factory=lambda: ["output"])
+    dynamic_axes: dict[str, dict[int, str]] | None = None
+    opset: int = 17
+    external_data: bool = False
+
+
 def run_onnx_export(
     model: nn.Module,
     inputs: tuple[torch.Tensor, ...],
     out_file: Path,
-    *,
-    opset: int,
-    input_names: list[str],
-    output_names: list[str],
-    dynamic_axes: dict[str, dict[int, str]] | None,
+    graph: OnnxGraphSpec,
 ) -> None:
     """Run the TorchScript ``torch.onnx.export`` with the suite's standard options.
 
@@ -153,11 +165,11 @@ def run_onnx_export(
                 inputs,
                 str(out_file),
                 export_params=True,
-                opset_version=opset,
+                opset_version=graph.opset,
                 do_constant_folding=True,
-                input_names=input_names,
-                output_names=output_names,
-                dynamic_axes=dynamic_axes,
+                input_names=graph.input_names,
+                output_names=graph.output_names,
+                dynamic_axes=graph.dynamic_axes,
                 dynamo=False,
             )
     finally:

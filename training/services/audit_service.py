@@ -16,7 +16,7 @@ import torch
 import yaml
 
 from models.factory import get_model
-from tools.judicial_audit import run_judicial_audit
+from tools.judicial_audit import JudicialAuditRequest, run_judicial_audit
 from training.checkpoint.manager import audit_disk_space
 from training.hardware.discovery import discover_device
 from training.utils.paths import get_project_root
@@ -115,36 +115,10 @@ class AuditService:
             "task_type": model_info.get("type", "unknown"),
         }
 
-    def audit_judicial(
-        self,
-        model_path: Path | str,
-        dataset_dir: Path | str,
-        labels_csv: Path | str,
-        output_json: Path | str | None = None,
-        model_type: str = "nima_aesthetic_mobile",
-        batch_size: int = 32,
-        device: str = "cpu",
-    ) -> dict[str, Any]:
+    def audit_judicial(self, request: JudicialAuditRequest) -> dict[str, Any]:
         """Execute judicial audit pipeline computing PLCC and SRCC correlations.
-
-        Args:
-            model_path: Path to model checkpoint or ONNX file.
-            dataset_dir: Directory containing evaluation images.
-            labels_csv: Ground truth label CSV.
-            output_json: Optional destination to save output JSON.
-            model_type: Architecture type string.
-            batch_size: Evaluation batch size.
-            device: Target execution device ('cuda' or 'cpu').
 
         Returns:
             dict[str, Any]: Correlation metric report.
         """
-        return run_judicial_audit(
-            model_path=model_path,
-            dataset_dir=dataset_dir,
-            labels_csv=labels_csv,
-            output_json=output_json,
-            model_type=model_type,
-            batch_size=batch_size,
-            device=device,
-        )
+        return run_judicial_audit(request)

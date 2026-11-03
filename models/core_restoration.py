@@ -173,8 +173,10 @@ class NAFBlock(nn.Module):
 class NAFNet(nn.Module):
     """Real NAFNet Architecture for Denoising/Deblurring"""
 
-    def __init__(
+    # Keyword arguments are the registry ``model_kwargs`` stored with each checkpoint.
+    def __init__(  # pylint: disable=too-many-arguments
         self,
+        *,
         in_ch=3,
         out_ch=3,
         width=32,

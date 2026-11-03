@@ -15,7 +15,7 @@ from typing import Any
 
 import torch
 
-from training.training.amp import get_autocast_context, safe_backward
+from training.training.amp import GradClip, get_autocast_context, safe_backward
 from training.training.context import TrainingContext
 from training.training.step_progress import (
     BatchClock,
@@ -164,9 +164,7 @@ class _TrainingPass:
                 loss=scaled_loss,
                 optimizer=ctx.optimizer,
                 scaler=ctx.scaler,
-                max_norm=1.0,
-                model=ctx.model,
-                should_unscale=is_update_step,
+                clip=GradClip(model=ctx.model, max_norm=1.0, should_unscale=is_update_step),
             )
         return raw_loss, grad_norm
 

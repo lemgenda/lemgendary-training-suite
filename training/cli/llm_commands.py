@@ -15,10 +15,11 @@ llm_app = typer.Typer(
 
 
 @llm_app.command("train")
-def llm_train(
+def llm_train(  # pylint: disable=too-many-arguments  # one parameter per CLI option
     model: str = typer.Argument(
         "ai_helper_lemgend", help="LLM model key (e.g. ai_helper_lemgend, test_llm)."
     ),
+    *,
     epochs: int | None = typer.Option(None, "--epochs", "-e", help="Total training epochs."),
     batch_size: int | None = typer.Option(
         None, "--batch-size", "-b", help="Per-device micro-batch size."

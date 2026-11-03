@@ -115,16 +115,7 @@ class EpochAuditMixin(EpochSignalsMixin):
         if self.jolt_window_remaining > 0:
             self.tick_jolt_window(d, trend.delta_q, should_retreat, trend.is_regressing)
         if trigger_propulsion:
-            self.propel(
-                d,
-                verdict.phase,
-                signals.current_quality,
-                trend.is_flat,
-                trend.is_trapped,
-                signals.metrics_dict,
-                signals.plcc,
-                signals.srcc,
-            )
+            self.propel(d, verdict.phase, signals, trend)
         if (
             not (trend.is_regressing or trend.is_turbulent or sentinel_trigger_rate > 0.15)
             and self.current_temp > self.min_temp

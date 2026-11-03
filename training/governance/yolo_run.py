@@ -29,6 +29,7 @@ from training.governance.yolo_callbacks import (
     make_pretrain_routine_end,
 )
 from training.governance.yolo_ladder import (
+    BatchBudget,
     SawtoothMessages,
     YOLOLadderStage,
     build_ladder_curriculum,
@@ -211,9 +212,7 @@ class YoloRunMixin:
         stages = build_ladder_curriculum(
             res_ladder=self.opt_config.get("res_ladder", [320, 480, 640]),
             total_epochs=total_epochs,
-            vram_gb=vram_gb,
-            requested_batch=requested_batch,
-            opt_config=self.opt_config,
+            budget=BatchBudget(vram_gb, requested_batch, self.opt_config),
             start_resolution=getattr(self.args, "resolution", None),
         )
         return _RunPlan(
@@ -287,9 +286,7 @@ class YoloRunMixin:
         stage.batch_size = sawtooth_batch(
             stage.batch_size,
             stage.resolution,
-            plan.hardware.vram_gb,
-            plan.requested_batch,
-            self.opt_config,
+            BatchBudget(plan.hardware.vram_gb, plan.requested_batch, self.opt_config),
             _STAGE_SAWTOOTH,
         )
         stage_resume = resume.resumes(stage) and not self._is_clean()
@@ -576,9 +573,7 @@ class YoloRunMixin:
                     requested_batch=plan.requested_batch,
                 ),
                 top_res,
-                plan.hardware.vram_gb,
-                plan.requested_batch,
-                self.opt_config,
+                BatchBudget(plan.hardware.vram_gb, plan.requested_batch, self.opt_config),
                 _EXTENSION_SAWTOOTH,
             ),
             fraction=1.0,

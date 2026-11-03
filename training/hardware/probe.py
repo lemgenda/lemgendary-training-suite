@@ -4,6 +4,7 @@ import gc
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 import psutil
@@ -25,22 +26,35 @@ _PROBE_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+@dataclass(frozen=True)
+class VramProbe:
+    """Where and how :func:`audit_hardware_vram` probes.
+
+    ``res_override`` replaces the registry resolution; ``mode`` is "train" or "val";
+    ``sample_fraction``, ``fold`` and ``pairs`` only label the report.
+    """
+
+    device: torch.device
+    res_override: int | None = None
+    mode: str = "train"
+    sample_fraction: float = 1.0
+    fold: str | int | None = None
+    pairs: list[str] | None = None
+
+
 def audit_hardware_vram(
     model_key: str,
     model_info: dict[str, Any],
     config: dict[str, Any],
-    device: torch.device,
     model: nn.Module,
-    res_override: int | None = None,
-    mode: str = "train",
-    sample_fraction: float = 1.0,
-    fold: str | int | None = None,
-    pairs: list[str] | None = None,
+    probe: VramProbe,
 ) -> int:
     """
     Performs an empirical VRAM test at the specified resolution to determine
     the optimal batch size within hardware memory safety bounds.
     """
+    device, res_override, mode = probe.device, probe.res_override, probe.mode
+    sample_fraction, fold, pairs = probe.sample_fraction, probe.fold, probe.pairs
     is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
 
     if is_forex:

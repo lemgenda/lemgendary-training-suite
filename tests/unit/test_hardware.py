@@ -7,7 +7,7 @@ import torch
 from tests.fixtures.models import SingleConvModel
 from training.hardware.discovery import DeviceInfo, discover_device
 from training.hardware.policy import HardwarePolicyResult, apply_hardware_policy
-from training.hardware.probe import audit_hardware_vram
+from training.hardware.probe import VramProbe, audit_hardware_vram
 from training.hardware.sentinel import SentinelGuard
 
 
@@ -60,7 +60,9 @@ class TestHardwareProbe(unittest.TestCase):
         model = SingleConvModel()
         model_info = {"dataset_type": "restoration", "input_size": 224}
         config = {"defaults": {"batch_size": 8}}
-        batch = audit_hardware_vram("test_mirnet", model_info, config, torch.device("cpu"), model)
+        batch = audit_hardware_vram(
+            "test_mirnet", model_info, config, model, VramProbe(torch.device("cpu"))
+        )
         self.assertEqual(batch, 8)
 
     def test_audit_hardware_vram_forex(self) -> None:
@@ -69,7 +71,7 @@ class TestHardwareProbe(unittest.TestCase):
         model_info = {"dataset_type": "forex", "batch_size": 128}
         config = {}
         batch = audit_hardware_vram(
-            "forex_predictor", model_info, config, torch.device("cpu"), model
+            "forex_predictor", model_info, config, model, VramProbe(torch.device("cpu"))
         )
         self.assertEqual(batch, 128)
 

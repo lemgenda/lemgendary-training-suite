@@ -194,12 +194,19 @@ def get_fractions_for_resolution(
     return _build_gradual_fractions(next_res_start, step_min, step_max)
 
 
+@dataclass(frozen=True)
+class BatchBudget:
+    """Inputs of ``compute_safe_batch_size`` other than the resolution."""
+
+    vram_gb: float
+    requested_batch: int | None
+    opt_config: dict[str, Any]
+
+
 def build_ladder_curriculum(
     res_ladder: list[int],
     total_epochs: int,
-    vram_gb: float,
-    requested_batch: int | None,
-    opt_config: dict[str, Any],
+    budget: BatchBudget,
     *,
     start_resolution: int | None = None,
 ) -> list[YOLOLadderStage]:
@@ -212,7 +219,7 @@ def build_ladder_curriculum(
         and gradually progress: 15% -> 35% -> 55% -> 75% -> 100%.
     This prevents overfitting and breaks performance plateaus when scaling across spatial rungs.
     """
-    opt_config = opt_config or {}
+    opt_config = budget.opt_config or {}
     rungs = sorted(set(res_ladder)) if res_ladder else [320, 480, 640]
 
     if start_resolution is not None and start_resolution in rungs:
@@ -245,8 +252,8 @@ def build_ladder_curriculum(
     ):
         safe_batch = compute_safe_batch_size(
             imgsz=res,
-            vram_gb=vram_gb,
-            requested_batch=requested_batch,
+            vram_gb=budget.vram_gb,
+            requested_batch=budget.requested_batch,
             opt_config=opt_config,
         )
         stage_patience = max(5, patience_base + (idx * 2))
@@ -280,9 +287,7 @@ class SawtoothMessages:
 def sawtooth_batch(
     batch: int,
     resolution: int,
-    vram_gb: float,
-    requested_batch: int | None,
-    opt_config: dict[str, Any],
+    budget: BatchBudget,
     messages: SawtoothMessages,
 ) -> int:
     """Return ``batch`` adjusted to the peak VRAM use recorded since the last probe.
@@ -293,6 +298,7 @@ def sawtooth_batch(
     default 0.90, and ``sawtooth_vram_headroom_thresh``, default 0.60). The CUDA peak counter
     is reset after every probe. Without CUDA the batch is returned unchanged.
     """
+    vram_gb, requested_batch, opt_config = budget.vram_gb, budget.requested_batch, budget.opt_config
     if not (torch.cuda.is_available() and vram_gb > 0):
         return batch
     try:

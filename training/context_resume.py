@@ -21,7 +21,7 @@ from training.checkpoint import (
 )
 from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS
 from training.context_data import RunSpec, rebuild_resumed_train_loader
-from training.hardware.probe import audit_hardware_vram
+from training.hardware.probe import VramProbe, audit_hardware_vram
 from training.utils.error_types import STATE_RESTORE_ERRORS
 
 logger = logging.getLogger("lemtrain.core_loop")
@@ -170,13 +170,15 @@ def _resync_train_loader(spec: RunSpec, train: TrainState, data: LoaderState) ->
         model_key=spec.model_key,
         model_info=spec.model_info,
         config=spec.config,
-        device=spec.device,
         model=train.model,
-        res_override=rec_res,
-        mode="train",
-        sample_fraction=rec_frac if rec_frac is not None else 1.0,
-        fold=getattr(spec.args, "fold", None),
-        pairs=getattr(spec.args, "pairs", None) or spec.model_info.get("pairs"),
+        probe=VramProbe(
+            device=spec.device,
+            res_override=rec_res,
+            mode="train",
+            sample_fraction=rec_frac if rec_frac is not None else 1.0,
+            fold=getattr(spec.args, "fold", None),
+            pairs=getattr(spec.args, "pairs", None) or spec.model_info.get("pairs"),
+        ),
     )
     restored_batch = int(getattr(governor, "current_batch", data.batch_size))
     curr_batch = min(restored_batch, hw_safe_batch)

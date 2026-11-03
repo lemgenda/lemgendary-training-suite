@@ -10,8 +10,6 @@ disable=
     too-many-branches,
     too-many-locals,
     too-many-statements,
-    too-many-arguments,
-    too-many-positional-arguments,
     too-many-instance-attributes,
     too-many-nested-blocks,
 

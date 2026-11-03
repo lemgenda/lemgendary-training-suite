@@ -38,7 +38,7 @@ class TestLemTrainCLI(unittest.TestCase):
         """Verify version command."""
         result = runner.invoke(app, ["version"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("LemGendary Model Training Suite v16.9.103", result.output)
+        self.assertIn("LemGendary Model Training Suite v16.9.104", result.output)
 
     def test_cli_presets_list(self) -> None:
         """Verify presets list outputs registered profiles."""
@@ -101,8 +101,8 @@ class TestLemTrainCLI(unittest.TestCase):
                 app, ["soup", "m", "--donors", "psnr,lpips", "--weights", "0.6,0.4"]
             )
         self.assertEqual(result.exit_code, 0, result.output)
-        self.assertEqual(svc.call_args.kwargs["donors"], ["psnr", "lpips"])
-        self.assertEqual(svc.call_args.kwargs["weights"], [0.6, 0.4])
+        self.assertEqual(svc.call_args.kwargs["recipe"].donors, ["psnr", "lpips"])
+        self.assertEqual(svc.call_args.kwargs["recipe"].weights, [0.6, 0.4])
 
     def test_cli_soup_missing_checkpoints_exit_1(self) -> None:
         """Verify `soup` exits 1 when the service reports missing checkpoints."""

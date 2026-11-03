@@ -10,6 +10,7 @@ from torch import nn
 
 from training.export.common import (
     ExportError,
+    OnnxGraphSpec,
     model_device,
     run_onnx_export,
     unwrap_export_model,
@@ -44,10 +45,7 @@ def export_webgpu_onnx(
             model_to_export,
             (dummy_input,),
             out_file,
-            opset=opset,
-            input_names=["input"],
-            output_names=["output"],
-            dynamic_axes=None,
+            OnnxGraphSpec(opset=opset),
         )
         logger.info("WebGPU ONNX export successful! Opset: %d, Shape: %s", opset, dummy_input_shape)
         return True

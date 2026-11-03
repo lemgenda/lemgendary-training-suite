@@ -55,10 +55,11 @@ def sync_run(
 
 
 @sync_app.command("push")
-def sync_push(
+def sync_push(  # pylint: disable=too-many-arguments  # one parameter per CLI option
     model: str | None = typer.Argument(
         None, help="Model key to upload to Kaggle Models (optional if --all is specified)."
     ),
+    *,
     all_models: bool = typer.Option(
         False, "--all", "-a", help="Push all 22 registered models to Kaggle Models Hub."
     ),

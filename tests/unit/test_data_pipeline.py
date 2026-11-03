@@ -26,6 +26,7 @@ from training.data.loaders import (
 )
 from training.data.manifold import ManifoldInfo, ManifoldResolver
 from training.data.workers import (
+    UserWorkerCounts,
     WorkerTopology,
     compute_worker_topology,
     dispose_loader,
@@ -99,8 +100,7 @@ class TestDataPipeline(unittest.TestCase):
             env="local",
             device=torch.device("cpu"),
             is_forex=False,
-            user_num_workers=2,
-            user_val_workers=1,
+            user_workers=UserWorkerCounts(train=2, val=1),
         )
         self.assertIsInstance(topo, WorkerTopology)
         self.assertEqual(topo.num_workers, 2)

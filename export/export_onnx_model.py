@@ -6,7 +6,7 @@ import argparse
 import logging
 import sys
 
-from training.export import ExportError, export_all
+from training.export import ExportError, ExportPlan, export_all
 
 logger = logging.getLogger("lemtrain.export.onnx_cli")
 
@@ -30,7 +30,7 @@ def main() -> None:
         results = export_all(
             model_key=args.model,
             checkpoint_path=args.checkpoint,
-            targets=["onnx_fp32", "onnx_fp16"],
+            plan=ExportPlan(targets=["onnx_fp32", "onnx_fp16"]),
         )
         for target, path in results.items():
             logger.info("Exported %s -> %s", target, path)

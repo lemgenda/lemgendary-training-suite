@@ -29,7 +29,7 @@ from training.data.loaders import (
     ValLoaderOptions,
     WorkerOverrides,
 )
-from training.hardware.probe import audit_hardware_vram
+from training.hardware.probe import VramProbe, audit_hardware_vram
 
 logger = logging.getLogger("lemtrain.core_loop")
 
@@ -103,12 +103,14 @@ def resolve_batch_size(spec: RunSpec, raw_model: Any) -> int:
                 model_key=spec.model_key,
                 model_info=spec.model_info,
                 config=spec.config,
-                device=spec.device,
                 model=raw_model,
-                res_override=getattr(spec.args, "resolution", None),
-                mode="train",
-                fold=getattr(spec.args, "fold", None),
-                pairs=getattr(spec.args, "pairs", None) or spec.model_info.get("pairs"),
+                probe=VramProbe(
+                    device=spec.device,
+                    res_override=getattr(spec.args, "resolution", None),
+                    mode="train",
+                    fold=getattr(spec.args, "fold", None),
+                    pairs=getattr(spec.args, "pairs", None) or spec.model_info.get("pairs"),
+                ),
             )
 
     if not isinstance(resolved_batch, int) or resolved_batch <= 0:

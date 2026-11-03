@@ -17,6 +17,7 @@ import torch
 
 from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
 from training.export.common import (
+    OnnxGraphSpec,
     detach_onnx_weights,
     extract_input_dimensions,
     model_device,
@@ -85,6 +86,9 @@ class PyTorchModelExporter(BaseModelExporter):
             }
         )
         dyn_axes: dict[str, dict[int, str]] = kwargs.get("dynamic_axes") or default_axes
+        graph = OnnxGraphSpec(
+            input_names=in_names, output_names=out_names, dynamic_axes=dyn_axes, opset=opset
+        )
 
         model_to_export = unwrap_export_model(model)
         model_to_export.eval()
@@ -124,10 +128,7 @@ class PyTorchModelExporter(BaseModelExporter):
                 model_to_export,
                 (dummy_fp32,),
                 fp32_onnx_path,
-                opset=opset,
-                input_names=in_names,
-                output_names=out_names,
-                dynamic_axes=dyn_axes,
+                graph,
             )
             detach_onnx_weights(fp32_onnx_path, fp32_data_filename)
 
@@ -149,10 +150,7 @@ class PyTorchModelExporter(BaseModelExporter):
                 model_to_export,
                 (dummy_fp16,),
                 fp16_onnx_path,
-                opset=opset,
-                input_names=in_names,
-                output_names=out_names,
-                dynamic_axes=dyn_axes,
+                graph,
             )
 
             exported_files["onnx_fp16"] = fp16_onnx_path
@@ -172,10 +170,7 @@ class PyTorchModelExporter(BaseModelExporter):
                     model_to_export,
                     (dummy_fp32,),
                     tmp_fp32,
-                    opset=opset,
-                    input_names=in_names,
-                    output_names=out_names,
-                    dynamic_axes=dyn_axes,
+                    graph,
                 )
                 float16 = load_onnx_float16()
                 m_fp32 = onnx.load(str(tmp_fp32))

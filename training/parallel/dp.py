@@ -13,10 +13,9 @@ class DataParallelStrategy(ParallelStrategy):
 
     name = "dp"
 
-    def __init__(
-        self, model, device, *, model_key="", config=None, device_ids=None, output_device=0
-    ):
-        super().__init__(model, device, model_key=model_key, config=config)
+    def __init__(self, model, device, *, device_ids=None, output_device=0, **base_options):
+        """``base_options`` (``model_key``, ``config``) go to :class:`ParallelStrategy`."""
+        super().__init__(model, device, **base_options)
         self.device_ids = device_ids or list(range(torch.cuda.device_count()))
         self.output_device = output_device
 

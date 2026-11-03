@@ -135,7 +135,7 @@ class KaggleMetadataService:
             title=title,
             subtitle=subtitle,
             description=self._build_description(
-                resolved, owner, slug, dataset_urls, whitepaper_url, keywords
+                resolved, (owner, slug), dataset_urls, whitepaper_url, keywords
             ),
             is_private=False,
             license=license_name,
@@ -264,12 +264,13 @@ class KaggleMetadataService:
     @staticmethod
     def _build_description(
         spec: ModelSpecification,
-        owner: str,
-        slug: str,
+        owner_slug: tuple[str, str],
         dataset_urls: list[str],
         whitepaper_url: str | None = None,
         keywords: list[str] | None = None,
     ) -> str:
+        """Return the Kaggle model description; ``owner_slug`` is ``(owner, slug)``."""
+        owner, slug = owner_slug
         raw_desc = spec.description or spec.name
         wrapped_desc = textwrap.fill(raw_desc, width=120) if len(raw_desc) > 120 else raw_desc
         lines: list[str] = [wrapped_desc, ""]

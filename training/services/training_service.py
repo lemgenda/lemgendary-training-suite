@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,37 @@ from training.training.engine import TrainingSummary, run_training
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.services.training_service")
+
+
+@dataclass(frozen=True)
+class TrainRequest:
+    """One in-process training run.
+
+    Attributes:
+        model_key: Target model key registered in unified_models.yaml.
+        epochs: Total training epochs (overrides preset/config if specified).
+        batch_size: Physical batch size per gradient step.
+        lr: Base learning rate.
+        preset: Optional preset profile name from presets.yaml.
+        env: Execution environment ('local', 'kaggle', 'colab').
+        clean: Whether to ignore prior checkpoints and start fresh from epoch 1.
+        auto_sync: Enable automated cloud synchronization.
+        parallel: Parallel strategy ('auto', 'single', 'dp', 'ddp').
+        resolution: Selected input spatial resolution or timeframe horizon.
+        enable_sawtooth: Enable Sawtooth VRAM Governor memory protection.
+    """
+
+    model_key: str
+    epochs: int | None = None
+    batch_size: int | None = None
+    lr: float | None = None
+    preset: str | None = None
+    env: str = "local"
+    clean: bool = False
+    auto_sync: bool = False
+    parallel: str = "auto"
+    resolution: int | None = None
+    enable_sawtooth: bool = True
 
 
 class TrainingService:
@@ -54,40 +86,27 @@ class TrainingService:
 
     def train(
         self,
-        model_key: str,
-        epochs: int | None = None,
-        batch_size: int | None = None,
-        lr: float | None = None,
-        preset: str | None = None,
-        env: str = "local",
-        clean: bool = False,
-        auto_sync: bool = False,
-        parallel: str = "auto",
-        resolution: int | None = None,
-        enable_sawtooth: bool = True,
+        request: TrainRequest,
+        *,
         on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ) -> TrainingSummary:
         """Execute a training job in-process.
 
         Args:
-            model_key: Target model key registered in unified_models.yaml.
-            epochs: Total training epochs (overrides preset/config if specified).
-            batch_size: Physical batch size per gradient step.
-            lr: Base learning rate.
-            preset: Optional preset profile name from presets.yaml.
-            env: Execution environment ('local', 'kaggle', 'colab').
-            clean: Whether to ignore prior checkpoints and start fresh from epoch 1.
-            auto_sync: Enable automated cloud synchronization.
-            parallel: Parallel strategy ('auto', 'single', 'dp', 'ddp').
-            resolution: Selected input spatial resolution or timeframe horizon.
-            enable_sawtooth: Enable Sawtooth VRAM Governor memory protection.
+            request: Model key and run options (see :class:`TrainRequest`).
             on_epoch_end: Optional callback invoked after each epoch.
             cancel_check: Optional callable returning True when cancellation is requested.
 
         Returns:
             TrainingSummary: Completed run metrics and summary.
         """
+        model_key, epochs, batch_size, lr = (
+            request.model_key,
+            request.epochs,
+            request.batch_size,
+            request.lr,
+        )
         # 0. Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds,
         # and training dirs
         try:
@@ -97,8 +116,8 @@ class TrainingService:
             logger.warning("Pre-flight notebook generation skipped for %s: %s", model_key, e)
 
         # 1. Resolve preset parameters if requested
-        if preset:
-            preset_cfg = self.get_preset(preset)
+        if request.preset:
+            preset_cfg = self.get_preset(request.preset)
             if preset_cfg:
                 if epochs is None:
                     epochs = preset_cfg.get("epochs")
@@ -113,23 +132,27 @@ class TrainingService:
             epochs=epochs,
             batch_size=batch_size,
             lr=lr,
-            env=env,
+            env=request.env,
             prefetch_datasets="",
             hub_user=None,
             hub_repo=None,
-            auto_sync=auto_sync,
+            auto_sync=request.auto_sync,
             reset_scheduler=False,
-            clean=clean,
+            clean=request.clean,
             phase=1,
             fold=1,
             pairs=None,
-            timeframes=[resolution] if resolution and model_key == "forex_predictor" else None,
-            resolution=resolution,
-            enable_sawtooth=enable_sawtooth,
+            timeframes=(
+                [request.resolution]
+                if request.resolution and model_key == "forex_predictor"
+                else None
+            ),
+            resolution=request.resolution,
+            enable_sawtooth=request.enable_sawtooth,
             num_workers=None,
             val_num_workers=None,
             enable_batch_growth=False,
-            parallel=parallel,
+            parallel=request.parallel,
         )
 
         # 3. Intercept yolov8n before building TrainingContext - it uses Ultralytics native trainer

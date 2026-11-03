@@ -16,6 +16,7 @@ from typing import Annotated
 
 import typer
 
+from tools.judicial_audit import JudicialAuditRequest
 from training import model_soup
 from training.cli.llm_commands import llm_app
 from training.cli.server_commands import server_app
@@ -78,9 +79,9 @@ def soup(
         result = model_soup.blend_model_soup(
             model,
             project_root=get_project_root(),
-            donors=parsed_donors,
-            weights=parsed_weights,
-            output=output,
+            recipe=model_soup.SoupRecipe(
+                donors=parsed_donors, weights=parsed_weights, output=output
+            ),
         )
     except model_soup.SoupError as exc:
         typer.echo(f"[ERROR] {exc}")
@@ -93,12 +94,13 @@ def soup(
 @app.command("version")
 def version() -> None:
     """Show LemGendary Training Suite version."""
-    typer.echo("LemGendary Model Training Suite v16.9.103 (Refactored & Hardened)")
+    typer.echo("LemGendary Model Training Suite v16.9.104 (Refactored & Hardened)")
 
 
 @app.command("train")
-def train(
+def train(  # pylint: disable=too-many-arguments  # one parameter per CLI option
     model: str = typer.Argument(..., help="Model architecture key (e.g. nima_aesthetic_mobile)."),
+    *,
     epochs: int | None = typer.Option(None, "--epochs", "-e", help="Total epochs to train."),
     batch_size: int | None = typer.Option(None, "--batch-size", "-b", help="Batch size per step."),
     lr: float | None = typer.Option(None, "--lr", help="Base learning rate."),
@@ -382,7 +384,8 @@ def audit_model(
 
 
 @audit_app.command("judicial")
-def audit_judicial(
+def audit_judicial(  # pylint: disable=too-many-arguments  # one parameter per CLI option
+    *,
     model_path: str = typer.Option(..., "--model-path", "-m", help="Path to .pth or .onnx model."),
     dataset_dir: str = typer.Option(
         ..., "--dataset-dir", "-d", help="Directory of evaluation images."
@@ -400,13 +403,15 @@ def audit_judicial(
     """Run judicial correlation verification (PLCC / SRCC)."""
     service = AuditService()
     results = service.audit_judicial(
-        model_path=model_path,
-        dataset_dir=dataset_dir,
-        labels_csv=labels_csv,
-        output_json=output_json,
-        model_type=model_type,
-        batch_size=batch_size,
-        device=device,
+        JudicialAuditRequest(
+            model_path=model_path,
+            dataset_dir=dataset_dir,
+            labels_csv=labels_csv,
+            output_json=output_json,
+            model_type=model_type,
+            batch_size=batch_size,
+            device=device,
+        )
     )
 
     typer.echo(f"Judicial Correlation Audit Results ({results['samples_evaluated']} samples):")

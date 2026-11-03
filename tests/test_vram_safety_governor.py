@@ -6,6 +6,7 @@ import torch
 
 from tests.fixtures.models import SingleConvModel
 from training.governance import SmartTrainingGovernor
+from training.hardware.probe import VramProbe
 from training.model_registry import audit_hardware_vram
 from training.ratchet import RatchetViolation
 
@@ -75,7 +76,7 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
         model = SingleConvModel()
         device = torch.device("cpu")
         batch = audit_hardware_vram(
-            "nafnet_debluring", model_info, config, device, model, res_override=256
+            "nafnet_debluring", model_info, config, model, VramProbe(device, res_override=256)
         )
         self.assertEqual(batch, 8)
 

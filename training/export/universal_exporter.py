@@ -51,13 +51,13 @@ def export_tri_format_pytorch(
     model_key: str,
     dummy_input: torch.Tensor,
     output_dir: Path | str | None = None,
-    dynamic_axes: dict[str, dict[int, str]] | None = None,
-    input_names: list[str] | None = None,
-    output_names: list[str] | None = None,
-    opset: int = 17,
     stage_dist: bool = True,
+    **onnx_options: Any,
 ) -> dict[str, Path]:
     """Export standard PyTorch model into all 3 required formats with automatic variation staging.
+
+    ``onnx_options`` (``dynamic_axes``, ``input_names``, ``output_names``, ``opset``) go to
+    :meth:`PyTorchModelExporter.export` unchanged.
 
     Returns dict with keys: 'onnx_fp16', 'onnx_fp32', 'onnx_fp32_data', 'pt'
     """
@@ -71,10 +71,7 @@ def export_tri_format_pytorch(
         model_key=model_key,
         output_dir=staging_dir,
         dummy_input=dummy_input,
-        dynamic_axes=dynamic_axes,
-        input_names=input_names,
-        output_names=output_names,
-        opset=opset,
+        **onnx_options,
     )
 
     if stage_dist:

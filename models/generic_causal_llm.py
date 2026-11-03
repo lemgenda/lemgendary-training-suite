@@ -22,9 +22,11 @@ logger = logging.getLogger("lemtrain.models.generic_llm")
 class GenericCausalLLM(nn.Module):
     """Universal Causal Language Model fine-tuning backbone wrapper."""
 
-    def __init__(
+    # Keyword arguments are the registry ``model_kwargs`` stored with each checkpoint.
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         base_model_name_or_path: str = "Qwen/Qwen2.5-Coder-1.5B-Instruct",
+        *,
         use_lora: bool = True,
         lora_r: int = 16,
         lora_alpha: int = 32,

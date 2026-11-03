@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from training.governance.epoch_signals import AuditDirectives
 from training.ratchet import (
     expand_fraction,
 )
+
+if TYPE_CHECKING:
+    from training.governance.epoch_audit import EpochSignals, EpochTrend
 
 
 class PropulsionMixin:
@@ -131,11 +136,10 @@ class PropulsionMixin:
     def _refine(
         self,
         d: AuditDirectives,
-        metrics_dict: dict[str, float] | None,
-        plcc: float,
-        srcc: float,
+        signals: EpochSignals,
     ) -> None:
         """REFINEMENT propulsion: stress protocol, precision cooling or targeted metric focus."""
+        metrics_dict = signals.metrics_dict
         if self.task_type == "forex":
             if (
                 self.current_stress < 2.0
@@ -204,7 +208,7 @@ class PropulsionMixin:
                 d.msg_parts.append("REFINEMENT: SOTA Precision Cooling")
 
             if metrics_dict is None:
-                metrics_dict = {"plcc": plcc, "srcc": srcc}
+                metrics_dict = {"plcc": signals.plcc, "srcc": signals.srcc}
 
             lagging = self._identify_lagging_metric(metrics_dict)
             if lagging:
@@ -215,15 +219,11 @@ class PropulsionMixin:
         self,
         d: AuditDirectives,
         phase: str,
-        current_quality: float,
-        is_flat: bool,
-        is_trapped: bool,
-        metrics_dict: dict[str, float] | None,
-        plcc: float,
-        srcc: float,
+        signals: EpochSignals,
+        trend: EpochTrend,
     ) -> None:
         """Advance the curriculum one step for the current phase."""
-        self._plateau_jolt(d, phase, is_flat, is_trapped)
+        self._plateau_jolt(d, phase, trend.is_flat, trend.is_trapped)
 
         next_frac = expand_fraction(self.current_fraction, self.fraction_increment)
         next_state = (self.current_res, round(next_frac, 2))
@@ -235,7 +235,7 @@ class PropulsionMixin:
             d.msg_parts.append("ANCHOR: Caution ahead (Previous Failures). 0.6x LR.")
 
         if phase in ("FOUNDATION", "EXPANSION"):
-            self._expand_fraction(d, next_frac, current_quality)
+            self._expand_fraction(d, next_frac, signals.current_quality)
         elif (
             phase == "DEEPENING"
             and self.current_res is not None
@@ -243,7 +243,7 @@ class PropulsionMixin:
         ):
             self._spatial_jump(d)
         else:
-            self._refine(d, metrics_dict, plcc, srcc)
+            self._refine(d, signals)
 
     def sharpen(self, d: AuditDirectives, phase: str, current_state: tuple[int, float]) -> None:
         """Lower the softmax temperature toward the phase floor when cooldown allows."""

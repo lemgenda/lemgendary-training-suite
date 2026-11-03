@@ -10,6 +10,7 @@ import argparse
 import csv
 import importlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -97,18 +98,11 @@ def load_pytorch_model(model_path: str | Path, model_type: str, device: str) -> 
     return model
 
 
-def run_judicial_audit(
-    model_path: str | Path,
-    dataset_dir: str | Path,
-    labels_csv: str | Path,
-    output_json: str | Path | None = None,
-    model_type: str = "nima_aesthetic_mobile",
-    batch_size: int = 32,
-    device: str = "cpu",
-) -> dict[str, Any]:
-    """Execute judicial audit pipeline and compute PLCC/SRCC correlation metrics.
+@dataclass(frozen=True)
+class JudicialAuditRequest:
+    """Inputs of one judicial audit.
 
-    Args:
+    Attributes:
         model_path: Path to .pth or .onnx model.
         dataset_dir: Directory containing evaluation images.
         labels_csv: Path to CSV containing image names and ground truth scores.
@@ -116,10 +110,30 @@ def run_judicial_audit(
         model_type: Model architecture key for PyTorch models.
         batch_size: Batch size for inference.
         device: Device to run evaluation on.
+    """
+
+    model_path: str | Path
+    dataset_dir: str | Path
+    labels_csv: str | Path
+    output_json: str | Path | None = None
+    model_type: str = "nima_aesthetic_mobile"
+    batch_size: int = 32
+    device: str = "cpu"
+
+
+def run_judicial_audit(request: JudicialAuditRequest) -> dict[str, Any]:
+    """Execute judicial audit pipeline and compute PLCC/SRCC correlation metrics.
 
     Returns:
         dict[str, Any]: Audit results report.
     """
+    model_path, dataset_dir, labels_csv = (
+        request.model_path,
+        request.dataset_dir,
+        request.labels_csv,
+    )
+    output_json, model_type = request.output_json, request.model_type
+    batch_size, device = request.batch_size, request.device
     path_str = str(model_path)
     is_onnx = path_str.endswith(".onnx")
 
@@ -254,13 +268,15 @@ def main() -> None:
     args = parser.parse_args()
 
     results = run_judicial_audit(
-        model_path=args.model_path,
-        dataset_dir=args.dataset_dir,
-        labels_csv=args.labels_csv,
-        output_json=args.output_json,
-        model_type=args.model_type,
-        batch_size=args.batch_size,
-        device=args.device,
+        JudicialAuditRequest(
+            model_path=args.model_path,
+            dataset_dir=args.dataset_dir,
+            labels_csv=args.labels_csv,
+            output_json=args.output_json,
+            model_type=args.model_type,
+            batch_size=args.batch_size,
+            device=args.device,
+        )
     )
 
     print(f"Judicial Audit complete: {results['samples_evaluated']} samples.")

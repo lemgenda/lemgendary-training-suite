@@ -38,6 +38,7 @@ from data.mt5_features import (
     compute_indicators,
     normalize_ohlcv,
 )
+from data.mt5_pipeline import MT5Credentials
 from data.mt5_terminal import (
     connect_mt5,
     disconnect_mt5,
@@ -286,9 +287,7 @@ def generate_signal(
     onnx_path: str,
     pair: str = "EURUSD",
     active_timeframes: list | None = None,
-    login: int | None = None,
-    password: str | None = None,
-    server: str | None = None,
+    credentials: MT5Credentials | None = None,
 ) -> dict:
     """
     Pull latest bars from MT5, preprocess, run ONNX model, return trade signal.
@@ -297,9 +296,8 @@ def generate_signal(
         onnx_path:          Path to exported .onnx model file.
         pair:               Currency pair symbol.
         active_timeframes:  Timeframes to query (must match export).
-        login:              MT5 demo account login ID.
-        password:           MT5 demo account password.
-        server:             MT5 demo account server name.
+        credentials:        MT5 demo account login, password and server (``None`` uses the
+                            MT5_* environment variables).
 
     Returns:
         Signal dict: {direction, confidence, tp_pips, sl_pips, probs}
@@ -307,7 +305,8 @@ def generate_signal(
     if active_timeframes is None:
         active_timeframes = [1, 5, 15, 60, 240, 1440]
 
-    if not connect_mt5(login=login, password=password, server=server):
+    creds = credentials or MT5Credentials()
+    if not connect_mt5(login=creds.login, password=creds.password, server=creds.server):
         return {
             "error": "MT5 not connected. Provide demo account credentials.",
             "help": (
@@ -470,9 +469,9 @@ def main():
             onnx_path=args.onnx,
             pair=args.pair,
             active_timeframes=args.timeframes,
-            login=args.login,
-            password=args.password,
-            server=args.server,
+            credentials=MT5Credentials(
+                login=args.login, password=args.password, server=args.server
+            ),
         )
         print("\n [Signal] Result:")
         print(json.dumps(result, indent=2))

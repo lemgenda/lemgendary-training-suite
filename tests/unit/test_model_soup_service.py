@@ -18,6 +18,7 @@ from training import model_soup
 from training.model_soup import (
     SoupCheckpointsMissing,
     SoupInvalidRequest,
+    SoupRecipe,
     blend_model_soup,
     resolve_models_root,
     resolve_vault_checkpoints,
@@ -132,7 +133,10 @@ class TestBlendService(_SoupTree):
         self.add_vaults("psnr", "lpips")
         fn = mock.Mock(return_value={})
         result = blend_model_soup(
-            MODEL, self.project_root, ["psnr", "lpips"], [0.6, 0.4], soup_function=fn
+            MODEL,
+            self.project_root,
+            SoupRecipe(["psnr", "lpips"], [0.6, 0.4]),
+            soup_function=fn,
         )
         args, kwargs = fn.call_args
         self.assertEqual(
@@ -146,7 +150,7 @@ class TestBlendService(_SoupTree):
         """Verify a bare output name is written into the checkpoints directory."""
         self.add_vaults("psnr", "lpips")
         result = blend_model_soup(
-            MODEL, self.project_root, output="mix.pth", soup_function=mock.Mock()
+            MODEL, self.project_root, SoupRecipe(output="mix.pth"), soup_function=mock.Mock()
         )
         self.assertEqual(result.output_path, self.ckpt_dir / "mix.pth")
 
@@ -155,7 +159,7 @@ class TestBlendService(_SoupTree):
         self.add_vaults("psnr", "lpips")
         fn = mock.Mock()
         with self.assertRaises(SoupInvalidRequest):
-            blend_model_soup(MODEL, self.project_root, weights=[1.0], soup_function=fn)
+            blend_model_soup(MODEL, self.project_root, SoupRecipe(weights=[1.0]), soup_function=fn)
         fn.assert_not_called()
 
 

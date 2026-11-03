@@ -17,7 +17,12 @@ import torch
 from torch import nn
 
 from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
-from training.export.common import detach_onnx_weights, run_onnx_export, unwrap_export_model
+from training.export.common import (
+    OnnxGraphSpec,
+    detach_onnx_weights,
+    run_onnx_export,
+    unwrap_export_model,
+)
 from training.registry import ModelSpecification
 
 logger = logging.getLogger("lemtrain.export.llm")
@@ -79,14 +84,16 @@ def export_llm_tri_format(
             model_to_export,
             (dummy_input, dummy_mask),
             fp32_onnx_path,
-            opset=17,
-            input_names=["input_ids", "attention_mask"],
-            output_names=["logits"],
-            dynamic_axes={
-                "input_ids": {0: "batch", 1: "sequence"},
-                "attention_mask": {0: "batch", 1: "sequence"},
-                "logits": {0: "batch", 1: "sequence"},
-            },
+            OnnxGraphSpec(
+                input_names=["input_ids", "attention_mask"],
+                output_names=["logits"],
+                dynamic_axes={
+                    "input_ids": {0: "batch", 1: "sequence"},
+                    "attention_mask": {0: "batch", 1: "sequence"},
+                    "logits": {0: "batch", 1: "sequence"},
+                },
+                opset=17,
+            ),
         )
         detach_onnx_weights(fp32_onnx_path, fp32_data_path.name)
 
