@@ -22,6 +22,8 @@ from typing import Any
 
 import yaml
 
+from training.utils.lazy_imports import load_pareto_soup
+
 DEFAULT_MODELS_ROOT = "../LemGendaryModels"
 VAULT_PREFIX = "vault_"
 VAULT_SUFFIX = ".pth"
@@ -192,9 +194,7 @@ def _resolve_output(output: str | Path | None, ckpt_dir: Path) -> Path:
 
 
 def _default_soup_function() -> SoupFunction:
-    from training.export.soup import create_pareto_model_soup
-
-    return create_pareto_model_soup
+    return load_pareto_soup()
 
 
 def blend_model_soup(

@@ -21,18 +21,15 @@ from models.detection import RetinaFaceMobileNet
 from models.face_restoration import CodeFormer, ParseNet
 from models.forex_predictor import ForexPredictor
 from models.generic_causal_llm import AIHelperLemGend, GenericCausalLLM
+from models.master_generative import Flux1Master, StableDiffusionXL
+from models.master_multimodal import BLIP2, LLaVAv15
 from models.multitask_restorer import MultiTaskRestorer
 from models.nima import AuthenticityScorer, NIMAModel, UniversalClassifier
+from training.utils.lazy_imports import is_installed
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1412]
 
 logger = logging.getLogger("lemtrain.factory")
-
-# Optional model modules can fail at import time because a dependency is missing
-# (ImportError), a native library cannot be loaded (OSError), a backend refuses to
-# initialise (RuntimeError) or an installed dependency has an incompatible API
-# (AttributeError). Anything else is a real bug and must propagate.
-_OPTIONAL_IMPORT_ERRORS = (ImportError, OSError, RuntimeError, AttributeError)
 
 # --- Dynamic Architecture Registry (Task 10.2) ---
 # Core models depend only on torch/torchvision and are registered eagerly.
@@ -75,23 +72,20 @@ def _populate_registry():
     """Register core models, then the heavy optional ones whose dependencies are installed."""
     _MODEL_REGISTRY.update(_CORE_MODELS)
 
-    # Heavy generative models need the optional 'diffusers' package.
-    try:
-        from models.master_generative import Flux1Master, StableDiffusionXL
-
+    # Heavy generative models need the optional 'diffusers' package; the wrappers load it
+    # when they are constructed.
+    if is_installed("diffusers"):
         _MODEL_REGISTRY["StableDiffusionXL"] = StableDiffusionXL
         _MODEL_REGISTRY["Flux1_Master"] = Flux1Master
-    except _OPTIONAL_IMPORT_ERRORS as generative_err:
-        logger.debug("Generative models unavailable (missing 'diffusers'?): %s", generative_err)
+    else:
+        logger.debug("Generative models unavailable: 'diffusers' is not installed.")
 
     # Heavy multimodal models need the optional 'transformers' package.
-    try:
-        from models.master_multimodal import BLIP2, LLaVAv15
-
+    if is_installed("transformers"):
         _MODEL_REGISTRY["LLaVA_v1_5"] = LLaVAv15
         _MODEL_REGISTRY["BLIP_2"] = BLIP2
-    except _OPTIONAL_IMPORT_ERRORS as multimodal_err:
-        logger.debug("Multimodal models unavailable (missing 'transformers'?): %s", multimodal_err)
+    else:
+        logger.debug("Multimodal models unavailable: 'transformers' is not installed.")
 
 
 def get_model(model_key, config=None):

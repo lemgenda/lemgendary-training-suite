@@ -14,6 +14,8 @@ from typing import Any
 import torch
 from torch import nn
 
+from training.utils.lazy_imports import load_peft, load_transformers
+
 logger = logging.getLogger("lemtrain.models.generic_llm")
 
 
@@ -43,9 +45,9 @@ class GenericCausalLLM(nn.Module):
             return
 
         try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
+            transformers = load_transformers()
 
-            raw_tokenizer: Any = AutoTokenizer.from_pretrained(
+            raw_tokenizer: Any = transformers.AutoTokenizer.from_pretrained(
                 self.base_model_name,
                 trust_remote_code=True,
                 padding_side="right",
@@ -60,9 +62,7 @@ class GenericCausalLLM(nn.Module):
             quant_config = None
             if load_in_4bit:
                 try:
-                    from transformers import BitsAndBytesConfig
-
-                    quant_config = BitsAndBytesConfig(
+                    quant_config = transformers.BitsAndBytesConfig(
                         load_in_4bit=True,
                         bnb_4bit_quant_type="nf4",
                         bnb_4bit_compute_dtype=torch.bfloat16,
@@ -73,7 +73,7 @@ class GenericCausalLLM(nn.Module):
                         "bitsandbytes not installed; loading without 4-bit quantization."
                     )
 
-            self.model = AutoModelForCausalLM.from_pretrained(
+            self.model = transformers.AutoModelForCausalLM.from_pretrained(
                 self.base_model_name,
                 quantization_config=quant_config,
                 torch_dtype=torch.float32 if not torch.cuda.is_available() else torch.bfloat16,
@@ -83,14 +83,10 @@ class GenericCausalLLM(nn.Module):
 
             if self.use_lora:
                 try:
-                    from peft import (
-                        LoraConfig,
-                        get_peft_model,
-                        prepare_model_for_kbit_training,
-                    )
+                    peft = load_peft()
 
                     if load_in_4bit:
-                        self.model = prepare_model_for_kbit_training(self.model)
+                        self.model = peft.prepare_model_for_kbit_training(self.model)
 
                     target_modules = kwargs.get(
                         "target_modules",
@@ -104,7 +100,7 @@ class GenericCausalLLM(nn.Module):
                             "down_proj",
                         ],
                     )
-                    peft_config = LoraConfig(
+                    peft_config = peft.LoraConfig(
                         r=lora_r,
                         lora_alpha=lora_alpha,
                         lora_dropout=lora_dropout,
@@ -112,7 +108,7 @@ class GenericCausalLLM(nn.Module):
                         bias="none",
                         task_type="CAUSAL_LM",
                     )
-                    self.model = get_peft_model(self.model, peft_config)
+                    self.model = peft.get_peft_model(self.model, peft_config)
                     logger.info(
                         "Injected LoRA adapter into GenericCausalLLM backbone (r=%d)", lora_r
                     )

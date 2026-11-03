@@ -16,6 +16,7 @@ from training.governance.metrics import (
     DEFAULT_METRIC_DIRECTIONS,
     DEFAULT_METRIC_WEIGHTS,
 )
+from training.utils.lazy_imports import load_mean_average_precision
 
 # --- 2026 Resilience: Extended Mathematical Governance (SSOT Delegation) ---
 logger = logging.getLogger("lemtrain.telemetry")
@@ -287,10 +288,8 @@ class TelemetryEngine:
     def calculate_map(self, preds, targets):
         """2026 mAP Hooks for Detection (YOLO/Face)."""
         try:
-            from torchmetrics.detection.mean_ap import MeanAveragePrecision
-
             # preds/targets: lists of dicts {'boxes': [N,4], 'scores': [N], 'labels': [N]}
-            map_metric = MeanAveragePrecision(iou_type="bbox")
+            map_metric = load_mean_average_precision()(iou_type="bbox")
             map_metric.update(preds, targets)
             res = map_metric.compute()
             return res.get("map_50", torch.tensor(0.0)).item(), res.get(

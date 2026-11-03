@@ -11,6 +11,8 @@ from typing import Any
 
 import yaml
 
+from training.utils.lazy_imports import load_cloud_module
+
 logger = logging.getLogger("lemtrain.notebooks.registry")
 
 
@@ -92,11 +94,8 @@ def resolve_model_metadata(
 
     # Resolve canonical Kaggle username and handles using SSOT variations
     try:
-        # Deferred: the training.cloud package eagerly imports torch and the Kaggle SDK,
-        # while notebook generation stays light.
-        from training.cloud.credentials import resolve_kaggle_credentials
-
-        user_cred, _ = resolve_kaggle_credentials()
+        credentials = load_cloud_module("credentials")
+        user_cred, _ = credentials.resolve_kaggle_credentials()
         k_username = user_cred or (
             config.get("kaggle_username", "lemtreursi") if config else "lemtreursi"
         )
@@ -116,25 +115,17 @@ def resolve_model_metadata(
     if not k_slug:
         k_slug = model_key.replace("_", "-").lower()
 
-    # Deferred for the same reason as the credentials import above.
-    from training.cloud.variations import (
-        ONNX_FP16,
-        ONNX_FP32,
-        PYTORCH_DEFAULT,
-        PYTORCH_FP32,
-    )
-
-    handle_pytorch_default = PYTORCH_DEFAULT.handle(k_username, k_slug)
-    handle_pytorch_fp32 = PYTORCH_FP32.handle(k_username, k_slug)
-    handle_onnx_fp16 = ONNX_FP16.handle(k_username, k_slug)
-    handle_onnx_fp32 = ONNX_FP32.handle(k_username, k_slug)
+    variations = load_cloud_module("variations")
     handles = {
-        PYTORCH_DEFAULT.key: handle_pytorch_default,
-        PYTORCH_FP32.key: handle_pytorch_fp32,
-        ONNX_FP16.key: handle_onnx_fp16,
-        ONNX_FP32.key: handle_onnx_fp32,
+        variation.key: variation.handle(k_username, k_slug)
+        for variation in (
+            variations.PYTORCH_DEFAULT,
+            variations.PYTORCH_FP32,
+            variations.ONNX_FP16,
+            variations.ONNX_FP32,
+        )
     }
-    k_handle = handle_pytorch_default
+    k_handle = handles[variations.PYTORCH_DEFAULT.key]
 
     kaggle_ref = model_info.get("kaggle_ref", "")
     if not kaggle_ref:
@@ -190,10 +181,10 @@ def resolve_model_metadata(
         filename=filename,
         no_download=no_download,
         handles=handles,
-        handle_pytorch_default=handle_pytorch_default,
-        handle_pytorch_fp32=handle_pytorch_fp32,
-        handle_onnx_fp16=handle_onnx_fp16,
-        handle_onnx_fp32=handle_onnx_fp32,
+        handle_pytorch_default=handles[variations.PYTORCH_DEFAULT.key],
+        handle_pytorch_fp32=handles[variations.PYTORCH_FP32.key],
+        handle_onnx_fp16=handles[variations.ONNX_FP16.key],
+        handle_onnx_fp32=handles[variations.ONNX_FP32.key],
         preferred_parallel=preferred_parallel,
     )
 

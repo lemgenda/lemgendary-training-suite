@@ -45,6 +45,7 @@ from models.forex_predictor import (
     ForexPredictor,
 )
 from training.export.mt5_signal import export_forex_onnx_from_model
+from training.utils.lazy_imports import load_onnx, load_onnx_float16, load_onnxruntime, load_onnxsim
 
 # [LemGendary Forex Suite v1.0 - SYNC_ID: FOREX_03]
 
@@ -124,8 +125,8 @@ def export_onnx(
     )
 
     try:
-        import onnx
-        import onnxsim
+        onnx = load_onnx()
+        onnxsim = load_onnxsim()
     except ImportError as e:
         logger.info("onnxsim simplification skipped (dependency missing): %s", e)
         print(f" [ONNX Export] onnxsim skipped: {e}")
@@ -148,8 +149,8 @@ def export_onnx(
     print(f" [ONNX Export] Synthesizing production FP16 ONNX model to: {fp16_onnx_path}")
     fp16_error: Exception | None = None
     try:
-        import onnx
-        from onnxconverter_common import float16
+        onnx = load_onnx()
+        float16 = load_onnx_float16()
     except ImportError as e:
         fp16_error = e
     else:
@@ -169,8 +170,7 @@ def export_onnx(
 
     # Detach FP32 weights into external sidecar file (.onnx.data)
     try:
-        import onnx
-        from onnx.external_data_helper import convert_model_to_external_data
+        onnx = load_onnx()
 
         fp32_filename = os.path.basename(fp32_onnx_path)
         sidecar_filename = f"{fp32_filename}.data"
@@ -179,7 +179,7 @@ def export_onnx(
             os.remove(sidecar_path)
 
         onnx_model_fp32 = onnx.load(fp32_onnx_path)
-        convert_model_to_external_data(
+        onnx.external_data_helper.convert_model_to_external_data(
             onnx_model_fp32,
             all_tensors_to_one_file=True,
             location=sidecar_filename,
@@ -216,7 +216,7 @@ def load_onnx_session(onnx_path: str):
     Uses DirectML on Windows, CUDA on Linux (matching requirements.txt config).
     """
     try:
-        import onnxruntime as ort
+        ort = load_onnxruntime()
     except ImportError as exc:
         raise RuntimeError("[ONNX] onnxruntime not installed. Check requirements.txt.") from exc
 

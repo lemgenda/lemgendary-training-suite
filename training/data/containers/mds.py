@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from training.data.containers.base import Sample
+from training.utils.lazy_imports import load_streaming
 
 logger = logging.getLogger("lemtrain.containers.mds")
 
@@ -71,7 +72,7 @@ class MdsReader:
         """Attempt initializing via official streaming library if available."""
         try:
             # Optional MosaicML dependency; absent installs fall back to the raw index.
-            import streaming as streaming_pkg
+            streaming_pkg = load_streaming()
 
             local_ds_cls = getattr(streaming_pkg, "LocalDataset", None)
             streaming_cls = getattr(streaming_pkg, "StreamingDataset", None)

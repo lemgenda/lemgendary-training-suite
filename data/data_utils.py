@@ -7,6 +7,7 @@ import shutil
 import psutil
 
 from training.cloud.errors import kagglehub_errors
+from training.utils.lazy_imports import load_kagglehub
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1212]
 
@@ -47,7 +48,7 @@ def _handle_kaggle(ds_name, data_dir, config, ref):
     """Atomic Kaggle Recovery (v16.2 Nuclear)."""
     print(f"[DATA] Recovering {ds_name} from Kaggle Manifold...")
     try:
-        import kagglehub
+        kagglehub = load_kagglehub()
     except ImportError as exc:
         logger.error("Acquisition failed for %s: kagglehub is not installed (%s)", ds_name, exc)
         print(f"[ERROR] [DATA ERROR] Acquisition failed for {ds_name}: {exc}")

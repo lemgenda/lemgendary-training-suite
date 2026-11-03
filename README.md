@@ -11,11 +11,22 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.73-STABLE` |
+| **Version** | `v16.9.74-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.74 - One Loader Module for Optional Imports, `import-outside-toplevel` Enabled
+
+- **New module `training/utils/lazy_imports.py`**: the only place that imports heavy, optional or cycle-prone dependencies. It has one `importlib`-based loader per dependency: `load_transformers`, `load_peft`, `load_diffusers`, `load_ultralytics`, `load_onnx`, `load_onnxsim`, `load_onnx_float16`, `load_onnxruntime`, `load_mean_average_precision` (torchmetrics), `load_streaming`, `load_kagglehub`, `load_kaggle_api`, `load_kaggle_iam` and `load_pandas_ta`. Suite modules that import torch or would close an import cycle have their own loaders: `load_variation_staging`, `load_pareto_soup`, `load_cloud_module` and `load_hub_readme_generator`. `is_installed()` checks whether a package is present without importing it. The pattern matches `lemgendary-datasets/core/lazy_imports.py`.
+- **Call sites**: the 41 function-level imports now call these loaders. `.pylintrc` no longer disables `import-outside-toplevel`, and pylint reports 0 findings for it. Imports that were deferred for no reason are now at module level: `lemtrain soup` calls `model_soup.blend_model_soup`, so tests can still patch it. `training.server.__getattr__` resolves its lazy exports from a name-to-submodule table.
+- **Model registry**: `models.factory` registers SDXL and FLUX.1 when `diffusers` is installed, and LLaVA and BLIP-2 when `transformers` is installed. The wrappers load the package when they are constructed, so importing `models.master_generative` no longer needs `diffusers`.
+- **Kaggle IAM**: the collaborator sync took the `KaggleResourceType` and `CanonicalRole` enums from `__init__.__globals__`. It now reads them from their public modules (`security_types` and `iam_service`).
+- **OpenAPI export**: run it as `python -m tools.export_openapi`. The script's `sys.path` hack was removed.
+- **Environment**: `websockets` (already pinned in `requirements.txt`) is installed in the lint and test environment, which clears the last `import-error`.
+- **Unchanged**: the FID feature size is still 2048 with chunks of at most 2, and the ratchet pair rule is unchanged.
+- **Tests**: 260 passed, 0 failed.
 
 ### v16.9.73 - Ruff Clean, Pylint Disables Down From 48 to 10
 

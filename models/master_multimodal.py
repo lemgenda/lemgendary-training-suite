@@ -5,6 +5,8 @@ import logging
 import torch
 from torch import nn
 
+from training.utils.lazy_imports import load_peft, load_transformers
+
 logger = logging.getLogger("lemtrain.models.master_multimodal")
 
 
@@ -16,29 +18,29 @@ class LLaVAv15(nn.Module):
 
     def __init__(self, **kwargs):
         super().__init__()
-        from transformers import BitsAndBytesConfig, LlavaNextForConditionalGeneration
+        transformers = load_transformers()
 
         model_id = "llava-hf/llava-v1.6-vicuna-7b-hf"
 
         # 2026: SOTA 4-bit Quantization for VRAM seating
-        bnb_config = BitsAndBytesConfig(
+        bnb_config = transformers.BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16,
             bnb_4bit_use_double_quant=True,
         )
 
-        self.model = LlavaNextForConditionalGeneration.from_pretrained(
+        self.model = transformers.LlavaNextForConditionalGeneration.from_pretrained(
             model_id, quantization_config=bnb_config, device_map="auto", low_cpu_mem_usage=True
         )
 
         # 2026: Inject LoRA Adapter via PEFT
         try:
-            from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+            peft = load_peft()
 
-            self.model = prepare_model_for_kbit_training(self.model)
+            self.model = peft.prepare_model_for_kbit_training(self.model)
 
-            lora_config = LoraConfig(
+            lora_config = peft.LoraConfig(
                 r=64,
                 lora_alpha=128,
                 target_modules=["q_proj", "v_proj"],  # Projections for multimodal alignment
@@ -46,7 +48,7 @@ class LLaVAv15(nn.Module):
                 bias="none",
                 task_type="CAUSAL_LM",
             )
-            self.model = get_peft_model(self.model, lora_config)
+            self.model = peft.get_peft_model(self.model, lora_config)
             print("[MULTIMODAL] LLaVA-v1.6 Hardened with QLoRA.")
         except ImportError:
             print("[WARNING] [RESILIENCE] PEFT not found. LLaVA remains in Standard mode.")
@@ -69,34 +71,34 @@ class BLIP2(nn.Module):
 
     def __init__(self, **kwargs):
         super().__init__()
-        from transformers import BitsAndBytesConfig, Blip2ForConditionalGeneration
+        transformers = load_transformers()
 
         model_id = "Salesforce/blip2-opt-2.7b"
 
-        bnb_config = BitsAndBytesConfig(
+        bnb_config = transformers.BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.float16,
             bnb_4bit_use_double_quant=True,
         )
 
-        self.model = Blip2ForConditionalGeneration.from_pretrained(
+        self.model = transformers.Blip2ForConditionalGeneration.from_pretrained(
             model_id, quantization_config=bnb_config, device_map="auto", low_cpu_mem_usage=True
         )
 
         try:
-            from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+            peft = load_peft()
 
-            self.model = prepare_model_for_kbit_training(self.model)
+            self.model = peft.prepare_model_for_kbit_training(self.model)
 
-            lora_config = LoraConfig(
+            lora_config = peft.LoraConfig(
                 r=32,
                 lora_alpha=64,
                 target_modules=["q", "v"],  # Query/Value projections in Q-Former and Language Model
                 lora_dropout=0.05,
                 bias="none",
             )
-            self.model = get_peft_model(self.model, lora_config)
+            self.model = peft.get_peft_model(self.model, lora_config)
             print("[MULTIMODAL] BLIP-2 Hardened with QLoRA.")
         except ImportError as exc:
             logger.warning("PEFT not installed; BLIP-2 running without QLoRA adapters: %s", exc)

@@ -228,18 +228,11 @@ class TestCliUsesSharedService(unittest.TestCase):
         tree = ast.parse(src_path.read_text(encoding="utf-8"))
         fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "soup")
         imports = {
-            (n.module, a.name)
-            for n in ast.walk(fn)
-            if isinstance(n, ast.ImportFrom)
-            for a in n.names
+            (n.module, a.name) for n in tree.body if isinstance(n, ast.ImportFrom) for a in n.names
         }
-        self.assertIn(("training.model_soup", "blend_model_soup"), imports)
-        calls = {
-            n.func.id
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-        }
-        self.assertIn("blend_model_soup", calls)
+        self.assertIn(("training", "model_soup"), imports)
+        calls = {ast.unparse(n.func) for n in ast.walk(fn) if isinstance(n, ast.Call)}
+        self.assertIn("model_soup.blend_model_soup", calls)
         self.assertNotIn("create_pareto_model_soup", calls)
         self.assertNotIn("LemGendaryModels", ast.unparse(fn))
 

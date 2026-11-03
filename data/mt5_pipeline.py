@@ -28,6 +28,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from training.utils.lazy_imports import load_pandas_ta
+
 logger = logging.getLogger("lemtrain.data.mt5_pipeline")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -494,7 +496,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     computed_ta = False
     try:
-        import pandas_ta_classic as ta
+        ta = load_pandas_ta()
 
         # Each indicator returns a Series/DataFrame (or None when there is too little data);
         # pd.concat drops the None entries, matching the accessor's ``append=True`` behaviour.

@@ -29,6 +29,7 @@ from training.cloud_sync import trigger_cloud_sync
 from training.export.universal_exporter import export_tri_format_yolo
 from training.telemetry import TelemetryEngine
 from training.training.summary import TrainingSummary
+from training.utils.lazy_imports import load_ultralytics
 
 logger = logging.getLogger("lemtrain.governance.yolo")
 
@@ -82,9 +83,7 @@ def create_yolo_model(weights: str | Path) -> Any:
     here and nowhere else in this module; tests substitute this factory instead of
     requiring the real package.
     """
-    import ultralytics
-
-    return ultralytics.YOLO(str(weights))
+    return load_ultralytics().YOLO(str(weights))
 
 
 @dataclass

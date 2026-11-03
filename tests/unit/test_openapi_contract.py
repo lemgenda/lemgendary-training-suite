@@ -2,7 +2,7 @@
 LemGendary Model Training Suite: frozen ``openapi.json`` matches the live sidecar app.
 
 Fails when a route, schema or version changes without regenerating the
-contract. Regenerate with ``python tools/export_openapi.py``.
+contract. Regenerate with ``python -m tools.export_openapi``.
 WebSocket routes are not part of OpenAPI and are not compared.
 """
 
@@ -13,10 +13,9 @@ import json
 import pytest
 from fastapi.routing import APIRoute
 
-from tools.export_openapi import OPENAPI_FILE, render_openapi
-
 # The app imports the full training stack (torch, kaggle, onnx, ...).
 try:
+    from tools.export_openapi import OPENAPI_FILE, render_openapi
     from training.server.app import create_app
 except ImportError as exc:
     pytest.skip(
@@ -60,7 +59,7 @@ def test_openapi_json_matches_live_app(live_app) -> None:
     """Verify the committed openapi.json equals the live app's rendering."""
     committed = OPENAPI_FILE.read_text(encoding="utf-8")
     assert committed == render_openapi(live_app.openapi()), (
-        "openapi.json drifted from the app; run: python tools/export_openapi.py"
+        "openapi.json drifted from the app; run: python -m tools.export_openapi"
     )
 
 

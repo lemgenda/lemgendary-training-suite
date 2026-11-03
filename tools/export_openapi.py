@@ -2,8 +2,8 @@
 
 Usage (from the project root)::
 
-    python tools/export_openapi.py            # rewrite openapi.json
-    python tools/export_openapi.py --check    # exit 1 if openapi.json drifted
+    python -m tools.export_openapi          # rewrite openapi.json
+    python -m tools.export_openapi --check  # exit 1 if openapi.json drifted
 
 The app is built with ``training.server.app.create_app`` exactly as the daemon
 serves it (default ``enforce_auth``). Its ``ServerState`` creates a
@@ -28,6 +28,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from training.server.app import create_app
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OPENAPI_FILE = PROJECT_ROOT / "openapi.json"
 
@@ -39,10 +41,6 @@ def render_openapi(schema: dict[str, Any]) -> str:
 
 def build_schema() -> dict[str, Any]:
     """Build the OpenAPI schema from the live app object."""
-    if str(PROJECT_ROOT) not in sys.path:
-        sys.path.insert(0, str(PROJECT_ROOT))
-    from training.server.app import create_app
-
     with tempfile.TemporaryDirectory(prefix="lemtrain-openapi-") as state_root:
         app = create_app(project_root=Path(state_root))
         schema = app.openapi()
@@ -65,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         current = OPENAPI_FILE.read_text(encoding="utf-8") if OPENAPI_FILE.exists() else ""
         if current != rendered:
             print(
-                "openapi.json is out of date; run: python tools/export_openapi.py",
+                "openapi.json is out of date; run: python -m tools.export_openapi",
                 file=sys.stderr,
             )
             return 1

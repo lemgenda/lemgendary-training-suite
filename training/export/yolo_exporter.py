@@ -17,6 +17,7 @@ import onnx
 
 from training.export.base import EXPORT_ERRORS, BaseModelExporter
 from training.registry import ModelSpecification
+from training.utils.lazy_imports import load_ultralytics
 
 logger = logging.getLogger("lemtrain.export.yolo")
 
@@ -67,16 +68,12 @@ class YOLOModelExporter(BaseModelExporter):
             yolo_model = model
         elif hasattr(model, "best") and Path(getattr(model, "best", "")).exists():
             try:
-                from ultralytics import YOLO
-
-                yolo_model = YOLO(str(model.best))
+                yolo_model = load_ultralytics().YOLO(str(model.best))
             except ImportError:
                 logger.warning("ultralytics package not installed for YOLO export.")
         elif pt_path.exists():
             try:
-                from ultralytics import YOLO
-
-                yolo_model = YOLO(str(pt_path))
+                yolo_model = load_ultralytics().YOLO(str(pt_path))
             except ImportError:
                 logger.warning("ultralytics package not installed for YOLO export.")
 

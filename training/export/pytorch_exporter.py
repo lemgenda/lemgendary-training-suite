@@ -21,6 +21,7 @@ from torch import nn
 from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
 from training.export.common import extract_input_dimensions
 from training.registry import ModelSpecification
+from training.utils.lazy_imports import load_onnx_float16
 
 logger = logging.getLogger("lemtrain.export.pytorch")
 
@@ -205,8 +206,7 @@ class PyTorchModelExporter(BaseModelExporter):
                     dynamic_axes=dyn_axes,
                     dynamo=False,
                 )
-                from onnxconverter_common import float16
-
+                float16 = load_onnx_float16()
                 m_fp32 = onnx.load(str(tmp_fp32))
                 m_fp16 = float16.convert_float_to_float16(m_fp32)
                 onnx.save(m_fp16, str(fp16_onnx_path))

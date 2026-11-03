@@ -20,6 +20,7 @@ from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
 from training.cloud.model_metadata import ModelMetadata
 from training.cloud.variations import VARIATIONS
+from training.utils.lazy_imports import load_kaggle_iam
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_api_sync")
 
@@ -141,39 +142,31 @@ class KaggleApiSyncService:
         # 3. Synchronize default collaborators (editors) via Kaggle IAM API
         default_editors = ["lemgenda", "shyning123", "kuznetsovr"]
         try:
-            from kagglesdk.security.types.iam_service import (
-                GetIamPolicyRequest,
-                IamPolicyBinding,
-                KaggleResourceId,
-                Principal,
-                SetIamPolicyRequest,
-                UserPrincipal,
-            )
-
-            resource_type_enum = KaggleResourceId.__init__.__globals__["KaggleResourceType"]
-            canonical_role_enum = IamPolicyBinding.__init__.__globals__["CanonicalRole"]
+            iam, security = load_kaggle_iam()
+            resource_type_enum = security.KaggleResourceType
+            canonical_role_enum = iam.CanonicalRole
 
             m_obj = api.model_get(full_model_ref)
             if hasattr(m_obj, "id") and m_obj.id:
                 with api.build_kaggle_client() as kaggle_client:
                     iam_svc = kaggle_client.security.iam_client
-                    g_req = GetIamPolicyRequest()
-                    res_id = KaggleResourceId()
+                    g_req = iam.GetIamPolicyRequest()
+                    res_id = iam.KaggleResourceId()
                     res_id.type = resource_type_enum.KAGGLE_RESOURCE_TYPE_MODELS
                     res_id.id = m_obj.id
                     g_req.resource_id = res_id
                     current_policy = iam_svc.get_iam_policy(g_req)
 
-                    principals: list[Principal | None] = []
+                    principals: list[Any] = []
                     for uname in default_editors:
-                        p = Principal()
-                        u = UserPrincipal()
+                        p = iam.Principal()
+                        u = iam.UserPrincipal()
                         u.user_name = uname
                         p.user = u
                         principals.append(p)
 
-                    editor_binding: IamPolicyBinding | None = None
-                    existing_bindings: list[IamPolicyBinding | None] = (
+                    editor_binding: Any = None
+                    existing_bindings: list[Any] = (
                         list(current_policy.bindings) if current_policy.bindings is not None else []
                     )
                     for b in existing_bindings:
@@ -181,14 +174,14 @@ class KaggleApiSyncService:
                             editor_binding = b
                             break
                     if not editor_binding:
-                        editor_binding = IamPolicyBinding()
+                        editor_binding = iam.IamPolicyBinding()
                         editor_binding.role = canonical_role_enum.CANONICAL_ROLE_EDITOR
                         existing_bindings.append(editor_binding)
 
                     current_policy.bindings = existing_bindings
                     editor_binding.members = principals
 
-                    s_req = SetIamPolicyRequest()
+                    s_req = iam.SetIamPolicyRequest()
                     s_req.resource_id = res_id
                     s_req.policy = current_policy
                     iam_svc.set_iam_policy(s_req)

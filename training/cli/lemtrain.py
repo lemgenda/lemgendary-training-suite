@@ -22,6 +22,7 @@ import typer
 import uvicorn
 import yaml
 
+from training import model_soup
 from training.cloud.errors import kagglehub_errors
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 from training.cloud.variations import VARIATION_BY_KEY
@@ -91,9 +92,6 @@ def soup(
     output: str | None = typer.Option(None, "--output", "-o", help="Output filename or path"),
 ) -> None:
     """Blend specialized vault checkpoints using Pareto Model Soup."""
-    # Imported here so tests can patch training.model_soup.blend_model_soup per call.
-    from training.model_soup import SoupError, blend_model_soup
-
     parsed_donors = [x.strip() for x in donors.split(",") if x.strip()] if donors else None
     try:
         parsed_weights = [float(x.strip()) for x in weights.split(",")] if weights else None
@@ -102,14 +100,14 @@ def soup(
         raise typer.Exit(1) from exc
 
     try:
-        result = blend_model_soup(
+        result = model_soup.blend_model_soup(
             model,
             project_root=get_project_root(),
             donors=parsed_donors,
             weights=parsed_weights,
             output=output,
         )
-    except SoupError as exc:
+    except model_soup.SoupError as exc:
         typer.echo(f"[ERROR] {exc}")
         raise typer.Exit(1) from exc
 
@@ -120,7 +118,7 @@ def soup(
 @app.command("version")
 def version() -> None:
     """Show LemGendary Training Suite version."""
-    typer.echo("LemGendary Model Training Suite v16.9.73 (Refactored & Hardened)")
+    typer.echo("LemGendary Model Training Suite v16.9.74 (Refactored & Hardened)")
 
 
 @app.command("train")

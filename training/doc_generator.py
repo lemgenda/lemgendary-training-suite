@@ -17,6 +17,11 @@ from typing import Any
 import yaml
 
 from training.registry import get_model_registry
+from training.utils.lazy_imports import (
+    load_cloud_module,
+    load_hub_readme_generator,
+    load_variation_staging,
+)
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.docs.doc_generator")
@@ -425,10 +430,8 @@ graph TD
 
     whitepaper_link_line = ""
     try:
-        # Deferred: the training.cloud package eagerly imports torch and the Kaggle SDK.
-        from training.cloud.metadata_generator import resolve_whitepaper_url
-
-        wp_url = resolve_whitepaper_url(model_key)
+        metadata_generator = load_cloud_module("metadata_generator")
+        wp_url = metadata_generator.resolve_whitepaper_url(model_key)
         if wp_url:
             whitepaper_link_line = (
                 f"- **Ecosystem Architecture Whitepaper**: [{wp_url}]({wp_url})\n"
@@ -712,20 +715,14 @@ def main() -> int:
         print(f"[OK] Generated Model README: {m_readme_path}")
 
         if args.stage_variations:
-            # Deferred: training.export eagerly imports torch; only needed with this flag.
-            from training.export.staging import VariationStagingService
-
-            staging_svc = VariationStagingService()
+            staging_svc = load_variation_staging()()
             st_res = staging_svc.stage_variations(model_key=m_key, validate=True)
             print(
                 f"[OK] Staged variations for model: {m_key} "
                 f"(staged={len(st_res.staged_files)}, errors={len(st_res.errors)})"
             )
 
-    # Deferred: hub_readme_generator pulls training.telemetry (torch) for the final step.
-    from training.hub_readme_generator import generate_hub_readme
-
-    generate_hub_readme(base_dir)
+    load_hub_readme_generator()(base_dir)
     print("\n[SUCCESS] Model README Matrix Synchronized.")
     return 0
 

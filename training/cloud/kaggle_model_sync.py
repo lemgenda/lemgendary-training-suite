@@ -33,6 +33,7 @@ from training.cloud.variations import (
 from training.export.validation import IsolationReport, StrictIsolationValidator
 from training.registry import get_model_registry
 from training.utils.fs import remove_tree
+from training.utils.lazy_imports import load_variation_staging
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_model_sync")
@@ -113,11 +114,7 @@ class KaggleModelSyncManager:
     def staging_service(self):
         """Return the lazily created variation staging service."""
         if self._staging_service is None:
-            # Deferred: training.export.staging imports training.cloud, so a module-level
-            # import here is circular when training.export is imported first.
-            from training.export.staging import VariationStagingService
-
-            self._staging_service = VariationStagingService()
+            self._staging_service = load_variation_staging()()
         return self._staging_service
 
     def get_model_slug(self, model_key: str) -> str:

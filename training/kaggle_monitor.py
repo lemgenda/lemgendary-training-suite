@@ -25,6 +25,7 @@ from training.kaggle_cloud_manager import (
     get_kernel_slug,
     pull_kaggle_artifacts,
 )
+from training.utils.lazy_imports import load_kaggle_api
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_monitor")
 
@@ -110,9 +111,7 @@ def authenticate_kaggle_user(username: str, token: str) -> Any | None:
 
     try:
         # Deferred: the Kaggle SDK is optional and reads credentials at import time.
-        from kaggle.api.kaggle_api_extended import KaggleApi
-
-        api = KaggleApi()
+        api = load_kaggle_api()()
         api.authenticate()
         return api
     except (ImportError, *KAGGLE_API_ERRORS) as exc:

@@ -16,7 +16,6 @@ disable=
     too-many-instance-attributes,
     too-many-nested-blocks,
     too-many-boolean-expressions,
-    import-outside-toplevel,
 
 [REPORTS]
 output-format=text

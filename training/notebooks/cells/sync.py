@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from training.utils.lazy_imports import load_cloud_module
+
 from ..registry import ModelNotebookMeta
 from .base import make_code_cell
 
@@ -384,11 +386,8 @@ def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str
 
     metadata_yaml_str = ""
     try:
-        # Deferred: the training.cloud package eagerly imports torch and the Kaggle SDK,
-        # while notebook generation stays light.
-        from training.cloud.metadata_generator import KaggleMetadataService
-
-        meta_svc = KaggleMetadataService(owner_slug=meta.k_username)
+        metadata_generator = load_cloud_module("metadata_generator")
+        meta_svc = metadata_generator.KaggleMetadataService(owner_slug=meta.k_username)
         metadata_obj = meta_svc.build(meta.model_key)
         metadata_yaml_str = metadata_obj.to_yaml()
     except (ImportError, OSError, ValueError, KeyError, yaml.YAMLError) as exc:
