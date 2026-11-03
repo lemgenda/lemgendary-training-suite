@@ -6,12 +6,25 @@ to sibling LemGendaryDatasets manifolds and workspace training directories.
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from ..registry import load_registry
+from ..cells.base import make_markdown_cell
+from ..cells.deps import build_install_cell
+from ..cells.env import build_sentinel_cell
+from ..cells.inference import build_onnx_fp16_cell, build_onnx_fp32_cell, build_pth_cell
+from ..cells.model import build_hub_prep_cell
+from ..cells.repo import build_clone_cell
+from ..cells.sync import build_secrets_cell
+from ..registry import (
+    ModelNotebookMeta,
+    load_registry,
+    model_dataset_list,
+    resolve_model_metadata,
+)
 
 logger = logging.getLogger("lemtrain.notebooks.builders.base")
 
@@ -87,14 +100,7 @@ def sync_manifold_notebooks(
     if not unified_models_registry:
         return
 
-    m_info = unified_models_registry.get(model_key, {})
-    ds_raw = m_info.get("datasets", []) or m_info.get("dataset", [])
-    if isinstance(ds_raw, str):
-        ds_list = [ds_raw]
-    elif isinstance(ds_raw, (list, tuple)):
-        ds_list = list(ds_raw)
-    else:
-        ds_list = []
+    ds_list = model_dataset_list(unified_models_registry.get(model_key, {}))
 
     if model_key == "professional_multitask_restoration":
         target_candidates = [
@@ -161,3 +167,177 @@ def sync_workspace_training_notebook(
         logger.warning(
             "Failed syncing %s training notebook to %s: %s", display_title, out_file, exc
         )
+
+
+# --- Shared notebook assembly for the platform builders --------------------------------
+
+_NOTEBOOK_METADATA = {
+    "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+    "language_info": {"name": "python", "version": "3.12.12"},
+}
+
+
+def notebook_document(cells: list[dict[str, Any]]) -> dict[str, Any]:
+    """Wrap cells in an nbformat 4 notebook document."""
+    return {
+        "metadata": _NOTEBOOK_METADATA,
+        "nbformat_minor": 4,
+        "nbformat": 4,
+        "cells": cells,
+    }
+
+
+def notebooks_dir(export_dir: str | Path) -> str:
+    """Return the ``notebooks/`` subfolder of a model export directory when it applies."""
+    export_path = Path(export_dir)
+    if export_path.name != "notebooks":
+        nb_sub = export_path / "notebooks"
+        if nb_sub.exists() or export_path.parent.name == "LemGendaryModels":
+            return str(nb_sub)
+    return str(export_path)
+
+
+def resolve_training_target(
+    model_key: str,
+    export_dir: str | Path,
+    unified_models_registry: Any,
+    config: dict[str, Any] | None,
+) -> tuple[str, str, ModelNotebookMeta]:
+    """Resolve (model key, notebook directory, metadata) for a training notebook.
+
+    Supports the legacy call signature ``(pascal_name, model_key, output_path)``.
+    """
+    if isinstance(unified_models_registry, (str, Path)):
+        actual_model_key = str(export_dir)
+        actual_export_dir = str(Path(unified_models_registry).parent)
+        meta = resolve_model_metadata(actual_model_key, None, None)
+    else:
+        actual_model_key = model_key
+        actual_export_dir = str(export_dir)
+        reg = unified_models_registry if isinstance(unified_models_registry, dict) else None
+        if not reg:
+            reg = load_registry(config=config)
+        meta = resolve_model_metadata(actual_model_key, reg, config)
+    return actual_model_key, notebooks_dir(actual_export_dir), meta
+
+
+def training_preamble_cells(
+    meta: ModelNotebookMeta, platform: str, edition: str
+) -> list[dict[str, Any]]:
+    """Return the title and sections 1-5 (sentinel, secrets, clone, install, hub pull)."""
+    return [
+        make_markdown_cell(
+            [
+                f"# LemGendary Master Execution: {meta.pascal_name} (v16.2.9 {edition})\n",
+                (
+                    "This unified notebook handles environment synchronization and automated "
+                    "cloud training.\n"
+                ),
+            ]
+        ),
+        make_markdown_cell(
+            [
+                "## 1. Hardware Sentinel\n",
+                "Ensure the manifold has the required hardware acceleration.\n",
+            ]
+        ),
+        build_sentinel_cell(platform),
+        make_markdown_cell(["## 2. Cloud Auth & Secrets\n"]),
+        build_secrets_cell(platform),
+        make_markdown_cell(["## 3. Repository Synchronization\n"]),
+        build_clone_cell(platform),
+        make_markdown_cell(["## 4. Environment & Dependency Installation\n"]),
+        build_install_cell(platform),
+        make_markdown_cell(["## 5. SOTA Hub Synchronization (Pull)\n"]),
+        build_hub_prep_cell(meta, platform),
+    ]
+
+
+def publish_training_notebook(
+    cells: list[dict[str, Any]],
+    model_key: str,
+    notebook_dir: str,
+    unified_models_registry: Any,
+    platform_title: str,
+) -> str | None:
+    """Write a training notebook and sync it to the manifolds and the workspace folder."""
+    platform = platform_title.lower()
+    output_filename = f"{model_key}_{platform}_training.ipynb"
+    output_path = os.path.join(notebook_dir, output_filename)
+
+    json_str = write_notebook(notebook_document(cells), output_path)
+    if json_str is None:
+        return None
+
+    print(f"[OK] Generated {platform_title} Training Notebook: {output_path}")
+
+    sync_manifold_notebooks(
+        model_key=model_key,
+        json_str=json_str,
+        filename=output_filename,
+        unified_models_registry=unified_models_registry
+        if isinstance(unified_models_registry, dict)
+        else None,
+    )
+    sync_workspace_training_notebook(
+        subfolder_name=f"{platform}_training",
+        filename=output_filename,
+        json_str=json_str,
+        display_title=platform_title,
+    )
+    return output_path
+
+
+def write_usage_notebook(
+    model_key: str,
+    export_dir: str | Path,
+    meta: ModelNotebookMeta,
+    platform_title: str,
+) -> str | None:
+    """Write the standalone usage guide notebook (PTH and ONNX snippets)."""
+    cells = [
+        make_markdown_cell(
+            [
+                f"# LemGendary SOTA Usage: {meta.pascal_name}\n",
+                "Implementation guide for production-grade model integration.\n",
+            ]
+        ),
+        make_markdown_cell(
+            [
+                "## 1. PyTorch Standalone (FP32)\n",
+                (
+                    "Best for local research, further training, or high-fidelity Python "
+                    "backends. "
+                    "This format includes the full architecture definition.\n"
+                ),
+            ]
+        ),
+        build_pth_cell(meta),
+        make_markdown_cell(
+            [
+                "## 2. ONNX Matrix (FP32 + External Weights)\n",
+                (
+                    "Optimized for desktop deployment where precision is critical. "
+                    "Uses a decoupled `.data` file for stability.\n"
+                ),
+            ]
+        ),
+        build_onnx_fp32_cell(meta),
+        make_markdown_cell(
+            [
+                "## 3. ONNX Production (FP16 Embedded)\n",
+                (
+                    "Production-ready standalone matrix. Optimized for WebGPU, mobile, and "
+                    "low-latency edge inference.\n"
+                ),
+            ]
+        ),
+        build_onnx_fp16_cell(meta),
+    ]
+    output_path = os.path.join(
+        notebooks_dir(export_dir), f"{model_key}_{platform_title.lower()}_usage.ipynb"
+    )
+    if write_notebook(notebook_document(cells), output_path) is None:
+        return None
+    print(f"[OK] Generated {platform_title} Usage Notebook: {output_path}")
+    return output_path

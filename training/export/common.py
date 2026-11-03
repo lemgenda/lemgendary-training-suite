@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import logging
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
+import onnx
 import torch
 from torch import nn
 
@@ -111,3 +114,65 @@ def wrap_quality_model(model: nn.Module, model_info: dict[str, Any]) -> nn.Modul
         except (ValueError, TypeError, AttributeError, RuntimeError) as exc:
             logger.debug("SoftmaxWrapper unavailable or unnecessary: %s", exc)
     return model
+
+
+def unwrap_export_model(model: nn.Module) -> nn.Module:
+    """Return the wrapped module of a ``DataParallel``/DDP model, else the model itself."""
+    inner = getattr(model, "module", None)
+    return inner if isinstance(inner, nn.Module) else model
+
+
+def model_device(model: nn.Module) -> torch.device:
+    """Return the device of the model's first parameter (CPU for parameter-free models)."""
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        logger.debug("Model has no parameters; exporting on the CPU")
+        return torch.device("cpu")
+
+
+def run_onnx_export(
+    model: nn.Module,
+    inputs: tuple[torch.Tensor, ...],
+    out_file: Path,
+    *,
+    opset: int,
+    input_names: list[str],
+    output_names: list[str],
+    dynamic_axes: dict[str, dict[int, str]] | None,
+) -> None:
+    """Run the TorchScript ``torch.onnx.export`` with the suite's standard options.
+
+    The exporter's console chatter is captured and logged at debug level.
+    """
+    buf = io.StringIO()
+    try:
+        with redirect_stdout(buf), redirect_stderr(buf):
+            torch.onnx.export(
+                model,
+                inputs,
+                str(out_file),
+                export_params=True,
+                opset_version=opset,
+                do_constant_folding=True,
+                input_names=input_names,
+                output_names=output_names,
+                dynamic_axes=dynamic_axes,
+                dynamo=False,
+            )
+    finally:
+        if buf.getvalue():
+            logger.debug("torch.onnx.export output for %s:\n%s", out_file, buf.getvalue())
+
+
+def detach_onnx_weights(onnx_path: Path, data_filename: str) -> None:
+    """Move an ONNX model's tensors into one external ``data_filename`` sidecar file."""
+    onnx_model = onnx.load(str(onnx_path))
+    onnx.external_data_helper.convert_model_to_external_data(
+        onnx_model,
+        all_tensors_to_one_file=True,
+        location=data_filename,
+        size_threshold=1024,
+        convert_attribute=False,
+    )
+    onnx.save(onnx_model, str(onnx_path))

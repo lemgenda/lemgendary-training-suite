@@ -28,81 +28,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from data.forex_spec import MT5_SYMBOLS, TIMEFRAME_LOOKBACK, TIMEFRAME_RUNGS, shard_file_paths
 from training.utils.lazy_imports import load_pandas_ta
 
 logger = logging.getLogger("lemtrain.data.mt5_pipeline")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Constants (mirrors forex_predictor.py)
-# Currency Universe: Titan 4 starting core, extensible up to 16 professional assets
-TITAN_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
-MAJOR_PAIRS = TITAN_PAIRS
-
-EXTENDED_PAIRS = [
-    # G7 Majors (4 Core + 3 G7)
-    "EURUSD",
-    "GBPUSD",
-    "USDJPY",
-    "XAUUSD",
-    "USDCAD",
-    "USDCHF",
-    "AUDUSD",
-    "NZDUSD",
-    # High-Beta Crosses
-    "EURJPY",
-    "GBPJPY",
-    "EURGBP",
-    # Commodities & Energy
-    "XAGUSD",
-    "USOIL",
-    # Global Equity Indices
-    "US500",
-    "USTEC",
-    "GER40",
-]
-
-# Currency pair index (0-based) - shared across suite
-PAIR_INDEX = {p: i for i, p in enumerate(EXTENDED_PAIRS)}
-NUM_PAIRS = len(PAIR_INDEX)
-
-# Canonical pip scaling factors (Normalized Pip Units / NPU)
-# Scales disparate market pip magnitudes into a standardized ~[10, 100] range
-PAIR_PIP_SCALE = {
-    # FX Majors & JPY: baseline 1.0
-    "EURUSD": 1.0,
-    "GBPUSD": 1.0,
-    "USDJPY": 1.0,
-    "USDCAD": 1.0,
-    "USDCHF": 1.0,
-    "AUDUSD": 1.0,
-    "NZDUSD": 1.0,
-    # High-Beta Crosses: baseline 1.0
-    "EURGBP": 1.0,
-    "EURJPY": 1.0,
-    "GBPJPY": 1.0,
-    # Commodities & Precious Metals
-    "XAGUSD": 5.0,
-    "USOIL": 5.0,
-    "XAUUSD": 10.0,
-    # Global Indices (moves in thousands of raw index points)
-    "US500": 20.0,
-    "GER40": 20.0,
-    "USTEC": 40.0,
-}
-
-# Ordered list of timeframe rungs in minutes (Governor curriculum ladder)
-TIMEFRAME_RUNGS = [1, 5, 15, 60, 240, 1440]
-
-# Canonical lookback windows per timeframe (covers ~1 trading week each)
-TIMEFRAME_LOOKBACK = {
-    1: 512,  # M1  → ~8.5 hours
-    5: 288,  # M5  → ~1 day
-    15: 192,  # M15 → ~2 days
-    60: 168,  # H1  → ~1 week
-    240: 90,  # H4  → ~2.5 weeks
-    1440: 252,  # D1  → ~1 year
-}
-
+# Constants (instrument universe and timeframes live in data.forex_spec)
 # MetaTrader 5 Timeframe Attribute Mapping
 MT5_TIMEFRAMES = {
     1: "TIMEFRAME_M1",
@@ -154,17 +86,22 @@ WALK_FORWARD_FOLDS = {
     },
 }
 
-FEATURES = [
+# OHLCV (5) + indicators (5): the per-bar columns the live signal path also feeds the model.
+PRICE_INDICATOR_FEATURES = [
     "open",
     "high",
     "low",
     "close",
-    "volume",  # OHLCV (5)
+    "volume",
     "rsi",
     "macd",
     "macd_signal",
     "atr",
-    "bb_width",  # Indicators (5)
+    "bb_width",
+]
+
+FEATURES = [
+    *PRICE_INDICATOR_FEATURES,
     "session_sin",
     "session_cos",  # Session encoding (2)
     "atr_percentile",
@@ -865,10 +802,7 @@ def load_shard(shard_dir: str, mmap_mode: Any = None) -> tuple:
     Returns (X, y_dir, y_mag, timestamps), or (None, None, None, None) if not found.
     timestamps is optional — may be None if shard was built before v2.0.
     """
-    x_path = os.path.join(shard_dir, "X.npy")
-    ydir_path = os.path.join(shard_dir, "y_dir.npy")
-    ymag_path = os.path.join(shard_dir, "y_mag.npy")
-    ts_path = os.path.join(shard_dir, "timestamps.npy")
+    x_path, ydir_path, ymag_path, ts_path = shard_file_paths(shard_dir)
 
     if not (os.path.exists(x_path) and os.path.exists(ydir_path) and os.path.exists(ymag_path)):
         return None, None, None, None
@@ -995,14 +929,14 @@ def main():
     parser.add_argument(
         "--pairs",
         nargs="+",
-        default=EXTENDED_PAIRS,
+        default=MT5_SYMBOLS,
         help="Currency pairs / instruments to include (default: all 16 extended instruments)",
     )
     parser.add_argument(
         "--timeframes",
         nargs="+",
         type=int,
-        default=[1, 5, 15, 60, 240, 1440],
+        default=list(TIMEFRAME_RUNGS),
         help="Timeframes in minutes (default: M1, M5, M15, H1, H4, D1)",
     )
     parser.add_argument("--out_dir", default="data/forex", help="Output directory for .npy shards")

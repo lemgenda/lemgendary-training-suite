@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-import io
 import logging
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-import onnx
 import torch
 from torch import nn
 
-from training.export.common import ExportError
+from training.export.common import (
+    ExportError,
+    detach_onnx_weights,
+    model_device,
+    run_onnx_export,
+    unwrap_export_model,
+)
 
 logger = logging.getLogger("lemtrain.export.onnx")
 
@@ -34,27 +37,12 @@ def export_onnx(
     in_names = input_names or ["input"]
     out_names = output_names or ["output"]
 
-    model_to_export: nn.Module
-    if hasattr(model, "module") and isinstance(model.module, nn.Module):
-        model_to_export = model.module
-    elif isinstance(model, nn.Module):
-        model_to_export = model
-    else:
-        model_to_export = model
-
-    device = torch.device("cpu")
-    if isinstance(model_to_export, nn.Module):
-        model_to_export.eval()
-        try:
-            device = next(model_to_export.parameters()).device
-        except StopIteration:
-            logger.debug("Model has no parameters; exporting on default device %s", device)
-
-        target_dtype = torch.float16 if half else torch.float32
-        if half:
-            model_to_export = model_to_export.to(dtype=target_dtype)
-    else:
-        target_dtype = torch.float16 if half else torch.float32
+    model_to_export = unwrap_export_model(model)
+    model_to_export.eval()
+    device = model_device(model_to_export)
+    target_dtype = torch.float16 if half else torch.float32
+    if half:
+        model_to_export = model_to_export.to(dtype=target_dtype)
 
     dummy_input = torch.randn(dummy_shape, dtype=target_dtype, device=device)
 
@@ -66,35 +54,20 @@ def export_onnx(
         dummy_shape,
     )
 
-    buf = io.StringIO()
     try:
-        with redirect_stdout(buf), redirect_stderr(buf):
-            if not isinstance(model_to_export, nn.Module):
-                return False
-            torch.onnx.export(
-                model_to_export,
-                (dummy_input,),
-                str(out_file),
-                export_params=True,
-                opset_version=opset,
-                do_constant_folding=True,
-                input_names=in_names,
-                output_names=out_names,
-                dynamic_axes=dynamic_axes,
-                dynamo=False,
-            )
+        run_onnx_export(
+            model_to_export,
+            (dummy_input,),
+            out_file,
+            opset=opset,
+            input_names=in_names,
+            output_names=out_names,
+            dynamic_axes=dynamic_axes,
+        )
 
         if external_data:
             data_filename = f"{out_file.name}.data"
-            onnx_model = onnx.load(str(out_file))
-            onnx.external_data_helper.convert_model_to_external_data(
-                onnx_model,
-                all_tensors_to_one_file=True,
-                location=data_filename,
-                size_threshold=1024,
-                convert_attribute=False,
-            )
-            onnx.save(onnx_model, str(out_file))
+            detach_onnx_weights(out_file, data_filename)
             logger.info("Converted FP32 ONNX to external weights sidecar: %s", data_filename)
 
         logger.info("Successfully exported ONNX model to %s", out_file)

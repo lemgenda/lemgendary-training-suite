@@ -9,7 +9,7 @@ from typing import Any
 import torch
 from torch import nn
 
-from data.forex_dataset import TIMEFRAME_LOOKBACK
+from data.forex_spec import TIMEFRAME_LOOKBACK
 from models.forex_predictor import FOREX_FEATURES_PER_BAR, ForexPredictor
 from training.export.common import ExportError
 

@@ -19,10 +19,9 @@ try:
 except ImportError as exc:
     pytest.skip(f"pandas is not installed: {exc}", allow_module_level=True)
 
+from data.forex_spec import PAIR_INDEX, TIMEFRAME_LOOKBACK
 from data.mt5_pipeline import (
     FEATURES,
-    PAIR_INDEX,
-    TIMEFRAME_LOOKBACK,
     compute_indicators,
     connect_mt5,
     disconnect_mt5,

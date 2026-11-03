@@ -11,11 +11,19 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.75-STABLE` |
+| **Version** | `v16.9.76-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.76 - Shared Forex Spec, Notebook Assembly and ONNX Export Helpers
+
+- **New module `data/forex_spec.py`**: one source of truth for the forex universe. It holds the timeframe rungs and lookbacks, the Titan and extended pair lists, the broker aliases, `PAIR_INDEX`, `PAIR_PIP_SCALE` and the shard file layout (`shard_file_paths`). `data/forex_dataset.py`, `data/mt5_pipeline.py` and `models/forex_predictor.py` each kept their own copy before. The copies had drifted: the MT5 pipeline listed the broker tickers `USTEC` and `GER40` where the others listed `NAS100` and `DE40`. The pair indices are unchanged, and `PAIR_INDEX` and `PAIR_PIP_SCALE` now resolve both names everywhere. The MT5 `--pairs` default is now `MT5_SYMBOLS`, which still requests the broker tickers. The `--timeframes` defaults now come from `TIMEFRAME_RUNGS`. The live signal path uses `PRICE_INDICATOR_FEATURES` from the pipeline.
+- **Notebook builders**: the Kaggle and Colab builders now share their code through `training/notebooks/builders/base.py`. The shared helpers are `resolve_training_target`, `notebooks_dir`, `notebook_document`, `training_preamble_cells` (the title and sections 1-5), `publish_training_notebook` and `write_usage_notebook`. `training.notebooks.registry.model_dataset_list` parses the `datasets` field. The generated notebooks are byte-identical (checked for 18 training, usage and legacy-signature notebooks). `training.notebooks.builders` no longer re-exports the generators; import them from `training.notebooks` or from the platform submodules.
+- **ONNX export helpers** in `training/export/common.py`: `unwrap_export_model`, `model_device`, `run_onnx_export` and `detach_onnx_weights`. The ONNX, WebGPU, LLM and PyTorch exporters all use them. The exporter's console output is now logged at debug level instead of being discarded.
+- **Pylint `duplicate-code`**: 58 findings down to 38.
+- **Tests**: 260 passed, 0 failed.
 
 ### v16.9.75 - `max_seq_length` Removed From the LLM Train API
 

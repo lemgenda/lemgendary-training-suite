@@ -8,18 +8,21 @@ Exports models to:
 
 from __future__ import annotations
 
-import io
 import logging
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
 import onnx
 import torch
-from torch import nn
 
 from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
-from training.export.common import extract_input_dimensions
+from training.export.common import (
+    detach_onnx_weights,
+    extract_input_dimensions,
+    model_device,
+    run_onnx_export,
+    unwrap_export_model,
+)
 from training.registry import ModelSpecification
 from training.utils.lazy_imports import load_onnx_float16
 
@@ -83,13 +86,9 @@ class PyTorchModelExporter(BaseModelExporter):
         )
         dyn_axes: dict[str, dict[int, str]] = kwargs.get("dynamic_axes") or default_axes
 
-        inner_mod = getattr(model, "module", None)
-        model_to_export = inner_mod if isinstance(inner_mod, nn.Module) else model
-        if isinstance(model_to_export, nn.Module):
-            model_to_export.eval()
-            device = next(model_to_export.parameters()).device
-        else:
-            device = torch.device("cpu")
+        model_to_export = unwrap_export_model(model)
+        model_to_export.eval()
+        device = model_device(model_to_export)
 
         exported_files: dict[str, Path] = {}
 
@@ -118,36 +117,19 @@ class PyTorchModelExporter(BaseModelExporter):
         fp32_data_path = target_dir / fp32_data_filename
 
         logger.info("Exporting FP32 ONNX model with external sidecar to %s...", fp32_onnx_path)
-        buf_fp32 = io.StringIO()
         try:
             dummy_fp32 = dummy_input.to(dtype=torch.float32, device=device)
-            if isinstance(model_to_export, nn.Module):
-                model_to_export.to(dtype=torch.float32)
-
-            with redirect_stdout(buf_fp32), redirect_stderr(buf_fp32):
-                torch.onnx.export(
-                    model_to_export,
-                    (dummy_fp32,),
-                    str(fp32_onnx_path),
-                    export_params=True,
-                    opset_version=opset,
-                    do_constant_folding=True,
-                    input_names=in_names,
-                    output_names=out_names,
-                    dynamic_axes=dyn_axes,
-                    dynamo=False,
-                )
-
-            # Convert to external data sidecar
-            onnx_model = onnx.load(str(fp32_onnx_path))
-            onnx.external_data_helper.convert_model_to_external_data(
-                onnx_model,
-                all_tensors_to_one_file=True,
-                location=fp32_data_filename,
-                size_threshold=1024,
-                convert_attribute=False,
+            model_to_export.to(dtype=torch.float32)
+            run_onnx_export(
+                model_to_export,
+                (dummy_fp32,),
+                fp32_onnx_path,
+                opset=opset,
+                input_names=in_names,
+                output_names=out_names,
+                dynamic_axes=dyn_axes,
             )
-            onnx.save(onnx_model, str(fp32_onnx_path))
+            detach_onnx_weights(fp32_onnx_path, fp32_data_filename)
 
             exported_files["onnx_fp32"] = fp32_onnx_path
             exported_files["onnx_fp32_data"] = fp32_data_path
@@ -160,25 +142,18 @@ class PyTorchModelExporter(BaseModelExporter):
         # -------------------------------------------------------------------------
         fp16_onnx_path = target_dir / f"{model_key}.onnx"
         logger.info("Exporting FP16 integrated ONNX model to %s...", fp16_onnx_path)
-        buf_fp16 = io.StringIO()
         try:
             dummy_fp16 = dummy_input.to(dtype=torch.float16, device=device)
-            if isinstance(model_to_export, nn.Module):
-                model_to_export.to(dtype=torch.float16)
-
-            with redirect_stdout(buf_fp16), redirect_stderr(buf_fp16):
-                torch.onnx.export(
-                    model_to_export,
-                    (dummy_fp16,),
-                    str(fp16_onnx_path),
-                    export_params=True,
-                    opset_version=opset,
-                    do_constant_folding=True,
-                    input_names=in_names,
-                    output_names=out_names,
-                    dynamic_axes=dyn_axes,
-                    dynamo=False,
-                )
+            model_to_export.to(dtype=torch.float16)
+            run_onnx_export(
+                model_to_export,
+                (dummy_fp16,),
+                fp16_onnx_path,
+                opset=opset,
+                input_names=in_names,
+                output_names=out_names,
+                dynamic_axes=dyn_axes,
+            )
 
             exported_files["onnx_fp16"] = fp16_onnx_path
             logger.info("Successfully exported FP16 integrated ONNX: %s", fp16_onnx_path.name)
@@ -191,20 +166,16 @@ class PyTorchModelExporter(BaseModelExporter):
             )
             try:
                 tmp_fp32 = target_dir / f"{model_key}_temp_fp32.onnx"
-                if isinstance(model_to_export, nn.Module):
-                    model_to_export.to(dtype=torch.float32)
+                model_to_export.to(dtype=torch.float32)
                 dummy_fp32 = dummy_input.to(dtype=torch.float32, device=device)
-                torch.onnx.export(
+                run_onnx_export(
                     model_to_export,
                     (dummy_fp32,),
-                    str(tmp_fp32),
-                    export_params=True,
-                    opset_version=opset,
-                    do_constant_folding=True,
+                    tmp_fp32,
+                    opset=opset,
                     input_names=in_names,
                     output_names=out_names,
                     dynamic_axes=dyn_axes,
-                    dynamo=False,
                 )
                 float16 = load_onnx_float16()
                 m_fp32 = onnx.load(str(tmp_fp32))
@@ -221,7 +192,6 @@ class PyTorchModelExporter(BaseModelExporter):
             except EXPORT_ERRORS as fallback_exc:
                 logger.error("Failed FP16 fallback export for %s: %s", model_key, fallback_exc)
         finally:
-            if isinstance(model_to_export, nn.Module):
-                model_to_export.to(dtype=torch.float32)
+            model_to_export.to(dtype=torch.float32)
 
         return exported_files

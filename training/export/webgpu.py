@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import io
 import logging
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import torch
 from torch import nn
 
-from training.export.common import ExportError
+from training.export.common import (
+    ExportError,
+    model_device,
+    run_onnx_export,
+    unwrap_export_model,
+)
 
 logger = logging.getLogger("lemtrain.export.webgpu")
 
@@ -32,41 +35,20 @@ def export_webgpu_onnx(
         dummy_input_shape,
     )
 
-    model_to_export: nn.Module
-    if hasattr(model, "module") and isinstance(model.module, nn.Module):
-        model_to_export = model.module
-    elif isinstance(model, nn.Module):
-        model_to_export = model
-    else:
-        model_to_export = model
+    model_to_export = unwrap_export_model(model)
+    model_to_export.eval()
+    dummy_input = torch.randn(dummy_input_shape, device=model_device(model_to_export))
 
-    device = torch.device("cpu")
-    if isinstance(model_to_export, nn.Module):
-        model_to_export.eval()
-        try:
-            device = next(model_to_export.parameters()).device
-        except StopIteration:
-            logger.debug("Model has no parameters; exporting on default device %s", device)
-
-    dummy_input = torch.randn(dummy_input_shape, device=device)
-
-    buf = io.StringIO()
     try:
-        with redirect_stdout(buf), redirect_stderr(buf):
-            if not isinstance(model_to_export, nn.Module):
-                return False
-            torch.onnx.export(
-                model_to_export,
-                (dummy_input,),
-                str(out_file),
-                export_params=True,
-                opset_version=opset,
-                do_constant_folding=True,
-                input_names=["input"],
-                output_names=["output"],
-                dynamic_axes=None,
-                dynamo=False,
-            )
+        run_onnx_export(
+            model_to_export,
+            (dummy_input,),
+            out_file,
+            opset=opset,
+            input_names=["input"],
+            output_names=["output"],
+            dynamic_axes=None,
+        )
         logger.info("WebGPU ONNX export successful! Opset: %d, Shape: %s", opset, dummy_input_shape)
         return True
     except Exception as exc:

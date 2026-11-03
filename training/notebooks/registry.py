@@ -56,6 +56,16 @@ class ModelNotebookMeta:
     preferred_parallel: str = ""
 
 
+def model_dataset_list(model_info: dict[str, Any]) -> list[str]:
+    """Return a registry entry's ``datasets`` (or legacy ``dataset``) value as a list."""
+    ds_raw = model_info.get("datasets", []) or model_info.get("dataset", [])
+    if isinstance(ds_raw, str):
+        return [ds_raw]
+    if isinstance(ds_raw, (list, tuple)):
+        return list(ds_raw)
+    return []
+
+
 def resolve_model_metadata(
     model_key: str,
     registry: dict[str, Any] | None = None,
@@ -77,13 +87,7 @@ def resolve_model_metadata(
             dataset_slug = k_urls[0].split("/")[-1]
 
     model_info: dict[str, Any] = registry.get(model_key, {}) if registry else {}
-    ds_raw = model_info.get("datasets", []) or model_info.get("dataset", [])
-    if isinstance(ds_raw, str):
-        ds_list = [ds_raw]
-    elif isinstance(ds_raw, (list, tuple)):
-        ds_list = list(ds_raw)
-    else:
-        ds_list = []
+    ds_list = model_dataset_list(model_info)
 
     is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
     ds_keys_repr = repr(

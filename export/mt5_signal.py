@@ -32,9 +32,9 @@ import sys
 import numpy as np
 import torch
 
+from data.forex_spec import PAIR_INDEX, TIMEFRAME_LOOKBACK, TIMEFRAME_RUNGS
 from data.mt5_pipeline import (
-    PAIR_INDEX,
-    TIMEFRAME_LOOKBACK,
+    PRICE_INDICATOR_FEATURES,
     compute_indicators,
     connect_mt5,
     disconnect_mt5,
@@ -328,19 +328,7 @@ def generate_signal(
             df = compute_indicators(df)
             df = normalize_ohlcv(df)
 
-            features = [
-                "open",
-                "high",
-                "low",
-                "close",
-                "volume",
-                "rsi",
-                "macd",
-                "macd_signal",
-                "atr",
-                "bb_width",
-            ]
-            avail = [c for c in features if c in df.columns]
+            avail = [c for c in PRICE_INDICATOR_FEATURES if c in df.columns]
             arr = df[avail].values.astype(np.float32)
 
             # Take last seq_len bars
@@ -448,7 +436,7 @@ def main():
         "--timeframes",
         nargs="+",
         type=int,
-        default=[1, 5, 15, 60, 240, 1440],
+        default=list(TIMEFRAME_RUNGS),
         help="Active timeframe rungs in minutes (default: 1 5 15 60 240 1440)",
     )
     parser.add_argument("--out", default=None, help="Output path for ONNX or MQL5 file")

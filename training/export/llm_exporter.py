@@ -13,11 +13,11 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-import onnx
 import torch
 from torch import nn
 
 from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
+from training.export.common import detach_onnx_weights, run_onnx_export, unwrap_export_model
 from training.registry import ModelSpecification
 
 logger = logging.getLogger("lemtrain.export.llm")
@@ -47,18 +47,10 @@ def export_llm_tri_format(
 
     exported_files: dict[str, Path] = {}
 
-    model_to_export: nn.Module
-    if hasattr(model, "module") and isinstance(model.module, nn.Module):
-        model_to_export = model.module
-    elif isinstance(model, nn.Module):
-        model_to_export = model
-    else:
-        model_to_export = model
-
+    model_to_export = unwrap_export_model(model)
     device = torch.device("cpu")
-    if isinstance(model_to_export, nn.Module):
-        model_to_export.eval()
-        model_to_export.to(device)
+    model_to_export.eval()
+    model_to_export.to(device)
 
     stem_map = {
         "ai_helper_lemgend": "AIHelperLemGend",
@@ -70,9 +62,8 @@ def export_llm_tri_format(
     pt_path = pytorch_dir / f"{binary_stem}.pt"
     logger.info("Saving standalone PyTorch LLM weights to %s...", pt_path)
     try:
-        if isinstance(model_to_export, nn.Module):
-            torch.save(model_to_export.state_dict(), str(pt_path))
-            exported_files["pt"] = pt_path
+        torch.save(model_to_export.state_dict(), str(pt_path))
+        exported_files["pt"] = pt_path
     except MODEL_IO_ERRORS as exc:
         logger.error("Failed saving PyTorch LLM weights to %s: %s", pt_path, exc)
 
@@ -84,32 +75,20 @@ def export_llm_tri_format(
         dummy_input = torch.randint(1, 1000, (1, 16), dtype=torch.long, device=device)
         dummy_mask = torch.ones((1, 16), dtype=torch.long, device=device)
 
-        if isinstance(model_to_export, nn.Module):
-            torch.onnx.export(
-                model_to_export,
-                (dummy_input, dummy_mask),
-                str(fp32_onnx_path),
-                input_names=["input_ids", "attention_mask"],
-                output_names=["logits"],
-                dynamic_axes={
-                    "input_ids": {0: "batch", 1: "sequence"},
-                    "attention_mask": {0: "batch", 1: "sequence"},
-                    "logits": {0: "batch", 1: "sequence"},
-                },
-                opset_version=17,
-                do_constant_folding=True,
-                dynamo=False,
-            )
-
-        onnx_model = onnx.load(str(fp32_onnx_path))
-        onnx.external_data_helper.convert_model_to_external_data(
-            onnx_model,
-            all_tensors_to_one_file=True,
-            location=f"{binary_stem}_FP32.onnx.data",
-            size_threshold=1024,
-            convert_attribute=False,
+        run_onnx_export(
+            model_to_export,
+            (dummy_input, dummy_mask),
+            fp32_onnx_path,
+            opset=17,
+            input_names=["input_ids", "attention_mask"],
+            output_names=["logits"],
+            dynamic_axes={
+                "input_ids": {0: "batch", 1: "sequence"},
+                "attention_mask": {0: "batch", 1: "sequence"},
+                "logits": {0: "batch", 1: "sequence"},
+            },
         )
-        onnx.save(onnx_model, str(fp32_onnx_path))
+        detach_onnx_weights(fp32_onnx_path, fp32_data_path.name)
 
         exported_files["onnx_fp32"] = fp32_onnx_path
         exported_files["onnx_fp32_data"] = fp32_data_path

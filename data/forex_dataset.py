@@ -42,72 +42,16 @@ import torch
 import yaml
 from torch.utils.data import Dataset
 
+from data.forex_spec import (
+    ALIAS_PAIRS,
+    EXTENDED_PAIRS,
+    PAIR_INDEX,
+    PAIR_PIP_SCALE,
+    TIMEFRAME_LOOKBACK,
+    shard_file_paths,
+)
+
 logger = logging.getLogger("lemtrain.data.forex_dataset")
-
-TIMEFRAME_RUNGS = [1, 5, 15, 60, 240, 1440]
-TIMEFRAME_LOOKBACK = {
-    1: 512,
-    5: 288,
-    15: 192,
-    60: 168,
-    240: 90,
-    1440: 252,
-}
-
-MAJOR_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
-EXTENDED_PAIRS = [
-    # G7 Majors (4 Core + 4 G7)
-    "EURUSD",
-    "GBPUSD",
-    "USDJPY",
-    "XAUUSD",
-    "USDCAD",
-    "USDCHF",
-    "AUDUSD",
-    "NZDUSD",
-    # High-Beta Crosses
-    "EURJPY",
-    "GBPJPY",
-    "EURGBP",
-    # Commodities & Energy
-    "XAGUSD",
-    "USOIL",
-    # Global Equity Indices
-    "US500",
-    "NAS100",
-    "DE40",
-]
-
-# Alias mapping for alternate broker tickers
-ALIAS_PAIRS = {
-    "USTEC": "NAS100",
-    "GER40": "DE40",
-}
-
-PAIR_INDEX = {p: i for i, p in enumerate(EXTENDED_PAIRS)}
-PAIR_INDEX["USTEC"] = PAIR_INDEX["NAS100"]
-PAIR_INDEX["GER40"] = PAIR_INDEX["DE40"]
-
-PAIR_PIP_SCALE = {
-    "EURUSD": 1.0,
-    "GBPUSD": 1.0,
-    "USDJPY": 1.0,
-    "USDCAD": 1.0,
-    "USDCHF": 1.0,
-    "AUDUSD": 1.0,
-    "NZDUSD": 1.0,
-    "EURGBP": 1.0,
-    "EURJPY": 1.0,
-    "GBPJPY": 1.0,
-    "XAGUSD": 5.0,
-    "USOIL": 5.0,
-    "XAUUSD": 10.0,
-    "US500": 20.0,
-    "DE40": 20.0,
-    "GER40": 20.0,
-    "NAS100": 40.0,
-    "USTEC": 40.0,
-}
 
 
 def _safe_from_numpy(arr: np.ndarray) -> torch.Tensor:
@@ -199,16 +143,7 @@ def load_shard(
     Loads OHLCV indicator tensor, direction targets, magnitude targets, and timestamps.
     Supports both unchunked shards (X.npy) and chunked shards (X_chunk{c}.npy).
     """
-    if chunk_idx is not None and chunk_idx >= 0:
-        x_path = os.path.join(shard_dir, f"X_chunk{chunk_idx}.npy")
-        ydir_path = os.path.join(shard_dir, f"y_dir_chunk{chunk_idx}.npy")
-        ymag_path = os.path.join(shard_dir, f"y_mag_chunk{chunk_idx}.npy")
-        ts_path = os.path.join(shard_dir, f"timestamps_chunk{chunk_idx}.npy")
-    else:
-        x_path = os.path.join(shard_dir, "X.npy")
-        ydir_path = os.path.join(shard_dir, "y_dir.npy")
-        ymag_path = os.path.join(shard_dir, "y_mag.npy")
-        ts_path = os.path.join(shard_dir, "timestamps.npy")
+    x_path, ydir_path, ymag_path, ts_path = shard_file_paths(shard_dir, chunk_idx)
 
     if not (os.path.exists(x_path) and os.path.exists(ydir_path) and os.path.exists(ymag_path)):
         return (None, None, None, None)
