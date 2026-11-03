@@ -94,7 +94,7 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
 
         self.track_recovery_streak(sentinel_trigger_rate)
         if self.cooldown_remaining > 0:
-            self.cooldown_remaining -= 1
+            self.sota.cooldown_remaining -= 1
         self.sota.record_epoch(signals.current_quality, signals.current_loss, signals.train_loss)
 
         d = AuditDirectives()
@@ -126,8 +126,8 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
         self.remember_epoch(signals.current_quality, signals.current_loss)
         if self.task_type == "quality":
             if self.cooldown_remaining == 0:
-                self.current_temp = min(1.0, self.current_temp)
-            self.current_clamp = min(self.clamp_range[1], self.current_clamp)
+                self.thermal.temperature = min(1.0, self.current_temp)
+            self.runtime.calibration.current_clamp = min(self.clamp_range[1], self.current_clamp)
 
         early_stop_triggered = self._early_stop(epochs_no_improve, d)
         final_msg = f"[LAUNCH] [{verdict.phase}] " + " | ".join(d.msg_parts) if d.msg_parts else ""
@@ -154,7 +154,7 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
     def _verdict(self, signals: EpochSignals) -> EpochVerdict:
         """Detect overfitting and collapse, reset the LR multiplier and read the phase."""
         is_overfitting = self.detect_overfitting()
-        self.lr_multiplier = 1.0
+        self.runtime.lr.lr_multiplier = 1.0
         if self.task_type == "forex":
             is_collapsed = signals.current_quality < 45.0
         else:
@@ -206,8 +206,8 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
             and self.current_temp > 0.7
             and (signals.target_std is None or signals.target_std >= 0.15)
         ):
-            self.current_temp = 0.5
-            self.current_clamp = 20.0
+            self.thermal.temperature = 0.5
+            self.runtime.calibration.current_clamp = 20.0
             d.t_changed = d.c_changed = True
             d.msg_parts.append("[THERMAL SHOCK] PLCC negative. Sharpening manifold (Temp -> 0.5).")
 
@@ -217,7 +217,7 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
         """Count the spatial lock down; it buffers a regression unless the loss explodes."""
         if self.spatial_lock_remaining <= 0:
             return
-        self.spatial_lock_remaining -= 1
+        self.runtime.counters.spatial_lock_remaining -= 1
         loss_is_exploding = (
             (current_loss > self.prev_loss * 1.25) if current_loss and self.prev_loss else False
         )
@@ -245,7 +245,7 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
                 )
 
         if verdict.is_overfitting and (verdict.is_expanding or self.current_fraction >= 1.0):
-            self.cooldown_remaining = 0
+            self.sota.cooldown_remaining = 0
             self._overfitting_rescue(verdict.is_expanding, d)
             return False
         return should_retreat
@@ -258,13 +258,13 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
                 "introduce variety."
             )
         elif self.task_type == "forex":
-            self.current_stress = min(2.0, self.current_stress + 0.5)
+            self.sota.current_stress = min(2.0, self.current_stress + 0.5)
             d.msg_parts.append(
                 "[REGULARIZE] [OVERFITTING] Temporal fold divergence detected. Applying mild "
                 f"stabilization (Level {self.current_stress})."
             )
         else:
-            self.current_stress = min(5.0, self.current_stress + 1.0)
+            self.sota.current_stress = min(5.0, self.current_stress + 1.0)
             d.msg_parts.append(
                 "[RESCUE] [OVERFITTING] Dataset exhausted. Deploying Stress Protocol (Level "
                 f"{self.current_stress})."
@@ -336,9 +336,9 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
         if 0 <= current_idx < len(self.res_ladder) - 1:
             next_res = self.res_ladder[current_idx + 1]
             self._commit_rung(next_res, 0.5)
-            self.last_res_jump_epoch = self.epoch_count
-            self.spatial_lock_remaining = self.stabilization_lock
-            self.stabilization_epochs = self.stabilization_lock
+            self.runtime.counters.last_res_jump_epoch = self.epoch_count
+            self.runtime.counters.spatial_lock_remaining = self.stabilization_lock
+            self.sota.stabilization_epochs = self.stabilization_lock
             self.history.clear()
             return (
                 True,

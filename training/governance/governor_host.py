@@ -3,9 +3,10 @@
 The governor is assembled from ``EpochAuditMixin``, ``PropulsionMixin`` and
 ``GovernorStateMixin``. Each mixin reads attributes that the governor sets in
 ``__init__``; ``GovernorHost`` declares them once so every mixin sees the same
-types. Plain attributes are annotations only (no runtime value); the flat views
-onto the curriculum, SOTA and thermal sub-states are ``Delegated`` descriptors,
-and the thin sub-state forwarders live here too.
+types. The governor's only instance attributes are the grouped states (annotations
+here); every historical flat name is a ``Delegated`` descriptor onto one of them,
+and the thin sub-state forwarders live here too. Code inside the governor writes
+through the groups; callers may keep using the flat names.
 """
 
 from __future__ import annotations
@@ -15,71 +16,82 @@ from typing import Any
 
 from training.governance.curriculum import CurriculumState
 from training.governance.delegation import Delegated
+from training.governance.governor_groups import GovernorRuntime, GovernorSpec, GovernorTuning
 from training.governance.metrics import MetricRegistry
-from training.governance.sota import SotaTracker
+from training.governance.sota import HistoryEntry, SotaTracker
 from training.governance.thermal import ThermalState
 
-# One ``SotaTracker.history`` row: (quality, validation loss, train loss).
-HistoryEntry = tuple[float, float | None, float | None]
+_LOCKS = "tuning.locks"
+_RANK = "runtime.rank"
+_WEIGHTS = "runtime.weights"
+_CALIBRATION = "runtime.calibration"
+_LR = "runtime.lr"
+_COUNTERS = "runtime.counters"
+_FOCUS = "runtime.focus"
 
 
 class GovernorHost:
     """Attributes the governor provides to its mixins."""
 
-    # Inputs and sub-states.
-    model_info: dict[str, Any]
-    config: dict[str, Any]
-    stab: dict[str, Any]
-    enabled: bool
+    # Grouped state (the only instance attributes of the governor).
+    spec: GovernorSpec
+    tuning: GovernorTuning
+    runtime: GovernorRuntime
     metrics: MetricRegistry
     curriculum: CurriculumState
     thermal: ThermalState
     sota: SotaTracker
 
+    # Inputs the governor was built from.
+    model_info: Delegated[dict[str, Any]] = Delegated("spec")
+    config: Delegated[dict[str, Any]] = Delegated("spec")
+    stab: Delegated[dict[str, Any]] = Delegated("spec")
+    enabled: Delegated[bool] = Delegated("spec")
+    task_type: Delegated[str] = Delegated("spec")
+    sota_targets: Delegated[dict[str, float]] = Delegated("spec")
+
     # Tuning knobs read from the model's optimization block and the config.
-    task_type: str
-    manifold_maturity: int
-    plateau_priority: str
-    cooling_factor: float
-    clamp_range: list[float]
-    jolt_cooldown: int
-    stabilization_lock: int
-    breakout_threshold: float
-    sharpening_rate: float
-    min_delta: float
-    sota_targets: dict[str, float]
+    manifold_maturity: Delegated[int] = Delegated("tuning")
+    plateau_priority: Delegated[str] = Delegated("tuning")
+    cooling_factor: Delegated[float] = Delegated("tuning")
+    clamp_range: Delegated[list[float]] = Delegated("tuning")
+    sharpening_rate: Delegated[float] = Delegated("tuning")
+    min_delta: Delegated[float] = Delegated("tuning")
+    jolt_cooldown: Delegated[int] = Delegated(_LOCKS)
+    stabilization_lock: Delegated[int] = Delegated(_LOCKS)
+    breakout_threshold: Delegated[float] = Delegated(_LOCKS)
 
     # Loss-shaping state.
-    min_temp: float
-    current_clamp: float
-    current_rank_weight: float
-    current_rank_margin: float
-    max_rank_weight: float
-    min_rank_margin: float
-    current_spearman_weight: float
-    current_emd_weight: float
-    current_ssim_weight: float
-    current_huber_delta: float
-    current_conf_gate_str: float
-    current_lpips_weight: float
-    current_mag_weight: float
-    current_dir_weight: float
+    min_temp: Delegated[float] = Delegated(_CALIBRATION)
+    current_clamp: Delegated[float] = Delegated(_CALIBRATION)
+    thermal_floor: Delegated[dict[str, float]] = Delegated(_CALIBRATION)
+    current_rank_weight: Delegated[float] = Delegated(_RANK)
+    current_rank_margin: Delegated[float] = Delegated(_RANK)
+    max_rank_weight: Delegated[float] = Delegated(_RANK)
+    min_rank_margin: Delegated[float] = Delegated(_RANK)
+    current_spearman_weight: Delegated[float] = Delegated(_RANK)
+    current_emd_weight: Delegated[float] = Delegated(_WEIGHTS)
+    current_ssim_weight: Delegated[float] = Delegated(_WEIGHTS)
+    current_huber_delta: Delegated[float] = Delegated(_WEIGHTS)
+    current_conf_gate_str: Delegated[float] = Delegated(_WEIGHTS)
+    current_lpips_weight: Delegated[float] = Delegated(_WEIGHTS)
+    current_mag_weight: Delegated[float] = Delegated(_WEIGHTS)
+    current_dir_weight: Delegated[float] = Delegated(_WEIGHTS)
 
     # Per-epoch counters and windows.
-    metric_focus_epochs_remaining: int
-    metric_focus_target: str | None
-    metric_focus_last_fired: dict[str, int]
-    thermal_floor: dict[str, float]
-    lr_multiplier: float
-    head_lr_multiplier: float
-    jolt_window_remaining: int
-    trigger_mini_swa: bool
-    last_action_epoch: int
-    epoch_count: int
-    session_epoch_count: int
-    last_jolt_epoch: int
-    spatial_lock_remaining: int
-    last_res_jump_epoch: int
+    metric_focus_epochs_remaining: Delegated[int] = Delegated(_FOCUS)
+    metric_focus_target: Delegated[str | None] = Delegated(_FOCUS)
+    metric_focus_last_fired: Delegated[dict[str, int]] = Delegated(_FOCUS)
+    lr_multiplier: Delegated[float] = Delegated(_LR)
+    head_lr_multiplier: Delegated[float] = Delegated(_LR)
+    jolt_window_remaining: Delegated[int] = Delegated(_LR)
+    trigger_mini_swa: Delegated[bool] = Delegated(_LR)
+    last_action_epoch: Delegated[int] = Delegated(_COUNTERS)
+    epoch_count: Delegated[int] = Delegated(_COUNTERS)
+    session_epoch_count: Delegated[int] = Delegated(_COUNTERS)
+    last_jolt_epoch: Delegated[int] = Delegated(_COUNTERS)
+    spatial_lock_remaining: Delegated[int] = Delegated(_COUNTERS)
+    last_res_jump_epoch: Delegated[int] = Delegated(_COUNTERS)
 
     # Monotonic Ratchet pair-rule commit; ``SmartTrainingGovernor._commit_rung`` is the
     # only implementation and the only writer of the (resolution, fraction) rung.

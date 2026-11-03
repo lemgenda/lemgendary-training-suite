@@ -12,6 +12,7 @@ import argparse
 import json
 import logging
 import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -36,16 +37,33 @@ def _nonempty(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
-class YoloCheckpointSyncMixin:
-    """Mirrors rung artifacts into the models hub (mixed into ``YOLOCurriculumGovernor``)."""
+@dataclass
+class YoloBest:
+    """Best metrics so far, whether SOTA was reached and the best scores seen and exported."""
+
+    best_overall_metrics: dict[str, float] = field(
+        default_factory=lambda: {"map50": 0.0, "map50_95": 0.0}
+    )
+    sota_achieved: bool = False
+    best_sota_quality: float = 0.0
+    best_export_quality: float = 0.0
+
+
+@dataclass(eq=False)
+class YoloHubSync:
+    """Mirrors rung artifacts into the models hub for ``YOLOCurriculumGovernor``.
+
+    ``args`` and ``config`` decide the Kaggle cloud sync; ``best`` is the governor's
+    best-so-far state recorded in the curriculum state JSON.
+    """
 
     args: argparse.Namespace
     config: dict[str, Any]
     models_hub_dir: Path
     models_hub_ckpt_dir: Path
+    runs_dir: Path
     telemetry: TelemetryEngine
-    best_overall_metrics: dict[str, float]
-    sota_achieved: bool = False
+    best: YoloBest = field(default_factory=YoloBest)
 
     def synchronize_checkpoints(
         self,
@@ -96,8 +114,8 @@ class YoloCheckpointSyncMixin:
                     "resolution": resolution,
                     "fraction": round(fraction, 2),
                     "stage_index": stage_index,
-                    "best_metrics": self.best_overall_metrics,
-                    "sota_achieved": self.sota_achieved,
+                    "best_metrics": self.best.best_overall_metrics,
+                    "sota_achieved": self.best.sota_achieved,
                 },
             )
             self._trigger_remote_sync(global_epoch)
@@ -110,9 +128,9 @@ class YoloCheckpointSyncMixin:
             shutil.copy2(best_cand, hub_ckpt_dir / "best.pt")
             shutil.copy2(best_cand, hub_ckpt_dir / "best.pth")
             # Vault milestone checkpoints for YOLO targets
-            if self.best_overall_metrics["map50"] > 0:
+            if self.best.best_overall_metrics["map50"] > 0:
                 shutil.copy2(best_cand, hub_ckpt_dir / "vault_map50.pth")
-            if self.best_overall_metrics["map50_95"] > 0:
+            if self.best.best_overall_metrics["map50_95"] > 0:
                 shutil.copy2(best_cand, hub_ckpt_dir / "vault_map50_95.pth")
         except OSError as copy_err:
             logger.debug("Non-fatal checkpoint copy error for best weights: %s", copy_err)

@@ -63,51 +63,44 @@ class AuditDirectives:
 class EpochSignalsMixin(GovernorHost):
     """Counters, holds and stability detectors used by ``EpochAuditMixin.audit_epoch``."""
 
-    # Class-level defaults for the counters this mixin advances; the governor
-    # initialises the instance values (``breakout_lock`` is a ``Delegated`` on
-    # ``GovernorHost``).
-    epoch_count: int = 0
-    session_epoch_count: int = 0
-    metric_focus_epochs_remaining: int = 0
-
     def advance_counters(self) -> None:
         """Count the epoch, tick an open metric-focus window and the breakout lock."""
-        self.epoch_count += 1
-        self.session_epoch_count += 1
+        self.runtime.counters.epoch_count += 1
+        self.runtime.counters.session_epoch_count += 1
 
         if self.metric_focus_epochs_remaining > 0:
             self.tick_metric_focus()
 
         if self.breakout_lock > 0:
-            self.breakout_lock -= 1
+            self.sota.breakout_lock -= 1
 
     def tick_metric_focus(self) -> None:
         """Apply the active metric-focus loss weights and count the focus window down."""
-        self.metric_focus_epochs_remaining -= 1
+        self.runtime.focus.metric_focus_epochs_remaining -= 1
         if self.metric_focus_target is not None:
             for name, value in METRIC_FOCUS_WEIGHTS.get(self.metric_focus_target, {}).items():
                 setattr(self, name, value)
 
-        self.lr_multiplier = self.cooling_factor
-        self.head_lr_multiplier = min(self.lr_multiplier * 2.0, 1.5)
-        self.jolt_window_remaining = 5
+        self.runtime.lr.lr_multiplier = self.cooling_factor
+        self.runtime.lr.head_lr_multiplier = min(self.lr_multiplier * 2.0, 1.5)
+        self.runtime.lr.jolt_window_remaining = 5
 
         if self.metric_focus_epochs_remaining == 0:
-            self.metric_focus_target = None
+            self.runtime.focus.metric_focus_target = None
 
     def track_recovery_streak(self, sentinel_trigger_rate: float) -> None:
         """Count stress-free epochs and break the stabilization lock after two."""
         if sentinel_trigger_rate == 0:
-            self.recovery_streak += 1
+            self.sota.recovery_streak += 1
             if (
                 self.recovery_streak >= 2
                 and self.stabilization_epochs > 0
                 and self.spatial_lock_remaining == 0
             ):
-                self.stabilization_epochs = 0
+                self.sota.stabilization_epochs = 0
                 logger.info("[LAUNCH] [NPP] Stress at zero. Breaking stabilization lock.")
         else:
-            self.recovery_streak = 0
+            self.sota.recovery_streak = 0
 
     def stabilization_hold(
         self, current_quality: float, current_loss: float | None, msg_parts: list[str]
@@ -121,14 +114,14 @@ class EpochSignalsMixin(GovernorHost):
                 "[BREAKOUT] Shield shattered! Quality dropped "
                 f"{(1 - current_quality / self.best_quality) * 100:.1f}%."
             )
-            self.stabilization_epochs = 0
+            self.sota.stabilization_epochs = 0
             return None
 
-        self.stabilization_epochs -= 1
+        self.sota.stabilization_epochs -= 1
         recovery_delta = self.min_delta if self.task_type != "quality" else 0.05
         if current_quality - self.prev_quality > recovery_delta:
-            self.cooldown_remaining = max(0, self.cooldown_remaining - 2)
-            self.stabilization_epochs = max(0, self.stabilization_epochs - 1)
+            self.sota.cooldown_remaining = max(0, self.cooldown_remaining - 2)
+            self.sota.stabilization_epochs = max(0, self.stabilization_epochs - 1)
             msg_parts.append("[RECOVERY] Rapid quality gain detected. Cooldown and Lock shortened.")
 
         self.remember_epoch(current_quality, current_loss)
@@ -143,9 +136,9 @@ class EpochSignalsMixin(GovernorHost):
 
     def remember_epoch(self, current_quality: float, current_loss: float | None) -> None:
         """Store this epoch's quality, and its loss when non-zero, as the previous values."""
-        self.prev_quality = current_quality
+        self.sota.prev_quality = float(current_quality)
         if current_loss:
-            self.prev_loss = current_loss
+            self.sota.prev_loss = float(current_loss)
 
     def detect_overfitting(self) -> bool:
         """Return True when train loss falls while validation loss rises over 3 epochs."""
@@ -186,31 +179,31 @@ class EpochSignalsMixin(GovernorHost):
             )
 
             if self.failure_log[str(current_state)] >= 2:
-                self.current_clamp = max(10.0, self.current_clamp - 5.0)
+                self.runtime.calibration.current_clamp = max(10.0, self.current_clamp - 5.0)
                 d.c_changed = True
-                self.current_temp = min(1.8, self.current_temp * 1.5)
+                self.thermal.temperature = min(1.8, self.current_temp * 1.5)
                 d.t_changed = True
                 d.msg_parts.append("NPP LOOP: Forcing Numerical Shakeup")
 
             # Monotonic ratchet: resolution and data fraction never retreat in production;
             # recovery is LR cooling only.
             if not d.r_changed:
-                self.lr_multiplier = self.cooling_factor
+                self.runtime.lr.lr_multiplier = self.cooling_factor
                 d.lr_changed = True
-                self.stabilization_epochs = self.stabilization_lock
-                self.cooldown_remaining = 5
+                self.sota.stabilization_epochs = self.stabilization_lock
+                self.sota.cooldown_remaining = 5
                 d.msg_parts.append(
                     f"RECOIL: Retaining data fraction at {self.current_fraction * 100:.0f}% | "
                     "Cooling LR to stabilize manifold"
                 )
 
         elif sentinel_trigger_rate > 0.15:
-            self.current_temp = min(1.2, self.current_temp * 1.2)
-            self.lr_multiplier = 0.75
-            self.current_stress = max(0.0, self.current_stress - 0.25)
+            self.thermal.temperature = min(1.2, self.current_temp * 1.2)
+            self.runtime.lr.lr_multiplier = 0.75
+            self.sota.current_stress = max(0.0, self.current_stress - 0.25)
             d.lr_changed = True
             d.t_changed = True
-            self.stabilization_epochs = 2
+            self.sota.stabilization_epochs = 2
             d.msg_parts.append(
                 f"COOLING: Stress {sentinel_trigger_rate * 100:.1f}% -> Temp "
                 f"{self.current_temp:.2f} | DataStress {self.current_stress:.1f}"
@@ -220,16 +213,16 @@ class EpochSignalsMixin(GovernorHost):
         self, d: AuditDirectives, delta_q: float, should_retreat: bool, is_regressing: bool
     ) -> None:
         """Sustain or abort an open jolt window."""
-        self.jolt_window_remaining -= 1
+        self.runtime.lr.jolt_window_remaining -= 1
         collapse_threshold = (
             (self.prev_quality * -0.03)
             if (self.prev_quality and self.prev_quality > 1.0)
             else -0.015
         )
         if delta_q < collapse_threshold or should_retreat or is_regressing:
-            self.jolt_window_remaining = 0
-            self.lr_multiplier = self.cooling_factor
-            self.head_lr_multiplier = self.cooling_factor
+            self.runtime.lr.jolt_window_remaining = 0
+            self.runtime.lr.lr_multiplier = self.cooling_factor
+            self.runtime.lr.head_lr_multiplier = self.cooling_factor
             d.lr_changed = True
             d.msg_parts.append(
                 f"[JOLT SHIELD] Early collapse triggered (Regression: {delta_q:.4f} < "

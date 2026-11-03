@@ -20,7 +20,7 @@ import yaml
 from data.yolo_config_gen import generate_yolo_yaml
 from training.export.base import EXPORT_ERRORS
 from training.export.universal_exporter import export_tri_format_yolo
-from training.governance.yolo_checkpoint_sync import YoloCheckpointSyncMixin
+from training.governance.yolo_checkpoint_sync import YoloHubSync
 from training.governance.yolo_ladder import (
     BatchBudget,
     YOLOLadderStage,
@@ -28,7 +28,7 @@ from training.governance.yolo_ladder import (
     compute_safe_batch_size,
     is_amp_supported_for_device,
 )
-from training.governance.yolo_run import YoloRunMixin
+from training.governance.yolo_run import YoloModelSpec, YoloRunHooks, YoloRunMixin
 from training.telemetry import TelemetryEngine
 from training.training.summary import TrainingSummary
 from training.utils.lazy_imports import load_ultralytics
@@ -57,7 +57,41 @@ def create_yolo_model(weights: str | Path) -> Any:
     return load_ultralytics().YOLO(str(weights))
 
 
-class YOLOCurriculumGovernor(YoloRunMixin, YoloCheckpointSyncMixin):
+def _model_spec(model_info: dict[str, Any], config: dict[str, Any]) -> YoloModelSpec:
+    """Merge the config's optimization block over the registry entry's."""
+    merged_opt = dict(model_info.get("optimization", {}))
+    if isinstance(config.get("optimization"), dict):
+        merged_opt.update(config["optimization"])
+    return YoloModelSpec(
+        model_info=model_info,
+        opt_config=merged_opt,
+        sota_targets=model_info.get(
+            "sota_targets",
+            {"map50": 0.54, "map50_95": 0.39},
+        ),
+    )
+
+
+def _migrate_legacy_runs(models_hub_dir: Path, runs_dir: Path) -> None:
+    """Move a legacy ``runs`` directory out of the models hub into ``runs_dir``."""
+    legacy_runs = models_hub_dir / "runs"
+    if legacy_runs.exists():
+        try:
+            for item in legacy_runs.iterdir():
+                dst_item = runs_dir / item.name
+                if not dst_item.exists():
+                    shutil.move(str(item), str(dst_item))
+            shutil.rmtree(legacy_runs)
+        except OSError as exc:
+            logger.warning(
+                "Legacy runs migration from %s to %s incomplete: %s",
+                legacy_runs,
+                runs_dir,
+                exc,
+            )
+
+
+class YOLOCurriculumGovernor(YoloRunMixin):
     """Universal Governor orchestrator for YOLOv8n training execution."""
 
     def __init__(
@@ -68,12 +102,6 @@ class YOLOCurriculumGovernor(YoloRunMixin, YoloCheckpointSyncMixin):
         on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ) -> None:
-        self.args = args
-        self.config = config
-        self.project_root = project_root
-        self.on_epoch_end = on_epoch_end
-        self.cancel_check = cancel_check
-
         unified_models_rel = config.get("unified_models", "unified_models_v2.yaml")
         unified_models_path = project_root / unified_models_rel
         registry = {}
@@ -81,56 +109,35 @@ class YOLOCurriculumGovernor(YoloRunMixin, YoloCheckpointSyncMixin):
             with open(unified_models_path, encoding="utf-8") as f:
                 registry = yaml.safe_load(f) or {}
 
-        self.model_info: dict[str, Any] = registry.get("yolov8n", {})
-        merged_opt = dict(self.model_info.get("optimization", {}))
-        if isinstance(config.get("optimization"), dict):
-            merged_opt.update(config["optimization"])
-        self.opt_config: dict[str, Any] = merged_opt
-        self.sota_targets: dict[str, float] = self.model_info.get(
-            "sota_targets",
-            {"map50": 0.54, "map50_95": 0.39},
-        )
+        self.hooks = YoloRunHooks(project_root, on_epoch_end, cancel_check)
+        self.spec = _model_spec(registry.get("yolov8n", {}), config)
 
         # All training artifacts are stored exclusively under LemGendaryModels — the training
         # suite project root is for code only, never for generated model files.
-        self.models_hub_dir = (project_root.parent / "LemGendaryModels" / "yolov8n").resolve()
-        self.models_hub_ckpt_dir = self.models_hub_dir / "checkpoints"
+        models_hub_dir = (project_root.parent / "LemGendaryModels" / "yolov8n").resolve()
+        models_hub_ckpt_dir = models_hub_dir / "checkpoints"
         # Curriculum stage outputs go under local checkpoints directory to keep LemGendaryModels
         # pristine
-        self.runs_dir = (project_root / "checkpoints" / "yolov8n" / "runs").resolve()
+        runs_dir = (project_root / "checkpoints" / "yolov8n" / "runs").resolve()
 
-        self.models_hub_dir.mkdir(parents=True, exist_ok=True)
-        self.models_hub_ckpt_dir.mkdir(parents=True, exist_ok=True)
-        self.runs_dir.mkdir(parents=True, exist_ok=True)
+        models_hub_dir.mkdir(parents=True, exist_ok=True)
+        models_hub_ckpt_dir.mkdir(parents=True, exist_ok=True)
+        runs_dir.mkdir(parents=True, exist_ok=True)
 
-        self._migrate_legacy_runs()
+        _migrate_legacy_runs(models_hub_dir, runs_dir)
 
         # Primary metrics and telemetry stream directly from LemGendaryModels/yolov8n
-        self.telemetry = TelemetryEngine(export_dir=str(self.models_hub_dir), task_type="yolo")
-        self.telemetry.validate_and_initialize_csv()
+        telemetry = TelemetryEngine(export_dir=str(models_hub_dir), task_type="yolo")
+        telemetry.validate_and_initialize_csv()
 
-        self.best_overall_metrics: dict[str, float] = {"map50": 0.0, "map50_95": 0.0}
-        self.sota_achieved = False
-        self.best_sota_quality = 0.0
-        self.best_export_quality = 0.0
-
-    def _migrate_legacy_runs(self) -> None:
-        """Move a legacy ``runs`` directory out of the models hub into ``runs_dir``."""
-        legacy_runs = self.models_hub_dir / "runs"
-        if legacy_runs.exists():
-            try:
-                for item in legacy_runs.iterdir():
-                    dst_item = self.runs_dir / item.name
-                    if not dst_item.exists():
-                        shutil.move(str(item), str(dst_item))
-                shutil.rmtree(legacy_runs)
-            except OSError as exc:
-                logger.warning(
-                    "Legacy runs migration from %s to %s incomplete: %s",
-                    legacy_runs,
-                    self.runs_dir,
-                    exc,
-                )
+        self.sync = YoloHubSync(
+            args=args,
+            config=config,
+            models_hub_dir=models_hub_dir,
+            models_hub_ckpt_dir=models_hub_ckpt_dir,
+            runs_dir=runs_dir,
+            telemetry=telemetry,
+        )
 
     def _export_if_new_best(self, trainer: Any) -> None:
         """Export PyTorch and ONNX artifacts whenever a new global best checkpoint is saved.

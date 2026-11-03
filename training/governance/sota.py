@@ -1,38 +1,115 @@
 """SOTA tracking, recovery streaks, rollback history, and drift-gated decisions."""
 
+from __future__ import annotations
+
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any
+
+from training.governance.delegation import Delegated
 
 logger = logging.getLogger("lemtrain.governance.sota")
 
+# One ``SotaTracker.history`` row: (quality, validation loss, train loss).
+HistoryEntry = tuple[float, float | None, float | None]
+
 
 @dataclass
-class SotaTracker:
-    """Manages SOTA metric history, stability locks, and rollback breakout policies."""
+class QualityMemory:
+    """Best and previous quality, the quality target and the recent-epoch history."""
 
     best_quality: float = 0.0
     prev_quality: float = 0.0
     prev_loss: float = 999.0
     target_quality_score: float = 1.0
     sota_targets: dict[str, float] = field(default_factory=dict)
+    history: list[HistoryEntry] = field(default_factory=list)
+
+
+@dataclass
+class RollbackState:
+    """Rollback counts, gate relaxation and the breakout lock of the loop breaker."""
+
     recovery_streak: int = 0
     consecutive_rollbacks: int = 0
     rollback_history: dict[int, int] = field(default_factory=dict)
     gate_relaxation_epochs: int = 0
     sota_resolution: int | None = None
     breakout_lock: int = 0
-    history: list[tuple[float, float | None, float | None]] = field(default_factory=list)
+
+
+@dataclass
+class StressState:
+    """NPP failure log, stabilization and cooldown windows and the stress protocol level."""
+
     failure_log: dict[str, int] = field(default_factory=dict)
     stabilization_epochs: int = 0
     cooldown_remaining: int = 0
     current_stress: float = 0.0
     max_stress_stuck_epochs: int = 0
+
+
+@dataclass
+class LoopBreakerPolicy:
+    """Loop-breaker switches, plateau patience and the task the tracker serves."""
+
     loop_breaker_enabled: bool = True
     loop_breaker_threshold: int = 2
     loop_breaker_strategy: str = "auto"
     plateau_patience: int = 6
     task_type: str = "quality"
+
+
+_GROUP_TYPES: dict[str, type] = {
+    "quality": QualityMemory,
+    "rollback": RollbackState,
+    "stress": StressState,
+    "policy": LoopBreakerPolicy,
+}
+_FIELD_GROUP: dict[str, str] = {
+    f.name: group for group, cls in _GROUP_TYPES.items() for f in fields(cls)
+}
+
+
+class SotaTracker:
+    """Manages SOTA metric history, stability locks, and rollback breakout policies.
+
+    The state lives in four groups; every field stays reachable as a flat attribute and
+    as a keyword of the constructor (``SotaTracker(best_quality=0.9)``).
+    """
+
+    best_quality: Delegated[float] = Delegated("quality")
+    prev_quality: Delegated[float] = Delegated("quality")
+    prev_loss: Delegated[float] = Delegated("quality")
+    target_quality_score: Delegated[float] = Delegated("quality")
+    sota_targets: Delegated[dict[str, float]] = Delegated("quality")
+    history: Delegated[list[HistoryEntry]] = Delegated("quality")
+    recovery_streak: Delegated[int] = Delegated("rollback")
+    consecutive_rollbacks: Delegated[int] = Delegated("rollback")
+    rollback_history: Delegated[dict[int, int]] = Delegated("rollback")
+    gate_relaxation_epochs: Delegated[int] = Delegated("rollback")
+    sota_resolution: Delegated[int | None] = Delegated("rollback")
+    breakout_lock: Delegated[int] = Delegated("rollback")
+    failure_log: Delegated[dict[str, int]] = Delegated("stress")
+    stabilization_epochs: Delegated[int] = Delegated("stress")
+    cooldown_remaining: Delegated[int] = Delegated("stress")
+    current_stress: Delegated[float] = Delegated("stress")
+    max_stress_stuck_epochs: Delegated[int] = Delegated("stress")
+    loop_breaker_enabled: Delegated[bool] = Delegated("policy")
+    loop_breaker_threshold: Delegated[int] = Delegated("policy")
+    loop_breaker_strategy: Delegated[str] = Delegated("policy")
+    plateau_patience: Delegated[int] = Delegated("policy")
+    task_type: Delegated[str] = Delegated("policy")
+
+    def __init__(self, **overrides: Any) -> None:
+        self.quality = QualityMemory()
+        self.rollback = RollbackState()
+        self.stress = StressState()
+        self.policy = LoopBreakerPolicy()
+        for name, value in overrides.items():
+            if name not in _FIELD_GROUP:
+                raise TypeError(f"SotaTracker() got an unexpected keyword argument '{name}'")
+            setattr(getattr(self, _FIELD_GROUP[name]), name, value)
 
     def record_epoch(
         self,
@@ -49,18 +126,18 @@ class SotaTracker:
             self.best_quality == 0.0 and current_quality > 0.0
         )
         if is_new_sota:
-            self.current_stress = min(self.current_stress, 0.0)
-            self.best_quality = current_quality
+            self.stress.current_stress = min(self.current_stress, 0.0)
+            self.quality.best_quality = current_quality
 
         return is_new_sota
 
     def reset_best(self) -> None:
         """Purge SOTA memory to establish fresh baseline for current manifold."""
-        self.best_quality = 0.0
-        self.prev_quality = 0.0
-        self.prev_loss = 999.0
+        self.quality.best_quality = 0.0
+        self.quality.prev_quality = 0.0
+        self.quality.prev_loss = 999.0
         self.history.clear()
-        self.stabilization_epochs = 2
+        self.stress.stabilization_epochs = 2
         logger.info("SOTA Memory Purged. Establishing fresh baseline for current manifold.")
 
     def register_rollback(
@@ -78,7 +155,7 @@ class SotaTracker:
         if not self.loop_breaker_enabled:
             return result
 
-        self.consecutive_rollbacks += 1
+        self.rollback.consecutive_rollbacks += 1
         res_key = current_res
         self.rollback_history[res_key] = self.rollback_history.get(res_key, 0) + 1
 
@@ -98,9 +175,9 @@ class SotaTracker:
 
             if strategy == "escalate" and target_res is not None:
                 self.rollback_history[target_res] = 0
-                self.consecutive_rollbacks = 0
-                self.gate_relaxation_epochs = 0
-                self.breakout_lock = 8
+                self.rollback.consecutive_rollbacks = 0
+                self.rollback.gate_relaxation_epochs = 0
+                self.rollback.breakout_lock = 8
                 self.reset_best()
                 result["breakout_triggered"] = True
                 result["new_res"] = target_res
@@ -112,8 +189,8 @@ class SotaTracker:
                     target_res,
                 )
             elif strategy in ["escalate", "relax"]:
-                self.gate_relaxation_epochs = 6
-                self.consecutive_rollbacks = 0
+                self.rollback.gate_relaxation_epochs = 6
+                self.rollback.consecutive_rollbacks = 0
                 result["breakout_triggered"] = True
                 logger.warning(
                     "Stagnation Rollback Lock detected at %dpx! Dynamic Gate Relaxation active "
@@ -126,7 +203,7 @@ class SotaTracker:
     def get_active_drift_gate(self, config_gate: float) -> float:
         """Return dynamic drift gate with relaxation decay."""
         if self.gate_relaxation_epochs > 0:
-            self.gate_relaxation_epochs -= 1
+            self.rollback.gate_relaxation_epochs -= 1
             return min(0.80, config_gate * 0.85)
         return config_gate
 
@@ -159,7 +236,7 @@ class SotaTracker:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SotaTracker":
+    def from_dict(cls, data: dict[str, Any]) -> SotaTracker:
         """Deserialize state from dictionary."""
         raw_rh = data.get("rollback_history", {})
         rh = {int(k): int(v) for k, v in raw_rh.items()}
