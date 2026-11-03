@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -129,21 +131,67 @@ class YearSources:
         return [available[-1]]
 
 
-class ForexIndexMixin:
-    """Builds the flat ``(pair_idx, timeframe, key, row)`` sample index of ``ForexDataset``."""
+@dataclass
+class ForexSelection:
+    """Which samples a ``ForexDataset`` serves and how its labels are stressed."""
 
-    # Host (``ForexDataset``) state this mixin reads and writes.
-    shard_roots: list[str]
     pairs: list
     active_timeframes: list
     is_train: bool
     sample_fraction: float
     split: str
     fold: int
-    _parquet_caches: dict[str, ParquetRowGroupCache]
-    _parquet_meta: dict
-    _parquet_tf_rows: dict[tuple, np.ndarray]
-    _parquet_tf_ts: dict[tuple, np.ndarray]
+    spread_stress_pips: float
+
+
+@dataclass
+class LegacyShardStore:
+    """Legacy ``.npy`` shards: their paths, lazily loaded arrays and alignment maps."""
+
+    shard_paths: dict[tuple, tuple[str, int]] = field(default_factory=dict)
+    shards: dict[tuple, Any] = field(default_factory=dict)
+    tf_map: dict[tuple, list] = field(default_factory=dict)
+    alignment_cache: dict[tuple, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ParquetStore:
+    """Parquet years: row-group caches, metadata columns, per-timeframe rows and alignments."""
+
+    caches: dict[str, ParquetRowGroupCache] = field(default_factory=dict)
+    meta: dict = field(default_factory=dict)
+    tf_rows: dict[tuple, np.ndarray] = field(default_factory=dict)
+    tf_ts: dict[tuple, np.ndarray] = field(default_factory=dict)
+    alignment_cache: dict[tuple, Any] = field(default_factory=dict)
+
+
+def _matching_rows(meta: dict, selection: ForexSelection, yr_name: str):
+    """Index entries plus per-``(pair, tf, year)`` row and timestamp lists of a Parquet year."""
+    pair_set = set(selection.pairs)
+    tf_set = set(selection.active_timeframes)
+    ts_arr = meta["timestamp"]
+    entries = []
+    tf_rows: dict[tuple, list] = {}
+    tf_ts: dict[tuple, list] = {}
+    for r, p_val in enumerate(meta["pair"]):
+        p = str(p_val)
+        tf = int(meta["timeframe"][r])
+        if p in pair_set and tf in tf_set:
+            entries.append((PAIR_INDEX.get(p, 0), tf, ("parquet", yr_name), r))
+            tf_key = (p, tf, yr_name)
+            tf_rows.setdefault(tf_key, []).append(r)
+            tf_ts.setdefault(tf_key, []).append(ts_arr[r])
+    return entries, tf_rows, tf_ts
+
+
+class ForexIndexMixin:
+    """Builds the flat ``(pair_idx, timeframe, key, row)`` sample index of ``ForexDataset``."""
+
+    # Host (``ForexDataset``) state this mixin reads and writes.
+    shard_roots: list[str]
+    selection: ForexSelection
+    legacy_shards: LegacyShardStore
+    parquet_store: ParquetStore
 
     def resolve_pair_dir(self, parent_dir: str, pair: str) -> str | None:
         """Resolves pair directory handling symbol aliases (e.g. NAS100 <-> USTEC)."""
@@ -159,10 +207,10 @@ class ForexIndexMixin:
 
     def build_index(self):
         """Build flat sample index over all pairs x active_timeframes x rows."""
-        self._shard_paths = {}
-        self._shards = {}
+        self.legacy_shards.shard_paths = {}
+        self.legacy_shards.shards = {}
         self._index = []
-        self._tf_map = {}
+        self.legacy_shards.tf_map = {}
 
         sources = YearSources()
         for root in self.shard_roots:
@@ -173,7 +221,7 @@ class ForexIndexMixin:
             sources.scan_kaggle_input()
 
         if len(sources):
-            for yr_name in sources.target_years(self.fold, self.is_train):
+            for yr_name in sources.target_years(self.selection.fold, self.selection.is_train):
                 if yr_name in sources.parquet:
                     self._index_parquet_year(yr_name, sources.parquet[yr_name])
                 else:
@@ -183,54 +231,44 @@ class ForexIndexMixin:
 
         self.all_samples = list(self._index)
 
-        if self.is_train and self.sample_fraction < 1.0:
-            stride = max(1, round(1.0 / max(1e-4, self.sample_fraction)))
+        if self.selection.is_train and self.selection.sample_fraction < 1.0:
+            stride = max(1, round(1.0 / max(1e-4, self.selection.sample_fraction)))
             self._index = self.all_samples[::stride]
 
         if len(self._index) == 0:
             print(
                 f" [ForexDataset] NOTICE: No matching shards found in {self.shard_roots} "
-                f"for pairs={self.pairs}, TFs={self.active_timeframes} (Fold: {self.fold})."
+                f"for pairs={self.selection.pairs}, TFs={self.selection.active_timeframes} "
+                f"(Fold: {self.selection.fold})."
             )
 
     def _index_parquet_year(self, yr_name: str, p_path: str) -> None:
         """Index the matching rows of one Parquet year and its per-timeframe row lists."""
         cache = ParquetRowGroupCache(p_path)
-        self._parquet_caches[yr_name] = cache
+        self.parquet_store.caches[yr_name] = cache
         meta_tbl = pq.read_table(p_path, columns=_META_COLUMNS)
         meta = {col: meta_tbl[col].to_numpy() for col in _META_COLUMNS if col != "pair"}
         meta = {"pair": meta_tbl["pair"].to_numpy(zero_copy_only=False), **meta}
         meta["rg_of_row"] = cache.row_group_of_rows()
-        self._parquet_meta[yr_name] = meta
+        self.parquet_store.meta[yr_name] = meta
 
-        pair_set = set(self.pairs)
-        tf_set = set(self.active_timeframes)
-        ts_arr = meta["timestamp"]
-        tf_rows: dict[tuple, list] = {}
-        tf_ts: dict[tuple, list] = {}
-        for r, p_val in enumerate(meta["pair"]):
-            p = str(p_val)
-            tf = int(meta["timeframe"][r])
-            if p in pair_set and tf in tf_set:
-                self._index.append((PAIR_INDEX.get(p, 0), tf, ("parquet", yr_name), r))
-                tf_key = (p, tf, yr_name)
-                tf_rows.setdefault(tf_key, []).append(r)
-                tf_ts.setdefault(tf_key, []).append(ts_arr[r])
+        entries, tf_rows, tf_ts = _matching_rows(meta, self.selection, yr_name)
+        self._index.extend(entries)
 
         for tf_key, rows in tf_rows.items():
-            self._parquet_tf_rows[tf_key] = np.asarray(rows, dtype=np.int64)
-            self._parquet_tf_ts[tf_key] = np.asarray(tf_ts[tf_key], dtype=np.int64)
+            self.parquet_store.tf_rows[tf_key] = np.asarray(rows, dtype=np.int64)
+            self.parquet_store.tf_ts[tf_key] = np.asarray(tf_ts[tf_key], dtype=np.int64)
 
     def _index_year_dir(self, yr_name: str, yr_dir: str | None) -> None:
         """Index the ``<pair>/<tf>/X.npy`` or ``X_chunk*.npy`` shards of one year directory."""
         if not yr_dir or not os.path.isdir(yr_dir):
             return
-        for pair in self.pairs:
+        for pair in self.selection.pairs:
             p_idx = PAIR_INDEX.get(pair, 0)
             pair_dir = self.resolve_pair_dir(yr_dir, pair)
             if not pair_dir:
                 continue
-            for tf in self.active_timeframes:
+            for tf in self.selection.active_timeframes:
                 tf_dir = os.path.join(pair_dir, str(tf))
                 if os.path.isdir(tf_dir):
                     for c in self._chunk_ids(tf_dir):
@@ -249,11 +287,11 @@ class ForexIndexMixin:
     def _index_chunk(self, key: tuple, tf_dir: str, p_idx: int) -> None:
         """Register one shard (``key[3]`` is the chunk, -1 unchunked) and index its rows."""
         pair, tf, yr_name, c = key
-        self._shard_paths[key] = (tf_dir, c)
+        self.legacy_shards.shard_paths[key] = (tf_dir, c)
         tf_group_key = (pair, tf, yr_name)
-        if tf_group_key not in self._tf_map:
-            self._tf_map[tf_group_key] = []
-        self._tf_map[tf_group_key].append(key)
+        if tf_group_key not in self.legacy_shards.tf_map:
+            self.legacy_shards.tf_map[tf_group_key] = []
+        self.legacy_shards.tf_map[tf_group_key].append(key)
 
         x_data, _, _, _ = load_shard(tf_dir, chunk_idx=None if c < 0 else c, mmap_mode="r")
         if x_data is not None:
@@ -264,7 +302,7 @@ class ForexIndexMixin:
 
     def _index_legacy_folds(self) -> None:
         """Index fold-sharded ``<pair>/<tf>/folds/<fold_N|val>`` shards."""
-        for pair in self.pairs:
+        for pair in self.selection.pairs:
             p_idx = PAIR_INDEX.get(pair, 0)
             pair_root = next(
                 (root for root in self.shard_roots if self.resolve_pair_dir(root, pair)), None
@@ -272,18 +310,18 @@ class ForexIndexMixin:
             if pair_root is None:
                 continue
 
-            for tf in self.active_timeframes:
-                if self.split == "val":
+            for tf in self.selection.active_timeframes:
+                if self.selection.split == "val":
                     fold_names = ["val"]
                 else:
-                    max_fold = self.fold if self.fold is not None else 6
+                    max_fold = self.selection.fold if self.selection.fold is not None else 6
                     fold_names = [f"fold_{f}" for f in range(1, max_fold + 1)]
                 for fold_name in fold_names:
                     shard_dir = os.path.join(pair_root, pair, str(tf), "folds", fold_name)
                     key = (pair, tf, fold_name, -1)
                     x_data, _, _, _ = load_shard(shard_dir, mmap_mode="r")
                     if x_data is not None:
-                        self._shard_paths[key] = (shard_dir, -1)
+                        self.legacy_shards.shard_paths[key] = (shard_dir, -1)
                         length = len(x_data)
                         del x_data
                         for row in range(length):

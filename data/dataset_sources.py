@@ -14,6 +14,7 @@ import sys
 import zipfile
 from collections.abc import Callable
 
+from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog
 from training.data.manifold import ManifoldResolver
 
 logger = logging.getLogger("lemtrain.dataset")
@@ -144,18 +145,9 @@ class DatasetSourcesMixin:
 
     # Host (``MultiTaskDataset``) state this mixin reads and writes.
     config: dict
-    env: str
-    is_train: bool
-    sample_fraction: float
-    split: str
-    data_root: str
-    model_key: str
-    model_info: dict
-    unified_models: dict
-    task_type: str
-    path_cache: dict[str, str | None]
-    samples: list[tuple[str, str | int]]
-    all_samples: list[tuple[str, str | int]]
+    opts: DatasetOptions
+    spec: ModelSpec
+    catalog: SampleCatalog
     # Provided by ``DatasetContainerMixin``.
     load_container_samples: Callable[[set], None]
 
@@ -164,16 +156,16 @@ class DatasetSourcesMixin:
         base_name = os.path.splitext(fname)[0] if ext else fname
         suffix = ext if ext else ""
         cands = [
-            os.path.join(ds_path, folder_name, self.split, base_name + suffix),
+            os.path.join(ds_path, folder_name, self.opts.split, base_name + suffix),
             os.path.join(
                 ds_path,
                 folder_name,
-                ("val" if self.split == "train" else "train"),
+                ("val" if self.opts.split == "train" else "train"),
                 base_name + suffix,
             ),
             os.path.join(ds_path, folder_name, base_name + suffix),
-            os.path.join(ds_path, self.split, folder_name, base_name + suffix),
-            os.path.join(ds_path, self.split, base_name + suffix),
+            os.path.join(ds_path, self.opts.split, folder_name, base_name + suffix),
+            os.path.join(ds_path, self.opts.split, base_name + suffix),
             os.path.join(ds_path, base_name + suffix),
         ]
         for c in cands:
@@ -183,61 +175,65 @@ class DatasetSourcesMixin:
 
     def load_manifest(self, config):
         """Index every configured dataset's samples into ``all_samples`` and ``samples``."""
-        self.all_samples = []
-        self.samples = []
-        if self.env == "kaggle" and config.get("debug", False):
+        self.catalog.all_samples = []
+        self.catalog.samples = []
+        if self.opts.env == "kaggle" and config.get("debug", False):
             _print_kaggle_mounts()
 
-        dataset_names = _dataset_names(self._raw_dataset_names(), _dataset_suffix(self.env, config))
+        dataset_names = _dataset_names(
+            self._raw_dataset_names(), _dataset_suffix(self.opts.env, config)
+        )
         loaded_paths = set()
         for ds_name in dataset_names:
             ds_path = self.get_dataset_path(ds_name)
             if ds_path is None or ds_path in loaded_paths:
                 continue
             loaded_paths.add(ds_path)
-            self.path_cache[ds_name] = ds_path
+            self.catalog.path_cache[ds_name] = ds_path
             scan_dir = self._scan_dir(ds_path)
             if not scan_dir or not os.path.exists(scan_dir):
                 continue
             for f in _list_images(scan_dir):
-                self.all_samples.append((ds_name, f))
+                self.catalog.all_samples.append((ds_name, f))
 
         # Kaggle dynamic discovery: Train on whichever datasets are attached in /kaggle/input
-        if (self.env == "kaggle" or os.path.exists("/kaggle/input")) and not self.all_samples:
+        if (
+            self.opts.env == "kaggle" or os.path.exists("/kaggle/input")
+        ) and not self.catalog.all_samples:
             self._load_attached_manifolds(config, loaded_paths)
 
         # Container-format fallback: if no directory samples found, try ContainerReader.
-        if not self.all_samples:
+        if not self.catalog.all_samples:
             self.load_container_samples(loaded_paths)
 
         self._apply_sample_fraction()
 
     def _raw_dataset_names(self):
         """Dataset names from the model registry entry, defaulting to the model key."""
-        raw_dataset_names = self.model_info.get("datasets", [])
+        raw_dataset_names = self.spec.model_info.get("datasets", [])
         if isinstance(raw_dataset_names, str):
             raw_dataset_names = [raw_dataset_names]
         elif not isinstance(raw_dataset_names, list):
             raw_dataset_names = []
         if not raw_dataset_names:
-            raw_dataset_names = [self.model_key]
+            raw_dataset_names = [self.spec.model_key]
         return raw_dataset_names
 
     def _scan_dir(self, ds_path):
         """Directory whose images index ``ds_path`` for the current split."""
         # 2026: Parameter prediction loads from targets/ (clean source images)
-        if self.task_type == "parameter_prediction":
-            img_dir = os.path.join(ds_path, "targets", self.split)
+        if self.spec.task_type == "parameter_prediction":
+            img_dir = os.path.join(ds_path, "targets", self.opts.split)
             if not os.path.exists(img_dir):
-                img_dir = os.path.join(ds_path, "images", self.split)
+                img_dir = os.path.join(ds_path, "images", self.opts.split)
             return img_dir
-        img_dir = os.path.join(ds_path, "images", self.split)
-        tgt_dir = os.path.join(ds_path, "targets", self.split)
+        img_dir = os.path.join(ds_path, "images", self.opts.split)
+        tgt_dir = os.path.join(ds_path, "targets", self.opts.split)
         return img_dir if os.path.exists(img_dir) else tgt_dir
 
     def _load_attached_manifolds(self, config, loaded_paths):
         """Index the first image folder of every manifold attached under ``/kaggle/input``."""
-        resolver = ManifoldResolver(env=self.env, config=config)
+        resolver = ManifoldResolver(env=self.opts.env, config=config)
         attached_manifolds = resolver.scan_kaggle_input_manifolds()
         if not attached_manifolds:
             return
@@ -252,45 +248,45 @@ class DatasetSourcesMixin:
             m_str = str(m_path)
             loaded_paths.add(m_str)
             ds_key = m_path.name
-            self.path_cache[ds_key] = m_str
+            self.catalog.path_cache[ds_key] = m_str
             for sub in ["images", "targets", "shards", "train", "val"]:
                 sub_dir = (
-                    os.path.join(m_str, sub, self.split)
-                    if os.path.exists(os.path.join(m_str, sub, self.split))
+                    os.path.join(m_str, sub, self.opts.split)
+                    if os.path.exists(os.path.join(m_str, sub, self.opts.split))
                     else os.path.join(m_str, sub)
                 )
                 if os.path.exists(sub_dir):
                     items = _list_images(sub_dir)
                     for f in items:
-                        self.all_samples.append((ds_key, f))
+                        self.catalog.all_samples.append((ds_key, f))
                     if items:
                         break
 
     def _apply_sample_fraction(self) -> None:
-        """Apply deterministic curriculum sample-fraction slicing to ``self.all_samples``."""
-        self.samples = list(self.all_samples)
-        if self.is_train and self.sample_fraction < 1.0 and self.samples:
+        """Apply deterministic curriculum sample-fraction slicing to ``all_samples``."""
+        self.catalog.samples = list(self.catalog.all_samples)
+        if self.opts.is_train and self.opts.sample_fraction < 1.0 and self.catalog.samples:
             rng = random.Random(42)
-            rng.shuffle(self.samples)
-            target_count = max(1, int(len(self.samples) * float(self.sample_fraction)))
-            self.samples = self.samples[:target_count]
+            rng.shuffle(self.catalog.samples)
+            target_count = max(1, int(len(self.catalog.samples) * float(self.opts.sample_fraction)))
+            self.catalog.samples = self.catalog.samples[:target_count]
 
     def get_dataset_path(self, ds_name):
         """Resolve the on-disk directory for dataset ``ds_name`` in the current environment.
 
         Exits the process when a Colab run cannot locate a required dataset.
         """
-        resolver = ManifoldResolver(env=self.env, config=self.config)
+        resolver = ManifoldResolver(env=self.opts.env, config=self.config)
         resolved = resolver.resolve_manifold(ds_name)
         if resolved is not None:
             return str(resolved)
 
-        model_info = self.unified_models.get(self.model_key, {})
+        model_info = self.spec.unified_models.get(self.spec.model_key, {})
         gdrive_id = model_info.get("google_drive_dataset_id")
 
-        if self.env == "colab":
+        if self.opts.env == "colab":
             return self._colab_dataset_path(ds_name, gdrive_id)
-        if self.env == "kaggle":
+        if self.opts.env == "kaggle":
             return self._kaggle_dataset_path(ds_name, resolver)
         return self._local_dataset_path(ds_name, gdrive_id)
 
@@ -333,8 +329,8 @@ class DatasetSourcesMixin:
             or any(f.endswith((".parquet", ".csv")) for f in os.listdir(cand))
         ):
             return cand, cand
-        if hasattr(self, "data_root") and os.path.exists(self.data_root):
-            cand = os.path.join(self.data_root, ds_name)
+        if os.path.exists(self.opts.data_root):
+            cand = os.path.join(self.opts.data_root, ds_name)
             if os.path.exists(cand):
                 return cand, cand
         # Check case-insensitive in colab_ds_root
@@ -352,7 +348,7 @@ class DatasetSourcesMixin:
     def _kaggle_dataset_path(self, ds_name, resolver):
         """Kaggle lookup: the symlinked data root, then manifolds attached in /kaggle/input."""
         # Priority 1: Check symlinked data_root (/kaggle/working/LemGendaryDatasets)
-        if hasattr(self, "data_root") and os.path.exists(self.data_root):
+        if os.path.exists(self.opts.data_root):
             found = self._kaggle_data_root_path(ds_name)
             if found is not None:
                 return found
@@ -369,17 +365,17 @@ class DatasetSourcesMixin:
 
     def _kaggle_data_root_path(self, ds_name):
         """``ds_name`` (exact, then case-insensitive) under the Kaggle data root, or ``None``."""
-        cand = os.path.join(self.data_root, ds_name)
+        cand = os.path.join(self.opts.data_root, ds_name)
         if _has_any(cand, _KAGGLE_LAYOUT):
             return cand
         try:
-            for cand in _case_insensitive_entries(self.data_root, ds_name):
+            for cand in _case_insensitive_entries(self.opts.data_root, ds_name):
                 if _has_any(cand, _KAGGLE_LAYOUT):
                     return cand
         except OSError as exc:
             logger.warning(
                 "Case-insensitive scan of %s failed for %s: %s",
-                self.data_root,
+                self.opts.data_root,
                 ds_name,
                 exc,
             )
@@ -388,13 +384,13 @@ class DatasetSourcesMixin:
     def _local_dataset_path(self, ds_name, gdrive_id):
         """Local lookup: the data root (exact, then case-insensitive), then a gdown download."""
         # Priority 1: Check Local Root
-        path = os.path.join(self.data_root, ds_name)
+        path = os.path.join(self.opts.data_root, ds_name)
         if _has_any(path, _LOCAL_LAYOUT):
             return path
 
-        if os.path.exists(self.data_root):
+        if os.path.exists(self.opts.data_root):
             try:
-                for cand in _case_insensitive_entries(self.data_root, ds_name):
+                for cand in _case_insensitive_entries(self.opts.data_root, ds_name):
                     if _has_any(cand, _LOCAL_LAYOUT):
                         return cand
             except OSError as local_err:
@@ -411,8 +407,8 @@ class DatasetSourcesMixin:
             "\n[DATA] Local dataset not found. Falling back to gdown from Google Drive "
             f"(ID: {gdrive_id})..."
         )
-        os.makedirs(self.data_root, exist_ok=True)
-        dest = os.path.join(self.data_root, f"{ds_name}.zip")
+        os.makedirs(self.opts.data_root, exist_ok=True)
+        dest = os.path.join(self.opts.data_root, f"{ds_name}.zip")
         result = subprocess.run(
             [sys.executable, "-m", "gdown", "--id", gdrive_id, "-O", dest], check=False
         )
@@ -421,7 +417,7 @@ class DatasetSourcesMixin:
         if os.path.exists(dest):
             print(f"[DATA] Extracting {dest}...")
             with zipfile.ZipFile(dest, "r") as zip_ref:
-                zip_ref.extractall(self.data_root)
+                zip_ref.extractall(self.opts.data_root)
             os.remove(dest)
-            return os.path.join(self.data_root, ds_name)
+            return os.path.join(self.opts.data_root, ds_name)
         return None
