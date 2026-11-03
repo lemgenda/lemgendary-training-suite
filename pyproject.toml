@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.scripts]
-lemtrain = "cli:main"
+lemtrain = "training.cli.lemtrain:app"
 
 [tool.setuptools.packages.find]
 where = ["."]

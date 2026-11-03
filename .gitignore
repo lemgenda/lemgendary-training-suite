@@ -64,3 +64,7 @@ typings/
 htmlcov/
 *.tmp
 .lemtrain_server/
+
+# Build metadata and generated tool caches (review D-06, 7.3)
+*.egg-info/
+.cache/
