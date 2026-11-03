@@ -109,6 +109,57 @@ class ModelPushResult:
         }
 
 
+def _upload_variation(
+    kagglehub, handle: str, variation_dir: Path, notes: str, stage_default: bool
+) -> None:
+    """Upload ``variation_dir``; with ``stage_default`` upload a clean transient copy instead.
+
+    The copy holds strictly checkpoints/, README.md and metrics.csv to guarantee isolation.
+    """
+    with contextlib.ExitStack() as stack:
+        upload_dir = variation_dir
+        if stage_default:
+            temp_path = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+            _stage_default_payload(variation_dir, temp_path)
+            upload_dir = temp_path
+
+        kagglehub.model_upload(
+            handle=handle,
+            local_model_dir=str(upload_dir),
+            version_notes=notes,
+        )
+
+
+def _promote_default_payload(target_dir: Path, model_root: Path) -> None:
+    """Move a pulled pytorch/default payload into ``model_root`` and drop the duplicate dir.
+
+    Checkpoints, metrics.csv and README.md land in the canonical model root so there is
+    strictly one source of truth on disk.
+    """
+    src_ckpt_dir = target_dir / "checkpoints"
+    dst_ckpt_dir = model_root / "checkpoints"
+    if src_ckpt_dir.exists() and src_ckpt_dir.resolve() != dst_ckpt_dir.resolve():
+        dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
+        for f in src_ckpt_dir.iterdir():
+            if f.is_file():
+                dest_f = dst_ckpt_dir / f.name
+                if not dest_f.exists() or f.stat().st_size != dest_f.stat().st_size:
+                    shutil.copy2(f, dest_f)
+    for rf_name in ("metrics.csv", "README.md"):
+        src_rf = target_dir / rf_name
+        dst_rf = model_root / rf_name
+        if (
+            src_rf.exists()
+            and src_rf.resolve() != dst_rf.resolve()
+            and (not dst_rf.exists() or src_rf.stat().st_size != dst_rf.stat().st_size)
+        ):
+            shutil.copy2(src_rf, dst_rf)
+
+    # Purge duplicate dist/kaggle/pytorch_default directory to prevent dual files on disk
+    if target_dir.exists() and target_dir.resolve() != model_root.resolve():
+        remove_tree(target_dir, purpose="duplicate pytorch_default purge")
+
+
 class KaggleModelSyncManager:
     """Orchestrates Kaggle Models Hub uploads across all 4 isolated variations."""
 
@@ -241,26 +292,15 @@ class KaggleModelSyncManager:
 
         try:
             var_obj = VARIATION_BY_KEY[variation]
-            notes = version_notes or f"Production SOTA Release: {model_key} [{var_obj.label}]"
             logger.info("Uploading %s variation to Kaggle Models Hub: %s ...", variation, handle)
-
-            # If uploading PYTORCH_DEFAULT from the canonical model_dir, upload via a clean
-            # transient staging directory containing strictly checkpoints/, README.md and
-            # metrics.csv to guarantee isolation.
-            with contextlib.ExitStack() as stack:
-                upload_dir = variation_dir
-                if variation == PYTORCH_DEFAULT.key and variation_dir == self.get_model_dir(
-                    model_key
-                ):
-                    temp_path = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-                    _stage_default_payload(variation_dir, temp_path)
-                    upload_dir = temp_path
-
-                kagglehub.model_upload(
-                    handle=handle,
-                    local_model_dir=str(upload_dir),
-                    version_notes=notes,
-                )
+            _upload_variation(
+                kagglehub,
+                handle,
+                variation_dir,
+                version_notes or f"Production SOTA Release: {model_key} [{var_obj.label}]",
+                # The canonical model_dir holds more than the default payload: stage it.
+                variation == PYTORCH_DEFAULT.key and variation_dir == self.get_model_dir(model_key),
+            )
 
             logger.info("[OK] Successfully uploaded %s to Kaggle Models Hub", handle)
             return VariationPushResult(
@@ -393,33 +433,8 @@ class KaggleModelSyncManager:
             force_download=force_download,
         )
 
-        # For pytorch/default, ensure checkpoints and metrics.csv land in canonical model_root,
-        # and eliminate duplicate staging directories so there is strictly one source of truth.
         if variation == PYTORCH_DEFAULT.key:
-            model_root = self.get_model_dir(model_key)
-            src_ckpt_dir = target_dir / "checkpoints"
-            dst_ckpt_dir = model_root / "checkpoints"
-            if src_ckpt_dir.exists() and src_ckpt_dir.resolve() != dst_ckpt_dir.resolve():
-                dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
-                for f in src_ckpt_dir.iterdir():
-                    if f.is_file():
-                        dest_f = dst_ckpt_dir / f.name
-                        if not dest_f.exists() or f.stat().st_size != dest_f.stat().st_size:
-                            shutil.copy2(f, dest_f)
-            # Check metrics.csv and README.md in downloaded target_dir
-            for rf_name in ("metrics.csv", "README.md"):
-                src_rf = target_dir / rf_name
-                dst_rf = model_root / rf_name
-                if (
-                    src_rf.exists()
-                    and src_rf.resolve() != dst_rf.resolve()
-                    and (not dst_rf.exists() or src_rf.stat().st_size != dst_rf.stat().st_size)
-                ):
-                    shutil.copy2(src_rf, dst_rf)
-
-            # Purge duplicate dist/kaggle/pytorch_default directory to prevent dual files on disk
-            if target_dir.exists() and target_dir.resolve() != model_root.resolve():
-                remove_tree(target_dir, purpose="duplicate pytorch_default purge")
+            _promote_default_payload(target_dir, self.get_model_dir(model_key))
 
         return bool(downloaded_path)
 

@@ -53,6 +53,42 @@ class JpegCompressionGuard:
         return img
 
 
+def _jpeg_roundtrip(cv2, img_np: np.ndarray, quality: int) -> np.ndarray:
+    """Encode/decode ``img_np`` (float HWC in [0, 1]) as JPEG; unchanged if codec fails."""
+    img_uint8 = np.clip(img_np * 255.0, 0, 255).astype(np.uint8)
+    encoded_ok, enc = cv2.imencode(".jpg", img_uint8, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    if encoded_ok:
+        decoded = cv2.imdecode(enc, cv2.IMREAD_COLOR)
+        if decoded is not None:
+            return decoded.astype(np.float32) / 255.0
+    return img_np
+
+
+def _film_tint(img_np: np.ndarray) -> np.ndarray:
+    """Grayscale, or (half the time) sepia-toned grayscale."""
+    gray = np.dot(img_np[..., :3], [0.2989, 0.5870, 0.1140])
+    gray_stack = np.stack([gray, gray, gray], axis=-1)
+    if np.random.rand() < 0.5:
+        sepia = np.zeros_like(img_np)
+        sepia[..., 0] = gray_stack[..., 0] * 1.07
+        sepia[..., 1] = gray_stack[..., 1] * 0.74
+        sepia[..., 2] = gray_stack[..., 2] * 0.43
+        return sepia
+    return gray_stack
+
+
+def _film_scratches(cv2, img_np: np.ndarray) -> None:
+    """Draw 1-4 near-vertical black or white scratches onto ``img_np`` in place."""
+    h, w = img_np.shape[:2]
+    num_scratches = np.random.randint(1, 5)
+    for _ in range(num_scratches):
+        x1 = int(np.random.randint(0, w))
+        x2 = x1 + np.random.randint(-20, 20)
+        color = float(np.random.choice([0.0, 1.0]))
+        thickness = np.random.randint(1, 3)
+        cv2.line(img_np, (x1, 0), (x2, h), (color, color, color), thickness)
+
+
 def apply_synthetic_degradation(
     img_tensor: torch.Tensor,
     deg: float,
@@ -79,20 +115,13 @@ def apply_synthetic_degradation(
 
     # Degradation 3: JPEG Compression
     jpeg_quality = int(95 - (theta / math.pi) * 80)
-    jpeg_quality = max(10, min(jpeg_quality, 95))
-    img_uint8 = np.clip(img_np * 255.0, 0, 255).astype(np.uint8)
-    encoded_ok, enc = cv2.imencode(".jpg", img_uint8, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
-    if encoded_ok:
-        decoded = cv2.imdecode(enc, cv2.IMREAD_COLOR)
-        if decoded is not None:
-            img_np = decoded.astype(np.float32) / 255.0
+    img_np = _jpeg_roundtrip(cv2, img_np, max(10, min(jpeg_quality, 95)))
 
     # Degradation 4: Downscale + Upscale
     scale_factor = max(0.25, 1.0 - deg * conf * 0.75)
     if scale_factor < 0.95:
-        small_h = max(8, int(h * scale_factor))
-        small_w = max(8, int(w * scale_factor))
-        img_np = cv2.resize(img_np, (small_w, small_h), interpolation=cv2.INTER_AREA)
+        small_size = (max(8, int(w * scale_factor)), max(8, int(h * scale_factor)))
+        img_np = cv2.resize(img_np, small_size, interpolation=cv2.INTER_AREA)
         img_np = cv2.resize(img_np, (w, h), interpolation=cv2.INTER_LINEAR)
 
     img_np = np.clip(img_np, 0.0, 1.0)
@@ -106,16 +135,7 @@ def apply_film_degradation(img_tensor: torch.Tensor) -> torch.Tensor:
 
     # Sepia / Grayscale tint
     if np.random.rand() < 0.8:
-        gray = np.dot(img_np[..., :3], [0.2989, 0.5870, 0.1140])
-        gray_stack = np.stack([gray, gray, gray], axis=-1)
-        if np.random.rand() < 0.5:
-            sepia = np.zeros_like(img_np)
-            sepia[..., 0] = gray_stack[..., 0] * 1.07
-            sepia[..., 1] = gray_stack[..., 1] * 0.74
-            sepia[..., 2] = gray_stack[..., 2] * 0.43
-            img_np = sepia
-        else:
-            img_np = gray_stack
+        img_np = _film_tint(img_np)
 
     # Film Grain
     noise_level = float(np.random.uniform(0.02, 0.15))
@@ -129,16 +149,7 @@ def apply_film_degradation(img_tensor: torch.Tensor) -> torch.Tensor:
 
     # Film Scratches
     if np.random.rand() < 0.6:
-        h, w = img_np.shape[:2]
-        num_scratches = np.random.randint(1, 5)
-        for _ in range(num_scratches):
-            x1 = int(np.random.randint(0, w))
-            y1 = 0
-            x2 = x1 + np.random.randint(-20, 20)
-            y2 = h
-            color = float(np.random.choice([0.0, 1.0]))
-            thickness = np.random.randint(1, 3)
-            cv2.line(img_np, (x1, y1), (x2, y2), (color, color, color), thickness)
+        _film_scratches(cv2, img_np)
 
     img_np = np.clip(img_np, 0.0, 1.0)
     return torch.from_numpy(img_np).permute(2, 0, 1).float()

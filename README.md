@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.109-STABLE`
+- **Version**: `v16.9.110-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,15 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.110 - Smaller Functions in Cloud Sync, Containers and Training Setup
+
+- **Refactor**: Kaggle Hub staging (`_stage_model_dir`), Kaggle Models
+  variation upload and pytorch/default promotion, MDS record decoding, film
+  and synthetic degradation steps (same tensors and RNG state over 600 seeded
+  runs), chat-template vs manual instruction encoding, optimizer parameter
+  groups and betas, scheduler options, and the CUDA AMP policy. Removes 10
+  too-many-locals and 1 too-many-branches finding.
 
 ### v16.9.109 - Smaller Functions in Data, Models, Checkpoint and CLI Sync
 

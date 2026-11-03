@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.109"
+    "version": "16.9.110"
   },
   "paths": {
     "/api/health": {

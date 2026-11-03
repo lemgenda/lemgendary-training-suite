@@ -22,6 +22,26 @@ _STREAMING_INIT_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+def _as_bytes(value: Any) -> bytes | None:
+    return bytes(value) if isinstance(value, (bytes, bytearray)) else None
+
+
+def _record_sample(record: dict[str, Any], index: int) -> Sample:
+    """``Sample`` from one streaming MDS record (field aliases resolved)."""
+    meta = {"index": index}
+    if isinstance(record.get("metadata"), dict):
+        meta.update(record["metadata"])
+    return Sample(
+        name=str(record.get("name") or record.get("id") or f"mds_sample_{index:08d}"),
+        image_bytes=_as_bytes(record.get("image") or record.get("image_bytes") or b"") or b"",
+        image_format=str(record.get("image_format", "webp")),
+        target_bytes=_as_bytes(record.get("target") or record.get("target_bytes")),
+        mask_bytes=_as_bytes(record.get("mask") or record.get("mask_bytes")),
+        label=record.get("label"),
+        metadata=meta,
+    )
+
+
 class MdsReader:
     """Reader for MosaicML Streaming (MDS) sharded datasets."""
 
@@ -111,33 +131,11 @@ class MdsReader:
             raise IndexError(f"MDS sample index {index} out of range (0..{len(self) - 1}).")
 
         if self._streaming_ds is not None:
-            record = self._streaming_ds[index]
-            name = str(record.get("name") or record.get("id") or f"mds_sample_{index:08d}")
-            image_bytes = record.get("image") or record.get("image_bytes") or b""
-            fmt = str(record.get("image_format", "webp"))
-            target_bytes = record.get("target") or record.get("target_bytes")
-            mask_bytes = record.get("mask") or record.get("mask_bytes")
-            label = record.get("label")
-            meta = {"index": index}
-            if isinstance(record.get("metadata"), dict):
-                meta.update(record["metadata"])
-            return Sample(
-                name=name,
-                image_bytes=bytes(image_bytes)
-                if isinstance(image_bytes, (bytes, bytearray))
-                else b"",
-                image_format=fmt,
-                target_bytes=bytes(target_bytes)
-                if isinstance(target_bytes, (bytes, bytearray))
-                else None,
-                mask_bytes=bytes(mask_bytes)
-                if isinstance(mask_bytes, (bytes, bytearray))
-                else None,
-                label=label,
-                metadata=meta,
-            )
+            return _record_sample(self._streaming_ds[index], index)
+        return self._index_sample(index)
 
-        # Fallback index metadata record
+    def _index_sample(self, index: int) -> Sample:
+        """Placeholder sample from the index metadata (no streaming dataset available)."""
         target_shard: dict[str, Any] | None = None
         local_idx = 0
         for start, end, shard in self._shard_offsets:

@@ -21,6 +21,37 @@ from torch.optim.lr_scheduler import (
 )
 
 
+def _param_groups(model: torch.nn.Module, base_wd: float) -> list[dict[str, Any]]:
+    """Decay group (weights) and no-decay group (biases, norms, 1-D params)."""
+    decay_params: list[torch.nn.Parameter] = []
+    no_decay_params: list[torch.nn.Parameter] = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if (
+            param.ndim <= 1
+            or name.endswith(".bias")
+            or "norm" in name.lower()
+            or "bn" in name.lower()
+        ):
+            no_decay_params.append(param)
+        else:
+            decay_params.append(param)
+
+    return [
+        {"params": decay_params, "weight_decay": base_wd},
+        {"params": no_decay_params, "weight_decay": 0.0},
+    ]
+
+
+def _betas(betas: Any) -> tuple[float, float]:
+    """Adam betas from config; the defaults unless it is a pair."""
+    if isinstance(betas, (list, tuple)) and len(betas) == 2:
+        return (float(betas[0]), float(betas[1]))
+    return (0.9, 0.999)
+
+
 def build_optimizer(
     model: torch.nn.Module,
     config: dict[str, Any],
@@ -38,33 +69,8 @@ def build_optimizer(
         weight_decay if weight_decay is not None else opt_config.get("weight_decay", 1e-2)
     )
 
-    decay_params: list[torch.nn.Parameter] = []
-    no_decay_params: list[torch.nn.Parameter] = []
-
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue
-        if (
-            param.ndim <= 1
-            or name.endswith(".bias")
-            or "norm" in name.lower()
-            or "bn" in name.lower()
-        ):
-            no_decay_params.append(param)
-        else:
-            decay_params.append(param)
-
-    param_groups = [
-        {"params": decay_params, "weight_decay": base_wd},
-        {"params": no_decay_params, "weight_decay": 0.0},
-    ]
-
-    betas = opt_config.get("betas", [0.9, 0.999])
-    if isinstance(betas, (list, tuple)) and len(betas) == 2:
-        beta_tuple = (float(betas[0]), float(betas[1]))
-    else:
-        beta_tuple = (0.9, 0.999)
-
+    param_groups = _param_groups(model, base_wd)
+    beta_tuple = _betas(opt_config.get("betas", [0.9, 0.999]))
     eps = float(opt_config.get("eps", 1e-8))
 
     if opt_type == "adam":
@@ -118,22 +124,28 @@ def build_scheduler(
         return LambdaLR(optimizer, lr_lambda=lr_lambda)
 
     if sched_type == "step":
-        step_size = int(sched_config.get("step_size", 30))
-        gamma = float(sched_config.get("gamma", 0.1))
-        return StepLR(optimizer, step_size=step_size, gamma=gamma)
+        return StepLR(
+            optimizer,
+            step_size=int(sched_config.get("step_size", 30)),
+            gamma=float(sched_config.get("gamma", 0.1)),
+        )
 
     if sched_type == "plateau":
-        mode = sched_config.get("mode", "min")
-        factor = float(sched_config.get("factor", 0.5))
-        patience = int(sched_config.get("patience", 5))
         return ReduceLROnPlateau(
-            optimizer, mode=mode, factor=factor, patience=patience, min_lr=min_lr
+            optimizer,
+            mode=sched_config.get("mode", "min"),
+            factor=float(sched_config.get("factor", 0.5)),
+            patience=int(sched_config.get("patience", 5)),
+            min_lr=min_lr,
         )
 
     if sched_type == "restarts":
-        t_0 = int(sched_config.get("t_0", 10))
-        t_mult = int(sched_config.get("t_mult", 2))
-        return CosineAnnealingWarmRestarts(optimizer, T_0=t_0, T_mult=t_mult, eta_min=min_lr)
+        return CosineAnnealingWarmRestarts(
+            optimizer,
+            T_0=int(sched_config.get("t_0", 10)),
+            T_mult=int(sched_config.get("t_mult", 2)),
+            eta_min=min_lr,
+        )
 
     # Default: Standard Cosine Annealing
     return CosineAnnealingLR(optimizer, T_max=max(1, total_epochs), eta_min=min_lr)

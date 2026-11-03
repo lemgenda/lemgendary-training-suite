@@ -119,24 +119,32 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
 
         # Apply chat template or manual turn construction
         if hasattr(self.tokenizer, "apply_chat_template"):
-            try:
-                input_ids = self.tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=True,
-                    max_length=self.max_length,
-                    truncation=True,
-                    return_tensors="pt",
-                )[0]
-                attention_mask = torch.ones_like(input_ids)
-                labels = input_ids.clone()
-                return {
-                    "input_ids": input_ids,
-                    "attention_mask": attention_mask,
-                    "labels": labels,
-                }
-            except _CHAT_TEMPLATE_ERRORS as exc:
-                logger.debug("apply_chat_template failed: %s. Using manual tokenization.", exc)
+            encoded = self._chat_template_encode(messages)
+            if encoded is not None:
+                return encoded
+        return self._manual_encode(messages)
 
+    def _chat_template_encode(self, messages: list) -> dict[str, torch.Tensor] | None:
+        """Tokenize with the tokenizer's chat template; ``None`` when the template fails."""
+        try:
+            input_ids = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                max_length=self.max_length,
+                truncation=True,
+                return_tensors="pt",
+            )[0]
+        except _CHAT_TEMPLATE_ERRORS as exc:
+            logger.debug("apply_chat_template failed: %s. Using manual tokenization.", exc)
+            return None
+        return {
+            "input_ids": input_ids,
+            "attention_mask": torch.ones_like(input_ids),
+            "labels": input_ids.clone(),
+        }
+
+    def _manual_encode(self, messages: list) -> dict[str, torch.Tensor]:
+        """ChatML turns with prompt tokens masked out of the labels."""
         # Manual turn concatenation with label masking
         formatted_prompt = ""
         assistant_reply = ""
