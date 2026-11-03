@@ -110,50 +110,56 @@ def sync_manifold_notebooks(
 
     ds_list = model_dataset_list(unified_models_registry.get(model_key, {}))
 
-    if model_key == "professional_multitask_restoration":
-        target_candidates = [
-            "LemGendizedMultitaskRestorationPro",
-            "professional_multitask_restoration",
-        ]
-    else:
-        target_candidates = list(ds_list)
-        if model_key not in target_candidates:
-            target_candidates.append(model_key)
-
     synced_dirs: set[Path] = set()
-    for target_folder in target_candidates:
+    for target_folder in _target_candidates(model_key, ds_list):
         if not target_folder:
             continue
-        clean_name = target_folder
-        if "_" in clean_name or "-" in clean_name:
-            pascal_name = "".join(
-                part.capitalize() for part in clean_name.replace("-", "_").split("_")
-            )
-        else:
-            pascal_name = clean_name
-
-        possible_manifold_folders = [
-            target_folder,
-            f"{target_folder}Large",
-            f"LemGendized{pascal_name}",
-            f"LemGendized{pascal_name}Large",
-            f"LemGendized{target_folder}Large",
-            f"LemGendized{target_folder}",
-        ]
-
-        for m_folder in possible_manifold_folders:
+        for m_folder in _manifold_folder_names(target_folder):
             ds_dir = datasets_hub_root / m_folder
             if ds_dir.exists() and ds_dir not in synced_dirs:
                 synced_dirs.add(ds_dir)
-                ds_output_path = ds_dir / filename
-                try:
-                    with open(ds_output_path, "w", encoding="utf-8") as f:
-                        f.write(json_str)
-                    print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
-                except OSError as exc:
-                    logger.warning(
-                        "Failed syncing manifold notebook to %s: %s", ds_output_path, exc
-                    )
+                _write_notebook(ds_dir / filename, json_str)
+
+
+def _target_candidates(model_key: str, ds_list: list[str]) -> list[str]:
+    """Dataset folders a model's notebooks go to (its datasets plus the model key)."""
+    if model_key == "professional_multitask_restoration":
+        return [
+            "LemGendizedMultitaskRestorationPro",
+            "professional_multitask_restoration",
+        ]
+    target_candidates = list(ds_list)
+    if model_key not in target_candidates:
+        target_candidates.append(model_key)
+    return target_candidates
+
+
+def _manifold_folder_names(target_folder: str) -> list[str]:
+    """Manifold directory spellings tried for one dataset folder name."""
+    if "_" in target_folder or "-" in target_folder:
+        pascal_name = "".join(
+            part.capitalize() for part in target_folder.replace("-", "_").split("_")
+        )
+    else:
+        pascal_name = target_folder
+    return [
+        target_folder,
+        f"{target_folder}Large",
+        f"LemGendized{pascal_name}",
+        f"LemGendized{pascal_name}Large",
+        f"LemGendized{target_folder}Large",
+        f"LemGendized{target_folder}",
+    ]
+
+
+def _write_notebook(ds_output_path: Path, json_str: str) -> None:
+    """Write the notebook JSON into a manifold directory (failures are logged)."""
+    try:
+        with open(ds_output_path, "w", encoding="utf-8") as f:
+            f.write(json_str)
+        print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
+    except OSError as exc:
+        logger.warning("Failed syncing manifold notebook to %s: %s", ds_output_path, exc)
 
 
 def sync_workspace_training_notebook(

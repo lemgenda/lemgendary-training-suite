@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.113-STABLE`
+- **Version**: `v16.9.114-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,16 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.114 - Smaller Notebook Metadata, Manifold Sync and DDP Launcher
+
+- **Refactor**: `resolve_model_metadata` gets `_dataset_slug`,
+  `_kaggle_username`, `_variation_handles` and `_notebook_input_size`;
+  manifold notebook sync gets `_target_candidates`,
+  `_manifold_folder_names` and `_write_notebook`; `tools/launch_ddp.py`
+  shares `_run_single_process` (was duplicated) and adds
+  `_effective_batch_note` and `_torchrun_env`. Removes 3 too-many-locals
+  and 2 too-many-branches findings.
 
 ### v16.9.113 - Job Dispatch Table, Worker Topology and MT5 Helpers
 

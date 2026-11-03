@@ -68,6 +68,62 @@ def model_dataset_list(model_info: dict[str, Any]) -> list[str]:
     return []
 
 
+def _dataset_slug(config: dict[str, Any] | None, pascal_name: str, default: str) -> str:
+    """Kaggle dataset slug from ``kaggle_dataset_urls`` (dict by name, or first list entry)."""
+    if not config:
+        return default
+    k_urls = config.get("kaggle_dataset_urls", {})
+    if isinstance(k_urls, dict):
+        for key, url in k_urls.items():
+            if pascal_name in key:
+                return url.split("/")[-1]
+    elif isinstance(k_urls, list) and k_urls:
+        return k_urls[0].split("/")[-1]
+    return default
+
+
+def _kaggle_username(model_key: str) -> str:
+    """Kaggle username from credentials, else the configured owner."""
+    try:
+        credentials = load_cloud_module("credentials")
+        user_cred, _ = credentials.resolve_kaggle_credentials()
+        return user_cred or kaggle_owner()
+    except (ImportError, OSError, ValueError) as exc:
+        logger.warning(
+            "Kaggle credential resolution failed for %s; using configured username: %s",
+            model_key,
+            exc,
+        )
+        return kaggle_owner()
+
+
+def _variation_handles(k_username: str, k_slug: str) -> dict[str, str]:
+    """Kaggle Models handle per variation key."""
+    variations = load_cloud_module("variations")
+    return {
+        variation.key: variation.handle(k_username, k_slug)
+        for variation in (
+            variations.PYTORCH_DEFAULT,
+            variations.PYTORCH_FP32,
+            variations.ONNX_FP16,
+            variations.ONNX_FP32,
+        )
+    }
+
+
+def _notebook_input_size(size_raw: Any) -> tuple[int, int]:
+    """``(H, W)`` from ``input_size`` (``[C, H, W]``, ``[H, W]`` or int); 256x256 otherwise."""
+    if isinstance(size_raw, list):
+        if len(size_raw) == 3:
+            return int(size_raw[1]), int(size_raw[2])
+        if len(size_raw) >= 2:
+            return int(size_raw[0]), int(size_raw[1])
+        return 256, 256
+    if isinstance(size_raw, int):
+        return size_raw, size_raw
+    return 256, 256
+
+
 def resolve_model_metadata(
     model_key: str,
     registry: dict[str, Any] | None = None,
@@ -77,40 +133,13 @@ def resolve_model_metadata(
     pascal_name = model_key.replace("_", " ").title().replace(" ", "")
     kebab_name = model_key.replace("_", "-")
 
-    dataset_slug = f"lemgendary-{kebab_name}"
-    if config:
-        k_urls = config.get("kaggle_dataset_urls", {})
-        if isinstance(k_urls, dict):
-            for key, url in k_urls.items():
-                if pascal_name in key:
-                    dataset_slug = url.split("/")[-1]
-                    break
-        elif isinstance(k_urls, list) and k_urls:
-            dataset_slug = k_urls[0].split("/")[-1]
-
     model_info: dict[str, Any] = registry.get(model_key, {}) if registry else {}
     ds_list = model_dataset_list(model_info)
 
     is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
-    ds_keys_repr = repr(
-        [model_key.lower(), model_key.replace("_", "-"), model_key.replace("_", "")]
-        + [d.lower() for d in ds_list]
-        + (["forex"] if is_forex else [])
-    )
 
     # Resolve canonical Kaggle username and handles using SSOT variations
-    try:
-        credentials = load_cloud_module("credentials")
-        user_cred, _ = credentials.resolve_kaggle_credentials()
-        k_username = user_cred or kaggle_owner()
-    except (ImportError, OSError, ValueError) as exc:
-        logger.warning(
-            "Kaggle credential resolution failed for %s; using configured username: %s",
-            model_key,
-            exc,
-        )
-        k_username = kaggle_owner()
-
+    k_username = _kaggle_username(model_key)
     k_slug = (
         model_info.get("kaggle_metadata", {}).get("slug")
         if isinstance(model_info.get("kaggle_metadata"), dict)
@@ -118,18 +147,8 @@ def resolve_model_metadata(
     )
     if not k_slug:
         k_slug = model_key.replace("_", "-").lower()
-
+    handles = _variation_handles(k_username, k_slug)
     variations = load_cloud_module("variations")
-    handles = {
-        variation.key: variation.handle(k_username, k_slug)
-        for variation in (
-            variations.PYTORCH_DEFAULT,
-            variations.PYTORCH_FP32,
-            variations.ONNX_FP16,
-            variations.ONNX_FP32,
-        )
-    }
-    k_handle = handles[variations.PYTORCH_DEFAULT.key]
 
     dataset_handles = model_kaggle_dataset_handles(model_info)
     primary_manifold = (
@@ -141,45 +160,32 @@ def resolve_model_metadata(
         dataset_handles[0] if dataset_handles else kaggle_dataset_handle(primary_manifold)
     )
 
-    no_download = bool(config.get("notebook_no_download", False)) if config else False
-
-    filename = model_info.get("filename", model_key)
-    preferred_parallel = str(model_info.get("preferred_parallel", "") or "")
-    size_raw = model_info.get("input_size", [3, 256, 256])
-    if isinstance(size_raw, list):
-        if len(size_raw) == 3:
-            h, w = int(size_raw[1]), int(size_raw[2])
-        elif len(size_raw) >= 2:
-            h, w = int(size_raw[0]), int(size_raw[1])
-        else:
-            h, w = 256, 256
-    elif isinstance(size_raw, int):
-        h, w = size_raw, size_raw
-    else:
-        h, w = 256, 256
-
     return ModelNotebookMeta(
         model_key=model_key,
         pascal_name=pascal_name,
         kebab_name=kebab_name,
         is_forex=is_forex,
-        dataset_slug=dataset_slug,
+        dataset_slug=_dataset_slug(config, pascal_name, f"lemgendary-{kebab_name}"),
         ds_list=ds_list,
-        ds_keys_repr=ds_keys_repr,
+        ds_keys_repr=repr(
+            [model_key.lower(), model_key.replace("_", "-"), model_key.replace("_", "")]
+            + [d.lower() for d in ds_list]
+            + (["forex"] if is_forex else [])
+        ),
         clean_kaggle_repo=clean_kaggle_repo,
         primary_manifold=primary_manifold,
         k_username=k_username,
         k_slug=k_slug,
-        k_handle=k_handle,
-        input_size=(h, w),
-        filename=filename,
-        no_download=no_download,
+        k_handle=handles[variations.PYTORCH_DEFAULT.key],
+        input_size=_notebook_input_size(model_info.get("input_size", [3, 256, 256])),
+        filename=model_info.get("filename", model_key),
+        no_download=bool(config.get("notebook_no_download", False)) if config else False,
         handles=handles,
         handle_pytorch_default=handles[variations.PYTORCH_DEFAULT.key],
         handle_pytorch_fp32=handles[variations.PYTORCH_FP32.key],
         handle_onnx_fp16=handles[variations.ONNX_FP16.key],
         handle_onnx_fp32=handles[variations.ONNX_FP32.key],
-        preferred_parallel=preferred_parallel,
+        preferred_parallel=str(model_info.get("preferred_parallel", "") or ""),
     )
 
 
