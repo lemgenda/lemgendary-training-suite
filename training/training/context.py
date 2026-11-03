@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch.utils.data import DataLoader
@@ -19,6 +19,9 @@ from training.governance.sota import SotaTracker
 from training.hardware.discovery import DeviceInfo
 from training.hardware.policy import ExecutionPolicy
 from training.hardware.sentinel import SentinelGuard
+
+if TYPE_CHECKING:
+    from training.training.swa import SwaPhase
 
 
 @dataclass(frozen=True)
@@ -77,3 +80,5 @@ class TrainingContext:
     resumed_train_step_handled: bool = False
     resumed_val_handled: bool = False
     resumed_val_step_handled: bool = False
+    # Stochastic Weight Averaging component; None when SWA is disabled.
+    swa: SwaPhase | None = None

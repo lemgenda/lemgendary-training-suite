@@ -36,6 +36,7 @@ from training.telemetry import EpochLosses, EpochRow, ForexRowTag, TelemetryEngi
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
 from training.training.summary import TrainingSummary
+from training.training.swa import attach_swa
 from training.training.validation import validate_one_epoch
 from training.utils.error_types import (
     CLOUD_SYNC_START_ERRORS,
@@ -158,6 +159,8 @@ def run_training(
             project_root=ctx.paths.project_root,
             sota_targets=sota_targets,
         )
+
+    ctx.swa = attach_swa(ctx)
 
     total_start_time = time.time()
     best_metrics: dict[str, float] = {}
@@ -400,6 +403,10 @@ def run_training(
                     "Governor audit or loader rebuild failed at epoch %d: %s", epoch, gov_err
                 )
 
+        # 7b. Stochastic Weight Averaging (no-op when disabled; never touches the governor)
+        if ctx.swa is not None:
+            ctx.swa.end_epoch(ctx, epoch)
+
         # 8. Checkpoint serialization payload (persists post-audit governor state for next epoch
         # resume)
         raw_model = ctx.raw_model if ctx.raw_model is not None else ctx.model
@@ -579,6 +586,9 @@ def run_training(
             logger.info("Epoch budget extended for %s: %s", ctx.model_name, decision.message)
 
         epoch += 1
+
+    if ctx.swa is not None:
+        ctx.swa.finish(ctx, last_epoch_executed)
 
     total_elapsed = time.time() - total_start_time
     final_status = "completed" if stop_reason is StopReason.CONVERGED else "partially_trained"
