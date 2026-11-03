@@ -6,8 +6,9 @@ from abc import ABC, abstractmethod
 from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
-import torch
 from torch import nn
+
+from training.utils.tensors import to_device
 
 
 class ParallelStrategy(ABC):
@@ -90,42 +91,6 @@ def generic_prepare_batch(inputs, targets, device, task_type) -> tuple[Any, Any,
     Returns ``(inputs, targets, None)``; callers move task indices themselves.
     """
     if task_type in ("text_to_image", "image_to_text"):
-        if isinstance(inputs, dict):
-            inputs = {
-                k: (v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v)
-                for k, v in inputs.items()
-            }
-        return inputs, None, None
+        return (to_device(inputs, device) if isinstance(inputs, dict) else inputs), None, None
 
-    if task_type == "forex":
-        if isinstance(inputs, dict):
-            inputs = {
-                k: (v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v)
-                for k, v in inputs.items()
-            }
-        elif isinstance(inputs, torch.Tensor):
-            inputs = inputs.to(device, non_blocking=True)
-        if isinstance(targets, dict):
-            targets = {
-                k: (v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v)
-                for k, v in targets.items()
-            }
-        elif isinstance(targets, torch.Tensor):
-            targets = targets.to(device, non_blocking=True)
-        return inputs, targets, None
-
-    if isinstance(inputs, torch.Tensor):
-        inputs = inputs.to(device, non_blocking=True)
-    elif isinstance(inputs, dict):
-        inputs = {
-            k: (v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v)
-            for k, v in inputs.items()
-        }
-    if isinstance(targets, dict):
-        targets = {
-            k: (v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v)
-            for k, v in targets.items()
-        }
-    elif isinstance(targets, torch.Tensor):
-        targets = targets.to(device, non_blocking=True)
-    return inputs, targets, None
+    return to_device(inputs, device), to_device(targets, device), None

@@ -7,12 +7,59 @@ payload and the batch telemetry line are the same for both loops.
 from __future__ import annotations
 
 import gc
+from dataclasses import dataclass
 from typing import Any
 
 import torch
 import torch.distributed as dist
 
 from training.training.context import TrainingContext
+
+
+@dataclass
+class BatchClock:
+    """Batch count, resume offset and timing of one loop over a data loader."""
+
+    num_batches: int
+    start_time: float
+    last_log_time: float
+    resume_step: int = 0
+
+    def skip_resumed(self, batch_idx: int, tag: str, phase: str) -> bool:
+        """Return True for batches finished before an intra-epoch resume.
+
+        Prints a fast-forward line every ``resume_step // 20`` batches (1 to 500) and on the
+        last skipped batch.
+        """
+        if batch_idx >= self.resume_step:
+            return False
+        ff_interval = max(1, min(500, self.resume_step // 20))
+        if (batch_idx + 1) % ff_interval == 0 or (batch_idx + 1) == self.resume_step:
+            total = self.num_batches
+            ff_pct = ((batch_idx + 1) / max(1, total)) * 100.0
+            print(
+                f"  [FAST-FORWARD] [{tag} {batch_idx + 1:>{len(str(total))}}/{total}] "
+                f"({ff_pct:.1f}%) Skipping processed {phase} batches...",
+                flush=True,
+            )
+        return True
+
+    def rate(self, done: int, now: float) -> tuple[float, float]:
+        """Return ``(iterations per second since start, elapsed seconds)`` after ``done`` steps.
+
+        Only the steps run in this session (``done - resume_step``, at least 1) count.
+        """
+        elapsed = now - self.start_time
+        return max(1, done - self.resume_step) / max(0.001, elapsed), elapsed
+
+
+def resume_iteration(resume_state: Any, phase: str, handled: bool) -> int:
+    """Return the batches already done in ``phase`` for an unhandled intra-epoch resume."""
+    if resume_state is None or handled:
+        return 0
+    if resume_state.is_intra_epoch and resume_state.phase == phase and resume_state.iteration > 0:
+        return resume_state.iteration
+    return 0
 
 
 def is_oom_error(err: BaseException) -> bool:

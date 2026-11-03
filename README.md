@@ -11,11 +11,20 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.91-STABLE` |
+| **Version** | `v16.9.92-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.92 - Training Epoch Loop on Shared Step Helpers
+
+- **`training/training/epoch.py`** (330 -> 315 lines): `train_one_epoch` (64 local variables, 28 branches, 127 statements) now drives a `_TrainingPass` (resume, forward and backward, OOM relief, optimizer update, progress checkpoint, telemetry line, scheduler step) with the totals in `_TrainTotals`. The progress payload, telemetry line, OOM check, rank-0 check, fast-forward line and resume detection come from `step_progress`, shared with validation.
+- **`training/training/step_progress.py`**: adds `BatchClock` (batch count, resume offset, timing, fast-forward lines, rate) and `resume_iteration`; `validation.py` uses them and wraps its forward pass in `guarded_forward`.
+- **`training/utils/tensors.py`** (new): `to_device` moves a tensor or the tensors of a dict; `_unpack_batch` and `parallel.base.generic_prepare_batch` use it instead of four copies of the same code.
+- **Duplicate code**: the three pairs between `epoch.py` and `validation.py` and the pair between `epoch.py` and `parallel/base.py` are gone.
+- **Behaviour is unchanged**: an old-vs-new comparison drove 800 synthetic training epochs (train-step models, task indices, dict batches, gradient accumulation 1 to 4, scaler and plain optimizers, DDP no-sync contexts, OOM and other backward failures with and without a governor, resumes with full, partial and empty accumulators, cancellation, progress checkpoints with payloads, epoch and per-batch schedulers, ranks 0 and 1) and 600 validation passes through both versions; stdout, log records, call order, payloads, results and exceptions were identical. `generic_prepare_batch` and `_unpack_batch` gave identical results and device moves for 188 input combinations.
+- **Tests**: 260 passed.
 
 ### v16.9.91 - Validation Pass Split into Metric Families
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
@@ -21,11 +20,13 @@ from training.training.amp import get_autocast_context
 from training.training.context import TrainingContext
 from training.training.epoch import _unpack_batch
 from training.training.step_progress import (
+    BatchClock,
     batch_progress_line,
     is_main_process,
     is_oom_error,
     progress_payload,
     release_cuda_cache,
+    resume_iteration,
 )
 from training.training.val_accumulators import ValAccumulators
 from training.training.val_metrics import BATCH_METRICS, ValBatch
@@ -34,36 +35,13 @@ from training.training.val_summary import summarize
 logger = logging.getLogger("lemtrain.training.validation")
 
 
-@dataclass
-class _Telemetry:
-    """Batch-count and timing state for the validation progress line."""
-
-    num_batches: int
-    resume_step: int
-    start_time: float
-    last_log_time: float
-
-    @property
-    def log_interval(self) -> int:
-        """Batches between periodic progress lines (about 1% of the pass, at least 1)."""
-        return max(1, self.num_batches // 100) if self.num_batches > 100 else 10
-
-    def due(self, step: int, now: float) -> bool:
-        """True on warm-up steps, periodic steps, the last step, or after an 8 s gap."""
-        is_warmup = step in (1, 2, 5, 10)
-        is_periodic = (step % self.log_interval == 0) or (step == self.num_batches)
-        is_heartbeat = now - self.last_log_time >= 8.0 and step > 10
-        return is_warmup or is_periodic or is_heartbeat
-
-
-def _resume_step(ctx: TrainingContext) -> int:
-    """Return the number of validation batches already done in an intra-epoch resume."""
-    state = ctx.resume_state
-    if state is None or ctx.resumed_val_step_handled:
-        return 0
-    if state.is_intra_epoch and state.phase == "val" and state.iteration > 0:
-        return state.iteration
-    return 0
+def _log_due(clock: BatchClock, step: int, now: float) -> bool:
+    """True on warm-up steps, about every 1% of the pass, the last step, or after an 8 s gap."""
+    log_interval = max(1, clock.num_batches // 100) if clock.num_batches > 100 else 10
+    is_warmup = step in (1, 2, 5, 10)
+    is_periodic = (step % log_interval == 0) or (step == clock.num_batches)
+    is_heartbeat = now - clock.last_log_time >= 8.0 and step > 10
+    return is_warmup or is_periodic or is_heartbeat
 
 
 class _ValidationPass:
@@ -78,11 +56,13 @@ class _ValidationPass:
         self.step_count = 0
         start_time = time.time()
         num_batches = len(ctx.val_loader) if hasattr(ctx.val_loader, "__len__") else 0
-        self.clock = _Telemetry(num_batches, 0, start_time, time.time())
+        self.clock = BatchClock(num_batches, start_time, time.time())
 
     def resume(self) -> None:
         """Restore accumulators of an interrupted validation pass, if any."""
-        resume_step = _resume_step(self.ctx)
+        resume_step = resume_iteration(
+            self.ctx.resume_state, "val", self.ctx.resumed_val_step_handled
+        )
         if resume_step <= 0:
             return
         self.clock.resume_step = resume_step
@@ -96,23 +76,6 @@ class _ValidationPass:
         if saved:
             self.acc.restore(saved)
             self.step_count = resume_step
-
-    def skip(self, batch_idx: int) -> bool:
-        """Return True (after printing fast-forward progress) for already-validated batches."""
-        resume_step = self.clock.resume_step
-        if batch_idx >= resume_step:
-            return False
-        ff_interval = max(1, min(500, resume_step // 20))
-        if (batch_idx + 1) % ff_interval == 0 or (batch_idx + 1) == resume_step:
-            total = self.clock.num_batches
-            ff_pct = ((batch_idx + 1) / max(1, total)) * 100.0
-            print(
-                "  [FAST-FORWARD] [VAL BATCH "
-                f"{batch_idx + 1:>{len(str(total))}}/{total}] "
-                f"({ff_pct:.1f}%) Skipping processed validation batches...",
-                flush=True,
-            )
-        return True
 
     def forward(self, inputs: Any, targets: Any, task_idx: Any) -> tuple[Any, Any]:
         """Return ``(preds, loss)`` for one batch under autocast."""
@@ -128,6 +91,18 @@ class _ValidationPass:
             if task_idx is not None:
                 return preds, ctx.criterion(preds, targets, task_idx)
             return preds, ctx.criterion(preds, targets)
+
+    def guarded_forward(
+        self, batch_idx: int, batch: tuple[Any, Any, Any]
+    ) -> tuple[Any, Any] | None:
+        """Run :meth:`forward`; on CUDA out-of-memory recover and return None."""
+        try:
+            return self.forward(*batch)
+        except (torch.cuda.OutOfMemoryError, RuntimeError) as err:
+            if not is_oom_error(err):
+                raise
+            self.relieve_oom(batch_idx)
+            return None
 
     def relieve_oom(self, batch_idx: int) -> None:
         """Let the governor (or a cache flush) recover from an out-of-memory batch."""
@@ -162,11 +137,10 @@ class _ValidationPass:
         clock = self.clock
         step = self.step_count
         now = time.time()
-        if not (is_main_process() and clock.due(step, now)):
+        if not (is_main_process() and _log_due(clock, step, now)):
             return
         clock.last_log_time = now
-        elapsed_batch = now - clock.start_time
-        rate = max(1, step - clock.resume_step) / max(0.001, elapsed_batch)
+        rate, elapsed_batch = clock.rate(step, now)
         metrics = (
             f"ValLoss: {float(loss.item()):.4f} | AvgValLoss: {self.acc.total_loss / step:.4f}"
         )
@@ -229,20 +203,16 @@ def validate_one_epoch(
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(ctx.val_loader):
-            if run.skip(batch_idx):
+            if run.clock.skip_resumed(batch_idx, "VAL BATCH", "validation"):
                 continue
             if cancel_check is not None and cancel_check():
                 raise InterruptedError("Validation cancelled by user request.")
 
             inputs, targets, task_idx = _unpack_batch(batch, ctx.device_info.device)
-            try:
-                preds, loss = run.forward(inputs, targets, task_idx)
-            except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
-                if not is_oom_error(oom_err):
-                    raise
-                run.relieve_oom(batch_idx)
+            outcome = run.guarded_forward(batch_idx, (inputs, targets, task_idx))
+            if outcome is None:
                 continue
-
+            preds, loss = outcome
             run.acc.total_loss += float(loss.item())
             run.step_count += 1
             run.save_progress()
