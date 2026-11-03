@@ -28,7 +28,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 GOVERNANCE_DIR = REPO_ROOT / "training" / "governance"
 GOVERNOR_PATH = GOVERNANCE_DIR / "governor.py"
 # Mixin modules that make up SmartTrainingGovernor; every audit-path step lives here.
-AUDIT_PATHS = [GOVERNANCE_DIR / "epoch_audit.py", GOVERNANCE_DIR / "propulsion.py"]
+AUDIT_PATHS = [
+    GOVERNANCE_DIR / "epoch_audit.py",
+    GOVERNANCE_DIR / "epoch_signals.py",
+    GOVERNANCE_DIR / "propulsion.py",
+]
 GOVERNOR_PATHS = [GOVERNOR_PATH, *AUDIT_PATHS, GOVERNANCE_DIR / "governor_state.py"]
 ENGINE_PATH = REPO_ROOT / "training" / "training" / "engine.py"
 

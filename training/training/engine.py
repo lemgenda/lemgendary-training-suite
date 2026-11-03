@@ -24,6 +24,7 @@ from training.epoch_budget import (
     EpochBudgetPolicy,
     StopReason,
 )
+from training.governance.epoch_audit import EpochSignals
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS
 from training.ratchet import (
     FULL_FRACTION_THRESHOLD,
@@ -299,11 +300,13 @@ def run_training(
             try:
                 f_chg, r_chg, lr_chg, _t_chg, _c_chg, _b_chg, stop_trig, gov_msg = (
                     ctx.governor.audit_epoch(
-                        current_quality=current_quality,
+                        EpochSignals(
+                            current_quality=current_quality,
+                            current_loss=current_loss,
+                            train_loss=train_loss,
+                            metrics_dict=combined_metrics,
+                        ),
                         epochs_no_improve=epochs_no_improve,
-                        current_loss=current_loss,
-                        train_loss=train_loss,
-                        metrics_dict=combined_metrics,
                     )
                 )
                 if gov_msg:

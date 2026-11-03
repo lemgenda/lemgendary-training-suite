@@ -11,11 +11,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.86-STABLE` |
+| **Version** | `v16.9.87-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.87 - Epoch Audit Split into Verdict Steps
+
+- **`training/governance/epoch_audit.py`** (524 -> 362 lines): `audit_epoch` took 10 arguments and had 45 local variables, 32 branches and 112 statements. It now takes an `EpochSignals` record (quality, validation and train loss, PLCC, SRCC, target spread, metrics) plus `epochs_no_improve`, `sentinel_trigger_rate` and `force_jump`, and calls one helper per step: hold or resumption shield, `EpochVerdict` (phase, overfitting, collapse, loss stability), `EpochTrend` (delta, plateau, flat, trapped, regressing, turbulent), thermal shock, spatial lock, retreat decision with the overfitting rescue, propulsion trigger and early stop. The training engine and the governance tests pass `EpochSignals`.
+- **`training/governance/epoch_signals.py`** (new): `AuditDirectives`, the per-epoch counters, the metric-focus window, recovery streak, stabilization hold, overfitting and turbulence detectors, retreat or cooling and the jolt window. The metric-focus loss weights are a table (`METRIC_FOCUS_WEIGHTS`), so a new focus target is a new row. `test_ratchet.py` now also checks this module never writes resolution or data fraction; every rung move still goes through `_commit_rung`.
+- **Behaviour is unchanged**: an old-vs-new comparison drove both governors through 24,000 audits (quality, restoration, Forex, parameter-prediction and full-fraction setups; forced jumps, every metric-focus target, spatial and stabilization locks, jolt windows, resumption, disabled governor). Return values, `get_state()`, all plain instance attributes and log records were identical at every step.
+- **Tests**: 260 passed.
 
 ### v16.9.86 - Training Context Builder Split into Phases
 

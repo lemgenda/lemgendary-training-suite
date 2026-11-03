@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from training.governance.curriculum import CurriculumState
+from training.governance.epoch_audit import EpochSignals
 from training.governance.governor import SmartTrainingGovernor
 from training.governance.metrics import MetricRegistry
 from training.governance.sota import SotaTracker
@@ -207,10 +208,7 @@ class TestSmartTrainingGovernor(unittest.TestCase):
     def test_audit_epoch_returns_8_tuple(self) -> None:
         """Verify audit_epoch returns six change flags, a stop flag and a message."""
         gov = SmartTrainingGovernor(self.model_info)
-        res = gov.audit_epoch(
-            current_quality=0.85,
-            epochs_no_improve=0,
-        )
+        res = gov.audit_epoch(EpochSignals(current_quality=0.85), epochs_no_improve=0)
         self.assertEqual(len(res), 8)
         *change_flags, stop_trig, msg = res
         self.assertEqual(len(change_flags), 6)
@@ -267,10 +265,8 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         for _ in range(25):
             quality += 1.5
             gov.audit_epoch(
-                current_quality=quality,
+                EpochSignals(current_quality=quality, current_loss=0.1, train_loss=0.1),
                 epochs_no_improve=0,
-                current_loss=0.1,
-                train_loss=0.1,
             )
             fractions_seen.append(gov.current_fraction)
             resolutions_seen.append(gov.current_res)
@@ -284,10 +280,8 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         gov.best_quality = 90.0
         gov.epoch_count = 20
         gov.audit_epoch(
-            current_quality=70.0,
+            EpochSignals(current_quality=70.0, current_loss=0.5, train_loss=0.2),
             epochs_no_improve=5,
-            current_loss=0.5,
-            train_loss=0.2,
         )
         self.assertGreaterEqual(gov.current_fraction, 0.80)
 

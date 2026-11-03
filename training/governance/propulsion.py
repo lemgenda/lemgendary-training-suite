@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from training.governance.epoch_audit import AuditDirectives
+from training.governance.epoch_signals import AuditDirectives
 from training.ratchet import (
     expand_fraction,
 )

@@ -4,7 +4,7 @@
 # ==========================================================================
 
 # Core Manifold Version
-version: "16.9.86"
+version: "16.9.87"
 unified_models: "unified_models_v2.yaml"
 
 # --- Hardware Profiles (Task 12.4) ---
