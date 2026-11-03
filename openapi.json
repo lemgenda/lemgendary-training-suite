@@ -2269,9 +2269,16 @@
             "title": "Canonical Format"
           },
           "parameters_m": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Parameters M",
-            "default": 10.0
+            "description": "Parameter count in millions from the registry; null when unknown"
           },
           "spatial_ladder": {
             "items": {

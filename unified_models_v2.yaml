@@ -10,6 +10,7 @@ forex_predictor:
   status: TRAINING
   name: LemGendary Forex Predictor (Multi-Scale CNN-Transformer)
   class_name: ForexPredictor
+  parameters_m: 2.75
   category: forex
   filename: ForexPredictor
   checkpoint: ForexPredictorWeights_FP32.pth
@@ -132,6 +133,7 @@ nima_aesthetic_mobile:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Mobile)
   class_name: NIMA_Model
+  parameters_m: 2.3
   category: enhance
   filename: NIMAAestheticMobile
   checkpoint: NIMAAestheticMobileWeights_FP32.pth
@@ -214,6 +216,7 @@ nima_aesthetic_efficientnet:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
   class_name: NIMA_Model
+  parameters_m: 21.5
   category: enhance
   filename: NIMAAestheticEfficientNet
   checkpoint: NIMAAestheticEfficientNetWeights_FP32.pth
@@ -295,6 +298,7 @@ nima_aesthetic_pro:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Pro ViT)
   class_name: NIMA_Model
+  parameters_m: 86.8
   category: enhance
   filename: NIMAAestheticPro
   checkpoint: NIMAAestheticProWeights_FP32.pth
@@ -374,6 +378,7 @@ nima_technical:
   status: VALIDATED
   name: LemGendary NIMA Technical Scorer
   class_name: NIMA_Model
+  parameters_m: 2.3
   category: enhance
   filename: NIMATechnical
   checkpoint: NIMATechnicalWeights_FP32.pth
@@ -458,6 +463,7 @@ nima_authenticity:
   status: VALIDATED
   name: LemGendary Authenticity Scorer (AI vs Human)
   class_name: NIMA_Model
+  parameters_m: 4.1
   category: enhance
   filename: AuthenticityScorer
   checkpoint: AuthenticityScorerWeights_FP32.pth
@@ -523,6 +529,7 @@ upn_v2:
   status: VALIDATED
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2
+  parameters_m: 88.5
   category: enhance
   filename: UPN(v2)Modular
   checkpoint: UPN(v2)ModularWeights_FP32.pth
@@ -592,6 +599,7 @@ film_restorer:
   status: VALIDATED
   name: LemGendary Universal Film Restorer
   class_name: UniversalFilmRestorer
+  parameters_m: 17.1
   category: restoration
   filename: UniversalFilmRestorer
   checkpoint: UniversalFilmRestorerWeights_FP32.pth
@@ -652,6 +660,7 @@ codeformer:
   status: VALIDATED
   name: LemGendary CodeFormer Face Restoration
   class_name: CodeFormer
+  parameters_m: 38.6
   category: face
   filename: CodeFormer-FaceRestoration
   checkpoint: CodeFormer-FaceRestorationWeights_FP32.pth
@@ -712,6 +721,7 @@ parsenet:
   status: VALIDATED
   name: LemGendary ParseNet Face Parsing
   class_name: ParseNet
+  parameters_m: 12.4
   category: face
   task: segmentation
   filename: ParseNet-Parsing
@@ -766,6 +776,7 @@ ffanet_indoor:
   status: VALIDATED
   name: LemGendary FFANet Dehazing (Indoor)
   class_name: BranchedFFANet
+  parameters_m: 4.5
   category: restoration
   filename: FFANet-Dehazing(Indoor)
   checkpoint: FFANet-Dehazing(Indoor)Weights_FP32.pth
@@ -829,6 +840,7 @@ ffanet_outdoor:
   status: VALIDATED
   name: LemGendary FFANet Dehazing (Outdoor)
   class_name: BranchedFFANet
+  parameters_m: 4.5
   category: restoration
   filename: FFANet-Dehazing(Outdoor)
   checkpoint: FFANet-Dehazing(Outdoor)Weights_FP32.pth
@@ -892,6 +904,7 @@ mirnet_lowlight:
   status: VALIDATED
   name: LemGendary MIRNet v2 Low-Light Enhancement
   class_name: MIRNet
+  parameters_m: 31.8
   category: restoration
   filename: MIRNet(v2)-LowLight
   checkpoint: MIRNet(v2)-LowLightWeights_FP32.pth
@@ -954,6 +967,7 @@ mirnet_exposure:
   status: VALIDATED
   name: LemGendary MIRNet v2 Exposure Correction
   class_name: MIRNet
+  parameters_m: 31.8
   category: restoration
   filename: MIRNet(v2)-Exposure
   checkpoint: MIRNet(v2)-ExposureWeights_FP32.pth
@@ -1016,6 +1030,7 @@ mprnet_deraining:
   status: VALIDATED
   name: LemGendary MPRNet Deraining
   class_name: MPRNet
+  parameters_m: 20.1
   category: restoration
   filename: MPRNet-Deraining
   checkpoint: MPRNet-DerainingWeights_FP32.pth
@@ -1078,6 +1093,7 @@ nafnet_debluring:
   status: VALIDATED
   name: LemGendary NAFNet Debluring
   class_name: NAFNet
+  parameters_m: 17.1
   category: restoration
   filename: NAFNet-Debluring
   checkpoint: NAFNet-DebluringWeights_FP32.pth
@@ -1140,6 +1156,7 @@ nafnet_denoising:
   status: VALIDATED
   name: LemGendary NAFNet Denoising
   class_name: NAFNet
+  parameters_m: 17.1
   category: restoration
   filename: NAFNet-Denoising
   checkpoint: NAFNet-DenoisingWeights_FP32.pth
@@ -1203,6 +1220,7 @@ yolov8n:
   status: PRODUCTION
   name: LemGendary YOLOv8n Multi-Task Model
   class_name: YOLO
+  parameters_m: 3.2
   category: yolo
   filename: YOLOv8n-Unified
   checkpoint: yolov8n.pt
@@ -1277,6 +1295,7 @@ professional_multitask_restoration:
   status: DATASET_READY
   name: LemGendary Professional Multi-Task Restoration Model
   class_name: MultiTaskRestorer
+  parameters_m: 42.0
   category: restoration
   filename: ProfessionalMultiRestorer
   checkpoint: ProfessionalMultiRestorerWeights_FP32.pth
@@ -1337,6 +1356,7 @@ ultrazoom:
   status: VALIDATED
   name: LemGendary UltraZoom Master Model
   class_name: UltraZoomMaster
+  parameters_m: 24.3
   category: restoration
   filename: UltraZoom(Master)
   checkpoint: UltraZoom(Master)Weights_FP32.pth
@@ -1394,6 +1414,7 @@ universal_nsfw_classification:
   status: DATASET_READY
   name: LemGendary Universal NSFW Classifier
   class_name: UniversalClassifier
+  parameters_m: 4.1
   category: enhance
   filename: UniversalNSFWClassifier
   checkpoint: UniversalNSFWClassifierWeights_FP32.pth
@@ -1448,6 +1469,7 @@ retinaface:
   status: DATASET_READY
   name: LemGendary RetinaFace Detection
   class_name: RetinaFace
+  parameters_m: 27.2
   category: face
   filename: RetinaFace-Detection
   checkpoint: RetinaFaceWeights_FP32.pth

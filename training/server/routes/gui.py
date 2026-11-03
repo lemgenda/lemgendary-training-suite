@@ -75,32 +75,6 @@ async def get_gui_state(request: Request) -> dict[str, Any]:
     }
 
 
-KNOWN_PARAMS_M: dict[str, float] = {
-    "forex_predictor": 2.75,
-    "nima_aesthetic_mobile": 2.3,
-    "nima_aesthetic_efficientnet": 21.5,
-    "nima_aesthetic_pro": 86.8,
-    "nima_technical": 2.3,
-    "nima_authenticity": 4.1,
-    "upn_v2": 88.5,
-    "film_restorer": 17.1,
-    "codeformer": 38.6,
-    "parsenet": 12.4,
-    "ffanet_indoor": 4.5,
-    "ffanet_outdoor": 4.5,
-    "mirnet_lowlight": 31.8,
-    "mirnet_exposure": 31.8,
-    "mprnet_deraining": 20.1,
-    "nafnet_debluring": 17.1,
-    "nafnet_denoising": 17.1,
-    "yolov8n": 3.2,
-    "professional_multitask_restoration": 42.0,
-    "ultrazoom": 24.3,
-    "universal_nsfw_classification": 4.1,
-    "retinaface": 27.2,
-}
-
-
 # Comprehensive Metric Registry mapping YAML keys to CSV columns, directionality, and labels
 # yaml_key: (csv_col, lower_is_better, display_label, is_forex)
 METRIC_REGISTRY: dict[str, tuple[str, bool, str, bool]] = {
@@ -488,9 +462,8 @@ def _model_with_stats(
     # Collect all best achieved metrics across SOTA targets and metrics history
     best_metrics_details: list[dict[str, Any]] = []
     for s in sota_details:
+        # Only measured values count; a missing measurement is never replaced by its target.
         b_val = s["achieved"]
-        if b_val is None and has_checkpoint and s["key"] == primary_sota_key:
-            b_val = s["target"]
         b_num = _as_float(b_val)
         tgt_num = _as_float(s["target"])
         passed_sota = (
@@ -523,7 +496,7 @@ def _model_with_stats(
                     "value": round(ach, 4),
                     "target": None,
                     "lower_is_better": is_low,
-                    "passed": True,
+                    "passed": False,  # no target, so nothing to pass
                 }
             )
 
@@ -534,7 +507,7 @@ def _model_with_stats(
         sota_reached = has_checkpoint
 
     # Primary headline metric display
-    best_metric_val = sota_target_val
+    best_metric_val: float | None = None  # never the target when nothing was measured
     if primary_sota_key and primary_sota_key in csv_metrics_history:
         p_vals = csv_metrics_history[primary_sota_key]
         best_metric_val = round(min(p_vals) if lower_is_better else max(p_vals), 2)
@@ -637,7 +610,7 @@ def _model_with_stats(
             or "PyTorch Model",
             "task_type": task_type or "general",
             "canonical_format": info.get("canonical_format", "webdataset"),
-            "parameters_m": KNOWN_PARAMS_M.get(model_key, 10.0),
+            "parameters_m": _as_float(info.get("parameters_m")),
             "spatial_ladder": res_ladder,
             "ladder_type": ladder_type,
             "is_forex": is_forex,

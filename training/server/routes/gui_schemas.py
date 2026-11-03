@@ -76,7 +76,9 @@ class ModelWithStats(BaseModel):
     architecture: str = "PyTorch Model"
     task_type: str = "general"
     canonical_format: str | None = None
-    parameters_m: float = 10.0
+    parameters_m: float | None = Field(
+        None, description="Parameter count in millions from the registry; null when unknown"
+    )
     spatial_ladder: list[int] = Field(default_factory=list)
     ladder_type: LadderType = "spatial"
     is_forex: bool = False
