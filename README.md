@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.101-STABLE`
+- **Version**: `v16.9.102-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,34 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.102 - ForexPredictor Forward and Timeframe Expansion Split
+
+- **`models/forex_predictor.py`**: `ForexPredictor.forward` moves the
+  per-timeframe encoder loop to `_encode_timeframes`; `expand_timeframe`
+  calls `_rebuild_cross_attn` and `_rebuild_fused_project`, and the weight
+  copy is the module function `_copy_projection_weights`.
+  `CausalConv1DBlock` takes `(in_channels, out_channels, dilation, *,
+  dropout, drop_path_rate)` with the kernel width as `KERNEL_SIZE = 3` (every
+  caller passed 3). `TimeframeEncoder` drops the unused `seq_len` argument
+  and attribute (the encoder works on any lookback length). The
+  `ForexPredictor` arguments after `active_timeframes` are keyword-only; the
+  model factory and checkpoint `model_kwargs` already pass them by name.
+  Design-check findings in the file: 9 -> 2 (the 9-argument constructor and
+  16 attributes stay, since renaming them would change registry kwargs and
+  `state_dict` keys).
+- **Checkpoints stay loadable**: an old-vs-new comparison built 600 random
+  configurations (timeframe subsets, widths, heads, layers, pairs, extra
+  registry kwargs) with the same seed through both versions. `state_dict`
+  keys, order, shapes and values, public attributes, forward outputs in train
+  and eval mode, RNG state afterwards, pair index handling (None, ints, lists,
+  out-of-range tensors), missing-timeframe errors, `expand_timeframe` results,
+  printed lines and log records were identical. The blocks were compared on
+  their own too.
+- **Found, kept**: `expand_timeframe` raises `RuntimeError` whenever it
+  widens `fused_project`: `weight[:old_in_dim]` slices output rows, not input
+  columns, so the shapes never match. Nothing in the suite calls it; a fix
+  needs a decision on where the pair-embedding columns go.
 
 ### v16.9.101 - Legacy Restoration Default Restored, Markdown Lint-Clean
 

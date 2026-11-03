@@ -56,25 +56,29 @@ class CausalConv1DBlock(nn.Module):
     Stochastic depth randomly skips the block during training (drop-path regularization)
     to prevent the model from memorizing specific temporal patterns.
 
+    The convolution kernel is :attr:`KERNEL_SIZE` (3) wide.
+
     Args:
         in_channels:    Input feature depth.
         out_channels:   Output feature depth.
-        kernel_size:    Convolution kernel width.
         dilation:       Dilation factor for exponential receptive field growth.
         dropout:        Dropout probability.
         drop_path_rate: Probability of dropping the entire block (stochastic depth).
     """
 
+    KERNEL_SIZE = 3
+
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size: int = 3,
         dilation: int = 1,
+        *,
         dropout: float = 0.1,
         drop_path_rate: float = 0.1,
     ):
         super().__init__()
+        kernel_size = self.KERNEL_SIZE
         # Left-only padding to prevent future data leakage
         self.causal_pad = (kernel_size - 1) * dilation
         self.drop_path_rate = drop_path_rate
@@ -124,9 +128,9 @@ class TimeframeEncoder(nn.Module):
     Per-timeframe TCN encoder: stacks CausalConv1D blocks with exponential dilation.
     Produces a fixed-length feature vector for each timeframe via temporal pooling.
     Supports optional pair embedding injection for pair-specific local pattern learning.
+    The encoder works on any lookback length (``TIMEFRAME_LOOKBACK`` sets it per timeframe).
 
     Args:
-        seq_len:      Lookback window length (number of bars).
         in_features:  Number of input features per bar (default: FOREX_FEATURES_PER_BAR).
         d_model:      Output embedding dimension.
         n_layers:     Number of CausalConv1D layers.
@@ -136,7 +140,6 @@ class TimeframeEncoder(nn.Module):
 
     def __init__(
         self,
-        seq_len: int,
         in_features: int = FOREX_FEATURES_PER_BAR,
         d_model: int = 192,
         n_layers: int = 4,
@@ -144,7 +147,6 @@ class TimeframeEncoder(nn.Module):
         pair_d_model: int = 0,
     ):
         super().__init__()
-        self.seq_len = seq_len
         self.pair_d_model = pair_d_model
 
         # Pair embedding projection: maps [B, d_pair] -> [B, in_features] for additive input bias
@@ -157,9 +159,7 @@ class TimeframeEncoder(nn.Module):
         in_ch = in_features
         for i in range(n_layers):
             dilation = 2**i
-            layers.append(
-                CausalConv1DBlock(in_ch, d_model, kernel_size=3, dilation=dilation, dropout=dropout)
-            )
+            layers.append(CausalConv1DBlock(in_ch, d_model, dilation, dropout=dropout))
             in_ch = d_model
         self.tcn = nn.Sequential(*layers)
 
@@ -341,6 +341,9 @@ class ForexPredictor(nn.Module):
         - MagnitudeHead.max_pips is synchronized with ForexDualLoss.max_pips (100).
         - pair_idx is clamped to [0, num_pairs-1] to prevent nn.Embedding IndexError.
 
+    Arguments after ``active_timeframes`` are keyword-only; the model factory and the
+    checkpoint ``model_kwargs`` pass them by name.
+
     Args:
         active_timeframes: List of active timeframe rungs (minutes).
                            Curriculum: start with [1], expand to all 6.
@@ -358,6 +361,7 @@ class ForexPredictor(nn.Module):
     def __init__(
         self,
         active_timeframes: list | None = None,
+        *,
         d_model: int = 192,
         n_heads: int = 6,
         n_layers: int = 4,
@@ -393,7 +397,6 @@ class ForexPredictor(nn.Module):
         self.encoders = nn.ModuleDict(
             {
                 str(tf): TimeframeEncoder(
-                    seq_len=TIMEFRAME_LOOKBACK[tf],
                     in_features=in_features,
                     d_model=d_model,
                     n_layers=n_layers,
@@ -463,6 +466,26 @@ class ForexPredictor(nn.Module):
         pair_idx = pair_idx.clamp(min=0, max=self.num_pairs - 1)
         return pair_idx
 
+    def _encode_timeframes(self, tf_inputs: dict, pair_emb: torch.Tensor) -> list[torch.Tensor]:
+        """Encode each active timeframe with its pair-conditioned TCN, in rung order."""
+        tf_feats = []
+        for tf in self.active_timeframes:
+            encoder_key = str(tf)
+            val = tf_inputs.get(tf, tf_inputs.get(encoder_key))
+
+            if val is None or encoder_key not in self.encoders:
+                # 2026 v1.1 Fix: Fail loudly instead of silently duplicating features.
+                # A silent duplication here would corrupt the training signal by
+                # presenting two slots with the same underlying tensor.
+                raise KeyError(
+                    f"[ForexPredictor] Missing timeframe {tf} in batch or encoder. "
+                    f"Provided input keys: {list(tf_inputs.keys())}, "
+                    f"Encoder keys: {list(self.encoders.keys())}"
+                )
+
+            tf_feats.append(self.encoders[encoder_key](val, pair_emb))
+        return tf_feats
+
     def forward(
         self,
         tf_inputs: dict,
@@ -492,26 +515,8 @@ class ForexPredictor(nn.Module):
         pair_emb_raw = self.pair_embed(pair_idx)  # [B, d_model]
         pair_emb = self.pair_project(pair_emb_raw)  # [B, d_model]
 
-        # Encode each active timeframe with pair-conditioned TCN
-        tf_feats = []
-        for tf in self.active_timeframes:
-            encoder_key = str(tf)
-            val = tf_inputs.get(tf, tf_inputs.get(encoder_key))
-
-            if val is None or encoder_key not in self.encoders:
-                # 2026 v1.1 Fix: Fail loudly instead of silently duplicating features.
-                # A silent duplication here would corrupt the training signal by
-                # presenting two slots with the same underlying tensor.
-                raise KeyError(
-                    f"[ForexPredictor] Missing timeframe {tf} in batch or encoder. "
-                    f"Provided input keys: {list(tf_inputs.keys())}, "
-                    f"Encoder keys: {list(self.encoders.keys())}"
-                )
-
-            tf_feats.append(self.encoders[encoder_key](val, pair_emb))
-
         # Stack -> [B, n_tf, d_model] -> cross-timeframe attention -> [B, n_tf * d_model]
-        tf_stack = torch.stack(tf_feats, dim=1)
+        tf_stack = torch.stack(self._encode_timeframes(tf_inputs, pair_emb), dim=1)
         fused_tf = self.cross_attn(tf_stack)  # [B, n_tf * d_model]
 
         # Final manifold fusion with pair embedding
@@ -555,7 +560,6 @@ class ForexPredictor(nn.Module):
         ref_pair_d_model = getattr(ref_encoder, "pair_d_model", self.d_model)
 
         self.encoders[key] = TimeframeEncoder(
-            seq_len=TIMEFRAME_LOOKBACK[new_tf],
             in_features=self.in_features,
             d_model=self.d_model,
             n_layers=self.n_layers,
@@ -564,11 +568,15 @@ class ForexPredictor(nn.Module):
         )
         self.active_timeframes.append(new_tf)
 
-        # ── Rebuild cross-attention with warm-start ──────────────────────────
+        n_tf = len(self.active_timeframes)
+        self._rebuild_cross_attn(n_tf)
+        self._rebuild_fused_project(n_tf, new_tf)
+
+    def _rebuild_cross_attn(self, n_tf: int) -> None:
+        """Replace ``cross_attn`` for ``n_tf`` timeframes, warm-started from the old one."""
         old_cross_attn = self.cross_attn
         old_cross_state = {k: v.clone() for k, v in old_cross_attn.state_dict().items()}
 
-        n_tf = len(self.active_timeframes)
         # 2026 v1.1 Fix: use the divisibility helper (was relying on nn.MultiheadAttention
         # to raise an obscure AssertionError on non-divisible configs).
         valid_n_heads = _select_valid_n_heads(
@@ -595,7 +603,12 @@ class ForexPredictor(nn.Module):
                 "cross_attn warm-start skipped (heads=%d, n_tf=%d): %s", valid_n_heads, n_tf, e
             )
 
-        # ── Rebuild fused_project with partial warm-start ────────────────────
+    def _rebuild_fused_project(self, n_tf: int, new_tf: int) -> None:
+        """Widen ``fused_project`` for ``n_tf`` timeframes, keeping the old input weights.
+
+        Leaves ``fused_project`` untouched when it is not the Linear/GELU/Dropout/LayerNorm
+        stack that ``__init__`` builds.
+        """
         old_proj = self.fused_project
         if not isinstance(old_proj, nn.Sequential) or len(old_proj) < 4:
             return
@@ -609,42 +622,45 @@ class ForexPredictor(nn.Module):
         ):
             return
 
-        old_in_dim = m0.in_features
-        hidden = m0.out_features
-        dropout_p = float(m2.p)
-
         fused_dim = n_tf * self.d_model + self.d_model
-        new_first_linear = nn.Linear(fused_dim, hidden)
-        new_ln = nn.LayerNorm(hidden)
         new_proj = nn.Sequential(
-            new_first_linear,
+            nn.Linear(fused_dim, m0.out_features),
             nn.GELU(),
-            nn.Dropout(dropout_p),
-            new_ln,
+            nn.Dropout(float(m2.p)),
+            nn.LayerNorm(m0.out_features),
         )
-
-        # 2026 v1.1: Copy the old input-block weights into the new (wider) linear.
-        # The fused_tf layout is [n_tf * d_model, pair_emb(d_model)], so the old
-        # timeframe block + the pair embedding block occupy the FIRST old_in_dim
-        # rows. The new d_model rows at the tail belong to the new timeframe and
-        # keep their Kaiming initialization.
-        with torch.no_grad():
-            new_first_linear.weight[:old_in_dim] = m0.weight
-            if new_first_linear.bias is not None and m0.bias is not None:
-                new_first_linear.bias.copy_(m0.bias)
-            # LayerNorm at the tail is shape-invariant (hidden-dim); copy directly
-            if (
-                m3.weight is not None
-                and new_ln.weight is not None
-                and m3.weight.shape == new_ln.weight.shape
-            ):
-                new_ln.weight.copy_(m3.weight)
-                if new_ln.bias is not None and m3.bias is not None:
-                    new_ln.bias.copy_(m3.bias)
+        _copy_projection_weights(m0, m3, new_proj)
         self.fused_project = new_proj
 
         print(f" [ForexPredictor] Expanded to {n_tf} timeframes. Added: {new_tf}min rung.")
         print(
             " [ForexPredictor] fused_project warm-started: "
-            f"old_in_dim={old_in_dim} -> new_in_dim={fused_dim}."
+            f"old_in_dim={m0.in_features} -> new_in_dim={fused_dim}."
         )
+
+
+def _copy_projection_weights(
+    old_linear: nn.Linear, old_norm: nn.LayerNorm, new_proj: nn.Sequential
+) -> None:
+    """Copy the old input-block weights and LayerNorm into a wider ``fused_project``.
+
+    2026 v1.1: the fused_tf layout is [n_tf * d_model, pair_emb(d_model)], so the old
+    timeframe block + the pair embedding block occupy the FIRST ``in_features`` rows of
+    the old linear. The new d_model rows at the tail belong to the new timeframe and
+    keep their Kaiming initialization.
+    """
+    new_first_linear = new_proj[0]
+    new_ln = new_proj[3]
+    with torch.no_grad():
+        new_first_linear.weight[: old_linear.in_features] = old_linear.weight
+        if new_first_linear.bias is not None and old_linear.bias is not None:
+            new_first_linear.bias.copy_(old_linear.bias)
+        # LayerNorm at the tail is shape-invariant (hidden-dim); copy directly
+        if (
+            old_norm.weight is not None
+            and new_ln.weight is not None
+            and old_norm.weight.shape == new_ln.weight.shape
+        ):
+            new_ln.weight.copy_(old_norm.weight)
+            if new_ln.bias is not None and old_norm.bias is not None:
+                new_ln.bias.copy_(old_norm.bias)
