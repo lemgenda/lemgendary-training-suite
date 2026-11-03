@@ -20,7 +20,7 @@ def announce_sidecar() -> None:
 
 def run_training(model_key: str, **options: Any) -> TrainingSummary:
     """Train ``model_key`` in-process through ``TrainingService``."""
-    return TrainingService().train(TrainRequest(model_key=model_key, **options))
+    return TrainingService().train(TrainRequest.from_options(model_key, **options))
 
 
 def export_targets(

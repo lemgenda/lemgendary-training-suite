@@ -39,8 +39,8 @@ class LocalJobsMixin:
             self._broadcast_log(job_id, f"[PROGRESS] Epoch {epoch} completed: {metrics_summary}")
 
         summary = service.train(
-            TrainRequest(
-                model_key=model_key,
+            TrainRequest.from_options(
+                model_key,
                 epochs=params.get("epochs"),
                 batch_size=params.get("batch_size"),
                 lr=params.get("learning_rate") or params.get("lr"),

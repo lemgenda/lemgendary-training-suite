@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -24,34 +24,53 @@ logger = logging.getLogger("lemtrain.services.training_service")
 
 
 @dataclass(frozen=True)
+class TrainHyperparams:
+    """Run-size overrides; ``None`` keeps the preset/config value.
+
+    Attributes:
+        epochs: Total training epochs (overrides preset/config if specified).
+        batch_size: Physical batch size per gradient step.
+        lr: Base learning rate.
+        preset: Optional preset profile name from presets.yaml.
+        resolution: Selected input spatial resolution or timeframe horizon.
+    """
+
+    epochs: int | None = None
+    batch_size: int | None = None
+    lr: float | None = None
+    preset: str | None = None
+    resolution: int | None = None
+
+
+@dataclass(frozen=True)
 class TrainRequest:
     """One in-process training run.
 
     Attributes:
         model_key: Target model key registered in unified_models.yaml.
-        epochs: Total training epochs (overrides preset/config if specified).
-        batch_size: Physical batch size per gradient step.
-        lr: Base learning rate.
-        preset: Optional preset profile name from presets.yaml.
+        hyper: Epochs, batch size, learning rate, preset and resolution overrides.
         env: Execution environment ('local', 'kaggle', 'colab').
         clean: Whether to ignore prior checkpoints and start fresh from epoch 1.
         auto_sync: Enable automated cloud synchronization.
         parallel: Parallel strategy ('auto', 'single', 'dp', 'ddp').
-        resolution: Selected input spatial resolution or timeframe horizon.
         enable_sawtooth: Enable Sawtooth VRAM Governor memory protection.
     """
 
     model_key: str
-    epochs: int | None = None
-    batch_size: int | None = None
-    lr: float | None = None
-    preset: str | None = None
+    hyper: TrainHyperparams = TrainHyperparams()
     env: str = "local"
     clean: bool = False
     auto_sync: bool = False
     parallel: str = "auto"
-    resolution: int | None = None
     enable_sawtooth: bool = True
+
+    @classmethod
+    def from_options(cls, model_key: str, **options: Any) -> TrainRequest:
+        """Build a request from flat keyword options (hyperparameters and run flags mixed)."""
+        hyper_names = {f.name for f in fields(TrainHyperparams)}
+        hyper = TrainHyperparams(**{k: v for k, v in options.items() if k in hyper_names})
+        flags = {k: v for k, v in options.items() if k not in hyper_names}
+        return cls(model_key=model_key, hyper=hyper, **flags)
 
 
 class TrainingService:
@@ -101,12 +120,8 @@ class TrainingService:
         Returns:
             TrainingSummary: Completed run metrics and summary.
         """
-        model_key, epochs, batch_size, lr = (
-            request.model_key,
-            request.epochs,
-            request.batch_size,
-            request.lr,
-        )
+        model_key, hyper = request.model_key, request.hyper
+        epochs, batch_size, lr = hyper.epochs, hyper.batch_size, hyper.lr
         # 0. Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds,
         # and training dirs
         try:
@@ -116,8 +131,8 @@ class TrainingService:
             logger.warning("Pre-flight notebook generation skipped for %s: %s", model_key, e)
 
         # 1. Resolve preset parameters if requested
-        if request.preset:
-            preset_cfg = self.get_preset(request.preset)
+        if hyper.preset:
+            preset_cfg = self.get_preset(hyper.preset)
             if preset_cfg:
                 if epochs is None:
                     epochs = preset_cfg.get("epochs")
@@ -143,11 +158,9 @@ class TrainingService:
             fold=1,
             pairs=None,
             timeframes=(
-                [request.resolution]
-                if request.resolution and model_key == "forex_predictor"
-                else None
+                [hyper.resolution] if hyper.resolution and model_key == "forex_predictor" else None
             ),
-            resolution=request.resolution,
+            resolution=hyper.resolution,
             enable_sawtooth=request.enable_sawtooth,
             num_workers=None,
             val_num_workers=None,

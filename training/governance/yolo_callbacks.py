@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from training.governance.yolo_ladder import YOLOLadderStage
-from training.telemetry import EpochRow
+from training.telemetry import EpochLosses, EpochRow
 from training.utils.error_types import EPOCH_CALLBACK_ERRORS
 
 if TYPE_CHECKING:
@@ -320,9 +320,7 @@ class GovernedEpochHook:
         gov.telemetry.write_epoch_row(
             EpochRow(
                 epoch=global_epoch,
-                train_loss=m.train_loss,
-                val_loss=m.val_loss,
-                lr=m.lr,
+                losses=EpochLosses(train_loss=m.train_loss, val_loss=m.val_loss, lr=m.lr),
                 metrics={
                     "map50": m.map50,
                     "map50_95": m.map50_95,

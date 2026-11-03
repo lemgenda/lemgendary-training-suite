@@ -28,24 +28,37 @@ METRIC_DIRECTIONS = DEFAULT_METRIC_DIRECTIONS
 
 
 @dataclass(frozen=True)
-class EpochRow:
-    """One metrics.csv row: losses, metrics, Quality Score and the pre-audit governor state.
+class EpochLosses:
+    """Train/validation loss and learning rate of one epoch."""
 
-    ``num_pairs``, ``phase`` and ``fold`` are written for Forex models only; ``num_pairs``
-    ``None`` uses the governor's ``input_size`` (16 without a governor state).
-    """
-
-    epoch: int
     train_loss: float
     val_loss: float
     lr: float
+
+
+@dataclass(frozen=True)
+class ForexRowTag:
+    """Forex-only columns: pair count (``None`` uses the governor's ``input_size``), phase, fold."""
+
+    num_pairs: int | None = None
+    phase: int = 1
+    fold: int = 1
+
+
+@dataclass(frozen=True)
+class EpochRow:
+    """One metrics.csv row: losses, metrics, Quality Score and the pre-audit governor state.
+
+    ``forex`` is written for Forex models only.
+    """
+
+    epoch: int
+    losses: EpochLosses
     metrics: dict[str, Any]
     quality_score: float
     governor_state: dict[str, Any] | None
     stress: float
-    num_pairs: int | None = None
-    phase: int = 1
-    fold: int = 1
+    forex: ForexRowTag = ForexRowTag()
 
 
 def _governor_columns(gov: dict[str, Any] | None) -> str:
@@ -106,14 +119,17 @@ def _forex_line(row: EpochRow) -> tuple[str, tuple[str, ...]]:
         0.0 if (raw_ent is None or np.isinf(raw_ent) or np.isnan(raw_ent)) else float(raw_ent)
     )
     pairs = (
-        row.num_pairs if row.num_pairs is not None else (gov.get("input_size", 16) if gov else 16)
+        row.forex.num_pairs
+        if row.forex.num_pairs is not None
+        else (gov.get("input_size", 16) if gov else 16)
     )
     new_line = (
-        f"{row.phase},{row.fold},{epoch_idx},{row.train_loss:.8f},{row.val_loss:.8f},"
-        f"{row.lr:.8f},{_metric_columns(row.metrics, _FOREX_METRICS)},{dir_entropy:.4f},"
+        f"{row.forex.phase},{row.forex.fold},{epoch_idx},{row.losses.train_loss:.8f},"
+        f"{row.losses.val_loss:.8f},{row.losses.lr:.8f},"
+        f"{_metric_columns(row.metrics, _FOREX_METRICS)},{dir_entropy:.4f},"
         f"{row.quality_score:.4f},{pairs},{_governor_columns(gov)},{row.stress:.6f}\n"
     )
-    return new_line, (str(row.phase), str(row.fold), str(epoch_idx))
+    return new_line, (str(row.forex.phase), str(row.forex.fold), str(epoch_idx))
 
 
 def _vision_line(row: EpochRow) -> tuple[str, tuple[str, ...]]:
@@ -122,7 +138,7 @@ def _vision_line(row: EpochRow) -> tuple[str, tuple[str, ...]]:
     epoch_idx = _epoch_index(row.epoch)
     res = gov.get("input_size", 512) if gov else 512
     new_line = (
-        f"{epoch_idx},{row.train_loss:.8f},{row.val_loss:.8f},{row.lr:.8f},"
+        f"{epoch_idx},{row.losses.train_loss:.8f},{row.losses.val_loss:.8f},{row.losses.lr:.8f},"
         f"{_metric_columns(row.metrics, _VISION_METRICS)},{row.quality_score:.4f},"
         f"{res},{_governor_columns(gov)},{row.stress:.6f}\n"
     )

@@ -32,7 +32,7 @@ from training.ratchet import (
     executed_rung,
     top_resolution_reached,
 )
-from training.telemetry import EpochRow, TelemetryEngine
+from training.telemetry import EpochLosses, EpochRow, ForexRowTag, TelemetryEngine
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
 from training.training.summary import TrainingSummary
@@ -346,16 +346,16 @@ def run_training(
             telemetry.write_epoch_row(
                 EpochRow(
                     epoch=epoch,
-                    train_loss=train_loss,
-                    val_loss=current_loss,
-                    lr=float(combined_metrics.get("lr", 0.0)),
+                    losses=EpochLosses(
+                        train_loss=train_loss,
+                        val_loss=current_loss,
+                        lr=float(combined_metrics.get("lr", 0.0)),
+                    ),
                     metrics=combined_metrics,
                     quality_score=quality_score,
                     governor_state=pre_audit_gov_state,
                     stress=pre_audit_stress,
-                    num_pairs=num_pairs,
-                    phase=phase,
-                    fold=fold,
+                    forex=ForexRowTag(num_pairs=num_pairs, phase=phase, fold=fold),
                 )
             )
 

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.105-STABLE`
+- **Version**: `v16.9.106-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,19 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.106 - Record Dataclasses Kept Within Seven Fields
+
+- **`training/telemetry.py`**: `EpochRow` groups its losses into `EpochLosses`
+  (train loss, validation loss, learning rate) and the Forex-only columns
+  into `ForexRowTag` (pairs, phase, fold); the engine and the YOLO callback
+  build both. metrics.csv output is unchanged (400 random runs compared).
+- **`training/services/training_service.py`**: `TrainRequest` keeps the run
+  flags and groups epochs, batch size, learning rate, preset and resolution
+  into `TrainHyperparams`; `TrainRequest.from_options(model_key, **flat)`
+  splits flat keyword options for the CLI and the local job runner.
+- Neither record raises `too-many-instance-attributes` any more (28 findings,
+  as before v16.9.104).
 
 ### v16.9.105 - Nested Blocks and Return Chains Split
 
