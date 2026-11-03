@@ -10,6 +10,7 @@ from training.governance.epoch_signals import (
     AuditResult,
     EpochSignalsMixin,
 )
+from training.governance.propulsion import PropulsionMixin
 
 __all__ = ["AuditDirectives", "AuditResult", "EpochAuditMixin", "EpochSignals"]
 
@@ -55,7 +56,7 @@ class EpochVerdict:
         return self.phase in ["FOUNDATION", "EXPANSION"]
 
 
-class EpochAuditMixin(EpochSignalsMixin):
+class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
     """Epoch audit entry point for ``SmartTrainingGovernor``."""
 
     def get_phase(self) -> str:

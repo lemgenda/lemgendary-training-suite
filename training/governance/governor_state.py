@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from training.governance.governor_host import GovernorHost
 from training.ratchet import (
     FRACTION_STATE_KEY,
     RESOLUTION_STATE_KEY,
 )
 
 
-class GovernorStateMixin:
+class GovernorStateMixin(GovernorHost):
     """Checkpoint serialisation of the governor's curriculum, thermal and SOTA state."""
 
     def get_state(self) -> dict[str, Any]:

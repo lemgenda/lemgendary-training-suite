@@ -9,7 +9,6 @@ from typing import Any
 import torch
 
 from training.governance.curriculum import CurriculumState
-from training.governance.delegation import Delegated
 from training.governance.epoch_audit import EpochAuditMixin
 from training.governance.governor_state import GovernorStateMixin
 from training.governance.metrics import (
@@ -305,42 +304,6 @@ class SmartTrainingGovernor(EpochAuditMixin, PropulsionMixin, GovernorStateMixin
         self.current_fraction = float(new_frac)
 
     # -------------------------------------------------------------------------
-    # Delegated Properties
-    # -------------------------------------------------------------------------
-    current_fraction = Delegated("curriculum", cast=float)
-    current_res = Delegated("curriculum")
-    res_ladder = Delegated("curriculum", cast=list)
-    current_batch = Delegated("curriculum")
-    current_acc = Delegated("curriculum")
-    target_effective_batch = Delegated("curriculum")
-    fraction_increment = Delegated("curriculum", cast=float)
-    current_temp = Delegated("thermal", "temperature", cast=float)
-    best_quality = Delegated("sota", cast=float)
-    prev_quality = Delegated("sota", cast=float)
-    prev_loss = Delegated("sota", cast=float)
-    target_quality_score = Delegated("sota", cast=float)
-    recovery_streak = Delegated("sota")
-    consecutive_rollbacks = Delegated("sota")
-    rollback_history = Delegated("sota", cast=dict)
-    gate_relaxation_epochs = Delegated("sota")
-    sota_resolution = Delegated("sota")
-    breakout_lock = Delegated("sota")
-    history = Delegated("sota", cast=list)
-    failure_log = Delegated("sota", cast=dict)
-    stabilization_epochs = Delegated("sota")
-    cooldown_remaining = Delegated("sota")
-    current_stress = Delegated("sota", cast=float)
-    max_stress_stuck_epochs = Delegated("sota")
-    plateau_patience = Delegated("sota")
-    loop_breaker_enabled = Delegated("sota")
-    loop_breaker_threshold = Delegated("sota")
-    loop_breaker_strategy = Delegated("sota")
-
-    def update_batch_and_accumulation(self, new_batch: int) -> None:
-        """Dynamically update current batch size and recompute accumulation steps."""
-        self.curriculum.update_batch_and_accumulation(new_batch)
-
-    # -------------------------------------------------------------------------
     # Core Autonomous Operations
     # -------------------------------------------------------------------------
     def handle_oom(self, current_batch: int | None = None, min_batch: int = 1) -> tuple[int, int]:
@@ -439,10 +402,6 @@ class SmartTrainingGovernor(EpochAuditMixin, PropulsionMixin, GovernorStateMixin
             f"Temp Heatup {self.current_temp:.2f}"
         )
 
-    def reset_best(self) -> None:
-        """Reset historical SOTA tracking."""
-        self.sota.reset_best()
-
     def register_rollback(self) -> None:
         """Register a model rollback and execute loop breaking logic."""
         if not self.loop_breaker_enabled:
@@ -462,11 +421,3 @@ class SmartTrainingGovernor(EpochAuditMixin, PropulsionMixin, GovernorStateMixin
                     res_before,
                     self.current_res,
                 )
-
-    def get_active_drift_gate(self, config_gate: float) -> float:
-        """Retrieve active drift gate considering relaxation."""
-        return self.sota.get_active_drift_gate(config_gate)
-
-    def get_active_regression_limit(self, config_limit: int) -> int:
-        """Retrieve active regression limit considering rollback history."""
-        return self.sota.get_active_regression_limit(config_limit, self.current_res)

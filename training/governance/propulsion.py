@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from training.governance.epoch_signals import AuditDirectives
+from training.governance.governor_host import GovernorHost
 from training.ratchet import (
     expand_fraction,
 )
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
     from training.governance.epoch_audit import EpochSignals, EpochTrend
 
 
-class PropulsionMixin:
+class PropulsionMixin(GovernorHost):
     """Curriculum propulsion steps taken by the governor once an audit allows progress."""
 
     def _identify_lagging_metric(self, metrics_dict: dict[str, float]) -> list[tuple[str, float]]:
