@@ -94,22 +94,26 @@ class SimplifiedChannelAttention(nn.Module):
         return (x * self.conv(self.pool(x)).contiguous()).contiguous()
 
 
-class NAFBlock(nn.Module):
-    """NAFNet block: gated depthwise-conv branch and gated FFN with learned residual scales."""
+def _pointwise_conv(in_channels: int, out_channels: int) -> nn.Conv2d:
+    """1x1 convolution with bias (NAFBlock projections)."""
+    return nn.Conv2d(
+        in_channels=in_channels,
+        out_channels=out_channels,
+        kernel_size=1,
+        padding=0,
+        stride=1,
+        groups=1,
+        bias=True,
+    )
 
-    def __init__(self, c, DW_Expand=2, FFN_Expand=2):
-        super().__init__()
-        dw_channel = c * DW_Expand
-        self.conv1 = nn.Conv2d(
-            in_channels=c,
-            out_channels=dw_channel,
-            kernel_size=1,
-            padding=0,
-            stride=1,
-            groups=1,
-            bias=True,
-        )
-        self.conv2 = nn.Conv2d(
+
+def _naf_layers(c: int, dw_expand: int, ffn_expand: int) -> dict[str, nn.Module]:
+    """NAFBlock children in registration order (the names are the ``state_dict`` keys)."""
+    dw_channel = c * dw_expand
+    ffn_channel = ffn_expand * c
+    return {
+        "conv1": _pointwise_conv(c, dw_channel),
+        "conv2": nn.Conv2d(
             in_channels=dw_channel,
             out_channels=dw_channel,
             kernel_size=3,
@@ -117,44 +121,44 @@ class NAFBlock(nn.Module):
             stride=1,
             groups=dw_channel,
             bias=True,
-        )
-        self.conv3 = nn.Conv2d(
-            in_channels=dw_channel // 2,
-            out_channels=c,
-            kernel_size=1,
-            padding=0,
-            stride=1,
-            groups=1,
-            bias=True,
-        )
-        self.sca = SimplifiedChannelAttention(dw_channel // 2)
-        self.sg = SimpleGate()
+        ),
+        "conv3": _pointwise_conv(dw_channel // 2, c),
+        "sca": SimplifiedChannelAttention(dw_channel // 2),
+        "sg": SimpleGate(),
+        "conv4": _pointwise_conv(c, ffn_channel),
+        "conv5": _pointwise_conv(ffn_channel // 2, c),
+        "norm1": nn.InstanceNorm2d(c),
+        "norm2": nn.InstanceNorm2d(c),
+    }
 
-        ffn_channel = FFN_Expand * c
-        self.conv4 = nn.Conv2d(
-            in_channels=c,
-            out_channels=ffn_channel,
-            kernel_size=1,
-            padding=0,
-            stride=1,
-            groups=1,
-            bias=True,
-        )
-        self.conv5 = nn.Conv2d(
-            in_channels=ffn_channel // 2,
-            out_channels=c,
-            kernel_size=1,
-            padding=0,
-            stride=1,
-            groups=1,
-            bias=True,
-        )
 
-        self.norm1 = nn.InstanceNorm2d(c)
-        self.norm2 = nn.InstanceNorm2d(c)
+class NAFBlock(nn.Module):
+    """NAFNet block: gated depthwise-conv branch and gated FFN with learned residual scales.
 
-        self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-        self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+    Children and the ``beta``/``gamma`` residual scales are registered by name (see
+    ``_naf_layers``) so the checkpoint ``state_dict`` keys stay ``conv1.weight``, ``beta``...
+    """
+
+    conv1: nn.Conv2d
+    conv2: nn.Conv2d
+    conv3: nn.Conv2d
+    sca: SimplifiedChannelAttention
+    sg: SimpleGate
+    conv4: nn.Conv2d
+    conv5: nn.Conv2d
+    norm1: nn.InstanceNorm2d
+    norm2: nn.InstanceNorm2d
+    beta: nn.Parameter
+    gamma: nn.Parameter
+
+    def __init__(self, c, DW_Expand=2, FFN_Expand=2):
+        super().__init__()
+        for name, layer in _naf_layers(c, DW_Expand, FFN_Expand).items():
+            self.add_module(name, layer)
+        for name in ("beta", "gamma"):
+            self.register_parameter(
+                name, nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+            )
 
     def forward(self, inp):
         """Apply the conv and FFN sub-blocks with scaled residual connections."""
@@ -231,7 +235,10 @@ class NAFNet(nn.Module):
             chan = chan // 2
             self.decoders.append(nn.Sequential(*[NAFBlock(chan) for _ in range(num)]))
 
-        self.padder_size = 2 ** len(self.encoders)
+    @property
+    def padder_size(self) -> int:
+        """Input sides are padded to a multiple of this encoder stride."""
+        return 2 ** len(self.encoders)
 
     def forward(self, inp):
         """Restore ``inp``; pads to a multiple of the encoder stride and crops back afterwards."""

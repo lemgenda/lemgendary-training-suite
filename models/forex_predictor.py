@@ -1,6 +1,7 @@
 """ForexPredictor: multi-timeframe causal-conv/attention model for FX direction and magnitude."""
 
 import logging
+from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
@@ -312,6 +313,64 @@ class MagnitudeHead(nn.Module):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class ForexArch:
+    """Architecture hyper-parameters of a ``ForexPredictor`` (its checkpoint ``model_kwargs``)."""
+
+    d_model: int
+    n_layers: int
+    dropout: float
+    tf_dropout: float
+    in_features: int
+    head_hidden: int
+
+
+def _forex_layers(
+    arch: ForexArch, active_timeframes: list, num_pairs: int, n_heads: int
+) -> dict[str, nn.Module]:
+    """ForexPredictor children in registration order (the names are the ``state_dict`` keys)."""
+    d_model = arch.d_model
+    n_tf = len(active_timeframes)
+    # Fused manifold dimension: n_tf * d_model (from cross_attn) + d_model (pair embed)
+    fused_dim = n_tf * d_model + d_model
+    return {
+        # Pair embedding: early projection for TCN input conditioning
+        "pair_embed": nn.Embedding(num_pairs, d_model),
+        "pair_project": nn.Linear(d_model, d_model),
+        # One TCN encoder per active timeframe; each receives the pair embedding as an
+        # additive input bias.
+        "encoders": nn.ModuleDict(
+            {
+                str(tf): TimeframeEncoder(
+                    in_features=arch.in_features,
+                    d_model=d_model,
+                    n_layers=arch.n_layers,
+                    dropout=arch.dropout,
+                    pair_d_model=d_model,
+                )
+                for tf in active_timeframes
+            }
+        ),
+        # Cross-timeframe attention fuses multiple timeframe embeddings.
+        # 2026 v1.1 Fix: guarantee d_model % n_heads == 0 for nn.MultiheadAttention
+        "cross_attn": CrossTimeframeAttention(
+            d_model=d_model,
+            n_heads=_select_valid_n_heads(d_model, n_tf, preferred=n_heads),
+            dropout=arch.dropout,
+            tf_dropout=arch.tf_dropout,
+        ),
+        # Manifold projection before heads
+        "fused_project": nn.Sequential(
+            nn.Linear(fused_dim, arch.head_hidden),
+            nn.GELU(),
+            nn.Dropout(arch.dropout),
+            nn.LayerNorm(arch.head_hidden),
+        ),
+        "direction_head": DirectionHead(arch.head_hidden, arch.head_hidden, arch.dropout),
+        "magnitude_head": MagnitudeHead(arch.head_hidden, arch.head_hidden, arch.dropout),
+    }
+
+
 class ForexPredictor(nn.Module):
     """
     LemGendary Forex Predictor -- Multi-Scale CNN-Transformer Hybrid.
@@ -358,6 +417,16 @@ class ForexPredictor(nn.Module):
         pairs:             Optional subset of pairs for pair-embedding sizing.
     """
 
+    # Children registered by name in ``__init__`` (see ``_forex_layers``); the names are
+    # the checkpoint ``state_dict`` prefixes.
+    pair_embed: nn.Embedding
+    pair_project: nn.Linear
+    encoders: nn.ModuleDict
+    cross_attn: CrossTimeframeAttention
+    fused_project: nn.Sequential
+    direction_head: DirectionHead
+    magnitude_head: MagnitudeHead
+
     # Keyword arguments are the registry ``model_kwargs`` stored with each checkpoint.
     def __init__(  # pylint: disable=too-many-arguments
         self,
@@ -379,63 +448,29 @@ class ForexPredictor(nn.Module):
             active_timeframes = [1, 5, 15, 60, 240, 1440]
 
         self.active_timeframes = list(active_timeframes)
-        self.d_model = d_model
-        self.tf_dropout = tf_dropout
-        self.in_features = in_features
-        self.n_layers = n_layers
-        self.dropout = dropout
-        self.head_hidden = head_hidden
+        self.arch = ForexArch(
+            d_model=d_model,
+            n_layers=n_layers,
+            dropout=dropout,
+            tf_dropout=tf_dropout,
+            in_features=in_features,
+            head_hidden=head_hidden,
+        )
 
         self.pairs = list(pairs) if pairs is not None else list(EXTENDED_PAIRS)
         self.num_pairs = max(len(self.pairs), NUM_PAIRS)
 
-        # Pair embedding: early projection for TCN input conditioning
-        self.pair_embed = nn.Embedding(self.num_pairs, d_model)
-        self.pair_project = nn.Linear(d_model, d_model)
-
-        # Build one TCN encoder per active timeframe
-        # Each encoder receives the pair embedding as an additive input bias
-        self.encoders = nn.ModuleDict(
-            {
-                str(tf): TimeframeEncoder(
-                    in_features=in_features,
-                    d_model=d_model,
-                    n_layers=n_layers,
-                    dropout=dropout,
-                    pair_d_model=d_model,
-                )
-                for tf in self.active_timeframes
-            }
-        )
-
-        n_tf = len(self.active_timeframes)
-
-        # 2026 v1.1 Fix: guarantee d_model % n_heads == 0 for nn.MultiheadAttention
-        valid_n_heads = _select_valid_n_heads(d_model, n_tf, preferred=n_heads)
-
-        # Cross-timeframe attention fuses multiple timeframe embeddings
-        self.cross_attn = CrossTimeframeAttention(
-            d_model=d_model,
-            n_heads=valid_n_heads,
-            dropout=dropout,
-            tf_dropout=tf_dropout,
-        )
-
-        # Fused manifold dimension: n_tf * d_model (from cross_attn) + d_model (pair embed)
-        fused_dim = n_tf * d_model + d_model
-
-        # Manifold projection before heads
-        self.fused_project = nn.Sequential(
-            nn.Linear(fused_dim, head_hidden),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.LayerNorm(head_hidden),
-        )
-
-        self.direction_head = DirectionHead(head_hidden, head_hidden, dropout)
-        self.magnitude_head = MagnitudeHead(head_hidden, head_hidden, dropout)
+        for name, layer in _forex_layers(
+            self.arch, self.active_timeframes, self.num_pairs, n_heads
+        ).items():
+            self.add_module(name, layer)
 
         self._init_weights()
+
+    @property
+    def in_features(self) -> int:
+        """Features per bar the timeframe encoders expect (read by the MT5 exporter)."""
+        return self.arch.in_features
 
     def _init_weights(self):
         """Kaiming init for linear/conv layers, Xavier for embeddings."""
@@ -558,13 +593,13 @@ class ForexPredictor(nn.Module):
         # 2026 v1.1 Fix: inherit pair_d_model from an existing encoder so the
         # new branch stays pair-conditioned like its siblings.
         ref_encoder = next(iter(self.encoders.values()))
-        ref_pair_d_model = getattr(ref_encoder, "pair_d_model", self.d_model)
+        ref_pair_d_model = getattr(ref_encoder, "pair_d_model", self.arch.d_model)
 
         self.encoders[key] = TimeframeEncoder(
-            in_features=self.in_features,
-            d_model=self.d_model,
-            n_layers=self.n_layers,
-            dropout=self.dropout,
+            in_features=self.arch.in_features,
+            d_model=self.arch.d_model,
+            n_layers=self.arch.n_layers,
+            dropout=self.arch.dropout,
             pair_d_model=ref_pair_d_model,
         )
         self.active_timeframes.append(new_tf)
@@ -581,13 +616,16 @@ class ForexPredictor(nn.Module):
         # 2026 v1.1 Fix: use the divisibility helper (was relying on nn.MultiheadAttention
         # to raise an obscure AssertionError on non-divisible configs).
         valid_n_heads = _select_valid_n_heads(
-            self.d_model, n_tf, preferred=old_cross_attn.attn.num_heads
+            self.arch.d_model, n_tf, preferred=old_cross_attn.attn.num_heads
         )
 
-        self.cross_attn = CrossTimeframeAttention(
-            d_model=self.d_model,
-            n_heads=valid_n_heads,
-            tf_dropout=self.tf_dropout,
+        self.add_module(
+            "cross_attn",
+            CrossTimeframeAttention(
+                d_model=self.arch.d_model,
+                n_heads=valid_n_heads,
+                tf_dropout=self.arch.tf_dropout,
+            ),
         )
 
         # 2026 v1.1 Warm-Start: MultiheadAttention's in_proj / out_proj / LayerNorm
@@ -623,12 +661,12 @@ class ForexPredictor(nn.Module):
         ):
             return
 
-        fused_dim = n_tf * self.d_model + self.d_model
+        fused_dim = n_tf * self.arch.d_model + self.arch.d_model
         new_linear = nn.Linear(fused_dim, m0.out_features)
         new_ln = nn.LayerNorm(m0.out_features)
         new_proj = nn.Sequential(new_linear, nn.GELU(), nn.Dropout(float(m2.p)), new_ln)
         _copy_projection_weights(m0, m3, new_linear, new_ln)
-        self.fused_project = new_proj
+        self.add_module("fused_project", new_proj)
 
         print(f" [ForexPredictor] Expanded to {n_tf} timeframes. Added: {new_tf}min rung.")
         print(

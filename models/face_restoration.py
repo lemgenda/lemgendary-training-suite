@@ -25,37 +25,54 @@ class ResidualBlock(nn.Module):
         return out + residual
 
 
+def _unet_layers(in_c: int, out_c: int, base_channels: int) -> dict[str, nn.Module]:
+    """UNetBackbone children in registration order (the names are the ``state_dict`` keys)."""
+    c1, c2, c4 = base_channels, base_channels * 2, base_channels * 4
+    return {
+        # Encoder
+        "enc1": nn.Sequential(
+            nn.Conv2d(in_c, c1, 3, padding=1),
+            nn.ReLU(inplace=True),
+            ResidualBlock(c1),
+        ),
+        "down1": nn.Conv2d(c1, c2, 4, stride=2, padding=1),
+        "enc2": nn.Sequential(ResidualBlock(c2), nn.ReLU(inplace=True)),
+        "down2": nn.Conv2d(c2, c4, 4, stride=2, padding=1),
+        # Middle
+        "mid": nn.Sequential(ResidualBlock(c4), ResidualBlock(c4)),
+        # Decoder
+        "up2": nn.ConvTranspose2d(c4, c2, 4, stride=2, padding=1),
+        "dec2": nn.Sequential(ResidualBlock(c2), nn.ReLU(inplace=True)),
+        "up1": nn.ConvTranspose2d(c2, c1, 4, stride=2, padding=1),
+        "dec1": nn.Sequential(ResidualBlock(c1), nn.ReLU(inplace=True)),
+        "final": nn.Conv2d(c1, out_c, 3, padding=1),
+    }
+
+
 class UNetBackbone(nn.Module):
     """
     Real High-Fidelity UNet Backbone with Residual Blocks.
     Designed for Face Restoration and Parsing.
+
+    Children are registered by name (see ``_unet_layers``) so the checkpoint
+    ``state_dict`` keys stay ``enc1.0.weight``, ``down1.weight``...
     """
+
+    enc1: nn.Sequential
+    down1: nn.Conv2d
+    enc2: nn.Sequential
+    down2: nn.Conv2d
+    mid: nn.Sequential
+    up2: nn.ConvTranspose2d
+    dec2: nn.Sequential
+    up1: nn.ConvTranspose2d
+    dec1: nn.Sequential
+    final: nn.Conv2d
 
     def __init__(self, in_c, out_c, base_channels=64):
         super().__init__()
-
-        # Encoder
-        self.enc1 = nn.Sequential(
-            nn.Conv2d(in_c, base_channels, 3, padding=1),
-            nn.ReLU(inplace=True),
-            ResidualBlock(base_channels),
-        )
-        self.down1 = nn.Conv2d(base_channels, base_channels * 2, 4, stride=2, padding=1)
-
-        self.enc2 = nn.Sequential(ResidualBlock(base_channels * 2), nn.ReLU(inplace=True))
-        self.down2 = nn.Conv2d(base_channels * 2, base_channels * 4, 4, stride=2, padding=1)
-
-        # Middle
-        self.mid = nn.Sequential(ResidualBlock(base_channels * 4), ResidualBlock(base_channels * 4))
-
-        # Decoder
-        self.up2 = nn.ConvTranspose2d(base_channels * 4, base_channels * 2, 4, stride=2, padding=1)
-        self.dec2 = nn.Sequential(ResidualBlock(base_channels * 2), nn.ReLU(inplace=True))
-
-        self.up1 = nn.ConvTranspose2d(base_channels * 2, base_channels, 4, stride=2, padding=1)
-        self.dec1 = nn.Sequential(ResidualBlock(base_channels), nn.ReLU(inplace=True))
-
-        self.final = nn.Conv2d(base_channels, out_c, 3, padding=1)
+        for name, layer in _unet_layers(in_c, out_c, base_channels).items():
+            self.add_module(name, layer)
 
     def forward(self, x):
         """Run the UNet encoder/decoder with skip connections."""
