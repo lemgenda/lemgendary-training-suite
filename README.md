@@ -11,11 +11,21 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.93-STABLE` |
+| **Version** | `v16.9.94-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.94 - Typed GUI Model Catalog with an Always-Present Training Verdict
+
+- **`training/server/routes/gui_schemas.py`** (new): Pydantic response models for `GET /api/gui/models/with-stats` (`ModelWithStats`, `SotaMetricDetail`, `BestMetricDetail`). The route declares `response_model=list[ModelWithStats]`, so `openapi.json` documents `training_status` (`fully_trained`, `partially_trained`, `weights_ready`, `initializing` or `unknown`) and `is_fully_trained` (boolean) as required on every entry.
+- **`training/server/routes/gui_status.py`** (new): `training_verdict()` is the only place that turns the 4 completion pillars (20 epochs, top ladder rung, full data at that rung, all SOTA targets) into both fields. `RungTracker` replays `metrics.csv` rows as ratchet rungs: a data fraction counts only for the resolution step it was trained at and resets on a step up (Monotonic Ratchet pair rule). Before, a full fraction from a lower step was carried to the top rung and could mark a model fully trained; a fraction that drops within one step is now logged as a ratchet violation.
+- **Malformed registry entries**: a model whose stats cannot be computed (for example a non-numeric `epochs`) is still listed, with `training_status: "unknown"`, `is_fully_trained: false` and the reason in `stats_error`. Before, one bad entry failed the whole list with HTTP 500. A non-numeric SOTA target no longer raises either.
+- **Hermetic hub lookup**: the route finds `LemGendaryModels` through `get_workspace_root()` instead of `<project>/..`.
+- **Ecosystem SSOT gate**: the `tests/test_integration_e2e.py` docstring no longer lists 3 project folders (0 training findings).
+- **Tests**: `tests/unit/test_gui_training_status.py` (new) covers every status path, the stale-fraction case, the `unknown` entry, the required fields in the OpenAPI schema, the verdict pillars and the rung tracker. `openapi.json` is regenerated.
+- **Tests**: 289 passed.
 
 ### v16.9.93 - Ecosystem Facts Read from ecosystem.json
 

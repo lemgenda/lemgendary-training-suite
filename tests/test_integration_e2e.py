@@ -4,10 +4,10 @@ LemGendary Ecosystem — Cross-Suite Integration and End-to-End Pipeline Tests.
 Phase 3 of Ecosystem Comprehensive Testing Battery.
 Verifies:
 1. End-to-end dataset pipeline: datasets compiled to WebDataset/WebP format
-   by lemgendary-datasets are cleanly resolved, read, and decoded by
-   lemgendary-training-suite ContainerReader and MultiTaskDataset.
-2. Cross-service health mesh schema compatibility between lemgendary-env-manager
-   and lemgendary-datasets.
+   by the Dataset Compiler are cleanly resolved, read, and decoded by the
+   Training Suite ContainerReader and MultiTaskDataset.
+2. Cross-service health mesh schema compatibility between the Environment
+   Manager and the Dataset Compiler.
 """
 
 from __future__ import annotations

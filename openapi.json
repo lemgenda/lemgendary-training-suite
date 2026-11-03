@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.93"
+    "version": "16.9.94"
   },
   "paths": {
     "/api/health": {
@@ -1577,7 +1577,7 @@
           "gui"
         ],
         "summary": "Get Models With Stats",
-        "description": "Retrieve model architectures paired with checkpoint existence and size.",
+        "description": "Retrieve model architectures paired with checkpoint existence and size.\n\nEvery entry carries ``training_status`` and ``is_fully_trained``. A\nregistry entry whose stats cannot be computed is still listed, with\nstatus ``unknown`` and the reason in ``stats_error``.",
         "operationId": "get_models_with_stats_api_gui_models_with_stats_get",
         "responses": {
           "200": {
@@ -1586,8 +1586,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/ModelWithStats"
                   },
                   "type": "array",
                   "title": "Response Get Models With Stats Api Gui Models With Stats Get"
@@ -1645,6 +1644,65 @@
   },
   "components": {
     "schemas": {
+      "BestMetricDetail": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "lower_is_better": {
+            "type": "boolean",
+            "title": "Lower Is Better"
+          },
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "value",
+          "target",
+          "lower_is_better",
+          "passed"
+        ],
+        "title": "BestMetricDetail",
+        "description": "Best value of a tracked metric, with its SOTA target when one exists."
+      },
       "EvalRequest": {
         "properties": {
           "model": {
@@ -2066,6 +2124,406 @@
         "title": "LLMTrainRequest",
         "description": "Payload for dispatching QLoRA instruction fine-tuning for assistant LLM."
       },
+      "ModelWithStats": {
+        "properties": {
+          "model_key": {
+            "type": "string",
+            "title": "Model Key"
+          },
+          "training_status": {
+            "type": "string",
+            "enum": [
+              "fully_trained",
+              "partially_trained",
+              "weights_ready",
+              "initializing",
+              "unknown"
+            ],
+            "title": "Training Status",
+            "description": "Training state from the 4-pillar verdict"
+          },
+          "is_fully_trained": {
+            "type": "boolean",
+            "title": "Is Fully Trained",
+            "description": "True only when all 4 completion pillars hold"
+          },
+          "stats_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stats Error",
+            "description": "Why the stats could not be computed; status is then 'unknown'"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "general"
+          },
+          "class_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Name"
+          },
+          "checkpoints_count": {
+            "type": "integer",
+            "title": "Checkpoints Count",
+            "default": 0
+          },
+          "has_best_checkpoint": {
+            "type": "boolean",
+            "title": "Has Best Checkpoint",
+            "default": false
+          },
+          "best_checkpoint_size_mb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Checkpoint Size Mb"
+          },
+          "best_checkpoint_epoch": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Checkpoint Epoch"
+          },
+          "latest_checkpoint_epoch": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Checkpoint Epoch"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "architecture": {
+            "type": "string",
+            "title": "Architecture",
+            "default": "PyTorch Model"
+          },
+          "task_type": {
+            "type": "string",
+            "title": "Task Type",
+            "default": "general"
+          },
+          "canonical_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Format"
+          },
+          "parameters_m": {
+            "type": "number",
+            "title": "Parameters M",
+            "default": 10.0
+          },
+          "spatial_ladder": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Spatial Ladder"
+          },
+          "ladder_type": {
+            "type": "string",
+            "enum": [
+              "spatial",
+              "timeframe",
+              "context_tokens"
+            ],
+            "title": "Ladder Type",
+            "default": "spatial"
+          },
+          "is_forex": {
+            "type": "boolean",
+            "title": "Is Forex",
+            "default": false
+          },
+          "is_llm": {
+            "type": "boolean",
+            "title": "Is Llm",
+            "default": false
+          },
+          "ladder_passed": {
+            "type": "boolean",
+            "title": "Ladder Passed",
+            "default": false
+          },
+          "active_res": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Res"
+          },
+          "max_res_completed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Res Completed"
+          },
+          "target_res": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Res"
+          },
+          "active_fold": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Fold"
+          },
+          "total_folds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Folds"
+          },
+          "fold_years_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fold Years Label"
+          },
+          "data_fraction_completed": {
+            "type": "number",
+            "title": "Data Fraction Completed",
+            "default": 0.0
+          },
+          "data_fraction_passed": {
+            "type": "boolean",
+            "title": "Data Fraction Passed",
+            "default": false
+          },
+          "checkpoint_exists": {
+            "type": "boolean",
+            "title": "Checkpoint Exists",
+            "default": false
+          },
+          "preferred_parallel": {
+            "type": "string",
+            "title": "Preferred Parallel",
+            "default": "single"
+          },
+          "epochs_completed": {
+            "type": "integer",
+            "title": "Epochs Completed",
+            "default": 0
+          },
+          "best_metric": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Metric"
+          },
+          "metric_name": {
+            "type": "string",
+            "title": "Metric Name",
+            "default": "Metric"
+          },
+          "sota_target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sota Target"
+          },
+          "sota_targets_total": {
+            "type": "integer",
+            "title": "Sota Targets Total",
+            "default": 0
+          },
+          "sota_targets_met": {
+            "type": "integer",
+            "title": "Sota Targets Met",
+            "default": 0
+          },
+          "sota_all_met": {
+            "type": "boolean",
+            "title": "Sota All Met",
+            "default": false
+          },
+          "sota_details": {
+            "items": {
+              "$ref": "#/components/schemas/SotaMetricDetail"
+            },
+            "type": "array",
+            "title": "Sota Details"
+          },
+          "best_metrics_details": {
+            "items": {
+              "$ref": "#/components/schemas/BestMetricDetail"
+            },
+            "type": "array",
+            "title": "Best Metrics Details"
+          },
+          "sota_reached": {
+            "type": "boolean",
+            "title": "Sota Reached",
+            "default": false
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "VALIDATED"
+          },
+          "authoritative_status": {
+            "type": "string",
+            "title": "Authoritative Status",
+            "default": "VALIDATED"
+          },
+          "learning_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learning Rate"
+          },
+          "batch_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Size"
+          },
+          "default_epochs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Epochs"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_key",
+          "training_status",
+          "is_fully_trained",
+          "name",
+          "key",
+          "display_name"
+        ],
+        "title": "ModelWithStats",
+        "description": "One model of ``GET /api/gui/models/with-stats``.\n\n``training_status`` and ``is_fully_trained`` have no default: every entry\nsets them, also when its stats could not be computed (``stats_error``)."
+      },
       "NotebookGenerateRequest": {
         "properties": {
           "model_key": {
@@ -2247,6 +2705,62 @@
         ],
         "title": "QuickTrainRequest",
         "description": "Payload for quick train trigger."
+      },
+      "SotaMetricDetail": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "achieved": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Achieved"
+          },
+          "lower_is_better": {
+            "type": "boolean",
+            "title": "Lower Is Better"
+          },
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "target",
+          "achieved",
+          "lower_is_better",
+          "passed"
+        ],
+        "title": "SotaMetricDetail",
+        "description": "One SOTA target of a model and the best value reached so far."
       },
       "SoupRequest": {
         "properties": {
