@@ -33,9 +33,10 @@ import torch
 import yaml
 from torch import nn
 
-from training.checkpoint.manager import safe_atomic_save, safe_load_checkpoint
-from training.checkpoint.preflight_generator import generate_preflight_assets
+from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS, safe_atomic_save, safe_load_checkpoint
+from training.checkpoint.preflight_generator import PREFLIGHT_ERRORS, generate_preflight_assets
 from training.doc_generator import build_model_readme
+from training.export.base import EXPORT_ERRORS
 from training.export.universal_exporter import (
     export_universal_model,
     get_model_hub_dir,
@@ -215,7 +216,7 @@ class CheckpointLifecycleManager:
                 if l_ep >= p_ep:
                     self.progress_path.unlink()
                     logger.info("Purged obsolete progress checkpoint %s (progress ep %d <= latest ep %d)", self.progress_path, p_ep, l_ep)
-            except Exception as clean_err:
+            except CHECKPOINT_LOAD_ERRORS as clean_err:
                 logger.debug("Progress checkpoint clean check notice: %s", clean_err)
 
         # Tracking state
@@ -233,7 +234,7 @@ class CheckpointLifecycleManager:
                     if saved_q is not None:
                         q_val = float(saved_q)
                         self.best_quality_score = max(self.best_quality_score, q_val)
-            except Exception as e:
+            except (*CHECKPOINT_LOAD_ERRORS, TypeError) as e:
                 logger.debug("Failed reading best.pth quality score: %s", e)
 
         # Pre-flight asset generation (README and cloud notebooks before Epoch 1)
@@ -248,7 +249,7 @@ class CheckpointLifecycleManager:
             assets = generate_preflight_assets(self.model_name, self.root, force=force)
             logger.info("Pre-flight assets verified for %s: %s", self.model_name, list(assets.keys()))
             return assets
-        except Exception as exc:
+        except PREFLIGHT_ERRORS as exc:
             logger.warning("Pre-flight generation notice for %s: %s", self.model_name, exc)
             return {}
 
@@ -267,8 +268,8 @@ class CheckpointLifecycleManager:
                             try:
                                 q_val = float(row[q_key])
                                 self.best_quality_score = max(self.best_quality_score, q_val)
-                            except ValueError:
-                                pass
+                            except ValueError as q_err:
+                                logger.debug("Skipping non-numeric %s value %r in metrics.csv: %s", q_key, row[q_key], q_err)
 
                     # SOTA target metric baselines
                     for target_key in self.sota_targets:
@@ -286,8 +287,8 @@ class CheckpointLifecycleManager:
                                             self.vault_bests[target_key] = val
                                     elif val > cur:
                                         self.vault_bests[target_key] = val
-                                except ValueError:
-                                    pass
+                                except ValueError as v_err:
+                                    logger.debug("Skipping non-numeric %s value %r in metrics.csv: %s", k, v, v_err)
         except OSError as exc:
             logger.debug("Failed parsing metrics.csv history for vault baselines: %s", exc)
 
@@ -459,8 +460,8 @@ class CheckpointLifecycleManager:
                     try:
                         val = float(v)
                         break
-                    except (ValueError, TypeError):
-                        pass
+                    except (ValueError, TypeError) as conv_err:
+                        logger.debug("Ignoring non-numeric metric %s=%r for vault %s: %s", k, v, target_key, conv_err)
 
             if val is None:
                 continue
@@ -524,7 +525,7 @@ class CheckpointLifecycleManager:
                 stage_dist=True,
             )
             return exported
-        except Exception as exc:
+        except EXPORT_ERRORS as exc:
             logger.error("Universal tri-format export failed for %s: %s", self.model_name, exc)
             return {}
 
@@ -551,5 +552,5 @@ class CheckpointLifecycleManager:
             )
             readme_path.write_text(readme_content, encoding="utf-8")
             logger.info("Refreshed model hub README at %s", readme_path)
-        except Exception as exc:
+        except (OSError, yaml.YAMLError, KeyError, ValueError, TypeError, AttributeError) as exc:
             logger.debug("Non-fatal README refresh notice for %s: %s", self.model_name, exc)

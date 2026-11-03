@@ -11,11 +11,21 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.69-STABLE` |
+| **Version** | `v16.9.70-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.70 - No Silent Exception Handlers
+
+- **Blind and silent handlers removed**: all 276 ruff `BLE001`/`S110`/`S112`/`E722` sites (`except Exception`, bare `except:`, `except ...: pass`) across `training/`, `models/`, `data/`, `export/`, `tools/` and `tests/` now catch the exception types their `try` body can raise and log the failure with context through a `lemtrain.*` module logger. About 70 more narrow `except OSError: pass`/`continue` handlers that dropped real errors now log too. Fallback values and return types are unchanged.
+- **Boundaries kept explicit**: `except Exception` remains only where any failure must be contained and is logged with `logger.exception` (traceback included). These sites are the job worker (`training/server/jobs.py`), caller-supplied `on_epoch_end` callbacks (`training/training/engine.py`, two Ultralytics callbacks in `training/governance/yolo_governor.py`), the per-model fleet push and per-variation pull loops (`training/cli/lemtrain.py`), the emergency-sync callback in the signal handler (`training/utils/interrupt.py`) and the per-pair loop in `data/mt5_pipeline.py`.
+- **Shared error sets (SSOT)**: `training/cloud/errors.py` holds `KAGGLE_API_ERRORS` and `kagglehub_errors()`. The function finds kagglehub's exception classes at runtime because their names change between releases, and `data/data_utils.py` and `training/checkpoint/recovery.py` now use it instead of keeping their own copies. Checkpoint and export error tuples live in `training/checkpoint/manager.py` and `training/export/base.py`.
+- **HTTP routes**: errors the routes do not expect now propagate as FastAPI's default 500 instead of being caught and rephrased. Expected errors are re-raised as `HTTPException ... from exc`. The WebSocket route re-raises `asyncio.CancelledError`.
+- **No silent directory removal**: new `training/utils/fs.remove_tree` replaces every `shutil.rmtree(..., ignore_errors=True)`. A failed removal is logged and reported to the caller, so `restructuring.py` no longer claims a directory was removed when it was not. The generated Kaggle notebook cells print a warning when a removal fails.
+- **Inline suppressions removed**: `# type: ignore[arg-type]` in `training/core_loop.py` is gone. Instruction datasets get a typed `_build_instruction_train_loader`. The `# pragma: no cover` placeholder `_unused` in `training/cloud/metadata_generator.py` is deleted. The repository now has no `# noqa`, `# type: ignore`, `# pylint: disable` or `# pragma` comments.
+- **Tests**: 260 passed, 0 failed.
 
 ### v16.9.69 - Green Test Suite & One Version Everywhere
 

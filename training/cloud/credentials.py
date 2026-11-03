@@ -9,6 +9,8 @@ from pathlib import Path
 import re
 from typing import Any
 
+import yaml
+
 from training.config.secrets import get_secret, load_secrets
 from training.utils.paths import get_project_root
 
@@ -51,11 +53,10 @@ def load_secrets_yaml_registry() -> list[dict[str, Any]]:
     for p in candidates:
         if p.exists() and p.is_file():
             try:
-                import yaml
                 data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
                 return data.get("secrets", [])
-            except Exception as e:
-                logger.debug("Failed parsing .secrets.yaml at %s: %s", p, e)
+            except (OSError, UnicodeDecodeError, yaml.YAMLError, AttributeError) as e:
+                logger.warning("Failed parsing .secrets.yaml at %s: %s", p, e)
     return []
 
 
@@ -219,8 +220,8 @@ def resolve_kaggle_credentials(
             k_json.parent.mkdir(parents=True, exist_ok=True)
             k_content = json.dumps({"username": k_user, "key": k_key}, indent=2)
             k_json.write_text(k_content, encoding="utf-8")
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning("Could not sync Kaggle CLI credentials file %s: %s", k_json, exc)
 
     return k_user, k_key
 

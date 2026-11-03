@@ -186,8 +186,8 @@ class GitHubSyncManager:
                 creationflags=cflags,
             )
             git_installed = (res.returncode == 0)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("git executable not available: %s", exc)
 
         return {
             "provider": "github",

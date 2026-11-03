@@ -360,8 +360,8 @@ class MultiTaskDataset(Dataset):
                             cand = os.path.join(colab_ds_root, item)
                             if os.path.exists(cand):
                                 return cand
-                except Exception:
-                    pass
+                except OSError as exc:
+                    logger.warning("Case-insensitive scan of %s failed for %s: %s", colab_ds_root, ds_name, exc)
             # Priority 2: Check Google Drive mount
             drive_path = f"/content/drive/MyDrive/LemGendaryDatasets/{ds_name}"
             if os.path.exists(drive_path):
@@ -391,8 +391,8 @@ class MultiTaskDataset(Dataset):
                             cand = os.path.join(self.data_root, item)
                             if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')) or os.path.exists(os.path.join(cand, 'shards')):
                                 return cand
-                except Exception:
-                    pass
+                except OSError as exc:
+                    logger.warning("Case-insensitive scan of %s failed for %s: %s", self.data_root, ds_name, exc)
 
             # Priority 2: Scan /kaggle/input for attached manifolds (directory or container format)
             if os.path.exists('/kaggle/input'):
@@ -454,8 +454,9 @@ class MultiTaskDataset(Dataset):
         try:
             with Image.open(img_path) as img:
                 return img.convert('RGB')
-        except Exception as e:
-            # print(f"[WARNING] [SHIELD] I/O Failure on {os.path.basename(img_path)}. Ejecting Neutral Gray.")
+        except (OSError, ValueError, Image.DecompressionBombError) as e:
+            # OSError covers missing files and PIL.UnidentifiedImageError / truncated data.
+            logger.warning("I/O failure on %s; substituting neutral gray: %s", img_path, e)
             return Image.new('RGB', (self.size[1], self.size[0]), (128, 128, 128))
 
     def __len__(self):
@@ -540,8 +541,8 @@ class MultiTaskDataset(Dataset):
                                 c_lines = [line.strip() for line in cf if line.strip()]
                             if label in c_lines:
                                 class_idx = c_lines.index(label)
-                        except Exception:
-                            pass
+                        except (OSError, UnicodeDecodeError) as exc:
+                            logger.warning("Could not read %s; using class index 0 for %r: %s", classes_file, label, exc)
             return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
 
         return img_tensor, torch.zeros(1), self.task_type
@@ -685,8 +686,8 @@ class MultiTaskDataset(Dataset):
                 try:
                     if os.path.exists(tgt_path) and os.path.samefile(img_path, tgt_path):
                         img_tensor = apply_film_degradation(target_tensor)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logger.debug("samefile check failed for %s vs %s: %s", img_path, tgt_path, exc)
 
             if self.model_key.startswith("ffanet"):
                 label_path = self._get_split_path(ds_path, "labels", fname, ".txt")

@@ -103,7 +103,9 @@ class GenericCausalLLM(nn.Module):
                 except ImportError:
                     logger.warning("PEFT not installed. GenericCausalLLM operating in standard mode.")
 
-        except Exception as exc:
+        except (ImportError, OSError, ValueError, RuntimeError) as exc:
+            # ImportError: transformers missing; OSError: weights/tokenizer not found or
+            # not downloadable; ValueError: unsupported config; RuntimeError: backend/device failure.
             logger.warning(
                 "Could not initialize full transformers model (%s). Using lightweight mock for testing.", exc
             )

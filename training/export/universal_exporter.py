@@ -24,6 +24,7 @@ from training.export.pytorch_exporter import PyTorchModelExporter
 from training.export.staging import StagingResult, VariationStagingService
 from training.export.yolo_exporter import YOLOModelExporter
 from training.registry import get_model_registry
+from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export.universal")
@@ -77,8 +78,7 @@ def export_tri_format_pytorch(
         staging_svc = VariationStagingService()
         st_res = staging_svc.stage_variations(model_key=model_key, source_files=exported, base_dir=target_dir)
         if staging_dir.exists():
-            import shutil
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            remove_tree(staging_dir, purpose="export staging cleanup")
         if st_res.staged_files:
             exported = st_res.staged_files
 
@@ -107,8 +107,7 @@ def export_tri_format_yolo(
         staging_svc = VariationStagingService()
         st_res = staging_svc.stage_variations(model_key=model_key, source_files=exported, base_dir=target_dir)
         if staging_dir.exists():
-            import shutil
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            remove_tree(staging_dir, purpose="export staging cleanup")
         if st_res.staged_files:
             exported = st_res.staged_files
 
@@ -153,8 +152,7 @@ def export_universal_model(
             validate=True,
         )
         if staging_dir.exists():
-            import shutil
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            remove_tree(staging_dir, purpose="export staging cleanup")
         if staging_result.staged_files:
             exported = staging_result.staged_files
 

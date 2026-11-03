@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +37,7 @@ from training.export.validation import (
     VariationValidationReport,
 )
 from training.export.webgpu import export_webgpu_onnx
+from training.utils.fs import remove_tree
 from training.export.yolo_exporter import YOLOModelExporter
 from training.utils.paths import get_project_root
 
@@ -160,7 +160,7 @@ def export_all(
         staged_res = staging_svc.stage_variations(model_key, results, destination_dir)
         results.update(staged_res.staged_files)
         if staging_dir.exists():
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            remove_tree(staging_dir, purpose="export staging cleanup")
 
     logger.info("Completed export_all for %s: %d targets exported.", model_key, len(results))
     return results

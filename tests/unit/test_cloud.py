@@ -90,7 +90,7 @@ class TestKaggleHubManager(unittest.TestCase):
         finally:
             import shutil
             if bundle_dir.exists():
-                shutil.rmtree(bundle_dir, ignore_errors=True)
+                shutil.rmtree(bundle_dir)
 
 
 class TestGDriveBitExactParity(unittest.TestCase):

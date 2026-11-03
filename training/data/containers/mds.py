@@ -11,6 +11,9 @@ from training.data.containers.base import Sample
 
 logger = logging.getLogger("lemtrain.containers.mds")
 
+# Failure modes of the optional `streaming` library when opening a local shard directory.
+_STREAMING_INIT_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError, RuntimeError, KeyError, TypeError)
+
 
 class MdsReader:
     """Reader for MosaicML Streaming (MDS) sharded datasets."""
@@ -39,7 +42,7 @@ class MdsReader:
 
         try:
             self.index_data = json.loads(self.index_file.read_text(encoding="utf-8"))
-        except Exception as exc:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError(f"Failed parsing MDS index.json at '{self.index_file}': {exc}") from exc
 
         self.shards: list[dict[str, Any]] = self.index_data.get("shards", [])
@@ -65,7 +68,7 @@ class MdsReader:
                 try:
                     self._streaming_ds = local_ds_cls(local=str(self.mds_dir))
                     return
-                except Exception as exc:
+                except _STREAMING_INIT_ERRORS as exc:
                     logger.debug("LocalDataset initialization failed, trying StreamingDataset: %s", exc)
             if streaming_cls is not None:
                 self._streaming_ds = streaming_cls(
@@ -73,8 +76,11 @@ class MdsReader:
                     split=None,
                     shuffle=False,
                 )
-        except Exception as exc:
-            logger.debug("Streaming library initialization failed, operating via raw index: %s", exc)
+        except ImportError as exc:
+            logger.debug("Streaming library not available, operating via raw index: %s", exc)
+            self._streaming_ds = None
+        except _STREAMING_INIT_ERRORS as exc:
+            logger.warning("Streaming library initialization failed for %s, operating via raw index: %s", self.mds_dir, exc)
             self._streaming_ds = None
 
     def __len__(self) -> int:

@@ -174,8 +174,8 @@ class DynamicOnTheFlyDegrader:
             try:
                 prof = core_parse_profile(mode, intensity=str(intensity))
                 self._core_degrader = CoreDynamicDegrader(prof)
-            except Exception as exc:
-                logger.debug("Fallback to standalone degradation: %s", exc)
+            except (ValueError, KeyError, TypeError, RuntimeError) as exc:
+                logger.warning("Core degrader rejected profile %r (intensity=%s); using standalone degradation: %s", mode, intensity, exc)
                 self._core_degrader = None
 
     def __call__(

@@ -43,7 +43,7 @@ class DatasetCompilerDelegate:
                     content = yaml.safe_load(candidate.read_text(encoding="utf-8"))
                     if isinstance(content, dict):
                         return content
-                except Exception as exc:
+                except (OSError, yaml.YAMLError) as exc:
                     logger.warning("Failed parsing models metadata at %s: %s", candidate, exc)
         return {}
 

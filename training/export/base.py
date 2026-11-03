@@ -7,14 +7,48 @@ for multi-framework and multi-precision model export.
 from __future__ import annotations
 
 import logging
+import pickle
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
+from google.protobuf.message import DecodeError
+
+from training.export.common import ExportError
 from training.registry import ModelSpecification, get_model_registry
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export.base")
+
+# Failure modes of torch.save / torch.load / shutil.copy2 when persisting a .pt binary
+# (I/O, (un)picklable objects, truncated archives, torch storage serialization errors,
+# unexpected checkpoint payload layout).
+MODEL_IO_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    RuntimeError,
+    pickle.PicklingError,
+    pickle.UnpicklingError,
+    EOFError,
+    TypeError,
+    ValueError,
+    AttributeError,
+    KeyError,
+)
+# Failure modes of the ONNX export chain: torch.onnx.export (OnnxExporterError and
+# UnsupportedOperatorError subclass RuntimeError), onnx.load (DecodeError, OSError), onnx.save
+# (ValueError for oversized protos), fp16 conversion (ValueError/TypeError/KeyError), and missing
+# optional exporters/backends (ImportError), plus the suite's own typed ExportError.
+EXPORT_ERRORS: tuple[type[BaseException], ...] = (
+    ExportError,
+    OSError,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    KeyError,
+    AttributeError,
+    ImportError,
+    DecodeError,
+)
 
 
 class BaseModelExporter(ABC):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,8 @@ from training.services.audit_service import AuditService
 from training.services.checkpoint_service import CheckpointService
 from training.services.training_service import TrainingService
 from training.utils.paths import get_project_root
+
+logger = logging.getLogger("lemtrain.server.routes.gui")
 
 router = APIRouter(prefix="/gui", tags=["gui"])
 
@@ -276,7 +279,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                                     ep_num = int(ep_val)
                                     csv_epochs = max(csv_epochs, ep_num)
                                 except ValueError:
-                                    pass
+                                    logger.debug("Non-integer Epoch %r in %s", ep_val, chosen_csv)
 
                             res_val = (
                                 row.get("Res")
@@ -291,7 +294,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                                     latest_res = res_num
                                     csv_max_res = max(csv_max_res, res_num)
                                 except ValueError:
-                                    pass
+                                    logger.debug("Non-numeric resolution %r in %s", res_val, chosen_csv)
 
                             fold_val = row.get("Fold") or row.get("fold")
                             if fold_val:
@@ -300,7 +303,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                                     latest_fold = fold_num
                                     csv_max_fold = max(csv_max_fold, fold_num)
                                 except ValueError:
-                                    pass
+                                    logger.debug("Non-integer Fold %r in %s", fold_val, chosen_csv)
 
                             data_val = (
                                 row.get("Data")
@@ -317,7 +320,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                                     latest_data = d_num
                                     csv_max_data = max(csv_max_data, d_num)
                                 except ValueError:
-                                    pass
+                                    logger.debug("Non-numeric data fraction %r in %s", data_val, chosen_csv)
 
                             # Collect all recognized metrics for model domain
                             for ykey, (col_name, _is_lower, _lbl, is_fx_col) in METRIC_REGISTRY.items():
@@ -330,9 +333,9 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                                             csv_metrics_history[ykey] = []
                                         csv_metrics_history[ykey].append(c_val)
                                     except (ValueError, TypeError):
-                                        pass
-            except Exception:
-                pass
+                                        logger.debug("Non-numeric %s value %r in %s", col_name, row.get(col_name), chosen_csv)
+            except (OSError, csv.Error) as exc:
+                logger.warning("Failed reading metrics CSV %s for %s: %s", chosen_csv, model_key, exc)
 
         has_hub_weights = False
         if hub_dir.exists():
@@ -386,7 +389,7 @@ def get_models_with_stats(request: Request) -> list[dict[str, Any]]:
                         tgt_num = float(tgt_val)
                         passed = (achieved <= tgt_num) if is_low else (achieved >= tgt_num)
                     except (ValueError, TypeError):
-                        pass
+                        logger.debug("Non-numeric SOTA target %r for %s.%s", tgt_val, model_key, ykey)
 
                 if passed:
                     sota_targets_met += 1

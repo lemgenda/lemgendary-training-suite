@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -21,9 +22,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
+import yaml
 from kaggle.api.kaggle_api_extended import KaggleApi
 
 from training.cloud.credentials import resolve_kaggle_credentials
+from training.cloud.errors import KAGGLE_API_ERRORS, kagglehub_errors
 from training.cloud.kaggle_hub import KaggleHubManager
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager, ModelPushResult
 from training.cloud.variations import VARIATION_BY_KEY
@@ -38,6 +41,9 @@ from training.services.training_service import TrainingService
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.server.jobs")
+
+# pull_kaggle_artifacts reports most failures itself; RuntimeError covers a missing kagglehub SDK.
+_PULL_ERRORS: tuple[type[Exception], ...] = (RuntimeError, *KAGGLE_API_ERRORS)
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 CLEAN_CONTROL_RE = re.compile(r"^\s*\[K\s*")
@@ -62,6 +68,15 @@ def _is_progress_line(text: str) -> bool:
     return bool(PROGRESS_RE.search(text))
 
 
+# Failures a tee line handler (JobManager._broadcast_log) can raise: job-state DB access (sqlite3),
+# log-file I/O (OSError), payload encoding (TypeError/ValueError) and a closed event loop (RuntimeError).
+_LINE_HANDLER_ERRORS: tuple[type[Exception], ...] = (sqlite3.Error, OSError, RuntimeError, TypeError, ValueError)
+
+# Failures writing to the wrapped console stream: broken pipe / detached console (OSError) and
+# closed stream or unencodable text (ValueError, incl. UnicodeEncodeError).
+_STREAM_ERRORS: tuple[type[Exception], ...] = (OSError, ValueError)
+
+
 class _GlobalOutputTee:
     """Process-wide stream tee that routes thread-specific stdout/stderr lines to active job loggers."""
 
@@ -70,6 +85,39 @@ class _GlobalOutputTee:
         self._handlers: dict[int, Callable[[str], None]] = {}
         self._lock = threading.Lock()
         self._buffers: dict[int, str] = {}
+        self._diag_state = threading.local()
+
+    def _report(self, msg: str, exc: Exception) -> None:
+        """Log a tee failure without re-entering the tee recursively.
+
+        Must be called with ``self._lock`` released: the log record may be written back
+        through this tee (sys.stdout/sys.stderr), which would otherwise deadlock.
+        """
+        if getattr(self._diag_state, "active", False):
+            return
+        self._diag_state.active = True
+        try:
+            logger.warning("%s: %s", msg, exc)
+        finally:
+            self._diag_state.active = False
+
+    def _dispatch(self, handler: Callable[[str], None], line: str, failures: list[Exception]) -> None:
+        try:
+            handler(line)
+        except _LINE_HANDLER_ERRORS as exc:
+            failures.append(exc)
+
+    def _report_failures(self, failures: list[Exception]) -> None:
+        for exc in failures:
+            self._report("Job log line handler failed; line dropped from job log", exc)
+
+    def _write_original(self, s: str | None) -> None:
+        try:
+            if s is not None:
+                self.original_stream.write(s)
+            self.original_stream.flush()
+        except _STREAM_ERRORS as exc:
+            self._report("Console stream write failed", exc)
 
     def register_thread(self, thread_id: int, on_line: Callable[[str], None]) -> None:
         with self._lock:
@@ -77,23 +125,19 @@ class _GlobalOutputTee:
             self._buffers[thread_id] = ""
 
     def unregister_thread(self, thread_id: int) -> None:
+        failures: list[Exception] = []
         with self._lock:
             buf = self._buffers.pop(thread_id, "").strip()
             handler = self._handlers.pop(thread_id, None)
             if buf and handler:
-                try:
-                    handler(buf)
-                except Exception:
-                    pass
+                self._dispatch(handler, buf, failures)
+        self._report_failures(failures)
 
     def write(self, s: str) -> int:
-        try:
-            self.original_stream.write(s)
-            self.original_stream.flush()
-        except Exception:
-            pass
+        self._write_original(s)
 
         tid = threading.get_ident()
+        failures: list[Exception] = []
         with self._lock:
             handler = self._handlers.get(tid)
             if handler:
@@ -102,30 +146,24 @@ class _GlobalOutputTee:
                     line, buf = buf.split("\n", 1)
                     clean = _clean_console_line(line)
                     if clean:
-                        try:
-                            handler(clean)
-                        except Exception:
-                            pass
+                        self._dispatch(handler, clean, failures)
                 self._buffers[tid] = buf
+        self._report_failures(failures)
         return len(s)
 
     def flush(self) -> None:
-        try:
-            self.original_stream.flush()
-        except Exception:
-            pass
+        self._write_original(None)
         tid = threading.get_ident()
+        failures: list[Exception] = []
         with self._lock:
             handler = self._handlers.get(tid)
             if handler:
                 buf = self._buffers.get(tid, "")
                 clean = _clean_console_line(buf)
                 if clean:
-                    try:
-                        handler(clean)
-                    except Exception:
-                        pass
+                    self._dispatch(handler, clean, failures)
                     self._buffers[tid] = ""
+        self._report_failures(failures)
 
     def isatty(self) -> bool:
         return False
@@ -491,7 +529,7 @@ class JobManager:
             try:
                 api = KaggleApi()
                 api.authenticate()
-            except Exception as e:
+            except KAGGLE_API_ERRORS as e:
                 raise RuntimeError(
                     f"Kaggle authentication failed: {e}. Please configure Kaggle username and API key."
                 ) from e
@@ -505,7 +543,7 @@ class JobManager:
         try:
             api.kernels_push(str(kernel_dir))
             self._broadcast_log(job_id, f"[KAGGLE] Kernel successfully pushed: {kernel_slug}")
-        except Exception as sdk_err:
+        except KAGGLE_API_ERRORS as sdk_err:
             self._broadcast_log(job_id, f"[WARN] Python SDK push notice: {sdk_err}. Trying CLI fallback...")
             cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
             res = subprocess.run(
@@ -539,7 +577,8 @@ class JobManager:
                         f"[{time.strftime('%H:%M:%S')}] [KAGGLE STATUS] Cloud status: {status_val}",
                     )
                     last_status = status_val
-            except Exception:
+            except KAGGLE_API_ERRORS as exc:
+                logger.debug("Kaggle status poll failed for %s; keeping %s: %s", kernel_slug, last_status, exc)
                 status_val = last_status
 
             try:
@@ -564,11 +603,11 @@ class JobManager:
                                 )
                                 try:
                                     pull_kaggle_artifacts(model_key, username=user)
-                                except Exception as pull_err:
+                                except _PULL_ERRORS as pull_err:
                                     self._broadcast_log(job_id, f"[WARN] Auto-pull notice: {pull_err}")
                     printed_lines_count = len(all_lines)
-            except Exception:
-                pass
+            except KAGGLE_API_ERRORS as exc:
+                logger.debug("Kaggle log poll failed for %s; retrying next interval: %s", kernel_slug, exc)
 
             if status_val in ["COMPLETE", "ERROR", "CANCELACK"]:
                 if status_val == "COMPLETE":
@@ -583,7 +622,7 @@ class JobManager:
                                 job_id,
                                 f"[SUCCESS] Final artifacts saved to LemGendaryModels/{model_key}!",
                             )
-                        except Exception as pe:
+                        except _PULL_ERRORS as pe:
                             self._broadcast_log(job_id, f"[WARN] Artifact pull notice: {pe}")
                     self.state.update_job_status(
                         job_id=job_id,
@@ -634,7 +673,7 @@ class JobManager:
             try:
                 api = KaggleApi()
                 api.authenticate()
-            except Exception as e:
+            except KAGGLE_API_ERRORS as e:
                 raise RuntimeError(f"Kaggle authentication failed: {e}") from e
 
         printed_lines_count = 0
@@ -650,7 +689,8 @@ class JobManager:
                         f"[{time.strftime('%H:%M:%S')}] [KAGGLE STATUS] Cloud status: {status_val}",
                     )
                     last_status = status_val
-            except Exception:
+            except KAGGLE_API_ERRORS as exc:
+                logger.debug("Kaggle status poll failed for %s; keeping %s: %s", kernel_slug, last_status, exc)
                 status_val = last_status
 
             try:
@@ -674,11 +714,11 @@ class JobManager:
                                 )
                                 try:
                                     pull_kaggle_artifacts(model_key, username=user)
-                                except Exception as pull_err:
+                                except _PULL_ERRORS as pull_err:
                                     self._broadcast_log(job_id, f"[WARN] Auto-pull notice: {pull_err}")
                     printed_lines_count = len(all_lines)
-            except Exception:
-                pass
+            except KAGGLE_API_ERRORS as exc:
+                logger.debug("Kaggle log poll failed for %s; retrying next interval: %s", kernel_slug, exc)
 
             if status_val in ["COMPLETE", "ERROR", "CANCELACK"]:
                 if status_val == "COMPLETE" and auto_pull and model_key:
@@ -689,7 +729,7 @@ class JobManager:
                     try:
                         pull_kaggle_artifacts(model_key, username=user)
                         self._broadcast_log(job_id, f"[SUCCESS] Final artifacts saved to LemGendaryModels/{model_key}!")
-                    except Exception as pe:
+                    except _PULL_ERRORS as pe:
                         self._broadcast_log(job_id, f"[WARN] Pull notice: {pe}")
 
                 self.state.update_job_status(
@@ -763,8 +803,8 @@ class JobManager:
                         )
                     else:
                         proc.kill()
-                except Exception:
-                    pass
+                except (OSError, subprocess.SubprocessError) as exc:
+                    logger.warning("Failed to terminate test process %s after cancellation: %s", proc.pid, exc)
 
         if cancel_event.is_set():
             self.state.update_job_status(job_id=job_id, status="cancelled", error_message="Cancelled by user request")
@@ -852,8 +892,9 @@ class JobManager:
             result.metadata_sync_result = sync_meta_res
             if sync_meta_res.get("errors"):
                 result.errors.extend(sync_meta_res["errors"])
-        except Exception as meta_exc:
+        except (*KAGGLE_API_ERRORS, yaml.YAMLError) as meta_exc:
             err_str = f"Metadata synchronization error: {meta_exc}"
+            logger.error("%s (model=%s)", err_str, model_key)
             result.errors.append(err_str)
             self._broadcast_log(job_id, f"{prefix}[ERROR] {model_key} metadata sync: {err_str}")
 
@@ -962,7 +1003,9 @@ class JobManager:
 
                 results[model_key] = push_res.to_dict()
 
-            except Exception as exc:
+            except (*kagglehub_errors(), RuntimeError, yaml.YAMLError) as exc:
+                # Per-model failure in a batch push: record it and continue with the next model.
+                logger.warning("Kaggle push-all failed for %s: %s", model_key, exc)
                 failed_count += 1
                 self._broadcast_log(job_id, f"  [ERROR] Exception processing '{model_key}': {exc}")
                 results[model_key] = {"success": False, "error": str(exc)}
@@ -1030,7 +1073,9 @@ class JobManager:
                 else:
                     errors.append(f"[{var_key}] Pull returned False")
                     self._broadcast_log(job_id, f"[ERROR] {model_key} [{var_key}]: pull returned False")
-            except Exception as exc:
+            except (*kagglehub_errors(), RuntimeError) as exc:
+                # RuntimeError: kagglehub SDK missing (raised by pull_variation).
+                logger.warning("Kaggle pull failed for %s [%s]: %s", model_key, var_key, exc)
                 errors.append(f"[{var_key}] {exc}")
                 self._broadcast_log(job_id, f"[ERROR] {model_key} [{var_key}]: {exc}")
 

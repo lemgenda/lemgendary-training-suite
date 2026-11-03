@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger("lemtrain.server.routes.ws")
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
 
@@ -19,8 +23,11 @@ async def stream_job_logs(websocket: WebSocket, job_id: str) -> None:
         while True:
             msg = await queue.get()
             await websocket.send_text(msg)
-    except (WebSocketDisconnect, asyncio.CancelledError):
-        pass
+    except WebSocketDisconnect as exc:
+        logger.debug("Job log WebSocket for %s disconnected (code=%s)", job_id, exc.code)
+    except asyncio.CancelledError:
+        logger.debug("Job log WebSocket stream for %s cancelled", job_id)
+        raise
     finally:
         manager.unsubscribe_job_logs(job_id, queue)
 
@@ -36,7 +43,10 @@ async def stream_global_logs(websocket: WebSocket) -> None:
         while True:
             msg = await queue.get()
             await websocket.send_text(msg)
-    except (WebSocketDisconnect, asyncio.CancelledError):
-        pass
+    except WebSocketDisconnect as exc:
+        logger.debug("Global log WebSocket disconnected (code=%s)", exc.code)
+    except asyncio.CancelledError:
+        logger.debug("Global log WebSocket stream cancelled")
+        raise
     finally:
         manager.unsubscribe_global_logs(queue)

@@ -4,10 +4,15 @@ Handles credentials mounting, Google Drive FUSE attachment, background thread sy
 training subprocess management, and final artifact uploads to KaggleHub and Google Drive.
 """
 
+import logging
 from typing import Any
+
+import yaml
 
 from ..registry import ModelNotebookMeta
 from .base import make_code_cell
+
+logger = logging.getLogger("lemtrain.notebooks.cells.sync")
 
 
 def build_secrets_cell(target: str = "kaggle") -> dict[str, Any]:
@@ -301,7 +306,9 @@ def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str
         meta_svc = KaggleMetadataService(owner_slug=meta.k_username)
         metadata_obj = meta_svc.build(meta.model_key)
         metadata_yaml_str = metadata_obj.to_yaml()
-    except Exception:
+    except (ImportError, OSError, ValueError, KeyError, yaml.YAMLError) as exc:
+        # ValueError includes MetadataValidationError (model missing from registry / invalid fields).
+        logger.warning("Could not embed Kaggle metadata for %s; push cell ships without it: %s", meta.model_key, exc)
         metadata_yaml_str = ""
 
     source = [
@@ -390,7 +397,10 @@ def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str
         "        print(f'   [ERROR] Failed uploading {var_key}: {up_err}')\n",
         "    finally:\n",
         "        if temp_dir and os.path.exists(temp_dir):\n",
-        "            shutil.rmtree(temp_dir, ignore_errors=True)\n",
+        "            try:\n",
+        "                shutil.rmtree(temp_dir)\n",
+        "            except OSError as rm_err:\n",
+        "                print(f'   [WARNING] Could not remove temp dir {temp_dir}: {rm_err}')\n",
         "\n",
         "if upload_errors:\n",
         "    print(f'[ERROR] Variation upload failed: {\"; \".join(upload_errors)}')\n",

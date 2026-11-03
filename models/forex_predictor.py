@@ -1,8 +1,12 @@
+import logging
 import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from training.losses import ForexDualLoss
+
+logger = logging.getLogger("lemtrain.models.forex_predictor")
 
 # [LemGendary Forex Suite v1.1 - SYNC_ID: FOREX_02]
 
@@ -608,8 +612,9 @@ class ForexPredictor(nn.Module):
         try:
             self.cross_attn.load_state_dict(old_cross_state, strict=False)
             print(f" [ForexPredictor] cross_attn warm-started (heads={valid_n_heads}, n_tf={n_tf}).")
-        except Exception as e:
-            print(f" [ForexPredictor] cross_attn warm-start skipped: {e}")
+        except RuntimeError as e:
+            # load_state_dict raises RuntimeError on tensor shape mismatches.
+            logger.warning("cross_attn warm-start skipped (heads=%d, n_tf=%d): %s", valid_n_heads, n_tf, e)
 
         # ── Rebuild fused_project with partial warm-start ────────────────────
         old_proj = self.fused_project

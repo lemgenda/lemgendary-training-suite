@@ -18,6 +18,7 @@ from pathlib import Path
 from training.cloud.variations import ONNX_FP16, ONNX_FP32, PYTORCH_DEFAULT, PYTORCH_FP32, VARIATIONS
 from training.export.validation import IsolationReport, StrictIsolationValidator
 from training.registry import ModelSpecification, get_model_registry
+from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export.staging")
@@ -96,8 +97,8 @@ class VariationStagingService:
                     if src.stat().st_size == dest.stat().st_size:
                         return
                     dest.unlink()
-                except OSError:
-                    pass
+                except OSError as pre_err:
+                    logger.debug("Could not compare/replace existing %s before copy: %s", dest, pre_err)
             shutil.copy2(str(src), str(dest))
 
         def _transfer(src: Path, dest: Path) -> None:
@@ -110,8 +111,8 @@ class VariationStagingService:
                         src.unlink()
                         return
                     dest.unlink()
-                except OSError:
-                    pass
+                except OSError as pre_err:
+                    logger.debug("Could not compare/replace existing %s before move: %s", dest, pre_err)
             shutil.move(str(src), str(dest))
 
         # ---------------------------------------------------------------------
@@ -131,7 +132,7 @@ class VariationStagingService:
 
         # If a legacy pytorch_default directory exists, purge duplicate files from it
         if pytorch_default_dir.exists():
-            shutil.rmtree(pytorch_default_dir, ignore_errors=True)
+            remove_tree(pytorch_default_dir, purpose="legacy pytorch_default purge")
 
         # ---------------------------------------------------------------------
         # 2. Stage PyTorch FP32 (.pt)
@@ -170,8 +171,8 @@ class VariationStagingService:
             if leftover_pt.is_file() and dest_pt.exists():
                 try:
                     leftover_pt.unlink()
-                except OSError:
-                    pass
+                except OSError as unlink_err:
+                    logger.warning("Could not remove leftover %s: %s", leftover_pt, unlink_err)
 
         # ---------------------------------------------------------------------
         # 3. Stage ONNX FP32 (.onnx + .onnx.data)
@@ -233,8 +234,8 @@ class VariationStagingService:
             if leftover_fp32.is_file() and dest_fp32_onnx.exists():
                 try:
                     leftover_fp32.unlink()
-                except OSError:
-                    pass
+                except OSError as unlink_err:
+                    logger.warning("Could not remove leftover %s: %s", leftover_fp32, unlink_err)
 
         # ---------------------------------------------------------------------
         # 4. Stage ONNX FP16 (.onnx)
@@ -275,8 +276,8 @@ class VariationStagingService:
             if leftover_fp16.is_file() and not leftover_fp16.name.endswith("_FP32.onnx") and dest_fp16.exists():
                 try:
                     leftover_fp16.unlink()
-                except OSError:
-                    pass
+                except OSError as unlink_err:
+                    logger.warning("Could not remove leftover %s: %s", leftover_fp16, unlink_err)
 
         # ---------------------------------------------------------------------
         # 5. Isolation Validation

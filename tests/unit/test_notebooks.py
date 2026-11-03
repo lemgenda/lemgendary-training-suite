@@ -67,7 +67,7 @@ class TestNotebookSubsystem(unittest.TestCase):
         self.registry = load_registry(self.config, self.project_root)
 
     def tearDown(self) -> None:
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        shutil.rmtree(self.temp_dir)
 
     def test_cells_base_helpers(self) -> None:
         """Verify that make_code_cell and make_markdown_cell return valid nbformat dicts."""

@@ -7,6 +7,7 @@ operations directly in-process via training.services, or delegates to local side
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 import socket
@@ -29,6 +30,8 @@ from training.services.export_service import ExportService
 from training.services.notebook_service import NotebookService
 from training.services.sync_service import CloudSyncService
 from training.services.training_service import TrainingService
+
+logger = logging.getLogger("lemtrain.cli.lemtrain")
 
 app = typer.Typer(
     name="lemtrain",
@@ -101,7 +104,7 @@ def soup(
 @app.command("version")
 def version() -> None:
     """Show LemGendary Training Suite version."""
-    typer.echo("LemGendary Model Training Suite v16.9.69 (Refactored & Hardened)")
+    typer.echo("LemGendary Model Training Suite v16.9.70 (Refactored & Hardened)")
 
 
 @app.command("train")
@@ -462,7 +465,9 @@ def sync_push(
                     failed += 1
                     typer.echo(f"  [WARN] Failed/skipped: {'; '.join(res.errors)}")
             except Exception as e:
+                # Fleet boundary: one model's push failure must not abort the remaining models.
                 failed += 1
+                logger.exception("Fleet Kaggle push failed for model '%s'", m_key)
                 typer.echo(f"  [ERROR] Exception for '{m_key}': {e}")
 
         typer.echo(f"[COMPLETED] Fleet push finished: {succeeded} succeeded, {failed} failed/skipped out of {total_models} models.")
@@ -524,7 +529,9 @@ def sync_pull(
                 failed += 1
                 typer.echo(f"  [ERROR] Pull returned false for {var_key}")
         except Exception as e:
+            # Per-variation boundary: report every variation's outcome instead of aborting the pull batch.
             failed += 1
+            logger.exception("Kaggle pull failed for model '%s' variation '%s'", model, var_key)
             typer.echo(f"  [ERROR] Failed to pull {var_key}: {e}")
 
     if succeeded == total:
@@ -582,9 +589,10 @@ def notebooks_generate(
             typer.echo(f"[SUCCESS] Generated {len(res)} notebooks for '{model}':")
             for k, p in res.items():
                 typer.echo(f"  * {k}: {p}")
-        except Exception as e:
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+            logger.error("Notebook generation failed for '%s' (%s): %s", model, platform, e)
             typer.echo(f"[ERROR] Notebook generation failed: {e}")
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=1) from e
 
 
 @server_app.command("start")
@@ -630,13 +638,21 @@ def server_stop() -> None:
 
     try:
         import psutil
+    except ImportError as imp_err:
+        logger.error("psutil is required to stop the sidecar daemon: %s", imp_err)
+        typer.echo(f"[ERROR] Could not terminate process {pid}: {imp_err}")
+        state.clear_pid()
+        return
+
+    try:
         if psutil.pid_exists(pid):
             p = psutil.Process(pid)
             p.terminate()
             typer.echo(f"[SUCCESS] Terminated server process with PID {pid}.")
         else:
             typer.echo(f"Process {pid} is no longer running.")
-    except Exception as e:
+    except (psutil.Error, OSError) as e:
+        logger.warning("Could not terminate sidecar process %s: %s", pid, e)
         typer.echo(f"[ERROR] Could not terminate process {pid}: {e}")
     finally:
         state.clear_pid()
@@ -668,7 +684,10 @@ def server_status(
                 typer.echo(f"    Service: {data.get('service')}")
                 typer.echo(f"    Version: {data.get('version')}")
                 typer.echo(f"    Device: {data.get('device', {}).get('name')}")
-        except Exception as e:
+        except (OSError, ValueError, AttributeError) as e:
+            # OSError covers urllib.error.URLError/HTTPError and socket timeouts;
+            # ValueError covers json.JSONDecodeError and UnicodeDecodeError.
+            logger.debug("Sidecar health probe on port %s failed: %s", port, e)
             typer.echo(f"  Health probe failed: {e}")
 
 

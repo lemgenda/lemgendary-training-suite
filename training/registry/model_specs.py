@@ -101,7 +101,7 @@ class ModelRegistryService:
                 ModelRegistryService._capabilities = raw_caps
                 for m in raw_caps.get("models", []):
                     caps_by_id[m.get("id", "")] = m
-            except Exception as exc:
+            except (OSError, yaml.YAMLError, AttributeError, TypeError) as exc:
                 logger.warning("Failed to load canonical_capabilities.yaml: %s", exc)
 
         models_dict: dict[str, ModelSpecification] = {}
@@ -160,7 +160,7 @@ class ModelRegistryService:
                         raw_config=raw_val,
                     )
                     models_dict[m_key] = spec
-            except Exception as exc:
+            except (OSError, yaml.YAMLError, AttributeError, TypeError, ValueError) as exc:
                 logger.error("Failed to load unified_models_v2.yaml: %s", exc)
 
         ModelRegistryService._models = models_dict

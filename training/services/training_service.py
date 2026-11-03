@@ -7,12 +7,15 @@ and execution loops without subprocess self-invocation.
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import yaml
 
 from training.utils.paths import get_project_root
+
+logger = logging.getLogger("lemtrain.services.training_service")
 
 if TYPE_CHECKING:
     from training.training.engine import TrainingSummary
@@ -89,9 +92,8 @@ class TrainingService:
             from training.services.notebook_service import NotebookService
             nb_service = NotebookService(project_root=self.project_root)
             nb_service.generate_notebooks(model_key=model_key, platform="all")
-        except Exception as e:
-            import logging
-            logging.getLogger("lemtrain").warning(f"Pre-flight notebook generation skipped for {model_key}: {e}")
+        except (OSError, yaml.YAMLError, ValueError, KeyError, TypeError, AttributeError) as e:
+            logger.warning("Pre-flight notebook generation skipped for %s: %s", model_key, e)
 
         # 1. Resolve preset parameters if requested
         if preset:

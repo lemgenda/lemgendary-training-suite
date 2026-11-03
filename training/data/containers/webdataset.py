@@ -126,7 +126,7 @@ class WebDatasetReader:
                                     txt_member,
                                     json_member,
                                 ))
-                except Exception as exc:
+                except (OSError, tarfile.TarError, EOFError) as exc:
                     logger.warning("Failed opening tar file %s: %s", t_path, exc)
         else:
             # Mode B: Extracted shard directories or loose image files
@@ -204,8 +204,8 @@ class WebDatasetReader:
             if txt_path is not None and txt_path.exists():
                 try:
                     label = txt_path.read_text(encoding="utf-8").strip()
-                except Exception:
-                    pass
+                except (OSError, UnicodeDecodeError) as exc:
+                    logger.warning("Unreadable text label %s; sample has no text label: %s", txt_path, exc)
 
             if json_path is not None and json_path.exists():
                 try:
@@ -222,8 +222,8 @@ class WebDatasetReader:
                                 or parsed_json.get("label")
                                 or parsed_json.get("score")
                             )
-                except Exception:
-                    pass
+                except (OSError, ValueError) as exc:
+                    logger.warning("Unreadable JSON sidecar %s; metadata skipped: %s", json_path, exc)
 
             return Sample(
                 name=stem,
@@ -271,8 +271,8 @@ class WebDatasetReader:
             if txt_extracted is not None:
                 try:
                     label = txt_extracted.read().decode("utf-8").strip()
-                except Exception:
-                    pass
+                except (OSError, tarfile.TarError, UnicodeDecodeError) as exc:
+                    logger.warning("Unreadable text label %s in %s; sample has no text label: %s", txt_m, t_path, exc)
 
         if json_m is not None:
             json_extracted = tf.extractfile(json_m)
@@ -291,8 +291,8 @@ class WebDatasetReader:
                                 or parsed_json.get("label")
                                 or parsed_json.get("score")
                             )
-                except Exception:
-                    pass
+                except (OSError, tarfile.TarError, ValueError) as exc:
+                    logger.warning("Unreadable JSON sidecar %s in %s; metadata skipped: %s", json_m, t_path, exc)
 
         return Sample(
             name=stem,
@@ -320,6 +320,6 @@ class WebDatasetReader:
         for tf in self._tar_handles.values():
             try:
                 tf.close()
-            except Exception as exc:
+            except OSError as exc:
                 logger.debug("Error closing tarfile: %s", exc)
         self._tar_handles.clear()

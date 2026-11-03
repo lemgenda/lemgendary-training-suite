@@ -5,6 +5,7 @@ training.notebook_generator, delegating directly to training.notebooks.
 """
 
 import argparse
+import logging
 import os
 import sys
 from pathlib import Path
@@ -24,6 +25,8 @@ from training.notebooks.cells.env import (
     _load_runtime_env,
 )
 from training.utils.paths import get_project_root
+
+logger = logging.getLogger("lemtrain.notebooks.notebook_generator")
 
 __all__ = [
     "_build_env_var_lines",
@@ -93,8 +96,8 @@ def main(argv: list[str] | None = None) -> int:
         for stray in hub_root_m.glob("*.ipynb"):
             try:
                 stray.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.warning("Could not remove stray notebook %s: %s", stray, exc)
 
     print("\n[SUCCESS] Notebook Matrix Synchronized.")
     return 0

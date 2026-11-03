@@ -15,6 +15,7 @@ Reorganizes LemGendaryModels/<model_key>/ into the canonical topology:
 
 from __future__ import annotations
 
+import csv
 import logging
 import shutil
 from pathlib import Path
@@ -24,6 +25,7 @@ from training.cloud.metadata_generator import KaggleMetadataService
 from training.doc_generator import ModelDocumentationService
 from training.export.staging import VariationStagingService
 from training.registry import get_model_registry
+from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.services.restructuring")
@@ -105,14 +107,18 @@ class ModelTopologyRestructuringService:
                 dst_item = target_runs / item.name
                 if not dst_item.exists():
                     shutil.move(str(item), str(dst_item))
-            shutil.rmtree(runs_dir, ignore_errors=True)
-            actions.append("Relocated runs/ directory to local scratch")
+            if remove_tree(runs_dir, purpose="runs/ relocation"):
+                actions.append("Relocated runs/ directory to local scratch")
+            else:
+                actions.append("Relocated runs/ contents; could not remove the empty runs/ directory")
 
         # Clean up rogue training/ directory if present
         training_dir = model_dir / "training"
         if training_dir.is_dir():
-            shutil.rmtree(training_dir, ignore_errors=True)
-            actions.append("Removed rogue training/ directory")
+            if remove_tree(training_dir, purpose="rogue training/ cleanup"):
+                actions.append("Removed rogue training/ directory")
+            else:
+                actions.append("Could not remove rogue training/ directory")
 
         # Ensure no binaries remain in the root directory
         for ext in ("*.pt", "*.onnx", "*.data", "*.pth"):
@@ -131,15 +137,13 @@ class ModelTopologyRestructuringService:
         metrics: dict[str, Any] = {}
         if metrics_csv.exists():
             try:
-                import csv
-
                 with open(metrics_csv, "r", encoding="utf-8") as cf:
                     rows = list(csv.DictReader(cf))
                     if rows:
                         epochs_trained = len(rows)
                         metrics = rows[-1]
-            except Exception:
-                pass
+            except (OSError, csv.Error, UnicodeDecodeError) as csv_err:
+                logger.warning("Could not parse %s for README metrics; using empty metrics: %s", metrics_csv, csv_err)
 
         readme_file = self.doc_service.write_readme(
             model_key=model_key,

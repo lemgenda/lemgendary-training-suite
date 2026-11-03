@@ -24,6 +24,8 @@ import os
 import sys
 import argparse
 import json
+import logging
+
 import numpy as np
 
 # Anchor workspace root for relative imports
@@ -46,6 +48,8 @@ from data.mt5_pipeline import (
 from models.forex_predictor import ForexPredictor, DIRECTION_CLASSES, FOREX_FEATURES_PER_BAR
 
 # [LemGendary Forex Suite v1.0 - SYNC_ID: FOREX_03]
+
+logger = logging.getLogger("lemtrain.export.mt5_signal")
 
 DIRECTION_LABELS = {0: "SELL", 1: "HOLD", 2: "BUY"}
 
@@ -120,26 +124,40 @@ def export_onnx(
     )
 
     try:
-        import onnxsim
         import onnx
-        model_onnx = onnx.load(fp32_onnx_path)
-        model_simplified, check = onnxsim.simplify(model_onnx)
-        if check:
-            onnx.save(model_simplified, fp32_onnx_path)
-            print(" [ONNX Export] Model simplified successfully via onnxsim.")
-    except Exception as e:
+        import onnxsim
+    except ImportError as e:
+        logger.info("onnxsim simplification skipped (dependency missing): %s", e)
         print(f" [ONNX Export] onnxsim skipped: {e}")
+    else:
+        try:
+            model_onnx = onnx.load(fp32_onnx_path)
+            model_simplified, check = onnxsim.simplify(model_onnx)
+            if check:
+                onnx.save(model_simplified, fp32_onnx_path)
+                print(" [ONNX Export] Model simplified successfully via onnxsim.")
+        except (OSError, RuntimeError, ValueError, onnx.checker.ValidationError) as e:
+            logger.warning("onnxsim simplification of %s failed; keeping unsimplified model: %s", fp32_onnx_path, e)
+            print(f" [ONNX Export] onnxsim skipped: {e}")
 
     # Export 2: FP16 ONNX with embedded weights
     print(f" [ONNX Export] Synthesizing production FP16 ONNX model to: {fp16_onnx_path}")
+    fp16_error: Exception | None = None
     try:
         import onnx
         from onnxconverter_common import float16
-        model_fp32 = onnx.load(fp32_onnx_path)
-        model_fp16 = float16.convert_float_to_float16(model_fp32, keep_io_types=True)
-        onnx.save(model_fp16, fp16_onnx_path)
-        print(" [ONNX Export] [OK] FP16 embedded weights ONNX model saved.")
-    except Exception as e:
+    except ImportError as e:
+        fp16_error = e
+    else:
+        try:
+            model_fp32 = onnx.load(fp32_onnx_path)
+            model_fp16 = float16.convert_float_to_float16(model_fp32, keep_io_types=True)
+            onnx.save(model_fp16, fp16_onnx_path)
+            print(" [ONNX Export] [OK] FP16 embedded weights ONNX model saved.")
+        except (OSError, RuntimeError, ValueError, TypeError) as e:
+            fp16_error = e
+    if fp16_error is not None:
+        logger.warning("FP16 conversion failed; copying FP32 model to %s: %s", fp16_onnx_path, fp16_error)
         print(f" [ONNX Export] FP16 conversion fallback: copying FP32 -> {fp16_onnx_path}")
         import shutil
         shutil.copy2(fp32_onnx_path, fp16_onnx_path)
@@ -163,7 +181,11 @@ def export_onnx(
         )
         onnx.save(onnx_model_fp32, fp32_onnx_path)
         print(f" [ONNX Export] [OK] Detached FP32 weights to external sidecar: {sidecar_filename}")
-    except Exception as e:
+    except ImportError as e:
+        logger.info("External data detachment skipped (onnx missing): %s", e)
+        print(f" [ONNX Export] External data detachment skipped: {e}")
+    except (OSError, ValueError, RuntimeError) as e:
+        logger.warning("External data detachment for %s failed: %s", fp32_onnx_path, e)
         print(f" [ONNX Export] External data detachment skipped: {e}")
 
     # Export 3: Standalone PyTorch FP32 model object (.pt)

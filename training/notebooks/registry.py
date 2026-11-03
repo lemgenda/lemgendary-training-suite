@@ -4,9 +4,12 @@ Extracts model specifications, input dimensions, repository handles,
 and dataset manifold metadata into a structured ModelNotebookMeta record.
 """
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("lemtrain.notebooks.registry")
 
 def _get_project_root() -> Path:
     """Resolve project root directory across training suite or datasets repositories."""
@@ -85,7 +88,8 @@ def resolve_model_metadata(
         from training.cloud.credentials import resolve_kaggle_credentials
         user_cred, _ = resolve_kaggle_credentials()
         k_username = user_cred or (config.get("kaggle_username", "lemtreursi") if config else "lemtreursi")
-    except Exception:
+    except (ImportError, OSError, ValueError) as exc:
+        logger.warning("Kaggle credential resolution failed for %s; using configured username: %s", model_key, exc)
         k_username = config.get("kaggle_username", "lemtreursi") if config else "lemtreursi"
 
     k_slug = model_info.get("kaggle_metadata", {}).get("slug") if isinstance(model_info.get("kaggle_metadata"), dict) else None

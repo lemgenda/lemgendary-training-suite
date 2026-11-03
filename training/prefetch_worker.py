@@ -1,8 +1,11 @@
+import logging
 import os
 import sys
 import subprocess
 import time
 import psutil
+
+logger = logging.getLogger("lemtrain.prefetch_worker")
 
 def prefetch():
     """
@@ -50,8 +53,11 @@ def prefetch():
         
         try:
             subprocess.run(cmd, shell=True, check=True, capture_output=True)
-        except Exception:
-            pass 
+        except subprocess.CalledProcessError as exc:
+            stderr_text = exc.stderr.decode("utf-8", errors="replace").strip() if exc.stderr else ""
+            logger.warning("Prefetch of %s failed (exit %s): %s", source_id, exc.returncode, stderr_text)
+        except OSError as exc:
+            logger.warning("Prefetch of %s could not be launched: %s", source_id, exc)
         finally:
             if os.path.exists(lock_file):
                 os.remove(lock_file)

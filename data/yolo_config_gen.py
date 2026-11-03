@@ -1,7 +1,10 @@
+import logging
 import os
 import shutil
 
 import yaml
+
+logger = logging.getLogger("lemtrain.data.yolo_config_gen")
 
 
 def generate_yolo_yaml(config, model_key, unified_models_registry):
@@ -56,8 +59,8 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
                     names = c_names
                 elif c_names and model_key != "yolov8n":
                     names = c_names
-            except Exception:
-                pass
+            except (OSError, UnicodeDecodeError) as exc:
+                logger.warning("Could not read %s; keeping default class names: %s", classes_file, exc)
 
         if (resolved_path / "images" / "train").exists():
             rel_train = "images/train"
@@ -118,9 +121,9 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
     legacy_hub_training_dir = os.path.join(os.path.dirname(suite_root), "LemGendaryModels", model_key, "training")
     if os.path.exists(legacy_hub_training_dir):
         try:
-            shutil.rmtree(legacy_hub_training_dir, ignore_errors=True)
-        except OSError:
-            pass
+            shutil.rmtree(legacy_hub_training_dir)
+        except OSError as exc:
+            logger.warning("Could not remove legacy hub training dir %s: %s", legacy_hub_training_dir, exc)
 
     with open(temp_cfg_path, "w", encoding="utf-8") as f:
         yaml.dump(yolo_cfg, f, default_flow_style=False)

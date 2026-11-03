@@ -10,6 +10,18 @@ from typing import Any
 
 logger = logging.getLogger("lemtrain.hardware.probe")
 
+# Failure modes of an empirical forward/backward VRAM probe: CUDA/OOM/kernel errors
+# (torch.cuda.OutOfMemoryError and AcceleratorError subclass RuntimeError), and model/input
+# contract mismatches (shape/dtype/arity/output-structure errors).
+_PROBE_ERRORS: tuple[type[BaseException], ...] = (
+    RuntimeError,
+    ValueError,
+    TypeError,
+    AttributeError,
+    IndexError,
+    KeyError,
+)
+
 
 def audit_hardware_vram(
     model_key: str,
@@ -38,7 +50,8 @@ def audit_hardware_vram(
             try:
                 free_vram_probe, _ = torch.cuda.mem_get_info(0)
                 free_gb = free_vram_probe / (1024**3)
-            except Exception:
+            except RuntimeError as mem_err:
+                logger.debug("torch.cuda.mem_get_info unavailable; assuming 0 GB free: %s", mem_err)
                 free_gb = 0.0
 
         if isinstance(configured_batch, int) and configured_batch > 0:
@@ -163,7 +176,7 @@ def audit_hardware_vram(
             model.zero_grad(set_to_none=True)
         del dummy, out
         torch.cuda.empty_cache()
-    except Exception as exc:
+    except _PROBE_ERRORS as exc:
         err_msg = str(exc)
         if "no kernel image is available" in err_msg or "cudaErrorNoKernelImageForDevice" in err_msg:
             raise
@@ -201,7 +214,7 @@ def audit_hardware_vram(
 
         if sample_vram <= 0:
             raise ValueError("Probe failed to measure manifold memory footprint")
-    except Exception as exc:
+    except _PROBE_ERRORS as exc:
         logger.debug("Active probe fell back to empirical formula: %s", exc)
         res_multiplier = (h * w) / (224 * 224)
         base_mb = 90 if is_restoration else 60
@@ -231,7 +244,7 @@ def audit_hardware_vram(
         sys_ram_gb = psutil.virtual_memory().total / (1024**3)
         if sys_ram_gb < 35.0 or is_kaggle:
             system_cap = min(system_cap, 32 if mode == "val" else 24)
-    except Exception as exc:
+    except (ImportError, OSError, RuntimeError) as exc:
         logger.debug("System RAM probe fallback: %s", exc)
 
     if is_restoration:

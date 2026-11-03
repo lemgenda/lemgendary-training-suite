@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 import numpy as np
@@ -15,6 +16,8 @@ from training.governance.metrics import (
 )
 
 # --- 2026 Resilience: Extended Mathematical Governance (SSOT Delegation) ---
+logger = logging.getLogger("lemtrain.telemetry")
+
 METRIC_WEIGHTS = DEFAULT_METRIC_WEIGHTS
 METRIC_DIRECTIONS = DEFAULT_METRIC_DIRECTIONS
 
@@ -42,8 +45,8 @@ class TelemetryEngine:
                     header = f.readline().strip()
                     if len(header.split(",")) == expected_cols:
                         schema_ok = True
-            except Exception as e:
-                print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
+            except (OSError, UnicodeDecodeError) as e:
+                logger.warning("Could not read metrics CSV header %s; treating schema as legacy: %s", self.metrics_csv_path, e)
 
         if not schema_ok:
             legacy_path = self.metrics_csv_path.replace(".csv", "_legacy.csv")
@@ -54,8 +57,8 @@ class TelemetryEngine:
                         legacy_path = legacy_path.replace(".csv", f"_{int(time.time())}.csv")
                     os.rename(self.metrics_csv_path, legacy_path)
                     print(f" [TELEMETRY] Legacy or corrupted metrics detected. Archiving to {os.path.basename(legacy_path)} and initializing {expected_cols}-column SOTA log.")
-                except Exception as e:
-                    print(f"[REMEDY] Exception suppressed in telemetry/optimization: {e}")
+                except OSError as e:
+                    logger.warning("Could not archive legacy metrics CSV %s -> %s: %s", self.metrics_csv_path, legacy_path, e)
 
             with open(self.metrics_csv_path, "w", encoding='utf-8') as f:
                 f.write(header_str)
@@ -201,7 +204,8 @@ class TelemetryEngine:
             if union == 0:
                 return 0.0
             return float(intersection) / float(union)
-        except Exception:
+        except (RuntimeError, TypeError, AttributeError, IndexError) as exc:
+            logger.warning("mIoU computation failed; reporting 0.0: %s", exc)
             return 0.0
             
     def calculate_vqa_accuracy(self, preds, targets):
@@ -216,7 +220,8 @@ class TelemetryEngine:
                 if t_clean in p_clean or p_clean in t_clean:
                     correct += 1
             return float(correct) / max(1, len(targets))
-        except Exception:
+        except (TypeError, ValueError) as exc:
+            logger.warning("VQA accuracy computation failed; reporting 0.0: %s", exc)
             return 0.0
             
     # Note: mAP_Medium and mAP_Hard should be calculated via PyCocoTools
@@ -230,6 +235,6 @@ class TelemetryEngine:
             map_metric.update(preds, targets)
             res = map_metric.compute()
             return res.get('map_50', torch.tensor(0.0)).item(), res.get('map', torch.tensor(0.0)).item()
-        except Exception as e:
-            print(f" [WARNING] mAP Eval failed: {e}")
+        except (ImportError, RuntimeError, ValueError, TypeError, KeyError, AttributeError) as e:
+            logger.warning("mAP evaluation failed; reporting 0.0: %s", e)
             return 0.0, 0.0

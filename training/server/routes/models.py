@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 from fastapi import APIRouter, HTTPException, Request
@@ -9,6 +10,8 @@ import yaml
 
 from training.services.audit_service import AuditService
 from training.utils.paths import get_project_root
+
+logger = logging.getLogger("lemtrain.server.routes.models")
 
 router = APIRouter(prefix="/models", tags=["models"])
 
@@ -80,8 +83,10 @@ def audit_model(model_key: str, request: Request) -> dict[str, Any]:
         return service.audit_model(model_key)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed auditing model: {e}")
+    except (OSError, yaml.YAMLError, ImportError, RuntimeError, TypeError, ValueError) as e:
+        # Registry I/O/parse failures, or model construction errors (torch RuntimeError, bad config kwargs).
+        logger.error("Failed auditing model %s: %s", model_key, e)
+        raise HTTPException(status_code=500, detail=f"Failed auditing model: {e}") from e
 
 
 @router.post("/{model_key}/docs/generate")
@@ -112,8 +117,10 @@ def generate_model_docs(model_key: str, request: Request) -> dict[str, Any]:
             "metadata_path": str(metadata_file),
             "message": f"Documentation and Kaggle metadata regenerated for {model_key}",
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed generating docs for '{model_key}': {e}")
+    except (ImportError, OSError, ValueError, yaml.YAMLError) as e:
+        # ValueError includes MetadataValidationError raised for invalid/missing registry metadata.
+        logger.error("Failed generating docs for %s: %s", model_key, e)
+        raise HTTPException(status_code=500, detail=f"Failed generating docs for '{model_key}': {e}") from e
 
 
 @router.post("/{model_key}/export/stage")
@@ -138,8 +145,9 @@ def stage_model_variations(model_key: str, request: Request) -> dict[str, Any]:
             "errors": result.errors,
             "message": f"Staged variations for {model_key}",
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed staging variations for '{model_key}': {e}")
+    except (ImportError, OSError, ValueError) as e:
+        logger.error("Failed staging variations for %s: %s", model_key, e)
+        raise HTTPException(status_code=500, detail=f"Failed staging variations for '{model_key}': {e}") from e
 
 
 @router.get("/{model_key}/variations/validate")
@@ -171,5 +179,6 @@ def validate_model_variations(model_key: str, request: Request) -> dict[str, Any
             },
             "all_errors": report.all_errors,
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed validating variations for '{model_key}': {e}")
+    except (ImportError, OSError, ValueError) as e:
+        logger.error("Failed validating variations for %s: %s", model_key, e)
+        raise HTTPException(status_code=500, detail=f"Failed validating variations for '{model_key}': {e}") from e

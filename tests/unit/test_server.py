@@ -5,6 +5,7 @@ Verifies ServerState, SQLite WAL persistence, JobManager, REST endpoints, and to
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import tempfile
 from typing import Any
@@ -16,6 +17,8 @@ import yaml
 from training.server.app import create_app
 from training.server.jobs import JobManager
 from training.server.state import ServerState
+
+_log = logging.getLogger("lemtrain.tests.test_server")
 
 
 class TestServerSubsystem(unittest.TestCase):
@@ -72,8 +75,8 @@ class TestServerSubsystem(unittest.TestCase):
     def tearDown(self) -> None:
         try:
             self.temp_dir.cleanup()
-        except OSError:
-            pass
+        except OSError as exc:
+            _log.warning("Temp dir cleanup failed for %s: %s", self.temp_dir.name, exc)
 
     def test_state_db_and_tokens(self) -> None:
         """Verify SQLite DB initialization, WAL mode, token generation, and PID tracking."""

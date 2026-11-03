@@ -5,15 +5,20 @@ Provides inspection, listing, and lifecycle management of saved model checkpoint
 
 from __future__ import annotations
 
+import csv
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import torch
+import yaml
 
 from training.checkpoint.manager import safe_load_checkpoint
 from training.utils.paths import get_project_root
+
+logger = logging.getLogger("lemtrain.services.checkpoint_service")
 
 
 class CheckpointService:
@@ -28,7 +33,6 @@ class CheckpointService:
         cfg_path = self.project_root / "config.yaml"
         if cfg_path.exists():
             try:
-                import yaml
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     cfg = yaml.safe_load(f) or {}
                 rel = cfg.get("paths", {}).get("checkpoints_root")
@@ -36,8 +40,8 @@ class CheckpointService:
                     candidate = (self.project_root / rel).resolve()
                     if candidate.exists():
                         hub_path = candidate
-            except Exception:
-                pass
+            except (OSError, yaml.YAMLError, AttributeError, TypeError) as cfg_err:
+                logger.warning("Could not read checkpoints_root from %s; using default hub %s: %s", cfg_path, hub_path, cfg_err)
         self.hub_root = hub_path if hub_path.exists() else None
 
     def list_checkpoints(self, model_key: str | None = None) -> list[dict[str, Any]]:
@@ -80,7 +84,6 @@ class CheckpointService:
             csv_path = m_dir / "metrics.csv"
             if csv_path.exists():
                 try:
-                    import csv
                     with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
                         reader = csv.DictReader(f)
                         for row in reader:
@@ -89,8 +92,8 @@ class CheckpointService:
                                 ep_num = int(ep_val)
                                 if max_epoch_from_csv is None or ep_num > max_epoch_from_csv:
                                     max_epoch_from_csv = ep_num
-                except Exception:
-                    pass
+                except (OSError, csv.Error, ValueError) as csv_err:
+                    logger.warning("Could not parse recorded epochs from %s: %s", csv_path, csv_err)
 
             candidates = (
                 list(m_dir.glob("*.pth"))
@@ -165,8 +168,8 @@ class CheckpointService:
                     layer_names.append(str(name))
                     if isinstance(param, torch.Tensor):
                         param_count += param.numel()
-            except Exception:
-                pass
+            except (AttributeError, TypeError, RuntimeError) as param_err:
+                logger.warning("Could not enumerate parameters of pickled model in %s: %s", path, param_err)
 
         return {
             "path": str(path),

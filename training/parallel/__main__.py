@@ -1,9 +1,12 @@
 from __future__ import annotations
 import argparse
+import logging
 import sys
 import torch
 import torch.nn as nn
 from training.parallel import available_strategies, resolve_auto
+
+logger = logging.getLogger("lemtrain.parallel.cli")
 
 
 def _cmd_list(_args):
@@ -26,8 +29,8 @@ def _cmd_resolve(args):
             with open(registry_path, "r", encoding="utf-8") as f:
                 registry = yaml.safe_load(f) or {}
             model_info = registry.get(args.model, {})
-    except Exception:
-        pass
+    except (OSError, yaml.YAMLError, AttributeError) as exc:
+        logger.warning("Could not load model registry; resolving without model_info: %s", exc)
 
     stub = nn.Linear(1, 1)
     if args.devices is not None:

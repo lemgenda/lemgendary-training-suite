@@ -12,7 +12,8 @@ import json
 import logging
 import textwrap
 from pathlib import Path
-from typing import Any
+
+import yaml
 
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.model_metadata import (
@@ -48,7 +49,6 @@ def resolve_whitepaper_url(model_key: str) -> str:
         manifest_path = docs_dir / "manifest" / "documents.json"
 
         if caps_path.exists() and manifest_path.exists():
-            import yaml
             caps = yaml.safe_load(caps_path.read_text(encoding="utf-8")) or {}
             models = caps.get("models", [])
             target_model = next((m for m in models if m.get("id") == model_key), None)
@@ -64,8 +64,10 @@ def resolve_whitepaper_url(model_key: str) -> str:
                         model_key == "ai_helper_lemgend" and doc.get("id") == "foundation-llm"
                     ):
                         return f"{DOCS_BASE_URL}/{doc.get('html_path')}"
-    except Exception as exc:
-        logger.debug("Could not resolve whitepaper URL for %s: %s", model_key, exc)
+    except (OSError, UnicodeDecodeError, ValueError, yaml.YAMLError, AttributeError, TypeError) as exc:
+        # OSError: unreadable docs files; ValueError: json.JSONDecodeError;
+        # Attribute/TypeError: capability/manifest entries of unexpected shape.
+        logger.warning("Could not resolve whitepaper URL for %s: %s", model_key, exc)
 
     return f"{DOCS_BASE_URL}/index.html"
 
@@ -379,7 +381,3 @@ __all__ = [
     "generate_kaggle_metadata",
     "load_model_metadata",
 ]
-
-
-def _unused(_: Any) -> None:  # pragma: no cover - keeps typing import minimal
-    return None

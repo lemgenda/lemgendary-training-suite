@@ -19,6 +19,15 @@ from torch.utils.data import Dataset
 
 logger = logging.getLogger("lemtrain.data.instruction")
 
+# Failure modes of tokenizer.apply_chat_template (missing/invalid template, bad message shape).
+_CHAT_TEMPLATE_ERRORS: tuple[type[BaseException], ...] = (ValueError, TypeError, KeyError, IndexError, RuntimeError)
+try:
+    import jinja2
+
+    _CHAT_TEMPLATE_ERRORS = (*_CHAT_TEMPLATE_ERRORS, jinja2.TemplateError)
+except ImportError as _jinja_err:
+    logger.debug("jinja2 unavailable; chat template errors limited to builtin types: %s", _jinja_err)
+
 
 class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
     """Dataset for causal language model instruction fine-tuning."""
@@ -114,7 +123,7 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
                     "attention_mask": attention_mask,
                     "labels": labels,
                 }
-            except Exception as exc:
+            except _CHAT_TEMPLATE_ERRORS as exc:
                 logger.debug("apply_chat_template failed: %s. Using manual tokenization.", exc)
 
         # Manual turn concatenation with label masking

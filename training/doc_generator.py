@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger("lemtrain.docs.doc_generator")
+
+# Registry lookups load unified_models_v2.yaml lazily: import failures, unreadable or malformed
+# YAML, and spec entries of unexpected shape are the expected failure modes.
+_REGISTRY_ERRORS: tuple[type[Exception], ...] = (
+    ImportError,
+    OSError,
+    ValueError,
+    yaml.YAMLError,
+    AttributeError,
+    TypeError,
+)
 
 
 def get_academic_reference(model_key: str) -> dict[str, str] | None:
@@ -24,8 +38,8 @@ def get_academic_reference(model_key: str) -> dict[str, str] | None:
                 "link": ref.link,
                 "bibtex": ref.bibtex,
             }
-    except Exception:
-        pass
+    except _REGISTRY_ERRORS as exc:
+        logger.warning("Could not load academic reference for %s from registry: %s", model_key, exc)
     return None
 
 
@@ -86,7 +100,7 @@ def build_model_readme(
             if task != "forex" and m_res > 0:
                 res_str = f"{m_res}x{m_res}"
         except (ValueError, TypeError):
-            pass
+            logger.debug("Non-numeric Res %r in metrics for %s; keeping %s", metrics.get("Res"), model_key, res_str)
 
     # --- 2026 Resilience: v16.0 Stealth Usage Snippets ---
     if task == "quality":
@@ -353,8 +367,12 @@ graph TD
                 "link": ref.link,
                 "bibtex": ref.bibtex,
             }
-    except Exception:
-        pass
+    except _REGISTRY_ERRORS as exc:
+        logger.warning(
+            "Could not load academic reference for %s from registry; falling back to MODEL_PAPERS: %s",
+            model_key,
+            exc,
+        )
 
     if not paper:
         paper = MODEL_PAPERS.get(model_key)
@@ -365,8 +383,8 @@ graph TD
         wp_url = resolve_whitepaper_url(model_key)
         if wp_url:
             whitepaper_link_line = f"- **Ecosystem Architecture Whitepaper**: [{wp_url}]({wp_url})\n"
-    except Exception:
-        pass
+    except ImportError as exc:
+        logger.warning("Whitepaper URL resolver unavailable for %s: %s", model_key, exc)
 
     if paper:
         paper_section = f"""## Scientific Research & Reference Paper
@@ -630,8 +648,8 @@ if __name__ == "__main__":
                         else:
                             epochs_trained = len(reader)
                         metrics = reader[-1]
-            except Exception:
-                pass
+            except (OSError, UnicodeDecodeError, csv.Error) as exc:
+                logger.warning("Failed reading metrics %s for %s: %s", m_csv, m_key, exc)
 
         content = build_model_readme(m_key, unified_models, epochs_trained, metrics)
         save_readme(m_readme_path, content)

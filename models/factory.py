@@ -8,6 +8,12 @@ import yaml
 
 logger = logging.getLogger("lemtrain.factory")
 
+# Optional model modules can fail at import time because a dependency is missing
+# (ImportError), a native library cannot be loaded (OSError), a backend refuses to
+# initialise (RuntimeError) or an installed dependency has an incompatible API
+# (AttributeError). Anything else is a real bug and must propagate.
+_OPTIONAL_IMPORT_ERRORS = (ImportError, OSError, RuntimeError, AttributeError)
+
 # --- Dynamic Architecture Registry (Task 10.2) ---
 _MODEL_REGISTRY = {}
 
@@ -23,36 +29,36 @@ def _populate_registry():
     try:
         from models.multitask_restorer import MultiTaskRestorer
         _MODEL_REGISTRY["MultiTaskRestorer"] = MultiTaskRestorer
-    except Exception as e:
-        print(f" [WARNING] [FACTORY] Failed to import MultiTaskRestorer: {e}")
+    except _OPTIONAL_IMPORT_ERRORS as e:
+        logger.warning("Failed to import %s: %s", "MultiTaskRestorer", e)
 
     try:
         from models.nima import AuthenticityScorer, NIMA_Model, UniversalClassifier
         _MODEL_REGISTRY["NIMA_Model"] = NIMA_Model
         _MODEL_REGISTRY["AuthenticityScorer"] = AuthenticityScorer
         _MODEL_REGISTRY["UniversalClassifier"] = UniversalClassifier
-    except Exception as e:
-        print(f" [WARNING] [FACTORY] Failed to import NIMA models: {e}")
+    except _OPTIONAL_IMPORT_ERRORS as e:
+        logger.warning("Failed to import %s: %s", "NIMA models", e)
 
     try:
         from models.forex_predictor import ForexPredictor
         _MODEL_REGISTRY["ForexPredictor"] = ForexPredictor
-    except Exception as e:
-        print(f" [WARNING] [FACTORY] Failed to import ForexPredictor: {e}")
+    except _OPTIONAL_IMPORT_ERRORS as e:
+        logger.warning("Failed to import %s: %s", "ForexPredictor", e)
 
 
     try:
         from models.face_restoration import CodeFormer, ParseNet
         _MODEL_REGISTRY["CodeFormer"] = CodeFormer
         _MODEL_REGISTRY["ParseNet"] = ParseNet
-    except Exception as e:
-        print(f" [WARNING] [FACTORY] Failed to import Face Restoration models: {e}")
+    except _OPTIONAL_IMPORT_ERRORS as e:
+        logger.warning("Failed to import %s: %s", "Face Restoration models", e)
 
     try:
         from models.detection import RetinaFace_MobileNet
         _MODEL_REGISTRY["RetinaFace"] = RetinaFace_MobileNet
-    except Exception as e:
-        print(f" [WARNING] [FACTORY] Failed to import Detection models: {e}")
+    except _OPTIONAL_IMPORT_ERRORS as e:
+        logger.warning("Failed to import %s: %s", "Detection models", e)
 
     try:
         from models.core_restoration import (
@@ -78,15 +84,15 @@ def _populate_registry():
             "UniversalFilmRestorer": UniversalFilmRestorer,
             "UPN_v2": UPN_v2_Model
         })
-    except Exception as e:
-        print(f" [WARNING] [FACTORY] Failed to import Core Restoration models: {e}")
+    except _OPTIONAL_IMPORT_ERRORS as e:
+        logger.warning("Failed to import %s: %s", "Core Restoration models", e)
 
     # 2. Heavy Generative Models (May lack 'diffusers')
     try:
         from models.master_generative import Flux1_Master, StableDiffusionXL
         _MODEL_REGISTRY["StableDiffusionXL"] = StableDiffusionXL
         _MODEL_REGISTRY["Flux1_Master"] = Flux1_Master
-    except Exception as generative_err:
+    except _OPTIONAL_IMPORT_ERRORS as generative_err:
         logger.debug("Generative models unavailable (missing 'diffusers'?): %s", generative_err)
 
     # 3. Heavy Multimodal Models (May lack 'transformers')
@@ -94,7 +100,7 @@ def _populate_registry():
         from models.master_multimodal import BLIP_2, LLaVA_v1_5
         _MODEL_REGISTRY["LLaVA_v1_5"] = LLaVA_v1_5
         _MODEL_REGISTRY["BLIP_2"] = BLIP_2
-    except Exception as multimodal_err:
+    except _OPTIONAL_IMPORT_ERRORS as multimodal_err:
         logger.debug("Multimodal models unavailable (missing 'transformers'?): %s", multimodal_err)
 
     # 4. Causal Assistant Language Models
@@ -102,7 +108,7 @@ def _populate_registry():
         from models.generic_causal_llm import GenericCausalLLM, AIHelperLemGend
         _MODEL_REGISTRY["GenericCausalLLM"] = GenericCausalLLM
         _MODEL_REGISTRY["AIHelperLemGend"] = AIHelperLemGend
-    except Exception as llm_err:
+    except _OPTIONAL_IMPORT_ERRORS as llm_err:
         logger.debug("Causal LLMs unavailable: %s", llm_err)
 
 
@@ -142,7 +148,7 @@ def get_model(model_key, config=None):
             sig = inspect.signature(cls.__init__)
             has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
             filtered_kwargs = kwargs if has_var_kw else {k: v for k, v in kwargs.items() if k in sig.parameters}
-        except Exception as sig_err:
+        except (ValueError, TypeError) as sig_err:
             logger.debug("Signature inspection failed for %s: %s", model_class_name, sig_err)
             filtered_kwargs = kwargs
         return cls(**filtered_kwargs)

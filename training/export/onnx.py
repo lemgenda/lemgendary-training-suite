@@ -47,7 +47,7 @@ def export_onnx(
         try:
             device = next(model_to_export.parameters()).device
         except StopIteration:
-            pass
+            logger.debug("Model has no parameters; exporting on default device %s", device)
 
         target_dtype = torch.float16 if half else torch.float32
         if half:

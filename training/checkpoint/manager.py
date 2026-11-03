@@ -3,6 +3,7 @@
 import logging
 import os
 from pathlib import Path
+import pickle
 import shutil
 import sys
 import time
@@ -10,6 +11,26 @@ from typing import Any
 import torch
 
 logger = logging.getLogger("lemtrain.checkpoint.manager")
+
+# Failure modes of torch.load / safe_load_checkpoint on a missing, empty, corrupt, truncated or
+# incompatible checkpoint (I/O, zip-archive, unpickling, missing classes, non-dict payloads).
+CHECKPOINT_LOAD_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    RuntimeError,
+    ValueError,
+    EOFError,
+    pickle.UnpicklingError,
+    AttributeError,
+    ImportError,
+)
+# Failure modes of torch.save (I/O, serialization of unpicklable objects, torch storage errors).
+CHECKPOINT_SAVE_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    RuntimeError,
+    pickle.PicklingError,
+    TypeError,
+    AttributeError,
+)
 
 
 class CheckpointSaveError(RuntimeError):
@@ -72,8 +93,8 @@ def _resilient_replace(src: Path, dst: Path, max_retries: int = 8, initial_delay
             if attempt >= 3 and dst.exists():
                 try:
                     dst.unlink()
-                except Exception:
-                    pass
+                except OSError as unlink_err:
+                    logger.debug("Could not unlink locked destination %s before retry: %s", dst, unlink_err)
     if last_err:
         raise last_err
 
@@ -97,7 +118,7 @@ def safe_atomic_save(payload: Any, path: Path | str, min_free_gb: float = 5.0) -
         _resilient_replace(tmp_path, target_path)
         logger.info("Saved atomic checkpoint to %s", target_path)
         return True
-    except Exception as exc:
+    except CHECKPOINT_SAVE_ERRORS as exc:
         logger.error("Failed saving atomic checkpoint to %s: %s", target_path, exc)
         if tmp_path.exists():
             try:

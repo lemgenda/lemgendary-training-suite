@@ -1,6 +1,7 @@
 """Unit tests for training/utils subsystem in LemGendary Model Training Suite."""
 
 import io
+import logging
 import os
 import sys
 import unittest
@@ -12,6 +13,8 @@ from training.utils.subprocess import run_command, SubprocessExecutionError
 from training.utils.interrupt import silent_worker_excepthook, register_emergency_sync
 from training.utils.env_delegate import EnvManagerDelegate
 from training.utils.dataset_delegate import DatasetCompilerDelegate
+
+_log = logging.getLogger("lemtrain.tests.test_utils")
 
 
 class TestUtilsPaths(unittest.TestCase):
@@ -38,8 +41,8 @@ class TestUtilsPaths(unittest.TestCase):
         self.assertTrue(created.is_dir())
         try:
             created.rmdir()
-        except OSError:
-            pass
+        except OSError as exc:
+            _log.warning("Could not remove test dir %s: %s", created, exc)
 
 
 class TestUtilsLogging(unittest.TestCase):

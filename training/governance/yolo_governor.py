@@ -13,6 +13,7 @@ import csv
 import json
 import logging
 import math
+import pickle
 import shutil
 import time
 from collections.abc import Callable
@@ -30,6 +31,29 @@ from training.telemetry import TelemetryEngine
 from training.training.summary import TrainingSummary
 
 logger = logging.getLogger("lemtrain.governance.yolo")
+
+# Failure modes of ONNX/PyTorch export (missing exporter deps, IO, tracing/graph errors).
+_EXPORT_ERRORS: tuple[type[BaseException], ...] = (
+    ImportError,
+    OSError,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    AttributeError,
+    KeyError,
+)
+# Failure modes of unpickling a YOLO checkpoint (truncation, foreign classes, torch version skew).
+_CKPT_LOAD_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    EOFError,
+    RuntimeError,
+    ValueError,
+    pickle.UnpicklingError,
+    ImportError,
+    AttributeError,
+)
+# Failure modes of starting a cloud sync (manager construction, thread start, filesystem).
+_CLOUD_SYNC_ERRORS: tuple[type[BaseException], ...] = (OSError, RuntimeError, ValueError, TypeError, KeyError)
 
 
 def create_yolo_model(weights: str | Path) -> Any:
@@ -337,9 +361,9 @@ class YOLOCurriculumGovernor:
                     dst_item = self.runs_dir / item.name
                     if not dst_item.exists():
                         shutil.move(str(item), str(dst_item))
-                shutil.rmtree(legacy_runs, ignore_errors=True)
-            except OSError:
-                pass
+                shutil.rmtree(legacy_runs)
+            except OSError as exc:
+                logger.warning("Legacy runs migration from %s to %s incomplete: %s", legacy_runs, self.runs_dir, exc)
 
         # Primary metrics and telemetry stream directly from LemGendaryModels/yolov8n
         self.telemetry = TelemetryEngine(export_dir=str(self.models_hub_dir), task_type="yolo")
@@ -385,7 +409,7 @@ class YOLOCurriculumGovernor:
                 flush=True,
             )
             self._export_sota_models(Path(best_path), resolution=resolution)
-        except Exception as export_err:
+        except _EXPORT_ERRORS as export_err:
             logger.warning("New-best export hook failed: %s", export_err)
 
     def _export_sota_models(self, source_weights: Path, resolution: int = 640) -> None:
@@ -408,7 +432,7 @@ class YOLOCurriculumGovernor:
                 output_dir=self.models_hub_dir,
             )
             print(f"[GOVERNOR] [SOTA EXPORT] Tri-format SOTA models exported to {self.models_hub_dir}", flush=True)
-        except Exception as export_err:
+        except _EXPORT_ERRORS as export_err:
             logger.warning("Error during tri-format SOTA model export: %s", export_err)
 
     def _synchronize_checkpoints(
@@ -530,8 +554,8 @@ class YOLOCurriculumGovernor:
         ):
             try:
                 trigger_cloud_sync("yolov8n", global_epoch, self.config)
-            except Exception as sync_err:
-                logger.debug("Non-fatal cloud sync trigger error: %s", sync_err)
+            except _CLOUD_SYNC_ERRORS as sync_err:
+                logger.warning("Non-fatal cloud sync trigger error at epoch %s: %s", global_epoch, sync_err)
 
     def _resolve_devices(self) -> str:
         """Resolve CUDA device configuration string."""
@@ -595,8 +619,8 @@ class YOLOCurriculumGovernor:
                 if p.exists():
                     try:
                         p.unlink()
-                    except OSError:
-                        pass
+                    except OSError as exc:
+                        logger.warning("Clean run could not remove %s: %s", p, exc)
 
         # Discover candidate checkpoint exclusively from LemGendaryModels hub
         candidate_ckpt: Path | None = None
@@ -620,12 +644,14 @@ class YOLOCurriculumGovernor:
             try:
                 try:
                     loaded = torch.load(str(candidate_ckpt), map_location="cpu")
-                except Exception:
+                except (pickle.UnpicklingError, RuntimeError, ValueError, TypeError) as safe_err:
+                    # weights_only=True (torch>=2.6 default) rejects Ultralytics checkpoint classes.
+                    logger.debug("Restricted load of %s failed, retrying full unpickle: %s", candidate_ckpt, safe_err)
                     loaded = torch.load(str(candidate_ckpt), map_location="cpu", weights_only=False)
                 if isinstance(loaded, dict) and "epoch" in loaded and loaded.get("optimizer") is not None:
                     ckpt_dict = loaded
-            except Exception as exc:
-                logger.debug("Failed reading checkpoint dict from %s: %s", candidate_ckpt, exc)
+            except _CKPT_LOAD_ERRORS as exc:
+                logger.warning("Failed reading checkpoint dict from %s: %s", candidate_ckpt, exc)
 
         # Inspect metrics.csv history
         csv_epochs = 0
@@ -656,8 +682,8 @@ class YOLOCurriculumGovernor:
                         self.best_overall_metrics["map50_95"] = max(self.best_overall_metrics["map50_95"], m95)
                         if (self.models_hub_dir / "yolov8n.pt").exists():
                             self.best_export_quality = max(self.best_export_quality, (m95 * 0.7) + (m50 * 0.3))
-            except Exception as e:
-                logger.debug("Error reading metrics.csv: %s", e)
+            except (OSError, ValueError, csv.Error) as e:
+                logger.warning("Error reading %s; resume history incomplete: %s", metrics_csv_path, e)
 
         print(
             f"[GOVERNOR] Commencing Governed YOLOv8n Training across {len(curriculum_stages)} ladder rungs | "
@@ -781,8 +807,8 @@ class YOLOCurriculumGovernor:
                 if not local_last.exists() and Path(current_weights_path).exists():
                     try:
                         shutil.copy2(current_weights_path, local_last)
-                    except OSError:
-                        pass
+                    except OSError as exc:
+                        logger.warning("Could not stage %s as %s; resuming from source path: %s", current_weights_path, local_last, exc)
                 if local_last.exists():
                     current_weights_path = str(local_last)
             else:
@@ -834,8 +860,8 @@ class YOLOCurriculumGovernor:
                     if _stage_resume and _ckpt_dict:
                         try:
                             trainer._load_checkpoint_state(_ckpt_dict)
-                        except Exception as load_err:
-                            logger.debug("Failed restoring checkpoint state in on_pretrain_routine_end: %s", load_err)
+                        except (KeyError, ValueError, TypeError, AttributeError, RuntimeError) as load_err:
+                            logger.warning("Failed restoring checkpoint state in on_pretrain_routine_end: %s", load_err)
                     if hasattr(trainer, "scheduler") and trainer.scheduler:
                         trainer.scheduler.last_epoch = trainer.start_epoch - 1
                     if hasattr(trainer, "validator") and trainer.validator:
@@ -1054,8 +1080,10 @@ class YOLOCurriculumGovernor:
 
                     except (InterruptedError, KeyboardInterrupt):
                         raise
-                    except Exception as cb_err:
-                        logger.debug("YOLO governor epoch callback failed: %s", cb_err)
+                    except Exception:
+                        # Boundary: Ultralytics callback wrapping caller-supplied on_epoch_end; a failure is
+                        # logged with traceback and must not abort the Ultralytics fit loop.
+                        logger.exception("YOLO governor epoch callback failed")
 
                 return on_fit_epoch_end
 
@@ -1434,8 +1462,10 @@ class YOLOCurriculumGovernor:
 
                     except (InterruptedError, KeyboardInterrupt):
                         raise
-                    except Exception as cb_err:
-                        logger.debug("YOLO governor extension callback failed: %s", cb_err)
+                    except Exception:
+                        # Boundary: Ultralytics callback wrapping caller-supplied on_epoch_end; a failure is
+                        # logged with traceback and must not abort the Ultralytics fit loop.
+                        logger.exception("YOLO governor extension callback failed")
 
                 return on_ext_epoch_end
 

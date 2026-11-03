@@ -49,8 +49,8 @@ def resolve_container_reader(
                 )
                 if raw_fmt:
                     primary_format = str(raw_fmt).strip().lower()
-        except Exception as exc:
-            logger.debug("Error reading %s: %s", info_file, exc)
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+            logger.warning("Could not read container format from %s; falling back to auto-detection: %s", info_file, exc)
 
     if primary_format == "directory":
         return DirectoryReader(root, split=split)

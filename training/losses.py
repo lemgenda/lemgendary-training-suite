@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import logging
 from typing import Any
 
 import torch
@@ -11,6 +12,8 @@ try:
     from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 except ImportError:
     LearnedPerceptualImagePatchSimilarity = None
+
+logger = logging.getLogger("lemtrain.losses")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Forex Dual Loss
@@ -300,8 +303,9 @@ class CombinedLoss(nn.Module):
             except ImportError:
                 print("[WARNING] [RESILIENCE] TorchMetrics not found. Run: pip install torchmetrics[image]")
                 print("[WARNING] [RESILIENCE] Defaulting to pure L1.")
-            except Exception as e:
-                print(f"[WARNING] [RESILIENCE] LPIPS failed to bind ({e}). Defaulting to pure L1.")
+            except (OSError, RuntimeError, ValueError) as e:
+                # Weight download/cache failures (OSError incl. URLError) or CUDA/state-dict errors.
+                logger.warning("LPIPS failed to bind (%s). Defaulting to pure L1.", e)
 
 
     def forward(self, pred, target, task_idx=None):

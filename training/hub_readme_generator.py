@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 import os
 from datetime import datetime
 from typing import Any
@@ -8,6 +9,8 @@ from typing import Any
 import yaml
 
 from training.telemetry import TelemetryEngine
+
+logger = logging.getLogger("lemtrain.docs.hub_readme_generator")
 
 # Setup paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -78,8 +81,9 @@ def generate_hub_readme(project_root: str = workspace_root) -> None:
                             current_phase = int(phase_val) if phase_val is not None else 1
                             fold_val = last_row.get("Fold")
                             current_fold = int(fold_val) if fold_val is not None else 1
-            except Exception as e:
-                print(f"[REMEDY] Exception encountered while parsing metrics: {e}")
+            except (OSError, UnicodeDecodeError, csv.Error, ValueError) as e:
+                # ValueError: non-numeric Epoch/Data/Res/Quality_Score/Phase/Fold cells.
+                logger.warning("Failed parsing metrics %s for %s: %s", metrics_csv, model_key, e)
 
         completeness = 0.0
         ladder_passed = False

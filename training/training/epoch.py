@@ -7,12 +7,15 @@ forward passes under AMP autocast, gradient accumulation, and telemetry collecti
 from __future__ import annotations
 
 from contextlib import nullcontext
+import logging
 import time
 from typing import Any
 import torch
 
 from training.training.amp import get_autocast_context, safe_backward
 from training.training.context import TrainingContext
+
+logger = logging.getLogger("lemtrain.training.epoch")
 
 
 def _unpack_batch(batch: Any, device: torch.device) -> tuple[Any, Any, Any]:
@@ -283,8 +286,9 @@ def train_one_epoch(
     if ctx.scheduler is not None and not hasattr(ctx.scheduler, "step_batch"):
         try:
             ctx.scheduler.step()
-        except Exception:
-            pass
+        except (TypeError, ValueError, RuntimeError) as exc:
+            # e.g. ReduceLROnPlateau requires a metrics argument; the LR is left unchanged.
+            logger.warning("Epoch scheduler step skipped for %s: %s", type(ctx.scheduler).__name__, exc)
 
     return {
         "train_loss": avg_loss,

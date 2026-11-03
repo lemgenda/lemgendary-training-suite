@@ -15,7 +15,7 @@ from typing import Any
 
 import onnx
 
-from training.export.base import BaseModelExporter
+from training.export.base import EXPORT_ERRORS, BaseModelExporter
 from training.registry import ModelSpecification
 
 logger = logging.getLogger("lemtrain.export.yolo")
@@ -59,7 +59,7 @@ class YOLOModelExporter(BaseModelExporter):
                 logger.info("Mirrored YOLO FP32 PyTorch model to %s", pt_path)
             elif pt_path.exists():
                 exported_files["pt"] = pt_path
-        except Exception as exc:
+        except (OSError, TypeError) as exc:
             logger.error("Failed saving YOLO .pt to %s: %s", pt_path, exc)
 
         yolo_model = None
@@ -101,7 +101,7 @@ class YOLOModelExporter(BaseModelExporter):
                     exported_files["onnx_fp32"] = fp32_onnx_path
                     exported_files["onnx_fp32_data"] = fp32_data_path
                     logger.info("Successfully exported YOLO FP32 ONNX with sidecar to %s", fp32_onnx_path)
-        except Exception as exc:
+        except EXPORT_ERRORS as exc:
             logger.error("Failed exporting YOLO FP32 ONNX sidecar: %s", exc)
 
         # -------------------------------------------------------------------------
@@ -116,7 +116,7 @@ class YOLOModelExporter(BaseModelExporter):
                         shutil.copy2(str(raw_half_onnx), str(fp16_onnx_path))
                     exported_files["onnx_fp16"] = fp16_onnx_path
                     logger.info("Successfully exported YOLO FP16 integrated ONNX to %s", fp16_onnx_path)
-        except Exception as exc:
+        except EXPORT_ERRORS as exc:
             logger.error("Failed exporting YOLO FP16 ONNX: %s", exc)
 
         # Clean up any misplaced/orphaned {model_key}.onnx.data
@@ -125,7 +125,7 @@ class YOLOModelExporter(BaseModelExporter):
             try:
                 orphaned_data.unlink()
                 logger.info("Cleaned up orphaned sidecar data %s", orphaned_data)
-            except OSError:
-                pass
+            except OSError as unlink_err:
+                logger.warning("Could not remove orphaned sidecar data %s: %s", orphaned_data, unlink_err)
 
         return exported_files

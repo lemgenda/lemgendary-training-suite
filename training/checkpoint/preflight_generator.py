@@ -27,6 +27,17 @@ from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.checkpoint.preflight")
 
+# Failure modes of pre-flight asset generation: filesystem I/O, malformed YAML registry/config,
+# and missing/ill-typed registry entries while rendering README or notebook templates.
+PREFLIGHT_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    yaml.YAMLError,
+    KeyError,
+    ValueError,
+    TypeError,
+    AttributeError,
+)
+
 
 def _load_registry_and_config(project_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     """Load unified models registry and suite configuration."""
@@ -36,7 +47,7 @@ def _load_registry_and_config(project_root: Path) -> tuple[dict[str, Any], dict[
         try:
             with open(cfg_path, "r", encoding="utf-8") as f:
                 cfg = yaml.safe_load(f) or {}
-        except Exception as exc:
+        except (OSError, yaml.YAMLError) as exc:
             logger.warning("Could not parse config.yaml: %s", exc)
 
     rel_reg = cfg.get("unified_models", "unified_models_v2.yaml")
@@ -46,7 +57,7 @@ def _load_registry_and_config(project_root: Path) -> tuple[dict[str, Any], dict[
         try:
             with open(reg_path, "r", encoding="utf-8") as rf:
                 reg_data = yaml.safe_load(rf) or {}
-        except Exception as exc:
+        except (OSError, yaml.YAMLError) as exc:
             logger.warning("Could not parse %s: %s", rel_reg, exc)
 
     return reg_data, cfg
@@ -88,8 +99,8 @@ def generate_preflight_assets(
         try:
             if not any(legacy_training_dir.iterdir()):
                 legacy_training_dir.rmdir()
-        except OSError:
-            pass
+        except OSError as rm_err:
+            logger.debug("Could not remove legacy training dir %s: %s", legacy_training_dir, rm_err)
 
     registry, config = _load_registry_and_config(root)
     generated_assets: dict[str, Path] = {}
@@ -111,7 +122,7 @@ def generate_preflight_assets(
                         else:
                             epochs_trained = len(reader)
                         metrics = reader[-1]
-            except Exception as exc:
+            except (OSError, csv.Error, ValueError) as exc:
                 logger.debug("Metrics parsing notice for %s: %s", model_key, exc)
 
         content = build_model_readme(
@@ -136,7 +147,7 @@ def generate_preflight_assets(
             )
             if out_nb and Path(out_nb).exists():
                 generated_assets["kaggle_training"] = Path(out_nb)
-        except Exception as exc:
+        except PREFLIGHT_ERRORS as exc:
             logger.warning("Kaggle training notebook generation notice for %s: %s", model_key, exc)
 
     # 3. Google Colab Training Notebook
@@ -151,7 +162,7 @@ def generate_preflight_assets(
             )
             if out_colab and Path(out_colab).exists():
                 generated_assets["colab_training"] = Path(out_colab)
-        except Exception as exc:
+        except PREFLIGHT_ERRORS as exc:
             logger.warning("Colab training notebook generation notice for %s: %s", model_key, exc)
 
     # 4. Usage Notebooks (Kaggle & Colab Standalone Inference)
@@ -166,7 +177,7 @@ def generate_preflight_assets(
             )
             if kaggle_usage_nb.exists():
                 generated_assets["kaggle_usage"] = kaggle_usage_nb
-        except Exception as exc:
+        except PREFLIGHT_ERRORS as exc:
             logger.debug("Kaggle usage notebook generation notice for %s: %s", model_key, exc)
 
     colab_usage_nb = nb_dir / f"{model_key}_colab_usage.ipynb"
@@ -180,7 +191,7 @@ def generate_preflight_assets(
             )
             if colab_usage_nb.exists():
                 generated_assets["colab_usage"] = colab_usage_nb
-        except Exception as exc:
+        except PREFLIGHT_ERRORS as exc:
             logger.debug("Colab usage notebook generation notice for %s: %s", model_key, exc)
 
     # Purge any stale duplicate notebooks from hub_dir root
@@ -188,8 +199,8 @@ def generate_preflight_assets(
         try:
             stray_nb.unlink()
             logger.info("Purged stray root notebook: %s", stray_nb)
-        except OSError:
-            pass
+        except OSError as unlink_err:
+            logger.debug("Could not purge stray root notebook %s: %s", stray_nb, unlink_err)
 
     return generated_assets
 
@@ -212,7 +223,7 @@ def generate_all_preflight_assets(
         try:
             res = generate_preflight_assets(model_key, root, force=force)
             results[model_key] = res
-        except Exception as exc:
+        except PREFLIGHT_ERRORS as exc:
             logger.error("Failed preflight asset generation for %s: %s", model_key, exc)
 
     return results

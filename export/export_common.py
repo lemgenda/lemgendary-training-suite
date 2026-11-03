@@ -87,8 +87,10 @@ def build_export_model(model_key: str, config: dict[str, Any], device: torch.dev
     try:
         from models.factory import get_model
         return get_model(model_key, config).to(device)
-    except Exception as err:
-        logger.error("Error during instantiation: %s", err)
+    except (ValueError, TypeError, RuntimeError, OSError, ImportError, yaml.YAMLError) as err:
+        # ValueError: unknown/unsupported architecture; TypeError: bad constructor kwargs;
+        # RuntimeError: device placement failure; OSError/YAMLError: unreadable model registry.
+        logger.error("Error during instantiation of %s: %s", model_key, err, exc_info=True)
         return None
 
 

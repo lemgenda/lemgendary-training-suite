@@ -14,7 +14,7 @@ from onnxconverter_common import float16
 import torch
 import torch.nn as nn
 
-from training.export.base import BaseModelExporter
+from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
 from training.export.mt5_signal import export_forex_onnx, export_forex_onnx_from_model
 from training.registry import ModelSpecification
 
@@ -68,7 +68,7 @@ class ForexModelExporter(BaseModelExporter):
                 torch.save(state, str(pt_path))
                 exported_files["pt"] = pt_path
                 logger.info("Saved Forex FP32 PyTorch model state dict from checkpoint to %s", pt_path)
-        except Exception as exc:
+        except MODEL_IO_ERRORS as exc:
             logger.warning("Failed saving Forex .pt state dict: %s", exc)
 
         # ---------------------------------------------------------------------
@@ -130,7 +130,7 @@ class ForexModelExporter(BaseModelExporter):
                     "Exported Forex FP16 integrated ONNX model (%s)",
                     fp16_onnx_path.name,
                 )
-        except Exception as exc:
+        except (*EXPORT_ERRORS, *MODEL_IO_ERRORS) as exc:
             logger.error("Failed Forex ONNX tri-format export: %s", exc)
 
         return exported_files

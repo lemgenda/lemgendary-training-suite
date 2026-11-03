@@ -12,7 +12,9 @@ import sys
 from typing import Any
 
 from training.cloud.credentials import resolve_kaggle_credentials
+from training.cloud.errors import kagglehub_errors
 from training.cloud.manager import CloudManager, CloudSyncError
+from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_hub")
@@ -162,7 +164,8 @@ sys.exit(res.returncode)
             return True
         except CloudSyncError:
             raise
-        except Exception as exc:
+        except kagglehub_errors() as exc:
+            logger.error("Kaggle Hub upload failed for %s: %s", model_name, exc)
             raise CloudSyncError(
                 code="KAGGLE_UPLOAD_FAILED",
                 message=f"Failed to upload {model_name} to Kaggle Hub: {exc}",
@@ -170,7 +173,7 @@ sys.exit(res.returncode)
             ) from exc
         finally:
             if staging_dir.exists():
-                shutil.rmtree(staging_dir, ignore_errors=True)
+                remove_tree(staging_dir, purpose="Kaggle staging cleanup")
 
     def pull(self, remote_identifier: str, dest_dir: Path, **kwargs: Any) -> bool:
         """Download model artifacts or dataset from Kaggle Hub."""
@@ -200,7 +203,8 @@ sys.exit(res.returncode)
                 logger.info("Successfully pulled Kaggle artifact %s -> %s", remote_identifier, dest_dir)
                 return True
             return False
-        except Exception as exc:
+        except kagglehub_errors() as exc:
+            logger.error("Kaggle Hub download failed for %s: %s", remote_identifier, exc)
             raise CloudSyncError(
                 code="KAGGLE_DOWNLOAD_FAILED",
                 message=f"Failed pulling Kaggle artifact {remote_identifier}: {exc}",
@@ -213,8 +217,8 @@ sys.exit(res.returncode)
         try:
             importlib.import_module("kagglehub")
             has_sdk = True
-        except ImportError:
-            pass
+        except ImportError as exc:
+            logger.debug("kagglehub SDK not importable: %s", exc)
 
         return {
             "provider": "kaggle",

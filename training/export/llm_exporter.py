@@ -17,7 +17,7 @@ import onnx
 import torch
 import torch.nn as nn
 
-from training.export.base import BaseModelExporter
+from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
 from training.registry import ModelSpecification
 
 logger = logging.getLogger("lemtrain.export.llm")
@@ -70,7 +70,7 @@ def export_llm_tri_format(
         if isinstance(model_to_export, nn.Module):
             torch.save(model_to_export.state_dict(), str(pt_path))
             exported_files["pt"] = pt_path
-    except Exception as exc:
+    except MODEL_IO_ERRORS as exc:
         logger.error("Failed saving PyTorch LLM weights to %s: %s", pt_path, exc)
 
     # 2. ONNX FP32 with External Tensor Data Sidecar
@@ -110,7 +110,7 @@ def export_llm_tri_format(
 
         exported_files["onnx_fp32"] = fp32_onnx_path
         exported_files["onnx_fp32_data"] = fp32_data_path
-    except Exception as exc:
+    except EXPORT_ERRORS as exc:
         logger.warning("FP32 ONNX sidecar export note: %s", exc)
 
     # 3. ONNX FP16 with Integrated Weights
@@ -120,7 +120,7 @@ def export_llm_tri_format(
         if fp32_onnx_path.exists():
             shutil.copy2(str(fp32_onnx_path), str(fp16_onnx_path))
             exported_files["onnx_fp16"] = fp16_onnx_path
-    except Exception as exc:
+    except OSError as exc:
         logger.warning("FP16 ONNX export note: %s", exc)
 
     return exported_files

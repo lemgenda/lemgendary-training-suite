@@ -1,5 +1,9 @@
+import logging
+
 import torch
 import torch.nn as nn
+
+logger = logging.getLogger("lemtrain.models.master_multimodal")
 
 class LLaVA_v1_5(nn.Module):
     """
@@ -89,8 +93,8 @@ class BLIP_2(nn.Module):
             )
             self.model = get_peft_model(self.model, lora_config)
             print("[MULTIMODAL] BLIP-2 Hardened with QLoRA.")
-        except ImportError:
-            pass
+        except ImportError as exc:
+            logger.warning("PEFT not installed; BLIP-2 running without QLoRA adapters: %s", exc)
         
     def forward(self, input_ids, attention_mask=None, pixel_values=None, labels=None):
         return self.model(

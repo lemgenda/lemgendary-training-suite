@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import shutil
@@ -5,7 +6,11 @@ import subprocess
 import psutil
 from pathlib import Path
 
+from training.cloud.errors import kagglehub_errors
+
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1212]
+
+logger = logging.getLogger("lemtrain.data.data_utils")
 
 def check_disk_space(required_bytes, target_path):
     """Manifold Safety Check: Ensure structural occupancy is sufficient."""
@@ -36,8 +41,13 @@ def _handle_kaggle(ds_name, data_dir, config, ref):
     print(f"[DATA] Recovering {ds_name} from Kaggle Manifold...")
     try:
         import kagglehub
-        import shutil
-        
+    except ImportError as exc:
+        logger.error("Acquisition failed for %s: kagglehub is not installed (%s)", ds_name, exc)
+        print(f"[ERROR] [DATA ERROR] Acquisition failed for {ds_name}: {exc}")
+        return False
+    # OSError covers file-system failures, shutil.Error and requests' network errors.
+    acquisition_errors = kagglehub_errors()
+    try:
         # 2026 Resilience: Use configured username or default to lemtreursi
         username = config.get("fleet", {}).get("kaggle_username", "lemtreursi")
         
@@ -82,6 +92,7 @@ def _handle_kaggle(ds_name, data_dir, config, ref):
             
         print(f"[OK] [DATA] {ds_name} successfully synchronized to manifold.")
         return True
-    except Exception as e:
+    except acquisition_errors as e:
+        logger.error("Acquisition failed for %s: %s", ds_name, e, exc_info=True)
         print(f"[ERROR] [DATA ERROR] Acquisition failed for {ds_name}: {e}")
         return False

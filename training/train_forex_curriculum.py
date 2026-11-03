@@ -6,7 +6,10 @@ import shutil
 import csv
 import json
 import argparse
+import logging
 import yaml
+
+logger = logging.getLogger("lemtrain.forex_curriculum")
 
 NUM_FOLDS = 6
 MODEL_KEY = "forex_predictor"
@@ -21,8 +24,8 @@ def get_latest_epoch(model_key, project_root):
             reader = list(csv.DictReader(f))
             if len(reader) > 0:
                 return int(reader[-1].get("Epoch", 0))
-    except Exception as e:
-        print(f" [WARNING] Failed to parse metrics.csv for dynamic target: {e}")
+    except (OSError, ValueError, TypeError, csv.Error) as e:
+        logger.warning("Failed to parse %s for dynamic target; assuming epoch 0: %s", metrics_path, e)
     return 0
 
 def main():
@@ -62,7 +65,8 @@ def main():
             continue
         try:
             top_level = os.listdir(base)
-        except OSError:
+        except OSError as exc:
+            logger.debug("Cannot list forex search dir %s: %s", base, exc)
             continue
         for entry in top_level:
             if "forex" not in entry.lower():
@@ -76,7 +80,8 @@ def main():
                 continue
             try:
                 children = set(os.listdir(candidate_base))
-            except OSError:
+            except OSError as exc:
+                logger.debug("Cannot list forex candidate dir %s: %s", candidate_base, exc)
                 continue
             if KNOWN_PAIR_ANCHORS & children:
                 if candidate_base not in resolved_roots:
@@ -98,8 +103,8 @@ def main():
             for d in os.listdir(root):
                 if d.startswith("ForexUniverse") and not d.endswith(".zip") and os.path.isdir(os.path.join(root, d)):
                     all_year_dirs.add(d)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("Cannot list forex root %s: %s", root, exc)
 
     if os.path.exists('/kaggle/input') and len(all_year_dirs) < 8:
         try:
@@ -107,8 +112,8 @@ def main():
                 for d in dirs:
                     if d.startswith("ForexUniverse") and not d.endswith(".zip"):
                         all_year_dirs.add(d)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("Cannot walk /kaggle/input for forex year manifolds: %s", exc)
 
     if all_year_dirs:
         total_folds = max(1, len(all_year_dirs) - 2)
@@ -155,7 +160,8 @@ def main():
         try:
             with open(state_file, "r", encoding="utf-8") as f:
                 state = json.load(f)
-        except Exception:
+        except (OSError, ValueError) as e:
+            logger.warning("Curriculum state %s unreadable; starting with empty state: %s", state_file, e)
             state = {}
     else:
         state = {}
@@ -169,8 +175,8 @@ def main():
                 curr = y.get(MODEL_KEY, {}).get("curriculum", {})
                 if "active_folds" in curr and isinstance(curr["active_folds"], list):
                     active_folds = curr["active_folds"]
-        except Exception as e:
-            print(f" [WARNING] Failed to parse unified_models_v2.yaml: {e}")
+        except (OSError, yaml.YAMLError, AttributeError, TypeError) as e:
+            logger.warning("Failed to parse %s; using default active folds: %s", yaml_path, e)
 
     if getattr(args, 'folds', None):
         active_folds = [f for f in args.folds if 1 <= f <= NUM_FOLDS]
@@ -267,8 +273,8 @@ def main():
         except KeyboardInterrupt:
             print("\n [INTERRUPT] Caught KeyboardInterrupt. Exiting curriculum orchestrator safely.")
             sys.exit(0)
-        except Exception as e:
-            print(f"\n [ERROR] Subprocess failed: {e}")
+        except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError) as e:
+            logger.error("Fold %s subprocess or state persistence failed: %s", fold, e)
             sys.exit(1)
 
         # Copy checkpoint state at the end of the fold for historical preservation
@@ -277,8 +283,8 @@ def main():
             try:
                 shutil.copy2(latest_ckpt, archive_ckpt)
                 print(f" [ARCHIVE] Preserved state: {archive_ckpt}")
-            except Exception as e:
-                print(f" [WARNING] Failed to archive checkpoint: {e}")
+            except OSError as e:
+                logger.warning("Failed to archive checkpoint %s -> %s: %s", latest_ckpt, archive_ckpt, e)
 
         time.sleep(2)
 

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, List, Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
+
+from training.cloud.errors import KAGGLE_API_ERRORS
+
+logger = logging.getLogger("lemtrain.server.routes.training")
 
 router = APIRouter(prefix="/training", tags=["training"])
 
@@ -130,7 +135,8 @@ def get_kaggle_status() -> dict[str, Any]:
         try:
             api = authenticate_kaggle_user(user, token)
             authenticated = api is not None
-        except Exception:
+        except (ImportError, *KAGGLE_API_ERRORS) as exc:
+            logger.warning("Kaggle authentication check failed for %s: %s", user, exc)
             authenticated = False
 
     return {

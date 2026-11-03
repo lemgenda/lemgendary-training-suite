@@ -129,8 +129,8 @@ class ManifoldResolver:
             for item in p.iterdir():
                 if item.suffix.lower() in (".parquet", ".tar", ".data", ".webp", ".jpg", ".png", ".jpeg"):
                     return True
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("Cannot list candidate manifold dir %s: %s", p, exc)
         return False
 
     @classmethod
@@ -153,7 +153,8 @@ class ManifoldResolver:
                 continue
             try:
                 children = list(curr.iterdir())
-            except OSError:
+            except OSError as exc:
+                logger.debug("Cannot list Kaggle input dir %s: %s", curr, exc)
                 continue
             for child in children:
                 if child.is_dir():
@@ -253,7 +254,7 @@ class ManifoldResolver:
                     else:
                         import json
                         meta = json.loads(mf.read_text(encoding="utf-8"))
-                except Exception as exc:
+                except (OSError, ValueError, yaml.YAMLError) as exc:
                     logger.warning("Failed parsing metadata file %s: %s", mf, exc)
                 break
 

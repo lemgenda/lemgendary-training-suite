@@ -139,7 +139,7 @@ def stretch_scheduler_runway(
     state_dict.update(sched_dict)
     try:
         scheduler.load_state_dict(sched_dict)
-    except Exception as exc:
+    except (KeyError, TypeError, ValueError, AttributeError, IndexError, RuntimeError) as exc:
         logger.warning("Error loading scheduler state dict: %s", exc)
 
 

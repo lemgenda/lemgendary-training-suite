@@ -9,9 +9,43 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from training.cloud.errors import kagglehub_errors
 from training.utils.paths import get_project_root, get_workspace_root
 
 logger = logging.getLogger("lemtrain.checkpoint.recovery")
+
+
+def _probe_kagglehub_checkpoints(kh_mod: Any, model_name: str, cfg: dict[str, Any]) -> Path | None:
+    """Probe KaggleHub (5s timeout) for a published checkpoint directory of ``model_name``."""
+    k_user = cfg.get("kaggle_username", "lemtreursi")
+    k_slug = model_name.replace("_", "-")
+    if "nima-aesthetic" in k_slug:
+        k_slug = k_slug.replace("nima-aesthetic", "nima-aesthetics")
+    k_handle = f"{k_user}/{k_slug}/pytorch/default"
+
+    model_download_fn = getattr(kh_mod, "model_download", None)
+    if not callable(model_download_fn):
+        return None
+    if os.environ.get("RANK", "0") == "0":
+        print(f"[RECOVERY] Probing KaggleHub checkpoints for '{k_handle}' (5s timeout)...", flush=True)
+    probe_errors = (RuntimeError, *kagglehub_errors())
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(model_download_fn, k_handle)
+            dl_res = future.result(timeout=5.0)
+    except concurrent.futures.TimeoutError:
+        print("[RECOVERY] KaggleHub checkpoint probe timed out (5s). Skipping remote probe.", flush=True)
+        return None
+    except probe_errors as kh_exc:
+        logger.debug("KaggleHub checkpoint probe notice for %s: %s", k_handle, kh_exc)
+        return None
+    dl_path = Path(str(dl_res))
+    if not dl_path.exists():
+        return None
+    logger.info("KaggleHub resolved checkpoint directory: %s", dl_path)
+    if os.environ.get("RANK", "0") == "0":
+        print(f"[RECOVERY] Discovered KaggleHub checkpoint directory: {dl_path}", flush=True)
+    return dl_path
 
 
 class CheckpointRecoveryEngine:
@@ -89,29 +123,12 @@ class CheckpointRecoveryEngine:
             # Attempt kagglehub download probe with non-blocking timeout
             try:
                 kh_mod = importlib.import_module("kagglehub")
-                k_user = cfg.get("kaggle_username", "lemtreursi")
-                k_slug = model_name.replace("_", "-")
-                if "nima-aesthetic" in k_slug:
-                    k_slug = k_slug.replace("nima-aesthetic", "nima-aesthetics")
-                k_handle = f"{k_user}/{k_slug}/pytorch/default"
-
-                model_download_fn = getattr(kh_mod, "model_download", None)
-                if callable(model_download_fn):
-                    if os.environ.get("RANK", "0") == "0":
-                        print(f"[RECOVERY] Probing KaggleHub checkpoints for '{k_handle}' (5s timeout)...", flush=True)
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        future = executor.submit(model_download_fn, k_handle)
-                        dl_res = future.result(timeout=5.0)
-                        dl_path = Path(str(dl_res))
-                        if dl_path.exists():
-                            logger.info("KaggleHub resolved checkpoint directory: %s", dl_path)
-                            if os.environ.get("RANK", "0") == "0":
-                                print(f"[RECOVERY] Discovered KaggleHub checkpoint directory: {dl_path}", flush=True)
-                            roots.insert(0, dl_path)
-            except concurrent.futures.TimeoutError:
-                print("[RECOVERY] KaggleHub checkpoint probe timed out (5s). Skipping remote probe.", flush=True)
-            except Exception as kh_exc:
-                logger.debug("KaggleHub checkpoint probe notice: %s", kh_exc)
+            except ImportError as kh_imp_err:
+                logger.debug("kagglehub not installed; skipping remote checkpoint probe: %s", kh_imp_err)
+            else:
+                dl_path = _probe_kagglehub_checkpoints(kh_mod, model_name, cfg)
+                if dl_path is not None:
+                    roots.insert(0, dl_path)
 
         # Remove duplicate roots
         unique_roots: list[Path] = []
@@ -144,7 +161,8 @@ class CheckpointRecoveryEngine:
                     continue
                 try:
                     entries = list(curr_dir.iterdir())
-                except OSError:
+                except OSError as list_err:
+                    logger.debug("Skipping unreadable checkpoint search dir %s: %s", curr_dir, list_err)
                     continue
 
                 for entry in entries:
@@ -244,8 +262,8 @@ class CheckpointRecoveryEngine:
                     try:
                         shutil.copy2(pt, ckpt_pt)
                         synced.append(ckpt_pt)
-                    except OSError:
-                        pass
+                    except OSError as copy_err:
+                        logger.warning("Failed mirroring %s into %s: %s", pt, ckpt_pt, copy_err)
                 pytorch_dir = dist_dir / "pytorch"
                 pytorch_dir.mkdir(parents=True, exist_ok=True)
                 dst_pt = pytorch_dir / pt.name

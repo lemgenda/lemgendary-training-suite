@@ -69,7 +69,7 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             probe = torch.ones(1, device=device) + 1.0
             torch.cuda.synchronize()
             del probe
-        except Exception as exc:
+        except RuntimeError as exc:
             err_msg = str(exc)
             if "no kernel image is available" in err_msg or "cudaErrorNoKernelImageForDevice" in err_msg:
                 logger.error(

@@ -11,6 +11,7 @@ Verifies:
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 import shutil
 import tempfile
@@ -23,6 +24,8 @@ from training.cli.lemtrain import app as cli_app
 from training.server.app import create_app
 from training.server.state import ServerState
 from training.utils.paths import get_project_root
+
+_log = logging.getLogger("lemtrain.tests.test_gui_presets_and_contract")
 
 
 class TestOpenAPIAndContract(unittest.TestCase):
@@ -41,7 +44,7 @@ class TestOpenAPIAndContract(unittest.TestCase):
         self.assertEqual(data.get("openapi"), "3.1.0")
         info = data.get("info", {})
         self.assertEqual(info.get("title"), "LemGendary Model Training Suite Sidecar API")
-        self.assertEqual(info.get("version"), "16.9.69")
+        self.assertEqual(info.get("version"), "16.9.70")
 
         paths = data.get("paths", {})
         required_paths = [
@@ -102,8 +105,8 @@ class TestDesktopGUIAndPresets(unittest.TestCase):
         self.client.close()
         try:
             self.temp_dir.cleanup()
-        except OSError:
-            pass
+        except OSError as exc:
+            _log.warning("Temp dir cleanup failed for %s: %s", self.temp_dir.name, exc)
 
     def test_gui_state_snapshot(self) -> None:
         """Verify GET /api/gui/state returns unified dashboard snapshot."""

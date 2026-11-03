@@ -41,7 +41,7 @@ def export_webgpu_onnx(
         try:
             device = next(model_to_export.parameters()).device
         except StopIteration:
-            pass
+            logger.debug("Model has no parameters; exporting on default device %s", device)
 
     dummy_input = torch.randn(dummy_input_shape, device=device)
 

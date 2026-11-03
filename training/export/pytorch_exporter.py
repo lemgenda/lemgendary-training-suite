@@ -18,7 +18,7 @@ import onnx
 import torch
 import torch.nn as nn
 
-from training.export.base import BaseModelExporter
+from training.export.base import EXPORT_ERRORS, MODEL_IO_ERRORS, BaseModelExporter
 from training.export.common import extract_input_dimensions
 from training.registry import ModelSpecification
 
@@ -98,7 +98,7 @@ class PyTorchModelExporter(BaseModelExporter):
             torch.save(state_dict, str(pt_path))
             exported_files["pt"] = pt_path
             logger.info("Successfully saved FP32 PyTorch model to %s", pt_path)
-        except Exception as exc:
+        except MODEL_IO_ERRORS as exc:
             logger.error("Failed saving FP32 PyTorch model to %s: %s", pt_path, exc)
 
         # -------------------------------------------------------------------------
@@ -143,7 +143,7 @@ class PyTorchModelExporter(BaseModelExporter):
             exported_files["onnx_fp32"] = fp32_onnx_path
             exported_files["onnx_fp32_data"] = fp32_data_path
             logger.info("Successfully exported FP32 ONNX with sidecar: %s", fp32_onnx_path.name)
-        except Exception as exc:
+        except EXPORT_ERRORS as exc:
             logger.error("Failed exporting FP32 ONNX sidecar for %s: %s", model_key, exc)
 
         # -------------------------------------------------------------------------
@@ -173,7 +173,7 @@ class PyTorchModelExporter(BaseModelExporter):
 
             exported_files["onnx_fp16"] = fp16_onnx_path
             logger.info("Successfully exported FP16 integrated ONNX: %s", fp16_onnx_path.name)
-        except Exception as exc:
+        except EXPORT_ERRORS as exc:
             logger.warning(
                 "Direct FP16 torch.onnx.export failed for %s (%s). Falling back to onnxconverter...",
                 model_key,
@@ -208,7 +208,7 @@ class PyTorchModelExporter(BaseModelExporter):
                     "Successfully converted and saved FP16 ONNX model via onnxconverter fallback to %s",
                     fp16_onnx_path,
                 )
-            except Exception as fallback_exc:
+            except EXPORT_ERRORS as fallback_exc:
                 logger.error("Failed FP16 fallback export for %s: %s", model_key, fallback_exc)
         finally:
             if isinstance(model_to_export, nn.Module):

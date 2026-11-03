@@ -12,6 +12,8 @@ import subprocess
 import sys
 from typing import Any
 
+from training.cloud.errors import KAGGLE_API_ERRORS
+
 logger = logging.getLogger("lemtrain.kaggle_cloud_manager")
 
 
@@ -54,7 +56,7 @@ def launch_kaggle_training(
         api.kernels_push(str(kernel_dir))
         logger.info("Kernel successfully pushed to Kaggle!")
         return True
-    except (ImportError, Exception) as err:
+    except (ImportError, AttributeError, *KAGGLE_API_ERRORS) as err:
         logger.warning("Kaggle Python SDK push notice: %s. Trying CLI fallback...", err)
 
     try:
@@ -92,7 +94,7 @@ def monitor_kaggle_training(model_name: str, username: str | None = None, poll_i
         api = api_cls()
         api.authenticate()
         km.stream_kernel_logs(api, slug, poll_interval=poll_interval)
-    except Exception as exc:
+    except (ImportError, AttributeError, *KAGGLE_API_ERRORS) as exc:
         logger.error("Kaggle monitoring stream error: %s", exc)
 
 
@@ -108,7 +110,7 @@ def pull_kaggle_artifacts(
     logger.info("Pulling Kaggle model variations for %s ...", model_name)
     try:
         return sync_mgr.pull_model(model_key=model_name)
-    except Exception as exc:
+    except (RuntimeError, *KAGGLE_API_ERRORS) as exc:
         logger.error("Failed pulling model %s: %s", model_name, exc)
         return False
 
@@ -207,7 +209,7 @@ def main() -> None:
             api.authenticate()
             st = api.kernels_status(slug)
             logger.info("Status for %s: %s", slug, st)
-        except Exception as exc:
+        except (ImportError, AttributeError, *KAGGLE_API_ERRORS) as exc:
             logger.error("Status check failed: %s", exc)
 
 

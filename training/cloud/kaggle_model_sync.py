@@ -13,7 +13,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from training.cloud.credentials import resolve_kaggle_credentials
+from training.cloud.errors import KAGGLE_API_ERRORS, kagglehub_errors
 from training.cloud.kaggle_api_sync import KaggleApiSyncService
 from training.cloud.metadata_generator import KaggleMetadataService
 from training.cloud.model_metadata import METADATA_FILENAME, ModelMetadata
@@ -28,6 +31,7 @@ from training.cloud.variations import (
 )
 from training.export.validation import IsolationReport, StrictIsolationValidator
 from training.registry import ModelSpecification, get_model_registry
+from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_model_sync")
@@ -275,7 +279,7 @@ class KaggleModelSyncManager:
                 files=file_names,
                 dry_run=False,
             )
-        except Exception as exc:
+        except kagglehub_errors() as exc:
             logger.error("Failed uploading %s to Kaggle Models Hub: %s", handle, exc)
             return VariationPushResult(
                 variation=variation,
@@ -341,7 +345,7 @@ class KaggleModelSyncManager:
             push_result.metadata_sync_result = sync_meta_res
             if sync_meta_res.get("errors"):
                 push_result.errors.extend(sync_meta_res["errors"])
-        except Exception as meta_exc:
+        except (*KAGGLE_API_ERRORS, yaml.YAMLError) as meta_exc:
             err_str = f"Metadata synchronization error: {meta_exc}"
             logger.error(err_str)
             push_result.errors.append(err_str)
@@ -399,20 +403,21 @@ class KaggleModelSyncManager:
 
             # Purge duplicate dist/kaggle/pytorch_default directory to prevent dual files on disk
             if target_dir.exists() and target_dir.resolve() != model_root.resolve():
-                import shutil
-                shutil.rmtree(target_dir, ignore_errors=True)
+                remove_tree(target_dir, purpose="duplicate pytorch_default purge")
 
         return bool(downloaded_path)
 
     def pull_model(self, model_key: str, force_download: bool = False) -> bool:
         """Download all 4 variations of a model from Kaggle Models Hub."""
         success = True
+        # RuntimeError: raised by pull_variation when the kagglehub SDK is missing.
+        pull_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), RuntimeError)
         for var_key in VARIATION_BY_KEY:
             try:
                 var_ok = self.pull_variation(model_key, var_key, force_download=force_download)
                 if not var_ok:
                     success = False
-            except Exception as exc:
+            except pull_errors as exc:
                 logger.warning("Failed pulling variation %s for %s: %s", var_key, model_key, exc)
                 success = False
         return success

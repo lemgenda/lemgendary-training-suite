@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import re
@@ -7,6 +8,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor
+
+import yaml
 
 # --- Path Anchor Defense ---
 # Anchor the search path to the workspace root and script directory to ensure module discovery
@@ -18,11 +21,17 @@ if str(_suite_dir) not in sys.path:
 if str(_workspace_root) not in sys.path:
     sys.path.insert(0, str(_workspace_root))
 
+from training.cloud.errors import KAGGLE_API_ERRORS
 from training.kaggle_cloud_manager import (
     create_cloud_kernel_bundle,
     get_kernel_slug,
     pull_kaggle_artifacts,
 )
+
+logger = logging.getLogger("lemtrain.cloud.kaggle_monitor")
+
+# pull_kaggle_artifacts reports most failures itself; RuntimeError covers a missing kagglehub SDK.
+_PULL_ERRORS: tuple[type[Exception], ...] = (RuntimeError, *KAGGLE_API_ERRORS)
 
 def find_kaggle_users_file(explicit_path: Optional[Path] = None) -> Optional[Path]:
     """
@@ -104,7 +113,7 @@ def authenticate_kaggle_user(username: str, token: str) -> Optional[Any]:
         api = KaggleApi()
         api.authenticate()
         return api
-    except Exception as exc:
+    except (ImportError, *KAGGLE_API_ERRORS) as exc:
         print(f"\n[ERROR] Authentication failed for user '{username}': {exc}")
         print("[REMEDY] Verify username and API token validity on kaggle.com/settings/api.")
         return None
@@ -116,7 +125,7 @@ def fetch_user_kernels(api: Any, username: str, limit: int = 20) -> List[Dict[st
     """
     try:
         raw_kernels = api.kernels_list(user=username, page_size=limit, sort_by="dateRun")
-    except Exception as exc:
+    except KAGGLE_API_ERRORS as exc:
         print(f"[ERROR] Failed to list kernels for {username}: {exc}")
         return []
 
@@ -132,8 +141,8 @@ def fetch_user_kernels(api: Any, username: str, limit: int = 20) -> List[Dict[st
             st = api.kernels_status(ref)
             status_val = str(getattr(st, "status", st)).rsplit(".", maxsplit=1)[-1].upper()
             failure_msg = getattr(st, "failure_message", None) or getattr(st, "failureMessage", None)
-        except Exception:
-            pass
+        except KAGGLE_API_ERRORS as exc:
+            logger.debug("Could not resolve status for kernel %s: %s", ref, exc)
         return {
             "ref": ref,
             "title": title,
@@ -152,13 +161,12 @@ def get_registered_models() -> List[str]:
     yaml_path = Path(__file__).resolve().parent.parent / "unified_models_v2.yaml"
     if yaml_path.exists():
         try:
-            import yaml
             with open(yaml_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
             if isinstance(data, dict):
                 return [k for k in data.keys() if k != "_registry_metadata"]
-        except Exception:
-            pass
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+            logger.warning("Could not load registered models from %s: %s", yaml_path, exc)
     return []
 
 
@@ -233,7 +241,7 @@ def stream_kernel_logs(
     try:
         st = api.kernels_status(kernel_slug)
         current_status = str(getattr(st, "status", st)).rsplit(".", maxsplit=1)[-1].upper()
-    except Exception as exc:
+    except KAGGLE_API_ERRORS as exc:
         print(f"[ERROR] Could not fetch status for {kernel_slug}: {exc}")
         return
 
@@ -260,21 +268,18 @@ def stream_kernel_logs(
                 print("--- End of Logs ---")
             else:
                 print("[INFO] No log output available for this kernel run.")
-        except Exception as log_exc:
+        except KAGGLE_API_ERRORS as log_exc:
             print(f"[WARN] Failed to fetch execution logs: {log_exc}")
 
-        try:
-            failure_msg = getattr(st, "failure_message", None) or getattr(st, "failureMessage", None)
-            if failure_msg:
-                print(f"\n[FAILURE DETAILS] {failure_msg}")
-        except Exception:
-            pass
+        failure_msg = getattr(st, "failure_message", None) or getattr(st, "failureMessage", None)
+        if failure_msg:
+            print(f"\n[FAILURE DETAILS] {failure_msg}")
 
         if auto_pull and model_name and current_status == "COMPLETE":
             print(f"\n[SYNC] Performing artifact pull for completed run >> {model_name} <<...")
             try:
                 pull_kaggle_artifacts(model_name, username=username)
-            except Exception as pull_err:
+            except _PULL_ERRORS as pull_err:
                 print(f"[WARN] Artifact pull notice: {pull_err}")
         return
 
@@ -291,7 +296,8 @@ def stream_kernel_logs(
                 if status != last_status:
                     print(f"\n[{time.strftime('%H:%M:%S')}] [SIGNAL] Cloud Status: {status}")
                     last_status = status
-            except Exception:
+            except KAGGLE_API_ERRORS as exc:
+                logger.debug("Status poll failed for %s; keeping last status %s: %s", kernel_slug, last_status, exc)
                 status = last_status
 
             # Poll logs
@@ -314,26 +320,23 @@ def stream_kernel_logs(
                                 print(f"\n[{time.strftime('%H:%M:%S')}] [AUTO-PULL] New checkpoint detected. Syncing >> {model_name} <<...")
                                 try:
                                     pull_kaggle_artifacts(model_name, username=username)
-                                except Exception as pull_err:
+                                except _PULL_ERRORS as pull_err:
                                     print(f"[WARN] Auto-pull notice: {pull_err}")
                     printed_lines_count = len(all_lines)
-            except Exception:
-                pass
+            except KAGGLE_API_ERRORS as exc:
+                logger.debug("Log poll failed for %s; retrying next interval: %s", kernel_slug, exc)
 
             if status in ["COMPLETE", "ERROR", "CANCELACK"]:
                 print(f"\n[{time.strftime('%H:%M:%S')}] [TERMINAL] Cloud job finished with status: {status}")
-                try:
-                    failure_msg = getattr(st, "failure_message", None) or getattr(st, "failureMessage", None)
-                    if failure_msg:
-                        print(f"[FAILURE DETAILS] {failure_msg}")
-                except Exception:
-                    pass
+                failure_msg = getattr(st, "failure_message", None) or getattr(st, "failureMessage", None)
+                if failure_msg:
+                    print(f"[FAILURE DETAILS] {failure_msg}")
 
                 if auto_pull and model_name and status == "COMPLETE":
                     print(f"\n[SYNC] Training complete. Performing final artifact pull for >> {model_name} <<...")
                     try:
                         pull_kaggle_artifacts(model_name, username=username)
-                    except Exception as pull_err:
+                    except _PULL_ERRORS as pull_err:
                         print(f"[WARN] Final artifact pull notice: {pull_err}")
                 break
 
@@ -461,7 +464,8 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                                 if not raw_shape or raw_shape.lower() in ["gpu", "none", "cpu"]:
                                     meta_data["machine_shape"] = "NvidiaTeslaT4"
                                 meta_file.write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
-                            except Exception as meta_err:
+                            except (OSError, ValueError, TypeError) as meta_err:
+                                # ValueError: json.JSONDecodeError; TypeError: non-object metadata JSON.
                                 print(f"[REMEDY] Metadata update notice: {meta_err}")
 
                         # Harden notebook sentinel cells against premature sys.exit(1) on transient container initialization
@@ -483,7 +487,8 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                                             modified_nb = True
                                 if modified_nb:
                                     nb_path.write_text(json.dumps(nb_json, indent=2), encoding="utf-8")
-                        except Exception as nb_patch_err:
+                        except (OSError, ValueError, TypeError, AttributeError) as nb_patch_err:
+                            # ValueError: json.JSONDecodeError; Type/AttributeError: malformed notebook cells.
                             print(f"[REMEDY] Notebook sentinel sync notice: {nb_patch_err}")
 
                         chosen_acc = meta_data.get("machine_shape", "NvidiaTeslaT4") if meta_data else "NvidiaTeslaT4"
@@ -492,7 +497,7 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                         print(f"[LAUNCH] Pushing kernel bundle to trigger execution on Kaggle GPU ({chosen_acc})...")
                         api.kernels_push(td, acc=chosen_acc)
                         print(f"[SUCCESS] Kernel '{selected_slug}' pushed and queued on Kaggle GPU!")
-                    except Exception as push_err:
+                    except KAGGLE_API_ERRORS as push_err:
                         print(f"[ERROR] Failed to launch kernel: {push_err}")
                         input("\nPress Enter to continue...")
                         continue
@@ -511,7 +516,7 @@ def interactive_train_launcher(api: Any, username: str) -> None:
                     try:
                         api.kernels_push(str(kernel_dir), acc="NvidiaTeslaT4")
                         print(f"[SUCCESS] Kernel '{selected_slug}' pushed and queued on Kaggle GPU!")
-                    except Exception as push_err:
+                    except KAGGLE_API_ERRORS as push_err:
                         print(f"[ERROR] Failed to push kernel: {push_err}")
                         input("\nPress Enter to continue...")
                         continue

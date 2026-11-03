@@ -6,6 +6,7 @@ loss metrics, PSNR/SSIM reconstruction fidelity, or classification scores.
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from typing import Any
@@ -16,6 +17,13 @@ import torch
 from training.training.amp import compute_ssim_gpu, get_autocast_context
 from training.training.context import TrainingContext
 from training.training.epoch import _unpack_batch
+
+logger = logging.getLogger("lemtrain.training.validation")
+
+# Failure modes of per-batch metric math on model outputs (shape/dtype mismatch, CUDA/OOM, bad indexing).
+_METRIC_ERRORS: tuple[type[BaseException], ...] = (RuntimeError, ValueError, TypeError, IndexError)
+# Failure modes of constructing torchmetrics modules (missing backends, weight download/cache, device move).
+_METRIC_INIT_ERRORS: tuple[type[BaseException], ...] = (ImportError, OSError, RuntimeError, ValueError, TypeError)
 
 try:
     from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
@@ -364,8 +372,8 @@ def validate_one_epoch(
                 try:
                     ssim = float(compute_ssim_gpu(eval_pred, eval_target).item())
                     total_ssim += ssim
-                except Exception:
-                    pass
+                except _METRIC_ERRORS as exc:
+                    logger.warning("SSIM evaluation error; batch excluded from SSIM: %s", exc)
 
                 # LPIPS perceptual evaluation (strictly FP32 without autocast half-precision errors)
                 if "lpips" in sota_cfg and LearnedPerceptualImagePatchSimilarity is not None:
@@ -378,8 +386,8 @@ def validate_one_epoch(
                             lpips_metric_module.eval()
                             for p_param in lpips_metric_module.parameters():
                                 p_param.requires_grad = False
-                        except Exception as exc:
-                            print(f"  [VAL NOTICE] LPIPS metric module initialization failed: {exc}", flush=True)
+                        except _METRIC_INIT_ERRORS as exc:
+                            logger.warning("LPIPS metric module initialization failed: %s", exc)
                             lpips_metric_module = False
 
                     if lpips_metric_module is not None and lpips_metric_module is not False:
@@ -397,8 +405,8 @@ def validate_one_epoch(
                             batch_lpips = chunk_lpips_sum / max(1, b_sz)
                             total_lpips += batch_lpips
                             lpips_count += 1
-                        except Exception as exc:
-                            print(f"  [VAL NOTICE] LPIPS evaluation error: {exc}", flush=True)
+                        except _METRIC_ERRORS as exc:
+                            logger.warning("LPIPS evaluation error: %s", exc)
                             if hasattr(ctx.governor, "handle_oom"):
                                 ctx.governor.handle_oom()
                             else:
@@ -415,8 +423,8 @@ def validate_one_epoch(
                                 sync_on_compute=False,
                             ).to(device)
                             fid_metric_module.eval()
-                        except Exception as exc:
-                            print(f"  [VAL NOTICE] FID metric module initialization failed: {exc}", flush=True)
+                        except _METRIC_INIT_ERRORS as exc:
+                            logger.warning("FID metric module initialization failed: %s", exc)
                             fid_metric_module = False
 
                     if fid_metric_module is not None and fid_metric_module is not False:
@@ -433,8 +441,8 @@ def validate_one_epoch(
                                 fid_metric_module.update(t_chunk, real=True)
                                 fid_metric_module.update(p_chunk, real=False)
                             fid_batches_accumulated += 1
-                        except Exception as exc:
-                            print(f"  [VAL NOTICE] FID update error: {exc}", flush=True)
+                        except _METRIC_ERRORS as exc:
+                            logger.warning("FID update error: %s", exc)
 
             # 2. Quality Assessment & Aesthetic Ranking (NIMA: PLCC, SRCC, Rank Margin)
             is_quality_model = (
@@ -466,8 +474,8 @@ def validate_one_epoch(
                             if mask.sum() > 0:
                                 total_rank_margin_loss += float((rank_loss * mask).sum().item() / mask.sum().item())
                                 rank_margin_count += 1
-                    except Exception as exc:
-                        print(f"  [VAL NOTICE] Quality metrics evaluation error: {exc}", flush=True)
+                    except _METRIC_ERRORS as exc:
+                        logger.warning("Quality metrics evaluation error: %s", exc)
 
             # 3. Categorical Classification (universal_nsfw_classification, nima_authenticity)
             if "accuracy" in sota_cfg and not has_forex_metrics:
@@ -482,8 +490,8 @@ def validate_one_epoch(
                             pred_bin = (torch.sigmoid(preds) > 0.5).long()
                             total_cls_correct += (pred_bin == targets.long()).sum().item()
                             total_cls_samples += targets.numel()
-                except Exception as exc:
-                    print(f"  [VAL NOTICE] Classification accuracy evaluation error: {exc}", flush=True)
+                except _METRIC_ERRORS as exc:
+                    logger.warning("Classification accuracy evaluation error: %s", exc)
 
             # 4. Parameter Prediction / UPN (upn_v2 MAE)
             if "mae" in sota_cfg and not has_forex_metrics:
@@ -492,8 +500,8 @@ def validate_one_epoch(
                         upn_err = torch.abs(preds.float() - targets.float()).mean().item()
                         total_upn_mae += float(upn_err)
                         upn_mae_count += 1
-                except Exception as exc:
-                    print(f"  [VAL NOTICE] UPN MAE evaluation error: {exc}", flush=True)
+                except _METRIC_ERRORS as exc:
+                    logger.warning("UPN MAE evaluation error: %s", exc)
 
             # 5. Semantic Segmentation (parsenet mIoU)
             if "miou" in sota_cfg:
@@ -505,8 +513,8 @@ def validate_one_epoch(
                         union = torch.logical_or(tgt_seg > 0, pred_seg > 0).sum().item()
                         total_miou_inter += float(inter)
                         total_miou_union += float(union)
-                except Exception as exc:
-                    print(f"  [VAL NOTICE] Segmentation mIoU evaluation error: {exc}", flush=True)
+                except _METRIC_ERRORS as exc:
+                    logger.warning("Segmentation mIoU evaluation error: %s", exc)
 
             # 6. Object / Face Detection (retinaface, yolov8n)
             has_det_cfg = any(k in sota_cfg for k in ("map50", "map50_95", "map_easy", "map_medium", "map_hard"))
@@ -518,8 +526,8 @@ def validate_one_epoch(
                         conf_diff = torch.abs(torch.sigmoid(p_conf.float()) - t_conf.float()).mean()
                         match_score = float(torch.clamp(1.0 - conf_diff, 0.0, 1.0).item())
                         detection_ap_scores.append(match_score)
-                except Exception as exc:
-                    print(f"  [VAL NOTICE] Detection score evaluation error: {exc}", flush=True)
+                except _METRIC_ERRORS as exc:
+                    logger.warning("Detection score evaluation error: %s", exc)
 
             # 7. Check for Forex / Directional predictions and targets
             dir_logits, mag_preds, dir_targets, mag_targets = _extract_forex_tensors(preds, targets)
@@ -607,8 +615,8 @@ def validate_one_epoch(
             try:
                 fid_res = float(fid_metric_module.compute().item())
                 results["fid"] = max(0.0, fid_res)
-            except Exception as exc:
-                print(f"  [VAL NOTICE] FID compute error: {exc}", flush=True)
+            except _METRIC_ERRORS as exc:
+                logger.warning("FID compute error: %s", exc)
 
     # Aggregate Quality metrics (NIMA)
     if len(quality_preds_list) > 1 and len(quality_targets_list) > 1 and _HAS_SCIPY_STATS and pearsonr and spearmanr:
@@ -625,8 +633,8 @@ def validate_one_epoch(
             results["srcc"] = 0.0 if np.isnan(srcc_v) else srcc_v
             if rank_margin_count > 0:
                 results["rank_margin"] = total_rank_margin_loss / rank_margin_count
-        except Exception as exc:
-            print(f"  [VAL NOTICE] Correlation calculation error: {exc}", flush=True)
+        except _METRIC_ERRORS as exc:
+            logger.warning("Correlation calculation error: %s", exc)
 
     # Aggregate Classification accuracy
     if total_cls_samples > 0:

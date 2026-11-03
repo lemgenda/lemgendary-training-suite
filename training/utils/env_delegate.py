@@ -41,7 +41,9 @@ class EnvManagerDelegate:
                     data = json.loads(resp.read().decode("utf-8"))
                     if isinstance(data, dict):
                         return data
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
+            # OSError covers urllib.error.URLError/HTTPError and socket timeouts;
+            # ValueError covers json.JSONDecodeError and UnicodeDecodeError.
             logger.warning("Failed to fetch hardware profile from sidecar: %s", exc)
         return {}
 

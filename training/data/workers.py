@@ -137,7 +137,7 @@ def dispose_loader(loader: Any) -> None:
         if callable(close_fn):
             try:
                 close_fn()
-            except Exception as exc:
+            except (OSError, RuntimeError) as exc:
                 logger.warning("Error closing dataset resources: %s", exc)
 
     # Reclaim garbage and empty CUDA memory cache if available
@@ -159,5 +159,5 @@ def dataloader_worker_init_fn(worker_id: int) -> None:
     import signal
     try:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
-    except Exception:
-        pass
+    except (ValueError, OSError) as exc:
+        logger.debug("DataLoader worker %d could not ignore SIGINT: %s", worker_id, exc)

@@ -108,6 +108,6 @@ def wrap_quality_model(model: nn.Module, model_info: dict[str, Any]) -> nn.Modul
             wrapped = SoftmaxWrapper(model, temperature=temp)
             wrapped.eval()
             return wrapped
-        except (ImportError, Exception) as exc:
+        except (ImportError, ValueError, TypeError, AttributeError, RuntimeError) as exc:
             logger.debug("SoftmaxWrapper unavailable or unnecessary: %s", exc)
     return model

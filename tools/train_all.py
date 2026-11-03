@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -19,6 +20,8 @@ import yaml
 
 from training.utils.paths import get_project_root
 
+logger = logging.getLogger("lemtrain.tools.train_all")
+
 try:
     import kagglesdk.kaggle_env as ke
     if not hasattr(ke, "get_web_endpoint"):
@@ -28,8 +31,8 @@ try:
                 return "https://www.kaggle.com"
             return str(endpoint)
         ke.get_web_endpoint = get_web_endpoint
-except ImportError:
-    pass
+except ImportError as _kaggle_env_err:
+    logger.debug("kagglesdk not installed; get_web_endpoint shim not applied: %s", _kaggle_env_err)
 
 
 class PhaseDef(TypedDict):

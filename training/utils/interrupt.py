@@ -40,7 +40,7 @@ def cleanup_active_processes(*args: Any) -> None:
                     )
                 else:
                     p.terminate()
-            except Exception as exc:
+            except (OSError, subprocess.SubprocessError) as exc:
                 logger.warning("Failed to terminate subprocess PID %s: %s", getattr(p, "pid", "unknown"), exc)
     _ACTIVE_PROCESSES.clear()
 
@@ -74,8 +74,10 @@ def graceful_exit(signum: int, frame: Any) -> None:
         try:
             logger.info("Executing registered emergency checkpoint sync...")
             _EMERGENCY_SYNC_HANDLER()
-        except Exception as exc:
-            logger.error("Emergency sync callback failed: %s", exc)
+        except Exception:
+            # Signal-handler boundary: the registered callback is arbitrary user code and any
+            # failure must be reported without aborting child-process cleanup and exit below.
+            logger.exception("Emergency sync callback failed")
 
     cleanup_active_processes()
     sys.exit(128 + signum)

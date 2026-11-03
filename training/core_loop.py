@@ -12,6 +12,7 @@ import os
 
 import argparse
 import logging
+import pickle
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,40 @@ install_signal_handlers()
 
 load_pat = load_secrets
 _active_processes = _ACTIVE_PROCESSES
+
+# Failure modes of dataset construction (missing shards, malformed manifests, bad config values).
+_DATASET_BUILD_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError, KeyError, TypeError, RuntimeError)
+# Failure modes of torch.load on a corrupt/truncated/incompatible checkpoint.
+_CHECKPOINT_LOAD_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    RuntimeError,
+    ValueError,
+    EOFError,
+    pickle.UnpicklingError,
+)
+# Failure modes of restoring optimizer/scheduler/governor state and rebuilding loaders.
+_STATE_RESTORE_ERRORS: tuple[type[BaseException], ...] = (
+    ValueError,
+    TypeError,
+    KeyError,
+    IndexError,
+    AttributeError,
+    RuntimeError,
+    OSError,
+)
+# Failure modes of post-training artefact generation (docs, notebooks, sync, teardown).
+_ARTEFACT_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError, KeyError, TypeError, RuntimeError)
+
+
+def _build_instruction_train_loader(dataset: InstructionDataset, batch_size: int) -> DataLoader[dict[str, Any]]:
+    """Build the instruction-tuning train loader with dynamic-padding collation."""
+    return DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_instruction_batch,
+        drop_last=False,
+    )
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
@@ -233,8 +268,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             if clean_target.exists():
                 try:
                     clean_target.unlink()
-                except OSError:
-                    pass
+                except OSError as unlink_err:
+                    logger.warning("Clean run could not remove %s: %s", clean_target, unlink_err)
 
     # 3. Model construction
     raw_model = get_model(model_key, model_info)
@@ -360,8 +395,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 is_train=False,
                 fold=_forex_fold,
             )
-        except Exception as forex_val_err:
-            logger.debug("Forex val dataset failed: %s", forex_val_err)
+        except _DATASET_BUILD_ERRORS as forex_val_err:
+            logger.warning("Forex val dataset could not be built; running without validation: %s", forex_val_err)
             val_ds = None
     elif task_type in ("text_instruction", "llm"):
         # Resolve dataset folder dynamically from model_info or fallback to LemGendizedAIHelperLemGend
@@ -417,21 +452,16 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             if len(val_ds) == 0:
                 logger.info("Validation dataset contains 0 samples; running without validation.")
                 val_ds = None
-        except Exception:
+        except _DATASET_BUILD_ERRORS as val_err:
+            logger.warning("Validation dataset could not be built; running without validation: %s", val_err)
             val_ds = None
 
     collate_fn = None
     if task_type in ("text_instruction", "llm"):
         collate_fn = collate_instruction_batch
 
-    if collate_fn is not None:
-        train_loader = DataLoader[Any](
-            dataset=train_ds,  # type: ignore[arg-type]
-            batch_size=batch_size,
-            shuffle=True,
-            collate_fn=collate_fn,
-            drop_last=False,
-        )
+    if isinstance(train_ds, InstructionDataset):
+        train_loader = _build_instruction_train_loader(train_ds, batch_size)
     elif task_type == "forex":
         train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
         logger.info(
@@ -469,7 +499,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 config=config,
                 collate_fn=collate_fn,
             )
-        except Exception:
+        except _DATASET_BUILD_ERRORS as val_loader_err:
+            logger.warning("Validation loader could not be built; running without validation: %s", val_loader_err)
             val_loader = None
     else:
         val_loader = None
@@ -500,7 +531,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                         best_candidate = cand_p
                         best_cand_epoch = c_ep
                         best_cand_mtime = c_mt
-                except Exception:
+                except _CHECKPOINT_LOAD_ERRORS as cand_err:
+                    logger.warning("Checkpoint candidate %s could not be inspected: %s", cand_p, cand_err)
                     if best_candidate is None:
                         best_candidate = cand_p
 
@@ -519,13 +551,13 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                 if isinstance(opt_state, dict):
                     try:
                         optimizer.load_state_dict(opt_state)
-                    except Exception as opt_err:
+                    except _STATE_RESTORE_ERRORS as opt_err:
                         logger.warning("Optimizer state could not be loaded cleanly: %s", opt_err)
                 sched_state = loaded_data.get("scheduler_state") or loaded_data.get("scheduler_state_dict")
                 if isinstance(sched_state, dict) and scheduler is not None:
                     try:
                         scheduler.load_state_dict(sched_state)
-                    except Exception as sched_err:
+                    except _STATE_RESTORE_ERRORS as sched_err:
                         logger.warning("Scheduler state could not be loaded cleanly: %s", sched_err)
                 gov_state = dict(loaded_data.get("governor_state") or {})
                 ckpt_epoch = int(loaded_data.get("epoch", 0) or 0)
@@ -559,7 +591,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                                 max_frac_at_res = r_frac
                                             if r_qual > max_quality_csv:
                                                 max_quality_csv = r_qual
-                                        except (ValueError, TypeError):
+                                        except (ValueError, TypeError) as row_err:
+                                            logger.debug("Skipping malformed metrics.csv row %r: %s", r, row_err)
                                             continue
                                     if max_frac_at_res > float(getattr(governor, "current_fraction", 0.0)):
                                         governor.current_fraction = min(1.0, max_frac_at_res)
@@ -641,7 +674,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                                 rec_res,
                                 rec_frac if rec_frac is not None else 1.0,
                             )
-                    except Exception as gov_err:
+                    except _STATE_RESTORE_ERRORS as gov_err:
                         logger.warning("Governor state could not be loaded cleanly: %s", gov_err)
                 if hasattr(sota_tracker, "best_quality"):
                     saved_best = (
@@ -652,8 +685,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
                     if saved_best is not None:
                         try:
                             sota_tracker.best_quality = max(float(sota_tracker.best_quality), float(saved_best))
-                        except (ValueError, TypeError):
-                            pass
+                        except (ValueError, TypeError) as best_err:
+                            logger.warning("Ignoring non-numeric saved best quality %r: %s", saved_best, best_err)
                 resume_state = parse_resume_state(loaded_data)
 
     # If resuming from an existing checkpoint whose epoch already meets the budget, grant a
@@ -761,31 +794,31 @@ def main(raw_args: list[str] | None = None) -> None:
             )
             with open(ctx.paths.export_dir / "README.md", "w", encoding="utf-8") as f:
                 f.write(readme_text)
-        except Exception as doc_err:
-            print(f"[WARNING] Model README generation failed: {doc_err}")
+        except _ARTEFACT_ERRORS as doc_err:
+            logger.warning("Model README generation failed: %s", doc_err)
 
         try:
             generate_inference_notebook(ctx.model_name, str(ctx.paths.export_dir))
             generate_usage_notebook(ctx.model_name, str(ctx.paths.export_dir))
             generate_colab_inference_notebook(ctx.model_name, str(ctx.paths.export_dir))
             generate_colab_usage_notebook(ctx.model_name, str(ctx.paths.export_dir))
-        except Exception as nb_err:
-            print(f"[WARNING] Notebook generation failed: {nb_err}")
+        except _ARTEFACT_ERRORS as nb_err:
+            logger.warning("Notebook generation failed: %s", nb_err)
 
         # Final cloud synchronization
         if args.env == "kaggle" and not getattr(args, "skip_sync", False):
             try:
                 trigger_cloud_sync(ctx.model_name, summary.final_epoch, ctx.config)
-            except Exception as sync_err:
-                print(f"[WARNING] Final cloud sync failed: {sync_err}")
+            except _ARTEFACT_ERRORS as sync_err:
+                logger.warning("Final cloud sync failed: %s", sync_err)
 
     finally:
         # Always clean up parallel strategy (destroys DDP process group if active).
         if ctx.parallel_strategy is not None:
             try:
                 ctx.parallel_strategy.cleanup()
-            except Exception as cleanup_err:
-                print(f"[WARNING] Parallel strategy cleanup failed: {cleanup_err}")
+            except _ARTEFACT_ERRORS as cleanup_err:
+                logger.warning("Parallel strategy cleanup failed: %s", cleanup_err)
         cleanup_active_processes()
 
 

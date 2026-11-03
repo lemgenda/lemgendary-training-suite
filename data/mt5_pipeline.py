@@ -20,11 +20,14 @@ import os
 import sys
 import importlib
 import argparse
+import logging
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Any
+
+logger = logging.getLogger("lemtrain.data.mt5_pipeline")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants (mirrors forex_predictor.py)
@@ -155,8 +158,8 @@ def connect_mt5(login: int | None = None, password: str | None = None, server: s
     if login is None and "MT5_LOGIN" in os.environ:
         try:
             login = int(os.environ["MT5_LOGIN"])
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logger.warning("Ignoring non-integer MT5_LOGIN environment value: %s", exc)
     if password is None:
         password = os.environ.get("MT5_PASSWORD")
     if server is None:
@@ -180,7 +183,9 @@ def connect_mt5(login: int | None = None, password: str | None = None, server: s
                 if not hwnd:
                     print(" [MT5] MetaTrader 5 terminal window not detected. Operating in offline/mock mode.")
                     return False
-            except Exception:
+            except (AttributeError, OSError) as exc:
+                # AttributeError: ctypes.windll unavailable; OSError: user32 cannot be loaded.
+                logger.warning("MT5 terminal window probe failed; operating offline: %s", exc)
                 return False
         else:
             return False
@@ -192,8 +197,8 @@ def connect_mt5(login: int | None = None, password: str | None = None, server: s
             if info:
                 print(f" [MT5] Connected -> Account: {info.login} | Server: {info.server} | Balance: {info.balance} {info.currency}")
                 return True
-    except Exception:
-        pass
+    except (RuntimeError, OSError) as exc:
+        logger.warning("Direct attach to running MT5 terminal failed; trying explicit login: %s", exc)
 
     # Fallback to explicit login parameters if active session not found
     init_kwargs = {}
@@ -205,7 +210,9 @@ def connect_mt5(login: int | None = None, password: str | None = None, server: s
             err = mt5.last_error()
             print(f" [MT5] Initialize failed: {err}")
             return False
-    except Exception as e:
+    except (RuntimeError, OSError, TypeError, ValueError) as e:
+        # TypeError/ValueError: rejected login/password/server arguments.
+        logger.error("MT5 initialize raised: %s", e)
         print(f" [MT5] Initialize exception: {e}")
         return False
 
@@ -222,10 +229,14 @@ def disconnect_mt5():
     """Cleanly shut down the MT5 connection."""
     try:
         mt5: Any = importlib.import_module("MetaTrader5")
+    except ImportError as exc:
+        logger.debug("MetaTrader5 not installed; nothing to disconnect: %s", exc)
+        return
+    try:
         mt5.shutdown()
         print(" [MT5] Disconnected.")
-    except Exception:
-        pass
+    except (RuntimeError, OSError) as exc:
+        logger.warning("MT5 shutdown failed: %s", exc)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -316,7 +327,9 @@ def download_bars(pair: str, timeframe_min: int, n_bars: int = 50000, start_date
                 dt_from = pd.to_datetime(start_date, utc=True).to_pydatetime()
                 dt_to = datetime.now(timezone.utc)
                 rates = mt5.copy_rates_range(pair, tf, dt_from, dt_to)
-            except Exception:
+            except (ValueError, TypeError, RuntimeError) as exc:
+                # ValueError: unparseable start_date; TypeError/RuntimeError: MT5 rejected the range query.
+                logger.warning("copy_rates_range failed for %s %smin; falling back to copy_rates_from_pos: %s", pair, timeframe_min, exc)
                 rates = None
 
         if rates is None or len(rates) == 0:
@@ -395,7 +408,12 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
             df['atr']         = (np.asarray(df_ta[atr_col], dtype=np.float64) / (close + 1e-8)).tolist()
             df['bb_width']    = ((np.asarray(df_ta[bbu_col], dtype=np.float64) - np.asarray(df_ta[bbl_col], dtype=np.float64)) / (close + 1e-8)).tolist()
             computed_ta = True
-    except Exception:
+    except ImportError as exc:
+        logger.debug("pandas_ta_classic not installed; using manual indicators: %s", exc)
+        computed_ta = False
+    except (AttributeError, ValueError, KeyError, TypeError) as exc:
+        # pandas_ta accessor missing or incompatible with the installed pandas/numpy.
+        logger.warning("pandas_ta_classic indicator computation failed; using manual indicators: %s", exc)
         computed_ta = False
 
     if not computed_ta:
@@ -763,9 +781,9 @@ def run_download_pipeline(
                         build_walk_forward_folds(df, seq_len, out_dir, pair, tf)
 
                 except Exception as e:
+                    # Per-pair job boundary: one bad pair/timeframe must not abort the whole batch.
+                    logger.exception("Pipeline failed for %s@%smin", pair, tf)
                     print(f" [MT5Pipeline] ERROR for {pair}@{tf}min: {e}")
-                    import traceback
-                    traceback.print_exc()
                     continue
     finally:
         disconnect_mt5()

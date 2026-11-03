@@ -18,11 +18,14 @@ be redirected automatically.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import socket
 import subprocess
 import sys
 from pathlib import Path
+
+logger = logging.getLogger("lemtrain.tools.launch_ddp")
 
 
 def _find_free_port(start: int = 29500, attempts: int = 100) -> int:
@@ -32,7 +35,8 @@ def _find_free_port(start: int = 29500, attempts: int = 100) -> int:
             try:
                 s.bind(("127.0.0.1", port))
                 return port
-            except OSError:
+            except OSError as exc:
+                logger.debug("Port %d unavailable: %s", port, exc)
                 continue
     return start  # Last resort: use the default and let torchrun handle conflicts.
 
@@ -137,8 +141,8 @@ def main() -> None:
             try:
                 per_proc_bs = int(train_argv[i + 1])
                 effective_batch_note = f" (effective batch = {per_proc_bs * nproc} across {nproc} GPUs)"
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.warning("Non-integer --batch_size %r; effective batch note omitted: %s", train_argv[i + 1], exc)
 
     print("=" * 70, flush=True)
     print(" LemGendary DDP Launcher", flush=True)

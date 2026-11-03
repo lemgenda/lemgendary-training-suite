@@ -15,6 +15,7 @@ from typing import Any
 from kaggle.api.kaggle_api_extended import KaggleApi
 
 from training.cloud.credentials import resolve_kaggle_credentials
+from training.cloud.errors import KAGGLE_API_ERRORS
 from training.cloud.model_metadata import ModelMetadata
 from training.cloud.variations import VARIATIONS
 
@@ -69,13 +70,13 @@ class KaggleApiSyncService:
                 api.model_update(str(tmp_path))
                 results["model"] = "updated"
                 logger.info("Model-level metadata updated for %s", full_model_ref)
-            except Exception as update_err:
+            except KAGGLE_API_ERRORS as update_err:
                 logger.info("model_update failed for '%s' (%s). Attempting model_create_new...", full_model_ref, update_err)
                 try:
                     create_res = api.model_create_new(str(tmp_path))
                     results["model"] = "created"
                     logger.info("Model created on Kaggle: %s", getattr(create_res, "url", full_model_ref))
-                except Exception as create_err:
+                except KAGGLE_API_ERRORS as create_err:
                     err_msg = f"Failed to create/update model {full_model_ref}: {update_err} | {create_err}"
                     logger.error(err_msg)
                     results["errors"].append(err_msg)
@@ -99,13 +100,13 @@ class KaggleApiSyncService:
                     api.model_instance_update(str(tmp_path))
                     results["variations"][var_key] = "updated"
                     logger.info("Instance metadata updated for %s", instance_ref)
-                except Exception as get_inst_err:
+                except KAGGLE_API_ERRORS as get_inst_err:
                     logger.info("Variation '%s' not found (%s). It will be registered on upload or created.", instance_ref, get_inst_err)
                     try:
                         # Attempt model_instance_update anyway in case get errored
                         api.model_instance_update(str(tmp_path))
                         results["variations"][var_key] = "updated"
-                    except Exception as upd_err:
+                    except KAGGLE_API_ERRORS as upd_err:
                         # Variation instances are formally created when binaries are uploaded via kagglehub / instance create
                         logger.info("Instance metadata update deferred until binary presence for %s (%s)", instance_ref, upd_err)
                         results["variations"][var_key] = "deferred"
@@ -167,7 +168,7 @@ class KaggleApiSyncService:
                     iam_svc.set_iam_policy(s_req)
                     logger.info("Synchronized collaborators for %s: %s", full_model_ref, default_editors)
                     results["collaborators"] = default_editors
-        except Exception as iam_err:
+        except (*KAGGLE_API_ERRORS, ImportError, AttributeError) as iam_err:
             logger.warning("Collaborator synchronization skipped or failed for %s: %s", full_model_ref, iam_err)
             results["collaborators_error"] = str(iam_err)
 

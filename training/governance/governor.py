@@ -517,8 +517,8 @@ class SmartTrainingGovernor:
         if torch.cuda.is_available():
             try:
                 torch.cuda.empty_cache()
-            except RuntimeError:
-                pass
+            except RuntimeError as exc:
+                logger.debug("CUDA cache release failed during OOM handling: %s", exc)
 
         if current_batch is not None and current_batch > 0:
             self.curriculum.current_batch = current_batch

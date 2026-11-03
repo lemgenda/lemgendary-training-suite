@@ -142,8 +142,8 @@ class MetricVault:
                         if k not in {"epoch", "timestamp", "is_best", "checkpoint_path"} and v != "":
                             try:
                                 metrics[k] = float(v)
-                            except ValueError:
-                                pass
+                            except ValueError as conv_err:
+                                logger.debug("Skipping non-numeric metric %s=%r in %s: %s", k, v, target, conv_err)
                     self.record_epoch(epoch, metrics, checkpoint_path=ckpt_path)
-        except Exception as exc:
+        except (OSError, csv.Error, ValueError, TypeError, AttributeError) as exc:
             logger.warning("Error reading metrics CSV from %s: %s", target, exc)

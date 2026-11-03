@@ -27,11 +27,14 @@ v2.1 Changes (retained):
   - Eliminated double-copy on the legacy .npy path.
 """
 
+import logging
 import os
 from typing import Literal
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+
+logger = logging.getLogger("lemtrain.data.forex_dataset")
 
 TIMEFRAME_RUNGS = [1, 5, 15, 60, 240, 1440]
 TIMEFRAME_LOOKBACK = {
@@ -188,7 +191,9 @@ def load_shard(
         y_mag = np.load(ymag_path, mmap_mode=mmap_mode)
         timestamps = np.load(ts_path, mmap_mode=mmap_mode) if os.path.exists(ts_path) else None
         return (X, y_dir, y_mag, timestamps)
-    except Exception as e:
+    except (OSError, ValueError, EOFError) as e:
+        # np.load: OSError for unreadable files, ValueError/EOFError for corrupt or truncated arrays.
+        logger.warning("Failed to load shard from %s (chunk: %s): %s", shard_dir, chunk_idx, e)
         print(f" [WARNING] Failed to load shard from {shard_dir} (chunk: {chunk_idx}): {e}")
         return (None, None, None, None)
 
@@ -223,8 +228,9 @@ class ForexDataset(Dataset):
                 with open(unified_path, 'r', encoding="utf-8") as f:
                     um = yaml.safe_load(f)
                     gdrive_ids = um.get("forex_predictor", {}).get("google_drive_dataset_ids", [])
-            except Exception:
-                pass
+            except (OSError, yaml.YAMLError, AttributeError) as exc:
+                # AttributeError: the YAML root (or forex_predictor entry) is not a mapping.
+                logger.warning("Could not read google_drive_dataset_ids from %s: %s", unified_path, exc)
 
         env = os.environ.get("ENV", "local")
         import sys
@@ -283,7 +289,8 @@ class ForexDataset(Dataset):
                     continue
                 try:
                     entries = os.listdir(bs)
-                except OSError:
+                except OSError as exc:
+                    logger.warning("Skipping unreadable dataset search root %s: %s", bs, exc)
                     continue
                 for d in entries:
                     if "forex" in d.lower():
@@ -391,7 +398,8 @@ class ForexDataset(Dataset):
                     elif not sd.endswith(".zip") and os.path.isdir(full_p):
                         if sd not in year_dirs_map:
                             _register_dir(full_p, sd)
-            except OSError:
+            except OSError as exc:
+                logger.warning("Skipping unreadable forex root %s: %s", root, exc)
                 continue
 
         if os.path.exists('/kaggle/input') and (len(year_parquet_map) + len(year_dirs_map)) < 8:
@@ -406,10 +414,10 @@ class ForexDataset(Dataset):
                             try:
                                 if any(p in os.listdir(cand) for p in ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'XAUUSD']):
                                     _register_dir(cand, d)
-                            except OSError:
-                                pass
-            except OSError:
-                pass
+                            except OSError as exc:
+                                logger.debug("Skipping unreadable Kaggle input dir %s: %s", cand, exc)
+            except OSError as exc:
+                logger.warning("Scan of /kaggle/input failed: %s", exc)
 
         if year_parquet_map or year_dirs_map:
             fold_idx = max(1, min(6, self.fold))

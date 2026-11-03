@@ -28,6 +28,19 @@ from training.training.validation import validate_one_epoch
 
 logger = logging.getLogger("lemtrain.engine")
 
+# Failure modes of a governor audit + dataset/loader rebuild (bad state values, missing attrs, CUDA/IO).
+_GOVERNOR_AUDIT_ERRORS: tuple[type[BaseException], ...] = (
+    ValueError,
+    TypeError,
+    KeyError,
+    IndexError,
+    AttributeError,
+    RuntimeError,
+    OSError,
+)
+# Failure modes of starting a cloud sync (manager construction, thread start, filesystem).
+_CLOUD_SYNC_ERRORS: tuple[type[BaseException], ...] = (OSError, RuntimeError, ValueError, TypeError, KeyError)
+
 
 def run_training(
     ctx: TrainingContext,
@@ -339,8 +352,8 @@ def run_training(
                             param_group["lr"] = param_group.get("lr", 1e-4) * lr_mult
                     logger.debug("Applied governor learning rate multiplier: %.3fx", lr_mult)
 
-            except Exception as gov_err:
-                print(f"[WARNING] Governor audit notice: {gov_err}")
+            except _GOVERNOR_AUDIT_ERRORS as gov_err:
+                logger.warning("Governor audit or loader rebuild failed at epoch %d: %s", epoch, gov_err)
 
         # 8. Checkpoint serialization payload (persists post-audit governor state for next epoch resume)
         raw_model = ctx.raw_model if ctx.raw_model is not None else ctx.model
@@ -411,8 +424,8 @@ def run_training(
         if getattr(ctx.args, "auto_sync", False) and getattr(ctx.args, "env", "local") == "kaggle":
             try:
                 trigger_cloud_sync(ctx.model_name, epoch, ctx.config)
-            except Exception as sync_err:
-                print(f"[WARNING] Automated cloud sync trigger failed: {sync_err}")
+            except _CLOUD_SYNC_ERRORS as sync_err:
+                logger.warning("Automated cloud sync trigger failed at epoch %d: %s", epoch, sync_err)
 
         # 10. External telemetry callback
         if on_epoch_end is not None:
@@ -427,8 +440,10 @@ def run_training(
                     total_time=time.time() - total_start_time,
                     status="cancelled",
                 )
-            except Exception as cb_err:
-                print(f"[WARNING] Telemetry epoch callback failed: {cb_err}")
+            except Exception:
+                # Boundary: on_epoch_end is caller-supplied code; any failure is logged with traceback
+                # and must not abort training.
+                logger.exception("Telemetry epoch callback failed at epoch %d", epoch)
 
         last_epoch_executed = epoch
 

@@ -5,9 +5,14 @@ to sibling LemGendaryDatasets manifolds and workspace training directories.
 """
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
+
+import yaml
+
+logger = logging.getLogger("lemtrain.notebooks.builders.base")
 
 def _get_workspace_root() -> Path:
     """Resolve the canonical workspace root containing sibling LemGendary projects."""
@@ -41,7 +46,9 @@ def write_notebook(content: dict[str, Any], output_path: str | Path) -> str | No
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(json_str)
         return json_str
-    except Exception as e:
+    except (TypeError, ValueError, OSError) as e:
+        # TypeError: non-JSON-serializable cell content; ValueError: circular refs / decode check.
+        logger.error("JSON validation/write failed for %s: %s", out_path, e)
         print(f"[ERROR] JSON Validation failed for {out_path.name}: {e}")
         print("[REMEDY] This usually means the generated notebook syntax is invalid. Check 'unified_models.yaml' for trailing commas or malformed strings.")
         return None
@@ -61,7 +68,8 @@ def sync_manifold_notebooks(
         try:
             from ..registry import load_registry
             unified_models_registry = load_registry()
-        except Exception:
+        except (ImportError, OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+            logger.warning("Could not load model registry for manifold sync of %s: %s", model_key, exc)
             unified_models_registry = {}
 
     if not unified_models_registry:
@@ -111,8 +119,8 @@ def sync_manifold_notebooks(
                     with open(ds_output_path, "w", encoding="utf-8") as f:
                         f.write(json_str)
                     print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logger.warning("Failed syncing manifold notebook to %s: %s", ds_output_path, exc)
 
 
 def sync_workspace_training_notebook(
@@ -130,5 +138,5 @@ def sync_workspace_training_notebook(
         with open(out_file, "w", encoding="utf-8") as f:
             f.write(json_str)
         print(f"[OK] Synchronized {display_title} Training Notebook: {out_file}")
-    except OSError:
-        pass
+    except OSError as exc:
+        logger.warning("Failed syncing %s training notebook to %s: %s", display_title, out_file, exc)
