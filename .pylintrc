@@ -11,7 +11,6 @@ disable=
     too-many-locals,
     too-many-statements,
     too-many-instance-attributes,
-    too-many-nested-blocks,
 
 [REPORTS]
 output-format=text

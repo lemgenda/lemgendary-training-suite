@@ -26,6 +26,19 @@ def compute_file_sha256(file_path: Path) -> str:
     return hasher.hexdigest()
 
 
+def _copy_into(src_target: Path, dest_dir: Path) -> None:
+    """Copy a file, or the entries of a directory, into ``dest_dir`` (merging directories)."""
+    if src_target.is_file():
+        shutil.copy2(src_target, dest_dir / src_target.name)
+        return
+    for item in src_target.iterdir():
+        dst = dest_dir / item.name
+        if item.is_dir():
+            shutil.copytree(item, dst, dirs_exist_ok=True)
+        else:
+            shutil.copy2(item, dst)
+
+
 class GDriveSyncManager:
     """Manages synchronization between local model checkpoints and Google Drive."""
 
@@ -112,15 +125,7 @@ class GDriveSyncManager:
                     "Pulling artifacts from mounted Google Drive: %s -> %s", src_target, dest_dir
                 )
                 try:
-                    if src_target.is_file():
-                        shutil.copy2(src_target, dest_dir / src_target.name)
-                    else:
-                        for item in src_target.iterdir():
-                            dst = dest_dir / item.name
-                            if item.is_dir():
-                                shutil.copytree(item, dst, dirs_exist_ok=True)
-                            else:
-                                shutil.copy2(item, dst)
+                    _copy_into(src_target, dest_dir)
                     return True
                 except OSError as exc:
                     raise CloudSyncError(

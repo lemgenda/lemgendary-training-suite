@@ -19,6 +19,17 @@ from training.utils.paths import get_project_root
 logger = logging.getLogger("lemtrain.cloud.kaggle_hub")
 
 
+def _link_checkpoint_files(src: Path, dst: Path) -> None:
+    """Hard-link each file of ``src`` into ``dst`` (copy when linking fails)."""
+    dst.mkdir(parents=True, exist_ok=True)
+    for f in src.iterdir():
+        if f.is_file():
+            try:
+                os.link(f, dst / f.name)
+            except OSError:
+                shutil.copy2(f, dst / f.name)
+
+
 class KaggleHubManager:
     """Manages Kaggle Model Hub uploads, artifact downloads, and headless kernel bundles."""
 
@@ -121,13 +132,7 @@ class KaggleHubManager:
                     continue
                 dst = staging_dir / item.name
                 if item.name.lower() == "checkpoints" and item.is_dir():
-                    dst.mkdir(parents=True, exist_ok=True)
-                    for f in item.iterdir():
-                        if f.is_file():
-                            try:
-                                os.link(f, dst / f.name)
-                            except OSError:
-                                shutil.copy2(f, dst / f.name)
+                    _link_checkpoint_files(item, dst)
                 elif item.is_dir():
                     shutil.copytree(item, dst)
                 elif item.is_file():

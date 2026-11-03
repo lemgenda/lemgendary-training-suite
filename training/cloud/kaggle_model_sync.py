@@ -40,6 +40,28 @@ from training.utils.paths import get_workspace_root
 logger = logging.getLogger("lemtrain.cloud.kaggle_model_sync")
 
 
+# Upload sub-folder of each dist/kaggle variation other than the default PyTorch payload.
+_UPLOAD_SUBDIRS = {
+    PYTORCH_FP32.key: "pytorch",
+    ONNX_FP32.key: "onnx_fp32",
+    ONNX_FP16.key: "onnx_fp16",
+}
+
+
+def _stage_default_payload(variation_dir: Path, temp_path: Path) -> None:
+    """Copy only checkpoints/*.pth, README.md and metrics.csv into ``temp_path``."""
+    temp_ckpt_dir = temp_path / "checkpoints"
+    temp_ckpt_dir.mkdir(parents=True, exist_ok=True)
+    src_ckpts = variation_dir / "checkpoints"
+    if src_ckpts.exists():
+        for pth in src_ckpts.glob("*.pth"):
+            shutil.copy2(pth, temp_ckpt_dir / pth.name)
+    for root_f in ("README.md", "metrics.csv"):
+        src_f = variation_dir / root_f
+        if src_f.exists():
+            shutil.copy2(src_f, temp_path / root_f)
+
+
 @dataclass
 class VariationPushResult:
     """Result of pushing a single model variation to Kaggle Models Hub."""
@@ -147,16 +169,8 @@ class KaggleModelSyncManager:
 
         if variation is PYTORCH_DEFAULT:
             payload_dir = dist_dir / PYTORCH_DEFAULT.payload_dir
-            if payload_dir.exists():
-                return payload_dir
-            return model_dir
-        if variation is PYTORCH_FP32:
-            return dist_dir / "pytorch"
-        if variation is ONNX_FP32:
-            return dist_dir / "onnx_fp32"
-        if variation is ONNX_FP16:
-            return dist_dir / "onnx_fp16"
-        return dist_dir / variation_key
+            return payload_dir if payload_dir.exists() else model_dir
+        return dist_dir / _UPLOAD_SUBDIRS.get(variation.key, variation_key)
 
     def ensure_model_metadata(self, model_key: str) -> Path:
         """Ensure both model_metadata.yaml and model-metadata.json are materialized."""
@@ -193,27 +207,9 @@ class KaggleModelSyncManager:
 
         variation_dir = self.get_variation_dir(model_key, variation)
         handle = self.get_handle(model_key, variation)
-
-        if not variation_dir.exists():
-            return VariationPushResult(
-                variation=variation,
-                handle=handle,
-                success=False,
-                error=f"Variation directory does not exist: {variation_dir}",
-                dry_run=dry_run,
-            )
-
-        # Audit isolation for this variation
-        v_report = self.validator.validate_variation(variation, variation_dir, model_key)
-        if not v_report.is_valid:
-            return VariationPushResult(
-                variation=variation,
-                handle=handle,
-                success=False,
-                files=v_report.files_found,
-                error=f"Strict isolation audit failed: {'; '.join(v_report.errors)}",
-                dry_run=dry_run,
-            )
+        blocked = self._payload_problem(model_key, variation, variation_dir, handle, dry_run)
+        if blocked is not None:
+            return blocked
 
         files = [p for p in variation_dir.iterdir() if p.is_file() or p.is_dir()]
         file_names = [f.name for f in files]
@@ -257,16 +253,7 @@ class KaggleModelSyncManager:
                     model_key
                 ):
                     temp_path = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-                    temp_ckpt_dir = temp_path / "checkpoints"
-                    temp_ckpt_dir.mkdir(parents=True, exist_ok=True)
-                    src_ckpts = variation_dir / "checkpoints"
-                    if src_ckpts.exists():
-                        for pth in src_ckpts.glob("*.pth"):
-                            shutil.copy2(pth, temp_ckpt_dir / pth.name)
-                    for root_f in ("README.md", "metrics.csv"):
-                        src_f = variation_dir / root_f
-                        if src_f.exists():
-                            shutil.copy2(src_f, temp_path / root_f)
+                    _stage_default_payload(variation_dir, temp_path)
                     upload_dir = temp_path
 
                 kagglehub.model_upload(
@@ -293,6 +280,32 @@ class KaggleModelSyncManager:
                 error=str(exc),
                 dry_run=False,
             )
+
+    def _payload_problem(
+        self, model_key: str, variation: str, variation_dir: Path, handle: str, dry_run: bool
+    ) -> VariationPushResult | None:
+        """Return a failed result when the variation folder is missing or not isolated."""
+        if not variation_dir.exists():
+            return VariationPushResult(
+                variation=variation,
+                handle=handle,
+                success=False,
+                error=f"Variation directory does not exist: {variation_dir}",
+                dry_run=dry_run,
+            )
+
+        # Audit isolation for this variation
+        v_report = self.validator.validate_variation(variation, variation_dir, model_key)
+        if not v_report.is_valid:
+            return VariationPushResult(
+                variation=variation,
+                handle=handle,
+                success=False,
+                files=v_report.files_found,
+                error=f"Strict isolation audit failed: {'; '.join(v_report.errors)}",
+                dry_run=dry_run,
+            )
+        return None
 
     def sync_kaggle_metadata(self, model_key: str, dry_run: bool = False) -> dict[str, Any]:
         """Synchronize model and variation metadata to Kaggle via REST API."""

@@ -26,37 +26,31 @@ class DeviceInfo:
 _CACHED_DEVICE_INFO: dict[str | None, DeviceInfo] = {}
 
 
-def discover_device(force_device: str | None = None) -> DeviceInfo:
-    """
-    Probe host hardware and select the optimal execution accelerator.
+def _forced_device_info(force_device: str) -> DeviceInfo:
+    """Describe the explicitly requested device (CUDA details only when CUDA is available)."""
+    dev = torch.device(force_device)
+    dev_type = dev.type
+    is_cuda = dev_type == "cuda" and torch.cuda.is_available()
+    count = torch.cuda.device_count() if is_cuda else 1
+    names = [torch.cuda.get_device_name(i) for i in range(count)] if is_cuda else [str(dev)]
+    vram = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) if is_cuda else 0.0
+    cap = torch.cuda.get_device_capability(0) if is_cuda else (0, 0)
+    info = DeviceInfo(
+        device=dev,
+        device_type=dev_type,
+        device_count=count,
+        device_names=names,
+        total_vram_gb=vram,
+        capability=cap,
+        is_cuda=is_cuda,
+        is_mps=dev_type == "mps",
+        is_cpu=dev_type == "cpu",
+    )
+    return info
 
-    Checks CUDA, Apple Silicon (MPS), Intel XPU, DirectML, and falls back to CPU.
-    """
-    if force_device in _CACHED_DEVICE_INFO:
-        return _CACHED_DEVICE_INFO[force_device]
-    if force_device:
-        dev = torch.device(force_device)
-        dev_type = dev.type
-        is_cuda = dev_type == "cuda" and torch.cuda.is_available()
-        count = torch.cuda.device_count() if is_cuda else 1
-        names = [torch.cuda.get_device_name(i) for i in range(count)] if is_cuda else [str(dev)]
-        vram = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) if is_cuda else 0.0
-        cap = torch.cuda.get_device_capability(0) if is_cuda else (0, 0)
-        info = DeviceInfo(
-            device=dev,
-            device_type=dev_type,
-            device_count=count,
-            device_names=names,
-            total_vram_gb=vram,
-            capability=cap,
-            is_cuda=is_cuda,
-            is_mps=dev_type == "mps",
-            is_cpu=dev_type == "cpu",
-        )
-        _CACHED_DEVICE_INFO[force_device] = info
-        return info
 
-    # 1. CUDA Accelerators
+def _cuda_device_info() -> DeviceInfo | None:
+    """CUDA GPUs, after a pre-flight kernel probe (raises on sm_ kernel mismatch)."""
     if torch.cuda.is_available():
         device = torch.device("cuda")
         count = torch.cuda.device_count()
@@ -104,10 +98,12 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             is_mps=False,
             is_cpu=False,
         )
-        _CACHED_DEVICE_INFO[force_device] = info
         return info
+    return None
 
-    # 2. Apple Silicon (Metal)
+
+def _mps_device_info() -> DeviceInfo | None:
+    """Apple Silicon (Metal)."""
     if (
         hasattr(torch, "mps")
         and hasattr(torch.backends, "mps")
@@ -125,10 +121,12 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             is_mps=True,
             is_cpu=False,
         )
-        _CACHED_DEVICE_INFO[force_device] = info
         return info
+    return None
 
-    # 3. Intel ARC / XPU
+
+def _xpu_device_info() -> DeviceInfo | None:
+    """Intel ARC / XPU."""
     if hasattr(torch, "xpu") and torch.xpu.is_available():
         count = torch.xpu.device_count()
         names = [torch.xpu.get_device_name(i) for i in range(count)]
@@ -144,10 +142,12 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             is_mps=False,
             is_cpu=False,
         )
-        _CACHED_DEVICE_INFO[force_device] = info
         return info
+    return None
 
-    # 4. Microsoft DirectML
+
+def _dml_device_info() -> DeviceInfo | None:
+    """Microsoft DirectML."""
     if hasattr(torch, "dml") and torch.dml.is_available():
         logger.info("Discovered Microsoft DirectML acceleration.")
         info = DeviceInfo(
@@ -161,10 +161,12 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
             is_mps=False,
             is_cpu=False,
         )
-        _CACHED_DEVICE_INFO[force_device] = info
         return info
+    return None
 
-    # 5. CPU Fallback
+
+def _cpu_device_info() -> DeviceInfo:
+    """CPU fallback."""
     logger.warning("No GPU/NPU accelerator discovered. Defaulting to CPU execution.")
     info = DeviceInfo(
         device=torch.device("cpu"),
@@ -177,5 +179,32 @@ def discover_device(force_device: str | None = None) -> DeviceInfo:
         is_mps=False,
         is_cpu=True,
     )
+    return info
+
+
+_ACCELERATOR_PROBES = (_cuda_device_info, _mps_device_info, _xpu_device_info, _dml_device_info)
+
+
+def _auto_device_info() -> DeviceInfo:
+    """Return the first accelerator found (CUDA, MPS, XPU, DirectML), else the CPU."""
+    for probe in _ACCELERATOR_PROBES:
+        info = probe()
+        if info is not None:
+            return info
+    return _cpu_device_info()
+
+
+def discover_device(force_device: str | None = None) -> DeviceInfo:
+    """
+    Probe host hardware and select the optimal execution accelerator.
+
+    Checks CUDA, Apple Silicon (MPS), Intel XPU, DirectML, and falls back to CPU.
+    """
+    if force_device in _CACHED_DEVICE_INFO:
+        return _CACHED_DEVICE_INFO[force_device]
+    if force_device:
+        info = _forced_device_info(force_device)
+    else:
+        info = _auto_device_info()
     _CACHED_DEVICE_INFO[force_device] = info
     return info

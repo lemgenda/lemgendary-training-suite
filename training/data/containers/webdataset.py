@@ -59,6 +59,100 @@ def _parse_member_name(name: str) -> tuple[str, str, str]:
     return p.stem, "image", ext
 
 
+_IndexEntry = tuple[str, Path | None, Any, Any, Any, Any, Any]
+
+
+def _find_tar_files(root: Path, cand_dirs: list[Path]) -> list[Path]:
+    """Return ``root`` itself, the first candidate dir's shards, or every shard below ``root``.
+
+    ``*.data`` shards win over ``*.tar`` shards in the same place.
+    """
+    if root.is_file() and root.suffix in (".data", ".tar"):
+        return [root]
+    for d in cand_dirs:
+        if d.exists() and d.is_dir():
+            shards = sorted(d.glob("*.data"))
+            if not shards:
+                shards = sorted(d.glob("*.tar"))
+            if shards:
+                return shards
+    shards = sorted(root.glob("**/*.data"))
+    if not shards:
+        shards = sorted(root.glob("**/*.tar"))
+    return shards
+
+
+def _sample_entries(
+    mode: str, tar_path: Path | None, samples: dict[str, dict[str, Any]]
+) -> list[_IndexEntry]:
+    """Return one index entry per sample key that has an image role."""
+    entries: list[_IndexEntry] = []
+    for roles in samples.values():
+        img_ref = roles.get("image")
+        if img_ref is not None:
+            entries.append(
+                (
+                    mode,
+                    tar_path,
+                    img_ref,
+                    roles.get("target"),
+                    roles.get("mask"),
+                    roles.get("text"),
+                    roles.get("json"),
+                )
+            )
+    return entries
+
+
+def _index_tar(t_path: Path) -> list[_IndexEntry]:
+    """Group a tar shard's file members by sample key and role (member names)."""
+    with tarfile.open(t_path, mode="r:*") as tf:
+        members = tf.getmembers()
+    samples: dict[str, dict[str, str]] = {}
+    for m in members:
+        if not m.isfile():
+            continue
+        key, role, _ = _parse_member_name(m.name)
+        samples.setdefault(key, {})[role] = m.name
+    return _sample_entries("tar", t_path, samples)
+
+
+def _scan_dir_samples(scan_dir: Path) -> dict[str, dict[str, Path]]:
+    """Group the image/caption/json files of ``scan_dir`` by sample key and role."""
+    samples_dir: dict[str, dict[str, Path]] = {}
+    for entry in sorted(scan_dir.iterdir()):
+        if not entry.is_file():
+            continue
+        ext = entry.suffix.lower()
+        if ext in IMAGE_EXTENSIONS or ext in (".txt", ".caption", ".json"):
+            key, role, _ = _parse_member_name(entry.name)
+            samples_dir.setdefault(key, {})[role] = entry
+    return samples_dir
+
+
+def _index_shard_dirs(cand_dirs: list[Path]) -> list[_IndexEntry]:
+    """Index the first candidate dir whose sub-dirs (or itself) hold samples."""
+    index_map: list[_IndexEntry] = []
+    for d in cand_dirs:
+        if not d.exists() or not d.is_dir():
+            continue
+
+        sub_dirs = sorted([sub for sub in d.iterdir() if sub.is_dir()])
+        target_dirs = sub_dirs if sub_dirs else [d]
+
+        for scan_dir in target_dirs:
+            try:
+                samples_dir = _scan_dir_samples(scan_dir)
+            except OSError as scan_err:
+                logger.debug("Failed scanning directory %s: %s", scan_dir, scan_err)
+                continue
+            index_map.extend(_sample_entries("file", None, samples_dir))
+
+        if index_map:
+            break
+    return index_map
+
+
 class WebDatasetReader:
     """Reader for tar-sharded WebDataset archives with support for unpacked shard directories."""
 
@@ -73,23 +167,7 @@ class WebDatasetReader:
             self.root / self.split,
             self.root,
         ]
-        self.tar_files: list[Path] = []
-        if self.root.is_file() and self.root.suffix in (".data", ".tar"):
-            self.tar_files = [self.root]
-        else:
-            for d in cand_dirs:
-                if d.exists() and d.is_dir():
-                    shards = sorted(d.glob("*.data"))
-                    if not shards:
-                        shards = sorted(d.glob("*.tar"))
-                    if shards:
-                        self.tar_files = shards
-                        break
-            if not self.tar_files:
-                shards = sorted(self.root.glob("**/*.data"))
-                if not shards:
-                    shards = sorted(self.root.glob("**/*.tar"))
-                self.tar_files = shards
+        self.tar_files: list[Path] = _find_tar_files(self.root, cand_dirs)
 
         # Map sample index -> (mode, tar_path, img_ref, tgt_ref, mask_ref, txt_ref, json_ref)
         self.index_map: list[tuple[str, Path | None, Any, Any, Any, Any, Any]] = []
@@ -100,85 +178,12 @@ class WebDatasetReader:
         if self.tar_files:
             for t_path in self.tar_files:
                 try:
-                    with tarfile.open(t_path, mode="r:*") as tf:
-                        members = tf.getmembers()
-
-                        # Group by sample key -> role -> member_name
-                        samples: dict[str, dict[str, str]] = {}
-                        for m in members:
-                            if not m.isfile():
-                                continue
-                            key, role, ext = _parse_member_name(m.name)
-                            if key not in samples:
-                                samples[key] = {}
-                            samples[key][role] = m.name
-
-                        for roles in samples.values():
-                            img_member = roles.get("image")
-                            if img_member is not None:
-                                tgt_member = roles.get("target")
-                                mask_member = roles.get("mask")
-                                txt_member = roles.get("text")
-                                json_member = roles.get("json")
-                                self.index_map.append(
-                                    (
-                                        "tar",
-                                        t_path,
-                                        img_member,
-                                        tgt_member,
-                                        mask_member,
-                                        txt_member,
-                                        json_member,
-                                    )
-                                )
+                    self.index_map.extend(_index_tar(t_path))
                 except (OSError, tarfile.TarError, EOFError) as exc:
                     logger.warning("Failed opening tar file %s: %s", t_path, exc)
         else:
             # Mode B: Extracted shard directories or loose image files
-            for d in cand_dirs:
-                if not d.exists() or not d.is_dir():
-                    continue
-
-                sub_dirs = sorted([sub for sub in d.iterdir() if sub.is_dir()])
-                target_dirs = sub_dirs if sub_dirs else [d]
-
-                for scan_dir in target_dirs:
-                    samples_dir: dict[str, dict[str, Path]] = {}
-                    try:
-                        for entry in sorted(scan_dir.iterdir()):
-                            if not entry.is_file():
-                                continue
-                            ext = entry.suffix.lower()
-                            if ext in IMAGE_EXTENSIONS or ext in (".txt", ".caption", ".json"):
-                                key, role, _ = _parse_member_name(entry.name)
-                                if key not in samples_dir:
-                                    samples_dir[key] = {}
-                                samples_dir[key][role] = entry
-                    except OSError as scan_err:
-                        logger.debug("Failed scanning directory %s: %s", scan_dir, scan_err)
-                        continue
-
-                    for roles in samples_dir.values():
-                        img_path = roles.get("image")
-                        if img_path is not None:
-                            tgt_path = roles.get("target")
-                            mask_path = roles.get("mask")
-                            txt_path = roles.get("text")
-                            json_path = roles.get("json")
-                            self.index_map.append(
-                                (
-                                    "file",
-                                    None,
-                                    img_path,
-                                    tgt_path,
-                                    mask_path,
-                                    txt_path,
-                                    json_path,
-                                )
-                            )
-
-                if self.index_map:
-                    break
+            self.index_map.extend(_index_shard_dirs(cand_dirs))
 
         if not self.index_map and self.split == "train":
             raise FileNotFoundError(

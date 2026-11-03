@@ -159,7 +159,10 @@ class EpochBudgetPolicy:
                 extension_used=self.extension_used,
                 message=f"epoch {epoch}/{self.total_epochs} complete",
             )
+        return self._at_budget(epoch, governor_reports_improvement)
 
+    def _at_budget(self, epoch: int, governor_reports_improvement: bool) -> EpochDecision:
+        """Stop at the budget, or extend it while the governor reports improvement."""
         if not self.config.extensions_enabled:
             return self._stop(
                 StopReason.BUDGET_REACHED,

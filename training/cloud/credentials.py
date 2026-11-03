@@ -141,6 +141,75 @@ def parse_kaggle_users_text(content: str) -> list[tuple[str, str]]:
     return pairs
 
 
+def _fill_from_kaggle_json(k_user: str, k_key: str) -> tuple[str, str]:
+    """Fill missing values from ~/.kaggle/kaggle.json (utf-8-sig, utf-8, utf-16, latin-1)."""
+    user_kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
+    try:
+        if not user_kaggle_json.exists():
+            return k_user, k_key
+        for enc in ("utf-8-sig", "utf-8", "utf-16", "latin-1"):
+            try:
+                creds = json.loads(user_kaggle_json.read_text(encoding=enc))
+            except (OSError, ValueError) as e:
+                logger.debug("Failed parsing ~/.kaggle/kaggle.json with %s: %s", enc, e)
+                continue
+            if not k_user:
+                k_user = creds.get("username", "")
+            if not k_key:
+                k_key = creds.get("key", "")
+            break
+    except OSError as e:
+        logger.debug("Could not access ~/.kaggle/kaggle.json: %s", e)
+    return k_user, k_key
+
+
+def _token_file_key(k_key: str) -> str:
+    """Fall back to ~/.kaggle/access_token, then the project ``.kaggle_token`` (KGAT_ removed)."""
+    access_token_file = Path.home() / ".kaggle" / "access_token"
+    if not k_key and access_token_file.exists():
+        try:
+            tok = access_token_file.read_text(encoding="utf-8").strip()
+            if tok:
+                k_key = tok
+        except OSError as e:
+            logger.debug("Could not read ~/.kaggle/access_token: %s", e)
+
+    token_file = get_project_root() / ".kaggle_token"
+    if not k_key and token_file.exists():
+        try:
+            raw = token_file.read_text(encoding="utf-8").strip()
+            if raw.startswith("KGAT_"):
+                raw = raw.replace("KGAT_", "")
+            k_key = raw
+        except OSError as e:
+            logger.debug("Failed reading .kaggle_token: %s", e)
+    return k_key
+
+
+def _export_kaggle_env(k_user: str, k_key: str) -> None:
+    """Export the credentials for the Kaggle Python SDK and child processes."""
+    if k_user:
+        os.environ["KAGGLE_USERNAME"] = k_user
+    if k_key:
+        os.environ["KAGGLE_KEY"] = k_key
+        if k_key.startswith("KGAT_"):
+            os.environ["KAGGLE_API_TOKEN"] = k_key
+        else:
+            # If a legacy key is active, clear any conflicting access token in env
+            os.environ.pop("KAGGLE_API_TOKEN", None)
+
+
+def _sync_kaggle_json(k_user: str, k_key: str) -> None:
+    """Write ~/.kaggle/kaggle.json in clean UTF-8 so the Kaggle CLI works seamlessly."""
+    try:
+        k_json = Path.home() / ".kaggle" / "kaggle.json"
+        k_json.parent.mkdir(parents=True, exist_ok=True)
+        k_content = json.dumps({"username": k_user, "key": k_key}, indent=2)
+        k_json.write_text(k_content, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not sync Kaggle CLI credentials file %s: %s", k_json, exc)
+
+
 def resolve_kaggle_credentials(
     override_user: str | None = None,
     override_key: str | None = None,
@@ -173,69 +242,16 @@ def resolve_kaggle_credentials(
     if not k_key:
         k_key = os.environ.get("KAGGLE_KEY", "")
 
-    # User home ~/.kaggle/kaggle.json fallback (supporting utf-8-sig, utf-16, utf-8)
-    user_kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
     if not (k_user and k_key):
-        try:
-            if user_kaggle_json.exists():
-                for enc in ("utf-8-sig", "utf-8", "utf-16", "latin-1"):
-                    try:
-                        creds = json.loads(user_kaggle_json.read_text(encoding=enc))
-                        if not k_user:
-                            k_user = creds.get("username", "")
-                        if not k_key:
-                            k_key = creds.get("key", "")
-                        break
-                    except (OSError, ValueError) as e:
-                        logger.debug("Failed parsing ~/.kaggle/kaggle.json with %s: %s", enc, e)
-        except OSError as e:
-            logger.debug("Could not access ~/.kaggle/kaggle.json: %s", e)
-
-    # Access token fallback (~/.kaggle/access_token)
-    access_token_file = Path.home() / ".kaggle" / "access_token"
-    if not k_key and access_token_file.exists():
-        try:
-            tok = access_token_file.read_text(encoding="utf-8").strip()
-            if tok:
-                k_key = tok
-        except OSError as e:
-            logger.debug("Could not read ~/.kaggle/access_token: %s", e)
-
-    # Project .kaggle_token fallback
-    project_root = get_project_root()
-    token_file = project_root / ".kaggle_token"
-    if not k_key and token_file.exists():
-        try:
-            raw = token_file.read_text(encoding="utf-8").strip()
-            if raw.startswith("KGAT_"):
-                raw = raw.replace("KGAT_", "")
-            k_key = raw
-        except OSError as e:
-            logger.debug("Failed reading .kaggle_token: %s", e)
+        k_user, k_key = _fill_from_kaggle_json(k_user, k_key)
+    k_key = _token_file_key(k_key)
 
     if not k_user:
         k_user = kaggle_owner()
 
-    # Export to environment for Kaggle Python SDK and child processes
-    if k_user:
-        os.environ["KAGGLE_USERNAME"] = k_user
-    if k_key:
-        os.environ["KAGGLE_KEY"] = k_key
-        if k_key.startswith("KGAT_"):
-            os.environ["KAGGLE_API_TOKEN"] = k_key
-        else:
-            # If a legacy key is active, clear any conflicting access token in env
-            os.environ.pop("KAGGLE_API_TOKEN", None)
-
-    # Sync ~/.kaggle/kaggle.json in clean UTF-8 so CLI works seamlessly
+    _export_kaggle_env(k_user, k_key)
     if k_user and k_key:
-        try:
-            k_json = Path.home() / ".kaggle" / "kaggle.json"
-            k_json.parent.mkdir(parents=True, exist_ok=True)
-            k_content = json.dumps({"username": k_user, "key": k_key}, indent=2)
-            k_json.write_text(k_content, encoding="utf-8")
-        except OSError as exc:
-            logger.warning("Could not sync Kaggle CLI credentials file %s: %s", k_json, exc)
+        _sync_kaggle_json(k_user, k_key)
 
     return k_user, k_key
 

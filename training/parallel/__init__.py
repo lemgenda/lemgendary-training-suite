@@ -27,6 +27,15 @@ def available_strategies() -> list:
     return list(_STRATEGIES.keys())
 
 
+def _honour_preference(preferred: str) -> str:
+    """Return ``preferred``; outside torchrun "ddp" degrades to "dp" (multi-GPU) or "single"."""
+    if preferred == "ddp" and "RANK" not in os.environ and "WORLD_SIZE" not in os.environ:
+        if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+            return "dp"
+        return "single"
+    return preferred
+
+
 def resolve_auto(model_key: str, model_info: dict | None = None) -> str:
     """Resolve the optimal parallel strategy based on hardware and model characteristics.
 
@@ -46,11 +55,7 @@ def resolve_auto(model_key: str, model_info: dict | None = None) -> str:
     # 1. Explicit per-model preference from the unified models registry.
     preferred = info.get("preferred_parallel", "")
     if preferred in _STRATEGIES:
-        if preferred == "ddp" and "RANK" not in os.environ and "WORLD_SIZE" not in os.environ:
-            if torch.cuda.is_available() and torch.cuda.device_count() > 1:
-                return "dp"
-            return "single"
-        return preferred
+        return _honour_preference(preferred)
 
     # 2. Models that must always run on a single process.
     key_lower = model_key.lower()

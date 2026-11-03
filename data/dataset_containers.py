@@ -22,6 +22,25 @@ from training.data.degrade import (
 logger = logging.getLogger("lemtrain.dataset")
 
 
+def _class_index_from_file(classes_file: str, label: str) -> int:
+    """Return ``label``'s line index in ``classes_file`` (0 when absent or unreadable)."""
+    class_idx = 0
+    if os.path.exists(classes_file):
+        try:
+            with open(classes_file, "r", encoding="utf-8") as cf:
+                c_lines = [line.strip() for line in cf if line.strip()]
+            if label in c_lines:
+                class_idx = c_lines.index(label)
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.warning(
+                "Could not read %s; using class index 0 for %r: %s",
+                classes_file,
+                label,
+                exc,
+            )
+    return class_idx
+
+
 class DatasetContainerMixin:
     """Container-backed samples mixed into ``MultiTaskDataset``."""
 
@@ -139,19 +158,7 @@ class DatasetContainerMixin:
                     class_idx = int(label)
                 else:
                     classes_file = os.path.join(self.path_cache.get(ds_name, ""), "classes.txt")
-                    if os.path.exists(classes_file):
-                        try:
-                            with open(classes_file, "r", encoding="utf-8") as cf:
-                                c_lines = [line.strip() for line in cf if line.strip()]
-                            if label in c_lines:
-                                class_idx = c_lines.index(label)
-                        except (OSError, UnicodeDecodeError) as exc:
-                            logger.warning(
-                                "Could not read %s; using class index 0 for %r: %s",
-                                classes_file,
-                                label,
-                                exc,
-                            )
+                    class_idx = _class_index_from_file(classes_file, label)
             return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
 
         return img_tensor, torch.zeros(1), self.task_type

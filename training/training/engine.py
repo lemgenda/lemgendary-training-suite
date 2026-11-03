@@ -46,6 +46,75 @@ from training.utils.error_types import (
 logger = logging.getLogger("lemtrain.engine")
 
 
+def _rebuild_loader_on_directive(ctx: TrainingContext, f_chg: bool, r_chg: bool) -> None:
+    """Apply the governor's fraction/resolution/batch to the dataset and rebuild the loader."""
+    train_ds = getattr(ctx.train_loader, "dataset", None)
+    if train_ds is not None and hasattr(train_ds, "update_strategy"):
+        new_res = getattr(ctx.governor, "current_res", None)
+        new_frac = getattr(ctx.governor, "current_fraction", None)
+        stress_val = getattr(ctx.governor, "current_stress", None)
+        train_ds.update_strategy(
+            size=new_res if r_chg else None,
+            fraction=new_frac if f_chg else None,
+            stress=stress_val,
+        )
+        fallback_batch = ctx.train_loader.batch_size or 16
+        curr_batch = int(getattr(ctx.governor.curriculum, "current_batch", fallback_batch))
+        ctx.accumulation_steps = max(
+            1, int(getattr(ctx.governor, "current_acc", ctx.accumulation_steps))
+        )
+        curr_sampler = getattr(ctx.train_loader, "sampler", None)
+        if curr_sampler is not None and type(curr_sampler).__name__ == "RowGroupAwareSampler":
+            curr_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
+        elif curr_sampler is not None and type(curr_sampler).__name__ == "DistributedSampler":
+            curr_sampler = DistributedSampler(train_ds, shuffle=True)
+        elif curr_sampler is not None and type(curr_sampler).__name__ in (
+            "RandomSampler",
+            "SequentialSampler",
+        ):
+            curr_sampler = None
+        ctx.train_loader = rebuild_train_loader(
+            old_loader=ctx.train_loader,
+            dataset=train_ds,
+            batch_size=curr_batch,
+            options=TrainLoaderOptions(
+                sampler=curr_sampler,
+                shuffle=(curr_sampler is None),
+                workers=WorkerOverrides(
+                    num_workers=ctx.args.num_workers if hasattr(ctx.args, "num_workers") else None
+                ),
+            ),
+            placement=LoaderPlacement(
+                device=ctx.device_info.device,
+                env=getattr(ctx.args, "env", "local"),
+                config=ctx.config,
+            ),
+        )
+        print(
+            f"[CURRICULUM] Updated train loader: {len(train_ds)} active samples "
+            f"(fraction={float(new_frac or 1.0) * 100:.0f}%, res={new_res}, "
+            f"batch_size={curr_batch}, total_batches={len(ctx.train_loader)})",
+            flush=True,
+        )
+        logger.info(
+            "Rebuilt train_loader on governor directive: res=%s, fraction=%s, batch_size=%d",
+            str(new_res),
+            str(new_frac),
+            curr_batch,
+        )
+
+
+def _apply_lr_multiplier(ctx: TrainingContext) -> None:
+    """Scale every optimizer group's learning rate by the governor's ``lr_multiplier``."""
+    lr_mult = float(getattr(ctx.governor, "lr_multiplier", 1.0))
+    for param_group in ctx.optimizer.param_groups:
+        if "initial_lr" in param_group:
+            param_group["lr"] = param_group["initial_lr"] * lr_mult
+        else:
+            param_group["lr"] = param_group.get("lr", 1e-4) * lr_mult
+    logger.debug("Applied governor learning rate multiplier: %.3fx", lr_mult)
+
+
 def run_training(
     ctx: TrainingContext,
     on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
@@ -320,81 +389,11 @@ def run_training(
                 # Dynamic manifold scaling: update dataset and rebuild train_loader if fraction,
                 # resolution, or batch changed
                 if (f_chg or r_chg or _b_chg) and ctx.train_loader is not None:
-                    train_ds = getattr(ctx.train_loader, "dataset", None)
-                    if train_ds is not None and hasattr(train_ds, "update_strategy"):
-                        new_res = getattr(ctx.governor, "current_res", None)
-                        new_frac = getattr(ctx.governor, "current_fraction", None)
-                        stress_val = getattr(ctx.governor, "current_stress", None)
-                        train_ds.update_strategy(
-                            size=new_res if r_chg else None,
-                            fraction=new_frac if f_chg else None,
-                            stress=stress_val,
-                        )
-                        fallback_batch = ctx.train_loader.batch_size or 16
-                        curr_batch = int(
-                            getattr(ctx.governor.curriculum, "current_batch", fallback_batch)
-                        )
-                        ctx.accumulation_steps = max(
-                            1, int(getattr(ctx.governor, "current_acc", ctx.accumulation_steps))
-                        )
-                        curr_sampler = getattr(ctx.train_loader, "sampler", None)
-                        if (
-                            curr_sampler is not None
-                            and type(curr_sampler).__name__ == "RowGroupAwareSampler"
-                        ):
-                            curr_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
-                        elif (
-                            curr_sampler is not None
-                            and type(curr_sampler).__name__ == "DistributedSampler"
-                        ):
-                            curr_sampler = DistributedSampler(train_ds, shuffle=True)
-                        elif curr_sampler is not None and type(curr_sampler).__name__ in (
-                            "RandomSampler",
-                            "SequentialSampler",
-                        ):
-                            curr_sampler = None
-                        ctx.train_loader = rebuild_train_loader(
-                            old_loader=ctx.train_loader,
-                            dataset=train_ds,
-                            batch_size=curr_batch,
-                            options=TrainLoaderOptions(
-                                sampler=curr_sampler,
-                                shuffle=(curr_sampler is None),
-                                workers=WorkerOverrides(
-                                    num_workers=ctx.args.num_workers
-                                    if hasattr(ctx.args, "num_workers")
-                                    else None
-                                ),
-                            ),
-                            placement=LoaderPlacement(
-                                device=ctx.device_info.device,
-                                env=getattr(ctx.args, "env", "local"),
-                                config=ctx.config,
-                            ),
-                        )
-                        print(
-                            f"[CURRICULUM] Updated train loader: {len(train_ds)} active samples "
-                            f"(fraction={float(new_frac or 1.0) * 100:.0f}%, res={new_res}, "
-                            f"batch_size={curr_batch}, total_batches={len(ctx.train_loader)})",
-                            flush=True,
-                        )
-                        logger.info(
-                            "Rebuilt train_loader on governor directive: res=%s, fraction=%s, "
-                            "batch_size=%d",
-                            str(new_res),
-                            str(new_frac),
-                            curr_batch,
-                        )
+                    _rebuild_loader_on_directive(ctx, f_chg, r_chg)
 
                 # Learning rate propulsion or cooling adjustments
                 if lr_chg and ctx.optimizer is not None:
-                    lr_mult = float(getattr(ctx.governor, "lr_multiplier", 1.0))
-                    for param_group in ctx.optimizer.param_groups:
-                        if "initial_lr" in param_group:
-                            param_group["lr"] = param_group["initial_lr"] * lr_mult
-                        else:
-                            param_group["lr"] = param_group.get("lr", 1e-4) * lr_mult
-                    logger.debug("Applied governor learning rate multiplier: %.3fx", lr_mult)
+                    _apply_lr_multiplier(ctx)
 
             except STATE_RESTORE_ERRORS as gov_err:
                 logger.warning(

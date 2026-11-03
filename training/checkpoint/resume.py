@@ -89,6 +89,23 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
     )
 
 
+def _stretch_phases(phases_in: list, ratio: float, current_total_steps: int) -> list:
+    """Scale each phase ``end_step`` by ``ratio``; the last phase ends on the final step.
+
+    The phase dicts are updated in place; the returned list is a copy of ``phases_in``.
+    """
+    phases = list(phases_in)
+    for i, phase in enumerate(phases):
+        if isinstance(phase, dict) and "end_step" in phase:
+            if i == len(phases) - 1:
+                phase["end_step"] = current_total_steps - 1
+            else:
+                old_end = phase["end_step"]
+                scaled_end = round((old_end + 1) * ratio - 1)
+                phase["end_step"] = max(0, min(current_total_steps - 1, scaled_end))
+    return phases
+
+
 def stretch_scheduler_runway(
     scheduler: Any,
     state_dict: dict[str, Any],
@@ -124,16 +141,9 @@ def stretch_scheduler_runway(
             if "_schedule_phases" in sched_dict and isinstance(
                 sched_dict["_schedule_phases"], list
             ):
-                phases = list(sched_dict["_schedule_phases"])
-                for i, phase in enumerate(phases):
-                    if isinstance(phase, dict) and "end_step" in phase:
-                        if i == len(phases) - 1:
-                            phase["end_step"] = current_total_steps - 1
-                        else:
-                            old_end = phase["end_step"]
-                            scaled_end = round((old_end + 1) * ratio - 1)
-                            phase["end_step"] = max(0, min(current_total_steps - 1, scaled_end))
-                sched_dict["_schedule_phases"] = phases
+                sched_dict["_schedule_phases"] = _stretch_phases(
+                    sched_dict["_schedule_phases"], ratio, current_total_steps
+                )
 
             logger.info(
                 "Stretched scheduler runway: %d -> %d steps (last_epoch %d -> %d)",

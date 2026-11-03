@@ -32,6 +32,42 @@ MT5_TIMEFRAMES = {
 }
 
 
+def _terminal_window_present() -> bool:
+    """Return True when a "MetaTrader 5" window exists (always False off Windows)."""
+    if sys.platform != "win32":
+        return False
+    try:
+        hwnd = ctypes.windll.user32.FindWindowW(None, "MetaTrader 5")
+        if not hwnd:
+            print(
+                " [MT5] MetaTrader 5 terminal window not detected. Operating in offline/mock mode."
+            )
+            return False
+    except (AttributeError, OSError) as exc:
+        # AttributeError: ctypes.windll unavailable; OSError: user32 cannot be loaded.
+        logger.warning("MT5 terminal window probe failed; operating offline: %s", exc)
+        return False
+    return True
+
+
+def _attach_running_session(mt5: Any) -> bool:
+    """Attach to the running terminal session; True when it reports an account."""
+    try:
+        if mt5.initialize():
+            info = mt5.account_info()
+            if info:
+                print(
+                    f" [MT5] Connected -> Account: {info.login} | Server: {info.server} | "
+                    f"Balance: {info.balance} {info.currency}"
+                )
+                return True
+    except (RuntimeError, OSError) as exc:
+        logger.warning(
+            "Direct attach to running MT5 terminal failed; trying explicit login: %s", exc
+        )
+    return False
+
+
 def connect_mt5(
     login: int | None = None,
     password: str | None = None,
@@ -67,37 +103,12 @@ def connect_mt5(
         return False
 
     # Fast non-blocking check: only attempt IPC attach if the terminal runs or MT5_ENABLE=1
-    if os.environ.get("MT5_ENABLE", "0") != "1":
-        if sys.platform == "win32":
-            try:
-                hwnd = ctypes.windll.user32.FindWindowW(None, "MetaTrader 5")
-                if not hwnd:
-                    print(
-                        " [MT5] MetaTrader 5 terminal window not detected. "
-                        "Operating in offline/mock mode."
-                    )
-                    return False
-            except (AttributeError, OSError) as exc:
-                # AttributeError: ctypes.windll unavailable; OSError: user32 cannot be loaded.
-                logger.warning("MT5 terminal window probe failed; operating offline: %s", exc)
-                return False
-        else:
-            return False
+    if os.environ.get("MT5_ENABLE", "0") != "1" and not _terminal_window_present():
+        return False
 
     # First try attaching directly to the running MT5 terminal session
-    try:
-        if mt5.initialize():
-            info = mt5.account_info()
-            if info:
-                print(
-                    f" [MT5] Connected -> Account: {info.login} | Server: {info.server} | "
-                    f"Balance: {info.balance} {info.currency}"
-                )
-                return True
-    except (RuntimeError, OSError) as exc:
-        logger.warning(
-            "Direct attach to running MT5 terminal failed; trying explicit login: %s", exc
-        )
+    if _attach_running_session(mt5):
+        return True
 
     # Fallback to explicit login parameters if active session not found
     init_kwargs = {}
@@ -121,9 +132,8 @@ def connect_mt5(
             f" [MT5] Connected -> Account: {info.login} | Server: {info.server} | "
             f"Balance: {info.balance} {info.currency}"
         )
-        return True
-
-    print(" [MT5] Connected to MT5 terminal session.")
+    else:
+        print(" [MT5] Connected to MT5 terminal session.")
     return True
 
 

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.104-STABLE`
+- **Version**: `v16.9.105-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,32 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.105 - Nested Blocks and Return Chains Split
+
+- **`.pylintrc`**: `too-many-nested-blocks` is enabled again (8 -> 0).
+  `too-many-return-statements` drops from 8 to 1 (only
+  `training/data/manifold.py`, which a later step rewrites, is left).
+- **Nested blocks**: `stretch_scheduler_runway` uses `_stretch_phases`;
+  `resolve_kaggle_credentials` is split into `_fill_from_kaggle_json`,
+  `_token_file_key`, `_export_kaggle_env` and `_sync_kaggle_json`; Google
+  Drive pulls use `_copy_into`; Kaggle Hub staging uses
+  `_link_checkpoint_files`; the classification label lookup of
+  `data/dataset_containers.py` uses `_class_index_from_file`;
+  `run_training` calls `_rebuild_loader_on_directive` and
+  `_apply_lr_multiplier`. `WebDatasetReader.__init__` now delegates to
+  `_find_tar_files`, `_index_tar`, `_index_shard_dirs` and `_sample_entries`
+  (300 random shard trees indexed identically by the old and new reader).
+- **Return chains**: `resolve_container_reader` maps a declared format through
+  `_FORMAT_READERS` and otherwise calls `_detect_reader_class` (600 random
+  manifold trees picked the same reader); `discover_device` runs one probe per
+  accelerator (`_cuda_device_info`, `_mps_device_info`, `_xpu_device_info`,
+  `_dml_device_info`, then the CPU); `EpochBudgetPolicy.decide` hands the
+  end-of-budget case to `_at_budget`; Kaggle variation folders come from
+  `_UPLOAD_SUBDIRS` and `push_variation` checks the payload with
+  `_payload_problem` (default payload staged by `_stage_default_payload`);
+  `resolve_auto` uses `_honour_preference`; `connect_mt5` uses
+  `_terminal_window_present` and `_attach_running_session`.
 
 ### v16.9.104 - Argument Lists Grouped; Two Design Checks Re-enabled
 
