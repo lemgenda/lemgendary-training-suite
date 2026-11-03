@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.116-STABLE`
+- **Version**: `v16.9.117-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,15 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.117 - Kaggle Metadata Sync, Judicial Audit and Exporter Steps
+
+- **Refactor**: `KaggleApiSyncService.sync_metadata` runs
+  `_sync_model_metadata`, `_sync_variation` and `_sync_collaborators`
+  (IAM policy in `_set_editor_policy`); `run_judicial_audit` splits into
+  ONNX/PyTorch prediction, scoring and correlation helpers;
+  `PyTorchModelExporter.export` drives an `_ExportJob` (one method per
+  format). Same calls, results and logs. Removes 8 design findings.
 
 ### v16.9.116 - Staging Variation Table, Hub Dashboard and Fleet Helpers
 
