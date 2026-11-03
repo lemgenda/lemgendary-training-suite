@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.121-STABLE`
+- **Version**: `v16.9.122-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,23 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.122 - Review Findings Fixed (L10)
+
+- **Review**: Medium and Low findings fixed: packaged `lemtrain`
+  script and untracked `egg-info`/`.cache` (D-06), plateau patience
+  read from `governor.manifold` (D-07 part), GUI stats show measured
+  values only and parameter counts from the registry (D-08, 7.1),
+  dead prefetch worker deleted (D-12), FID of an unbalanced pass is
+  dropped (D-13), resume anchor in `config.yaml` (D-15) and datasets
+  under `paths.datasets_root` (D-16), no silent notebook or worker
+  handlers. A test pins FID to 2048 features and chunks of 2.
+- **Version**: `pyproject.toml` is the single source; CLI, sidecar,
+  health route, notebooks and `openapi.json` derive it, and
+  `config.yaml` has no `version` key.
+- **Report**: `REVIEW_REPORT.md` has a Remediation Status table for
+  every finding. Model `state_dict` keys are unchanged since
+  v16.9.120; `_commit_rung`, Model Soup and SWA untouched.
 
 ### v16.9.121 - Pylint Design Refactors
 

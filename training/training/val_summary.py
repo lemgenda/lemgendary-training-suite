@@ -106,7 +106,9 @@ def _image_results(acc: ValAccumulators, step_count: int, results: dict[str, flo
     if image.lpips_count > 0:
         results["lpips"] = image.total_lpips / image.lpips_count
     fid = acc.modules.fid
-    if fid is not None and fid is not False and image.fid_batches_accumulated > 0:
+    if image.fid_incomplete:
+        logger.warning("FID not reported: real and fake features do not cover the same images.")
+    elif fid is not None and fid is not False and image.fid_batches_accumulated > 0:
         try:
             results["fid"] = max(0.0, float(fid.compute().item()))
         except METRIC_ERRORS as exc:

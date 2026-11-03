@@ -75,6 +75,8 @@ class _ValidationPass:
             return
         self.clock.resume_step = resume_step
         self.ctx.state.guards.val_step_handled = True
+        # Inception features of the skipped batches are not in the checkpoint (review D-13).
+        self.acc.image.fid_incomplete = True
         print(
             f"[RESUME] Fast-forwarding {resume_step} completed validation batches in Epoch "
             f"{self.epoch}...",

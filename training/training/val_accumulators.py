@@ -25,6 +25,9 @@ class ImageTotals:
     lpips_count: int = 0
     fid_batches_accumulated: int = 0
     has_image_metrics: bool = False
+    # True when the FID real/fake feature sets no longer cover the same images (a failed
+    # half-pair, or a resumed pass whose Inception state was not saved); FID is then dropped.
+    fid_incomplete: bool = field(default=False, metadata=_TRANSIENT)
 
 
 @dataclass

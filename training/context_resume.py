@@ -107,16 +107,25 @@ def _restore_weights_and_optimizer(spec: RunSpec, loaded: dict, train: TrainStat
             logger.warning("Scheduler state could not be loaded cleanly: %s", sched_err)
 
 
-def _calibrate_quality_anchor(spec: RunSpec, governor: Any) -> None:
-    """Reset the artificial pre-fix quality anchor of synthesized and face models."""
+def calibrate_quality_anchor(spec: RunSpec, governor: Any) -> None:
+    """Reset the artificial pre-fix quality anchor of synthesized and face models.
+
+    ``governor.quality_anchor_recalibration`` in ``config.yaml`` holds the limits: a restored
+    ``best_quality`` above ``above`` is set to ``reset_to``. Without that section nothing changes.
+    """
+    limits = spec.config.get("governor", {}).get("quality_anchor_recalibration") or {}
+    if "above" not in limits or "reset_to" not in limits:
+        return
+    above, reset_to = float(limits["above"]), float(limits["reset_to"])
     if (
         spec.model_info.get("needs_synthesis") or spec.model_info.get("dataset_type") == "face"
-    ) and float(getattr(governor, "best_quality", 0.0) or 0.0) > 600.0:
+    ) and float(getattr(governor, "best_quality", 0.0) or 0.0) > above:
         logger.info(
-            "[CALIBRATION] Calibrating artificial quality anchor (%.2f -> 555.0)",
+            "[CALIBRATION] Calibrating artificial quality anchor (%.2f -> %.2f)",
             float(governor.best_quality),
+            reset_to,
         )
-        governor.best_quality = 555.0
+        governor.best_quality = reset_to
 
 
 def reconcile_metrics_csv(governor: Any, metrics_csv: Path | None, sample_fraction: float) -> None:
@@ -225,7 +234,7 @@ def _restore_governor(
         return
     try:
         governor.load_state(gov_state)
-        _calibrate_quality_anchor(spec, governor)
+        calibrate_quality_anchor(spec, governor)
         reconcile_metrics_csv(governor, metrics_csv, data.sample_fraction)
         _resync_train_loader(spec, train, data)
     except STATE_RESTORE_ERRORS as gov_err:

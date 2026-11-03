@@ -13,6 +13,7 @@ from typing import Any
 import yaml
 
 from training.utils.paths import WORKSPACE_ROOT_ENV
+from training.version import __version__
 
 from ..cells.base import make_markdown_cell
 from ..cells.deps import build_install_cell
@@ -242,7 +243,10 @@ def training_preamble_cells(
     return [
         make_markdown_cell(
             [
-                f"# LemGendary Master Execution: {meta.identity.pascal_name} (v16.2.9 {edition})\n",
+                (
+                    f"# LemGendary Master Execution: {meta.identity.pascal_name} "
+                    f"(v{__version__} {edition})\n"
+                ),
                 (
                     "This unified notebook handles environment synchronization and automated "
                     "cloud training.\n"

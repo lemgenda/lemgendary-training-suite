@@ -4,7 +4,7 @@ from training.cli.lemtrain import app
 
 
 def main():
-    """Run the ``lemtrain`` Typer application (``[project.scripts] lemtrain = "cli:main"``)."""
+    """Run the ``lemtrain`` Typer application (same app as the ``lemtrain`` console script)."""
     app()
 
 

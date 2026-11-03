@@ -17,32 +17,6 @@ from training.server.routes.gui_status import RungTracker, training_verdict
 
 logger = logging.getLogger("lemtrain.server.routes.gui")
 
-KNOWN_PARAMS_M: dict[str, float] = {
-    "forex_predictor": 2.75,
-    "nima_aesthetic_mobile": 2.3,
-    "nima_aesthetic_efficientnet": 21.5,
-    "nima_aesthetic_pro": 86.8,
-    "nima_technical": 2.3,
-    "nima_authenticity": 4.1,
-    "upn_v2": 88.5,
-    "film_restorer": 17.1,
-    "codeformer": 38.6,
-    "parsenet": 12.4,
-    "ffanet_indoor": 4.5,
-    "ffanet_outdoor": 4.5,
-    "mirnet_lowlight": 31.8,
-    "mirnet_exposure": 31.8,
-    "mprnet_deraining": 20.1,
-    "nafnet_debluring": 17.1,
-    "nafnet_denoising": 17.1,
-    "yolov8n": 3.2,
-    "professional_multitask_restoration": 42.0,
-    "ultrazoom": 24.3,
-    "universal_nsfw_classification": 4.1,
-    "retinaface": 27.2,
-}
-
-
 # Comprehensive Metric Registry mapping YAML keys to CSV columns, directionality, and labels
 # yaml_key: (csv_col, lower_is_better, display_label, is_forex)
 METRIC_REGISTRY: dict[str, tuple[str, bool, str, bool]] = {
@@ -416,12 +390,9 @@ def _sota_detail(
     }
 
 
-def _best_from_sota(
-    s: dict[str, Any], has_checkpoint: bool, primary_key: str | None
-) -> dict[str, Any]:
+def _best_from_sota(s: dict[str, Any]) -> dict[str, Any]:
+    # Only measured values count; a missing measurement is never replaced by its target.
     b_val = s["achieved"]
-    if b_val is None and has_checkpoint and s["key"] == primary_key:
-        b_val = s["target"]
     b_num = _as_float(b_val)
     tgt_num = _as_float(s["target"])
     passed_sota = (
@@ -443,11 +414,9 @@ def _best_metrics_details(
     sota_details: list[dict[str, Any]],
     history: dict[str, list[float]],
     is_forex: bool,
-    has_checkpoint: bool,
-    primary_key: str | None,
 ) -> list[dict[str, Any]]:
     """Best achieved metrics across SOTA targets and metrics history."""
-    details = [_best_from_sota(s, has_checkpoint, primary_key) for s in sota_details]
+    details = [_best_from_sota(s) for s in sota_details]
     known_metric_keys = {s["key"] for s in sota_details}
     for ykey, (_col_name, is_low, lbl, is_fx_col) in METRIC_REGISTRY.items():
         if is_forex != is_fx_col or ykey in known_metric_keys:
@@ -462,7 +431,7 @@ def _best_metrics_details(
                     "value": round(ach, 4),
                     "target": None,
                     "lower_is_better": is_low,
-                    "passed": True,
+                    "passed": False,  # no target, so nothing to pass
                 }
             )
     return details
@@ -476,7 +445,7 @@ def _headline_metric(
         return round(min(p_vals) if primary.lower_is_better else max(p_vals), 2)
     if sota_details and sota_details[0]["achieved"] is not None:
         return round(sota_details[0]["achieved"], 2)
-    return primary.target
+    return None  # never the target when nothing was measured
 
 
 def _sota_fields(
@@ -505,9 +474,7 @@ def _sota_fields(
         "sota_targets_met": met,
         "sota_all_met": reached,
         "sota_details": details,
-        "best_metrics_details": _best_metrics_details(
-            details, history, is_forex, has_checkpoint, primary.key
-        ),
+        "best_metrics_details": _best_metrics_details(details, history, is_forex),
         "sota_reached": reached,
     }
 
@@ -646,7 +613,7 @@ def _identity_fields(model_key: str, info: dict[str, Any]) -> dict[str, Any]:
         "architecture": info.get("architecture_type") or info.get("class_name") or "PyTorch Model",
         "task_type": task_type or "general",
         "canonical_format": info.get("canonical_format", "webdataset"),
-        "parameters_m": KNOWN_PARAMS_M.get(model_key, 10.0),
+        "parameters_m": _as_float(info.get("parameters_m")),
         "preferred_parallel": info.get("preferred_parallel", "single"),
         "status": info.get("status", "VALIDATED"),
         "authoritative_status": info.get("status", "VALIDATED"),

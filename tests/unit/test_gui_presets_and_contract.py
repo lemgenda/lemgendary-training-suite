@@ -26,6 +26,7 @@ from training.cli.lemtrain import app as cli_app
 from training.server.app import create_app
 from training.server.state import ServerState
 from training.utils.paths import get_project_root
+from training.version import __version__
 
 _log = logging.getLogger("lemtrain.tests.test_gui_presets_and_contract")
 
@@ -46,7 +47,7 @@ class TestOpenAPIAndContract(unittest.TestCase):
         self.assertEqual(data.get("openapi"), "3.1.0")
         info = data.get("info", {})
         self.assertEqual(info.get("title"), "LemGendary Model Training Suite Sidecar API")
-        self.assertEqual(info.get("version"), "16.9.121")
+        self.assertEqual(info.get("version"), __version__)
 
         paths = data.get("paths", {})
         required_paths = [

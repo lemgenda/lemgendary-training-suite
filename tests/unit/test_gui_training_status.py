@@ -45,7 +45,7 @@ def project_fixture(tmp_path: Path) -> Path:
             "fresh_model": _model(),
             "weights_model": _model(),
             "partial_model": _model(),
-            "full_model": _model(),
+            "full_model": _model(parameters_m=12.5),
             "stale_fraction_model": _model(),
             "broken_model": _model(sota_targets=["psnr"], epochs="many"),
         }
@@ -133,6 +133,24 @@ def test_stale_fraction_does_not_pass_data_pillar(entries: dict[str, dict[str, A
     assert entry["ladder_passed"] is True
     assert entry["data_fraction_passed"] is False
     assert entry["data_fraction_completed"] == 0.0
+
+
+def test_unmeasured_metrics_are_not_reported_as_achieved(
+    entries: dict[str, dict[str, Any]],
+) -> None:
+    """Review D-08: a checkpoint without metrics shows no value and no pass for its targets."""
+    entry = entries["weights_model"]
+    assert entry["best_metric"] is None
+    assert entry["sota_target"] == 30.0
+    psnr = next(d for d in entry["best_metrics_details"] if d["key"] == "psnr")
+    assert psnr["value"] is None
+    assert psnr["passed"] is False
+
+
+def test_parameter_count_comes_from_registry(entries: dict[str, dict[str, Any]]) -> None:
+    """Review D-08: ``parameters_m`` is the registry value, or null when the registry has none."""
+    assert entries["full_model"]["parameters_m"] == 12.5
+    assert entries["fresh_model"]["parameters_m"] is None
 
 
 def test_malformed_registry_entry_is_unknown(entries: dict[str, dict[str, Any]]) -> None:

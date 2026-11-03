@@ -272,7 +272,7 @@ def build_sota(
     sota = SotaTracker()
     sota.plateau_patience = opt.get(
         "plateau_patience",
-        config.get("governor", {}).get("plateau_patience", 6),
+        config.get("governor", {}).get("manifold", {}).get("plateau_patience", 6),
     )
     sota.task_type = task_type
     if task_type == "forex":
