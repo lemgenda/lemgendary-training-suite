@@ -11,11 +11,17 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.96-STABLE` |
+| **Version** | `v16.9.97-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.97 - MT5 Pipeline Parameter Objects and Shard Check Helpers
+
+- **`data/mt5_pipeline.py`**: `build_windows` returns a `ShardWindows` named tuple (unpacks like the former 4-tuple); bar timestamps come from `_bar_timestamps`. `save_shards(windows, out_dir, pair, timeframe_min, split="train")` takes the `ShardWindows` instead of four arrays (8 -> 5 arguments). `run_download_pipeline(pairs, timeframes, out_dir, options=None, credentials=None)` takes `DownloadOptions` (`n_bars`, `start_date`, `build_folds`) and `MT5Credentials` (`login`, `password`, `server`, `api_key`) instead of 10 arguments; one pair/timeframe runs in `_process_pair_timeframe`. The fold slice is `_fold_frame`. `main --mode check` calls the new `check_shards` (one `_check_shard` per split). The file has no design-check findings left (9 before). Only `main` called these functions.
+- **Behaviour is unchanged**: an old-vs-new comparison ran 600 scenarios (window slicing with and without `time`, strides and sample caps; download pipeline with MT5 active and inactive, failing and raising pairs, folds on and off, all credential combinations; `main` in check, download and build_dataset modes over shard trees with NaN, Inf and missing files) through both versions; arrays, written shard files, stdout, log records and call order were identical.
+- **Tests**: 289 passed.
 
 ### v16.9.96 - MT5 Feature Engineering Split into Steps
 

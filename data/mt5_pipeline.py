@@ -19,7 +19,8 @@ TODO (requires demo account):
 import argparse
 import logging
 import os
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -113,9 +114,37 @@ WALK_FORWARD_FOLDS = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+class ShardWindows(NamedTuple):
+    """Windowed samples of one shard; unpacks like the former 4-tuple."""
+
+    x_data: np.ndarray
+    y_dir: np.ndarray
+    y_mag: np.ndarray
+    timestamps: np.ndarray | None = None
+
+
+@dataclass(frozen=True)
+class DownloadOptions:
+    """What ``run_download_pipeline`` fetches per pair and timeframe."""
+
+    n_bars: int = 50000
+    start_date: str = "2019-01-01"
+    build_folds: bool = True
+
+
+@dataclass(frozen=True)
+class MT5Credentials:
+    """MT5 demo account credentials; ``None`` falls back to the MT5_* environment variables."""
+
+    login: int | None = None
+    password: str | None = None
+    server: str | None = None
+    api_key: str | None = None
+
+
 def build_windows(
     df: pd.DataFrame, seq_len: int, max_samples: int = 50000, stride: int | None = None
-) -> tuple:
+) -> ShardWindows:
     """
     Slice the processed DataFrame into (features, direction, magnitude, timestamps) windows.
     Uses memory-efficient preallocation and uniform strided sampling for ultra-dense
@@ -129,7 +158,7 @@ def build_windows(
         stride:      Explicit sampling step. If None, automatically derived from max_samples.
 
     Returns:
-        Tuple of (X, y_dir, y_mag, timestamps):
+        ShardWindows (X, y_dir, y_mag, timestamps):
             X:          [N, seq_len, n_features]  float32
             y_dir:      [N]                        int64 direction class
             y_mag:      [N, 2]                     float32 (tp_pips, sl_pips)
@@ -138,25 +167,16 @@ def build_windows(
     available = [c for c in FEATURES if c in df.columns]
     feat_arr = np.asarray(df[available], dtype=np.float32)  # [T, F]
     dir_arr = np.asarray(df["direction"], dtype=np.int64)
-    tp_arr = np.asarray(df["tp_pips"], dtype=np.float32)
-    sl_arr = np.asarray(df["sl_pips"], dtype=np.float32)
-
-    # Build Unix timestamp array for precise multi-timeframe alignment
-    if "time" in df.columns:
-        raw_dt = pd.to_datetime(df["time"], utc=True)
-        if isinstance(raw_dt, pd.DatetimeIndex):
-            ts_arr = np.asarray(raw_dt.astype(np.int64) // 10**9, dtype=np.int64)
-        else:
-            ts_arr = np.asarray(
-                [int(t.timestamp()) if hasattr(t, "timestamp") else 0 for t in raw_dt],
-                dtype=np.int64,
-            )
-    else:
-        ts_arr = np.arange(len(df), dtype=np.int64)
+    # (tp_pips, sl_pips) per bar
+    mag_arrs = (
+        np.asarray(df["tp_pips"], dtype=np.float32),
+        np.asarray(df["sl_pips"], dtype=np.float32),
+    )
+    ts_arr = _bar_timestamps(df)
 
     n_total = len(df) - seq_len
     if n_total <= 0:
-        return (
+        return ShardWindows(
             np.empty((0, seq_len, len(available)), dtype=np.float32),
             np.empty(0, dtype=np.int64),
             np.empty((0, 2), dtype=np.float32),
@@ -167,28 +187,34 @@ def build_windows(
         stride = max(1, int(np.ceil(n_total / max_samples))) if max_samples > 0 else 1
 
     indices = np.arange(0, n_total, stride)
-    num_samples = len(indices)
-
-    x_data = np.empty((num_samples, seq_len, len(available)), dtype=np.float32)
+    x_data = np.empty((len(indices), seq_len, len(available)), dtype=np.float32)
     for out_i, i in enumerate(indices):
         x_data[out_i] = feat_arr[i : i + seq_len]
 
     target_indices = indices + seq_len
-    y_dir = dir_arr[target_indices]
-    y_mag = np.stack([tp_arr[target_indices], sl_arr[target_indices]], axis=1)
-    timestamps = ts_arr[target_indices]
-    return x_data, y_dir, y_mag, timestamps
+    return ShardWindows(
+        x_data,
+        dir_arr[target_indices],
+        np.stack([mag_arrs[0][target_indices], mag_arrs[1][target_indices]], axis=1),
+        ts_arr[target_indices],
+    )
+
+
+def _bar_timestamps(df: pd.DataFrame) -> np.ndarray:
+    """Unix seconds per bar for multi-timeframe alignment (bar positions without 'time')."""
+    if "time" in df.columns:
+        raw_dt = pd.to_datetime(df["time"], utc=True)
+        if isinstance(raw_dt, pd.DatetimeIndex):
+            return np.asarray(raw_dt.astype(np.int64) // 10**9, dtype=np.int64)
+        return np.asarray(
+            [int(t.timestamp()) if hasattr(t, "timestamp") else 0 for t in raw_dt],
+            dtype=np.int64,
+        )
+    return np.arange(len(df), dtype=np.int64)
 
 
 def save_shards(
-    x_data,
-    y_dir,
-    y_mag,
-    out_dir: str,
-    pair: str,
-    timeframe_min: int,
-    split: str = "train",
-    timestamps=None,
+    windows: ShardWindows, out_dir: str, pair: str, timeframe_min: int, split: str = "train"
 ):
     """
     Save windowed samples as .npy files for fast DataLoader access.
@@ -199,16 +225,17 @@ def save_shards(
             y_dir.npy       -- [N] int64 direction classes
             y_mag.npy       -- [N, 2] float32 (tp_pips, sl_pips)
             timestamps.npy  -- [N] int64 Unix timestamps of each window's last bar
+                               (skipped when ``windows.timestamps`` is None)
     """
     shard_dir = os.path.join(out_dir, pair, str(timeframe_min), split)
     os.makedirs(shard_dir, exist_ok=True)
 
-    np.save(os.path.join(shard_dir, "X.npy"), x_data)
-    np.save(os.path.join(shard_dir, "y_dir.npy"), y_dir)
-    np.save(os.path.join(shard_dir, "y_mag.npy"), y_mag)
-    if timestamps is not None:
-        np.save(os.path.join(shard_dir, "timestamps.npy"), timestamps)
-    print(f" [MT5Pipeline] Saved {len(x_data)} samples -> {shard_dir}")
+    np.save(os.path.join(shard_dir, "X.npy"), windows.x_data)
+    np.save(os.path.join(shard_dir, "y_dir.npy"), windows.y_dir)
+    np.save(os.path.join(shard_dir, "y_mag.npy"), windows.y_mag)
+    if windows.timestamps is not None:
+        np.save(os.path.join(shard_dir, "timestamps.npy"), windows.timestamps)
+    print(f" [MT5Pipeline] Saved {len(windows.x_data)} samples -> {shard_dir}")
 
 
 def load_shard(shard_dir: str, mmap_mode: Any = None) -> tuple:
@@ -239,28 +266,32 @@ def build_walk_forward_folds(df: pd.DataFrame, seq_len: int, out_dir: str, pair:
         fold_dir = os.path.join(out_dir, pair, str(tf), "folds", fold_id)
         os.makedirs(fold_dir, exist_ok=True)
 
-        # Filter by datetime if time column exists, otherwise partition chronologically
-        if "time" in df.columns:
-            df_time = pd.to_datetime(df["time"], utc=True)
-            t_start = pd.to_datetime(fold_info["train_start"], utc=True)
-            t_end = pd.to_datetime(fold_info["train_end"], utc=True)
-            mask = (df_time >= t_start) & (df_time <= t_end)
-            fold_df = df[mask]
-        else:
-            # Chronological fallback (dummy logic for synthetic without time)
-            n_total = len(df)
-            start_idx = int(n_total * (list(WALK_FORWARD_FOLDS.keys()).index(fold_id) * 0.1))
-            end_idx = min(n_total, start_idx + int(n_total * 0.1))
-            fold_df = df.iloc[start_idx:end_idx]
-        assert isinstance(fold_df, pd.DataFrame)
-
+        fold_df = _fold_frame(df, fold_id, fold_info)
         if len(fold_df) > seq_len:
-            x_data, yd, ym, ts = build_windows(fold_df, seq_len)
-            save_shards(x_data, yd, ym, out_dir, pair, tf, split=f"folds/{fold_id}", timestamps=ts)
+            windows = build_windows(fold_df, seq_len)
+            save_shards(windows, out_dir, pair, tf, split=f"folds/{fold_id}")
             print(
-                f"   [{fold_id.upper()}] Generated {pair}@{tf}min ({len(x_data)} samples) "
+                f"   [{fold_id.upper()}] Generated {pair}@{tf}min ({len(windows.x_data)} samples) "
                 f"-> {fold_info['regime']}"
             )
+
+
+def _fold_frame(df: pd.DataFrame, fold_id: str, fold_info: dict) -> pd.DataFrame:
+    """Bars of one walk-forward fold: by date range, or a chronological slice without 'time'."""
+    if "time" in df.columns:
+        df_time = pd.to_datetime(df["time"], utc=True)
+        t_start = pd.to_datetime(fold_info["train_start"], utc=True)
+        t_end = pd.to_datetime(fold_info["train_end"], utc=True)
+        mask = (df_time >= t_start) & (df_time <= t_end)
+        fold_df = df[mask]
+    else:
+        # Chronological fallback (dummy logic for synthetic without time)
+        n_total = len(df)
+        start_idx = int(n_total * (list(WALK_FORWARD_FOLDS.keys()).index(fold_id) * 0.1))
+        end_idx = min(n_total, start_idx + int(n_total * 0.1))
+        fold_df = df.iloc[start_idx:end_idx]
+    assert isinstance(fold_df, pd.DataFrame)
+    return fold_df
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -272,13 +303,8 @@ def run_download_pipeline(
     pairs: list,
     timeframes: list,
     out_dir: str,
-    n_bars: int = 50000,
-    start_date: str = "2019-01-01",
-    build_folds: bool = True,
-    login: int | None = None,
-    password: str | None = None,
-    server: str | None = None,
-    api_key: str | None = None,
+    options: DownloadOptions | None = None,
+    credentials: MT5Credentials | None = None,
 ):
     """
     Full end-to-end pipeline:
@@ -290,7 +316,14 @@ def run_download_pipeline(
         6. Build windows & Walk-Forward Folds
         7. Save production & fold shards
     """
-    mt5_active = connect_mt5(login=login, password=password, server=server, api_key=api_key)
+    options = options or DownloadOptions()
+    credentials = credentials or MT5Credentials()
+    mt5_active = connect_mt5(
+        login=credentials.login,
+        password=credentials.password,
+        server=credentials.server,
+        api_key=credentials.api_key,
+    )
     if not mt5_active:
         print(
             " [MT5Pipeline] MT5 connection inactive. Switching to Synthetic OHLCV Generator Mode."
@@ -299,33 +332,64 @@ def run_download_pipeline(
     try:
         for pair in pairs:
             for tf in timeframes:
-                seq_len = TIMEFRAME_LOOKBACK.get(tf, 168)
-                print(f"\n [MT5Pipeline] Processing {pair} @ {tf}min (lookback={seq_len})...")
-
-                try:
-                    if mt5_active:
-                        df = download_bars(pair, tf, n_bars=n_bars, start_date=start_date)
-                    else:
-                        df = generate_mock_bars(pair, tf, n_bars=n_bars, start_date=start_date)
-                    df = compute_indicators(df)
-                    df = generate_labels(df, pair)
-                    df = normalize_ohlcv(df)
-
-                    # Walk-Forward Matrix (Generates chronological chunks and val set)
-                    if build_folds:
-                        build_walk_forward_folds(df, seq_len, out_dir, pair, tf)
-
-                except (RuntimeError, ValueError, KeyError, TypeError, IndexError, OSError) as e:
-                    # Per-pair job boundary: one bad pair/timeframe must not abort the whole batch.
-                    # RuntimeError: MT5 returned no data; ValueError/KeyError/TypeError/IndexError:
-                    # malformed bars or indicator frames; OSError: shard write failure.
-                    logger.exception("Pipeline failed for %s@%smin", pair, tf)
-                    print(f" [MT5Pipeline] ERROR for {pair}@{tf}min: {e}")
-                    continue
+                _process_pair_timeframe(pair, tf, out_dir, options, mt5_active)
     finally:
         disconnect_mt5()
 
     print("\n [MT5Pipeline] Download pipeline complete.")
+
+
+def _process_pair_timeframe(
+    pair: str, tf: int, out_dir: str, options: DownloadOptions, mt5_active: bool
+) -> None:
+    """Fetch, featurize, label and shard one pair/timeframe; errors are logged, not raised."""
+    seq_len = TIMEFRAME_LOOKBACK.get(tf, 168)
+    print(f"\n [MT5Pipeline] Processing {pair} @ {tf}min (lookback={seq_len})...")
+
+    try:
+        if mt5_active:
+            df = download_bars(pair, tf, n_bars=options.n_bars, start_date=options.start_date)
+        else:
+            df = generate_mock_bars(pair, tf, n_bars=options.n_bars, start_date=options.start_date)
+        df = compute_indicators(df)
+        df = generate_labels(df, pair)
+        df = normalize_ohlcv(df)
+
+        # Walk-Forward Matrix (Generates chronological chunks and val set)
+        if options.build_folds:
+            build_walk_forward_folds(df, seq_len, out_dir, pair, tf)
+
+    except (RuntimeError, ValueError, KeyError, TypeError, IndexError, OSError) as e:
+        # Per-pair job boundary: one bad pair/timeframe must not abort the whole batch.
+        # RuntimeError: MT5 returned no data; ValueError/KeyError/TypeError/IndexError:
+        # malformed bars or indicator frames; OSError: shard write failure.
+        logger.exception("Pipeline failed for %s@%smin", pair, tf)
+        print(f" [MT5Pipeline] ERROR for {pair}@{tf}min: {e}")
+
+
+def check_shards(out_dir: str, pairs: list, timeframes: list) -> None:
+    """Print OK / CORRUPT (NaN or Inf) / MISSING for every train and val shard."""
+    print(" [MT5Pipeline] Checking existing shards in:", out_dir)
+    for pair in pairs:
+        for tf in timeframes:
+            for split in ["train", "val"]:
+                shard_dir = os.path.join(out_dir, pair, str(tf), split)
+                _check_shard(shard_dir, f"{pair}/{tf}min/{split}")
+
+
+def _check_shard(shard_dir: str, label: str) -> None:
+    """Report one shard; ``label`` is ``pair/<tf>min/split``."""
+    x_data, y_dir, y_mag, _timestamps = load_shard(shard_dir, mmap_mode="r")
+    if x_data is None:
+        print(f"   [MISSING] {label}: No shard found")
+        return
+    corrupt = False
+    for tensor, name in [(x_data, "X"), (y_dir, "y_dir"), (y_mag, "y_mag")]:
+        if tensor is not None and (np.isnan(tensor).any() or np.isinf(tensor).any()):
+            print(f"   [CORRUPT] {label}: Tensor {name} contains NaN or Inf values!")
+            corrupt = True
+    if not corrupt:
+        print(f"   [OK] {label}: {len(x_data)} samples pristine, shape {x_data.shape}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -398,30 +462,7 @@ def main():
     args = parser.parse_args()
 
     if args.mode == "check":
-        print(" [MT5Pipeline] Checking existing shards in:", args.out_dir)
-        for pair in args.pairs:
-            for tf in args.timeframes:
-                for split in ["train", "val"]:
-                    shard_dir = os.path.join(args.out_dir, pair, str(tf), split)
-                    x_data, y_dir, y_mag, _timestamps = load_shard(shard_dir, mmap_mode="r")
-                    if x_data is not None:
-                        corrupt = False
-                        for tensor, name in [(x_data, "X"), (y_dir, "y_dir"), (y_mag, "y_mag")]:
-                            if tensor is not None and (
-                                np.isnan(tensor).any() or np.isinf(tensor).any()
-                            ):
-                                print(
-                                    f"   [CORRUPT] {pair}/{tf}min/{split}: "
-                                    f"Tensor {name} contains NaN or Inf values!"
-                                )
-                                corrupt = True
-                        if not corrupt:
-                            print(
-                                f"   [OK] {pair}/{tf}min/{split}: {len(x_data)} samples "
-                                f"pristine, shape {x_data.shape}"
-                            )
-                    else:
-                        print(f"   [MISSING] {pair}/{tf}min/{split}: No shard found")
+        check_shards(args.out_dir, args.pairs, args.timeframes)
 
     elif args.mode == "download":
         print(" [MT5Pipeline] Starting download pipeline...")
@@ -430,12 +471,13 @@ def main():
             pairs=args.pairs,
             timeframes=args.timeframes,
             out_dir=args.out_dir,
-            n_bars=args.n_bars,
-            start_date=args.start_date,
-            login=args.login,
-            password=args.password,
-            server=args.server,
-            api_key=args.api_key,
+            options=DownloadOptions(n_bars=args.n_bars, start_date=args.start_date),
+            credentials=MT5Credentials(
+                login=args.login,
+                password=args.password,
+                server=args.server,
+                api_key=args.api_key,
+            ),
         )
 
 
