@@ -11,11 +11,18 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.84-STABLE` |
+| **Version** | `v16.9.85-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.85 - MultiTaskDataset Item Builders per Task Type
+
+- **`data/dataset.py`** (505 -> 231 lines): `MultiTaskDataset.__getitem__` was 282 lines with 63 branches and 15 return statements. It is now 12 lines: sync dummies, container samples, then `task_item(load_directory_sample(...))`.
+- **`data/dataset_targets.py`** (new, `DatasetTargetsMixin`): `load_directory_sample` resolves the files and loads the input and restoration target into a `DirectorySample`. `task_item` dispatches to one builder per task type: `restoration_item` (film degradation, FFA-Net boxes), `parameter_item`, `quality_item`, `classification_item`, `segmentation_item` and `face_detection_item`. The multitask restorer's filename-to-head `elif` chain is an ordered table (`multitask_head`). The face-parser and segmentation mask loaders were two copies of the same code and are now one `load_mask`.
+- **Behaviour is unchanged**: an old-vs-new comparison over a synthetic on-disk dataset (13 model/task combinations, train and val, two sizes, two seeds, 12 samples with missing images, missing targets, hard-linked pairs, invalid labels and class folders, plus sync dummies) gave 1,252 identical items, including the random-number state after each call.
+- **Tests**: 260 passed.
 
 ### v16.9.84 - lemtrain CLI Split into Command-Group Modules
 

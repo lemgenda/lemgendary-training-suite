@@ -2,14 +2,10 @@
 
 import json
 import logging
-import math
 import multiprocessing
 import os
-import random
 from typing import Any
 
-import numpy as np
-import torch
 import yaml
 from PIL import Image, ImageFile
 from torch.utils.data import Dataset
@@ -17,11 +13,7 @@ from torchvision import transforms
 
 from data.dataset_containers import DatasetContainerMixin
 from data.dataset_sources import DatasetSourcesMixin
-from training.data.degrade import (
-    apply_film_degradation,
-    apply_synthetic_degradation,
-    synthesize_degradation,
-)
+from data.dataset_targets import DatasetTargetsMixin
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
 
@@ -31,7 +23,7 @@ logger = logging.getLogger("lemtrain.dataset")
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1152]
 
 
-class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin):
+class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, DatasetTargetsMixin):
     """
     Nuclear-Hardened Universal Dataset (v16.0).
     Implements Fallback Shields, LANCZOS scaling, and stratified distribution analytics.
@@ -193,12 +185,7 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin):
         return len(self.samples)
 
     def __getitem__(self, index):
-        if (
-            hasattr(self.sync_mode, "value")
-            and self.sync_mode.value
-            or not hasattr(self.sync_mode, "value")
-            and self.sync_mode
-        ):
+        if getattr(self.sync_mode, "value", self.sync_mode):
             return self.sync_dummy()
 
         ds_name, sample_id = self.samples[index]
@@ -211,269 +198,8 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin):
         ):
             return self.getitem_container(ds_name, sample_id)
 
-        fname = sample_id  # Directory-backed path: sample_id is a filename string.
-        ds_path = self.path_cache.get(ds_name)
-        if ds_path is None:
-            ds_path = self.get_dataset_path(ds_name)
-            self.path_cache[ds_name] = ds_path
-        if ds_path is None:
-            ds_path = ""
-
-        img_path = self.split_path(ds_path, "images", fname)
-        tgt_path = self.split_path(ds_path, "targets", fname)
-
-        has_img = os.path.exists(img_path)
-        has_tgt = os.path.exists(tgt_path)
-
-        # --- 2026: Multi-Task Task ID Extractor ---
-        task_str = self.task_type
-        if self.model_key == "professional_multitask_restoration":
-            fname_lower = fname.lower()
-            # Use robust substring matching to map manifold names to task heads
-            if "denois" in fname_lower:
-                task_str = "denoise"
-            elif "deblur" in fname_lower:
-                task_str = "deblur"
-            elif "derain" in fname_lower:
-                task_str = "derain"
-            elif "dehaze_outdoor" in fname_lower or "outdoor" in fname_lower:
-                task_str = "dehaze_outdoor"
-            elif (
-                "dehaze_indoor" in fname_lower
-                or "indoor" in fname_lower
-                or "dehaze" in fname_lower
-                or "ffa" in fname_lower
-            ):
-                task_str = "dehaze_indoor"
-            elif "lowlight" in fname_lower:
-                task_str = "lowlight"
-            elif "exposure" in fname_lower:
-                task_str = "exposure"
-            elif "zoom" in fname_lower or "super" in fname_lower:
-                task_str = "superres"
-            elif "vintage" in fname_lower or "film" in fname_lower:
-                task_str = "vintage"
-            elif "codeformer" in fname_lower or "face_restor" in fname_lower:
-                task_str = "face_restorer"
-            elif "parsenet" in fname_lower or "face_pars" in fname_lower:
-                task_str = "face_parser"
-            else:
-                task_str = "denoise"  # Fallback default
-
-        if not has_img and has_tgt and self.task_type in ["restoration", "enhancement", "face"]:
-            target = self.load_image(tgt_path)
-            img = synthesize_degradation(target)
-
-            # 2026 Resilience: Force identical random seeds so RandomCrop and Flips perfectly align
-            # the degraded input with the clean target.
-            seed = random.randint(0, 2**32 - 1)
-            random.seed(seed)
-            torch.manual_seed(seed)
-            target_tensor = self.transform(target)
-
-            random.seed(seed)
-            torch.manual_seed(seed)
-            img_tensor = self.transform(img)
-
-        else:
-            img = self.load_image(img_path)
-
-            seed = random.randint(0, 2**32 - 1)
-
-            if self.model_key == "ultrazoom":
-                # 2026 Resilience: Dynamic super-resolution 2x downscaling on-the-fly
-                lr_size = (self.size[0] // 2, self.size[1] // 2)
-                lr_transform = transforms.Compose(
-                    [
-                        transforms.Resize(
-                            lr_size, interpolation=transforms.InterpolationMode.BILINEAR
-                        ),
-                        transforms.ToTensor(),
-                    ]
-                )
-                random.seed(seed)
-                torch.manual_seed(seed)
-                img_tensor = lr_transform(img)
-            else:
-                random.seed(seed)
-                torch.manual_seed(seed)
-                img_tensor = self.transform(img)
-
-            if self.task_type in ["restoration", "enhancement", "face"]:
-                if task_str == "face_parser":
-                    # ParseNet: load from masks/
-                    mask_path = self.split_path(ds_path, "masks", fname)
-                    if os.path.exists(mask_path):
-                        mask = Image.open(mask_path).convert("L")
-                        random.seed(seed)
-                        torch.manual_seed(seed)
-                        mask = self.mask_transform(mask)
-                        mask_tensor = torch.from_numpy(np.array(mask)).long()
-                        mask_tensor = torch.clamp(mask_tensor, 0, 18)
-                        target_tensor = mask_tensor
-                    else:
-                        target_tensor = torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
-                else:
-                    if has_tgt:
-                        target = self.load_image(tgt_path)
-                        random.seed(seed)
-                        torch.manual_seed(seed)
-                        target_tensor = self.transform(target)
-                    else:
-                        random.seed(seed)
-                        torch.manual_seed(seed)
-                        target_tensor = self.transform(img)  # Ensure HR fallback shape
-            else:
-                target_tensor = img_tensor  # Fallback initialization
-        if self.task_type in ["restoration", "enhancement", "face"]:
-            # 2026: Dynamic Film Degradation for Universal Film Restorer
-            if self.model_key == "film_restorer":
-                # Check if it's an identical file (meaning it's from a clean dataset like DIV2K)
-                try:
-                    if os.path.exists(tgt_path) and os.path.samefile(img_path, tgt_path):
-                        img_tensor = apply_film_degradation(target_tensor)
-                except OSError as exc:
-                    logger.debug("samefile check failed for %s vs %s: %s", img_path, tgt_path, exc)
-
-            if self.model_key.startswith("ffanet"):
-                label_path = self.split_path(ds_path, "labels", fname, ".txt")
-                bboxes = []
-                if os.path.exists(label_path):
-                    with open(label_path, "r", encoding="utf-8") as f:
-                        for line in f:
-                            parts = line.strip().split()
-                            if len(parts) >= 5:
-                                bboxes.append([float(x) for x in parts[:5]])
-
-                # Pad to max 50 boxes
-                max_boxes = 50
-                bboxes_tensor = torch.zeros((max_boxes, 5), dtype=torch.float32)
-                if bboxes:
-                    num_boxes = min(len(bboxes), max_boxes)
-                    bboxes_tensor[:num_boxes] = torch.tensor(
-                        bboxes[:num_boxes], dtype=torch.float32
-                    )
-
-                return img_tensor, {"image": target_tensor, "bboxes": bboxes_tensor}, task_str
-
-            return img_tensor, target_tensor, task_str
-
-        if self.task_type == "parameter_prediction":
-            # 2026: On-the-fly Synthetic Degradation for Parameter Prediction
-            # Load clean image, sample random params, apply degradation, return both
-            tgt_path = self.split_path(ds_path, "targets", fname)
-            if os.path.exists(tgt_path):
-                clean_img = self.load_image(tgt_path)
-            else:
-                clean_img = img  # Fallback to input image as clean source
-
-            clean_tensor = self.clean_transform(clean_img)
-
-            # Sample random degradation parameters
-            deg = random.random()  # [0.0, 1.0]
-            theta = random.random() * math.pi  # [0.0, π]
-            conf = random.random()  # [0.0, 1.0]
-
-            # Apply synthetic degradation
-            degraded_tensor = apply_synthetic_degradation(clean_tensor, deg, theta, conf)
-
-            # Ground truth parameter vector
-            params = torch.tensor([deg, theta, conf], dtype=torch.float32)
-
-            return degraded_tensor, params, "parameter_prediction"
-
-        if self.task_type == "quality":
-            if self.model_key == "nima_authenticity":
-                # Dynamically construct target distribution for authenticity
-                # 'real' = High authenticity (Class 1, peak at bin 10)
-                # 'shutterstock' = Low authenticity (Class 0, peak at bin 1)
-                basename = os.path.splitext(fname)[0]
-                n_score = self.nima_scores.get(basename, 0.0)
-                if n_score > 5.0:
-                    score = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9]
-                else:
-                    score = [0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-                return img_tensor, torch.tensor(score, dtype=torch.float32), "quality"
-
-            label_path = self.split_path(ds_path, "labels", fname, ".txt")
-            if os.path.exists(label_path):
-                with open(label_path, "r", encoding="utf-8") as f:
-                    try:
-                        score = [float(x) for x in f.read().split()]
-                        if len(score) < 10:
-                            score = score + [0.0] * (10 - len(score))
-                        return img_tensor, torch.tensor(score[:10], dtype=torch.float32), "quality"
-                    except (ValueError, TypeError) as lbl_err:
-                        logger.debug("Invalid quality label in %s: %s", label_path, lbl_err)
-            return img_tensor, torch.zeros(10), "quality"
-        if self.task_type == "classification":
-            label_path = self.split_path(ds_path, "labels", fname, ".txt")
-            if os.path.exists(label_path):
-                with open(label_path, "r", encoding="utf-8") as f:
-                    try:
-                        class_idx = int(float(f.read().strip()))
-                        return (
-                            img_tensor,
-                            torch.tensor(class_idx, dtype=torch.long),
-                            "classification",
-                        )
-                    except (ValueError, TypeError) as cls_err:
-                        logger.debug("Invalid classification label in %s: %s", label_path, cls_err)
-            parent_dir = os.path.dirname(fname)
-            if parent_dir:
-                class_candidate = os.path.basename(parent_dir)
-                if class_candidate.isdigit():
-                    return (
-                        img_tensor,
-                        torch.tensor(int(class_candidate), dtype=torch.long),
-                        "classification",
-                    )
-                classes_file = os.path.join(ds_path, "classes.txt")
-                if os.path.exists(classes_file):
-                    try:
-                        with open(classes_file, "r", encoding="utf-8") as cf:
-                            c_lines = [line.strip() for line in cf if line.strip()]
-                        if class_candidate in c_lines:
-                            return (
-                                img_tensor,
-                                torch.tensor(c_lines.index(class_candidate), dtype=torch.long),
-                                "classification",
-                            )
-                    except OSError as cf_err:
-                        logger.debug("Failed reading classes file %s: %s", classes_file, cf_err)
-            return img_tensor, torch.tensor(0, dtype=torch.long), "classification"
-        if self.task_type == "segmentation":
-            mask_path = self.split_path(ds_path, "masks", fname)
-            if os.path.exists(mask_path):
-                mask = Image.open(mask_path).convert("L")  # Usually masks are grayscale labels
-                random.seed(seed)
-                torch.manual_seed(seed)
-                mask = self.mask_transform(mask)
-                mask_tensor = torch.from_numpy(
-                    np.array(mask)
-                ).long()  # Class indices as long tensor
-                mask_tensor = torch.clamp(
-                    mask_tensor, 0, 18
-                )  # Prevent NLLLoss2d crash from garbage dataset masks
-            else:
-                mask_tensor = torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
-            return img_tensor, mask_tensor, "segmentation"
-        if self.task_type == "face_detection":
-            label_path = self.split_path(ds_path, "labels", fname, ".txt")
-            target = torch.zeros(15, dtype=torch.float32)
-            if os.path.exists(label_path):
-                with open(label_path, "r", encoding="utf-8") as f:
-                    try:
-                        parts = f.read().split()
-                        if len(parts) >= 15:
-                            target[0] = 1.0  # confidence
-                            for i in range(14):
-                                target[i + 1] = float(parts[i + 1])
-                    except (ValueError, TypeError) as fd_err:
-                        logger.debug("Invalid face detection label in %s: %s", label_path, fd_err)
-            return img_tensor, target, "face_detection"
-
-        return img_tensor, torch.zeros(1), self.task_type
+        # Directory-backed path: sample_id is a filename string.
+        return self.task_item(self.load_directory_sample(ds_name, sample_id))
 
     def update_strategy(self, size=None, fraction=None, stress=None):
         """Dynamic manifold scaling for curriculum learning (v16.2)."""

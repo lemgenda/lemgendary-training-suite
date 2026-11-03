@@ -46,7 +46,7 @@ class TestOpenAPIAndContract(unittest.TestCase):
         self.assertEqual(data.get("openapi"), "3.1.0")
         info = data.get("info", {})
         self.assertEqual(info.get("title"), "LemGendary Model Training Suite Sidecar API")
-        self.assertEqual(info.get("version"), "16.9.84")
+        self.assertEqual(info.get("version"), "16.9.85")
 
         paths = data.get("paths", {})
         required_paths = [
