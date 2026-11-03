@@ -49,8 +49,8 @@ class TestIntegrationModels(unittest.TestCase):
             # Verify metadata content
             self.assertEqual(meta_file.name, "model_metadata.yaml")
             metadata = ModelMetadata.load(meta_file)
-            self.assertEqual(metadata.model.license, "CC BY-NC 4.0")
-            self.assertFalse(metadata.model.is_private)
+            self.assertEqual(metadata.model.publishing.license, "CC BY-NC 4.0")
+            self.assertFalse(metadata.model.publishing.is_private)
 
             json_meta_file = out_dir / "model-metadata.json"
             self.assertTrue(json_meta_file.exists())

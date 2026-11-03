@@ -19,7 +19,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from tests.fixtures.training_context import fresh_governance
-from training.checkpoint import ResumeState
+from training.checkpoint import ResumeProgress, ResumeState
 from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
 from training.hardware.sentinel import SentinelGuard
@@ -367,7 +367,11 @@ class TestSwaResume(unittest.TestCase):
 
     @staticmethod
     def _resume(epoch: int, intra: bool = False) -> ResumeState:
-        return ResumeState(epoch=epoch, iteration=0, model_state_dict={}, is_intra_epoch=intra)
+        return ResumeState(
+            epoch=epoch,
+            model_state_dict={},
+            progress=ResumeProgress(iteration=0, is_intra_epoch=intra),
+        )
 
     def test_round_trip_at_completed_epoch(self) -> None:
         """Resuming after epoch 3 (or inside epoch 4) restores the average."""

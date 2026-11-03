@@ -192,7 +192,7 @@ def build_continuous_sync_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     """Build background Google Drive sync worker code cell for Colab."""
     source = [
         "import os, time, shutil, threading\n",
-        f"model_key = '{meta.model_key}'\n",
+        f"model_key = '{meta.identity.model_key}'\n",
         "hub_root = '/content/LemGendaryModels'\n",
         "model_hub_dir = os.path.join(hub_root, model_key)\n",
         "ckpt_hub_dir = os.path.join(model_hub_dir, 'checkpoints')\n",
@@ -274,10 +274,10 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
         default_dir = "/content/lemgendary-training-suite"
         env_flag = "colab"
 
-    launch_msg = "Forex Curriculum Orchestrator" if meta.is_forex else "Training Matrix"
+    launch_msg = "Forex Curriculum Orchestrator" if meta.identity.is_forex else "Training Matrix"
     cmd_dispatch = [
-        "is_forex = " + str(meta.is_forex) + "\n",
-        f"model_key = '{meta.model_key}'\n",
+        "is_forex = " + str(meta.identity.is_forex) + "\n",
+        f"model_key = '{meta.identity.model_key}'\n",
         f"preferred_parallel = '{meta.preferred_parallel}'\n",
         "import torch\n",
         "num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0\n",
@@ -295,11 +295,12 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
         ),
         (
             "    cmd = [sys.executable, '-u', 'tools/launch_ddp.py', '--model', "
-            f"'{meta.model_key}', '--env', '{env_flag}', '--auto_sync']\n"
+            f"'{meta.identity.model_key}', '--env', '{env_flag}', '--auto_sync']\n"
         ),
         "else:\n",
         (
-            f"    cmd = [sys.executable, '-u', 'training/train.py', '--model', '{meta.model_key}', "
+            "    cmd = [sys.executable, '-u', 'training/train.py', '--model', "
+            f"'{meta.identity.model_key}', "
             f"'--env', '{env_flag}', '--auto_sync']\n"
         ),
     ]
@@ -369,7 +370,10 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
             "except Exception:\n",
             "    pass\n",
             "\n",
-            f"print(f'[LAUNCH] [NUCLEAR] Initiating {launch_msg} for {meta.model_key}...')\n",
+            (
+                f"print(f'[LAUNCH] [NUCLEAR] Initiating {launch_msg} "
+                f"for {meta.identity.model_key}...')\n"
+            ),
         ]
         + cmd_dispatch
         + exec_lines
@@ -380,34 +384,34 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
 def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
     """Build the KaggleHub (4 variations) and Google Drive deployment code cell."""
     local_path = (
-        f"/kaggle/working/LemGendaryModels/{meta.model_key}"
+        f"/kaggle/working/LemGendaryModels/{meta.identity.model_key}"
         if target == "kaggle"
-        else f"/content/LemGendaryModels/{meta.model_key}"
+        else f"/content/LemGendaryModels/{meta.identity.model_key}"
     )
 
     metadata_yaml_str = ""
     try:
         metadata_generator = load_cloud_module("metadata_generator")
-        meta_svc = metadata_generator.KaggleMetadataService(owner_slug=meta.k_username)
-        metadata_obj = meta_svc.build(meta.model_key)
+        meta_svc = metadata_generator.KaggleMetadataService(owner_slug=meta.kaggle.username)
+        metadata_obj = meta_svc.build(meta.identity.model_key)
         metadata_yaml_str = metadata_obj.to_yaml()
     except (ImportError, OSError, ValueError, KeyError, yaml.YAMLError) as exc:
         # ValueError includes MetadataValidationError (model missing from registry or
         # invalid fields).
         logger.warning(
             "Could not embed Kaggle metadata for %s; push cell ships without it: %s",
-            meta.model_key,
+            meta.identity.model_key,
             exc,
         )
         metadata_yaml_str = ""
 
     source = [
         "import os, sys, shutil, json, tempfile\n",
-        f"model_key = '{meta.model_key}'\n",
+        f"model_key = '{meta.identity.model_key}'\n",
         f"local_path = '{local_path}'\n",
-        f"owner_slug = '{meta.k_username}'\n",
-        f"model_slug = '{meta.k_slug}'\n",
-        f"handles = {meta.handles!r}\n",
+        f"owner_slug = '{meta.kaggle.username}'\n",
+        f"model_slug = '{meta.kaggle.slug}'\n",
+        f"handles = {meta.kaggle.handles!r}\n",
         f"EMBEDDED_METADATA_YAML = {metadata_yaml_str!r}\n",
         "\n",
         "print(f'[PUBLISH] Initiating 4-variation Kaggle Model Hub publish for {model_key}...')\n",

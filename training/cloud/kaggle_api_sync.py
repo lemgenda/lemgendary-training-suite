@@ -98,8 +98,8 @@ class KaggleApiSyncService:
         self.key = resolved_key
         self._api: KaggleApi | None = None
 
-    def _get_api(self) -> KaggleApi:
-        """Authenticate and return KaggleApi client."""
+    def client(self) -> KaggleApi:
+        """The authenticated KaggleApi client (created on first use)."""
         # Ensure official Kaggle API client uses active Bearer API token
         if self.key and self.key.startswith("KGAT_"):
             os.environ["KAGGLE_API_TOKEN"] = self.key
@@ -111,7 +111,7 @@ class KaggleApiSyncService:
 
     def sync_metadata(self, metadata: ModelMetadata) -> dict[str, Any]:
         """Apply model-level and instance-level metadata to Kaggle via KaggleApi."""
-        api = self._get_api()
+        api = self.client()
         model_slug = metadata.model.slug
         owner = metadata.model.owner
         full_model_ref = f"{owner}/{model_slug}"

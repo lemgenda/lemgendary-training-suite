@@ -38,12 +38,12 @@ class GDriveCloudManager:
         self.folder_id = folder_id or fleet_cfg.get(
             "google_drive_folder_id", DEFAULT_ROOT_FOLDER_ID
         )
-        self.token = resolve_gdrive_credentials(token)
+        resolved_token = resolve_gdrive_credentials(token)
         self.suite_dir = Path(__file__).resolve().parent.parent
 
         self.gdrive_mgr = GDriveSyncManager(
             root_folder_id=self.folder_id,
-            token=self.token,
+            token=resolved_token,
         )
         self.model_dir = self._resolve_model_dir()
         self.checkpoint_dir = self.model_dir / "checkpoints"

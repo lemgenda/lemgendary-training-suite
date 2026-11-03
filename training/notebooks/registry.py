@@ -32,29 +32,49 @@ def _get_project_root() -> Path:
 
 
 @dataclass(frozen=True)
-class ModelNotebookMeta:
-    """Immutable model metadata record consumed by notebook cell generators."""
+class NotebookIdentity:
+    """Model key, its derived names and family."""
 
     model_key: str
     pascal_name: str
     kebab_name: str
+    filename: str
     is_forex: bool
+
+
+@dataclass(frozen=True)
+class NotebookDataset:
+    """Dataset manifold the notebook mounts or downloads."""
+
     dataset_slug: str
     ds_list: list[str]
     ds_keys_repr: str
     clean_kaggle_repo: str
     primary_manifold: str
-    k_username: str
-    k_slug: str
-    k_handle: str  # Primary handle (pytorch/default) for backward compatibility
-    input_size: tuple[int, int]
-    filename: str
     no_download: bool
+
+
+@dataclass(frozen=True)
+class KaggleNotebookHandles:
+    """Kaggle owner, model slug and per-variation model handles."""
+
+    username: str
+    slug: str
     handles: dict[str, str] = field(default_factory=dict)
-    handle_pytorch_default: str = ""
-    handle_pytorch_fp32: str = ""
-    handle_onnx_fp16: str = ""
-    handle_onnx_fp32: str = ""
+    pytorch_default: str = ""  # Primary handle, used to pull checkpoints
+    pytorch_fp32: str = ""
+    onnx_fp16: str = ""
+    onnx_fp32: str = ""
+
+
+@dataclass(frozen=True)
+class ModelNotebookMeta:
+    """Immutable model metadata record consumed by notebook cell generators."""
+
+    identity: NotebookIdentity
+    dataset: NotebookDataset
+    kaggle: KaggleNotebookHandles
+    input_size: tuple[int, int]
     preferred_parallel: str = ""
 
 
@@ -161,30 +181,35 @@ def resolve_model_metadata(
     )
 
     return ModelNotebookMeta(
-        model_key=model_key,
-        pascal_name=pascal_name,
-        kebab_name=kebab_name,
-        is_forex=is_forex,
-        dataset_slug=_dataset_slug(config, pascal_name, f"lemgendary-{kebab_name}"),
-        ds_list=ds_list,
-        ds_keys_repr=repr(
-            [model_key.lower(), model_key.replace("_", "-"), model_key.replace("_", "")]
-            + [d.lower() for d in ds_list]
-            + (["forex"] if is_forex else [])
+        identity=NotebookIdentity(
+            model_key=model_key,
+            pascal_name=pascal_name,
+            kebab_name=kebab_name,
+            filename=model_info.get("filename", model_key),
+            is_forex=is_forex,
         ),
-        clean_kaggle_repo=clean_kaggle_repo,
-        primary_manifold=primary_manifold,
-        k_username=k_username,
-        k_slug=k_slug,
-        k_handle=handles[variations.PYTORCH_DEFAULT.key],
+        dataset=NotebookDataset(
+            dataset_slug=_dataset_slug(config, pascal_name, f"lemgendary-{kebab_name}"),
+            ds_list=ds_list,
+            ds_keys_repr=repr(
+                [model_key.lower(), model_key.replace("_", "-"), model_key.replace("_", "")]
+                + [d.lower() for d in ds_list]
+                + (["forex"] if is_forex else [])
+            ),
+            clean_kaggle_repo=clean_kaggle_repo,
+            primary_manifold=primary_manifold,
+            no_download=bool(config.get("notebook_no_download", False)) if config else False,
+        ),
+        kaggle=KaggleNotebookHandles(
+            username=k_username,
+            slug=k_slug,
+            handles=handles,
+            pytorch_default=handles[variations.PYTORCH_DEFAULT.key],
+            pytorch_fp32=handles[variations.PYTORCH_FP32.key],
+            onnx_fp16=handles[variations.ONNX_FP16.key],
+            onnx_fp32=handles[variations.ONNX_FP32.key],
+        ),
         input_size=_notebook_input_size(model_info.get("input_size", [3, 256, 256])),
-        filename=model_info.get("filename", model_key),
-        no_download=bool(config.get("notebook_no_download", False)) if config else False,
-        handles=handles,
-        handle_pytorch_default=handles[variations.PYTORCH_DEFAULT.key],
-        handle_pytorch_fp32=handles[variations.PYTORCH_FP32.key],
-        handle_onnx_fp16=handles[variations.ONNX_FP16.key],
-        handle_onnx_fp32=handles[variations.ONNX_FP32.key],
         preferred_parallel=str(model_info.get("preferred_parallel", "") or ""),
     )
 

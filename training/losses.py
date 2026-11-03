@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import gc
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
@@ -318,6 +318,24 @@ def _restoration_output(pred) -> dict | None:
     return pred if isinstance(pred, dict) and "restored_image" in pred else None
 
 
+@dataclass(frozen=True)
+class _BaseCriteria:
+    """Stateless base criteria of :class:`CombinedLoss`.
+
+    None of them has parameters or buffers, so keeping them outside the module tree leaves
+    ``CombinedLoss.state_dict()`` keys unchanged.
+    """
+
+    l1: nn.L1Loss = field(default_factory=lambda: nn.L1Loss(reduction="mean"))
+    # Legacy fallback for face and segmentation topology
+    mse: nn.MSELoss = field(default_factory=lambda: nn.MSELoss(reduction="mean"))
+    ce: nn.CrossEntropyLoss = field(default_factory=lambda: nn.CrossEntropyLoss(ignore_index=255))
+    focal: FocalLoss = field(default_factory=lambda: FocalLoss(gamma=2.0, label_smoothing=0.05))
+    soft_spearman: SoftSpearmanLoss = field(
+        default_factory=lambda: SoftSpearmanLoss(temperature=0.1)
+    )
+
+
 class CombinedLoss(nn.Module):
     """
     LemGendary 2026 Unified Loss Engine
@@ -334,13 +352,7 @@ class CombinedLoss(nn.Module):
         self.task_type = task_type
         # 2026 Resilience: Dynamic injection from config hierarchy
         self.stab = stabilizers or {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0}
-        self.l1 = nn.L1Loss(reduction="mean")
-        self.mse = nn.MSELoss(
-            reduction="mean"
-        )  # Legacy fallback for face and segmentation topology
-        self.ce = nn.CrossEntropyLoss(ignore_index=255)
-        self.focal = FocalLoss(gamma=2.0, label_smoothing=0.05)
-        self.soft_spearman = SoftSpearmanLoss(temperature=0.1)
+        self.criteria = _BaseCriteria()
         self.forex_dual = ForexDualLoss(stabilizers=self.stab)
         self.memory_bank = None
         if self.stab.get("rank_memory_bank_size", 0) > 0 or self.stab.get("use_memory_bank", False):
@@ -439,9 +451,9 @@ class CombinedLoss(nn.Module):
                 img_pred = pred
                 img_target = target
 
-            base_loss = self.l1(img_pred, img_target)
+            base_loss = self.criteria.l1(img_pred, img_target)
             if isinstance(pred, (tuple, list)) and len(pred) > 1 and task_idx is not None:
-                base_loss = base_loss + 0.1 * self.ce(pred[1], task_idx)
+                base_loss = base_loss + 0.1 * self.criteria.ce(pred[1], task_idx)
 
             if self.perc is not None:
                 p_scaled = torch.clamp(img_pred, 0, 1) * 2.0 - 1.0
@@ -480,7 +492,7 @@ class CombinedLoss(nn.Module):
         total_loss = float(self.stab.get("emd_weight", 1.0)) * emd
 
         if self.stab.get("use_soft_spearman", True) and p_eval.size(0) > 1:
-            spearman_loss = self.soft_spearman(p_eval, t_eval)
+            spearman_loss = self.criteria.soft_spearman(p_eval, t_eval)
             total_loss = total_loss + (
                 float(self.stab.get("soft_spearman_weight", 0.5)) * spearman_loss
             )
@@ -523,7 +535,7 @@ class CombinedLoss(nn.Module):
             return F.smooth_l1_loss(pred_norm, target_norm, beta=huber_delta)
 
         if self.task_type == "classification":
-            return self.ce(pred, target)
+            return self.criteria.ce(pred, target)
 
         if self.task_type == "segmentation":
             if target.dim() == 4:
@@ -532,7 +544,7 @@ class CombinedLoss(nn.Module):
                 target = torch.zeros(
                     (pred.size(0), pred.size(2), pred.size(3)), dtype=torch.long, device=pred.device
                 )
-            return self.ce(pred, target.long())
+            return self.criteria.ce(pred, target.long())
 
         if (
             self.task_type == "face_detection"
@@ -541,4 +553,4 @@ class CombinedLoss(nn.Module):
         ):
             return _face_detection_loss(pred, target)
 
-        return self.mse(pred, target)
+        return self.criteria.mse(pred, target)

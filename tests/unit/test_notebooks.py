@@ -92,13 +92,13 @@ class TestNotebookSubsystem(unittest.TestCase):
         """Verify metadata extraction for both vision and forex models."""
         mirnet_meta = resolve_model_metadata("mirnet_exposure", self.registry, self.config)
         self.assertIsInstance(mirnet_meta, ModelNotebookMeta)
-        self.assertEqual(mirnet_meta.model_key, "mirnet_exposure")
-        self.assertFalse(mirnet_meta.is_forex)
-        self.assertEqual(mirnet_meta.pascal_name, "MirnetExposure")
+        self.assertEqual(mirnet_meta.identity.model_key, "mirnet_exposure")
+        self.assertFalse(mirnet_meta.identity.is_forex)
+        self.assertEqual(mirnet_meta.identity.pascal_name, "MirnetExposure")
 
         forex_meta = resolve_model_metadata("forex_predictor", self.registry, self.config)
-        self.assertTrue(forex_meta.is_forex)
-        self.assertEqual(forex_meta.pascal_name, "ForexPredictor")
+        self.assertTrue(forex_meta.identity.is_forex)
+        self.assertEqual(forex_meta.identity.pascal_name, "ForexPredictor")
 
     def test_env_and_sentinel_cell(self) -> None:
         """Verify runtime env loading and sentinel cell generation."""

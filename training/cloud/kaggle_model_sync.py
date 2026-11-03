@@ -171,7 +171,6 @@ class KaggleModelSyncManager:
     ) -> None:
         user, resolved_key = resolve_kaggle_credentials(override_user=username, override_key=key)
         self.username = user or kaggle_owner()
-        self.key = resolved_key
 
         if hub_root:
             self.hub_root = Path(hub_root).resolve()
@@ -180,7 +179,7 @@ class KaggleModelSyncManager:
 
         self.registry = get_model_registry()
         self.metadata_service = KaggleMetadataService(owner_slug=self.username)
-        self.api_sync_service = KaggleApiSyncService(username=self.username, key=self.key)
+        self.api_sync_service = KaggleApiSyncService(username=self.username, key=resolved_key)
         self.validator = StrictIsolationValidator()
         self._staging_service = None
 

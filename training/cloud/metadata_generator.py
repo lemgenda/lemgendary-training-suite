@@ -20,7 +20,11 @@ from training.cloud.model_metadata import (
     METADATA_FILENAME,
     MetadataValidationError,
     ModelMetadata,
+    ModelPublishing,
     ModelSection,
+    ModelText,
+    VariationLicensing,
+    VariationLineage,
     VariationSection,
 )
 from training.cloud.variations import (
@@ -31,7 +35,7 @@ from training.cloud.variations import (
     KaggleVariation,
 )
 from training.ecosystem import docs_url
-from training.registry import ModelSpecification, get_model_registry
+from training.registry import KaggleModelMetadata, ModelSpecification, get_model_registry
 from training.registry.kaggle_datasets import model_kaggle_dataset_urls
 from training.utils.paths import get_workspace_root
 
@@ -79,6 +83,120 @@ def resolve_whitepaper_url(model_key: str) -> str:
     return f"{docs_url()}/index.html"
 
 
+def _provenance_sources(
+    k_meta: KaggleModelMetadata | None, spec: ModelSpecification, whitepaper_url: str
+) -> list[str]:
+    """Registry provenance sources plus the academic link and whitepaper URL (no duplicates)."""
+    sources = list(k_meta.provenance_sources) if k_meta else []
+    ref = spec.academic_reference
+    if ref and ref.link and ref.link not in sources:
+        sources.append(ref.link)
+    if whitepaper_url and whitepaper_url not in sources:
+        sources.append(whitepaper_url)
+    return sources
+
+
+def _model_section(
+    model_key: str, spec: ModelSpecification, owner: str, dataset_urls: list[str]
+) -> ModelSection:
+    """The generated ``model`` section from the registry's Kaggle metadata."""
+    k_meta = spec.kaggle_metadata
+    slug = k_meta.slug if k_meta and k_meta.slug else model_key.replace("_", "-").lower()
+    subtitle = k_meta.subtitle if k_meta and k_meta.subtitle else ""
+    if not subtitle or subtitle.startswith(_DEFAULT_SUBTITLE_PREFIX):
+        subtitle = spec.architecture_type
+    keywords = list(k_meta.tags) if k_meta else []
+    whitepaper_url = resolve_whitepaper_url(model_key)
+    return ModelSection(
+        owner=owner,
+        slug=slug,
+        text=ModelText(
+            title=k_meta.title if k_meta and k_meta.title else spec.name,
+            subtitle=subtitle,
+            description=_build_description(
+                spec, (owner, slug), dataset_urls, whitepaper_url, keywords
+            ),
+        ),
+        publishing=ModelPublishing(
+            is_private=False,
+            license=k_meta.license if k_meta and k_meta.license else DEFAULT_LICENSE,
+            keywords=keywords,
+            provenance_sources=_provenance_sources(k_meta, spec, whitepaper_url),
+            publish_time=None,
+        ),
+    )
+
+
+def _build_description(
+    spec: ModelSpecification,
+    owner_slug: tuple[str, str],
+    dataset_urls: list[str],
+    whitepaper_url: str | None = None,
+    keywords: list[str] | None = None,
+) -> str:
+    """Return the Kaggle model description; ``owner_slug`` is ``(owner, slug)``."""
+    lines = _description_overview_lines(spec, owner_slug, dataset_urls, keywords)
+    lines.extend(_citation_lines(spec, whitepaper_url or resolve_whitepaper_url(spec.key)))
+    return "\n".join(lines).strip() + "\n"
+
+
+def _description_overview_lines(
+    spec: ModelSpecification,
+    owner_slug: tuple[str, str],
+    dataset_urls: list[str],
+    keywords: list[str] | None,
+) -> list[str]:
+    """Description, architecture, keywords, training data and variation handles."""
+    owner, slug = owner_slug
+    raw_desc = spec.description or spec.name
+    wrapped_desc = textwrap.fill(raw_desc, width=120) if len(raw_desc) > 120 else raw_desc
+    lines: list[str] = [wrapped_desc, ""]
+    lines.append(f"**Architecture:** {spec.architecture_type}")
+    lines.append(f"**Category:** {spec.category}")
+    active_keywords: list[str] = []
+    if keywords:
+        active_keywords = list(keywords)
+    elif spec.kaggle_metadata and spec.kaggle_metadata.tags:
+        active_keywords = list(spec.kaggle_metadata.tags)
+    if active_keywords:
+        lines.append(f"**Keywords / Tags:** {', '.join(active_keywords)}")
+    if dataset_urls:
+        lines.append("")
+        lines.append("**Training data:**")
+        for url in dataset_urls:
+            lines.append(f"- {url}")
+    lines.append("")
+    lines.append("**Variations:**")
+    for variation in VARIATIONS:
+        lines.append(f"- `{variation.handle(owner, slug)}` - {variation.label}")
+    return lines
+
+
+def _citation_lines(spec: ModelSpecification, resolved_whitepaper: str) -> list[str]:
+    """The "Citations & Technical Documentation" block."""
+    lines = ["", "### Citations & Technical Documentation"]
+    if resolved_whitepaper:
+        lines.append(
+            f"- **Architecture Whitepaper:** [Whitepaper Reference]({resolved_whitepaper})"
+        )
+
+    ref = spec.academic_reference
+    if ref and ref.title:
+        citation = f"{ref.authors} ({ref.year}). {ref.title}. {ref.venue}".strip()
+        full_ref = f"- **Academic Reference:** {citation} {ref.link}".strip()
+        if len(full_ref) > 120:
+            wrapped_ref = textwrap.fill(
+                full_ref, width=120, break_long_words=False, break_on_hyphens=False
+            )
+            lines.append(wrapped_ref)
+        else:
+            lines.append(full_ref)
+    elif not resolved_whitepaper:
+        hub = docs_url()
+        lines.append(f"- **Documentation Hub:** [{hub}]({hub})")
+    return lines
+
+
 class KaggleMetadataService:
     """Generates, merges and writes ``model_metadata.yaml`` files."""
 
@@ -109,61 +227,44 @@ class KaggleMetadataService:
             )
 
         owner = owner_slug or self.owner_slug
-        k_meta = resolved.kaggle_metadata
-        slug = k_meta.slug if k_meta and k_meta.slug else model_key.replace("_", "-").lower()
-        title = k_meta.title if k_meta and k_meta.title else resolved.name
-        subtitle = k_meta.subtitle if k_meta and k_meta.subtitle else ""
-        if not subtitle or subtitle.startswith(_DEFAULT_SUBTITLE_PREFIX):
-            subtitle = resolved.architecture_type
-        license_name = k_meta.license if k_meta and k_meta.license else DEFAULT_LICENSE
-        keywords = list(k_meta.tags) if k_meta else []
-        sources = list(k_meta.provenance_sources) if k_meta else []
-        ref = resolved.academic_reference
-        if ref and ref.link and ref.link not in sources:
-            sources.append(ref.link)
-
-        whitepaper_url = resolve_whitepaper_url(model_key)
-        if whitepaper_url and whitepaper_url not in sources:
-            sources.append(whitepaper_url)
-
         dataset_urls = self._dataset_urls(resolved)
-        stem = resolved.filename or model_key
-
-        model = ModelSection(
-            owner=owner,
-            slug=slug,
-            title=title,
-            subtitle=subtitle,
-            description=self._build_description(
-                resolved, (owner, slug), dataset_urls, whitepaper_url, keywords
-            ),
-            is_private=False,
-            license=license_name,
-            keywords=keywords,
-            provenance_sources=sources,
-            publish_time=None,
+        model = _model_section(model_key, resolved, owner, dataset_urls)
+        return ModelMetadata(
+            model_key=model_key,
+            model=model,
+            variations=self._variation_sections(resolved, model, dataset_urls, model_key),
         )
 
+    def _variation_sections(
+        self,
+        spec: ModelSpecification,
+        model: ModelSection,
+        dataset_urls: list[str],
+        model_key: str,
+    ) -> dict[str, VariationSection]:
+        """One generated section per supported variation (the base one is fine-tunable)."""
+        owner, slug = model.owner, model.slug
+        stem = spec.filename or model_key
         variations: dict[str, VariationSection] = {}
         base_handle = f"{owner}/{slug}/pytorch/default"
         for variation in VARIATIONS:
             is_base = variation is PYTORCH_DEFAULT
-            instance_type = "BaseModel" if is_base else "KaggleVariant"
-            base_inst = "" if is_base else base_handle
-
             variations[variation.key] = VariationSection(
-                overview=self._variation_overview(resolved, variation),
+                overview=self._variation_overview(spec, variation),
                 usage=self._variation_usage(owner, slug, stem, variation),
-                license=license_name,
-                fine_tunable=is_base,
-                training_data=list(dataset_urls),
-                model_instance_type=instance_type,
-                base_model_instance=base_inst,
-                external_base_model_url="",
-                version_notes=f"{resolved.name} - {variation.label} release",
+                licensing=VariationLicensing(
+                    license=model.publishing.license,
+                    fine_tunable=is_base,
+                    training_data=list(dataset_urls),
+                ),
+                lineage=VariationLineage(
+                    model_instance_type="BaseModel" if is_base else "KaggleVariant",
+                    base_model_instance="" if is_base else base_handle,
+                    external_base_model_url="",
+                ),
+                version_notes=f"{spec.name} - {variation.label} release",
             )
-
-        return ModelMetadata(model_key=model_key, model=model, variations=variations)
+        return variations
 
     def merge_hand_edited(self, generated: ModelMetadata, existing: ModelMetadata) -> ModelMetadata:
         """Keep manual edits: each dotted path in existing.hand_edited overrides generation."""
@@ -260,64 +361,6 @@ class KaggleMetadataService:
     @staticmethod
     def _dataset_urls(spec: ModelSpecification) -> list[str]:
         return model_kaggle_dataset_urls(spec.raw_config)
-
-    @staticmethod
-    def _build_description(
-        spec: ModelSpecification,
-        owner_slug: tuple[str, str],
-        dataset_urls: list[str],
-        whitepaper_url: str | None = None,
-        keywords: list[str] | None = None,
-    ) -> str:
-        """Return the Kaggle model description; ``owner_slug`` is ``(owner, slug)``."""
-        owner, slug = owner_slug
-        raw_desc = spec.description or spec.name
-        wrapped_desc = textwrap.fill(raw_desc, width=120) if len(raw_desc) > 120 else raw_desc
-        lines: list[str] = [wrapped_desc, ""]
-        lines.append(f"**Architecture:** {spec.architecture_type}")
-        lines.append(f"**Category:** {spec.category}")
-        active_keywords: list[str] = []
-        if keywords:
-            active_keywords = list(keywords)
-        elif spec.kaggle_metadata and spec.kaggle_metadata.tags:
-            active_keywords = list(spec.kaggle_metadata.tags)
-        if active_keywords:
-            lines.append(f"**Keywords / Tags:** {', '.join(active_keywords)}")
-        if dataset_urls:
-            lines.append("")
-            lines.append("**Training data:**")
-            for url in dataset_urls:
-                lines.append(f"- {url}")
-        lines.append("")
-        lines.append("**Variations:**")
-        for variation in VARIATIONS:
-            lines.append(f"- `{variation.handle(owner, slug)}` - {variation.label}")
-
-        # Citations & Academic / Technical Whitepaper References
-        resolved_whitepaper = whitepaper_url or resolve_whitepaper_url(spec.key)
-        lines.append("")
-        lines.append("### Citations & Technical Documentation")
-        if resolved_whitepaper:
-            lines.append(
-                f"- **Architecture Whitepaper:** [Whitepaper Reference]({resolved_whitepaper})"
-            )
-
-        ref = spec.academic_reference
-        if ref and ref.title:
-            citation = f"{ref.authors} ({ref.year}). {ref.title}. {ref.venue}".strip()
-            full_ref = f"- **Academic Reference:** {citation} {ref.link}".strip()
-            if len(full_ref) > 120:
-                wrapped_ref = textwrap.fill(
-                    full_ref, width=120, break_long_words=False, break_on_hyphens=False
-                )
-                lines.append(wrapped_ref)
-            else:
-                lines.append(full_ref)
-        elif not resolved_whitepaper:
-            hub = docs_url()
-            lines.append(f"- **Documentation Hub:** [{hub}]({hub})")
-
-        return "\n".join(lines).strip() + "\n"
 
     @staticmethod
     def _variation_overview(spec: ModelSpecification, variation: KaggleVariation) -> str:
