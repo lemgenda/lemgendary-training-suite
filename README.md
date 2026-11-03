@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.119-STABLE`
+- **Version**: `v16.9.120-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,14 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.120 - Pyright Clean
+
+- **Types**: pyright reports 0 errors (was 471). Mixins declare the host
+  attributes they use (new `GovernorHost` base, typed dataset, forex and
+  job mixins); optionals are narrowed; torchmetrics LPIPS/FID load through
+  `lazy_imports` with the same "not installed" fallback. No behaviour
+  change; `_commit_rung` untouched.
 
 ### v16.9.119 - YOLO Config, Hub Restructuring and Checkpoint Listing Steps
 
