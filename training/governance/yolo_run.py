@@ -28,6 +28,7 @@ from training.governance.yolo_callbacks import (
     make_epoch_start_hook,
     make_pretrain_routine_end,
 )
+from training.governance.yolo_checkpoint_sync import YoloCheckpointSyncMixin
 from training.governance.yolo_ladder import (
     BatchBudget,
     SawtoothMessages,
@@ -126,8 +127,19 @@ def _first_nonempty(*candidates: Path) -> Path | None:
     return None
 
 
-class YoloRunMixin:
+class YoloRunMixin(YoloCheckpointSyncMixin):
     """Curriculum run loop mixed into ``YOLOCurriculumGovernor``."""
+
+    # Set by ``YOLOCurriculumGovernor.__init__``.
+    model_info: dict[str, Any]
+    opt_config: dict[str, Any]
+    sota_targets: dict[str, float]
+    runs_dir: Path
+    on_epoch_end: Callable[[int, dict[str, float]], None] | None
+    cancel_check: Callable[[], bool] | None
+    # Export steps implemented by ``YOLOCurriculumGovernor``.
+    _export_if_new_best: Callable[[Any], None]
+    export_sota_models: Callable[[Path], None]
 
     def _create_model(self, weights: str | Path) -> Any:
         raise NotImplementedError

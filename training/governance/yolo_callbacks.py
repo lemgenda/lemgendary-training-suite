@@ -19,7 +19,7 @@ from training.telemetry import EpochLosses, EpochRow
 from training.utils.error_types import EPOCH_CALLBACK_ERRORS
 
 if TYPE_CHECKING:
-    from training.governance.yolo_governor import YOLOCurriculumGovernor
+    from training.governance.yolo_run import YoloRunMixin
 
 logger = logging.getLogger("lemtrain.governance.yolo")
 
@@ -267,7 +267,7 @@ class GovernedEpochHook:
 
     def __init__(
         self,
-        governor: YOLOCurriculumGovernor,
+        governor: YoloRunMixin,
         stage: YOLOLadderStage,
         prior_epochs: int,
         target_dir: Path,
