@@ -11,11 +11,24 @@
 
 | Metric | Value |
 | :--- | :--- |
-| **Version** | `v16.9.80-STABLE` |
+| **Version** | `v16.9.81-STABLE` |
 | **Phase** | Senior Developer Audit Hardening & Zero-Diagnostic Verification Complete |
 | **Next** | Production Modernization & S.O.L.I.D. Architecture Complete â€” Ecosystem Ready |
 | **Verified Models** | 24+ production architectures, multi-platform execution (Local, Kaggle T4x2/P100, Google Colab) |
 | **Roadmap** | [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md) |
+
+### v16.9.81 - YOLO Curriculum Governor Split and run() Decomposition
+
+- **`training/governance/yolo_governor.py`** (1,801 lines) is split by responsibility. `YOLOCurriculumGovernor`, `run_governed_yolo_training`, `create_yolo_model` and the ladder helpers keep their import paths.
+  - `yolo_governor.py` (225): construction, the model and dataset-YAML seams, and best-model export.
+  - `yolo_ladder.py` (325): `YOLOLadderStage`, AMP detection, VRAM-safe batch sizing, the rung curriculum, and `sawtooth_batch`, one Sawtooth VRAM governor shared by ladder rungs and SOTA extension cycles (it was duplicated inline).
+  - `yolo_resume.py` (180): checkpoint discovery and loading, `metrics.csv` replay, and `ResumePoint`, which decides whether each rung is complete, resumes mid-run, or starts fresh.
+  - `yolo_callbacks.py` (383): Ultralytics cancellation, pretrain and epoch-start hooks, `EpochMetrics`, `RungAdvanceMonitor` (plateau and overfitting rung advancement) and `GovernedEpochHook`, one epoch-end hook shared by rungs and extension cycles (the two inline copies differed only in labels and the SOTA gate).
+  - `yolo_checkpoint_sync.py` (166): `YoloCheckpointSyncMixin.synchronize_checkpoints`, split into weight, plot, state and cloud-sync helpers.
+  - `yolo_run.py` (684): `YoloRunMixin`. The 1,179-line `run()` is now a 21-line loop over `_run_ladder_stage`, `_run_sota_extensions` and `_finalize`, with no method over 91 lines.
+- Behaviour is unchanged. An old-vs-new differential harness ran 300 randomized runs with simulated Ultralytics trainers, checkpoints, `metrics.csv` history, CUDA memory probes, cancellation and SOTA timing. Console output, logs, callback order, `train()` arguments, streamed payloads, exports, files written and the returned summary matched in every run.
+- Resolution and data fraction still only move forward: completed rungs are skipped, never retrained lower.
+- **Tests**: 260 passed.
 
 ### v16.9.80 - JobManager Split into Output Tee and Executor Modules
 
