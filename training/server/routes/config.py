@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from fastapi import APIRouter, HTTPException, Request
+
 import yaml
+from fastapi import APIRouter, HTTPException, Request
 
 from training.services.training_service import TrainingService
 from training.utils.paths import get_project_root

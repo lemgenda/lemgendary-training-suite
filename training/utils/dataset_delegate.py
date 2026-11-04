@@ -1,34 +1,31 @@
 """Delegation adapter for LemGendary Dataset Compiler Suite."""
 
 import logging
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
+
 import yaml
 
+from training import ecosystem
 from training.utils.paths import get_workspace_root
+from training.utils.sidecar import sidecar_online
 
 logger = logging.getLogger("lemtrain.dataset_delegate")
 
 
 class DatasetCompilerDelegate:
-    """Provides typed resolution of compiled manifolds and metadata from LemGendary Dataset Compiler Suite."""
+    """Typed resolution of compiled manifolds and metadata from the LemGendary Dataset Compiler."""
 
-    def __init__(self, workspace_root: Path | None = None, sidecar_port: int = 8100) -> None:
+    def __init__(self, workspace_root: Path | None = None, sidecar_url: str | None = None) -> None:
         self.workspace_root = workspace_root or get_workspace_root()
-        self.datasets_dir = self.workspace_root / "lemgendary-datasets"
+        datasets_service = ecosystem.ecosystem().service(ecosystem.DATASETS_SERVICE)
+        self.datasets_dir = self.workspace_root / datasets_service.project
         self.manifolds_repo = self.workspace_root / "LemGendaryDatasets"
-        self.sidecar_url = f"http://127.0.0.1:{sidecar_port}"
+        self.sidecar_url = sidecar_url or ecosystem.service_url(ecosystem.DATASETS_SERVICE)
 
     def is_sidecar_online(self) -> bool:
         """Probe dataset compiler sidecar API health."""
-        try:
-            req = urllib.request.Request(f"{self.sidecar_url}/api/health", method="GET")
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
-                return resp.status == 200
-        except (urllib.error.URLError, TimeoutError, OSError):
-            return False
+        return sidecar_online(self.sidecar_url)
 
     def resolve_models_metadata(self) -> dict[str, Any]:
         """Resolve canonical models_metadata.yaml from lemgendary-datasets/models/ with fallback."""
@@ -43,7 +40,7 @@ class DatasetCompilerDelegate:
                     content = yaml.safe_load(candidate.read_text(encoding="utf-8"))
                     if isinstance(content, dict):
                         return content
-                except Exception as exc:
+                except (OSError, yaml.YAMLError) as exc:
                     logger.warning("Failed parsing models metadata at %s: %s", candidate, exc)
         return {}
 
@@ -55,7 +52,9 @@ class DatasetCompilerDelegate:
             return target
 
         # 2. Check local data/datasets cache inside training suite
-        local_target = self.workspace_root / "lemgendary-training-suite" / "data" / "datasets" / manifold_name
+        local_target = (
+            self.workspace_root / "lemgendary-training-suite" / "data" / "datasets" / manifold_name
+        )
         if local_target.exists() and local_target.is_dir():
             return local_target
 

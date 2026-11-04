@@ -1,15 +1,37 @@
 """Canonical Manifold Resolver for LemGendary Model Training Suite."""
 
-from dataclasses import dataclass, field
+import json
 import logging
-import os
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
 import yaml
 
-from training.utils.paths import get_project_root, get_workspace_root
+from training.data.task_resolution import ManifoldLayout, resolve_manifold_task
+from training.utils.paths import get_project_root, get_workspace_root, unique_resolved
 
 logger = logging.getLogger("lemtrain.manifold")
+
+
+@dataclass(frozen=True)
+class ManifoldDirs:
+    """A manifold's standard sub-directories (``None`` when absent)."""
+
+    images: Path | None = None
+    targets: Path | None = None
+    masks: Path | None = None
+    labels: Path | None = None
+
+    @classmethod
+    def under(cls, path: Path) -> "ManifoldDirs":
+        """The ``images``/``targets``/``masks``/``labels`` folders that exist under ``path``."""
+        return cls(
+            images=_existing(path, "images"),
+            targets=_existing(path, "targets"),
+            masks=_existing(path, "masks"),
+            labels=_existing(path, "labels"),
+        )
 
 
 @dataclass(frozen=True)
@@ -20,16 +42,129 @@ class ManifoldInfo:
     path: Path
     task_type: str = "restoration"
     container_type: str = "directory"
-    images_dir: Path | None = None
-    targets_dir: Path | None = None
-    masks_dir: Path | None = None
-    labels_dir: Path | None = None
+    dirs: ManifoldDirs = field(default_factory=ManifoldDirs)
     metadata_file: Path | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def images_dir(self) -> Path | None:
+        """The ``images`` folder, if present."""
+        return self.dirs.images
+
+    @property
+    def targets_dir(self) -> Path | None:
+        """The ``targets`` folder, if present."""
+        return self.dirs.targets
+
+    @property
+    def masks_dir(self) -> Path | None:
+        """The ``masks`` folder, if present."""
+        return self.dirs.masks
+
+    @property
+    def labels_dir(self) -> Path | None:
+        """The ``labels`` folder, if present."""
+        return self.dirs.labels
+
+
+def _existing(path: Path, sub: str) -> Path | None:
+    return path / sub if (path / sub).exists() else None
+
+
+def _direct_lookup(root: Path, cand: str) -> Path | None:
+    """``root/cand`` (dir or container file), its ``forex`` subdir, or a case-insensitive match."""
+    direct = root / cand
+    if direct.exists() and (direct.is_dir() or direct.suffix in {".parquet", ".tar", ".data"}):
+        return direct
+
+    sub = direct / "forex"
+    if sub.exists() and sub.is_dir():
+        return sub
+
+    try:
+        for child in root.iterdir():
+            if child.name.lower() == cand.lower():
+                return child
+    except OSError as exc:
+        logger.debug("Failed listing directory %s: %s", root, exc)
+    return None
+
+
+def _simplify(name: str) -> str:
+    return name.lower().replace("-", "").replace("_", "").replace("lemgendized", "")
+
+
+def _match_attached(manifold_name: str, candidates: list[str], attached: list[Path]) -> Path:
+    """Pick the attached Kaggle manifold for ``manifold_name`` (exact, fuzzy, then first)."""
+    simplified_target = _simplify(manifold_name)
+    for suf in ["kaggleready", "large", "mini"]:
+        simplified_target = simplified_target.replace(suf, "")
+
+    # 1. Exact or candidate name match
+    for m in attached:
+        if m.name.lower() in [c.lower() for c in candidates]:
+            return m
+
+    # 2. Fuzzy name match against manifold or parent dataset slug
+    for m in attached:
+        if simplified_target and (
+            simplified_target in _simplify(m.name) or simplified_target in _simplify(m.parent.name)
+        ):
+            return m
+
+    # 3. Dynamic Fallback: Auto-bind attached Kaggle dataset manifold
+    fallback_m = attached[0]
+    logger.info(
+        "Auto-bound attached Kaggle dataset manifold '%s' for requested '%s'",
+        fallback_m,
+        manifold_name,
+    )
+    return fallback_m
+
+
+def _read_metadata(path: Path) -> tuple[dict[str, Any], Path | None]:
+    """Parse the first metadata file present (YAML or JSON); ``({}, None)`` when none is."""
+    for candidate_meta in ["dataset_info.yaml", "metadata.json", "index.json"]:
+        mf = path / candidate_meta
+        if mf.exists():
+            meta: dict[str, Any] = {}
+            try:
+                if candidate_meta.endswith((".yaml", ".yml")):
+                    meta = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
+                else:
+                    meta = json.loads(mf.read_text(encoding="utf-8"))
+            except (OSError, ValueError, yaml.YAMLError) as exc:
+                logger.warning("Failed parsing metadata file %s: %s", mf, exc)
+            return meta, mf
+    return {}, None
+
+
+def _detect_container(path: Path, meta: dict[str, Any]) -> str:
+    """Container type from metadata, else from the on-disk layout (default ``directory``)."""
+    container_type = "directory"
+    if "container" in meta and isinstance(meta["container"], dict):
+        container_type = meta["container"].get("primary", "directory")
+    elif meta.get("canonical_format"):
+        container_type = meta["canonical_format"]
+    elif meta.get("format"):
+        container_type = meta["format"]
+    elif (path / "shards").exists() or any(
+        f.suffix in (".tar", ".data") for f in path.iterdir() if f.is_file()
+    ):
+        container_type = "webdataset"
+    elif (path / "mds").exists() or (
+        (path / "index.json").exists() and not (path / "images").exists()
+    ):
+        container_type = "mds"
+    elif (path / "litdata").exists():
+        container_type = "litdata"
+    elif any(f.suffix == ".parquet" for f in path.iterdir() if f.is_file()):
+        container_type = "parquet"
+    return container_type
+
 
 class ManifoldResolver:
-    """Resolves dataset manifold locations and container layouts across local, Colab, and Kaggle environments."""
+    """Resolve dataset manifold locations and container layouts on local, Colab, and Kaggle."""
 
     def __init__(
         self,
@@ -56,38 +191,39 @@ class ManifoldResolver:
             roots.append(p)
 
         if self.env == "kaggle":
-            roots.extend([
-                Path("/kaggle/working/LemGendaryDatasets"),
-                Path("/kaggle/input"),
-            ])
+            roots.extend(
+                [
+                    Path("/kaggle/working/LemGendaryDatasets"),
+                    Path("/kaggle/input"),
+                ]
+            )
         elif self.env == "colab":
-            roots.extend([
-                Path("/content/LemGendaryDatasets"),
-                Path("/content/drive/MyDrive/LemGendaryDatasets"),
-            ])
+            roots.extend(
+                [
+                    Path("/content/LemGendaryDatasets"),
+                    Path("/content/drive/MyDrive/LemGendaryDatasets"),
+                ]
+            )
 
-        roots.extend([
-            self.workspace_root / "LemGendaryDatasets",
-            self.project_root / "data" / "datasets",
-            self.project_root / "data" / "forex",
-            self.project_root / "data",
-            self.workspace_root / "lemgendary-datasets" / "manifolds",
-            self.workspace_root / "lemgendary-datasets" / "data",
-        ])
+        roots.extend(
+            [
+                self.workspace_root / "LemGendaryDatasets",
+                self.project_root / "data" / "datasets",
+                self.project_root / "data" / "forex",
+                self.project_root / "data",
+                self.workspace_root / "lemgendary-datasets" / "manifolds",
+                self.workspace_root / "lemgendary-datasets" / "data",
+            ]
+        )
 
-        # De-duplicate while preserving order
-        unique_roots: list[Path] = []
-        for r in roots:
-            resolved = r.resolve()
-            if resolved not in unique_roots:
-                unique_roots.append(resolved)
-        return unique_roots
+        return unique_resolved(roots)
 
     def generate_name_candidates(self, manifold_name: str) -> list[str]:
         """Generate common name variations (prefixes, suffixes) for fuzzy resolution."""
         candidates: list[str] = [manifold_name]
 
-        # Suffix stripping / normalization: e.g. LemGendizedNimaAestheticLarge -> LemGendizedNimaAesthetic
+        # Suffix stripping / normalization:
+        # e.g. LemGendizedNimaAestheticLarge -> LemGendizedNimaAesthetic
         if manifold_name.endswith("Large"):
             stripped = manifold_name[:-5]
             if stripped not in candidates:
@@ -116,25 +252,53 @@ class ManifoldResolver:
 
     @staticmethod
     def is_valid_manifold_dir(p: Path) -> bool:
-        """Check if directory contains dataset images, targets, shards, parquet, or manifest metadata."""
+        """Check if a directory holds dataset images, targets, shards, parquet, or manifests."""
         if not p.is_dir():
             return False
-        for sub in ("images", "targets", "masks", "forex", "shards", "train", "val", "labels", "mds", "litdata", "parquet"):
+        for sub in (
+            "images",
+            "targets",
+            "masks",
+            "forex",
+            "shards",
+            "train",
+            "val",
+            "labels",
+            "mds",
+            "litdata",
+            "parquet",
+        ):
             if (p / sub).exists():
                 return True
-        for meta in ("dataset_info.yaml", "dataset-metadata.json", "index.json", "classes.txt", "category.txt"):
+        for meta in (
+            "dataset_info.yaml",
+            "dataset-metadata.json",
+            "index.json",
+            "classes.txt",
+            "category.txt",
+        ):
             if (p / meta).exists():
                 return True
         try:
             for item in p.iterdir():
-                if item.suffix.lower() in (".parquet", ".tar", ".data", ".webp", ".jpg", ".png", ".jpeg"):
+                if item.suffix.lower() in (
+                    ".parquet",
+                    ".tar",
+                    ".data",
+                    ".webp",
+                    ".jpg",
+                    ".png",
+                    ".jpeg",
+                ):
                     return True
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("Cannot list candidate manifold dir %s: %s", p, exc)
         return False
 
     @classmethod
-    def scan_kaggle_input_manifolds(cls, root: Path = Path("/kaggle/input"), max_depth: int = 4) -> list[Path]:
+    def scan_kaggle_input_manifolds(
+        cls, root: Path = Path("/kaggle/input"), max_depth: int = 4
+    ) -> list[Path]:
         """Discover all attached dataset manifolds in /kaggle/input regardless of name."""
         if not root.exists() or not root.is_dir():
             return []
@@ -153,7 +317,8 @@ class ManifoldResolver:
                 continue
             try:
                 children = list(curr.iterdir())
-            except OSError:
+            except OSError as exc:
+                logger.debug("Cannot list Kaggle input dir %s: %s", curr, exc)
                 continue
             for child in children:
                 if child.is_dir():
@@ -178,51 +343,21 @@ class ManifoldResolver:
             if not root.exists():
                 continue
             for cand in candidates:
-                direct = root / cand
-                if direct.exists() and (direct.is_dir() or direct.suffix in {".parquet", ".tar", ".data"}):
-                    return direct
+                found = _direct_lookup(root, cand)
+                if found is not None:
+                    return found
 
-                sub = direct / "forex"
-                if sub.exists() and sub.is_dir():
-                    return sub
-
-                try:
-                    for child in root.iterdir():
-                        if child.name.lower() == cand.lower():
-                            return child
-                except OSError as exc:
-                    logger.debug("Failed listing directory %s: %s", root, exc)
-
-        # Phase B: Kaggle /kaggle/input inspection (train on whichever dataset or datasets are attached)
-        if self.env == "kaggle" or any("/kaggle/input" in str(r).replace("\\", "/") for r in search_roots) or Path("/kaggle/input").exists():
+        # Phase B: Kaggle /kaggle/input inspection (train on whichever datasets are attached)
+        if (
+            self.env == "kaggle"
+            or any("/kaggle/input" in str(r).replace("\\", "/") for r in search_roots)
+            or Path("/kaggle/input").exists()
+        ):
             kaggle_input = Path("/kaggle/input")
             if kaggle_input.exists():
                 attached_manifolds = self.scan_kaggle_input_manifolds(kaggle_input)
                 if attached_manifolds:
-                    simplified_target = manifold_name.lower().replace("-", "").replace("_", "").replace("lemgendized", "")
-                    for suf in ["kaggleready", "large", "mini"]:
-                        simplified_target = simplified_target.replace(suf, "")
-
-                    # 1. Exact or candidate name match
-                    for m in attached_manifolds:
-                        if m.name.lower() in [c.lower() for c in candidates]:
-                            return m
-
-                    # 2. Fuzzy name match against manifold or parent dataset slug
-                    for m in attached_manifolds:
-                        name_norm = m.name.lower().replace("-", "").replace("_", "").replace("lemgendized", "")
-                        parent_norm = m.parent.name.lower().replace("-", "").replace("_", "").replace("lemgendized", "")
-                        if simplified_target and (simplified_target in name_norm or simplified_target in parent_norm):
-                            return m
-
-                    # 3. Dynamic Fallback: Auto-bind attached Kaggle dataset manifold
-                    fallback_m = attached_manifolds[0]
-                    logger.info(
-                        "Auto-bound attached Kaggle dataset manifold '%s' for requested '%s'",
-                        fallback_m,
-                        manifold_name,
-                    )
-                    return fallback_m
+                    return _match_attached(manifold_name, candidates, attached_manifolds)
 
         return None
 
@@ -231,7 +366,9 @@ class ManifoldResolver:
         if isinstance(path_or_name, str):
             resolved = self.resolve_manifold(path_or_name)
             if resolved is None:
-                raise FileNotFoundError(f"Manifold '{path_or_name}' could not be resolved across search roots.")
+                raise FileNotFoundError(
+                    f"Manifold '{path_or_name}' could not be resolved across search roots."
+                )
             path = resolved
             name = path_or_name
         else:
@@ -241,65 +378,19 @@ class ManifoldResolver:
         if not path.exists():
             raise FileNotFoundError(f"Manifold path does not exist: {path}")
 
-        meta: dict[str, Any] = {}
-        meta_file: Path | None = None
-        for candidate_meta in ["dataset_info.yaml", "metadata.json", "index.json"]:
-            mf = path / candidate_meta
-            if mf.exists():
-                meta_file = mf
-                try:
-                    if candidate_meta.endswith(".yaml") or candidate_meta.endswith(".yml"):
-                        meta = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
-                    else:
-                        import json
-                        meta = json.loads(mf.read_text(encoding="utf-8"))
-                except Exception as exc:
-                    logger.warning("Failed parsing metadata file %s: %s", mf, exc)
-                break
+        meta, meta_file = _read_metadata(path)
+        container_type = _detect_container(path, meta)
 
-        # Container type detection
-        container_type = "directory"
-        if "container" in meta and isinstance(meta["container"], dict):
-            container_type = meta["container"].get("primary", "directory")
-        elif meta.get("canonical_format"):
-            container_type = meta.get("canonical_format")
-        elif meta.get("format"):
-            container_type = meta.get("format")
-        elif (path / "shards").exists() or any(f.suffix in (".tar", ".data") for f in path.iterdir() if f.is_file()):
-            container_type = "webdataset"
-        elif (path / "mds").exists() or ((path / "index.json").exists() and not (path / "images").exists()):
-            container_type = "mds"
-        elif (path / "litdata").exists():
-            container_type = "litdata"
-        elif any(f.suffix == ".parquet" for f in path.iterdir() if f.is_file()):
-            container_type = "parquet"
-
-        # Task type detection
-        task_type = meta.get("task_type", "")
-        if not task_type:
-            if container_type == "parquet" or "forex" in name.lower() or (path / "forex").exists():
-                task_type = "forex"
-            elif (path / "masks").exists():
-                task_type = "segmentation"
-            elif (path / "labels").exists():
-                task_type = "face_detection"
-            else:
-                task_type = "restoration"
-
-        images_dir = path / "images" if (path / "images").exists() else None
-        targets_dir = path / "targets" if (path / "targets").exists() else None
-        masks_dir = path / "masks" if (path / "masks").exists() else None
-        labels_dir = path / "labels" if (path / "labels").exists() else None
+        task_type = resolve_manifold_task(
+            ManifoldLayout(path=path, name=name, container_type=container_type, metadata=meta)
+        )
 
         return ManifoldInfo(
             name=name,
             path=path,
             task_type=task_type,
             container_type=container_type,
-            images_dir=images_dir,
-            targets_dir=targets_dir,
-            masks_dir=masks_dir,
-            labels_dir=labels_dir,
+            dirs=ManifoldDirs.under(path),
             metadata_file=meta_file,
             metadata=meta,
         )

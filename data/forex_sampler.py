@@ -34,13 +34,37 @@ import numpy as np
 from torch.utils.data import Sampler
 
 
+def _parquet_meta(dataset) -> dict:
+    """The dataset's per-year Parquet metadata (empty for non-Parquet datasets)."""
+    store = getattr(dataset, "parquet_store", None)
+    return getattr(store, "meta", {})
+
+
+def _locality_key(parquet_meta: dict, key, row):
+    """Derive a cache-locality key for a dataset entry."""
+    # Parquet branch: key is ('parquet', year_name)
+    if isinstance(key, tuple) and len(key) == 2 and key[0] == "parquet":
+        yr_name = key[1]
+        meta = parquet_meta.get(yr_name, {})
+        rg_of_row = meta.get("rg_of_row")
+        if rg_of_row is not None and 0 <= row < len(rg_of_row):
+            return ("parquet", yr_name, int(rg_of_row[row]))
+        return ("parquet", yr_name, -1)
+
+    # Legacy shard branch: key is (pair, tf, year_ident, chunk_idx)
+    if isinstance(key, tuple):
+        return ("shard",) + tuple(str(x) for x in key)
+
+    # Fallback
+    return ("unknown", str(key))
+
+
 class RowGroupAwareSampler(Sampler):
     """
     Shuffles at the row-group level, sequential within a group.
     """
 
     def __init__(self, dataset, shuffle: bool = True, seed: int = 42):
-        self.dataset = dataset
         self.shuffle = shuffle
         self.seed = seed
         self.epoch = 0
@@ -51,7 +75,8 @@ class RowGroupAwareSampler(Sampler):
         self._groups = {}
         self._flat_order = []
 
-        index = getattr(dataset, '_index', [])
+        parquet_meta = _parquet_meta(dataset)
+        index = getattr(dataset, "_index", [])
         for i, entry in enumerate(index):
             try:
                 _p_idx, _tf, key, row = entry
@@ -59,30 +84,16 @@ class RowGroupAwareSampler(Sampler):
                 self._flat_order.append(i)
                 continue
 
-            locality_key = self._locality_key(key, row)
+            locality_key = _locality_key(parquet_meta, key, row)
             self._groups.setdefault(locality_key, []).append(i)
             self._flat_order.append(i)
 
         self._group_keys = list(self._groups.keys())
-        self._num_samples = len(self._flat_order)
 
-    def _locality_key(self, key, row):
-        """Derive a cache-locality key for a dataset entry."""
-        # Parquet branch: key is ('parquet', year_name)
-        if isinstance(key, tuple) and len(key) == 2 and key[0] == 'parquet':
-            yr_name = key[1]
-            meta = getattr(self.dataset, '_parquet_meta', {}).get(yr_name, {})
-            rg_of_row = meta.get('rg_of_row')
-            if rg_of_row is not None and 0 <= row < len(rg_of_row):
-                return ('parquet', yr_name, int(rg_of_row[row]))
-            return ('parquet', yr_name, -1)
-
-        # Legacy shard branch: key is (pair, tf, year_ident, chunk_idx)
-        if isinstance(key, tuple):
-            return ('shard',) + tuple(str(x) for x in key)
-
-        # Fallback
-        return ('unknown', str(key))
+    @property
+    def num_groups(self) -> int:
+        """Number of cache-locality groups the sampler shuffles between."""
+        return len(self._group_keys)
 
     def set_epoch(self, epoch: int):
         """Reseed shuffling for a new epoch."""
@@ -105,4 +116,4 @@ class RowGroupAwareSampler(Sampler):
             yield from idxs
 
     def __len__(self):
-        return self._num_samples
+        return len(self._flat_order)

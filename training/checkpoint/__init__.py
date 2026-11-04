@@ -2,28 +2,22 @@
 
 from training.checkpoint.lifecycle_manager import (
     CheckpointLifecycleManager,
+    ExportSource,
     canonicalize_checkpoints,
 )
-
-def generate_preflight_assets(*args, **kwargs):
-    from training.checkpoint.preflight_generator import generate_preflight_assets as _fn
-
-    return _fn(*args, **kwargs)
-
-
-def generate_all_preflight_assets(*args, **kwargs):
-    from training.checkpoint.preflight_generator import generate_all_preflight_assets as _fn
-
-    return _fn(*args, **kwargs)
-
 from training.checkpoint.manager import (
     CheckpointSaveError,
     audit_disk_space,
     safe_atomic_save,
     safe_load_checkpoint,
 )
+from training.checkpoint.preflight_generator import (
+    generate_all_preflight_assets,
+    generate_preflight_assets,
+)
 from training.checkpoint.recovery import CheckpointRecoveryEngine
 from training.checkpoint.resume import (
+    ResumeProgress,
     ResumeState,
     parse_resume_state,
     scale_resume_progress,
@@ -35,8 +29,10 @@ __all__ = [
     "CheckpointLifecycleManager",
     "CheckpointRecoveryEngine",
     "CheckpointSaveError",
+    "ExportSource",
     "MetricRecord",
     "MetricVault",
+    "ResumeProgress",
     "ResumeState",
     "audit_disk_space",
     "canonicalize_checkpoints",
@@ -48,4 +44,3 @@ __all__ = [
     "scale_resume_progress",
     "stretch_scheduler_runway",
 ]
-

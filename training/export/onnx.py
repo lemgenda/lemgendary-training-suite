@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-import io
 import logging
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import torch
-import torch.nn as nn
+from torch import nn
 
-from training.export.common import ExportError
+from training.export.common import (
+    ExportError,
+    OnnxGraphSpec,
+    detach_onnx_weights,
+    model_device,
+    run_onnx_export,
+    unwrap_export_model,
+)
 
 logger = logging.getLogger("lemtrain.export.onnx")
 
@@ -19,82 +24,41 @@ def export_onnx(
     model: nn.Module,
     save_path: Path | str,
     dummy_shape: tuple[int, ...] = (1, 3, 256, 256),
-    dynamic_axes: dict[str, dict[int, str]] | None = None,
-    opset: int = 17,
+    *,
     half: bool = False,
-    external_data: bool = False,
-    input_names: list[str] | None = None,
-    output_names: list[str] | None = None,
+    graph: OnnxGraphSpec | None = None,
 ) -> bool:
-    """Export PyTorch model to ONNX format."""
+    """Export PyTorch model to ONNX format.
+
+    ``graph`` defaults to one ``input`` and one ``output`` tensor, static axes and opset 17.
+    """
     out_file = Path(save_path).resolve()
     out_file.parent.mkdir(parents=True, exist_ok=True)
+    graph = graph or OnnxGraphSpec()
 
-    in_names = input_names or ["input"]
-    out_names = output_names or ["output"]
-
-    model_to_export: nn.Module
-    if hasattr(model, "module") and isinstance(getattr(model, "module"), nn.Module):
-        model_to_export = getattr(model, "module")
-    elif isinstance(model, nn.Module):
-        model_to_export = model
-    else:
-        model_to_export = model
-
-    device = torch.device("cpu")
-    if isinstance(model_to_export, nn.Module):
-        model_to_export.eval()
-        try:
-            device = next(model_to_export.parameters()).device
-        except StopIteration:
-            pass
-
-        target_dtype = torch.float16 if half else torch.float32
-        if half:
-            model_to_export = model_to_export.to(dtype=target_dtype)
-    else:
-        target_dtype = torch.float16 if half else torch.float32
+    model_to_export = unwrap_export_model(model)
+    model_to_export.eval()
+    device = model_device(model_to_export)
+    target_dtype = torch.float16 if half else torch.float32
+    if half:
+        model_to_export = model_to_export.to(dtype=target_dtype)
 
     dummy_input = torch.randn(dummy_shape, dtype=target_dtype, device=device)
 
     logger.info(
         "Exporting ONNX model to %s (opset=%d, half=%s, shape=%s)...",
         out_file,
-        opset,
+        graph.opset,
         half,
         dummy_shape,
     )
 
-    buf = io.StringIO()
     try:
-        with redirect_stdout(buf), redirect_stderr(buf):
-            if not isinstance(model_to_export, nn.Module):
-                return False
-            torch.onnx.export(
-                model_to_export,
-                (dummy_input,),
-                str(out_file),
-                export_params=True,
-                opset_version=opset,
-                do_constant_folding=True,
-                input_names=in_names,
-                output_names=out_names,
-                dynamic_axes=dynamic_axes,
-                dynamo=False,
-            )
+        run_onnx_export(model_to_export, (dummy_input,), out_file, graph)
 
-        if external_data:
-            import onnx
+        if graph.external_data:
             data_filename = f"{out_file.name}.data"
-            onnx_model = onnx.load(str(out_file))
-            onnx.external_data_helper.convert_model_to_external_data(
-                onnx_model,
-                all_tensors_to_one_file=True,
-                location=data_filename,
-                size_threshold=1024,
-                convert_attribute=False,
-            )
-            onnx.save(onnx_model, str(out_file))
+            detach_onnx_weights(out_file, data_filename)
             logger.info("Converted FP32 ONNX to external weights sidecar: %s", data_filename)
 
         logger.info("Successfully exported ONNX model to %s", out_file)

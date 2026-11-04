@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "docs_url": "https://docs.fixture.example/hub/",
+    "kaggle_owner": "fixture-owner",
+    "bind_host": "127.0.0.1"
+  },
+  "services": [
+    {
+      "id": "env-manager",
+      "aliases": ["env-manager", "lemgendary-env-manager", "env"],
+      "project": "lemgendary-env-manager",
+      "port": 18000,
+      "health_path": "/api/health"
+    },
+    {
+      "id": "dataset-compiler",
+      "aliases": ["dataset-compiler", "lemgendary-datasets", "datasets"],
+      "project": "lemgendary-datasets",
+      "port": 18100,
+      "health_path": "/api/health"
+    },
+    {
+      "id": "training-suite",
+      "aliases": ["training-suite", "lemgendary-training-suite", "training"],
+      "project": "lemgendary-training-suite",
+      "port": 18200,
+      "health_path": "/api/health"
+    }
+  ]
+}

@@ -7,7 +7,9 @@ loss accumulation scaling, and GPU-accelerated tensor metrics.
 from __future__ import annotations
 
 from contextlib import nullcontext
+from dataclasses import dataclass
 from typing import Any
+
 import torch
 import torch.nn.functional as F
 
@@ -32,13 +34,28 @@ def get_autocast_context(policy: ExecutionPolicy, device: torch.device) -> Any:
     return nullcontext()
 
 
+@dataclass(frozen=True)
+class GradClip:
+    """Gradient clipping of one :func:`safe_backward` step.
+
+    Attributes:
+        model: Model containing parameters.
+        max_norm: Maximum gradient norm for clipping.
+        should_unscale: Whether to unscale gradients and clip norm on this step.
+            When using gradient accumulation, this must be False until the optimizer
+            update step boundary to comply with PyTorch GradScaler constraints.
+    """
+
+    model: torch.nn.Module | None = None
+    max_norm: float | None = None
+    should_unscale: bool = True
+
+
 def safe_backward(
     loss: torch.Tensor,
     optimizer: torch.optim.Optimizer,
     scaler: Any | None = None,
-    max_norm: float | None = None,
-    model: torch.nn.Module | None = None,
-    should_unscale: bool = True,
+    clip: GradClip | None = None,
 ) -> float:
     """Perform a backward pass with optional AMP scaling, gradient unscaling, and clipping.
 
@@ -46,11 +63,7 @@ def safe_backward(
         loss: Scaled loss tensor.
         optimizer: PyTorch optimizer.
         scaler: GradScaler instance (if AMP active).
-        max_norm: Maximum gradient norm for clipping.
-        model: Model containing parameters.
-        should_unscale: Whether to unscale gradients and clip norm on this step.
-            When using gradient accumulation, this must be False until the optimizer
-            update step boundary to comply with PyTorch GradScaler constraints.
+        clip: Gradient clipping; ``None`` skips unscaling and clipping.
 
     Returns:
         float: Gradient norm after clipping (or 0.0 if not computed/deferred).
@@ -60,6 +73,8 @@ def safe_backward(
     else:
         loss.backward()
 
+    clip = clip or GradClip()
+    model, max_norm, should_unscale = clip.model, clip.max_norm, clip.should_unscale
     grad_norm = 0.0
     if should_unscale and model is not None and max_norm is not None and max_norm > 0:
         if scaler is not None:
@@ -68,7 +83,7 @@ def safe_backward(
                 scaler.unscale_(optimizer)
             except RuntimeError as err:
                 if "already been called" not in str(err):
-                    raise err
+                    raise
         norm_tensor = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
         if isinstance(norm_tensor, torch.Tensor):
             grad_norm = float(norm_tensor.item())
@@ -76,6 +91,42 @@ def safe_backward(
             grad_norm = float(norm_tensor)
 
     return grad_norm
+
+
+def _gaussian_kernel(
+    window_size: int, sigma: float, channel: int, device: torch.device
+) -> torch.Tensor:
+    """Normalised 2-D Gaussian window, one copy per channel: ``[C, 1, k, k]``."""
+    coords = torch.arange(window_size, dtype=torch.float32, device=device) - (window_size - 1) / 2.0
+    gauss = torch.exp(-(coords**2) / (2 * sigma**2))
+    gauss = (gauss / gauss.sum()).unsqueeze(1)
+
+    kernel_2d = gauss.mm(gauss.t()).unsqueeze(0).unsqueeze(0)
+    return kernel_2d.expand(channel, 1, window_size, window_size).contiguous()
+
+
+def _local_moments(
+    img1: torch.Tensor, img2: torch.Tensor, kernel: torch.Tensor
+) -> tuple[torch.Tensor, ...]:
+    """Windowed ``mu1^2, mu2^2, mu1*mu2, sigma1^2, sigma2^2, sigma12`` for SSIM."""
+    channel, pad = kernel.size(0), kernel.size(-1) // 2
+
+    def blur(x: torch.Tensor) -> torch.Tensor:
+        return F.conv2d(x, kernel, padding=pad, groups=channel)
+
+    mu1 = blur(img1)
+    mu2 = blur(img2)
+    mu1_sq = mu1.pow(2)
+    mu2_sq = mu2.pow(2)
+    mu1_mu2 = mu1 * mu2
+    return (
+        mu1_sq,
+        mu2_sq,
+        mu1_mu2,
+        blur(img1 * img1) - mu1_sq,
+        blur(img2 * img2) - mu2_sq,
+        blur(img1 * img2) - mu1_mu2,
+    )
 
 
 def compute_ssim_gpu(
@@ -86,28 +137,14 @@ def compute_ssim_gpu(
     data_range: float = 1.0,
 ) -> torch.Tensor:
     """Compute GPU-accelerated vectorized Structural Similarity Index (SSIM)."""
-    channel = img1.size(1)
-
-    coords = torch.arange(window_size, dtype=torch.float32, device=img1.device) - (window_size - 1) / 2.0
-    gauss = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
-    gauss = (gauss / gauss.sum()).unsqueeze(1)
-
-    kernel_2d = gauss.mm(gauss.t()).unsqueeze(0).unsqueeze(0)
-    kernel = kernel_2d.expand(channel, 1, window_size, window_size).contiguous()
+    kernel = _gaussian_kernel(window_size, sigma, img1.size(1), img1.device)
 
     c1 = (0.01 * data_range) ** 2
     c2 = (0.03 * data_range) ** 2
 
-    mu1 = F.conv2d(img1, kernel, padding=window_size // 2, groups=channel)
-    mu2 = F.conv2d(img2, kernel, padding=window_size // 2, groups=channel)
+    mu1_sq, mu2_sq, mu1_mu2, sigma1_sq, sigma2_sq, sigma12 = _local_moments(img1, img2, kernel)
 
-    mu1_sq = mu1.pow(2)
-    mu2_sq = mu2.pow(2)
-    mu1_mu2 = mu1 * mu2
-
-    sigma1_sq = F.conv2d(img1 * img1, kernel, padding=window_size // 2, groups=channel) - mu1_sq
-    sigma2_sq = F.conv2d(img2 * img2, kernel, padding=window_size // 2, groups=channel) - mu2_sq
-    sigma12 = F.conv2d(img1 * img2, kernel, padding=window_size // 2, groups=channel) - mu1_mu2
-
-    ssim_map = ((2 * mu1_mu2 + c1) * (2 * sigma12 + c2)) / ((mu1_sq + mu2_sq + c1) * (sigma1_sq + sigma2_sq + c2))
+    ssim_map = ((2 * mu1_mu2 + c1) * (2 * sigma12 + c2)) / (
+        (mu1_sq + mu2_sq + c1) * (sigma1_sq + sigma2_sq + c2)
+    )
     return ssim_map.mean()

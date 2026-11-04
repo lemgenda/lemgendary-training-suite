@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from typing import Any
-from fastapi import APIRouter
-import torch
 
+import torch
+from fastapi import APIRouter
+
+from training.ecosystem import TRAINING_SERVICE, service_port
 from training.hardware.discovery import discover_device
+from training.version import __version__
 
 router = APIRouter(tags=["health"])
 
@@ -22,11 +25,13 @@ async def get_health() -> dict[str, Any]:
     return {
         "status": "ok",
         "service": "lemgendary-training-suite",
-        "version": "16.2.9",
-        "port": 8200,
+        "version": __version__,
+        "port": service_port(TRAINING_SERVICE),
         "timestamp": datetime.now().isoformat(),
         "device": {
-            "name": device_info.device_names[0] if device_info.device_names else str(device_info.device),
+            "name": device_info.device_names[0]
+            if device_info.device_names
+            else str(device_info.device),
             "type": device_info.device_type,
             "cuda_available": torch.cuda.is_available(),
             "gpu_count": device_info.device_count if device_info.is_cuda else 0,

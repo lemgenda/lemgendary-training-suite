@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
-import sys
 import threading
+from dataclasses import dataclass, field
 from typing import Any
 
 from training.cloud.gdrive import GDriveSyncManager
@@ -17,7 +16,21 @@ from training.cloud.manager import CloudSyncError
 logger = logging.getLogger("lemtrain.cloud_sync")
 
 _sync_lock = threading.Lock()
-_active_sync_thread: threading.Thread | None = None
+
+
+@dataclass
+class SyncTargets:
+    """The three sync backends, created in GitHub, Kaggle, Google Drive order."""
+
+    config: dict[str, Any]
+    github: GitHubSyncManager = field(init=False)
+    kaggle: KaggleHubManager = field(init=False)
+    gdrive: GDriveSyncManager = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.github = GitHubSyncManager()
+        self.kaggle = KaggleHubManager(config=self.config)
+        self.gdrive = GDriveSyncManager()
 
 
 class CloudSyncManager:
@@ -35,56 +48,57 @@ class CloudSyncManager:
         self.config = config or {}
         self.is_mid_epoch = is_mid_epoch
 
-        self.github_mgr = GitHubSyncManager()
-        self.kaggle_mgr = KaggleHubManager(config=self.config)
-        self.gdrive_mgr = GDriveSyncManager()
-
-        self.hub_root = self.github_mgr.hub_root
-        self.model_dir = self.hub_root / self.model_name
+        self.targets = SyncTargets(self.config)
+        self.model_dir = self.targets.github.hub_root / self.model_name
         self.checkpoint_dir = self.model_dir / "checkpoints"
 
     def sync(self) -> None:
         """Coordinate multi-target cloud synchronization."""
         logger.info("Starting Cloud Synchronization Phase (Epoch %d)...", self.epoch)
-        is_kaggle = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.environ.get("KAGGLE_WORKING_DIR"))
+        is_kaggle = bool(
+            os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.environ.get("KAGGLE_WORKING_DIR")
+        )
 
         if is_kaggle:
             logger.info("Operating in Kaggle-Native mode. GitHub sync bypassed.")
-            kaggle_success = self._sync_to_kaggle()
+            kaggle_success = self.sync_to_kaggle()
             if not self.is_mid_epoch and kaggle_success:
-                logger.info("Epoch %d finished and Kaggle version confirmed. Syncing to Google Drive...", self.epoch)
-                self._sync_to_gdrive()
+                logger.info(
+                    "Epoch %d finished and Kaggle version confirmed. Syncing to Google Drive...",
+                    self.epoch,
+                )
+                self.sync_to_gdrive()
         else:
             logger.info("Operating in Hybrid mode. Syncing to GitHub, Kaggle, and Google Drive.")
-            self._sync_to_github()
-            self._sync_to_kaggle()
-            self._sync_to_gdrive()
+            self.sync_to_github()
+            self.sync_to_kaggle()
+            self.sync_to_gdrive()
 
-    def _sync_to_github(self) -> bool:
+    def sync_to_github(self) -> bool:
         """Delegate to GitHubSyncManager."""
         try:
-            return self.github_mgr.sync(self.model_name, self.epoch, self.model_dir)
+            return self.targets.github.sync(self.model_name, self.epoch, self.model_dir)
         except CloudSyncError as exc:
             logger.warning("GitHub sync notice: %s", exc)
             return False
 
-    def _sync_to_kaggle(self) -> bool:
+    def sync_to_kaggle(self) -> bool:
         """Delegate to KaggleHubManager."""
         if not self.checkpoint_dir.exists():
             return False
         try:
-            return self.kaggle_mgr.sync(self.model_name, self.epoch, self.model_dir)
+            return self.targets.kaggle.sync(self.model_name, self.epoch, self.model_dir)
         except CloudSyncError as exc:
             logger.warning("Kaggle Hub sync notice: %s", exc)
             return False
 
-    def _sync_to_gdrive(self) -> bool:
+    def sync_to_gdrive(self) -> bool:
         """Delegate to GDriveSyncManager."""
         fleet_cfg = self.config.get("fleet", {}) if isinstance(self.config, dict) else {}
         if not fleet_cfg.get("google_drive_sync", True):
             return False
         try:
-            return self.gdrive_mgr.sync(self.model_name, self.epoch, self.model_dir)
+            return self.targets.gdrive.sync(self.model_name, self.epoch, self.model_dir)
         except CloudSyncError as exc:
             if getattr(exc, "code", "") == "GDRIVE_UNCONFIGURED":
                 logger.info("Google Drive sync skipped: %s", exc)
@@ -101,22 +115,20 @@ def trigger_cloud_sync(
     is_mid_epoch: bool = False,
 ) -> None:
     """Entry point for training loop to trigger background or synchronous sync."""
-    # Under DDP, strictly gate cloud synchronization to Rank 0 to prevent concurrent upload collisions
+    # Under DDP, gate cloud synchronization to Rank 0 to prevent concurrent upload collisions
     if os.environ.get("RANK", "0") != "0":
         logger.debug("Skipping cloud sync on non-zero rank (%s)", os.environ.get("RANK"))
         return
 
-    global _active_sync_thread
     manager = CloudSyncManager(model_name, epoch, config, is_mid_epoch=is_mid_epoch)
 
     if wait:
         with _sync_lock:
             manager.sync()
     else:
+
         def _worker() -> None:
             with _sync_lock:
                 manager.sync()
 
-        t = threading.Thread(target=_worker, daemon=False)
-        _active_sync_thread = t
-        t.start()
+        threading.Thread(target=_worker, daemon=False).start()

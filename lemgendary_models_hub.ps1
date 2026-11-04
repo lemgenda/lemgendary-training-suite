@@ -12,10 +12,26 @@ $script:VENV_DIR = Join-Path $script:HUB_DIR ".venv"
 $script:REQ_FILE = Join-Path $script:HUB_DIR "requirements.txt"
 $script:ENV_MGR = Join-Path (Split-Path -Parent $script:HUB_DIR) "lemgendary-env-manager\lemgendary_env_manager.ps1"
 
+function Write-Ui {
+    # Show a line to the user on the information stream (visible by default,
+    # capturable with 6>), coloured with ANSI codes when a colour is named.
+    param([string]$Message = "", [string]$Color = "")
+    $codes = @{
+        Black = 30; DarkRed = 31; DarkGreen = 32; DarkYellow = 33; DarkBlue = 34; DarkMagenta = 35
+        DarkCyan = 36; Gray = 37; DarkGray = 90; Red = 91; Green = 92; Yellow = 93; Blue = 94
+        Magenta = 95; Cyan = 96; White = 97
+    }
+    if ($Color -and $codes.ContainsKey($Color)) {
+        $esc = [char]27
+        $Message = "$esc[$($codes[$Color])m$Message$esc[0m"
+    }
+    Write-Information -MessageData $Message -InformationAction Continue
+}
+
 function Write-Header($text) {
-    Write-Host "`n================================================================================" -ForegroundColor Cyan
-    Write-Host "  $text" -ForegroundColor White
-    Write-Host "================================================================================`n" -ForegroundColor Cyan
+    Write-Ui "`n================================================================================" -Color Cyan
+    Write-Ui "  $text" -Color White
+    Write-Ui "================================================================================`n" -Color Cyan
 }
 
 function Invoke-BootstrapCheck {
@@ -25,10 +41,10 @@ function Invoke-BootstrapCheck {
 function Initialize-Environment {
     Write-Header "INITIALIZING ENVIRONMENT"
     if (Test-Path $script:ENV_MGR) {
-        Write-Host "  [*] Delegating to LemGendary Environment Manager..." -ForegroundColor Cyan
+        Write-Ui "  [*] Delegating to LemGendary Environment Manager..." -Color Cyan
         & $script:ENV_MGR install --project lemgendary-training-suite
     } else {
-        Write-Host "  [!] LemGendary Environment Manager not found at $script:ENV_MGR. Falling back to local python -m venv." -ForegroundColor Yellow
+        Write-Ui "  [!] LemGendary Environment Manager not found at $script:ENV_MGR. Falling back to local python -m venv." -Color Yellow
         $GlobalPy = (Get-Command python -ErrorAction SilentlyContinue).Source
         & $GlobalPy -m venv $script:VENV_DIR
         & "$script:VENV_DIR\Scripts\python.exe" -m pip install --upgrade pip wheel setuptools
@@ -41,7 +57,7 @@ function Initialize-Environment {
 function Test-Environment {
     $py = "$script:VENV_DIR\Scripts\python.exe"
     if (-not (Test-Path $py)) {
-        Write-Host "  [!] Virtual environment not detected at $script:VENV_DIR" -ForegroundColor Yellow
+        Write-Ui "  [!] Virtual environment not detected at $script:VENV_DIR" -Color Yellow
         $choice = Read-Host "  Would you like to initialize it now? (Y/N)"
         if ($choice -eq 'Y' -or $choice -eq 'y') {
             Initialize-Environment
@@ -55,18 +71,22 @@ function Test-Environment {
 function Invoke-JanitorPurge {
     $lockedProcs = Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*$script:VENV_DIR*" }
     foreach ($proc in $lockedProcs) {
-        try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+        try {
+            Stop-Process -Id $proc.Id -Force -ErrorAction Stop
+        } catch {
+            Write-Warning "Could not stop python process $($proc.Id): $($_.Exception.Message)"
+        }
     }
 }
 
 function Get-ModelSelection {
     while ($true) {
         Write-Header "SELECT MODEL DOMAIN (PARENT CATEGORY)"
-        Write-Host "  1. Image Manipulation & Restoration" -ForegroundColor Cyan
-        Write-Host "  2. Image Generation & Multimodal" -ForegroundColor Cyan
-        Write-Host "  3. Financial & Time-Series" -ForegroundColor Cyan
-        Write-Host "  Q. Cancel / Return" -ForegroundColor Gray
-        Write-Host ""
+        Write-Ui "  1. Image Manipulation & Restoration" -Color Cyan
+        Write-Ui "  2. Image Generation & Multimodal" -Color Cyan
+        Write-Ui "  3. Financial & Time-Series" -Color Cyan
+        Write-Ui "  Q. Cancel / Return" -Color Gray
+        Write-Ui ""
 
         $domainChoice = (Read-Host "Select a domain (1-3, Q)").Trim()
         if ($domainChoice -eq 'Q' -or $domainChoice -eq 'q') { return $null }
@@ -76,13 +96,13 @@ function Get-ModelSelection {
                 # --- DOMAIN 1: Image Manipulation & Restoration ---
                 while ($true) {
                     Write-Header "IMAGE MANIPULATION & RESTORATION - SUB-CATEGORIES"
-                    Write-Host "  1. Quality Assessment  (NIMA Aesthetics, Technical, Authenticity, Universal NSFW)" -ForegroundColor Cyan
-                    Write-Host "  2. Face & Detection    (RetinaFace, YOLOv8, CodeFormer, ParseNet)" -ForegroundColor Cyan
-                    Write-Host "  3. Super-Resolution    (UltraZoom x2/x3/x4/x8)" -ForegroundColor Cyan
-                    Write-Host "  4. Image Restoration   (NAFNet, MIRNet, FFANet, MPRNet)" -ForegroundColor Cyan
-                    Write-Host "  5. Universal Hybrid    (UPN v2, Multi-Restorer, Film Restoration)" -ForegroundColor Cyan
-                    Write-Host "  B. Back to Domain Menu" -ForegroundColor Gray
-                    Write-Host ""
+                    Write-Ui "  1. Quality Assessment  (NIMA Aesthetics, Technical, Authenticity, Universal NSFW)" -Color Cyan
+                    Write-Ui "  2. Face & Detection    (RetinaFace, YOLOv8, CodeFormer, ParseNet)" -Color Cyan
+                    Write-Ui "  3. Super-Resolution    (UltraZoom x2/x3/x4/x8)" -Color Cyan
+                    Write-Ui "  4. Image Restoration   (NAFNet, MIRNet, FFANet, MPRNet)" -Color Cyan
+                    Write-Ui "  5. Universal Hybrid    (UPN v2, Multi-Restorer, Film Restoration)" -Color Cyan
+                    Write-Ui "  B. Back to Domain Menu" -Color Gray
+                    Write-Ui ""
 
                     $subChoice = (Read-Host "Select sub-category (1-5, B)").Trim()
                     if ($subChoice -eq 'B' -or $subChoice -eq 'b') { break }
@@ -106,10 +126,10 @@ function Get-ModelSelection {
                 # --- DOMAIN 2: Image Generation & Multimodal ---
                 while ($true) {
                     Write-Header "IMAGE GENERATION & MULTIMODAL - SUB-CATEGORIES"
-                    Write-Host "  1. Generative Diffusion (SDXL, Flux)" -ForegroundColor Cyan
-                    Write-Host "  2. Vision-Language      (LLaVA, BLIP-2)" -ForegroundColor Cyan
-                    Write-Host "  B. Back to Domain Menu" -ForegroundColor Gray
-                    Write-Host ""
+                    Write-Ui "  1. Generative Diffusion (SDXL, Flux)" -Color Cyan
+                    Write-Ui "  2. Vision-Language      (LLaVA, BLIP-2)" -Color Cyan
+                    Write-Ui "  B. Back to Domain Menu" -Color Gray
+                    Write-Ui ""
 
                     $subChoice = (Read-Host "Select sub-category (1-2, B)").Trim()
                     if ($subChoice -eq 'B' -or $subChoice -eq 'b') { break }
@@ -130,9 +150,9 @@ function Get-ModelSelection {
                 # --- DOMAIN 3: Financial & Time-Series ---
                 while ($true) {
                     Write-Header "FINANCIAL & TIME-SERIES - SUB-CATEGORIES"
-                    Write-Host "  1. Forex Trading (Walk-Forward Curriculum Orchestrator)" -ForegroundColor Cyan
-                    Write-Host "  B. Back to Domain Menu" -ForegroundColor Gray
-                    Write-Host ""
+                    Write-Ui "  1. Forex Trading (Walk-Forward Curriculum Orchestrator)" -Color Cyan
+                    Write-Ui "  B. Back to Domain Menu" -Color Gray
+                    Write-Ui ""
 
                     $subChoice = (Read-Host "Select sub-category (1, B)").Trim()
                     if ($subChoice -eq 'B' -or $subChoice -eq 'b') { break }
@@ -149,7 +169,7 @@ function Get-ModelSelection {
             }
 
             default {
-                Write-Host "Invalid selection." -ForegroundColor Red
+                Write-Ui "Invalid selection." -Color Red
                 Start-Sleep -Seconds 1
             }
         }
@@ -161,10 +181,10 @@ function Show-ModelList {
     if ($Models.Count -eq 1) { return $Models[0] }
     Write-Header "SELECT SPECIFIC MODEL MANIFOLD"
     for ($i=0; $i -lt $Models.Count; $i++) {
-        Write-Host "  $($i+1). $($Models[$i])" -ForegroundColor Green
+        Write-Ui "  $($i+1). $($Models[$i])" -Color Green
     }
-    Write-Host "  $($Models.Count + 1). Back" -ForegroundColor Gray
-    Write-Host ""
+    Write-Ui "  $($Models.Count + 1). Back" -Color Gray
+    Write-Ui ""
 
     $choice = (Read-Host "Select a model (1-$($Models.Count + 1))").Trim()
     if ($choice -as [int] -and [int]$choice -ge 1 -and [int]$choice -le $Models.Count) {
@@ -176,12 +196,12 @@ function Show-ModelList {
 function Invoke-KaggleCloudMenu {
     while ($true) {
         Write-Header "KAGGLE CLOUD ENGINE (HEADLESS GPU ORCHESTRATION)"
-        Write-Host "  1. Train on Kaggle            (Launch notebook, stream logs, auto-pull checkpoints)" -ForegroundColor Cyan
-        Write-Host "  2. Monitor Active Cloud Jobs   (Monitor only: stream live logs, no pulling)" -ForegroundColor Cyan
-        Write-Host "  3. Pull & Save Checkpoints     (Downloads .pth & metrics.csv to local disk)" -ForegroundColor Cyan
-        Write-Host "  4. Setup / Verify Credentials  (Configure Kaggle Username & Token)" -ForegroundColor Cyan
-        Write-Host "  B. Back to Main Menu" -ForegroundColor Gray
-        Write-Host ""
+        Write-Ui "  1. Train on Kaggle            (Launch notebook, stream logs, auto-pull checkpoints)" -Color Cyan
+        Write-Ui "  2. Monitor Active Cloud Jobs   (Monitor only: stream live logs, no pulling)" -Color Cyan
+        Write-Ui "  3. Pull & Save Checkpoints     (Downloads .pth & metrics.csv to local disk)" -Color Cyan
+        Write-Ui "  4. Setup / Verify Credentials  (Configure Kaggle Username & Token)" -Color Cyan
+        Write-Ui "  B. Back to Main Menu" -Color Gray
+        Write-Ui ""
 
         $cloudChoice = (Read-Host "Select cloud option (1-4, B)").Trim()
         if ($cloudChoice -eq 'B' -or $cloudChoice -eq 'b') { return }
@@ -222,7 +242,7 @@ function Invoke-KaggleCloudMenu {
                 Pop-Location
                 Read-Host "Press Enter to return..."
             }
-            default { Write-Host "Invalid selection."; Start-Sleep -Seconds 1 }
+            default { Write-Ui "Invalid selection."; Start-Sleep -Seconds 1 }
         }
     }
 }
@@ -230,12 +250,12 @@ function Invoke-KaggleCloudMenu {
 function Show-Menu {
     Clear-Host
     Write-Header "LEMGENDARY AI TRAINING SUITE (2026 SPECIALIZATION)"
-    Write-Host " [ENVIRONMENT: $(if ($env:VIRTUAL_ENV) { 'VIRTUAL' } else { 'GLOBAL' })]" -ForegroundColor Gray
-    Write-Host "  1. Train Individual Model      (Launches Local LemGendary Training Suite)"
-    Write-Host "  2. Single-Epoch Unit Test      (Diagnostic 1-Epoch pass for ALL models)"
-    Write-Host "  3. Kaggle Cloud Engine         (Headless GPU: Launch / Monitor / Pull)"
-    Write-Host "  Q. Exit"
-    Write-Host ""
+    Write-Ui " [ENVIRONMENT: $(if ($env:VIRTUAL_ENV) { 'VIRTUAL' } else { 'GLOBAL' })]" -Color Gray
+    Write-Ui "  1. Train Individual Model      (Launches Local LemGendary Training Suite)"
+    Write-Ui "  2. Single-Epoch Unit Test      (Diagnostic 1-Epoch pass for ALL models)"
+    Write-Ui "  3. Kaggle Cloud Engine         (Headless GPU: Launch / Monitor / Pull)"
+    Write-Ui "  Q. Exit"
+    Write-Ui ""
 }
 
 # Pre-Flight Bootstrap Python check (Silent if found)
@@ -250,8 +270,8 @@ while ($true) {
                 $selectedModel = Get-ModelSelection
                 if ($null -ne $selectedModel) {
                     $extraArgs = @()
-                    Write-Host "  [*] Launching Training Matrix for >> $selectedModel <<..." -ForegroundColor Green
-                    Write-Host "      -> Target Manifold: $selectedModel" -ForegroundColor Gray
+                    Write-Ui "  [*] Launching Training Matrix for >> $selectedModel <<..." -Color Green
+                    Write-Ui "      -> Target Manifold: $selectedModel" -Color Gray
                     Invoke-JanitorPurge # Ensure clean start
                     $env:PYTHONPATH="$script:HUB_DIR"; $env:PYTHONHOME=""; $env:TRITON_SILENT="1"
                     $env:PATH="$script:VENV_DIR\Scripts;$script:VENV_DIR\bin;$env:PATH"
@@ -280,6 +300,6 @@ while ($true) {
         }
         'Q' { return }
         'q' { return }
-        default { Write-Host "Invalid selection."; Start-Sleep -Seconds 1 }
+        default { Write-Ui "Invalid selection."; Start-Sleep -Seconds 1 }
     }
 }

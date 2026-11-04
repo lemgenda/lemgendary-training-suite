@@ -1,9 +1,10 @@
 """Parquet container reader wrapping PyArrow with row-group level caching."""
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
 import pyarrow.parquet as pq
 
 from training.data.containers.base import Sample
@@ -51,7 +52,9 @@ class ParquetReader:
                 self.files = sorted(self.root.glob("**/*.parquet"))
 
         if not self.files:
-            raise FileNotFoundError(f"No Parquet files discovered in '{self.root}' for split '{self.split}'.")
+            raise FileNotFoundError(
+                f"No Parquet files discovered in '{self.root}' for split '{self.split}'."
+            )
 
         # Map global indices to (file_idx, row_group_idx, local_row_idx)
         self.file_metadata: list[pq.FileMetaData] = []
@@ -74,7 +77,11 @@ class ParquetReader:
 
     def _get_row(self, file_idx: int, rg_idx: int, row_in_group: int) -> dict[str, Any]:
         """Fetch row using row-group cache."""
-        if self._cache is None or self._cache.file_index != file_idx or self._cache.group_index != rg_idx:
+        if (
+            self._cache is None
+            or self._cache.file_index != file_idx
+            or self._cache.group_index != rg_idx
+        ):
             parquet_file = pq.ParquetFile(self.files[file_idx])
             table = parquet_file.read_row_group(rg_idx)
             data_dict = {col: table[col].to_pylist() for col in table.column_names}

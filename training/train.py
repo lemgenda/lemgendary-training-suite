@@ -1,6 +1,7 @@
-# 2026: Environment Linter Sync
-import sys
+"""Script entry point for training: fixes sys.path, then delegates to training.core_loop.main."""
+
 import os
+import sys
 
 # --- Hyper-Verbose Path Defense (2026 Specialization) ---
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -14,7 +15,8 @@ if workspace_root not in sys.path:
 if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
     sys.path.insert(0, venv_site_pkgs)
 
-from training.core_loop import main
-
 if __name__ == "__main__":
+    # Imported only after the sys.path fix above so the workspace root resolves first.
+    from training.core_loop import main
+
     main()

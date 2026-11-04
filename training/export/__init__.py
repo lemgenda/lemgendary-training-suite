@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import logging
-import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import torch
 import yaml
 
+from models.factory import get_model
 from training.export.base import BaseModelExporter
 from training.export.common import (
     ExportError,
+    OnnxGraphSpec,
     extract_input_dimensions,
+    load_checkpoint_weights,
     resolve_checkpoint_file,
     resolve_export_paths,
     wrap_quality_model,
@@ -39,27 +42,28 @@ from training.export.validation import (
 )
 from training.export.webgpu import export_webgpu_onnx
 from training.export.yolo_exporter import YOLOModelExporter
+from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export")
 
 
-def export_all(
-    model_key: str,
-    checkpoint_path: Path | str | None = None,
-    config: dict[str, Any] | None = None,
-    output_dir: Path | str | None = None,
-    targets: list[str] | None = None,
-    stage_dist: bool = True,
-) -> dict[str, Path]:
-    """Orchestrate full production export across specified targets with optional variation staging.
+@dataclass(frozen=True)
+class ExportPlan:
+    """Which formats :func:`export_all` writes and whether it stages hub variations.
 
-    Targets can include: "onnx_fp32", "onnx_fp16", "torch_pt", "webgpu", "forex".
-    Defaults to ["onnx_fp32", "onnx_fp16", "torch_pt"].
+    ``targets`` can include "onnx_fp32", "onnx_fp16", "torch_pt", "webgpu" and "forex";
+    ``None`` selects ["forex"] for Forex models and ["onnx_fp32", "onnx_fp16", "torch_pt"]
+    otherwise.
     """
-    project_root = get_project_root()
-    cfg = config or {}
 
+    targets: list[str] | None = None
+    stage_dist: bool = True
+
+
+def _load_export_config(config: dict[str, Any] | None, project_root: Path) -> dict[str, Any]:
+    """Return ``config``, or ``config.yaml`` from the project root when none is given."""
+    cfg = config or {}
     if not cfg:
         cfg_path = project_root / "config.yaml"
         if cfg_path.exists():
@@ -67,7 +71,11 @@ def export_all(
                 cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
             except (OSError, yaml.YAMLError) as e:
                 logger.warning("Could not read config.yaml: %s", e)
+    return cfg
 
+
+def _load_export_registry(cfg: dict[str, Any], project_root: Path) -> dict[str, Any]:
+    """Read the unified models registry named by ``cfg`` (falls back to unified_models.yaml)."""
     unified_models_name = cfg.get("unified_models", "unified_models_v2.yaml")
     registry_path = project_root / unified_models_name
     if not registry_path.exists():
@@ -79,63 +87,42 @@ def export_all(
             registry = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError) as e:
             logger.warning("Could not read unified models registry: %s", e)
+    return registry
 
-    model_info = registry.get(model_key, {})
-    base_name, default_out_dir = resolve_export_paths(model_key, model_info, cfg, project_root)
-    destination_dir = Path(output_dir).resolve() if output_dir else default_out_dir
-    destination_dir.mkdir(parents=True, exist_ok=True)
 
-    ckpt_file = resolve_checkpoint_file(
-        model_key=model_key,
-        production_dir=destination_dir,
-        config=cfg,
-        project_root=project_root,
-        user_checkpoint=checkpoint_path,
-    )
-
-    is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
-    export_targets = targets or (["forex"] if is_forex else ["onnx_fp32", "onnx_fp16", "torch_pt"])
-
-    results: dict[str, Path] = {}
-
-    if is_forex or "forex" in export_targets:
-        if not ckpt_file:
-            raise ExportError("CKPT_MISSING", f"No checkpoint found for forex model {model_key}")
-        forex_out = destination_dir / f"{base_name}.onnx"
-        active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
-        exported_path = export_forex_onnx(ckpt_file, forex_out, active_timeframes=active_tfs)
-        results["forex"] = exported_path
-        if stage_dist:
-            VariationStagingService().stage_variations(model_key, results, destination_dir)
-        return results
-
-    # Instantiate model architecture
-    from models.factory import get_model
-
+def _load_export_model(
+    model_key: str, cfg: dict[str, Any], ckpt_file: Path | None, model_info: dict[str, Any]
+) -> torch.nn.Module:
+    """Build the model on the CPU, load ``ckpt_file`` weights and wrap quality models."""
     model = get_model(model_key, cfg).to(torch.device("cpu"))
 
     if ckpt_file and ckpt_file.exists():
         logger.info("Loading weights from checkpoint: %s", ckpt_file)
         ckpt = torch.load(str(ckpt_file), map_location="cpu", weights_only=False)
-        raw_state = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt)) if isinstance(ckpt, dict) else ckpt
-        state_dict = {
-            k[7:] if k.startswith("module.") else k: v
-            for k, v in raw_state.items()
-        }
-        model.load_state_dict(state_dict, strict=False)
+        load_checkpoint_weights(model, ckpt)
 
     model.eval()
-    model = wrap_quality_model(model, model_info)
+    return wrap_quality_model(model, model_info)
 
-    h, w = extract_input_dimensions(model_info)
-    dummy_shape = (1, 3, h, w)
 
-    staging_dir = (destination_dir / ".export_staging") if stage_dist else destination_dir
-    staging_dir.mkdir(parents=True, exist_ok=True)
+def _export_model_targets(
+    model: torch.nn.Module,
+    model_key: str,
+    export_targets: list[str],
+    staging_dir: Path,
+    names: tuple[str, tuple[int, int, int, int]],
+) -> dict[str, Path]:
+    """Write each requested non-Forex target into ``staging_dir``.
 
+    ``names`` is ``(base_name, dummy_shape)``.
+    """
+    base_name, dummy_shape = names
+    results: dict[str, Path] = {}
     if "onnx_fp32" in export_targets:
         fp32_path = staging_dir / f"{base_name}_FP32.onnx"
-        export_onnx(model, fp32_path, dummy_shape=dummy_shape, half=False, external_data=True)
+        export_onnx(
+            model, fp32_path, dummy_shape=dummy_shape, graph=OnnxGraphSpec(external_data=True)
+        )
         results["onnx_fp32"] = fp32_path
         results["onnx_fp32_data"] = staging_dir / f"{base_name}_FP32.onnx.data"
 
@@ -154,14 +141,85 @@ def export_all(
         webgpu_path = staging_dir / f"{base_name}_webgpu.onnx"
         export_webgpu_onnx(model, webgpu_path, dummy_input_shape=(1, 3, 512, 512))
         results["webgpu"] = webgpu_path
+    return results
 
-    if stage_dist:
-        staging_svc = VariationStagingService()
-        staged_res = staging_svc.stage_variations(model_key, results, destination_dir)
-        results.update(staged_res.staged_files)
-        if staging_dir.exists():
-            shutil.rmtree(staging_dir, ignore_errors=True)
 
+def _export_targets(model_key: str, model_info: dict[str, Any], plan: ExportPlan) -> list[str]:
+    """``["forex"]`` for Forex models, else the plan's targets or the three defaults."""
+    if model_info.get("dataset_type") == "forex" or "forex" in model_key.lower():
+        return ["forex"]
+    return plan.targets or ["onnx_fp32", "onnx_fp16", "torch_pt"]
+
+
+def _export_forex_checkpoint(
+    model_key: str, model_info: dict[str, Any], ckpt_file: Path | None, out_path: Path
+) -> Path:
+    """Export a Forex checkpoint to ONNX over the model's active timeframes."""
+    if not ckpt_file:
+        raise ExportError("CKPT_MISSING", f"No checkpoint found for forex model {model_key}")
+    active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
+    return export_forex_onnx(ckpt_file, out_path, active_timeframes=active_tfs)
+
+
+def _stage_dist(
+    model_key: str, results: dict[str, Path], destination_dir: Path, staging_dir: Path
+) -> None:
+    """Stage exported files into isolated variations, add them to ``results``, drop staging."""
+    staged_res = VariationStagingService().stage_variations(model_key, results, destination_dir)
+    results.update(staged_res.staged_files)
+    if staging_dir.exists():
+        remove_tree(staging_dir, purpose="export staging cleanup")
+
+
+def export_all(
+    model_key: str,
+    checkpoint_path: Path | str | None = None,
+    config: dict[str, Any] | None = None,
+    output_dir: Path | str | None = None,
+    plan: ExportPlan | None = None,
+) -> dict[str, Path]:
+    """Run the full production export for the targets of ``plan`` (see :class:`ExportPlan`)."""
+    plan = plan or ExportPlan()
+    project_root = get_project_root()
+    cfg = _load_export_config(config, project_root)
+    model_info = _load_export_registry(cfg, project_root).get(model_key, {})
+    base_name, destination_dir = resolve_export_paths(model_key, model_info, cfg, project_root)
+    if output_dir:
+        destination_dir = Path(output_dir).resolve()
+    destination_dir.mkdir(parents=True, exist_ok=True)
+
+    ckpt_file = resolve_checkpoint_file(
+        model_key=model_key,
+        production_dir=destination_dir,
+        config=cfg,
+        project_root=project_root,
+        user_checkpoint=checkpoint_path,
+    )
+
+    export_targets = _export_targets(model_key, model_info, plan)
+    if "forex" in export_targets:
+        results = {
+            "forex": _export_forex_checkpoint(
+                model_key, model_info, ckpt_file, destination_dir / f"{base_name}.onnx"
+            )
+        }
+        if plan.stage_dist:
+            VariationStagingService().stage_variations(model_key, results, destination_dir)
+        return results
+
+    model = _load_export_model(model_key, cfg, ckpt_file, model_info)
+    staging_dir = (destination_dir / ".export_staging") if plan.stage_dist else destination_dir
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    results = _export_model_targets(
+        model,
+        model_key,
+        export_targets,
+        staging_dir,
+        (base_name, (1, 3, *extract_input_dimensions(model_info))),
+    )
+
+    if plan.stage_dist:
+        _stage_dist(model_key, results, destination_dir, staging_dir)
     logger.info("Completed export_all for %s: %d targets exported.", model_key, len(results))
     return results
 
@@ -169,10 +227,12 @@ def export_all(
 __all__ = [
     "BaseModelExporter",
     "ExportError",
+    "ExportPlan",
     "ExporterFactory",
     "ForexModelExporter",
     "IsolationReport",
     "LLMModelExporter",
+    "OnnxGraphSpec",
     "PyTorchModelExporter",
     "StagingResult",
     "StrictIsolationValidator",

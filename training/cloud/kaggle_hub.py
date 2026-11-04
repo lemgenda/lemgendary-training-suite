@@ -3,19 +3,61 @@
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 import os
-from pathlib import Path
 import shutil
-import subprocess
-import sys
+from pathlib import Path
 from typing import Any
 
 from training.cloud.credentials import resolve_kaggle_credentials
-from training.cloud.manager import CloudManager, CloudSyncError
+from training.cloud.errors import kagglehub_errors
+from training.cloud.manager import CloudSyncError
+from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_hub")
+
+
+def _link_checkpoint_files(src: Path, dst: Path) -> None:
+    """Hard-link each file of ``src`` into ``dst`` (copy when linking fails)."""
+    dst.mkdir(parents=True, exist_ok=True)
+    for f in src.iterdir():
+        if f.is_file():
+            try:
+                os.link(f, dst / f.name)
+            except OSError:
+                shutil.copy2(f, dst / f.name)
+
+
+def _stage_model_dir(src_dir: Path, staging_dir: Path) -> None:
+    """Copy ``src_dir`` into ``staging_dir`` (checkpoints hard-linked) plus key metadata."""
+    for item in src_dir.iterdir():
+        if item.name == ".kaggle_upload_stage":
+            continue
+        dst = staging_dir / item.name
+        if item.name.lower() == "checkpoints" and item.is_dir():
+            _link_checkpoint_files(item, dst)
+        elif item.is_dir():
+            shutil.copytree(item, dst)
+        elif item.is_file():
+            shutil.copy2(item, dst)
+
+    # Defensive validation: ensure essential checkpoints and metrics are staged if available
+    checkpoints_staging = staging_dir / "checkpoints"
+    if not checkpoints_staging.exists():
+        src_ckpts = src_dir / "checkpoints"
+        if src_ckpts.exists() and src_ckpts.is_dir():
+            checkpoints_staging.mkdir(parents=True, exist_ok=True)
+            for f in src_ckpts.glob("*.pth"):
+                if f.is_file():
+                    shutil.copy2(f, checkpoints_staging / f.name)
+
+    for meta_file in ("README.md", "metrics.csv", "history.csv"):
+        src_meta = src_dir / meta_file
+        dst_meta = staging_dir / meta_file
+        if src_meta.exists() and src_meta.is_file() and not dst_meta.exists():
+            shutil.copy2(src_meta, dst_meta)
 
 
 class KaggleHubManager:
@@ -76,18 +118,21 @@ class KaggleHubManager:
             "accelerator": accelerator,
         }
 
-        import json
-        (kernel_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        (kernel_dir / "kernel-metadata.json").write_text(
+            json.dumps(metadata, indent=2), encoding="utf-8"
+        )
 
-        script_content = f'''"""Automated Headless Kaggle Cloud Training Job for {model_name}."""
-import os
-import subprocess
-import sys
-
-print("Initializing LemGendary Cloud Worker for {model_name}...")
-res = subprocess.run([sys.executable, "-m", "training.core_loop", "--model", "{model_name}"], check=False)
-sys.exit(res.returncode)
-'''
+        script_content = (
+            f'"""Automated Headless Kaggle Cloud Training Job for {model_name}."""\n'
+            "import os\n"
+            "import subprocess\n"
+            "import sys\n"
+            "\n"
+            f'print("Initializing LemGendary Cloud Worker for {model_name}...")\n'
+            'res = subprocess.run([sys.executable, "-m", "training.core_loop", "--model", '
+            f'"{model_name}"], check=False)\n'
+            "sys.exit(res.returncode)\n"
+        )
         (kernel_dir / "train_cloud.py").write_text(script_content, encoding="utf-8")
         logger.info("Created Kaggle cloud kernel bundle at %s", kernel_dir)
         return kernel_dir
@@ -97,50 +142,21 @@ sys.exit(res.returncode)
         model_name: str,
         epoch: int,
         src_dir: Path,
-        **kwargs: Any,
     ) -> bool:
         """Stage artifacts and upload model version to Kaggle Model Hub."""
         handle = self.get_handle(model_name)
-        staging_dir = Path("/kaggle/working/.kaggle_upload_stage") if os.name != "nt" else (src_dir / ".kaggle_upload_stage")
+        staging_dir = (
+            Path("/kaggle/working/.kaggle_upload_stage")
+            if os.name != "nt"
+            else (src_dir / ".kaggle_upload_stage")
+        )
 
         try:
             if staging_dir.exists():
                 shutil.rmtree(staging_dir)
             staging_dir.mkdir(parents=True, exist_ok=True)
 
-            # Copy or hardlink contents
-            for item in src_dir.iterdir():
-                if item.name == ".kaggle_upload_stage":
-                    continue
-                dst = staging_dir / item.name
-                if item.name.lower() == "checkpoints" and item.is_dir():
-                    dst.mkdir(parents=True, exist_ok=True)
-                    for f in item.iterdir():
-                        if f.is_file():
-                            try:
-                                os.link(f, dst / f.name)
-                            except OSError:
-                                shutil.copy2(f, dst / f.name)
-                elif item.is_dir():
-                    shutil.copytree(item, dst)
-                elif item.is_file():
-                    shutil.copy2(item, dst)
-
-            # Defensive validation: ensure essential checkpoints and metrics are staged if available
-            checkpoints_staging = staging_dir / "checkpoints"
-            if not checkpoints_staging.exists():
-                src_ckpts = src_dir / "checkpoints"
-                if src_ckpts.exists() and src_ckpts.is_dir():
-                    checkpoints_staging.mkdir(parents=True, exist_ok=True)
-                    for f in src_ckpts.glob("*.pth"):
-                        if f.is_file():
-                            shutil.copy2(f, checkpoints_staging / f.name)
-
-            for meta_file in ("README.md", "metrics.csv", "history.csv"):
-                src_meta = src_dir / meta_file
-                dst_meta = staging_dir / meta_file
-                if src_meta.exists() and src_meta.is_file() and not dst_meta.exists():
-                    shutil.copy2(src_meta, dst_meta)
+            _stage_model_dir(src_dir, staging_dir)
 
             # Dynamic import of kagglehub
             try:
@@ -162,7 +178,8 @@ sys.exit(res.returncode)
             return True
         except CloudSyncError:
             raise
-        except Exception as exc:
+        except kagglehub_errors() as exc:
+            logger.error("Kaggle Hub upload failed for %s: %s", model_name, exc)
             raise CloudSyncError(
                 code="KAGGLE_UPLOAD_FAILED",
                 message=f"Failed to upload {model_name} to Kaggle Hub: {exc}",
@@ -170,9 +187,9 @@ sys.exit(res.returncode)
             ) from exc
         finally:
             if staging_dir.exists():
-                shutil.rmtree(staging_dir, ignore_errors=True)
+                remove_tree(staging_dir, purpose="Kaggle staging cleanup")
 
-    def pull(self, remote_identifier: str, dest_dir: Path, **kwargs: Any) -> bool:
+    def pull(self, remote_identifier: str, dest_dir: Path) -> bool:
         """Download model artifacts or dataset from Kaggle Hub."""
         dest_dir.mkdir(parents=True, exist_ok=True)
         try:
@@ -197,10 +214,13 @@ sys.exit(res.returncode)
                             shutil.copytree(item, target, dirs_exist_ok=True)
                         else:
                             shutil.copy2(item, target)
-                logger.info("Successfully pulled Kaggle artifact %s -> %s", remote_identifier, dest_dir)
+                logger.info(
+                    "Successfully pulled Kaggle artifact %s -> %s", remote_identifier, dest_dir
+                )
                 return True
             return False
-        except Exception as exc:
+        except kagglehub_errors() as exc:
+            logger.error("Kaggle Hub download failed for %s: %s", remote_identifier, exc)
             raise CloudSyncError(
                 code="KAGGLE_DOWNLOAD_FAILED",
                 message=f"Failed pulling Kaggle artifact {remote_identifier}: {exc}",
@@ -213,8 +233,8 @@ sys.exit(res.returncode)
         try:
             importlib.import_module("kagglehub")
             has_sdk = True
-        except ImportError:
-            pass
+        except ImportError as exc:
+            logger.debug("kagglehub SDK not importable: %s", exc)
 
         return {
             "provider": "kaggle",

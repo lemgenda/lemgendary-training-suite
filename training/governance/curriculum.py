@@ -1,7 +1,7 @@
-"""Curriculum state managing dynamic resolution ladders, fraction expansion, and effective batch scaling."""
+"""Curriculum state: resolution ladders, data-fraction expansion, and effective batch scaling."""
 
-from dataclasses import dataclass, field
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger("lemtrain.governance.curriculum")
@@ -9,7 +9,7 @@ logger = logging.getLogger("lemtrain.governance.curriculum")
 
 @dataclass
 class CurriculumState:
-    """Manages progressive resolution scaling, sample fraction expansion, and gradient accumulation."""
+    """Manage progressive resolution, sample-fraction expansion, and gradient accumulation."""
 
     res_ladder: list[int] = field(default_factory=lambda: [256])
     current_res: int = 256
@@ -37,7 +37,11 @@ class CurriculumState:
 
         if curr_idx < len(self.res_ladder) - 1:
             self.current_res = self.res_ladder[curr_idx + 1]
-            logger.info("Promoted curriculum resolution: %d -> %d px", self.res_ladder[curr_idx], self.current_res)
+            logger.info(
+                "Promoted curriculum resolution: %d -> %d px",
+                self.res_ladder[curr_idx],
+                self.current_res,
+            )
             return True
 
         return False
@@ -51,7 +55,11 @@ class CurriculumState:
         if new_frac > self.current_fraction:
             old_frac = self.current_fraction
             self.current_fraction = max(self.current_fraction, new_frac)
-            logger.info("Expanded curriculum sample fraction: %.1f%% -> %.1f%%", old_frac * 100.0, new_frac * 100.0)
+            logger.info(
+                "Expanded curriculum sample fraction: %.1f%% -> %.1f%%",
+                old_frac * 100.0,
+                new_frac * 100.0,
+            )
             return True
 
         return False
@@ -66,7 +74,8 @@ class CurriculumState:
         new_batch = max(min_batch, self.current_batch // 2)
         self.update_batch_and_accumulation(new_batch)
         logger.warning(
-            "Curriculum OOM Throttling: batch size reduced %d -> %d, accumulation adjusted to %d (effective batch=%d)",
+            "Curriculum OOM Throttling: batch size reduced %d -> %d, accumulation adjusted to %d "
+            "(effective batch=%d)",
             old_batch,
             self.current_batch,
             self.current_acc,
@@ -77,7 +86,9 @@ class CurriculumState:
     def update_batch_and_accumulation(self, new_batch: int) -> None:
         """Adjust batch size and gradient accumulation to preserve target effective batch."""
         self.current_batch = max(1, new_batch)
-        self.current_acc = max(1, round(float(self.target_effective_batch) / float(self.current_batch)))
+        self.current_acc = max(
+            1, round(float(self.target_effective_batch) / float(self.current_batch))
+        )
         logger.debug(
             "Curriculum batch updated: batch=%d, accum=%d (effective=%d)",
             self.current_batch,

@@ -15,15 +15,15 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
     if target == "kaggle":
         source = [
             "import os, re\n",
-            f"model_key = '{meta.model_key}'\n",
+            f"model_key = '{meta.identity.model_key}'\n",
             "target_dir = '/kaggle/working/LemGendaryDatasets'\n",
             "os.makedirs(target_dir, exist_ok=True)\n",
             "\n",
             "print(f'[DATA] Resolving manifolds for {model_key}...')\n",
             "found = []\n",
-            f"keys = {meta.ds_keys_repr}\n",
+            f"keys = {meta.dataset.ds_keys_repr}\n",
             "\n",
-            f"if {meta.is_forex} or any('forex' in k for k in keys):\n",
+            f"if {meta.identity.is_forex} or any('forex' in k for k in keys):\n",
             "    forex_composite_dir = os.path.join(target_dir, 'LemGendizedForexUniverse')\n",
             "    os.makedirs(forex_composite_dir, exist_ok=True)\n",
             "    forex_years_found = {}\n",
@@ -35,21 +35,40 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "                        cand = os.path.join(root_dir, f)\n",
             "                        for y in range(2019, 2027):\n",
             "                            if str(y) in f:\n",
-            "                                forex_years_found[f'ForexUniverse{y}.parquet'] = cand\n",
+            (
+                "                                forex_years_found[f'ForexUniverse{y}.parquet'] = "
+                "cand\n"
+            ),
             "                                break\n",
-            "                dirs[:] = [d for d in dirs if d.lower() not in ['models', 'checkpoints', 'weights', 'images', 'targets']]\n",
+            (
+                "                dirs[:] = [d for d in dirs if d.lower() not in ['models', "
+                "'checkpoints', 'weights', 'images', 'targets']]\n"
+            ),
             "                for d in dirs:\n",
-            "                    if (d.startswith('ForexUniverse20') or 'forexuniverse20' in d.lower()) and not d.endswith('.zip'):\n",
+            (
+                "                    if (d.startswith('ForexUniverse20') or 'forexuniverse20' in "
+                "d.lower()) and not d.endswith('.zip'):\n"
+            ),
             "                        cand = os.path.join(root_dir, d)\n",
             "                        try:\n",
             "                            subs = os.listdir(cand)\n",
             "                            for sub in subs:\n",
-            "                                if sub.startswith('ForexUniverse20') and sub.endswith('.parquet'):\n",
+            (
+                "                                if sub.startswith('ForexUniverse20') and "
+                "sub.endswith('.parquet'):\n"
+            ),
             "                                    for y in range(2019, 2027):\n",
             "                                        if str(y) in sub:\n",
-            "                                            forex_years_found[f'ForexUniverse{y}.parquet'] = os.path.join(cand, sub)\n",
+            (
+                "                                            "
+                "forex_years_found[f'ForexUniverse{y}.parquet'] = os.path.join(cand, sub)\n"
+            ),
             "                                            break\n",
-            "                            if any(p in subs for p in ['EURUSD', 'USDJPY', 'GBPUSD', 'AUDUSD', 'XAUUSD', 'category.txt', 'dataset_info.yaml', 'classes.txt']):\n",
+            (
+                "                            if any(p in subs for p in ['EURUSD', 'USDJPY', "
+                "'GBPUSD', 'AUDUSD', 'XAUUSD', 'category.txt', 'dataset_info.yaml', "
+                "'classes.txt']):\n"
+            ),
             "                                yr_clean = d\n",
             "                                for y in range(2019, 2027):\n",
             "                                    if str(y) in d:\n",
@@ -63,7 +82,10 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "            print(f'[REMEDY] Forex manifold scan notice: {e}')\n",
             "    \n",
             "    if forex_years_found:\n",
-            "        print(f'[FOREX] Assembling {len(forex_years_found)} annual manifolds into {forex_composite_dir}...')\n",
+            (
+                "        print(f'[FOREX] Assembling {len(forex_years_found)} annual manifolds into "
+                "{forex_composite_dir}...')\n"
+            ),
             "        for yr_name, yr_path in sorted(forex_years_found.items()):\n",
             "            c_link = os.path.join(forex_composite_dir, yr_name)\n",
             "            if not os.path.exists(c_link):\n",
@@ -78,8 +100,14 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "                    os.symlink(yr_path, flat_link)\n",
             "                except Exception:\n",
             "                    pass\n",
-            "            meta_source_dir = os.path.dirname(yr_path) if os.path.isfile(yr_path) else yr_path\n",
-            "            for meta in ['dataset_info.yaml', 'category.txt', 'classes.txt', 'README.md']:\n",
+            (
+                "            meta_source_dir = os.path.dirname(yr_path) if os.path.isfile(yr_path) "
+                "else yr_path\n"
+            ),
+            (
+                "            for meta in ['dataset_info.yaml', 'category.txt', 'classes.txt', "
+                "'README.md']:\n"
+            ),
             "                m_src = os.path.join(meta_source_dir, meta)\n",
             "                m_dst = os.path.join(forex_composite_dir, meta)\n",
             "                if os.path.exists(m_src) and not os.path.exists(m_dst):\n",
@@ -93,7 +121,10 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "                os.symlink(forex_composite_dir, link_alias)\n",
             "            except Exception:\n",
             "                pass\n",
-            "        print(f'[OK] [FOREX] Assembly complete: {len(forex_years_found)} annual manifolds operational for Walk-Forward Curriculum.')\n",
+            (
+                "        print(f'[OK] [FOREX] Assembly complete: {len(forex_years_found)} annual "
+                "manifolds operational for Walk-Forward Curriculum.')\n"
+            ),
             "        found.append(forex_composite_dir)\n",
             "\n",
             "def _scan_kaggle_inputs(root='/kaggle/input', max_depth=6):\n",
@@ -101,8 +132,14 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "        return []\n",
             "    results = []\n",
             "    seen = set()\n",
-            "    _MANIFOLD_SUBDIRS = {'images', 'targets', 'masks', 'forex', 'shards', 'train', 'val', 'test', 'splits'}\n",
-            "    _MANIFOLD_META = {'dataset_info.yaml', 'category.txt', 'classes.txt', 'README.md'}\n",
+            (
+                "    _MANIFOLD_SUBDIRS = {'images', 'targets', 'masks', 'forex', 'shards', "
+                "'train', 'val', 'test', 'splits'}\n"
+            ),
+            (
+                "    _MANIFOLD_META = {'dataset_info.yaml', 'category.txt', 'classes.txt', "
+                "'README.md'}\n"
+            ),
             "    def _looks_like_manifold(p):\n",
             "        if not os.path.isdir(p):\n",
             "            return False\n",
@@ -110,7 +147,10 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "            names = os.listdir(p)\n",
             "        except OSError:\n",
             "            return False\n",
-            "        if any(f.endswith('.parquet') or f.endswith('.data') or f.endswith('.tar') for f in names):\n",
+            (
+                "        if any(f.endswith('.parquet') or f.endswith('.data') or "
+                "f.endswith('.tar') for f in names):\n"
+            ),
             "            return True\n",
             "        if any(f in names for f in _MANIFOLD_META):\n",
             "            return True\n",
@@ -159,7 +199,10 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "if os.path.exists('/kaggle/input'):\n",
             "    attached = _scan_kaggle_inputs()\n",
             "    if attached:\n",
-            "        print(f'[PRE-FLIGHT] Discovered {len(attached)} attached manifold(s) in /kaggle/input:')\n",
+            (
+                "        print(f'[PRE-FLIGHT] Discovered {len(attached)} attached manifold(s) in "
+                "/kaggle/input:')\n"
+            ),
             "        for cand in attached:\n",
             "            print(f'   -> {cand}')\n",
             "        for cand in attached:\n",
@@ -197,9 +240,9 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
     else:
         source = [
             "import os, subprocess, shutil, sys, re\n",
-            f"model_key = '{meta.model_key}'\n",
-            f"kaggle_repo = '{meta.clean_kaggle_repo}'\n",
-            f"primary_manifold = '{meta.primary_manifold}'\n",
+            f"model_key = '{meta.identity.model_key}'\n",
+            f"kaggle_repo = '{meta.dataset.clean_kaggle_repo}'\n",
+            f"primary_manifold = '{meta.dataset.primary_manifold}'\n",
             "target_dir = '/content/LemGendaryDatasets'\n",
             "os.makedirs(target_dir, exist_ok=True)\n",
             "dest_path = os.path.join(target_dir, primary_manifold)\n",
@@ -212,8 +255,14 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "        return []\n",
             "    results = []\n",
             "    seen = set()\n",
-            "    _MANIFOLD_SUBDIRS = {'images', 'targets', 'masks', 'forex', 'shards', 'train', 'val', 'test', 'splits'}\n",
-            "    _MANIFOLD_META = {'dataset_info.yaml', 'category.txt', 'classes.txt', 'README.md'}\n",
+            (
+                "    _MANIFOLD_SUBDIRS = {'images', 'targets', 'masks', 'forex', 'shards', "
+                "'train', 'val', 'test', 'splits'}\n"
+            ),
+            (
+                "    _MANIFOLD_META = {'dataset_info.yaml', 'category.txt', 'classes.txt', "
+                "'README.md'}\n"
+            ),
             "    def _looks_like_manifold(p):\n",
             "        if not os.path.isdir(p):\n",
             "            return False\n",
@@ -221,7 +270,10 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "            names = os.listdir(p)\n",
             "        except OSError:\n",
             "            return False\n",
-            "        if any(f.endswith('.parquet') or f.endswith('.data') or f.endswith('.tar') for f in names):\n",
+            (
+                "        if any(f.endswith('.parquet') or f.endswith('.data') or "
+                "f.endswith('.tar') for f in names):\n"
+            ),
             "            return True\n",
             "        if any(f in names for f in _MANIFOLD_META):\n",
             "            return True\n",
@@ -269,7 +321,10 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "\n",
             "_kaggle_inputs = _scan_kaggle_inputs()\n",
             "if _kaggle_inputs:\n",
-            "    print(f'[PRE-FLIGHT] Discovered {len(_kaggle_inputs)} attached manifold(s) in /kaggle/input.')\n",
+            (
+                "    print(f'[PRE-FLIGHT] Discovered {len(_kaggle_inputs)} attached manifold(s) in "
+                "/kaggle/input.')\n"
+            ),
             "    for cand in _kaggle_inputs:\n",
             "        bname = os.path.basename(cand)\n",
             "        aliases = {bname, bname.lower()}\n",
@@ -296,28 +351,40 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "    os.path.exists(os.path.join(dest_path, 'images')) or\n",
             "    os.path.exists(os.path.join(dest_path, 'targets')) or\n",
             "    os.path.exists(os.path.join(dest_path, 'shards')) or\n",
-            "    any(f.endswith('.parquet') or f.endswith('.data') or f.endswith('.tar') or f.endswith('.csv') or f.endswith('.json') for f in os.listdir(dest_path))\n",
+            (
+                "    any(f.endswith('.parquet') or f.endswith('.data') or f.endswith('.tar') or "
+                "f.endswith('.csv') or f.endswith('.json') for f in os.listdir(dest_path))\n"
+            ),
             ")\n",
             "\n",
             "if is_ready:\n",
-            "    print(f'[OK] [DATA] Manifold already available at {dest_path} — download skipped.')\n",
+            (
+                "    print(f'[OK] [DATA] Manifold already available at {dest_path} — download "
+                "skipped.')\n"
+            ),
             "\n",
             "if not is_ready:\n",
             "    os.makedirs(dest_path, exist_ok=True)\n",
             "    download_ok = False\n",
-            f"    _no_download = {meta.no_download}\n",
+            f"    _no_download = {meta.dataset.no_download}\n",
             "    if os.path.exists('/content/drive/MyDrive'):\n",
             "        print('[FALLBACK] Checking Google Drive for manifold...')\n",
             "        drive_cands = [\n",
             "            f'/content/drive/MyDrive/LemGendaryDatasets/{primary_manifold}',\n",
             "            f'/content/drive/MyDrive/{primary_manifold}',\n",
-            "            f'/content/drive/MyDrive/LemGendaryDatasets/{primary_manifold.replace(\"Large\", \"\")}',\n",
+            (
+                "            f'/content/drive/MyDrive/LemGendaryDatasets/{primary_manifold.replace"
+                '("Large", "")}\',\n'
+            ),
             "        ]\n",
             "        for cand in drive_cands:\n",
             "            if os.path.exists(cand):\n",
             "                try:\n",
             "                    os.symlink(cand, dest_path)\n",
-            "                    print(f'[OK] Symlinked from Google Drive: {cand} -> {dest_path}')\n",
+            (
+                "                    print(f'[OK] Symlinked from Google Drive: {cand} -> "
+                "{dest_path}')\n"
+            ),
             "                    download_ok = True\n",
             "                    break\n",
             "                except Exception:\n",
@@ -327,21 +394,33 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "        try:\n",
             "            print(f'[KAGGLE CLI] Downloading {kaggle_repo} into {dest_path}...')\n",
             "            res = subprocess.run(\n",
-            "                ['kaggle', 'datasets', 'download', '-d', kaggle_repo, '-p', dest_path, '--unzip'],\n",
+            (
+                "                ['kaggle', 'datasets', 'download', '-d', kaggle_repo, '-p', "
+                "dest_path, '--unzip'],\n"
+            ),
             "                capture_output=True, text=True\n",
             "            )\n",
             "            if res.returncode == 0:\n",
-            "                print(f'[OK] [KAGGLE CLI] Successfully downloaded and extracted {kaggle_repo}')\n",
+            (
+                "                print(f'[OK] [KAGGLE CLI] Successfully downloaded and extracted "
+                "{kaggle_repo}')\n"
+            ),
             "                download_ok = True\n",
             "            else:\n",
-            "                print(f'[WARNING] Kaggle CLI download returned code {res.returncode}: {res.stderr.strip()[:200]}')\n",
+            (
+                "                print(f'[WARNING] Kaggle CLI download returned code "
+                "{res.returncode}: {res.stderr.strip()[:200]}')\n"
+            ),
             "        except Exception as e:\n",
             "            print(f'[WARNING] Kaggle CLI download error: {e}')\n",
             "        \n",
             "        if not download_ok:\n",
             "            try:\n",
             "                print('[KAGGLEHUB] Attempting download via kagglehub...')\n",
-            "                subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'kagglehub'], check=False)\n",
+            (
+                "                subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', "
+                "'kagglehub'], check=False)\n"
+            ),
             "                import kagglehub\n",
             "                hub_path = kagglehub.dataset_download(kaggle_repo)\n",
             "                print(f'[OK] [KAGGLEHUB] Downloaded to {hub_path}')\n",
@@ -366,15 +445,21 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "\n",
             "if os.path.exists(dest_path):\n",
             "    print(f'[OK] Manifold materialized at: {dest_path}')\n",
-            f"    aliases = [primary_manifold.lower(), model_key.lower(), model_key.replace('_', '-'), model_key.replace('_', '')]\n",
-            f"    if {meta.is_forex}:\n",
-            "        aliases.extend(['forex', 'lemgendizedforexuniverse', 'lemgendizedforexuniverselarge'])\n",
+            (
+                "    aliases = [primary_manifold.lower(), model_key.lower(), "
+                "model_key.replace('_', '-'), model_key.replace('_', '')]\n"
+            ),
+            f"    if {meta.identity.is_forex}:\n",
+            (
+                "        aliases.extend(['forex', 'lemgendizedforexuniverse', "
+                "'lemgendizedforexuniverselarge'])\n"
+            ),
             "    for alias in set(aliases):\n",
             "        a_path = os.path.join(target_dir, alias)\n",
             "        if not os.path.exists(a_path):\n",
             "            try: os.symlink(dest_path, a_path)\n",
             "            except Exception: pass\n",
-            f"    if {meta.is_forex}:\n",
+            f"    if {meta.identity.is_forex}:\n",
             "        forex_composite_dir = os.path.join(target_dir, 'LemGendizedForexUniverse')\n",
             "        os.makedirs(forex_composite_dir, exist_ok=True)\n",
             "        for item in os.listdir(dest_path):\n",

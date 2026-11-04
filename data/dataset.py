@@ -1,840 +1,269 @@
-import logging
-import os
-import multiprocessing
-import math
-import random
-import yaml
-import torch
-from torchvision import transforms
-import cv2
-import numpy as np
-from PIL import Image, ImageFile, ImageFilter
-Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
+"""Universal multi-task image dataset backed by dataset manifolds and container readers."""
+
 import json
-import shutil
-from typing import Any
+import logging
+import multiprocessing
+import os
+
+import yaml
+from PIL import Image, ImageFile
 from torch.utils.data import Dataset
+from torchvision import transforms
 
+from data.dataset_containers import DatasetContainerMixin
+from data.dataset_sources import DatasetSourcesMixin
+from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
+from data.dataset_targets import DatasetTargetsMixin
 
-import io
-from training.data.degrade import (
-    DynamicOnTheFlyDegrader,
-    JpegCompressionGuard,
-    apply_film_degradation,
-    apply_synthetic_degradation,
-    synthesize_degradation,
-)
+Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
 
 logger = logging.getLogger("lemtrain.dataset")
 
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1152]
 
-class MultiTaskDataset(Dataset):
+
+def _resolve_data_root(config, env):
+    """Datasets root from the ``paths`` section; relative roots resolve per environment."""
+    data_root = config.get("paths", {}).get(
+        "datasets_root", config.get("datasets_dir", "data/datasets")
+    )
+    if os.path.isabs(data_root):
+        return data_root
+    if env == "kaggle":
+        return "/kaggle/working/LemGendaryDatasets"
+    workspace_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.normpath(os.path.join(workspace_root, data_root))
+
+
+def _input_size(size_raw):
+    """``(H, W)`` from an ``input_size`` entry: an int, ``[H, W]`` or ``[C, H, W]``."""
+    if not isinstance(size_raw, list):
+        return (size_raw, size_raw)
+    if len(size_raw) == 3:
+        return (int(size_raw[1]), int(size_raw[2]))
+    return (int(size_raw[0]), int(size_raw[1]))
+
+
+def _load_nima_scores(idx_path, scores):
+    """Add ``name -> nima_score`` from a manifold ``index.json`` (if present) to ``scores``."""
+    if not os.path.exists(idx_path):
+        return
+    try:
+        with open(idx_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for item in data:
+            scores[item["name"]] = item.get("nima_score", 0.0)
+    except (OSError, ValueError, KeyError, TypeError) as nima_err:
+        logger.debug("Failed loading NIMA index from %s: %s", idx_path, nima_err)
+
+
+class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, DatasetTargetsMixin):
     """
     Nuclear-Hardened Universal Dataset (v16.0).
     Implements Fallback Shields, LANCZOS scaling, and stratified distribution analytics.
     """
+
     def __init__(self, config, model_key=None, is_train=True, env="local", sample_fraction=1.0):
         self.config = config
-        self.is_train = is_train
-        self.env = env
-        self.sample_fraction = sample_fraction
-        self.stress = 0.0 # 2026 Resilience: Dynamic Stress Protocol
-        self.sync_mode = multiprocessing.Value('b', False)
-        self.split = "train" if is_train else "val"
-        # 2026 Resilience: Map to the modern 'paths' structure in config.yaml
-        p_paths = config.get("paths", {})
-        self.data_root = p_paths.get("datasets_root", config.get("datasets_dir", "data/datasets"))
-        
-        if not os.path.isabs(self.data_root):
-            workspace_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            if self.env == 'kaggle':
-                self.data_root = "/kaggle/working/LemGendaryDatasets"
-            else:
-                self.data_root = os.path.normpath(os.path.join(workspace_root, self.data_root))
-        
-        setattr(ImageFile, "LOAD_TRUNCATED_IMAGES", True)  # Shield against corrupt JPG headers
-        
-        unified_models_path = os.path.join(os.path.dirname(__file__), "..", config["unified_models"])
-        with open(unified_models_path, 'r') as f:
-            self.unified_models = yaml.safe_load(f)
-        
-        self.model_key = model_key or list(self.unified_models.keys())[0]
-        self.model_info = self.unified_models.get(self.model_key)
-        
-        raw_type = self.model_info.get("dataset_type", "restoration")
-        self.task_type = raw_type[0] if isinstance(raw_type, list) else raw_type
-        
-        size_raw = self.model_info.get("input_size", config.get("default_img_size", 256))
-        if isinstance(size_raw, list):
-            self.size = (int(size_raw[1]), int(size_raw[2])) if len(size_raw) == 3 else (int(size_raw[0]), int(size_raw[1]))
-        else:
-            self.size = (size_raw, size_raw)
-        
-        self.samples = []
-        self.all_samples = []
-        self.path_cache = {}
-        self._load_manifest(config)
-        
-        self.nima_scores = {}
-        if self.model_key == "nima_authenticity":
-            for _ds_name, ds_path in self.path_cache.items():
-                idx_path = os.path.join(ds_path, "index.json")
-                if os.path.exists(idx_path):
-                    try:
-                        with open(idx_path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                        for item in data:
-                            self.nima_scores[item['name']] = item.get('nima_score', 0.0)
-                    except (OSError, ValueError, KeyError, TypeError) as nima_err:
-                        logger.debug("Failed loading NIMA index from %s: %s", idx_path, nima_err)
-        
+        self.sync_mode = multiprocessing.Value("b", False)
+
+        ImageFile.LOAD_TRUNCATED_IMAGES = True  # Shield against corrupt JPG headers
+
+        unified_models_path = os.path.join(
+            os.path.dirname(__file__), "..", config["unified_models"]
+        )
+        with open(unified_models_path, "r", encoding="utf-8") as f:
+            unified_models = yaml.safe_load(f)
+
+        model_key = model_key or next(iter(unified_models))
+        model_info = unified_models[model_key]
+        raw_type = model_info.get("dataset_type", "restoration")
+        self.spec = ModelSpec(
+            unified_models=unified_models,
+            model_key=model_key,
+            model_info=model_info,
+            task_type=raw_type[0] if isinstance(raw_type, list) else raw_type,
+        )
+        self.opts = DatasetOptions(
+            is_train=is_train,
+            env=env,
+            split="train" if is_train else "val",
+            data_root=_resolve_data_root(config, env),
+            sample_fraction=sample_fraction,
+            size=_input_size(model_info.get("input_size", config.get("default_img_size", 256))),
+        )
+
+        self.catalog = SampleCatalog()
+        self.load_manifest(config)
+
+        if self.spec.model_key == "nima_authenticity":
+            for ds_path in self.catalog.path_cache.values():
+                if ds_path is None:
+                    continue
+                _load_nima_scores(os.path.join(ds_path, "index.json"), self.catalog.nima_scores)
+
+        self.pipes = TransformSet()
         self.build_transforms()
 
-    def _get_split_path(self, ds_path, folder_name, fname, ext=""):
-        base_name = os.path.splitext(fname)[0] if ext else fname
-        suffix = ext if ext else ""
-        cands = [
-            os.path.join(ds_path, folder_name, self.split, base_name + suffix),
-            os.path.join(ds_path, folder_name, ("val" if self.split == "train" else "train"), base_name + suffix),
-            os.path.join(ds_path, folder_name, base_name + suffix),
-            os.path.join(ds_path, self.split, folder_name, base_name + suffix),
-            os.path.join(ds_path, self.split, base_name + suffix),
-            os.path.join(ds_path, base_name + suffix),
-        ]
-        for c in cands:
-            if os.path.exists(c):
-                return c
-        return cands[0]
+    @property
+    def task_type(self) -> str:
+        """The served model's dataset task type (read by loaders)."""
+        return self.spec.task_type
 
-    def _load_manifest(self, config):
-        self.all_samples = []
-        self.samples = []
-        if self.env == 'kaggle' and config.get("debug", False):
-            print("[SYNC] [DEBUG] Mounted datasets in /kaggle/input:")
-            try:
-                if os.path.exists('/kaggle/input'):
-                    for d in os.listdir('/kaggle/input'):
-                        d_path = os.path.join('/kaggle/input', d)
-                        if os.path.isdir(d_path):
-                            print(f"  -> {d} contains: {os.listdir(d_path)[:10]}")
-                            for sub in os.listdir(d_path):
-                                sub_path = os.path.join(d_path, sub)
-                                if os.path.isdir(sub_path):
-                                    try:
-                                        print(f"      -> {sub} contains: {os.listdir(sub_path)[:5]}")
-                                    except OSError as sub_err:
-                                        logger.debug("Failed listing %s: %s", sub_path, sub_err)
-                else:
-                    print("  -> /kaggle/input does not exist!")
-            except OSError as list_err:
-                print("  -> Error listing /kaggle/input:", list_err)
+    @property
+    def size(self) -> tuple[int, int]:
+        """Current ``(H, W)`` input size (read by loaders)."""
+        return self.opts.size
 
-        raw_dataset_names = self.model_info.get("datasets", [])
-        if isinstance(raw_dataset_names, str):
-            raw_dataset_names = [raw_dataset_names]
-        elif not isinstance(raw_dataset_names, list):
-            raw_dataset_names = []
-        if not raw_dataset_names:
-            raw_dataset_names = [self.model_key]
+    @property
+    def all_samples(self) -> list[tuple[str, str | int]]:
+        """Every indexed sample before sample-fraction slicing."""
+        return self.catalog.all_samples
 
-        suffix = "KaggleReady" if self.env == 'kaggle' else config.get("execution", {}).get("suffixes", {}).get(config.get("execution", {}).get("mode", "training"), "")
-        # 2026 Resilience: Support 'LemGendized' prefix automatically and guard against double-suffixing
-        dataset_names = []
-        for name in raw_dataset_names:
-            dataset_names.append(name)
-            ds_entry = name if (suffix and name.endswith(suffix)) else f"{name}{suffix}"
-            if ds_entry not in dataset_names:
-                dataset_names.append(ds_entry)
-            if not name.lower().startswith("lemgendized"):
-                lem_name = f"LemGendized{name}"
-                if lem_name not in dataset_names:
-                    dataset_names.append(lem_name)
-                lem_entry = f"LemGendized{ds_entry}"
-                if lem_entry not in dataset_names:
-                    dataset_names.append(lem_entry)
-        
-        loaded_paths = set()
-        for ds_name in dataset_names:
-            ds_path = self.get_dataset_path(ds_name)
-            if ds_path is None or ds_path in loaded_paths: continue
-            loaded_paths.add(ds_path)
-            self.path_cache[ds_name] = ds_path
-            # 2026: Parameter prediction loads from targets/ (clean source images)
-            tgt_dir = None
-            if self.task_type == "parameter_prediction":
-                img_dir = os.path.join(ds_path, "targets", self.split)
-                if not os.path.exists(img_dir):
-                    img_dir = os.path.join(ds_path, "images", self.split)
-            else:
-                img_dir = os.path.join(ds_path, "images", self.split)
-                tgt_dir = os.path.join(ds_path, "targets", self.split)
-                
-            if self.task_type == "parameter_prediction":
-                scan_dir = img_dir
-            else:
-                scan_dir = img_dir if os.path.exists(img_dir) else tgt_dir
+    @property
+    def path_cache(self) -> dict[str, str | None]:
+        """Resolved dataset paths by dataset name."""
+        return self.catalog.path_cache
 
-            if not scan_dir or not os.path.exists(scan_dir): continue
-            
-            items = os.listdir(scan_dir)
-            files = [
-                f for f in items
-                if f.lower().endswith(('.jpg', '.png', '.jpeg', '.webp'))
-            ]
-            if not files:
-                for root_dir, _, sub_files in os.walk(scan_dir):
-                    for sf in sub_files:
-                        if sf.lower().endswith(('.jpg', '.png', '.jpeg', '.webp')):
-                            files.append(os.path.relpath(os.path.join(root_dir, sf), scan_dir).replace("\\", "/"))
-            for f in files:
-                self.all_samples.append((ds_name, f))
+    @property
+    def sample_fraction(self) -> float:
+        """Curriculum sample fraction."""
+        return self.opts.sample_fraction
 
-        # Kaggle dynamic discovery: Train on whichever datasets are attached in /kaggle/input
-        if (self.env == 'kaggle' or os.path.exists('/kaggle/input')) and not self.all_samples:
-            from training.data.manifold import ManifoldResolver
-            resolver = ManifoldResolver(env=self.env, config=config)
-            attached_manifolds = resolver.scan_kaggle_input_manifolds()
-            if attached_manifolds:
-                if os.environ.get("RANK", "0") == "0":
-                    print(f"\n[KAGGLE] Auto-discovered {len(attached_manifolds)} attached dataset manifold(s) in /kaggle/input:")
-                    for m_path in attached_manifolds:
-                        print(f"  -> {m_path}")
-                for m_path in attached_manifolds:
-                    m_str = str(m_path)
-                    loaded_paths.add(m_str)
-                    ds_key = m_path.name
-                    self.path_cache[ds_key] = m_str
-                    for sub in ["images", "targets", "shards", "train", "val"]:
-                        sub_dir = os.path.join(m_str, sub, self.split) if os.path.exists(os.path.join(m_str, sub, self.split)) else os.path.join(m_str, sub)
-                        if os.path.exists(sub_dir):
-                            items = [f for f in os.listdir(sub_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg', '.webp'))]
-                            if not items:
-                                for root_dir, _, sub_files in os.walk(sub_dir):
-                                    for sf in sub_files:
-                                        if sf.lower().endswith(('.jpg', '.png', '.jpeg', '.webp')):
-                                            items.append(os.path.relpath(os.path.join(root_dir, sf), sub_dir).replace("\\", "/"))
-                            for f in items:
-                                self.all_samples.append((ds_key, f))
-                            if items:
-                                break
-
-        # Container-format fallback: if no directory samples found, try ContainerReader.
-        if not self.all_samples:
-            self._try_load_container_samples(loaded_paths)
-
-        self._apply_sample_fraction()
-
-    def _apply_sample_fraction(self) -> None:
-        """Apply deterministic curriculum sample fraction slicing to ``self.all_samples`` in-memory."""
-        self.samples = list(self.all_samples)
-        if self.is_train and self.sample_fraction < 1.0 and self.samples:
-            rng = random.Random(42)
-            rng.shuffle(self.samples)
-            target_count = max(1, int(len(self.samples) * float(self.sample_fraction)))
-            self.samples = self.samples[:target_count]
+    @sample_fraction.setter
+    def sample_fraction(self, value: float) -> None:
+        self.opts.sample_fraction = value
 
     def build_transforms(self):
+        """Build ``self.pipes`` (resize, augmentation, tensor conversion) for this task."""
         # 2026 Resilience: LANCZOS is superior for Aesthetic/Quality manifolds
-        interp = transforms.InterpolationMode.LANCZOS if self.task_type == "quality" else transforms.InterpolationMode.BILINEAR
-        
+        interp = (
+            transforms.InterpolationMode.LANCZOS
+            if self.spec.task_type == "quality"
+            else transforms.InterpolationMode.BILINEAR
+        )
+
         # FIX: Preserve aspect ratio and crop to prevent network from learning squish artifacts
-        if self.task_type == "face_detection":
+        if self.spec.task_type == "face_detection":
             # Coordinate-based targets (bboxes, landmarks) become invalid if the image is cropped.
             # We must squish-resize so normalized [0,1] coordinates remain physically accurate.
+            transform_list: list = [transforms.Resize(self.opts.size, interpolation=interp)]
+        elif self.opts.is_train:
             transform_list: list = [
-                transforms.Resize(self.size, interpolation=interp)
-            ]
-        elif self.is_train:
-            transform_list: list = [
-                transforms.Resize(max(self.size), interpolation=interp),
-                transforms.RandomCrop(self.size)
+                transforms.Resize(max(self.opts.size), interpolation=interp),
+                transforms.RandomCrop(self.opts.size),
             ]
         else:
             transform_list: list = [
-                transforms.Resize(max(self.size), interpolation=interp),
-                transforms.CenterCrop(self.size)
+                transforms.Resize(max(self.opts.size), interpolation=interp),
+                transforms.CenterCrop(self.opts.size),
             ]
-        if self.is_train and self.task_type == "quality":
+        if self.opts.is_train and self.spec.task_type == "quality":
             transform_list.append(transforms.RandomHorizontalFlip())
             # --- 2026 Resilience: Dynamic Stress Injection ---
-            if getattr(self, 'stress', 0.0) > 0.0:
-                stress_val = min(self.stress, 5.0)
-                transform_list.append(transforms.ColorJitter(
-                    brightness=0.1 * stress_val, 
-                    contrast=0.1 * stress_val, 
-                    saturation=0.1 * stress_val, 
-                    hue=0.02 * stress_val
-                ))
+            if self.opts.stress > 0.0:
+                stress_val = min(self.opts.stress, 5.0)
+                transform_list.append(
+                    transforms.ColorJitter(
+                        brightness=0.1 * stress_val,
+                        contrast=0.1 * stress_val,
+                        saturation=0.1 * stress_val,
+                        hue=0.02 * stress_val,
+                    )
+                )
                 transform_list.append(transforms.RandomRotation(degrees=int(3 * stress_val)))
                 if stress_val >= 2.0:
-                    transform_list.append(transforms.RandomPerspective(distortion_scale=0.1 * stress_val, p=0.3))
-            elif "aesthetic" in self.model_key:
+                    transform_list.append(
+                        transforms.RandomPerspective(distortion_scale=0.1 * stress_val, p=0.3)
+                    )
+            elif "aesthetic" in self.spec.model_key:
                 transform_list.append(transforms.ColorJitter(brightness=0.05, contrast=0.05))
-        
+
         transform_list.append(transforms.ToTensor())
-        if self.task_type == "quality":
-            transform_list.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
-            
-        self.transform = transforms.Compose(transform_list)
-        
+        if self.spec.task_type == "quality":
+            transform_list.append(
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            )
+
+        self.pipes.transform = transforms.Compose(transform_list)
+
         # 2026 ParseNet Fix: Dynamic mask interpolation for multitask pipelines
-        self.mask_transform = transforms.Compose([
-            transforms.Resize(max(self.size), interpolation=transforms.InterpolationMode.NEAREST),
-            transforms.RandomCrop(self.size) if self.is_train else transforms.CenterCrop(self.size)
-        ])
+        self.pipes.mask_transform = transforms.Compose(
+            [
+                transforms.Resize(
+                    max(self.opts.size), interpolation=transforms.InterpolationMode.NEAREST
+                ),
+                transforms.RandomCrop(self.opts.size)
+                if self.opts.is_train
+                else transforms.CenterCrop(self.opts.size),
+            ]
+        )
 
         # 2026: Parameter prediction needs clean ToTensor only (no normalization)
         # Degradation is applied after transform in __getitem__
-        if self.task_type == "parameter_prediction":
-            self.clean_transform = transforms.Compose([
-                transforms.Resize(max(self.size), interpolation=interp),
-                transforms.RandomCrop(self.size) if self.is_train else transforms.CenterCrop(self.size),
-                transforms.ToTensor()
-            ])
-
-    def _try_load_container_samples(self, loaded_paths: set) -> None:
-        """Attempt container-format loading when no directory images are found.
-
-        Iterates over already-resolved dataset paths and uses ``resolve_container_reader``
-        to detect WebDataset, Parquet, MDS, or LitData layouts. Builds a synthetic
-        ``all_samples`` index as ``(ds_name, int_index)`` tuples and stores an active
-        ``ContainerReader`` per dataset in ``self._container_readers``.
-        """
-        from training.data.containers import resolve_container_reader
-
-        if not hasattr(self, "_container_readers"):
-            self._container_readers: dict[str, Any] = {}
-
-        for ds_name, ds_path in self.path_cache.items():
-            if ds_path is None or ds_path not in loaded_paths:
-                continue
-            try:
-                reader = resolve_container_reader(ds_path, split=self.split)
-                count = len(reader)
-                if count == 0:
-                    reader.close()
-                    continue
-                self._container_readers[ds_name] = reader
-                for idx in range(count):
-                    self.all_samples.append((ds_name, idx))
-                logger.info(
-                    "Container reader resolved for '%s': %s (%d samples)",
-                    ds_name,
-                    type(reader).__name__,
-                    count,
-                )
-                if os.environ.get("RANK", "0") == "0":
-                    print(f"[CONTAINER] Resolved {type(reader).__name__} for '{ds_name}': {count} samples ({self.split} split)")
-            except (FileNotFoundError, OSError, ValueError) as exc:
-                logger.debug("Container reader failed for '%s': %s", ds_name, exc)
-                if self.split == "train":
-                    print(f"[CONTAINER] Notice: Container reader for '{ds_name}' ({self.split} split): {exc}")
-
-    def get_dataset_path(self, ds_name):
-        from training.data.manifold import ManifoldResolver
-        resolver = ManifoldResolver(env=self.env, config=self.config)
-        resolved = resolver.resolve_manifold(ds_name)
-        if resolved is not None:
-            return str(resolved)
-
-        model_info = self.unified_models.get(self.model_key, {})
-        gdrive_id = model_info.get("google_drive_dataset_id")
-        
-        if self.env == 'colab':
-            # Priority 1: Check downloaded Kaggle dataset in /content/LemGendaryDatasets
-            colab_ds_root = "/content/LemGendaryDatasets"
-            cand = os.path.join(colab_ds_root, ds_name)
-            if os.path.exists(cand) and (os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')) or any(f.endswith('.parquet') or f.endswith('.csv') for f in os.listdir(cand))):
-                return cand
-            if hasattr(self, 'data_root') and os.path.exists(self.data_root):
-                cand = os.path.join(self.data_root, ds_name)
-                if os.path.exists(cand):
-                    return cand
-            # Check case-insensitive in colab_ds_root
-            if os.path.exists(colab_ds_root):
-                try:
-                    for item in os.listdir(colab_ds_root):
-                        if item.lower() == ds_name.lower():
-                            cand = os.path.join(colab_ds_root, item)
-                            if os.path.exists(cand):
-                                return cand
-                except Exception:
-                    pass
-            # Priority 2: Check Google Drive mount
-            drive_path = f"/content/drive/MyDrive/LemGendaryDatasets/{ds_name}"
-            if os.path.exists(drive_path):
-                return drive_path
-            if gdrive_id:
-                if not os.path.exists(drive_path):
-                    print(f"\n[ERROR] Colab requires dataset at {cand} or Google Drive at {drive_path}")
-                    import sys; sys.exit(1)
-                return drive_path
-            # Priority 3: Fallback check anywhere in /content/LemGendaryDatasets
-            if os.path.exists(colab_ds_root):
-                cand = os.path.join(colab_ds_root, ds_name)
-                if os.path.exists(cand):
-                    return cand
-            print(f"\n[ERROR] Colab could not locate dataset '{ds_name}' in {colab_ds_root} or Google Drive.")
-            import sys; sys.exit(1)
-                
-        elif self.env == 'kaggle':
-            # Priority 1: Check symlinked data_root (/kaggle/working/LemGendaryDatasets)
-            if hasattr(self, 'data_root') and os.path.exists(self.data_root):
-                cand = os.path.join(self.data_root, ds_name)
-                if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')) or os.path.exists(os.path.join(cand, 'shards')):
-                    return cand
-                try:
-                    for item in os.listdir(self.data_root):
-                        if item.lower() == ds_name.lower():
-                            cand = os.path.join(self.data_root, item)
-                            if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')) or os.path.exists(os.path.join(cand, 'shards')):
-                                return cand
-                except Exception:
-                    pass
-
-            # Priority 2: Scan /kaggle/input for attached manifolds (directory or container format)
-            if os.path.exists('/kaggle/input'):
-                attached = resolver.scan_kaggle_input_manifolds()
-                if attached:
-                    target = ds_name.lower().replace("-", "").replace("_", "").replace("lemgendized", "").replace("lemgendary", "")
-                    for suffix in ["kaggleready", "large", "mini"]:
-                        target = target.replace(suffix, "")
-
-                    # Exact or fuzzy match against attached manifolds
-                    for cand_path in attached:
-                        cand_name = cand_path.name.lower().replace("-", "").replace("_", "").replace("lemgendized", "").replace("lemgendary", "")
-                        cand_parent = cand_path.parent.name.lower().replace("-", "").replace("_", "").replace("lemgendized", "").replace("lemgendary", "")
-                        if target and (target in cand_name or target in cand_parent):
-                            return str(cand_path)
-
-                    # Dynamic Fallback: Auto-bind attached Kaggle dataset manifold
-                    logger.info("Auto-bound attached Kaggle dataset '%s' for target '%s'", attached[0], ds_name)
-                    return str(attached[0])
-
-            print(f"\n[WARNING] No attached dataset found for '{ds_name}' in Kaggle /kaggle/input!")
-            print("Please attach the dataset to your Kaggle Notebook.")
-            return None
-            
-        else: # Local Environment
-            # Priority 1: Check Local Root
-            path = os.path.join(self.data_root, ds_name)
-            if os.path.exists(os.path.join(path, 'images')) or os.path.exists(os.path.join(path, 'targets')):
-                return path
-
-            if os.path.exists(self.data_root):
-                try:
-                    for item in os.listdir(self.data_root):
-                        if item.lower() == ds_name.lower():
-                            cand = os.path.join(self.data_root, item)
-                            if os.path.exists(os.path.join(cand, 'images')) or os.path.exists(os.path.join(cand, 'targets')):
-                                return cand
-                except OSError as local_err:
-                    logger.debug("Failed listing local data root: %s", local_err)
-            
-            # Priority 2: Use gdown
-            if gdrive_id:
-                print(f"\n[DATA] Local dataset not found. Falling back to gdown from Google Drive (ID: {gdrive_id})...")
-                import subprocess, sys, zipfile
-                os.makedirs(self.data_root, exist_ok=True)
-                dest = os.path.join(self.data_root, f"{ds_name}.zip")
-                subprocess.run([sys.executable, "-m", "gdown", "--id", gdrive_id, "-O", dest])
-                if os.path.exists(dest):
-                    print(f"[DATA] Extracting {dest}...")
-                    with zipfile.ZipFile(dest, 'r') as zip_ref:
-                        zip_ref.extractall(self.data_root)
-                    os.remove(dest)
-                    return os.path.join(self.data_root, ds_name)
-            
-            return None
+        if self.spec.task_type == "parameter_prediction":
+            self.pipes.clean_transform = transforms.Compose(
+                [
+                    transforms.Resize(max(self.opts.size), interpolation=interp),
+                    transforms.RandomCrop(self.opts.size)
+                    if self.opts.is_train
+                    else transforms.CenterCrop(self.opts.size),
+                    transforms.ToTensor(),
+                ]
+            )
 
     def load_image(self, img_path):
         """Fallback Shield: Returns Neutral-Gray tensor on I/O failure (Task 9.1)."""
         try:
             with Image.open(img_path) as img:
-                return img.convert('RGB')
-        except Exception as e:
-            # print(f"[WARNING] [SHIELD] I/O Failure on {os.path.basename(img_path)}. Ejecting Neutral Gray.")
-            return Image.new('RGB', (self.size[1], self.size[0]), (128, 128, 128))
+                return img.convert("RGB")
+        except (OSError, ValueError, Image.DecompressionBombError) as e:
+            # OSError covers missing files and PIL.UnidentifiedImageError / truncated data.
+            logger.warning("I/O failure on %s; substituting neutral gray: %s", img_path, e)
+            return Image.new("RGB", (self.opts.size[1], self.opts.size[0]), (128, 128, 128))
 
     def __len__(self):
-        return len(self.samples)
-
-    def _getitem_container(self, ds_name: str, idx: int):
-        """Fetch and decode a sample from a ContainerReader-backed dataset."""
-        reader = self._container_readers[ds_name]
-        try:
-            sample = reader[idx]
-        except (IndexError, OSError, RuntimeError) as exc:
-            logger.debug("Container read failed for %s[%d]: %s", ds_name, idx, exc)
-            return self._get_sync_dummy()
-
-        # Decode image bytes.
-        try:
-            img = Image.open(io.BytesIO(sample.image_bytes)).convert("RGB")
-        except (OSError, ValueError) as dec_err:
-            logger.debug("Image decode failed for %s[%d]: %s", ds_name, idx, dec_err)
-            img = Image.new("RGB", self.size, (128, 128, 128))
-
-        # Decode target bytes if present.
-        target_img = None
-        if sample.target_bytes:
-            try:
-                target_img = Image.open(io.BytesIO(sample.target_bytes)).convert("RGB")
-            except (OSError, ValueError) as tdec_err:
-                logger.debug("Target decode failed for %s[%d]: %s", ds_name, idx, tdec_err)
-
-        seed = random.randint(0, 2 ** 32 - 1)
-        random.seed(seed)
-        torch.manual_seed(seed)
-        img_tensor = self.transform(img)
-
-        if self.task_type in ("restoration", "enhancement", "face"):
-            model_info = self.unified_models.get(self.model_key, {})
-            needs_syn = getattr(self, "needs_synthesis", False) or model_info.get("needs_synthesis", False)
-
-            if target_img is not None:
-                random.seed(seed)
-                torch.manual_seed(seed)
-                target_tensor = self.transform(target_img)
-            elif needs_syn or self.task_type in ("restoration", "face"):
-                # Clean sample loaded from container; synthesize realistic degradation on-the-fly for inputs
-                clean_target = img
-                degraded_input = synthesize_degradation(clean_target)
-                random.seed(seed)
-                torch.manual_seed(seed)
-                target_tensor = self.transform(clean_target)
-                random.seed(seed)
-                torch.manual_seed(seed)
-                img_tensor = self.transform(degraded_input)
-            else:
-                random.seed(seed)
-                torch.manual_seed(seed)
-                target_tensor = self.transform(img)
-            return img_tensor, target_tensor, self.task_type
-
-        if self.task_type == "quality":
-            label = sample.label
-            if isinstance(label, (list, tuple)) and len(label) >= 10:
-                score_tensor = torch.tensor(label[:10], dtype=torch.float32)
-            elif isinstance(label, (int, float)):
-                score_tensor = torch.zeros(10, dtype=torch.float32)
-            else:
-                score_tensor = torch.zeros(10, dtype=torch.float32)
-            return img_tensor, score_tensor, "quality"
-
-        if self.task_type == "classification":
-            label = sample.label
-            class_idx = 0
-            if isinstance(label, (int, float)):
-                class_idx = int(label)
-            elif isinstance(label, str):
-                if label.isdigit():
-                    class_idx = int(label)
-                else:
-                    classes_file = os.path.join(self.path_cache.get(ds_name, ""), "classes.txt")
-                    if os.path.exists(classes_file):
-                        try:
-                            with open(classes_file, "r", encoding="utf-8") as cf:
-                                c_lines = [line.strip() for line in cf if line.strip()]
-                            if label in c_lines:
-                                class_idx = c_lines.index(label)
-                        except Exception:
-                            pass
-            return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
-
-        return img_tensor, torch.zeros(1), self.task_type
-
-    def _get_sync_dummy(self):
-        # 1. Determine input shape
-        if self.model_key == "ultrazoom":
-            in_shape = (3, self.size[0] // 2, self.size[1] // 2)
-        else:
-            in_shape = (3, self.size[0], self.size[1])
-            
-        # 2. Determine target shape and task string
-        if self.task_type in ["restoration", "enhancement", "face"]:
-            target_shape = (3, self.size[0], self.size[1])
-            task_str = "denoise"
-        elif self.task_type == "parameter_prediction":
-            target_shape = (3,)
-            task_str = "parameter_prediction"
-        elif self.task_type == "quality":
-            target_shape = (10,)
-            task_str = "quality"
-        elif self.task_type == "segmentation":
-            target_shape = (self.size[0], self.size[1])
-            task_str = "segmentation"
-        else:
-            target_shape = (1,)
-            task_str = self.task_type
-            
-        return torch.zeros(in_shape), torch.zeros(target_shape), task_str
+        return len(self.catalog.samples)
 
     def __getitem__(self, index):
-        if hasattr(self.sync_mode, 'value') and self.sync_mode.value:
-            return self._get_sync_dummy()
-        elif not hasattr(self.sync_mode, 'value') and self.sync_mode:
-            return self._get_sync_dummy()
+        if getattr(self.sync_mode, "value", self.sync_mode):
+            return self.sync_dummy()
 
-        ds_name, sample_id = self.samples[index]
+        ds_name, sample_id = self.catalog.samples[index]
 
         # Container-backed sample path: sample_id is an integer index.
-        if isinstance(sample_id, int) and hasattr(self, "_container_readers") and ds_name in self._container_readers:
-            return self._getitem_container(ds_name, sample_id)
+        if isinstance(sample_id, int):
+            return self.getitem_container(ds_name, sample_id)
 
-        fname = sample_id  # Directory-backed path: sample_id is a filename string.
-        ds_path = self.path_cache.get(ds_name)
-        if ds_path is None:
-            ds_path = self.get_dataset_path(ds_name)
-            self.path_cache[ds_name] = ds_path
-        if ds_path is None:
-            ds_path = ""
-            
-        img_path = self._get_split_path(ds_path, "images", fname)
-        tgt_path = self._get_split_path(ds_path, "targets", fname)
-        
-        has_img = os.path.exists(img_path)
-        has_tgt = os.path.exists(tgt_path)
-        
-        # --- 2026: Multi-Task Task ID Extractor ---
-        task_str = self.task_type
-        if self.model_key == "professional_multitask_restoration":
-            fname_lower = fname.lower()
-            # Use robust substring matching to map manifold names to task heads
-            if "denois" in fname_lower: task_str = "denoise"
-            elif "deblur" in fname_lower: task_str = "deblur"
-            elif "derain" in fname_lower: task_str = "derain"
-            elif "dehaze_outdoor" in fname_lower or "outdoor" in fname_lower: task_str = "dehaze_outdoor"
-            elif "dehaze_indoor" in fname_lower or "indoor" in fname_lower: task_str = "dehaze_indoor"
-            elif "dehaze" in fname_lower or "ffa" in fname_lower: task_str = "dehaze_indoor"
-            elif "lowlight" in fname_lower: task_str = "lowlight"
-            elif "exposure" in fname_lower: task_str = "exposure"
-            elif "zoom" in fname_lower or "super" in fname_lower: task_str = "superres"
-            elif "vintage" in fname_lower or "film" in fname_lower: task_str = "vintage"
-            elif "codeformer" in fname_lower or "face_restor" in fname_lower: task_str = "face_restorer"
-            elif "parsenet" in fname_lower or "face_pars" in fname_lower: task_str = "face_parser"
-            else: task_str = "denoise" # Fallback default
-
-        if not has_img and has_tgt and self.task_type in ["restoration", "enhancement", "face"]:
-            target = self.load_image(tgt_path)
-            img = synthesize_degradation(target)
-                
-            # 2026 Resilience: Force identical random seeds so RandomCrop and Flips perfectly align 
-            # the degraded input with the clean target.
-            seed = random.randint(0, 2**32 - 1)
-            random.seed(seed)
-            torch.manual_seed(seed)
-            target_tensor = self.transform(target)
-            
-            random.seed(seed)
-            torch.manual_seed(seed)
-            img_tensor = self.transform(img)
-            
-        else:
-            img = self.load_image(img_path)
-            
-            seed = random.randint(0, 2**32 - 1)
-            
-            if self.model_key == "ultrazoom":
-                # 2026 Resilience: Dynamic super-resolution 2x downscaling on-the-fly
-                lr_size = (self.size[0] // 2, self.size[1] // 2)
-                lr_transform = transforms.Compose([
-                    transforms.Resize(lr_size, interpolation=transforms.InterpolationMode.BILINEAR),
-                    transforms.ToTensor()
-                ])
-                random.seed(seed)
-                torch.manual_seed(seed)
-                img_tensor = lr_transform(img)
-            else:
-                random.seed(seed)
-                torch.manual_seed(seed)
-                img_tensor = self.transform(img)
-            
-            if self.task_type in ["restoration", "enhancement", "face"]:
-                if task_str == "face_parser":
-                    # ParseNet: load from masks/
-                    mask_path = self._get_split_path(ds_path, "masks", fname)
-                    if os.path.exists(mask_path):
-                        mask = Image.open(mask_path).convert('L')
-                        random.seed(seed)
-                        torch.manual_seed(seed)
-                        mask = self.mask_transform(mask)
-                        mask_tensor = torch.from_numpy(np.array(mask)).long()
-                        mask_tensor = torch.clamp(mask_tensor, 0, 18)
-                        target_tensor = mask_tensor
-                    else:
-                        target_tensor = torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
-                else:
-                    if has_tgt:
-                        target = self.load_image(tgt_path)
-                        random.seed(seed)
-                        torch.manual_seed(seed)
-                        target_tensor = self.transform(target)
-                    else:
-                        random.seed(seed)
-                        torch.manual_seed(seed)
-                        target_tensor = self.transform(img) # Ensure HR fallback shape
-            else:
-                target_tensor = img_tensor # Fallback initialization
-        if self.task_type in ["restoration", "enhancement", "face"]:
-            # 2026: Dynamic Film Degradation for Universal Film Restorer
-            if self.model_key == "film_restorer":
-                # Check if it's an identical file (meaning it's from a clean dataset like DIV2K)
-                try:
-                    if os.path.exists(tgt_path) and os.path.samefile(img_path, tgt_path):
-                        img_tensor = apply_film_degradation(target_tensor)
-                except OSError:
-                    pass
-
-            if self.model_key.startswith("ffanet"):
-                label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
-                bboxes = []
-                if os.path.exists(label_path):
-                    with open(label_path, 'r') as f:
-                        for line in f:
-                            parts = line.strip().split()
-                            if len(parts) >= 5:
-                                bboxes.append([float(x) for x in parts[:5]])
-                
-                # Pad to max 50 boxes
-                max_boxes = 50
-                bboxes_tensor = torch.zeros((max_boxes, 5), dtype=torch.float32)
-                if bboxes:
-                    num_boxes = min(len(bboxes), max_boxes)
-                    bboxes_tensor[:num_boxes] = torch.tensor(bboxes[:num_boxes], dtype=torch.float32)
-                
-                return img_tensor, {"image": target_tensor, "bboxes": bboxes_tensor}, task_str
-
-            return img_tensor, target_tensor, task_str
-        
-        elif self.task_type == "parameter_prediction":
-            # 2026: On-the-fly Synthetic Degradation for Parameter Prediction
-            # Load clean image, sample random params, apply degradation, return both
-            tgt_path = self._get_split_path(ds_path, "targets", fname)
-            if os.path.exists(tgt_path):
-                clean_img = self.load_image(tgt_path)
-            else:
-                clean_img = img  # Fallback to input image as clean source
-            
-            clean_tensor = self.clean_transform(clean_img)
-            
-            # Sample random degradation parameters
-            deg = random.random()                    # [0.0, 1.0]
-            theta = random.random() * math.pi        # [0.0, π]
-            conf = random.random()                    # [0.0, 1.0]
-            
-            # Apply synthetic degradation
-            degraded_tensor = apply_synthetic_degradation(clean_tensor, deg, theta, conf)
-            
-            # Ground truth parameter vector
-            params = torch.tensor([deg, theta, conf], dtype=torch.float32)
-            
-            return degraded_tensor, params, "parameter_prediction"
-            
-        elif self.task_type == "quality":
-            if self.model_key == "nima_authenticity":
-                # Dynamically construct target distribution for authenticity
-                # 'real' = High authenticity (Class 1, peak at bin 10)
-                # 'shutterstock' = Low authenticity (Class 0, peak at bin 1)
-                basename = os.path.splitext(fname)[0]
-                n_score = self.nima_scores.get(basename, 0.0)
-                if n_score > 5.0:
-                    score = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9]
-                else:
-                    score = [0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-                return img_tensor, torch.tensor(score, dtype=torch.float32), "quality"
-            
-            label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
-            if os.path.exists(label_path):
-                with open(label_path, 'r', encoding='utf-8') as f:
-                    try:
-                        score = [float(x) for x in f.read().split()]
-                        if len(score) < 10:
-                            score = score + [0.0] * (10 - len(score))
-                        return img_tensor, torch.tensor(score[:10], dtype=torch.float32), "quality"
-                    except (ValueError, TypeError) as lbl_err:
-                        logger.debug("Invalid quality label in %s: %s", label_path, lbl_err)
-            return img_tensor, torch.zeros(10), "quality"
-        elif self.task_type == "classification":
-            label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
-            if os.path.exists(label_path):
-                with open(label_path, 'r', encoding='utf-8') as f:
-                    try:
-                        class_idx = int(float(f.read().strip()))
-                        return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
-                    except (ValueError, TypeError) as cls_err:
-                        logger.debug("Invalid classification label in %s: %s", label_path, cls_err)
-            parent_dir = os.path.dirname(fname)
-            if parent_dir:
-                class_candidate = os.path.basename(parent_dir)
-                if class_candidate.isdigit():
-                    return img_tensor, torch.tensor(int(class_candidate), dtype=torch.long), "classification"
-                classes_file = os.path.join(ds_path, "classes.txt")
-                if os.path.exists(classes_file):
-                    try:
-                        with open(classes_file, "r", encoding="utf-8") as cf:
-                            c_lines = [line.strip() for line in cf if line.strip()]
-                        if class_candidate in c_lines:
-                            return img_tensor, torch.tensor(c_lines.index(class_candidate), dtype=torch.long), "classification"
-                    except OSError as cf_err:
-                        logger.debug("Failed reading classes file %s: %s", classes_file, cf_err)
-            return img_tensor, torch.tensor(0, dtype=torch.long), "classification"
-        elif self.task_type == "segmentation":
-            mask_path = self._get_split_path(ds_path, "masks", fname)
-            if os.path.exists(mask_path):
-                mask = Image.open(mask_path).convert('L') # Usually masks are grayscale labels
-                random.seed(seed)
-                torch.manual_seed(seed)
-                mask = self.mask_transform(mask)
-                mask_tensor = torch.from_numpy(np.array(mask)).long() # Class indices as long tensor
-                mask_tensor = torch.clamp(mask_tensor, 0, 18) # Prevent NLLLoss2d crash from garbage dataset masks
-            else:
-                mask_tensor = torch.zeros((self.size[0], self.size[1]), dtype=torch.long)
-            return img_tensor, mask_tensor, "segmentation"
-        elif self.task_type == "face_detection":
-            label_path = self._get_split_path(ds_path, "labels", fname, ".txt")
-            target = torch.zeros(15, dtype=torch.float32)
-            if os.path.exists(label_path):
-                with open(label_path, 'r', encoding='utf-8') as f:
-                    try:
-                        parts = f.read().split()
-                        if len(parts) >= 15:
-                            target[0] = 1.0 # confidence
-                            for i in range(14):
-                                target[i+1] = float(parts[i+1])
-                    except (ValueError, TypeError) as fd_err:
-                        logger.debug("Invalid face detection label in %s: %s", label_path, fd_err)
-            return img_tensor, target, "face_detection"
-            
-        return img_tensor, torch.zeros(1), self.task_type
+        # Directory-backed path: sample_id is a filename string.
+        return self.task_item(self.load_directory_sample(ds_name, sample_id))
 
     def update_strategy(self, size=None, fraction=None, stress=None):
         """Dynamic manifold scaling for curriculum learning (v16.2)."""
         rebuild = False
         if size:
             if isinstance(size, (int, float)):
-                self.size = (int(size), int(size))
+                self.opts.size = (int(size), int(size))
             elif isinstance(size, (list, tuple)):
-                self.size = (int(size[0]), int(size[1]))
+                self.opts.size = (int(size[0]), int(size[1]))
             rebuild = True
-        if stress is not None and getattr(self, 'stress', 0.0) != stress:
-            self.stress = stress
+        if stress is not None and self.opts.stress != stress:
+            self.opts.stress = stress
             rebuild = True
         if rebuild:
             self.build_transforms()
 
         if fraction is not None:
-            self.sample_fraction = float(fraction)
-            if self.all_samples:
+            self.opts.sample_fraction = float(fraction)
+            if self.catalog.all_samples:
                 self._apply_sample_fraction()
             else:
-                self._load_manifest(self.config)
+                self.load_manifest(self.config)
 
     def get_distribution(self):
         """Task 9.3: Analyze label manifold for stratified balancing."""
-        print(f"[METRICS] [DATA] Analyzing distribution for {self.model_key}...")
-        stats = {"total": len(self.samples), "tasks": {}}
+        print(f"[METRICS] [DATA] Analyzing distribution for {self.spec.model_key}...")
+        stats = {"total": len(self.catalog.samples), "tasks": {}}
         # Implementation for background distribution analysis...
         return stats

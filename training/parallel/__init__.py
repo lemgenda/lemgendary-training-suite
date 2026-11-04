@@ -1,15 +1,16 @@
+"""Parallel training strategies (single GPU, DataParallel, DDP) and automatic selection."""
+
 from __future__ import annotations
 
 import os
 from typing import Any
 
 import torch
-import torch.nn as nn
 
 from training.parallel.base import ParallelStrategy
-from training.parallel.single import SingleGPUStrategy
-from training.parallel.dp import DataParallelStrategy
 from training.parallel.ddp import DistributedDataParallelStrategy
+from training.parallel.dp import DataParallelStrategy
+from training.parallel.single import SingleGPUStrategy
 
 _STRATEGIES = {
     "single": SingleGPUStrategy,
@@ -17,12 +18,25 @@ _STRATEGIES = {
     "ddp": DistributedDataParallelStrategy,
 }
 
+# Model-key substrings that must always run on a single process.
+_SINGLE_ONLY_TOKENS = frozenset({"forex", "yolo"})
+
 
 def available_strategies() -> list:
+    """Return the names of all registered parallel strategies."""
     return list(_STRATEGIES.keys())
 
 
-def resolve_auto(model: Any, model_key: str, config: dict, model_info: dict | None = None) -> str:
+def _honour_preference(preferred: str) -> str:
+    """Return ``preferred``; outside torchrun "ddp" degrades to "dp" (multi-GPU) or "single"."""
+    if preferred == "ddp" and "RANK" not in os.environ and "WORLD_SIZE" not in os.environ:
+        if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+            return "dp"
+        return "single"
+    return preferred
+
+
+def resolve_auto(model_key: str, model_info: dict | None = None) -> str:
     """Resolve the optimal parallel strategy based on hardware and model characteristics.
 
     Priority order:
@@ -41,16 +55,11 @@ def resolve_auto(model: Any, model_key: str, config: dict, model_info: dict | No
     # 1. Explicit per-model preference from the unified models registry.
     preferred = info.get("preferred_parallel", "")
     if preferred in _STRATEGIES:
-        if preferred == "ddp" and "RANK" not in os.environ and "WORLD_SIZE" not in os.environ:
-            if torch.cuda.is_available() and torch.cuda.device_count() > 1:
-                return "dp"
-            return "single"
-        return preferred
+        return _honour_preference(preferred)
 
     # 2. Models that must always run on a single process.
-    _SINGLE_ONLY = {"forex", "yolo"}
     key_lower = model_key.lower()
-    if any(tok in key_lower for tok in _SINGLE_ONLY):
+    if any(tok in key_lower for tok in _SINGLE_ONLY_TOKENS):
         return "single"
 
     if not torch.cuda.is_available() or torch.cuda.device_count() <= 1:
@@ -69,15 +78,20 @@ def build_parallel_strategy(
     model: Any,
     device: Any,
     *,
-    model_key: str = "",
     model_info: dict | None = None,
-    config: dict | None = None,
+    **strategy_options: Any,
 ) -> ParallelStrategy:
-    config = config or {}
+    """Instantiate the named strategy (``auto`` resolves via :func:`resolve_auto`).
+
+    ``strategy_options`` (``model_key``, ``config``) go to the strategy constructor;
+    ``model_key`` also steers ``auto``.
+    """
+    model_key = strategy_options.get("model_key", "")
+    config = strategy_options.get("config") or {}
     if name == "auto":
-        name = resolve_auto(model, model_key, config, model_info=model_info)
+        name = resolve_auto(model_key, model_info=model_info)
     if name not in _STRATEGIES:
         raise ValueError(
             f"Unknown parallel strategy '{name}'. Available: {', '.join(available_strategies())}"
         )
-    return _STRATEGIES[name](model, device, model_key=model_key, config=config)
+    return _STRATEGIES[name](model, device, model_key=model_key, config=config)

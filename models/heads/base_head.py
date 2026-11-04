@@ -2,7 +2,7 @@
 Base convolutional restoration head for multitask vision restoration models.
 """
 
-import torch.nn as nn
+from torch import nn
 
 
 class BaseRestorationHead(nn.Module):
@@ -13,8 +13,9 @@ class BaseRestorationHead(nn.Module):
         self.net = nn.Sequential(
             nn.Conv2d(in_channels, in_channels, 3, 1, 1),
             nn.ReLU(),
-            nn.Conv2d(in_channels, out_channels, 3, 1, 1)
+            nn.Conv2d(in_channels, out_channels, 3, 1, 1),
         )
 
     def forward(self, x):
+        """Map features to the output image through two convolutions."""
         return self.net(x)

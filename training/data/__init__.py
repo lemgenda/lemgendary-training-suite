@@ -1,12 +1,5 @@
 """Data ingestion, loaders, and container readers package."""
 
-from training.data.degrade import (
-    DynamicOnTheFlyDegrader,
-    JpegCompressionGuard,
-    apply_film_degradation,
-    apply_synthetic_degradation,
-    synthesize_degradation,
-)
 from training.data.containers import (
     ContainerReader,
     DirectoryReader,
@@ -17,9 +10,25 @@ from training.data.containers import (
     WebDatasetReader,
     resolve_container_reader,
 )
-from training.data.loaders import build_train_loader, build_val_loader, rebuild_train_loader
+from training.data.degrade import (
+    DynamicOnTheFlyDegrader,
+    JpegCompressionGuard,
+    apply_film_degradation,
+    apply_synthetic_degradation,
+    synthesize_degradation,
+)
+from training.data.loaders import (
+    build_train_loader,
+    build_val_loader,
+    rebuild_train_loader,
+)
 from training.data.manifold import ManifoldInfo, ManifoldResolver
-from training.data.workers import WorkerTopology, compute_worker_topology, dispose_loader
+from training.data.workers import (
+    UserWorkerCounts,
+    WorkerTopology,
+    compute_worker_topology,
+    dispose_loader,
+)
 
 __all__ = [
     "ContainerReader",
@@ -32,6 +41,7 @@ __all__ = [
     "MdsReader",
     "ParquetReader",
     "Sample",
+    "UserWorkerCounts",
     "WebDatasetReader",
     "WorkerTopology",
     "apply_film_degradation",

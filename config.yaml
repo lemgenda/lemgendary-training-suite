@@ -3,8 +3,7 @@
 # [LAUNCH] LemGendary Training Suite - NUCLEAR v16.0 CONFIGURATION
 # ==========================================================================
 
-# Core Manifold Version
-version: "16.0.0-nuclear"
+# The suite version lives only in pyproject.toml ([project] version).
 unified_models: "unified_models_v2.yaml"
 
 # --- Hardware Profiles (Task 12.4) ---
@@ -47,11 +46,16 @@ governor:
   min_softmax_temp: 0.1
   stabilization_lock_epochs: 3
   logit_clamp: 10.0
+  # Resume of face and synthesis models: a restored best quality above `above` is the
+  # artificial anchor of older runs and is reset to `reset_to` (review D-15).
+  # Remove the section to keep restored values unchanged.
+  quality_anchor_recalibration:
+    above: 600.0
+    reset_to: 555.0
 
 # --- Fleet & Synchronization (Task 12.3) ---
 fleet:
   auto_sync: true
-  kaggle_username: "lemtreursi"
   kaggle_slug_prefix: ""  # Default prefix for Kaggle Model slugs
   kaggle_slug_suffix: ""  # Standardized suffix for model checkpoints
   force_kaggle_sync: false  # Trigger Kaggle Model upload even on local machine
@@ -77,6 +81,34 @@ defaults:
   lr: 0.00025
   epochs: 300
   patience: 100
+
+# --- Epoch Budget Governance (TS D-01) ---
+# The epoch budget (--epochs, model `epochs`, or defaults.epochs) is a hard cap.
+# Training also stops when the governor signals early stop or all completion
+# criteria are met. Budget extensions are opt-in: when the budget is spent and
+# the governor still reports improvement, add `extension_epochs` at a time, up
+# to `max_extension_epochs` in total. max_extension_epochs: 0 disables them.
+training_budget:
+  extension_epochs: 10
+  max_extension_epochs: 0
+
+# --- Stochastic Weight Averaging (torch.optim.swa_utils) ---
+# Off by default. When enabled, the weights of every `update_every`-th epoch
+# from `start_epoch` (or after `start_fraction` of the budget) are averaged.
+# `swa_lr` hands the LR to SWALR (null keeps the main scheduler). BatchNorm
+# statistics are refreshed before the averaged model is validated and saved
+# as vault_swa.pth, a Pareto Model Soup ingredient (`eval_every` updates;
+# 0 = only at the end). Resume state lives in checkpoints/swa_state.pth.
+swa:
+  enabled: false
+  start_epoch: null
+  start_fraction: 0.75
+  swa_lr: null
+  anneal_epochs: 5
+  anneal_strategy: cos
+  update_every: 1
+  eval_every: 0
+  bn_update_batches: null
 
 # --- Security & Stealth ---
 security:

@@ -19,6 +19,26 @@ from torch.utils.data import Dataset
 
 logger = logging.getLogger("lemtrain.data.instruction")
 
+try:
+    import jinja2
+
+    _JINJA_TEMPLATE_ERRORS = (jinja2.TemplateError,)
+except ImportError as _jinja_err:
+    logger.debug(
+        "jinja2 unavailable; chat template errors limited to builtin types: %s", _jinja_err
+    )
+    _JINJA_TEMPLATE_ERRORS = ()
+
+# Failure modes of tokenizer.apply_chat_template (missing/invalid template, bad message shape).
+_CHAT_TEMPLATE_ERRORS: tuple[type[BaseException], ...] = (
+    ValueError,
+    TypeError,
+    KeyError,
+    IndexError,
+    RuntimeError,
+    *_JINJA_TEMPLATE_ERRORS,
+)
+
 
 class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
     """Dataset for causal language model instruction fine-tuning."""
@@ -61,7 +81,7 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
         )
 
     def _apply_sample_fraction(self) -> None:
-        """Apply deterministic curriculum sample fraction slicing to ``self.all_samples`` in-memory."""
+        """Apply deterministic curriculum sample-fraction slicing to ``self.all_samples``."""
         self.samples = list(self.all_samples)
         if self.sample_fraction < 1.0 and self.samples:
             rng = random.Random(42)
@@ -99,24 +119,34 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
 
         # Apply chat template or manual turn construction
         if hasattr(self.tokenizer, "apply_chat_template"):
-            try:
-                input_ids = self.tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=True,
-                    max_length=self.max_length,
-                    truncation=True,
-                    return_tensors="pt",
-                )[0]
-                attention_mask = torch.ones_like(input_ids)
-                labels = input_ids.clone()
-                return {
-                    "input_ids": input_ids,
-                    "attention_mask": attention_mask,
-                    "labels": labels,
-                }
-            except Exception as exc:
-                logger.debug("apply_chat_template failed: %s. Using manual tokenization.", exc)
+            encoded = self._chat_template_encode(self.tokenizer, messages)
+            if encoded is not None:
+                return encoded
+        return self._manual_encode(self.tokenizer, messages)
 
+    def _chat_template_encode(
+        self, tokenizer: Any, messages: list
+    ) -> dict[str, torch.Tensor] | None:
+        """Tokenize with the tokenizer's chat template; ``None`` when the template fails."""
+        try:
+            input_ids = tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                max_length=self.max_length,
+                truncation=True,
+                return_tensors="pt",
+            )[0]
+        except _CHAT_TEMPLATE_ERRORS as exc:
+            logger.debug("apply_chat_template failed: %s. Using manual tokenization.", exc)
+            return None
+        return {
+            "input_ids": input_ids,
+            "attention_mask": torch.ones_like(input_ids),
+            "labels": input_ids.clone(),
+        }
+
+    def _manual_encode(self, tokenizer: Any, messages: list) -> dict[str, torch.Tensor]:
+        """ChatML turns with prompt tokens masked out of the labels."""
         # Manual turn concatenation with label masking
         formatted_prompt = ""
         assistant_reply = ""
@@ -128,8 +158,8 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
             elif role == "assistant":
                 assistant_reply += f"<|im_start|>assistant\n{content}<|im_end|>\n"
 
-        prompt_tokens = self.tokenizer.encode(formatted_prompt, add_special_tokens=False)
-        reply_tokens = self.tokenizer.encode(assistant_reply, add_special_tokens=False)
+        prompt_tokens = tokenizer.encode(formatted_prompt, add_special_tokens=False)
+        reply_tokens = tokenizer.encode(assistant_reply, add_special_tokens=False)
 
         combined_tokens = (prompt_tokens + reply_tokens)[: self.max_length]
         prompt_len = min(len(prompt_tokens), len(combined_tokens))
@@ -164,9 +194,15 @@ def collate_instruction_batch(
         pad_len = max_len - cur_len
 
         if pad_len > 0:
-            padded_ids = torch.cat([item["input_ids"], torch.full((pad_len,), pad_token_id, dtype=torch.long)])
-            padded_mask = torch.cat([item["attention_mask"], torch.zeros(pad_len, dtype=torch.long)])
-            padded_labels = torch.cat([item["labels"], torch.full((pad_len,), -100, dtype=torch.long)])
+            padded_ids = torch.cat(
+                [item["input_ids"], torch.full((pad_len,), pad_token_id, dtype=torch.long)]
+            )
+            padded_mask = torch.cat(
+                [item["attention_mask"], torch.zeros(pad_len, dtype=torch.long)]
+            )
+            padded_labels = torch.cat(
+                [item["labels"], torch.full((pad_len,), -100, dtype=torch.long)]
+            )
         else:
             padded_ids = item["input_ids"]
             padded_mask = item["attention_mask"]

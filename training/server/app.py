@@ -1,48 +1,73 @@
 """FastAPI Sidecar Daemon Application Factory and Lifespan Manager.
 
-Runs on port 8200, exposing REST and WebSocket endpoints for background training,
-evaluations, checkpoint telemetry, and GUI integration.
+Runs on the training-suite port from the shared ecosystem file, exposing REST and WebSocket
+endpoints for background training, evaluations, checkpoint telemetry, and GUI integration.
 """
 
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+import functools
 import logging
-from pathlib import Path
-from typing import Any
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Annotated, Any
+
 from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.security.api_key import APIKeyHeader
 
+from training.ecosystem import TRAINING_SERVICE, service_port
 from training.server.jobs import JobManager
 from training.server.routes import (
     config as config_route,
+)
+from training.server.routes import (
     datasets as datasets_route,
+)
+from training.server.routes import (
     env as env_route,
+)
+from training.server.routes import (
     gui as gui_route,
+)
+from training.server.routes import (
     health as health_route,
+)
+from training.server.routes import (
     jobs as jobs_route,
+)
+from training.server.routes import (
     models as models_route,
+)
+from training.server.routes import (
     notebooks as notebooks_route,
+)
+from training.server.routes import (
+    soup as soup_route,
+)
+from training.server.routes import (
     training as training_route,
+)
+from training.server.routes import (
     ws as ws_route,
 )
+from training.server.security import AUTH_TOKEN_HEADER, install_security
 from training.server.state import ServerState
 from training.utils.paths import get_project_root
+from training.version import __version__
 
 logger = logging.getLogger("lemtrain.server")
 
 security_bearer = HTTPBearer(auto_error=False)
-security_header = APIKeyHeader(name="X-LemTrain-Token", auto_error=False)
+security_header = APIKeyHeader(name=AUTH_TOKEN_HEADER, auto_error=False)
 
 
 async def verify_auth_token(
     request: Request,
-    bearer: HTTPAuthorizationCredentials | None = Security(security_bearer),
-    api_key: str | None = Security(security_header),
+    bearer: Annotated[HTTPAuthorizationCredentials | None, Security(security_bearer)] = None,
+    api_key: Annotated[str | None, Security(security_header)] = None,
 ) -> bool:
     """Validate bearer or header token against local server secret."""
     # Allow open paths
@@ -71,9 +96,12 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
     job_manager = JobManager(state=server_state)
 
     @asynccontextmanager
-    async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
+    async def lifespan(_application: FastAPI) -> AsyncGenerator[None, None]:
         # Startup sequence
-        logger.info("Initializing LemGendary Training Suite Sidecar Daemon on port 8200...")
+        logger.info(
+            "Initializing LemGendary Training Suite Sidecar Daemon on port %d...",
+            service_port(TRAINING_SERVICE),
+        )
         server_state.write_pid()
         token = server_state.get_or_create_token()
         recovered = server_state.recover_orphaned_jobs()
@@ -96,18 +124,30 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
         {"name": "config", "description": "Configuration and canonical training presets."},
         {"name": "jobs", "description": "Persistent asynchronous job queue and log streaming."},
         {"name": "models", "description": "Model registry, parameters, and architecture audit."},
-        {"name": "notebooks", "description": "Jupyter training, inference, and usage notebook generation."},
-        {"name": "training", "description": "In-process training, evaluation, and export job dispatch."},
+        {
+            "name": "notebooks",
+            "description": "Jupyter training, inference, and usage notebook generation.",
+        },
+        {
+            "name": "training",
+            "description": "In-process training, evaluation, and export job dispatch.",
+        },
         {"name": "datasets", "description": "Compiled datasets and manifold exploration."},
         {"name": "env", "description": "Hardware telemetry and host resources."},
-        {"name": "gui", "description": "Desktop GUI dashboard aggregation and quick-dispatch endpoints."},
+        {
+            "name": "gui",
+            "description": "Desktop GUI dashboard aggregation and quick-dispatch endpoints.",
+        },
         {"name": "ws", "description": "Real-time WebSocket telemetry and event feeds."},
     ]
 
     application = FastAPI(
         title="LemGendary Model Training Suite Sidecar API",
-        version="16.2.9",
-        description="Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
+        version=__version__,
+        description=(
+            "Local background daemon coordinating training runs, evaluations, "
+            "exports, and telemetry."
+        ),
         openapi_tags=openapi_tags,
         lifespan=lifespan,
     )
@@ -116,14 +156,8 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
     application.state.job_manager = job_manager
     application.state.enforce_auth = enforce_auth
 
-    # CORS configuration
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # Closed CORS allow-list plus browser-origin guard (outermost middleware).
+    install_security(application)
 
     # Attach route modules
     dependencies = [Depends(verify_auth_token)] if enforce_auth else []
@@ -132,6 +166,7 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
     application.include_router(config_route.router, prefix="/api", dependencies=dependencies)
     application.include_router(jobs_route.router, prefix="/api", dependencies=dependencies)
     application.include_router(models_route.router, prefix="/api", dependencies=dependencies)
+    application.include_router(soup_route.router, prefix="/api", dependencies=dependencies)
     application.include_router(notebooks_route.router, prefix="/api", dependencies=dependencies)
     application.include_router(training_route.router, prefix="/api", dependencies=dependencies)
     application.include_router(datasets_route.router, prefix="/api", dependencies=dependencies)
@@ -142,15 +177,10 @@ def create_app(project_root: Path | None = None, enforce_auth: bool = False) -> 
     return application
 
 
-_cached_app: FastAPI | None = None
-
-
+@functools.cache
 def get_app() -> FastAPI:
     """Return singleton FastAPI app instance, creating it lazily if not yet initialized."""
-    global _cached_app
-    if _cached_app is None:
-        _cached_app = create_app()
-    return _cached_app
+    return create_app()
 
 
 def __getattr__(name: str) -> Any:
@@ -158,4 +188,3 @@ def __getattr__(name: str) -> Any:
     if name == "app":
         return get_app()
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
-

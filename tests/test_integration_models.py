@@ -1,15 +1,16 @@
-"""Integration tests for model documentation generation, variation staging, and FastAPI endpoints."""
+"""Integration tests for model docs generation, variation staging, and FastAPI endpoints."""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from training.cloud.metadata_generator import KaggleMetadataService
+from training.cloud.model_metadata import ModelMetadata
 from training.doc_generator import ModelDocumentationService
 from training.export.staging import VariationStagingService
 from training.export.validation import StrictIsolationValidator
@@ -18,7 +19,7 @@ from training.utils.paths import get_project_root
 
 
 class TestIntegrationModels(unittest.TestCase):
-    """Verifies end-to-end model lifecycle: docs generation, variation staging, and FastAPI routes."""
+    """Verifies the end-to-end model lifecycle: docs, variation staging, and FastAPI routes."""
 
     def setUp(self) -> None:
         self.project_root = get_project_root()
@@ -47,10 +48,9 @@ class TestIntegrationModels(unittest.TestCase):
 
             # Verify metadata content
             self.assertEqual(meta_file.name, "model_metadata.yaml")
-            from training.cloud.model_metadata import ModelMetadata
             metadata = ModelMetadata.load(meta_file)
-            self.assertEqual(metadata.model.license, "CC BY-NC 4.0")
-            self.assertFalse(metadata.model.is_private)
+            self.assertEqual(metadata.model.publishing.license, "CC BY-NC 4.0")
+            self.assertFalse(metadata.model.publishing.is_private)
 
             json_meta_file = out_dir / "model-metadata.json"
             self.assertTrue(json_meta_file.exists())

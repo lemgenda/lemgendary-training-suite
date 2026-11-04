@@ -12,13 +12,13 @@ Verifies:
 from __future__ import annotations
 
 import math
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import torch
 
-from models.factory import get_model, _MODEL_REGISTRY
+from models.factory import get_model
 from models.generic_causal_llm import AIHelperLemGend, GenericCausalLLM
 from training.export.llm_exporter import LLMModelExporter
 
@@ -48,10 +48,14 @@ class TestUniversalLLMTrainingEngine(unittest.TestCase):
 
     def test_factory_registration(self) -> None:
         """Verify factory registers and instantiates both GenericCausalLLM and AIHelperLemGend."""
-        m_generic = get_model("test_llm", {"class_name": "GenericCausalLLM", "base_model_name": "mock"})
+        m_generic = get_model(
+            "test_llm", {"class_name": "GenericCausalLLM", "base_model_name": "mock"}
+        )
         self.assertIsInstance(m_generic, GenericCausalLLM)
 
-        m_helper = get_model("ai_helper_lemgend", {"class_name": "AIHelperLemGend", "base_model_name": "mock"})
+        m_helper = get_model(
+            "ai_helper_lemgend", {"class_name": "AIHelperLemGend", "base_model_name": "mock"}
+        )
         self.assertIsInstance(m_helper, GenericCausalLLM)
 
     def test_dynamic_dataset_path_resolution(self) -> None:
@@ -105,4 +109,3 @@ class TestUniversalLLMTrainingEngine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

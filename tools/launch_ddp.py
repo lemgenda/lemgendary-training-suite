@@ -18,11 +18,16 @@ be redirected automatically.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import socket
 import subprocess
 import sys
 from pathlib import Path
+
+import torch
+
+logger = logging.getLogger("lemtrain.tools.launch_ddp")
 
 
 def _find_free_port(start: int = 29500, attempts: int = 100) -> int:
@@ -32,7 +37,8 @@ def _find_free_port(start: int = 29500, attempts: int = 100) -> int:
             try:
                 s.bind(("127.0.0.1", port))
                 return port
-            except OSError:
+            except OSError as exc:
+                logger.debug("Port %d unavailable: %s", port, exc)
                 continue
     return start  # Last resort: use the default and let torchrun handle conflicts.
 
@@ -78,7 +84,56 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_single_process(train_script: Path, model: str, train_argv: list[str]) -> None:
+    """Run ``train.py --parallel single`` in this process tree and exit with its code."""
+    cmd = [
+        sys.executable,
+        str(train_script),
+        "--model",
+        model,
+        "--parallel",
+        "single",
+    ] + train_argv
+    sys.exit(subprocess.call(cmd))
+
+
+def _effective_batch_note(train_argv: list[str], nproc: int) -> str:
+    """`` (effective batch = N across P GPUs)`` from a forwarded ``--batch_size``, else ''."""
+    effective_batch_note = ""
+    for i, arg in enumerate(train_argv):
+        if arg == "--batch_size" and i + 1 < len(train_argv):
+            try:
+                per_proc_bs = int(train_argv[i + 1])
+                effective_batch_note = (
+                    f" (effective batch = {per_proc_bs * nproc} across {nproc} GPUs)"
+                )
+            except ValueError as exc:
+                logger.warning(
+                    "Non-integer --batch_size %r; effective batch note omitted: %s",
+                    train_argv[i + 1],
+                    exc,
+                )
+    return effective_batch_note
+
+
+def _torchrun_env(project_root: Path) -> dict[str, str]:
+    """Environment with the project on PYTHONPATH and hardened NCCL settings."""
+    env = os.environ.copy()
+    pythonpath = env.get("PYTHONPATH", "")
+    project_root_str = str(project_root)
+    if project_root_str not in pythonpath:
+        env["PYTHONPATH"] = f"{project_root_str}{os.pathsep}{pythonpath}".rstrip(os.pathsep)
+
+    # Harden NCCL distributed runtime against watchdog false-positives and hangs
+    env.setdefault("TORCH_NCCL_ASYNC_ERROR_HANDLING", "1")
+    env.setdefault("TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC", "1800")
+    env.setdefault("TORCH_NCCL_ENABLE_MONITORING", "1")
+    env.setdefault("NCCL_DEBUG", "WARN")
+    return env
+
+
 def main() -> None:
+    """Launch training via torchrun on all local GPUs, or single-process when none exist."""
     # Split args: known (launcher) vs forwarded (train.py).
     launcher_parser = _build_arg_parser()
     launcher_args, train_argv = launcher_parser.parse_known_args()
@@ -91,26 +146,19 @@ def main() -> None:
         sys.exit(1)
 
     # GPU count resolution.
-    try:
-        import torch
-        detected_gpus = torch.cuda.device_count()
-    except ImportError:
-        detected_gpus = 0
+    detected_gpus = torch.cuda.device_count()
 
-    nproc = launcher_args.nproc_per_node if launcher_args.nproc_per_node is not None else detected_gpus
+    nproc = (
+        launcher_args.nproc_per_node if launcher_args.nproc_per_node is not None else detected_gpus
+    )
 
     if nproc <= 0:
         print(
-            "[WARNING] No CUDA GPUs detected. Falling back to --parallel single on a single process.",
+            "[WARNING] No CUDA GPUs detected. "
+            "Falling back to --parallel single on a single process.",
             flush=True,
         )
-        cmd = [
-            sys.executable,
-            str(train_script),
-            "--model", launcher_args.model,
-            "--parallel", "single",
-        ] + train_argv
-        sys.exit(subprocess.call(cmd))
+        _run_single_process(train_script, launcher_args.model, train_argv)
 
     if nproc == 1:
         print(
@@ -118,27 +166,14 @@ def main() -> None:
             "Launching as single-process (--parallel single).",
             flush=True,
         )
-        cmd = [
-            sys.executable,
-            str(train_script),
-            "--model", launcher_args.model,
-            "--parallel", "single",
-        ] + train_argv
-        sys.exit(subprocess.call(cmd))
+        _run_single_process(train_script, launcher_args.model, train_argv)
 
     # Resolve master address and port.
     master_addr = launcher_args.master_addr or os.environ.get("MASTER_ADDR", "127.0.0.1")
     master_port = launcher_args.master_port or _find_free_port()
 
     # Effective batch size note for operator visibility.
-    effective_batch_note = ""
-    for i, arg in enumerate(train_argv):
-        if arg == "--batch_size" and i + 1 < len(train_argv):
-            try:
-                per_proc_bs = int(train_argv[i + 1])
-                effective_batch_note = f" (effective batch = {per_proc_bs * nproc} across {nproc} GPUs)"
-            except ValueError:
-                pass
+    effective_batch_note = _effective_batch_note(train_argv, nproc)
 
     print("=" * 70, flush=True)
     print(" LemGendary DDP Launcher", flush=True)
@@ -151,28 +186,21 @@ def main() -> None:
 
     # Build the torchrun command.
     torchrun_cmd = [
-        sys.executable, "-m", "torch.distributed.run",
+        sys.executable,
+        "-m",
+        "torch.distributed.run",
         f"--nproc_per_node={nproc}",
         "--nnodes=1",
         f"--master_addr={master_addr}",
         f"--master_port={master_port}",
         str(train_script),
-        "--model", launcher_args.model,
-        "--parallel", "ddp",
+        "--model",
+        launcher_args.model,
+        "--parallel",
+        "ddp",
     ] + train_argv
 
-    # Ensure PYTHONPATH includes project root and tune NCCL parameters for multi-GPU resilience.
-    env = os.environ.copy()
-    pythonpath = env.get("PYTHONPATH", "")
-    project_root_str = str(project_root)
-    if project_root_str not in pythonpath:
-        env["PYTHONPATH"] = f"{project_root_str}{os.pathsep}{pythonpath}".rstrip(os.pathsep)
-
-    # Harden NCCL distributed runtime against watchdog false-positives and hangs
-    env.setdefault("TORCH_NCCL_ASYNC_ERROR_HANDLING", "1")
-    env.setdefault("TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC", "1800")
-    env.setdefault("TORCH_NCCL_ENABLE_MONITORING", "1")
-    env.setdefault("NCCL_DEBUG", "WARN")
+    env = _torchrun_env(project_root)
 
     # Anti-fragmentation and expandable memory segments allocation
     # Standard PyTorch allocator without expandable_segments mapping

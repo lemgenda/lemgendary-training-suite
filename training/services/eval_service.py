@@ -66,23 +66,8 @@ class EvaluationService:
 
         ctx = build_training_context(args)
 
-        # 2. If explicit checkpoint provided, load weights
-        resolved_ckpt: Path | None = None
-        if checkpoint_path is not None:
-            resolved_ckpt = Path(checkpoint_path).resolve()
-            if resolved_ckpt.exists():
-                ckpt_data = safe_load_checkpoint(resolved_ckpt, map_location=ctx.device_info.device)
-                if ckpt_data and "model_state" in ckpt_data:
-                    ctx.model.load_state_dict(ckpt_data["model_state"], strict=False)
-                elif ckpt_data and "state_dict" in ckpt_data:
-                    ctx.model.load_state_dict(ckpt_data["state_dict"], strict=False)
-        else:
-            recovery_engine = CheckpointRecoveryEngine(model_key=model_key)
-            resolved_ckpt = recovery_engine.find_best_checkpoint()
-            if resolved_ckpt and resolved_ckpt.exists():
-                ckpt_data = safe_load_checkpoint(resolved_ckpt, map_location=ctx.device_info.device)
-                if ckpt_data and "model_state" in ckpt_data:
-                    ctx.model.load_state_dict(ckpt_data["model_state"], strict=False)
+        # 2. Load the explicit checkpoint, or the best discovered one
+        resolved_ckpt = self.load_weights(ctx, model_key, checkpoint_path, env)
 
         # 3. Execute validation pass
         metrics = validate_one_epoch(ctx, epoch=1)
@@ -91,6 +76,53 @@ class EvaluationService:
             "model_key": model_key,
             "checkpoint_path": str(resolved_ckpt) if resolved_ckpt else None,
             "metrics": metrics,
-            "device": str(ctx.device_info.device),
+            "device": str(ctx.hardware.device_info.device),
         }
         return result
+
+    def load_weights(
+        self,
+        ctx: Any,
+        model_key: str,
+        checkpoint_path: Path | str | None = None,
+        env: str = "local",
+    ) -> Path | None:
+        """Load checkpoint weights into ``ctx.models.model`` (non-strict) and return the path used.
+
+        An explicit ``checkpoint_path`` wins; otherwise the best/latest/progress checkpoint
+        found by :class:`CheckpointRecoveryEngine` is used. ``None`` when nothing was found.
+        """
+        resolved_ckpt: Path | None = None
+        if checkpoint_path is not None:
+            resolved_ckpt = Path(checkpoint_path).resolve()
+            if resolved_ckpt.exists():
+                ckpt_data = safe_load_checkpoint(
+                    resolved_ckpt, map_location=ctx.hardware.device_info.device
+                )
+                if ckpt_data and "model_state" in ckpt_data:
+                    ctx.models.model.load_state_dict(ckpt_data["model_state"], strict=False)
+                elif ckpt_data and "state_dict" in ckpt_data:
+                    ctx.models.model.load_state_dict(ckpt_data["state_dict"], strict=False)
+        else:
+            recovery_engine = CheckpointRecoveryEngine(
+                workspace_root=self.project_root.parent,
+                project_root=self.project_root,
+                env=env,
+            )
+            candidate_roots = recovery_engine.find_candidate_roots(model_key, config=ctx.run.config)
+            discovered = recovery_engine.discover_checkpoints(candidate_roots, model_key)
+            resolved_ckpt = next(
+                (
+                    discovered[key]
+                    for key in ("best", "latest", "latest_epoch", "progress")
+                    if key in discovered
+                ),
+                None,
+            )
+            if resolved_ckpt and resolved_ckpt.exists():
+                ckpt_data = safe_load_checkpoint(
+                    resolved_ckpt, map_location=ctx.hardware.device_info.device
+                )
+                if ckpt_data and "model_state" in ckpt_data:
+                    ctx.models.model.load_state_dict(ckpt_data["model_state"], strict=False)
+        return resolved_ckpt

@@ -7,16 +7,10 @@ and inclusion of all registered models (including ai_helper_lemgend).
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
 from training.registry.model_specs import (
-    AcademicReference,
-    KaggleModelMetadata,
-    ModelRegistryService,
-    ModelSpecification,
     get_model_registry,
 )
-from training.utils.paths import get_project_root
 
 
 class TestModelRegistry(unittest.TestCase):
@@ -39,7 +33,9 @@ class TestModelRegistry(unittest.TestCase):
     def test_ai_helper_lemgend_registered(self) -> None:
         """Verify that ai_helper_lemgend is registered as a first-class model."""
         model = self.registry.get_model("ai_helper_lemgend")
-        self.assertIsNotNone(model, "ai_helper_lemgend should be registered in unified_models_v2.yaml")
+        self.assertIsNotNone(
+            model, "ai_helper_lemgend should be registered in unified_models_v2.yaml"
+        )
         assert model is not None
         self.assertEqual(model.key, "ai_helper_lemgend")
         self.assertEqual(model.category, "llm")
@@ -69,7 +65,10 @@ class TestModelRegistry(unittest.TestCase):
         for key, spec in models.items():
             with self.subTest(model_key=key):
                 stem = spec.canonical_binary_name
-                self.assertTrue(stem.startswith("LemGendary"), f"Binary stem {stem} should start with 'LemGendary'")
+                self.assertTrue(
+                    stem.startswith("LemGendary"),
+                    f"Binary stem {stem} should start with 'LemGendary'",
+                )
                 self.assertNotIn(" ", stem, f"Binary stem {stem} should not contain spaces")
 
     def test_academic_citations_integrity(self) -> None:

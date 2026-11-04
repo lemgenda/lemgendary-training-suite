@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
-import os
-from pathlib import Path
 import sys
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn as nn
 import yaml
+from torch import nn
 
+from models.factory import get_model
+from training.export import ExportError, ExportPlan, export_all
 from training.export.common import (
     resolve_checkpoint_file as canonical_resolve_checkpoint_file,
+)
+from training.export.common import (
     resolve_export_paths as canonical_resolve_export_paths,
+)
+from training.export.common import (
     wrap_quality_model,
 )
 from training.utils.paths import get_project_root
@@ -53,7 +60,9 @@ def load_export_configs(project_root: str) -> tuple[dict[str, Any] | None, dict[
     return config, registry
 
 
-def resolve_export_paths(model_key: str, model_info: dict[str, Any], config: dict[str, Any], project_root: str) -> tuple[str, str]:
+def resolve_export_paths(
+    model_key: str, model_info: dict[str, Any], config: dict[str, Any], project_root: str
+) -> tuple[str, str]:
     """Compute base artifact name and production directory."""
     base_name, prod_dir = canonical_resolve_export_paths(
         model_key=model_key,
@@ -82,13 +91,18 @@ def resolve_checkpoint_file(
     return str(res) if res else None
 
 
-def build_export_model(model_key: str, config: dict[str, Any], device: torch.device = torch.device("cpu")) -> nn.Module | None:
-    """Instantiate model architecture on designated device."""
+def build_export_model(
+    model_key: str, config: dict[str, Any], device: torch.device | None = None
+) -> nn.Module | None:
+    """Instantiate model architecture on designated device (CPU when ``device`` is None)."""
+    if device is None:
+        device = torch.device("cpu")
     try:
-        from models.factory import get_model
         return get_model(model_key, config).to(device)
-    except Exception as err:
-        logger.error("Error during instantiation: %s", err)
+    except (ValueError, TypeError, RuntimeError, OSError, ImportError, yaml.YAMLError) as err:
+        # ValueError: unknown/unsupported architecture; TypeError: bad constructor kwargs;
+        # RuntimeError: device placement failure; OSError/YAMLError: unreadable model registry.
+        logger.exception("Error during instantiation of %s (%s)", model_key, type(err).__name__)
         return None
 
 
@@ -100,3 +114,40 @@ __all__ = [
     "resolve_export_paths",
     "wrap_quality_model",
 ]
+
+
+@dataclass(frozen=True)
+class LegacyExportCli:
+    """One legacy single-model export CLI: its help text, log lines and export targets."""
+
+    description: str
+    banner: str
+    failure: str
+    targets: tuple[str, ...]
+    log: logging.Logger
+
+
+def run_legacy_export_cli(cli: LegacyExportCli) -> None:
+    """Parse ``--model/--checkpoint/--yes``, export ``cli.targets`` and exit 1 on failure."""
+    parser = argparse.ArgumentParser(description=cli.description)
+    parser.add_argument(
+        "--model", type=str, required=True, help="Model key from unified_models.yaml"
+    )
+    parser.add_argument(
+        "--checkpoint", type=str, default=None, help="Path to specific .pth checkpoint to export"
+    )
+    parser.add_argument("--yes", action="store_true", help="Bypass interactive prompts")
+    args = parser.parse_args()
+
+    cli.log.info(cli.banner, args.model)
+    try:
+        results = export_all(
+            model_key=args.model,
+            checkpoint_path=args.checkpoint,
+            plan=ExportPlan(targets=list(cli.targets)),
+        )
+        for target, path in results.items():
+            cli.log.info("Exported %s -> %s", target, path)
+    except ExportError as err:
+        cli.log.error(cli.failure, err)
+        sys.exit(1)

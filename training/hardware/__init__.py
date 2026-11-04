@@ -1,15 +1,16 @@
-"""Hardware discovery, device policy, VRAM probing, and SentinelGuard for LemGendary Model Training Suite."""
+"""Hardware discovery, device policy, VRAM probing, and SentinelGuard for LemGendary training."""
 
 from training.hardware.discovery import DeviceInfo, discover_device
 from training.hardware.policy import HardwarePolicyResult, apply_hardware_policy
-from training.hardware.probe import audit_hardware_vram
+from training.hardware.probe import VramProbe, audit_hardware_vram
 from training.hardware.sentinel import SentinelGuard
 
 __all__ = [
     "DeviceInfo",
-    "discover_device",
     "HardwarePolicyResult",
+    "SentinelGuard",
+    "VramProbe",
     "apply_hardware_policy",
     "audit_hardware_vram",
-    "SentinelGuard",
+    "discover_device",
 ]

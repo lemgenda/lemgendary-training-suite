@@ -1,11 +1,17 @@
+"""DistributedDataParallel strategy for torchrun multi-process training."""
+
 from __future__ import annotations
 
+import datetime
 import logging
 import os
 from contextlib import AbstractContextManager, nullcontext
 from typing import Any, cast
+
 import torch
-import torch.nn as nn
+import torch.distributed as dist
+from torch import nn
+
 from training.parallel.base import ParallelStrategy, generic_prepare_batch
 
 logger = logging.getLogger("lemtrain.parallel.ddp")
@@ -32,9 +38,7 @@ class DistributedDataParallelStrategy(ParallelStrategy):
         self._initialized = False
 
     def setup(self) -> nn.Module:
-        import datetime
-        import torch.distributed as dist
-
+        """Initialise the process group (if needed) and wrap the model in DDP."""
         if not dist.is_initialized():
             backend = "nccl" if torch.cuda.is_available() else "gloo"
             master_addr = os.environ.get("MASTER_ADDR", "127.0.0.1")
@@ -72,14 +76,18 @@ class DistributedDataParallelStrategy(ParallelStrategy):
                 self.raw_model,
                 device_ids=[self._local_rank],
                 output_device=self._local_rank,
-                find_unused_parameters=bool(self.config.get("find_unused_parameters", False)) if hasattr(self, "config") and isinstance(self.config, dict) else False,
+                find_unused_parameters=bool(self.config.get("find_unused_parameters", False))
+                if hasattr(self, "config") and isinstance(self.config, dict)
+                else False,
             )
         else:
             # CPU fallback (Gloo backend).
             self.raw_model.to(self.device)
             self._wrapped = nn.parallel.DistributedDataParallel(
                 self.raw_model,
-                find_unused_parameters=bool(self.config.get("find_unused_parameters", False)) if hasattr(self, "config") and isinstance(self.config, dict) else False,
+                find_unused_parameters=bool(self.config.get("find_unused_parameters", False))
+                if hasattr(self, "config") and isinstance(self.config, dict)
+                else False,
             )
         logger.info(
             "DDP model wrapped: rank=%d local_rank=%d world_size=%d",
@@ -92,7 +100,6 @@ class DistributedDataParallelStrategy(ParallelStrategy):
     def cleanup(self) -> None:
         """Tear down the distributed process group on exit."""
         if self._initialized:
-            import torch.distributed as dist
             if dist.is_initialized():
                 dist.destroy_process_group()
                 logger.debug("DDP process group destroyed for rank %d.", self._rank)
@@ -100,32 +107,32 @@ class DistributedDataParallelStrategy(ParallelStrategy):
 
     @property
     def world_size(self) -> int:
+        """World size from the torchrun environment."""
         return self._world_size
 
     @property
     def rank(self) -> int:
+        """Global rank from the torchrun environment."""
         return self._rank
 
     @property
     def is_main_process(self) -> bool:
+        """True on global rank 0."""
         return self._rank == 0
 
     def prepare_batch(self, inputs: Any, targets: Any, tasks: Any) -> tuple[Any, Any, Any]:
+        """Move the batch and task indices to this rank's local device."""
         local_device = (
-            torch.device(f"cuda:{self._local_rank}")
-            if torch.cuda.is_available()
-            else self.device
+            torch.device(f"cuda:{self._local_rank}") if torch.cuda.is_available() else self.device
         )
-        inputs, targets, _ = generic_prepare_batch(
-            inputs, targets, tasks, local_device, self._task_type()
-        )
+        inputs, targets, _ = generic_prepare_batch(inputs, targets, local_device, self._task_type())
         if isinstance(tasks, torch.Tensor):
             tasks = tasks.to(local_device, non_blocking=True)
         return inputs, targets, tasks
 
-    def backward_context(self, accumulation_steps: int) -> AbstractContextManager[Any]:
+    def backward_context(self) -> AbstractContextManager[Any]:
         """Suppress all-reduce on non-final gradient accumulation micro-batches."""
-        if accumulation_steps > 1 and self._wrapped is not None and hasattr(self._wrapped, "no_sync"):
+        if self._wrapped is not None and hasattr(self._wrapped, "no_sync"):
             return self._wrapped.no_sync()
         return nullcontext()
 

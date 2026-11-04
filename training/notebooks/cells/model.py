@@ -12,11 +12,13 @@ from .base import make_code_cell
 
 def build_hub_prep_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
     """Build the model hub structure initialization code cell."""
-    hub_root = "/kaggle/working/LemGendaryModels" if target == "kaggle" else "/content/LemGendaryModels"
+    hub_root = (
+        "/kaggle/working/LemGendaryModels" if target == "kaggle" else "/content/LemGendaryModels"
+    )
     source = [
         "import os\n",
         f"hub_root = '{hub_root}'\n",
-        f"model_key = '{meta.model_key}'\n",
+        f"model_key = '{meta.identity.model_key}'\n",
         "model_dir = os.path.join(hub_root, model_key)\n",
         "ckpt_dir = os.path.join(model_dir, 'checkpoints')\n",
         "nb_dir = os.path.join(model_dir, 'notebooks')\n",
@@ -35,12 +37,14 @@ def build_hub_prep_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
     return make_code_cell(source)
 
 
-def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
+def build_checkpoint_recovery_cell(
+    meta: ModelNotebookMeta, target: str = "kaggle"
+) -> dict[str, Any]:
     """Build the deep checkpoint and metrics recovery code cell."""
     if target == "kaggle":
         source = [
             "import os, shutil\n",
-            f"model_key = '{meta.model_key}'\n",
+            f"model_key = '{meta.identity.model_key}'\n",
             "print(f'[RECOVERY] Deep-searching for {model_key} checkpoints...')\n",
             "hub_root = '/kaggle/working/LemGendaryModels'\n",
             "model_hub_dir = os.path.join(hub_root, model_key)\n",
@@ -54,7 +58,10 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
             "    if os.path.exists(yaml_path):\n",
             "        with open(yaml_path, 'r') as f: reg = yaml.safe_load(f)\n",
             "        reg_filename = reg.get(model_key, {}).get('filename', '')\n",
-            "except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
+            (
+                "except Exception as e: print(f'[REMEDY] An error occurred during environment "
+                "setup: {e}')\n"
+            ),
             "\n",
             (
                 "target_slugs = [model_key.lower().replace('_', ''), "
@@ -66,7 +73,7 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
             "found_ckpts = []\n",
             "try:\n",
             "    import kagglehub\n",
-            f"    kh_dl = kagglehub.model_download('{meta.k_handle}')\n",
+            f"    kh_dl = kagglehub.model_download('{meta.kaggle.pytorch_default}')\n",
             "    if kh_dl and os.path.exists(kh_dl):\n",
             "        print(f'   -> [KAGGLEHUB] Dynamic latest model version resolved: {kh_dl}')\n",
             "        for root_d, _, files in os.walk(kh_dl):\n",
@@ -77,7 +84,7 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
                 "or 'best' in f.lower() or 'latest' in f.lower() or 'progress' in f.lower()):\n"
             ),
             "                    found_ckpts.append(os.path.join(root_d, f))\n",
-            "except Exception as kh_e: pass\n",
+            "except Exception as kh_e: print(f'   -> [KAGGLEHUB] No model version: {kh_e}')\n",
             "\n",
             "if os.path.exists('/kaggle/input'):\n",
             "    try:\n",
@@ -101,7 +108,8 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
             "                    \n",
             (
                 "                    if any(slug in item_lower for slug in target_slugs) "
-                "or 'checkpoint' in item_lower or 'weights' in item_lower or 'models' in item_lower:\n"
+                "or 'checkpoint' in item_lower or 'weights' in item_lower or 'models' in "
+                "item_lower:\n"
             ),
             "                        try:\n",
             "                            for f in os.listdir(path):\n",
@@ -111,10 +119,10 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
                 "or 'best' in f.lower() or 'latest' in f.lower() or 'progress' in f.lower()):\n"
             ),
             "                                    found_ckpts.append(os.path.join(path, f))\n",
-            "                        except:\n",
-            "                            pass\n",
-            "    except Exception:\n",
-            "        pass\n",
+            "                        except OSError as scan_e:\n",
+            "                            print(f'   -> [SKIP] {path}: {scan_e}')\n",
+            "    except OSError as walk_e:\n",
+            "        print(f'   -> [SKIP] /kaggle/input scan stopped: {walk_e}')\n",
             "\n",
             "found_ckpts = sorted(list(set(found_ckpts)))\n",
             "if found_ckpts:\n",
@@ -126,11 +134,17 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
             ),
             "            continue\n",
             "        if not os.path.exists(src):\n",
-            "            print(f'   -> [WARNING] Source missing (Ghost File/Broken Link): {src}')\n",
+            (
+                "            print(f'   -> [WARNING] Source missing (Ghost File/Broken Link): "
+                "{src}')\n"
+            ),
             "            continue\n",
             "        fname = os.path.basename(src)\n",
             "        target_f = fname\n",
-            "        if 'latest' in fname.lower() or 'last' in fname.lower(): target_f = 'latest.pth'\n",
+            (
+                "        if 'latest' in fname.lower() or 'last' in fname.lower(): target_f = "
+                "'latest.pth'\n"
+            ),
             "        elif 'best' in fname.lower(): target_f = 'best.pth'\n",
             "        elif 'progress' in fname.lower(): target_f = 'progress.pth'\n",
             "        elif 'vault_' in fname.lower(): target_f = fname\n",
@@ -146,20 +160,29 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
             "            m_path = os.path.join(d, 'metrics.csv')\n",
             "            if os.path.exists(m_path):\n",
             "                try:\n",
-            "                    shutil.copy2(m_path, os.path.join(model_hub_dir, 'metrics.csv'))\n",
-            "                    print(f'[METRICS] Recovered metrics.csv from {os.path.basename(d)}')\n",
+            (
+                "                    shutil.copy2(m_path, os.path.join(model_hub_dir, "
+                "'metrics.csv'))\n"
+            ),
+            (
+                "                    print(f'[METRICS] Recovered metrics.csv from "
+                "{os.path.basename(d)}')\n"
+            ),
             "                    metrics_found = True; break\n",
             (
                 "                except Exception as e: "
                 "print(f'[REMEDY] An error occurred during environment setup: {e}')\n"
             ),
             "        if metrics_found: break\n",
-            "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs manifold.')\n",
+            (
+                "else: print('   -> [SKIP] No existing checkpoints found in Kaggle Inputs "
+                "manifold.')\n"
+            ),
         ]
     else:
         source = [
             "import os, shutil\n",
-            f"model_key = '{meta.model_key}'\n",
+            f"model_key = '{meta.identity.model_key}'\n",
             "print(f'[RECOVERY] Deep-searching for {model_key} checkpoints...')\n",
             "hub_root = '/content/LemGendaryModels'\n",
             "model_hub_dir = os.path.join(hub_root, model_key)\n",
@@ -173,7 +196,10 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
             "    if os.path.exists(yaml_path):\n",
             "        with open(yaml_path, 'r') as f: reg = yaml.safe_load(f)\n",
             "        reg_filename = reg.get(model_key, {}).get('filename', '')\n",
-            "except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
+            (
+                "except Exception as e: print(f'[REMEDY] An error occurred during environment "
+                "setup: {e}')\n"
+            ),
             "\n",
             (
                 "target_slugs = [model_key.lower().replace('_', ''), "
@@ -205,7 +231,8 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
             "                    \n",
             (
                 "                    if any(slug in item_lower for slug in target_slugs) "
-                "or 'checkpoint' in item_lower or 'weights' in item_lower or 'models' in item_lower:\n"
+                "or 'checkpoint' in item_lower or 'weights' in item_lower or 'models' in "
+                "item_lower:\n"
             ),
             "                        try:\n",
             "                            for f in os.listdir(path):\n",
@@ -215,10 +242,10 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
                 "or 'best' in f.lower() or 'latest' in f.lower() or 'progress' in f.lower()):\n"
             ),
             "                                    found_ckpts.append(os.path.join(path, f))\n",
-            "                        except:\n",
-            "                            pass\n",
-            "    except Exception:\n",
-            "        pass\n",
+            "                        except OSError as scan_e:\n",
+            "                            print(f'   -> [SKIP] {path}: {scan_e}')\n",
+            "    except OSError as walk_e:\n",
+            "        print(f'   -> [SKIP] /kaggle/input scan stopped: {walk_e}')\n",
             "\n",
             "found_ckpts = sorted(list(set(found_ckpts)))\n",
             "if found_ckpts:\n",
@@ -230,11 +257,17 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
             ),
             "            continue\n",
             "        if not os.path.exists(src):\n",
-            "            print(f'   -> [WARNING] Source missing (Ghost File/Broken Link): {src}')\n",
+            (
+                "            print(f'   -> [WARNING] Source missing (Ghost File/Broken Link): "
+                "{src}')\n"
+            ),
             "            continue\n",
             "        fname = os.path.basename(src)\n",
             "        target_f = fname\n",
-            "        if 'latest' in fname.lower() or 'last' in fname.lower(): target_f = 'latest.pth'\n",
+            (
+                "        if 'latest' in fname.lower() or 'last' in fname.lower(): target_f = "
+                "'latest.pth'\n"
+            ),
             "        elif 'best' in fname.lower(): target_f = 'best.pth'\n",
             "        elif 'progress' in fname.lower(): target_f = 'progress.pth'\n",
             "        elif 'vault_' in fname.lower(): target_f = fname\n",
@@ -250,8 +283,14 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
             "            m_path = os.path.join(d, 'metrics.csv')\n",
             "            if os.path.exists(m_path):\n",
             "                try:\n",
-            "                    shutil.copy2(m_path, os.path.join(model_hub_dir, 'metrics.csv'))\n",
-            "                    print(f'[METRICS] Recovered metrics.csv from {os.path.basename(d)}')\n",
+            (
+                "                    shutil.copy2(m_path, os.path.join(model_hub_dir, "
+                "'metrics.csv'))\n"
+            ),
+            (
+                "                    print(f'[METRICS] Recovered metrics.csv from "
+                "{os.path.basename(d)}')\n"
+            ),
             "                    metrics_found = True; break\n",
             (
                 "                except Exception as e: "
@@ -266,10 +305,12 @@ def build_checkpoint_recovery_cell(meta: ModelNotebookMeta, target: str = "kaggl
 
 def build_stealth_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
     """Build the stealth model loading and hydration code cell."""
-    hub_root = "/kaggle/working/LemGendaryModels" if target == "kaggle" else "/content/LemGendaryModels"
+    hub_root = (
+        "/kaggle/working/LemGendaryModels" if target == "kaggle" else "/content/LemGendaryModels"
+    )
     source = [
         "import os, base64, torch, shutil\n",
-        f"model_key = '{meta.model_key}'\n",
+        f"model_key = '{meta.identity.model_key}'\n",
         f"hub_root = '{hub_root}'\n",
         "model_hub_dir = os.path.join(hub_root, model_key)\n",
         "ckpt_hub_dir = os.path.join(model_hub_dir, 'checkpoints')\n",
@@ -299,7 +340,8 @@ def build_stealth_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
         "                    \n",
         (
             "                    if 'checkpoints' in item_lower or 'models' in item_lower "
-            "or 'weights' in item_lower or model_key.replace('_', '') in item_lower.replace('_', ''):\n"
+            "or 'weights' in item_lower or model_key.replace('_', '') in item_lower.replace('_', "
+            "''):\n"
         ),
         "                        try:\n",
         "                            for f in os.listdir(path):\n",
@@ -308,10 +350,10 @@ def build_stealth_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "any(x in f.lower() for x in [model_key.lower().replace('_', ''), 'best', 'latest']):\n"
         ),
         "                                    input_ckpts.append(os.path.join(path, f))\n",
-        "                        except:\n",
-        "                            pass\n",
-        "    except Exception:\n",
-        "        pass\n",
+        "                        except OSError as scan_e:\n",
+        "                            print(f'   -> [SKIP] {path}: {scan_e}')\n",
+        "    except OSError as walk_e:\n",
+        "        print(f'   -> [SKIP] /kaggle/input scan stopped: {walk_e}')\n",
         "\n",
         "if input_ckpts:\n",
         "    print(f'[RECOVERY] Hydrating hub from Kaggle Inputs...')\n",
@@ -343,11 +385,17 @@ def build_stealth_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
         "                        src_met = path\n",
         "                        break\n",
         "                if src_met: break\n",
-        "        except Exception as e: print(f'[REMEDY] An error occurred during environment setup: {e}')\n",
+        (
+            "        except Exception as e: print(f'[REMEDY] An error occurred during environment "
+            "setup: {e}')\n"
+        ),
         "        \n",
         "    if src_met:\n",
         "        dst_met = os.path.join(model_hub_dir, 'metrics.csv')\n",
-        "        if not os.path.exists(dst_met) or os.path.getsize(src_met) > os.path.getsize(dst_met):\n",
+        (
+            "        if not os.path.exists(dst_met) or os.path.getsize(src_met) > "
+            "os.path.getsize(dst_met):\n"
+        ),
         "            shutil.copy2(src_met, dst_met)\n",
         (
             "            print(f'[OK] [RECOVERY] Hydrated metrics.csv from "
@@ -359,7 +407,10 @@ def build_stealth_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "    search_paths = [p for p in glob.glob(os.path.join(ckpt_hub_dir, '*.pth')) "
             "if any(x in os.path.basename(p) for x in [model_key, model_key.replace('_', '-')])]\n"
         ),
-        "    search_paths.sort(key=lambda x: (0 if 'best' in x else 1 if 'latest' in x else 2, -os.path.getsize(x)))\n",
+        (
+            "    search_paths.sort(key=lambda x: (0 if 'best' in x else 1 if 'latest' in x else 2, "
+            "-os.path.getsize(x)))\n"
+        ),
         "    found = []\n",
         "    for p in search_paths: \n",
         "        if os.path.exists(p) and os.path.getsize(p) > 10 * 1024 * 1024:\n",

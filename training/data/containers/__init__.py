@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any
+
 import yaml
 
 from training.data.containers.base import ContainerReader, Sample
@@ -26,16 +26,21 @@ __all__ = [
 ]
 
 
-def resolve_container_reader(
-    manifold_path: Path | str,
-    split: str = "train",
-) -> ContainerReader:
-    """Auto-detect and instantiate the appropriate ContainerReader for a dataset manifold."""
-    root = Path(manifold_path).resolve()
-    if not root.exists():
-        raise FileNotFoundError(f"Cannot resolve container reader for nonexistent path: {root}")
+# Concrete reader classes (all share the ``(root, split="train")`` constructor).
+_ReaderClass = type[DirectoryReader | ParquetReader | MdsReader | LitDataReader | WebDatasetReader]
 
-    # 1. Check for dataset_info.yaml configuration
+_FORMAT_READERS: dict[str, _ReaderClass] = {
+    "directory": DirectoryReader,
+    "parquet": ParquetReader,
+    "mds": MdsReader,
+    "litdata": LitDataReader,
+    "webdataset": WebDatasetReader,
+    "wds": WebDatasetReader,
+}
+
+
+def _declared_format(root: Path) -> str:
+    """Return the lower-cased container format named by ``dataset_info.yaml`` ("" if none)."""
     info_file = root / "dataset_info.yaml"
     primary_format = ""
     if info_file.exists():
@@ -45,53 +50,75 @@ def resolve_container_reader(
                 raw_fmt = (
                     info_data.get("format")
                     or info_data.get("canonical_format")
-                    or (info_data.get("container", {}) if isinstance(info_data.get("container"), dict) else {}).get("primary", "")
+                    or (
+                        info_data.get("container", {})
+                        if isinstance(info_data.get("container"), dict)
+                        else {}
+                    ).get("primary", "")
                 )
                 if raw_fmt:
                     primary_format = str(raw_fmt).strip().lower()
-        except Exception as exc:
-            logger.debug("Error reading %s: %s", info_file, exc)
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+            logger.warning(
+                "Could not read container format from %s; falling back to auto-detection: %s",
+                info_file,
+                exc,
+            )
+    return primary_format
 
-    if primary_format == "directory":
-        return DirectoryReader(root, split=split)
-    if primary_format == "parquet":
-        return ParquetReader(root, split=split)
-    if primary_format == "mds":
-        return MdsReader(root, split=split)
-    if primary_format == "litdata":
-        return LitDataReader(root, split=split)
-    if primary_format in ("webdataset", "wds"):
-        return WebDatasetReader(root, split=split)
 
-    # 2. Heuristic inspection based on directory contents
+def _any_glob(dirs: tuple[Path, ...], patterns: tuple[str, ...]) -> bool:
+    """Return True when any of ``dirs`` holds a file matching any of ``patterns``."""
+    return any(next(d.glob(pattern), None) is not None for d in dirs for pattern in patterns)
+
+
+def _detect_reader_class(root: Path, split: str) -> _ReaderClass:
+    """Pick a reader from the files present (Parquet, WebDataset, MDS, LitData, directory)."""
     split_dir = root / split
     check_dir = split_dir if split_dir.exists() and split_dir.is_dir() else root
 
-    # Check for parquet
-    if root.is_file() and root.suffix == ".parquet":
-        return ParquetReader(root, split=split)
-    if list(check_dir.glob("*.parquet")) or (root / "parquet").exists() or list(root.glob("*.parquet")):
-        return ParquetReader(root, split=split)
-
-    # Check for webdataset shard files (.data or .tar)
-    if root.is_file() and root.suffix in (".data", ".tar"):
-        return WebDatasetReader(root, split=split)
+    dirs = (check_dir, root)
     if (
-        list(check_dir.glob("*.data"))
-        or list(check_dir.glob("*.tar"))
-        or (root / "shards").exists()
-        or list(root.glob("*.data"))
-        or list(root.glob("*.tar"))
+        (root.is_file() and root.suffix == ".parquet")
+        or (root / "parquet").exists()
+        or _any_glob(dirs, ("*.parquet",))
     ):
-        return WebDatasetReader(root, split=split)
+        return ParquetReader
 
-    # Check for MDS index.json
-    if (root / "mds").exists() or ((check_dir / "index.json").exists() and not (check_dir / "images").exists()):
-        return MdsReader(root, split=split)
+    # Webdataset shard files (.data or .tar)
+    if (
+        (root.is_file() and root.suffix in (".data", ".tar"))
+        or (root / "shards").exists()
+        or _any_glob(dirs, ("*.data", "*.tar"))
+    ):
+        return WebDatasetReader
 
-    # Check for LitData chunks
-    if (root / "litdata").exists() or (list(check_dir.glob("*.bin")) and not (check_dir / "images").exists()):
-        return LitDataReader(root, split=split)
+    # MDS index.json
+    if (root / "mds").exists() or (
+        (check_dir / "index.json").exists() and not (check_dir / "images").exists()
+    ):
+        return MdsReader
 
-    # Default to standard DirectoryReader
-    return DirectoryReader(root, split=split)
+    # LitData chunks
+    if (root / "litdata").exists() or (
+        list(check_dir.glob("*.bin")) and not (check_dir / "images").exists()
+    ):
+        return LitDataReader
+
+    return DirectoryReader
+
+
+def resolve_container_reader(
+    manifold_path: Path | str,
+    split: str = "train",
+) -> ContainerReader:
+    """Auto-detect and instantiate the appropriate ContainerReader for a dataset manifold.
+
+    A format named in ``dataset_info.yaml`` wins; otherwise the files present decide.
+    """
+    root = Path(manifold_path).resolve()
+    if not root.exists():
+        raise FileNotFoundError(f"Cannot resolve container reader for nonexistent path: {root}")
+
+    reader_cls = _FORMAT_READERS.get(_declared_format(root)) or _detect_reader_class(root, split)
+    return reader_cls(root, split=split)

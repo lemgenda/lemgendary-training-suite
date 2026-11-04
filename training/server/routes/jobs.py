@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -12,8 +13,11 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 @router.get("")
 def list_jobs(
     request: Request,
-    status: Optional[str] = Query(None, description="Filter by status ('pending', 'running', 'completed', 'failed', 'cancelled')"),
-    model_key: Optional[str] = Query(None, description="Filter by target model key"),
+    status: str | None = Query(
+        None,
+        description="Filter by status ('pending', 'running', 'completed', 'failed', 'cancelled')",
+    ),
+    model_key: str | None = Query(None, description="Filter by target model key"),
     limit: int = Query(50, ge=1, le=500),
 ) -> list[dict[str, Any]]:
     """List persistent jobs from SQLite database."""
@@ -40,12 +44,19 @@ def cancel_job(job_id: str, request: Request) -> dict[str, Any]:
         job = request.app.state.server_state.get_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
-        return {"job_id": job_id, "status": job["status"], "cancelled": False, "message": "Job cannot be cancelled in its current state."}
+        return {
+            "job_id": job_id,
+            "status": job["status"],
+            "cancelled": False,
+            "message": "Job cannot be cancelled in its current state.",
+        }
     return {"job_id": job_id, "status": "cancelled", "cancelled": True}
 
 
 @router.get("/{job_id}/logs")
-def get_job_logs(job_id: str, request: Request, tail: int = Query(200, ge=1, le=5000)) -> dict[str, Any]:
+def get_job_logs(
+    job_id: str, request: Request, tail: int = Query(200, ge=1, le=5000)
+) -> dict[str, Any]:
     """Read buffered log output from disk."""
     state = request.app.state.server_state
     job = state.get_job(job_id)
@@ -61,4 +72,4 @@ def get_job_logs(job_id: str, request: Request, tail: int = Query(200, ge=1, le=
         tail_lines = lines[-tail:] if len(lines) > tail else lines
         return {"job_id": job_id, "lines": tail_lines, "total_lines": len(lines)}
     except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Failed reading log file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed reading log file: {e}") from e

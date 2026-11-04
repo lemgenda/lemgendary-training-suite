@@ -7,28 +7,25 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from training import ecosystem
 from training.utils.paths import get_project_root, get_workspace_root
-from training.utils.subprocess import run_command, SubprocessExecutionError
+from training.utils.sidecar import sidecar_online
+from training.utils.subprocess import SubprocessExecutionError, run_command
 
 logger = logging.getLogger("lemtrain.env_delegate")
 
 
 class EnvManagerDelegate:
-    """Provides typed access to LemGendary Environment Manager CLI and sidecar API (port 8000)."""
+    """Typed access to the LemGendary Environment Manager CLI and sidecar API (ecosystem port)."""
 
-    def __init__(self, project_root: Path | None = None, sidecar_port: int = 8000) -> None:
+    def __init__(self, project_root: Path | None = None, sidecar_url: str | None = None) -> None:
         self.project_root = project_root or get_project_root()
         self.workspace_root = get_workspace_root()
-        self.sidecar_url = f"http://127.0.0.1:{sidecar_port}"
+        self.sidecar_url = sidecar_url or ecosystem.service_url(ecosystem.ENV_MANAGER_SERVICE)
 
     def is_sidecar_online(self) -> bool:
         """Probe environment manager sidecar API health."""
-        try:
-            req = urllib.request.Request(f"{self.sidecar_url}/api/health", method="GET")
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
-                return resp.status == 200
-        except (urllib.error.URLError, TimeoutError, OSError):
-            return False
+        return sidecar_online(self.sidecar_url)
 
     def get_hardware_profile(self) -> dict[str, Any]:
         """Fetch deep hardware profile from sidecar API if online, else empty dict."""
@@ -41,15 +38,21 @@ class EnvManagerDelegate:
                     data = json.loads(resp.read().decode("utf-8"))
                     if isinstance(data, dict):
                         return data
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
+            # OSError covers urllib.error.URLError/HTTPError and socket timeouts;
+            # ValueError covers json.JSONDecodeError and UnicodeDecodeError.
             logger.warning("Failed to fetch hardware profile from sidecar: %s", exc)
         return {}
 
     def validate_codebase(self) -> bool:
         """Run full multi-gate validation on lemgendary-training-suite via lem-env."""
         cmd = [
-            "python", "-m", "env_manager.cli", "validate",
-            "-p", "lemgendary-training-suite",
+            "python",
+            "-m",
+            "env_manager.cli",
+            "validate",
+            "-p",
+            "lemgendary-training-suite",
         ]
         try:
             res = run_command(cmd, cwd=self.workspace_root, timeout=120.0, check=False)

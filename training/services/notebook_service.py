@@ -6,6 +6,7 @@ Coordinates automated Jupyter notebook generation for Kaggle and Colab cloud env
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 from training.notebooks import (
     generate_colab_inference_notebook,
@@ -22,8 +23,8 @@ from training.utils.paths import get_project_root
 class NotebookService:
     """Generates standalone execution notebooks for training, inference, and usage."""
 
-    SUPPORTED_PLATFORMS: list[str] = ["kaggle", "colab", "all"]
-    SUPPORTED_KINDS: list[str] = ["training", "inference", "usage"]
+    SUPPORTED_PLATFORMS: ClassVar[tuple[str, ...]] = ("kaggle", "colab", "all")
+    SUPPORTED_KINDS: ClassVar[tuple[str, ...]] = ("training", "inference", "usage")
 
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = project_root or get_project_root()
@@ -32,7 +33,7 @@ class NotebookService:
     def list_supported_models(self) -> list[str]:
         """Return list of model keys available for notebook synthesis."""
         registry = load_registry()
-        return sorted([k for k in registry.keys() if not k.startswith("_")])
+        return sorted([k for k in registry if not k.startswith("_")])
 
     def generate_notebooks(
         self,
@@ -59,38 +60,8 @@ class NotebookService:
         dest_dir = dest_base / model_key
         dest_dir.mkdir(parents=True, exist_ok=True)
 
-        results: dict[str, str] = {}
         target_platforms = ["kaggle", "colab"] if plat_lower == "all" else [plat_lower]
-
-        for p in target_platforms:
-            if p == "kaggle":
-                if "training" in target_kinds:
-                    out = generate_training_notebook(model_key, str(dest_dir))
-                    if out:
-                        results["kaggle_training"] = str(out)
-                if "inference" in target_kinds:
-                    out = generate_inference_notebook(model_key, str(dest_dir))
-                    if out:
-                        results["kaggle_inference"] = str(out)
-                if "usage" in target_kinds:
-                    out = generate_usage_notebook(model_key, str(dest_dir))
-                    if out:
-                        results["kaggle_usage"] = str(out)
-            elif p == "colab":
-                if "training" in target_kinds:
-                    out = generate_colab_training_notebook(model_key, str(dest_dir))
-                    if out:
-                        results["colab_training"] = str(out)
-                if "inference" in target_kinds:
-                    out = generate_colab_inference_notebook(model_key, str(dest_dir))
-                    if out:
-                        results["colab_inference"] = str(out)
-                if "usage" in target_kinds:
-                    out = generate_colab_usage_notebook(model_key, str(dest_dir))
-                    if out:
-                        results["colab_usage"] = str(out)
-
-        return results
+        return _run_generators(model_key, dest_dir, target_platforms, target_kinds)
 
     def generate_all_models(
         self,
@@ -109,3 +80,31 @@ class NotebookService:
                 output_dir=output_dir,
             )
         return all_results
+
+
+def _run_generators(
+    model_key: str, dest_dir: Path, target_platforms: list[str], target_kinds: list[str]
+) -> dict[str, str]:
+    """Generate the requested kinds per platform; ``{"<platform>_<kind>": path}``."""
+    results: dict[str, str] = {}
+    # Resolved per call so patched generators are honoured.
+    generators = {
+        "kaggle": {
+            "training": generate_training_notebook,
+            "inference": generate_inference_notebook,
+            "usage": generate_usage_notebook,
+        },
+        "colab": {
+            "training": generate_colab_training_notebook,
+            "inference": generate_colab_inference_notebook,
+            "usage": generate_colab_usage_notebook,
+        },
+    }
+    for p in target_platforms:
+        for kind, generate in generators[p].items():
+            if kind in target_kinds:
+                out = generate(model_key, str(dest_dir))
+                if out:
+                    results[f"{p}_{kind}"] = str(out)
+
+    return results

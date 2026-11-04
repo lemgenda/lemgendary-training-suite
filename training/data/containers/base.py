@@ -1,6 +1,11 @@
 """Base definitions and protocols for LemGendary container reader plugins."""
 
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any, NamedTuple, Protocol, runtime_checkable
+
+# Shared read-only empty mapping used as the default ``Sample.metadata``.
+_EMPTY_METADATA: Mapping[str, Any] = MappingProxyType({})
 
 
 class Sample(NamedTuple):
@@ -12,7 +17,7 @@ class Sample(NamedTuple):
     target_bytes: bytes | None = None
     mask_bytes: bytes | None = None
     label: Any = None
-    metadata: dict[str, Any] = {}
+    metadata: Mapping[str, Any] = _EMPTY_METADATA
 
 
 @runtime_checkable

@@ -3,46 +3,46 @@
 Backward-compatible entry point delegating runtime execution, optimization,
 AMP management, and validation to the modular training.training subpackage.
 
-YOLOv8n is handled via Ultralytics native trainer (_run_yolo_native).
+YOLOv8n is handled via Ultralytics native trainer (run_governed_yolo_training).
 All other models use the universal TrainingContext path.
 """
 
 from __future__ import annotations
-import os
 
 import argparse
 import logging
+import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
-from data.dataset import MultiTaskDataset
-from data.forex_dataset import ForexDataset
-from data.forex_sampler import RowGroupAwareSampler
-from models.factory import get_model
-from torch.utils.data import DataLoader
 
+from models.factory import get_model
 from training.checkpoint import (
     CheckpointLifecycleManager,
-    CheckpointRecoveryEngine,
     MetricVault,
-    parse_resume_state,
-    safe_load_checkpoint,
 )
+from training.cli_args import add_clean_argument, add_timeframes_argument
 from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
-from training.data import build_train_loader, rebuild_train_loader
-from training.data import build_val_loader as canonical_build_val_loader
-from training.data.instruction_dataset import InstructionDataset, collate_instruction_batch
-from training.doc_generator import build_model_readme
+from training.context_data import (
+    DATASET_BUILD_ERRORS,
+    RunSpec,
+    build_datasets,
+    build_initial_train_loader,
+    build_val_loader_for,
+    resolve_batch_size,
+)
+from training.context_resume import LoaderState, TrainState, resume_from_checkpoint
 from training.export import export_all
 from training.governance import SmartTrainingGovernor, SotaTracker
 from training.governance.yolo_governor import run_governed_yolo_training
 from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
-from training.hardware.probe import audit_hardware_vram
 from training.hardware.sentinel import SentinelGuard
 from training.losses import CombinedLoss, ForexDualLoss
+from training.model_card import build_model_readme
 from training.notebook_generator import (
     generate_colab_inference_notebook,
     generate_colab_usage_notebook,
@@ -51,6 +51,13 @@ from training.notebook_generator import (
 )
 from training.parallel import build_parallel_strategy
 from training.training import (
+    DataComponents,
+    GovernanceComponents,
+    HardwareComponents,
+    ModelsHubPaths,
+    ModelStack,
+    RunSettings,
+    RunState,
     TrainingContext,
     TrainingPaths,
     build_optimizer,
@@ -58,7 +65,11 @@ from training.training import (
     create_grad_scaler,
     run_training,
 )
-from training.utils.interrupt import _ACTIVE_PROCESSES, cleanup_active_processes, install_signal_handlers
+from training.utils.interrupt import (
+    _ACTIVE_PROCESSES,
+    cleanup_active_processes,
+    install_signal_handlers,
+)
 from training.utils.logging import install_force_tty
 from training.utils.paths import bootstrap_sys_path, get_project_root
 
@@ -71,6 +82,10 @@ install_signal_handlers()
 load_pat = load_secrets
 _active_processes = _ACTIVE_PROCESSES
 
+# Failure modes of post-training artefact generation (docs, notebooks, sync, teardown):
+# the same I/O, bad-value and runtime family as dataset construction.
+_ARTEFACT_ERRORS: tuple[type[BaseException], ...] = DATASET_BUILD_ERRORS
+
 
 def build_cli_parser() -> argparse.ArgumentParser:
     """Build unified command-line argument parser for LemGendary Training Suite."""
@@ -82,7 +97,12 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Model key from unified_models.yaml",
     )
     parser.add_argument("--epochs", type=int, default=None, help="Number of training epochs")
-    parser.add_argument("--batch_size", type=str, default=None, help="Batch size per step (positive integer or 'auto')")
+    parser.add_argument(
+        "--batch_size",
+        type=str,
+        default=None,
+        help="Batch size per step (positive integer or 'auto')",
+    )
     parser.add_argument("--lr", type=float, default=None, help="Base learning rate")
     parser.add_argument(
         "--env",
@@ -98,7 +118,9 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Comma-separated kaggle endpoints natively executed asynchronously",
     )
     parser.add_argument("--hub_user", type=str, default=None, help="GitHub username for model hub")
-    parser.add_argument("--hub_repo", type=str, default=None, help="GitHub repository name for model hub")
+    parser.add_argument(
+        "--hub_repo", type=str, default=None, help="GitHub repository name for model hub"
+    )
     parser.add_argument(
         "--auto_sync",
         action="store_true",
@@ -109,14 +131,13 @@ def build_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Bypass loaded scheduler state and re-initialize fresh curve at current step",
     )
-    parser.add_argument(
-        "--clean",
-        "--fresh",
-        dest="clean",
-        action="store_true",
-        help="Start training fresh from epoch 1, wiping local checkpoints and ignoring hub checkpoints",
+    add_clean_argument(
+        parser,
+        "Start training fresh from epoch 1, wiping local checkpoints and ignoring hub checkpoints",
     )
-    parser.add_argument("--phase", type=int, default=1, help="Training Phase (e.g. Pre-training=1, Fine-tuning=2)")
+    parser.add_argument(
+        "--phase", type=int, default=1, help="Training Phase (e.g. Pre-training=1, Fine-tuning=2)"
+    )
     parser.add_argument("--fold", type=int, default=1, help="Walk-forward fold index (1..6)")
     parser.add_argument(
         "--pairs",
@@ -125,14 +146,10 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default=None,
         help="List of active pairs for Forex dataset (e.g. EURUSD GBPUSD)",
     )
+    add_timeframes_argument(parser, "List of active timeframes in minutes (e.g. 60 240 1440)")
     parser.add_argument(
-        "--timeframes",
-        type=int,
-        nargs="+",
-        default=None,
-        help="List of active timeframes in minutes (e.g. 60 240 1440)",
+        "--num_workers", type=int, default=None, help="Force a specific number of workers"
     )
-    parser.add_argument("--num_workers", type=int, default=None, help="Force a specific number of workers")
     parser.add_argument(
         "--val_num_workers",
         type=int,
@@ -165,15 +182,14 @@ def build_cli_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def build_training_context(args: argparse.Namespace) -> TrainingContext:
-    """Construct deterministic TrainingContext from parsed CLI arguments and workspace configs."""
-    load_secrets()
-    project_root = get_project_root()
-    config_path = project_root / "config.yaml"
+def load_workspace_config(project_root: Path) -> dict:
+    """Load ``config.yaml`` from the project root."""
+    with open(project_root / "config.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
-    with open(config_path, encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
 
+def load_model_info(project_root: Path, config: dict, model_key: str) -> dict:
+    """Return ``model_key``'s entry in the unified model registry (``{}`` when absent)."""
     unified_models_rel = config.get("unified_models", "unified_models_v2.yaml")
     unified_models_path = project_root / unified_models_rel
     if not unified_models_path.exists():
@@ -181,556 +197,270 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     with open(unified_models_path, encoding="utf-8") as f:
         unified_models_registry = yaml.safe_load(f) or {}
 
-    model_key = args.model
     models_dict = unified_models_registry.get("models")
     if not isinstance(models_dict, dict):
         models_dict = unified_models_registry
-    model_info = models_dict.get(model_key, {})
-
-    # 1. Checkpoint Lifecycle Manager (Strict 4-tier governance under LemGendaryModels)
-    lifecycle_manager = CheckpointLifecycleManager(
-        model_name=model_key,
-        project_root=project_root,
-        sota_targets=model_info.get("sota_targets", {}),
-    )
-
-    # 2. Hardware discovery & policy
-    device_info = discover_device()
-    policy = apply_hardware_policy(model_key, model_info, device_info, config)
+    return models_dict.get(model_key, {})
 
 
-    # 2. Directory structure â€” exclusively under LemGendaryModels
-    # Training suite project is code-only; all artifacts, checkpoints, exports, and metrics go to LemGendaryModels
+def build_training_paths(project_root: Path, model_key: str) -> TrainingPaths:
+    """Create the model's LemGendaryModels directories and return its artefact paths.
+
+    The training suite is code-only; checkpoints, exports and metrics all go to
+    ``LemGendaryModels/<model_key>``.
+    """
     models_hub_dir = (project_root.parent / "LemGendaryModels" / model_key).resolve()
     models_hub_checkpoint_dir = models_hub_dir / "checkpoints"
     models_hub_dir.mkdir(parents=True, exist_ok=True)
     models_hub_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-    paths = TrainingPaths(
+    return TrainingPaths(
         project_root=project_root,
         local_checkpoint_dir=models_hub_checkpoint_dir,
-        hub_checkpoint_dir=models_hub_checkpoint_dir,
         export_dir=models_hub_dir,
         progress_local_path=models_hub_checkpoint_dir / "progress.pth",
         best_checkpoint_path=models_hub_checkpoint_dir / "best.pth",
         history_csv_path=models_hub_dir / "history.csv",
-        models_hub_dir=models_hub_dir,
-        models_hub_checkpoint_dir=models_hub_checkpoint_dir,
-        models_hub_progress_path=models_hub_checkpoint_dir / "progress.pth",
-        models_hub_best_path=models_hub_checkpoint_dir / "best.pth",
-        models_hub_metrics_csv=models_hub_dir / "metrics.csv",
+        models_hub=ModelsHubPaths(
+            root=models_hub_dir,
+            checkpoint_dir=models_hub_checkpoint_dir,
+            progress_path=models_hub_checkpoint_dir / "progress.pth",
+            best_path=models_hub_checkpoint_dir / "best.pth",
+            metrics_csv=models_hub_dir / "metrics.csv",
+        ),
     )
 
-    if args.clean:
-        for clean_target in [
-            models_hub_checkpoint_dir / "progress.pth",
-            models_hub_checkpoint_dir / "best.pth",
-            models_hub_checkpoint_dir / f"{model_key}_latest.pth",
-            models_hub_checkpoint_dir / f"{model_key}_best.pth",
-            models_hub_dir / "history.csv",
-            models_hub_dir / "metrics.csv",
-        ]:
-            if clean_target.exists():
-                try:
-                    clean_target.unlink()
-                except OSError:
-                    pass
 
-    # 3. Model construction
-    raw_model = get_model(model_key, model_info)
-    raw_model.to(device_info.device)
+def clean_previous_run(paths: TrainingPaths, model_key: str) -> None:
+    """Delete the previous run's checkpoints and metric logs (``--clean``)."""
+    hub = paths.models_hub
+    if hub is None:
+        raise ValueError("clean_previous_run needs the LemGendaryModels paths of the run")
+    checkpoint_dir = hub.checkpoint_dir
+    hub_dir = hub.root
+    for clean_target in [
+        checkpoint_dir / "progress.pth",
+        checkpoint_dir / "best.pth",
+        checkpoint_dir / f"{model_key}_latest.pth",
+        checkpoint_dir / f"{model_key}_best.pth",
+        hub_dir / "history.csv",
+        hub_dir / "metrics.csv",
+    ]:
+        if clean_target.exists():
+            try:
+                clean_target.unlink()
+            except OSError as unlink_err:
+                logger.warning("Clean run could not remove %s: %s", clean_target, unlink_err)
 
-    # Parallel strategy wrapping â€” pass model_info so preferred_parallel is honored.
-    parallel_strategy = build_parallel_strategy(
-        name=args.parallel,
-        model=raw_model,
-        device=device_info.device,
-        model_key=model_key,
-        model_info=model_info,
-        config=config,
-    )
-    model = parallel_strategy.setup()
 
-    # 4. Total epochs resolution
-    epochs_val = args.epochs or model_info.get("epochs") or config.get("training", {}).get("default_epochs", 100)
-    total_epochs = int(epochs_val)
-
-    # 5. Optimizer & Scheduler
-    optimizer = build_optimizer(raw_model, config, lr=args.lr)
-    scheduler = build_scheduler(
-        optimizer=optimizer,
-        config=config,
-        total_epochs=total_epochs,
-        reset_scheduler=args.reset_scheduler,
-    )
-
-    # 6. Criterion
+def resolve_task_type(model_info: dict) -> str:
+    """The model's task type (first entry of a list), ``restoration`` by default."""
     raw_task_type = (
         model_info.get("task_type")
         or model_info.get("dataset_type")
         or model_info.get("category")
         or "restoration"
     )
-    task_type = raw_task_type[0] if isinstance(raw_task_type, list) else str(raw_task_type)
-    loss_fn_name = str(model_info.get("loss_fn") or "").lower()
+    return raw_task_type[0] if isinstance(raw_task_type, list) else str(raw_task_type)
 
-    if loss_fn_name == "forex_dual" or task_type in ("forex", "forex_dual") or args.model == "forex_predictor":
+
+def build_criterion(spec: RunSpec):
+    """Forex models train on ``ForexDualLoss``; everything else on ``CombinedLoss``."""
+    loss_fn_name = str(spec.model_info.get("loss_fn") or "").lower()
+    if (
+        loss_fn_name == "forex_dual"
+        or spec.task_type in ("forex", "forex_dual")
+        or spec.args.model == "forex_predictor"
+    ):
         criterion = ForexDualLoss()
     else:
-        criterion = CombinedLoss(task_type=task_type, stabilizers=model_info.get("stabilizers"))
-    criterion.to(device_info.device)
+        criterion = CombinedLoss(
+            task_type=spec.task_type, stabilizers=spec.model_info.get("stabilizers")
+        )
+    criterion.to(spec.device)
+    return criterion
 
-    # 7. Data Loaders
-    raw_batch = args.batch_size
-    resolved_batch: int | None = None
-    if raw_batch is not None:
-        if isinstance(raw_batch, str) and raw_batch.strip().lower() in ("auto", "none", ""):
-            resolved_batch = None
-        else:
-            try:
-                parsed_bs = int(raw_batch)
-                if parsed_bs > 0:
-                    resolved_batch = parsed_bs
-            except (ValueError, TypeError):
-                resolved_batch = None
 
-    if resolved_batch is None:
-        cfg_batch = model_info.get("batch_size")
-        if isinstance(cfg_batch, int) and cfg_batch > 0:
-            resolved_batch = cfg_batch
-        elif isinstance(cfg_batch, str) and cfg_batch.strip().isdigit() and int(cfg_batch) > 0:
-            resolved_batch = int(cfg_batch)
-        else:
-            resolved_batch = audit_hardware_vram(
-                model_key=model_key,
-                model_info=model_info,
-                config=config,
-                device=device_info.device,
-                model=raw_model,
-                res_override=getattr(args, "resolution", None),
-                mode="train",
-                fold=getattr(args, "fold", None),
-                pairs=getattr(args, "pairs", None) or model_info.get("pairs"),
-            )
-
-    if not isinstance(resolved_batch, int) or resolved_batch <= 0:
-        resolved_batch = 128 if task_type == "forex" else 16
-    batch_size = resolved_batch
-    # 8. Sentinels & Governance
-    sentinel = SentinelGuard(device=device_info.device)
-    governor = SmartTrainingGovernor(model_info=model_info, config=config)
-    governor.curriculum.update_batch_and_accumulation(batch_size)
-    sota_tracker = SotaTracker()
-    vault = MetricVault()
-
-    sample_fraction = (
-        getattr(governor.curriculum, "current_fraction", None)
-        or model_info.get("sample_fraction")
-        or model_info.get("curriculum", {}).get("data_fraction")
-        or 1.0
+def resolve_total_epochs(args: argparse.Namespace, model_info: dict, config: dict) -> int:
+    """CLI epochs, else the model's, else ``training.default_epochs`` (100)."""
+    epochs_val = (
+        args.epochs
+        or model_info.get("epochs")
+        or config.get("training", {}).get("default_epochs", 100)
     )
-    if task_type == "forex":
-        _forex_shard_root = str(
-            config.get("paths", {}).get("datasets_root", "../LemGendaryDatasets")
-        )
-        kwargs = model_info.get("kwargs", {})
-        _forex_pairs = (
-            getattr(args, "pairs", None)
-            or model_info.get("pairs")
-            or kwargs.get("pairs")
-        )
-        _forex_timeframes = (
-            getattr(args, "timeframes", None)
-            or model_info.get("active_timeframes")
-            or kwargs.get("active_timeframes")
-        )
-        _forex_fold = getattr(args, "fold", 1)
-        train_ds = ForexDataset(
-            shard_root=_forex_shard_root,
-            pairs=_forex_pairs,
-            active_timeframes=_forex_timeframes,
-            is_train=True,
-            sample_fraction=sample_fraction,
-            fold=_forex_fold,
-        )
-        try:
-            val_ds = ForexDataset(
-                shard_root=_forex_shard_root,
-                pairs=_forex_pairs,
-                active_timeframes=_forex_timeframes,
-                is_train=False,
-                fold=_forex_fold,
-            )
-        except Exception as forex_val_err:
-            logger.debug("Forex val dataset failed: %s", forex_val_err)
-            val_ds = None
-    elif task_type in ("text_instruction", "llm"):
-        # Resolve dataset folder dynamically from model_info or fallback to LemGendizedAIHelperLemGend
-        declared_datasets = model_info.get("datasets", [])
-        dataset_name = declared_datasets[0] if declared_datasets else "LemGendizedAIHelperLemGend"
-        data_root = project_root.parent / "LemGendaryDatasets" / dataset_name
+    return int(epochs_val)
 
-        train_jsonl = data_root / "data" / f"{model_key}_train.jsonl"
-        val_jsonl = data_root / "data" / f"{model_key}_val.jsonl"
 
-        if not train_jsonl.exists():
-            # Check for generic *_train.jsonl candidates in data/
-            candidates_train = list((data_root / "data").glob("*_train.jsonl")) if (data_root / "data").exists() else []
-            candidates_val = list((data_root / "data").glob("*_val.jsonl")) if (data_root / "data").exists() else []
-            if candidates_train:
-                train_jsonl = candidates_train[0]
-            if candidates_val:
-                val_jsonl = candidates_val[0]
+def grant_resume_budget(args: argparse.Namespace, resume_state: Any, total_epochs: int) -> int:
+    """Extend the epoch budget when the resumed checkpoint has already reached it.
 
-        if not train_jsonl.exists():
-            # Fallback to root or default ai_helper files
-            train_jsonl = data_root / "data" / "ai_helper_train.jsonl"
-            val_jsonl = data_root / "data" / "ai_helper_val.jsonl"
-
-        tokenizer = getattr(raw_model, "tokenizer", None)
-        train_ds = InstructionDataset(
-            train_jsonl,
-            tokenizer=tokenizer,
-            max_length=int(model_info.get("input_size", 2048)),
-            sample_fraction=sample_fraction,
-        )
-        val_ds = InstructionDataset(
-            val_jsonl,
-            tokenizer=tokenizer,
-            max_length=int(model_info.get("input_size", 2048)),
-        ) if val_jsonl.exists() else None
-    else:
-        train_ds = MultiTaskDataset(
-            config,
-            model_key=model_key,
-            is_train=True,
-            env=args.env,
-            sample_fraction=sample_fraction,
-        )
-        try:
-            val_ds = MultiTaskDataset(
-                config,
-                model_key=model_key,
-                is_train=False,
-                env=args.env,
-                sample_fraction=1.0,
-            )
-            if len(val_ds) == 0:
-                logger.info("Validation dataset contains 0 samples; running without validation.")
-                val_ds = None
-        except Exception:
-            val_ds = None
-
-    collate_fn = None
-    if task_type in ("text_instruction", "llm"):
-        collate_fn = collate_instruction_batch
-
-    if collate_fn is not None:
-        train_loader = DataLoader[Any](
-            dataset=train_ds,  # type: ignore[arg-type]
-            batch_size=batch_size,
-            shuffle=True,
-            collate_fn=collate_fn,
-            drop_last=False,
-        )
-    elif task_type == "forex":
-        train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
-        logger.info(
-            "RowGroupAwareSampler active for Forex dataset: %d locality groups (fraction: %.2f)",
-            len(train_sampler._group_keys),
-            sample_fraction,
-        )
-        train_loader = build_train_loader(
-            dataset=train_ds,
-            batch_size=batch_size,
-            sampler=train_sampler,
-            shuffle=False,
-            num_workers=args.num_workers,
-            device=device_info.device,
-            env=args.env,
-            config=config,
-        )
-    else:
-        train_loader = build_train_loader(
-            dataset=train_ds,
-            batch_size=batch_size,
-            num_workers=args.num_workers,
-            device=device_info.device,
-            env=args.env,
-            config=config,
-        )
-    if val_ds is not None and len(val_ds) > 0:
-        try:
-            val_loader = canonical_build_val_loader(
-                dataset=val_ds,
-                batch_size=batch_size,
-                num_workers=args.val_num_workers or args.num_workers,
-                device=device_info.device,
-                env=args.env,
-                config=config,
-                collate_fn=collate_fn,
-            )
-        except Exception:
-            val_loader = None
-    else:
-        val_loader = None
-
-    # 9. Recovery inspection
-    resume_state = None
-    if not args.clean:
-        recovery_engine = CheckpointRecoveryEngine(
-            workspace_root=project_root.parent,
-            project_root=project_root,
-            env=args.env,
-        )
-        candidate_roots = recovery_engine.find_candidate_roots(model_key, config=config)
-        discovered = recovery_engine.discover_checkpoints(candidate_roots, model_key)
-        # Select the candidate checkpoint with the highest epoch to guarantee no loss of progress
-        best_candidate: Path | None = None
-        best_cand_epoch = -1
-        best_cand_mtime = 0.0
-
-        for cand_key in ("latest", "best", "progress", "latest_epoch"):
-            cand_p = discovered.get(cand_key)
-            if cand_p and cand_p.exists():
-                try:
-                    c_data = safe_load_checkpoint(cand_p, map_location="cpu")
-                    c_ep = int(c_data.get("epoch", 0)) if isinstance(c_data, dict) else 0
-                    c_mt = cand_p.stat().st_mtime
-                    if c_ep > best_cand_epoch or (c_ep == best_cand_epoch and c_mt > best_cand_mtime):
-                        best_candidate = cand_p
-                        best_cand_epoch = c_ep
-                        best_cand_mtime = c_mt
-                except Exception:
-                    if best_candidate is None:
-                        best_candidate = cand_p
-
-        ckpt_candidate = best_candidate
-        if ckpt_candidate and ckpt_candidate.exists():
-            loaded_data = safe_load_checkpoint(ckpt_candidate, map_location=device_info.device)
-            if loaded_data:
-                model_sd = (
-                    loaded_data.get("model_state")
-                    or loaded_data.get("model_state_dict")
-                    or loaded_data.get("state_dict")
-                )
-                if isinstance(model_sd, dict):
-                    raw_model.load_state_dict(model_sd, strict=False)
-                opt_state = loaded_data.get("optimizer_state") or loaded_data.get("optimizer_state_dict")
-                if isinstance(opt_state, dict):
-                    try:
-                        optimizer.load_state_dict(opt_state)
-                    except Exception as opt_err:
-                        logger.warning("Optimizer state could not be loaded cleanly: %s", opt_err)
-                sched_state = loaded_data.get("scheduler_state") or loaded_data.get("scheduler_state_dict")
-                if isinstance(sched_state, dict) and scheduler is not None:
-                    try:
-                        scheduler.load_state_dict(sched_state)
-                    except Exception as sched_err:
-                        logger.warning("Scheduler state could not be loaded cleanly: %s", sched_err)
-                gov_state = dict(loaded_data.get("governor_state") or {})
-                ckpt_epoch = int(loaded_data.get("epoch", 0) or 0)
-                if ckpt_epoch > 0:
-                    gov_state["epoch_count"] = max(int(gov_state.get("epoch_count", 0) or 0), ckpt_epoch)
-                if hasattr(governor, "load_state"):
-                    try:
-                        governor.load_state(gov_state)
-                        # Calibrate artificial pre-fix quality score anchor
-                        if model_info.get("needs_synthesis") or model_info.get("dataset_type") == "face":
-                            if float(getattr(governor, "best_quality", 0.0) or 0.0) > 600.0:
-                                logger.info("[CALIBRATION] Calibrating artificial quality anchor (%.2f -> 555.0)", float(governor.best_quality))
-                                governor.best_quality = 555.0
-                        # Reconcile curriculum state against canonical metrics.csv if available
-                        if paths.models_hub_metrics_csv is not None and paths.models_hub_metrics_csv.exists():
-                            try:
-                                import csv
-
-                                with open(paths.models_hub_metrics_csv, "r", encoding="utf-8") as mf:
-                                    rows = list(csv.DictReader(mf))
-                                if rows:
-                                    curr_res_val = int(getattr(governor, "current_res", 256))
-                                    max_frac_at_res = float(getattr(governor, "current_fraction", sample_fraction))
-                                    max_quality_csv = float(getattr(governor, "best_quality", 0.0))
-                                    for r in rows:
-                                        try:
-                                            r_res = int(float(r.get("Res") or curr_res_val))
-                                            r_frac = float(r.get("Data") or 0.0)
-                                            r_qual = float(r.get("Quality_Score") or 0.0)
-                                            if r_res == curr_res_val and r_frac > max_frac_at_res:
-                                                max_frac_at_res = r_frac
-                                            if r_qual > max_quality_csv:
-                                                max_quality_csv = r_qual
-                                        except (ValueError, TypeError):
-                                            continue
-                                    if max_frac_at_res > float(getattr(governor, "current_fraction", 0.0)):
-                                        governor.current_fraction = min(1.0, max_frac_at_res)
-                                    if max_quality_csv > float(getattr(governor, "best_quality", 0.0)):
-                                        governor.best_quality = max_quality_csv
-                            except OSError as csv_err:
-                                logger.debug("Could not reconcile metrics.csv on resume: %s", csv_err)
-
-                        # Synchronize train dataset and train DataLoader with restored governor state
-                        rec_res = getattr(governor, "current_res", None)
-                        rec_frac = getattr(governor, "current_fraction", None)
-                        if task_type in ("text_instruction", "llm") or model_info.get("category") == "llm":
-                            configured_llm_frac = (
-                                model_info.get("sample_fraction")
-                                or model_info.get("curriculum", {}).get("data_fraction")
-                                or 1.0
-                            )
-                            rec_frac = float(configured_llm_frac)
-                            governor.current_fraction = float(configured_llm_frac)
-                        if rec_frac is not None or rec_res is not None:
-                            if hasattr(train_ds, "update_strategy"):
-                                train_ds.update_strategy(size=rec_res, fraction=rec_frac)
-                            elif hasattr(train_ds, "sample_fraction") and rec_frac is not None:
-                                setattr(train_ds, "sample_fraction", rec_frac)
-                            # Re-audit hardware safety limit for the restored resolution
-                            hw_safe_batch = audit_hardware_vram(
-                                model_key=model_key,
-                                model_info=model_info,
-                                config=config,
-                                device=device_info.device,
-                                model=model,
-                                res_override=rec_res,
-                                mode="train",
-                                sample_fraction=rec_frac if rec_frac is not None else 1.0,
-                                fold=getattr(args, "fold", None),
-                                pairs=getattr(args, "pairs", None) or model_info.get("pairs"),
-                            )
-                            restored_batch = int(getattr(governor, "current_batch", batch_size))
-                            curr_batch = min(restored_batch, hw_safe_batch)
-                            if curr_batch != restored_batch:
-                                logger.warning(
-                                    "[RESUME CLAMP] Clamped restored batch %d -> %d to prevent OOM on current hardware at res %s",
-                                    restored_batch,
-                                    curr_batch,
-                                    rec_res,
-                                )
-                                if hasattr(governor, "update_batch_and_accumulation"):
-                                    governor.update_batch_and_accumulation(curr_batch)
-
-                            # Rebuild train loader with the restored dataset state
-                            if task_type == "forex":
-                                train_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
-                                train_loader = rebuild_train_loader(
-                                    old_loader=train_loader,
-                                    dataset=train_ds,
-                                    batch_size=curr_batch,
-                                    sampler=train_sampler,
-                                    shuffle=False,
-                                    num_workers=args.num_workers,
-                                    device=device_info.device,
-                                    env=args.env,
-                                    config=config,
-                                )
-                            else:
-                                train_loader = rebuild_train_loader(
-                                    old_loader=train_loader,
-                                    dataset=train_ds,
-                                    batch_size=curr_batch,
-                                    num_workers=args.num_workers,
-                                    device=device_info.device,
-                                    env=args.env,
-                                    config=config,
-                                )
-                            total_ds_samples = len(getattr(train_ds, "all_samples", [])) or len(train_ds)
-                            if os.environ.get("RANK", "0") == "0":
-                                if task_type in ("text_instruction", "llm") or model_info.get("category") == "llm":
-                                    ctx_len = rec_res or model_info.get("input_size", 2048)
-                                    print(
-                                        f"[CURRICULUM] Active LLM instruction manifold: {len(train_ds)} samples (100% data fraction) | "
-                                        f"Context: {ctx_len} tokens | Batch: {curr_batch} | Total Batches: {len(train_loader)}",
-                                        flush=True,
-                                    )
-                                else:
-                                    print(
-                                        f"[CURRICULUM] Active training manifold: {len(train_ds)}/{total_ds_samples} samples "
-                                        f"({(rec_frac if rec_frac is not None else 1.0) * 100:.0f}% data fraction) | "
-                                        f"Res: {rec_res}px | Batch: {curr_batch} | Total Batches: {len(train_loader)}",
-                                        flush=True,
-                                    )
-                            logger.info(
-                                "Synchronized training dataset and loader with recovered governor state: res=%s, frac=%.2f",
-                                rec_res,
-                                rec_frac if rec_frac is not None else 1.0,
-                            )
-                    except Exception as gov_err:
-                        logger.warning("Governor state could not be loaded cleanly: %s", gov_err)
-                if hasattr(sota_tracker, "best_quality"):
-                    saved_best = (
-                        loaded_data.get("best_quality_score")
-                        or loaded_data.get("best_quality")
-                        or getattr(governor, "best_quality", None)
-                    )
-                    if saved_best is not None:
-                        try:
-                            sota_tracker.best_quality = max(float(sota_tracker.best_quality), float(saved_best))
-                        except (ValueError, TypeError):
-                            pass
-                resume_state = parse_resume_state(loaded_data)
-
-    # If resuming from an existing checkpoint, ensure total_epochs allows further training
-    # rather than immediately terminating. Training must reach at least 20 epochs!
+    The run then gets a fresh budget (``--epochs`` or 20) on top of the checkpoint epoch
+    instead of ending immediately. Otherwise the configured budget is honoured as-is (no
+    hidden 20-epoch floor; see TS D-01).
+    """
     if resume_state is not None and resume_state.epoch > 0:
         resumed_ep = resume_state.epoch
-        # If the user requested a specific additional budget or if total_epochs is already exceeded:
         if resumed_ep >= total_epochs:
             additional_epochs = int(args.epochs) if args.epochs else 20
-            total_epochs = resumed_ep + additional_epochs
-        total_epochs = max(total_epochs, 20)
+            return resumed_ep + additional_epochs
+    return total_epochs
 
-    scaler = create_grad_scaler(policy)
-    resolved_acc_steps = max(1, int(getattr(governor, "current_acc", 1)))
 
-    return TrainingContext(
+@dataclass
+class RunSetup:
+    """Per-run services resolved before the model is built."""
+
+    lifecycle_manager: CheckpointLifecycleManager
+    device_info: Any
+    policy: Any
+    paths: TrainingPaths
+
+
+def resolve_run(args: argparse.Namespace) -> tuple[RunSpec, RunSetup]:
+    """Load configs, discover the device, apply the hardware policy and prepare directories."""
+    load_secrets()
+    project_root = get_project_root()
+    config = load_workspace_config(project_root)
+    model_key = args.model
+    model_info = load_model_info(project_root, config, model_key)
+
+    # Checkpoint lifecycle manager (strict 4-tier governance under LemGendaryModels).
+    lifecycle_manager = CheckpointLifecycleManager(
         model_name=model_key,
+        project_root=project_root,
+        sota_targets=model_info.get("sota_targets", {}),
+    )
+    device_info = discover_device()
+    policy = apply_hardware_policy(model_key, model_info, device_info, config)
+
+    paths = build_training_paths(project_root, model_key)
+    if args.clean:
+        clean_previous_run(paths, model_key)
+
+    spec = RunSpec(
+        args=args,
+        config=config,
+        model_info=model_info,
+        model_key=model_key,
+        project_root=project_root,
+        task_type=resolve_task_type(model_info),
+        device=device_info.device,
+    )
+    return spec, RunSetup(lifecycle_manager, device_info, policy, paths)
+
+
+def build_model_stack(spec: RunSpec, total_epochs: int) -> tuple[TrainState, Any]:
+    """Build the model, its parallel wrapper, optimizer and scheduler.
+
+    Returns the train state (governor and SOTA tracker still unset) and the parallel strategy.
+    """
+    raw_model = get_model(spec.model_key, spec.model_info)
+    raw_model.to(spec.device)
+
+    # model_info is passed so that preferred_parallel is honored.
+    parallel_strategy = build_parallel_strategy(
+        name=spec.args.parallel,
+        model=raw_model,
+        device=spec.device,
+        model_key=spec.model_key,
+        model_info=spec.model_info,
+        config=spec.config,
+    )
+    model = parallel_strategy.setup()
+
+    optimizer = build_optimizer(raw_model, spec.config, lr=spec.args.lr)
+    scheduler = build_scheduler(optimizer=optimizer, config=spec.config, total_epochs=total_epochs)
+    train = TrainState(
+        raw_model=raw_model,
         model=model,
         optimizer=optimizer,
         scheduler=scheduler,
-        criterion=criterion,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        device_info=device_info,
-        policy=policy,
-        sentinel=sentinel,
-        governor=governor,
-        sota_tracker=sota_tracker,
-        vault=vault,
-        paths=paths,
-        config=config,
-        model_info=model_info,
-        args=args,
-        total_epochs=total_epochs,
-        accumulation_steps=resolved_acc_steps,
-        scaler=scaler,
-        resume_state=resume_state,
-        raw_model=raw_model,
-        parallel_strategy=parallel_strategy,
-        lifecycle_manager=lifecycle_manager,
+        governor=None,
+        sota_tracker=None,
     )
+    return train, parallel_strategy
 
 
-def _run_yolo_native(
-    args: argparse.Namespace,
-    config: dict,
-    project_root: Path,
-    on_epoch_end: Any = None,
-    cancel_check: Any = None,
-) -> Any:
-    """Delegate yolov8n training to the Governed YOLO Curriculum Runner.
+def build_data(spec: RunSpec, governor: Any, raw_model: Any, batch_size: int):
+    """Build the datasets and loaders at the governor's data fraction.
 
-    Coordinates multi-stage resolution ladder progression (320px -> 480px -> 640px),
-    hardware-aware Sawtooth VRAM batch allocation, dataset fraction scaling,
-    and real-time telemetry synchronization while preserving native Ultralytics
-    inner-loop optimizations.
+    The governor already resolves the configured fraction (``sample_fraction``,
+    ``curriculum.data_fraction``) and the full-data default of LLM / forex models.
+    Returns the train ``LoaderState`` and the validation loader (or ``None``).
     """
-    return run_governed_yolo_training(
-        args=args,
-        config=config,
-        project_root=project_root,
-        on_epoch_end=on_epoch_end,
-        cancel_check=cancel_check,
+    sample_fraction = getattr(governor.curriculum, "current_fraction", None) or 1.0
+
+    train_ds, val_ds = build_datasets(spec, raw_model, sample_fraction)
+    data = LoaderState(
+        train_ds=train_ds,
+        train_loader=build_initial_train_loader(spec, train_ds, batch_size, sample_fraction),
+        batch_size=batch_size,
+        sample_fraction=sample_fraction,
+    )
+    return data, build_val_loader_for(spec, val_ds, batch_size)
+
+
+def build_training_context(args: argparse.Namespace) -> TrainingContext:
+    """Construct deterministic TrainingContext from parsed CLI arguments and workspace configs."""
+    spec, setup = resolve_run(args)
+
+    total_epochs = resolve_total_epochs(args, spec.model_info, spec.config)
+    train, parallel_strategy = build_model_stack(spec, total_epochs)
+    criterion = build_criterion(spec)
+    batch_size = resolve_batch_size(spec, train.raw_model)
+
+    # Sentinels and governance.
+    sentinel = SentinelGuard(device=spec.device)
+    train.governor = SmartTrainingGovernor(model_info=spec.model_info, config=spec.config)
+    train.governor.curriculum.update_batch_and_accumulation(batch_size)
+    train.sota_tracker = SotaTracker()
+    vault = MetricVault()
+
+    data, val_loader = build_data(spec, train.governor, train.raw_model, batch_size)
+
+    resume_state = None
+    if not args.clean:
+        hub = setup.paths.models_hub
+        metrics_csv = hub.metrics_csv if hub is not None else None
+        resume_state = resume_from_checkpoint(spec, train, data, metrics_csv)
+    total_epochs = grant_resume_budget(args, resume_state, total_epochs)
+
+    return TrainingContext(
+        model_name=spec.model_key,
+        models=ModelStack(
+            model=train.model,
+            optimizer=train.optimizer,
+            scheduler=train.scheduler,
+            criterion=criterion,
+            scaler=create_grad_scaler(setup.policy),
+            raw_model=train.raw_model,
+            parallel_strategy=parallel_strategy,
+        ),
+        data=DataComponents(
+            train_loader=data.train_loader,
+            val_loader=val_loader,
+            accumulation_steps=max(1, int(getattr(train.governor, "current_acc", 1))),
+        ),
+        hardware=HardwareComponents(
+            device_info=setup.device_info,
+            policy=setup.policy,
+            sentinel=sentinel,
+        ),
+        governance=GovernanceComponents(
+            governor=train.governor,
+            sota_tracker=train.sota_tracker,
+            vault=vault,
+            lifecycle_manager=setup.lifecycle_manager,
+        ),
+        run=RunSettings(
+            paths=setup.paths,
+            config=spec.config,
+            model_info=spec.model_info,
+            args=args,
+            total_epochs=total_epochs,
+        ),
+        state=RunState(
+            resume_state=resume_state,
+        ),
     )
 
 
@@ -742,65 +472,66 @@ def main(raw_args: list[str] | None = None) -> None:
     if os.environ.get("RANK", "0") == "0":
         print("[BOOT] LemGendary Training Suite initiating...", flush=True)
 
-    # Intercept yolov8n before building TrainingContext â€” it uses the Ultralytics native trainer.
+    # Intercept yolov8n before building TrainingContext: it uses the Ultralytics native trainer.
     if args.model == "yolov8n":
         load_secrets()
         project_root = get_project_root()
-        config_path = project_root / "config.yaml"
-        with open(config_path, encoding="utf-8") as f:
-            config = yaml.safe_load(f) or {}
-        _run_yolo_native(args, config, project_root)
+        config = load_workspace_config(project_root)
+        run_governed_yolo_training(args, config, project_root)
         return
 
     ctx = build_training_context(args)
 
     try:
         summary = run_training(ctx)
-        print(f"[SUCCESS] Training completed at epoch {summary.final_epoch} with status: {summary.status}")
+        print(
+            f"[SUCCESS] Training completed at epoch {summary.final_epoch} "
+            f"with status: {summary.status}"
+        )
 
         # Post-training export
         export_all(
             model_key=ctx.model_name,
-            checkpoint_path=ctx.paths.best_checkpoint_path,
-            config=ctx.config,
-            output_dir=ctx.paths.export_dir,
+            checkpoint_path=ctx.run.paths.best_checkpoint_path,
+            config=ctx.run.config,
+            output_dir=ctx.run.paths.export_dir,
         )
 
         # Post-training documentation & notebooks
         try:
             readme_text = build_model_readme(
                 ctx.model_name,
-                ctx.config.get("unified_models", {}),
+                ctx.run.config.get("unified_models", {}),
                 summary.final_epoch,
                 summary.best_metrics,
             )
-            with open(ctx.paths.export_dir / "README.md", "w", encoding="utf-8") as f:
+            with open(ctx.run.paths.export_dir / "README.md", "w", encoding="utf-8") as f:
                 f.write(readme_text)
-        except Exception as doc_err:
-            print(f"[WARNING] Model README generation failed: {doc_err}")
+        except _ARTEFACT_ERRORS as doc_err:
+            logger.warning("Model README generation failed: %s", doc_err)
 
         try:
-            generate_inference_notebook(ctx.model_name, str(ctx.paths.export_dir))
-            generate_usage_notebook(ctx.model_name, str(ctx.paths.export_dir))
-            generate_colab_inference_notebook(ctx.model_name, str(ctx.paths.export_dir))
-            generate_colab_usage_notebook(ctx.model_name, str(ctx.paths.export_dir))
-        except Exception as nb_err:
-            print(f"[WARNING] Notebook generation failed: {nb_err}")
+            generate_inference_notebook(ctx.model_name, str(ctx.run.paths.export_dir))
+            generate_usage_notebook(ctx.model_name, str(ctx.run.paths.export_dir))
+            generate_colab_inference_notebook(ctx.model_name, str(ctx.run.paths.export_dir))
+            generate_colab_usage_notebook(ctx.model_name, str(ctx.run.paths.export_dir))
+        except _ARTEFACT_ERRORS as nb_err:
+            logger.warning("Notebook generation failed: %s", nb_err)
 
         # Final cloud synchronization
         if args.env == "kaggle" and not getattr(args, "skip_sync", False):
             try:
-                trigger_cloud_sync(ctx.model_name, summary.final_epoch, ctx.config)
-            except Exception as sync_err:
-                print(f"[WARNING] Final cloud sync failed: {sync_err}")
+                trigger_cloud_sync(ctx.model_name, summary.final_epoch, ctx.run.config)
+            except _ARTEFACT_ERRORS as sync_err:
+                logger.warning("Final cloud sync failed: %s", sync_err)
 
     finally:
         # Always clean up parallel strategy (destroys DDP process group if active).
-        if ctx.parallel_strategy is not None:
+        if ctx.models.parallel_strategy is not None:
             try:
-                ctx.parallel_strategy.cleanup()
-            except Exception as cleanup_err:
-                print(f"[WARNING] Parallel strategy cleanup failed: {cleanup_err}")
+                ctx.models.parallel_strategy.cleanup()
+            except _ARTEFACT_ERRORS as cleanup_err:
+                logger.warning("Parallel strategy cleanup failed: %s", cleanup_err)
         cleanup_active_processes()
 
 

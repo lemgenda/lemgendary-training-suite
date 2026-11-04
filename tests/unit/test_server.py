@@ -5,24 +5,29 @@ Verifies ServerState, SQLite WAL persistence, JobManager, REST endpoints, and to
 
 from __future__ import annotations
 
-from pathlib import Path
+import logging
+import shutil
 import tempfile
-from typing import Any
 import unittest
-from fastapi.testclient import TestClient
-import yaml
+from pathlib import Path
+from unittest import mock
 
+import yaml
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
+
+from training.ecosystem import TRAINING_SERVICE, service_port
 from training.server.app import create_app
-from training.server.jobs import JobManager
 from training.server.state import ServerState
+
+_log = logging.getLogger("lemtrain.tests.test_server")
 
 
 class TestServerSubsystem(unittest.TestCase):
     """Test suite for server state, SQLite persistence, and REST endpoints."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
+        self.root = Path(tempfile.mkdtemp())
 
         # Create dummy presets.yaml
         presets_data = {
@@ -70,9 +75,9 @@ class TestServerSubsystem(unittest.TestCase):
 
     def tearDown(self) -> None:
         try:
-            self.temp_dir.cleanup()
-        except OSError:
-            pass
+            shutil.rmtree(self.root)
+        except OSError as exc:
+            _log.warning("Temp dir cleanup failed for %s: %s", self.root, exc)
 
     def test_state_db_and_tokens(self) -> None:
         """Verify SQLite DB initialization, WAL mode, token generation, and PID tracking."""
@@ -138,7 +143,7 @@ class TestServerSubsystem(unittest.TestCase):
             data = resp.json()
             self.assertEqual(data["status"], "ok")
             self.assertEqual(data["service"], "lemgendary-training-suite")
-            self.assertEqual(data["port"], 8200)
+            self.assertEqual(data["port"], service_port(TRAINING_SERVICE))
 
             # 2. Presets
             resp = client.get("/api/presets")
@@ -176,7 +181,10 @@ class TestServerSubsystem(unittest.TestCase):
             self.assertEqual(gui_state["models_count"], 1)
 
             # 6. Job submission & cancellation
-            app.state.job_manager._run_job_worker = lambda *args: None
+            # Stub the background worker so submitted jobs never start a real training run.
+            worker_patch = mock.patch.object(app.state.job_manager, "_run_job_worker")
+            worker_patch.start()
+            self.addCleanup(worker_patch.stop)
             job_payload = {"model": "test_model", "epochs": 2, "batch_size": 4}
             resp = client.post("/api/training/train", json=job_payload)
             self.assertEqual(resp.status_code, 200)
@@ -218,6 +226,33 @@ class TestServerSubsystem(unittest.TestCase):
             # Protected endpoint with valid custom header returns 200
             resp = client.get("/api/presets", headers={"X-LemTrain-Token": valid_token})
             self.assertEqual(resp.status_code, 200)
+
+    def test_origin_guard_on_real_app(self) -> None:
+        """Verify the real app refuses foreign origins and keeps the token check."""
+        app = create_app(project_root=self.root, enforce_auth=True)
+        valid_token = self.server_state.get_or_create_token()
+        gui_origin = "http://tauri.localhost"
+        foreign_origin = "https://evil.example"
+
+        with TestClient(app) as client:
+            resp = client.post("/api/train", headers={"Origin": foreign_origin})
+            self.assertEqual(resp.status_code, 403)
+
+            resp = client.get("/api/presets", headers={"Origin": gui_origin})
+            self.assertEqual(resp.status_code, 401)
+            self.assertEqual(resp.headers.get("access-control-allow-origin"), gui_origin)
+
+            resp = client.get(
+                "/api/presets",
+                headers={"Origin": gui_origin, "X-LemTrain-Token": valid_token},
+            )
+            self.assertEqual(resp.status_code, 200)
+
+            with (
+                self.assertRaises(WebSocketDisconnect),
+                client.websocket_connect("/api/ws/logs", headers={"Origin": foreign_origin}) as ws,
+            ):
+                ws.receive_text()
 
 
 if __name__ == "__main__":

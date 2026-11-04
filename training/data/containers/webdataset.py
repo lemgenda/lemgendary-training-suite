@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import tarfile
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,212 @@ def _parse_member_name(name: str) -> tuple[str, str, str]:
     return p.stem, "image", ext
 
 
+_IndexEntry = tuple[str, Path | None, Any, Any, Any, Any, Any]
+
+
+def _find_tar_files(root: Path, cand_dirs: list[Path]) -> list[Path]:
+    """Return ``root`` itself, the first candidate dir's shards, or every shard below ``root``.
+
+    ``*.data`` shards win over ``*.tar`` shards in the same place.
+    """
+    if root.is_file() and root.suffix in (".data", ".tar"):
+        return [root]
+    for d in cand_dirs:
+        if d.exists() and d.is_dir():
+            shards = sorted(d.glob("*.data"))
+            if not shards:
+                shards = sorted(d.glob("*.tar"))
+            if shards:
+                return shards
+    shards = sorted(root.glob("**/*.data"))
+    if not shards:
+        shards = sorted(root.glob("**/*.tar"))
+    return shards
+
+
+def _sample_entries(
+    mode: str, tar_path: Path | None, samples: dict[str, dict[str, Any]]
+) -> list[_IndexEntry]:
+    """Return one index entry per sample key that has an image role."""
+    entries: list[_IndexEntry] = []
+    for roles in samples.values():
+        img_ref = roles.get("image")
+        if img_ref is not None:
+            entries.append(
+                (
+                    mode,
+                    tar_path,
+                    img_ref,
+                    roles.get("target"),
+                    roles.get("mask"),
+                    roles.get("text"),
+                    roles.get("json"),
+                )
+            )
+    return entries
+
+
+def _index_tar(t_path: Path) -> list[_IndexEntry]:
+    """Group a tar shard's file members by sample key and role (member names)."""
+    with tarfile.open(t_path, mode="r:*") as tf:
+        members = tf.getmembers()
+    samples: dict[str, dict[str, str]] = {}
+    for m in members:
+        if not m.isfile():
+            continue
+        key, role, _ = _parse_member_name(m.name)
+        samples.setdefault(key, {})[role] = m.name
+    return _sample_entries("tar", t_path, samples)
+
+
+def _scan_dir_samples(scan_dir: Path) -> dict[str, dict[str, Path]]:
+    """Group the image/caption/json files of ``scan_dir`` by sample key and role."""
+    samples_dir: dict[str, dict[str, Path]] = {}
+    for entry in sorted(scan_dir.iterdir()):
+        if not entry.is_file():
+            continue
+        ext = entry.suffix.lower()
+        if ext in IMAGE_EXTENSIONS or ext in (".txt", ".caption", ".json"):
+            key, role, _ = _parse_member_name(entry.name)
+            samples_dir.setdefault(key, {})[role] = entry
+    return samples_dir
+
+
+def _index_shard_dirs(cand_dirs: list[Path]) -> list[_IndexEntry]:
+    """Index the first candidate dir whose sub-dirs (or itself) hold samples."""
+    index_map: list[_IndexEntry] = []
+    for d in cand_dirs:
+        if not d.exists() or not d.is_dir():
+            continue
+
+        sub_dirs = sorted([sub for sub in d.iterdir() if sub.is_dir()])
+        target_dirs = sub_dirs if sub_dirs else [d]
+
+        for scan_dir in target_dirs:
+            try:
+                samples_dir = _scan_dir_samples(scan_dir)
+            except OSError as scan_err:
+                logger.debug("Failed scanning directory %s: %s", scan_dir, scan_err)
+                continue
+            index_map.extend(_sample_entries("file", None, samples_dir))
+
+        if index_map:
+            break
+    return index_map
+
+
+def _json_label(parsed_json: Any, label: Any) -> Any:
+    """Fill a missing ``label`` from a JSON sidecar (NIMA scores first, then generic keys)."""
+    if label is not None or not isinstance(parsed_json, dict):
+        return label
+    nima_data = parsed_json.get("nima_scores")
+    if isinstance(nima_data, dict):
+        label = (
+            nima_data.get("distribution") or nima_data.get("scores") or nima_data.get("mean_score")
+        )
+    if label is None:
+        label = (
+            parsed_json.get("distribution")
+            or parsed_json.get("scores")
+            or parsed_json.get("label")
+            or parsed_json.get("score")
+        )
+    return label
+
+
+def _make_sample(
+    image_name: Path,
+    payload: tuple[bytes, bytes | None, bytes | None],
+    label: Any,
+    meta: dict[str, Any],
+) -> Sample:
+    """``Sample`` named after the image member; ``payload`` is (image, target, mask) bytes."""
+    image_bytes, target_bytes, mask_bytes = payload
+    return Sample(
+        name=image_name.stem.split(".")[0],
+        image_format=image_name.suffix.lstrip(".").lower(),
+        image_bytes=image_bytes,
+        target_bytes=target_bytes,
+        mask_bytes=mask_bytes,
+        label=label,
+        metadata=meta,
+    )
+
+
+def _existing_bytes(path: Path | None) -> bytes | None:
+    """The file's bytes, or ``None`` when ``path`` is unset or missing."""
+    return path.read_bytes() if path is not None and path.exists() else None
+
+
+def _read_member(tf: tarfile.TarFile, name: str | None) -> bytes | None:
+    """The tar member's bytes, or ``None`` when ``name`` is unset or not a regular file."""
+    if name is None:
+        return None
+    extracted = tf.extractfile(name)
+    return extracted.read() if extracted is not None else None
+
+
+def _file_sample(entry: tuple) -> Sample:
+    """Read one extracted-directory sample (image plus target, mask, text and JSON files)."""
+    _, _, img_path, tgt_path, mask_path, txt_path, json_path = entry
+    image_bytes = img_path.read_bytes()
+    payload = (image_bytes, _existing_bytes(tgt_path), _existing_bytes(mask_path))
+
+    label: Any = None
+    meta: dict[str, Any] = {"file": str(img_path)}
+
+    if txt_path is not None and txt_path.exists():
+        try:
+            label = txt_path.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.warning("Unreadable text label %s; sample has no text label: %s", txt_path, exc)
+
+    if json_path is not None and json_path.exists():
+        try:
+            parsed_json = json.loads(json_path.read_text(encoding="utf-8"))
+            meta["json"] = parsed_json
+            label = _json_label(parsed_json, label)
+        except (OSError, ValueError) as exc:
+            logger.warning("Unreadable JSON sidecar %s; metadata skipped: %s", json_path, exc)
+
+    return _make_sample(img_path, payload, label, meta)
+
+
+def _tar_sidecar_label(
+    tf: tarfile.TarFile, t_path: Path, sidecars: tuple[str | None, str | None], meta: dict
+) -> Any:
+    """Label from the text and JSON sidecar members (``sidecars``); JSON goes into ``meta``."""
+    txt_m, json_m = sidecars
+    label = None
+
+    txt_extracted = tf.extractfile(txt_m) if txt_m is not None else None
+    if txt_extracted is not None:
+        try:
+            label = txt_extracted.read().decode("utf-8").strip()
+        except (OSError, tarfile.TarError, UnicodeDecodeError) as exc:
+            logger.warning(
+                "Unreadable text label %s in %s; sample has no text label: %s",
+                txt_m,
+                t_path,
+                exc,
+            )
+
+    json_extracted = tf.extractfile(json_m) if json_m is not None else None
+    if json_extracted is not None:
+        try:
+            parsed_json = json.loads(json_extracted.read().decode("utf-8"))
+            meta["json"] = parsed_json
+            label = _json_label(parsed_json, label)
+        except (OSError, tarfile.TarError, ValueError) as exc:
+            logger.warning(
+                "Unreadable JSON sidecar %s in %s; metadata skipped: %s",
+                json_m,
+                t_path,
+                exc,
+            )
+    return label
+
+
 class WebDatasetReader:
     """Reader for tar-sharded WebDataset archives with support for unpacked shard directories."""
 
@@ -72,106 +279,23 @@ class WebDatasetReader:
             self.root / self.split,
             self.root,
         ]
-        self.tar_files: list[Path] = []
-        if self.root.is_file() and self.root.suffix in (".data", ".tar"):
-            self.tar_files = [self.root]
-        else:
-            for d in cand_dirs:
-                if d.exists() and d.is_dir():
-                    shards = sorted(d.glob("*.data"))
-                    if not shards:
-                        shards = sorted(d.glob("*.tar"))
-                    if shards:
-                        self.tar_files = shards
-                        break
-            if not self.tar_files:
-                shards = sorted(self.root.glob("**/*.data"))
-                if not shards:
-                    shards = sorted(self.root.glob("**/*.tar"))
-                self.tar_files = shards
+        self.tar_files: list[Path] = _find_tar_files(self.root, cand_dirs)
 
-        # Map sample index -> (storage_mode, tar_path, img_ref, tgt_ref, mask_ref, txt_ref, json_ref)
+        # Map sample index -> (mode, tar_path, img_ref, tgt_ref, mask_ref, txt_ref, json_ref)
         self.index_map: list[tuple[str, Path | None, Any, Any, Any, Any, Any]] = []
         self._tar_handles: dict[Path, tarfile.TarFile] = {}
+        # Owns the cached tar handles; close() unwinds it.
+        self._tar_stack = ExitStack()
 
         if self.tar_files:
             for t_path in self.tar_files:
                 try:
-                    with tarfile.open(t_path, mode="r:*") as tf:
-                        members = tf.getmembers()
-
-                        # Group by sample key -> role -> member_name
-                        samples: dict[str, dict[str, str]] = {}
-                        for m in members:
-                            if not m.isfile():
-                                continue
-                            key, role, ext = _parse_member_name(m.name)
-                            if key not in samples:
-                                samples[key] = {}
-                            samples[key][role] = m.name
-
-                        for _key, roles in samples.items():
-                            img_member = roles.get("image")
-                            if img_member is not None:
-                                tgt_member = roles.get("target")
-                                mask_member = roles.get("mask")
-                                txt_member = roles.get("text")
-                                json_member = roles.get("json")
-                                self.index_map.append((
-                                    "tar",
-                                    t_path,
-                                    img_member,
-                                    tgt_member,
-                                    mask_member,
-                                    txt_member,
-                                    json_member,
-                                ))
-                except Exception as exc:
+                    self.index_map.extend(_index_tar(t_path))
+                except (OSError, tarfile.TarError, EOFError) as exc:
                     logger.warning("Failed opening tar file %s: %s", t_path, exc)
         else:
             # Mode B: Extracted shard directories or loose image files
-            for d in cand_dirs:
-                if not d.exists() or not d.is_dir():
-                    continue
-
-                sub_dirs = sorted([sub for sub in d.iterdir() if sub.is_dir()])
-                target_dirs = sub_dirs if sub_dirs else [d]
-
-                for scan_dir in target_dirs:
-                    samples_dir: dict[str, dict[str, Path]] = {}
-                    try:
-                        for entry in sorted(scan_dir.iterdir()):
-                            if not entry.is_file():
-                                continue
-                            ext = entry.suffix.lower()
-                            if ext in IMAGE_EXTENSIONS or ext in (".txt", ".caption", ".json"):
-                                key, role, _ = _parse_member_name(entry.name)
-                                if key not in samples_dir:
-                                    samples_dir[key] = {}
-                                samples_dir[key][role] = entry
-                    except OSError as scan_err:
-                        logger.debug("Failed scanning directory %s: %s", scan_dir, scan_err)
-                        continue
-
-                    for _key, roles in samples_dir.items():
-                        img_path = roles.get("image")
-                        if img_path is not None:
-                            tgt_path = roles.get("target")
-                            mask_path = roles.get("mask")
-                            txt_path = roles.get("text")
-                            json_path = roles.get("json")
-                            self.index_map.append((
-                                "file",
-                                None,
-                                img_path,
-                                tgt_path,
-                                mask_path,
-                                txt_path,
-                                json_path,
-                            ))
-
-                if self.index_map:
-                    break
+            self.index_map.extend(_index_shard_dirs(cand_dirs))
 
         if not self.index_map and self.split == "train":
             raise FileNotFoundError(
@@ -184,142 +308,61 @@ class WebDatasetReader:
 
     def __getitem__(self, index: int) -> Sample:
         if index < 0 or index >= len(self.index_map):
-            raise IndexError(f"WebDataset index {index} out of range (0..{len(self.index_map) - 1}).")
-
-        entry = self.index_map[index]
-        mode = entry[0]
-
-        if mode == "file":
-            _, _, img_path, tgt_path, mask_path, txt_path, json_path = entry
-            image_bytes = img_path.read_bytes()
-            stem = img_path.stem.split(".")[0]
-            fmt = img_path.suffix.lstrip(".").lower()
-
-            target_bytes = tgt_path.read_bytes() if tgt_path is not None and tgt_path.exists() else None
-            mask_bytes = mask_path.read_bytes() if mask_path is not None and mask_path.exists() else None
-
-            label: Any = None
-            meta: dict[str, Any] = {"file": str(img_path)}
-
-            if txt_path is not None and txt_path.exists():
-                try:
-                    label = txt_path.read_text(encoding="utf-8").strip()
-                except Exception:
-                    pass
-
-            if json_path is not None and json_path.exists():
-                try:
-                    parsed_json = json.loads(json_path.read_text(encoding="utf-8"))
-                    meta["json"] = parsed_json
-                    if label is None and isinstance(parsed_json, dict):
-                        nima_data = parsed_json.get("nima_scores")
-                        if isinstance(nima_data, dict):
-                            label = nima_data.get("distribution") or nima_data.get("scores") or nima_data.get("mean_score")
-                        if label is None:
-                            label = (
-                                parsed_json.get("distribution")
-                                or parsed_json.get("scores")
-                                or parsed_json.get("label")
-                                or parsed_json.get("score")
-                            )
-                except Exception:
-                    pass
-
-            return Sample(
-                name=stem,
-                image_bytes=image_bytes,
-                image_format=fmt,
-                target_bytes=target_bytes,
-                mask_bytes=mask_bytes,
-                label=label,
-                metadata=meta,
+            raise IndexError(
+                f"WebDataset index {index} out of range (0..{len(self.index_map) - 1})."
             )
 
-        # Mode: tar
-        _, t_path, img_m, tgt_m, mask_m, txt_m, json_m = entry
-        if t_path is None or not isinstance(t_path, Path):
-            raise ValueError(f"Corrupted WebDataset index entry: tar archive path is None at index {index}.")
-        assert isinstance(t_path, Path)
+        entry = self.index_map[index]
+        if entry[0] == "file":
+            return _file_sample(entry)
+        return self._tar_sample(entry, index)
 
+    def _tar_file(self, t_path: Path) -> tarfile.TarFile:
+        """Return the cached open handle of ``t_path``, opening it on first use."""
         tf = self._tar_handles.get(t_path)
         if tf is None:
-            tf = tarfile.open(t_path, mode="r:*")
+            # Open under a temporary stack, then hand ownership to the long-lived one.
+            with ExitStack() as stack:
+                tf = stack.enter_context(tarfile.open(t_path, mode="r:*"))
+                self._tar_stack.push(stack.pop_all())
             self._tar_handles[t_path] = tf
+        return tf
 
-        extracted = tf.extractfile(img_m)
-        image_bytes = extracted.read() if extracted is not None else b""
-        stem = Path(img_m).stem.split(".")[0]
-        fmt = Path(img_m).suffix.lstrip(".").lower()
+    def _tar_sample(self, entry: tuple, index: int) -> Sample:
+        """Read one sample's members (image, target, mask, text, JSON) from its tar archive."""
+        _, t_path, img_m, tgt_m, mask_m, txt_m, json_m = entry
+        if t_path is None or not isinstance(t_path, Path):
+            raise ValueError(
+                f"Corrupted WebDataset index entry: tar archive path is None at index {index}."
+            )
+        assert isinstance(t_path, Path)
 
-        target_bytes: bytes | None = None
-        if tgt_m is not None:
-            tgt_extracted = tf.extractfile(tgt_m)
-            if tgt_extracted is not None:
-                target_bytes = tgt_extracted.read()
+        tf = self._tar_file(t_path)
+        image_bytes = _read_member(tf, img_m) or b""
+        payload = (image_bytes, _read_member(tf, tgt_m), _read_member(tf, mask_m))
 
-        mask_bytes: bytes | None = None
-        if mask_m is not None:
-            mask_extracted = tf.extractfile(mask_m)
-            if mask_extracted is not None:
-                mask_bytes = mask_extracted.read()
-
-        label = None
-        meta = {"tar_file": str(t_path), "member": img_m}
-
-        if txt_m is not None:
-            txt_extracted = tf.extractfile(txt_m)
-            if txt_extracted is not None:
-                try:
-                    label = txt_extracted.read().decode("utf-8").strip()
-                except Exception:
-                    pass
-
-        if json_m is not None:
-            json_extracted = tf.extractfile(json_m)
-            if json_extracted is not None:
-                try:
-                    parsed_json = json.loads(json_extracted.read().decode("utf-8"))
-                    meta["json"] = parsed_json
-                    if label is None and isinstance(parsed_json, dict):
-                        nima_data = parsed_json.get("nima_scores")
-                        if isinstance(nima_data, dict):
-                            label = nima_data.get("distribution") or nima_data.get("scores") or nima_data.get("mean_score")
-                        if label is None:
-                            label = (
-                                parsed_json.get("distribution")
-                                or parsed_json.get("scores")
-                                or parsed_json.get("label")
-                                or parsed_json.get("score")
-                            )
-                except Exception:
-                    pass
-
-        return Sample(
-            name=stem,
-            image_bytes=image_bytes,
-            image_format=fmt,
-            target_bytes=target_bytes,
-            mask_bytes=mask_bytes,
-            label=label,
-            metadata=meta,
-        )
+        meta: dict[str, Any] = {"tar_file": str(t_path), "member": img_m}
+        label = _tar_sidecar_label(tf, t_path, (txt_m, json_m), meta)
+        return _make_sample(Path(img_m), payload, label, meta)
 
     def __getstate__(self) -> dict[str, Any]:
         """Exclude open file handles when pickling across process boundaries."""
         state = self.__dict__.copy()
         state["_tar_handles"] = {}
+        state["_tar_stack"] = None
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Reconstruct state with clean handle cache in worker processes."""
         self.__dict__.update(state)
         self._tar_handles = {}
+        self._tar_stack = ExitStack()
 
     def close(self) -> None:
         """Close all open tar file handles."""
-        for tf in self._tar_handles.values():
-            try:
-                tf.close()
-            except Exception as exc:
-                logger.debug("Error closing tarfile: %s", exc)
+        try:
+            self._tar_stack.close()
+        except OSError as exc:
+            logger.debug("Error closing tarfile: %s", exc)
         self._tar_handles.clear()
+        self._tar_stack = ExitStack()

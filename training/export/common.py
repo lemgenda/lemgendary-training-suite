@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import io
 import logging
+from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import onnx
 import torch
-import torch.nn as nn
+from onnx import external_data_helper
+from torch import nn
 
+from models.nima import SoftmaxWrapper
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export.common")
@@ -82,12 +88,13 @@ def extract_input_dimensions(
         size_raw = default_size
 
     if isinstance(size_raw, (list, tuple)):
-        if len(size_raw) == 3:
-            h, w = int(size_raw[1]), int(size_raw[2])
-        elif len(size_raw) >= 2:
-            h, w = int(size_raw[0]), int(size_raw[1])
+        dims = list(size_raw)
+        if len(dims) == 3:
+            h, w = int(dims[1]), int(dims[2])
+        elif len(dims) >= 2:
+            h, w = int(dims[0]), int(dims[1])
         else:
-            h = w = int(size_raw[0])
+            h = w = int(dims[0])
     else:
         h = w = int(size_raw)
 
@@ -98,7 +105,6 @@ def wrap_quality_model(model: nn.Module, model_info: dict[str, Any]) -> nn.Modul
     """Applies softmax temperature wrapper for quality scoring models if needed."""
     if model_info.get("dataset_type") == "quality":
         try:
-            from models.nima import SoftmaxWrapper
             temp_raw = getattr(model, "softmax_temp", torch.tensor(1.0))
             temp = float(temp_raw.item() if isinstance(temp_raw, torch.Tensor) else temp_raw)
             if temp == 1.0:
@@ -108,6 +114,94 @@ def wrap_quality_model(model: nn.Module, model_info: dict[str, Any]) -> nn.Modul
             wrapped = SoftmaxWrapper(model, temperature=temp)
             wrapped.eval()
             return wrapped
-        except (ImportError, Exception) as exc:
+        except (ValueError, TypeError, AttributeError, RuntimeError) as exc:
             logger.debug("SoftmaxWrapper unavailable or unnecessary: %s", exc)
     return model
+
+
+def unwrap_export_model(model: nn.Module) -> nn.Module:
+    """Return the wrapped module of a ``DataParallel``/DDP model, else the model itself."""
+    inner = getattr(model, "module", None)
+    return inner if isinstance(inner, nn.Module) else model
+
+
+def load_checkpoint_weights(model: nn.Module, ckpt: Any) -> None:
+    """Load a checkpoint's model state into ``model`` (non-strict, DDP ``module.`` stripped).
+
+    ``ckpt`` is a raw state dict or a dict holding it under ``model_state`` or
+    ``model_state_dict``.
+    """
+    raw_state = (
+        ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
+        if isinstance(ckpt, dict)
+        else ckpt
+    )
+    state_dict = {k.removeprefix("module."): v for k, v in raw_state.items()}
+    model.load_state_dict(state_dict, strict=False)
+
+
+def model_device(model: nn.Module) -> torch.device:
+    """Return the device of the model's first parameter (CPU for parameter-free models)."""
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        logger.debug("Model has no parameters; exporting on the CPU")
+        return torch.device("cpu")
+
+
+@dataclass(frozen=True)
+class OnnxGraphSpec:
+    """Graph options for one ONNX export: I/O names, dynamic axes, opset and weight layout.
+
+    ``external_data`` moves the weights into a ``<file>.data`` sidecar after the export; it is
+    honoured by :func:`training.export.onnx.export_onnx`, not by :func:`run_onnx_export`.
+    """
+
+    input_names: list[str] = field(default_factory=lambda: ["input"])
+    output_names: list[str] = field(default_factory=lambda: ["output"])
+    dynamic_axes: dict[str, dict[int, str]] | None = None
+    opset: int = 17
+    external_data: bool = False
+
+
+def run_onnx_export(
+    model: nn.Module,
+    inputs: tuple[torch.Tensor, ...],
+    out_file: Path,
+    graph: OnnxGraphSpec,
+) -> None:
+    """Run the TorchScript ``torch.onnx.export`` with the suite's standard options.
+
+    The exporter's console chatter is captured and logged at debug level.
+    """
+    buf = io.StringIO()
+    try:
+        with redirect_stdout(buf), redirect_stderr(buf):
+            torch.onnx.export(
+                model,
+                inputs,
+                str(out_file),
+                export_params=True,
+                opset_version=graph.opset,
+                do_constant_folding=True,
+                input_names=graph.input_names,
+                output_names=graph.output_names,
+                dynamic_axes=graph.dynamic_axes,
+                dynamo=False,
+            )
+    finally:
+        if buf.getvalue():
+            logger.debug("torch.onnx.export output for %s:\n%s", out_file, buf.getvalue())
+
+
+def detach_onnx_weights(onnx_path: Path, data_filename: str) -> None:
+    """Move an ONNX model's tensors into one external ``data_filename`` sidecar file."""
+    onnx_model = onnx.load(str(onnx_path))
+    external_data_helper.convert_model_to_external_data(
+        onnx_model,
+        all_tensors_to_one_file=True,
+        location=data_filename,
+        size_threshold=1024,
+        convert_attribute=False,
+    )
+    onnx.save(onnx_model, str(onnx_path))

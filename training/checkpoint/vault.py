@@ -1,10 +1,10 @@
 """Metric trajectory vault, moving averages, and plateau detection."""
 
 import csv
-from dataclasses import dataclass, field
 import logging
-from pathlib import Path
 import time
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("lemtrain.checkpoint.vault")
@@ -48,7 +48,9 @@ class MetricVault:
         checkpoint_path: Path | str | None = None,
     ) -> bool:
         """Record an epoch snapshot, evaluating whether it sets a new best primary metric."""
-        val = metrics.get(self.primary_metric, float("inf") if self.mode == "min" else float("-inf"))
+        val = metrics.get(
+            self.primary_metric, float("inf") if self.mode == "min" else float("-inf")
+        )
 
         is_best = False
         if self.best_record is None or self._is_better(val, self.best_record.primary_value):
@@ -81,8 +83,8 @@ class MetricVault:
             return None
         return sum(vals) / len(vals)
 
-    def has_plateaued(self, patience: int = 5, min_delta: float = 1e-4) -> bool:
-        """Detect whether the primary metric has failed to improve for `patience` consecutive epochs."""
+    def has_plateaued(self, patience: int = 5) -> bool:
+        """Return True when the primary metric set no new best in the last `patience` epochs."""
         if len(self.history) < patience + 1 or self.best_record is None:
             return False
 
@@ -135,15 +137,23 @@ class MetricVault:
                 reader = csv.DictReader(f)
                 for row in reader:
                     epoch = int(row.get("epoch", 0))
-                    is_best = row.get("is_best", "False").lower() in {"true", "1"}
                     ckpt_path = row.get("checkpoint_path") or None
                     metrics: dict[str, float] = {}
                     for k, v in row.items():
-                        if k not in {"epoch", "timestamp", "is_best", "checkpoint_path"} and v != "":
+                        if (
+                            k not in {"epoch", "timestamp", "is_best", "checkpoint_path"}
+                            and v != ""
+                        ):
                             try:
                                 metrics[k] = float(v)
-                            except ValueError:
-                                pass
+                            except ValueError as conv_err:
+                                logger.debug(
+                                    "Skipping non-numeric metric %s=%r in %s: %s",
+                                    k,
+                                    v,
+                                    target,
+                                    conv_err,
+                                )
                     self.record_epoch(epoch, metrics, checkpoint_path=ckpt_path)
-        except Exception as exc:
+        except (OSError, csv.Error, ValueError, TypeError, AttributeError) as exc:
             logger.warning("Error reading metrics CSV from %s: %s", target, exc)

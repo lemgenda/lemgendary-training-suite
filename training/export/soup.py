@@ -24,7 +24,8 @@ def blend_state_dicts(
 
     Args:
         state_dicts: List of state dictionaries sharing the exact same architecture.
-        weights: Optional blending coefficients summing to 1.0. If omitted, uniform averaging is applied.
+        weights: Optional blending coefficients summing to 1.0. If omitted, uniform
+            averaging is applied.
 
     Returns:
         New state dictionary containing the interpolated model parameters.
@@ -39,7 +40,9 @@ def blend_state_dicts(
         coeffs = [1.0 / n] * n
     else:
         if len(weights) != n:
-            raise ValueError(f"Weights count ({len(weights)}) does not match state_dicts count ({n}).")
+            raise ValueError(
+                f"Weights count ({len(weights)}) does not match state_dicts count ({n})."
+            )
         total_w = sum(weights)
         if total_w <= 0:
             raise ValueError("Sum of weights must be positive.")
@@ -111,4 +114,3 @@ def create_pareto_model_soup(
         logger.info("Successfully exported Pareto Model Soup to %s", output_path)
 
     return out_payload
-

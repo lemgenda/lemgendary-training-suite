@@ -6,17 +6,22 @@ and exact structural parity against baseline notebooks for mirnet_exposure and f
 
 import json
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
 
+import yaml
+
+import training.notebook_generator as legacy
+from training.ecosystem import TRAINING_SERVICE, ecosystem, kaggle_owner
 from training.notebooks import (
     ModelNotebookMeta,
     generate_colab_inference_notebook,
+    generate_colab_training_notebook,
     generate_colab_usage_notebook,
     generate_inference_notebook,
+    generate_training_notebook,
     generate_usage_notebook,
     load_registry,
     resolve_model_metadata,
@@ -57,7 +62,6 @@ class TestNotebookSubsystem(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp(prefix="test_nb_")
         self.project_root = get_project_root()
 
-        import yaml
         config_path = self.project_root / "config.yaml"
         self.config: dict[str, Any] = {}
         if config_path.exists():
@@ -67,7 +71,7 @@ class TestNotebookSubsystem(unittest.TestCase):
         self.registry = load_registry(self.config, self.project_root)
 
     def tearDown(self) -> None:
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        shutil.rmtree(self.temp_dir)
 
     def test_cells_base_helpers(self) -> None:
         """Verify that make_code_cell and make_markdown_cell return valid nbformat dicts."""
@@ -88,13 +92,13 @@ class TestNotebookSubsystem(unittest.TestCase):
         """Verify metadata extraction for both vision and forex models."""
         mirnet_meta = resolve_model_metadata("mirnet_exposure", self.registry, self.config)
         self.assertIsInstance(mirnet_meta, ModelNotebookMeta)
-        self.assertEqual(mirnet_meta.model_key, "mirnet_exposure")
-        self.assertFalse(mirnet_meta.is_forex)
-        self.assertEqual(mirnet_meta.pascal_name, "MirnetExposure")
+        self.assertEqual(mirnet_meta.identity.model_key, "mirnet_exposure")
+        self.assertFalse(mirnet_meta.identity.is_forex)
+        self.assertEqual(mirnet_meta.identity.pascal_name, "MirnetExposure")
 
         forex_meta = resolve_model_metadata("forex_predictor", self.registry, self.config)
-        self.assertTrue(forex_meta.is_forex)
-        self.assertEqual(forex_meta.pascal_name, "ForexPredictor")
+        self.assertTrue(forex_meta.identity.is_forex)
+        self.assertEqual(forex_meta.identity.pascal_name, "ForexPredictor")
 
     def test_env_and_sentinel_cell(self) -> None:
         """Verify runtime env loading and sentinel cell generation."""
@@ -115,69 +119,55 @@ class TestNotebookSubsystem(unittest.TestCase):
         self.assertEqual(c_sentinel["cell_type"], "code")
         self.assertTrue(any("Google Colab:" in line for line in c_sentinel["source"]))
 
+    def _assert_code_cell(self, cell: dict, needle: str | None) -> None:
+        """Assert ``cell`` is a code cell whose source mentions ``needle`` (if given)."""
+        self.assertEqual(cell["cell_type"], "code")
+        if needle is not None:
+            self.assertTrue(any(needle in line for line in cell["source"]))
+
     def test_individual_cell_generators(self) -> None:
         """Verify that individual cell builders construct structurally sound cells."""
         meta = resolve_model_metadata("mirnet_exposure", self.registry, self.config)
 
-        clone_cell = build_clone_cell("kaggle")
-        self.assertEqual(clone_cell["cell_type"], "code")
-        self.assertTrue(any("lemgendary-training-suite" in line for line in clone_cell["source"]))
+        suite_folder = ecosystem().service(TRAINING_SERVICE).project
+        # builder output -> a substring one of its source lines must contain (None: any)
+        cells = {
+            "clone": (build_clone_cell("kaggle"), suite_folder),
+            "install": (build_install_cell("kaggle"), "pip"),
+            "symlink": (build_symlink_cell(meta, "kaggle"), "LemGendaryDatasets"),
+            "hub_prep": (build_hub_prep_cell(meta, "kaggle"), "LemGendaryModels"),
+            "recovery": (build_checkpoint_recovery_cell(meta, "kaggle"), "checkpoints"),
+            "stealth": (build_stealth_cell(meta, "kaggle"), None),
+            "pth": (build_pth_cell(meta), None),
+            "onnx_fp32": (build_onnx_fp32_cell(meta), None),
+            "onnx_fp16": (build_onnx_fp16_cell(meta), None),
+            "secrets": (build_secrets_cell("kaggle"), None),
+            "fuse": (build_fuse_mount_cell(), None),
+            "sync": (build_continuous_sync_cell(meta), None),
+            "train": (build_training_cell(meta, "kaggle"), None),
+            "push": (build_push_cell(meta, "kaggle"), None),
+        }
+        for name, (cell, needle) in cells.items():
+            with self.subTest(cell=name):
+                self._assert_code_cell(cell, needle)
 
-        install_cell = build_install_cell("kaggle")
-        self.assertEqual(install_cell["cell_type"], "code")
-        self.assertTrue(any("pip" in line for line in install_cell["source"]))
-
-        symlink_cell = build_symlink_cell(meta, "kaggle")
-        self.assertEqual(symlink_cell["cell_type"], "code")
-        self.assertTrue(any("LemGendaryDatasets" in line for line in symlink_cell["source"]))
-
-        hub_cell = build_hub_prep_cell(meta, "kaggle")
-        self.assertEqual(hub_cell["cell_type"], "code")
-        self.assertTrue(any("LemGendaryModels" in line for line in hub_cell["source"]))
-
-        recovery_cell = build_checkpoint_recovery_cell(meta, "kaggle")
-        self.assertEqual(recovery_cell["cell_type"], "code")
-        self.assertTrue(any("checkpoints" in line for line in recovery_cell["source"]))
-
-        stealth_cell = build_stealth_cell(meta, "kaggle")
-        self.assertEqual(stealth_cell["cell_type"], "code")
-
-        pth_cell = build_pth_cell(meta)
-        self.assertEqual(pth_cell["cell_type"], "code")
-
-        onnx32_cell = build_onnx_fp32_cell(meta)
-        self.assertEqual(onnx32_cell["cell_type"], "code")
-
-        onnx16_cell = build_onnx_fp16_cell(meta)
-        self.assertEqual(onnx16_cell["cell_type"], "code")
-
-        secrets_cell = build_secrets_cell("kaggle")
-        self.assertEqual(secrets_cell["cell_type"], "code")
-
-        fuse_cell = build_fuse_mount_cell()
-        self.assertEqual(fuse_cell["cell_type"], "code")
-
-        sync_cell = build_continuous_sync_cell(meta)
-        self.assertEqual(sync_cell["cell_type"], "code")
-
-        train_cell = build_training_cell(meta, "kaggle")
-        self.assertEqual(train_cell["cell_type"], "code")
-
-        push_cell = build_push_cell(meta, "kaggle")
-        self.assertEqual(push_cell["cell_type"], "code")
+        # The fallback Kaggle owner is substituted from ecosystem.json at generation time.
+        for platform in ("kaggle", "colab"):
+            source = "".join(build_secrets_cell(platform)["source"])
+            self.assertIn(f"k_user = {kaggle_owner()!r}", source)
 
     def test_backward_compatibility_shim(self) -> None:
         """Verify that training.notebook_generator re-exports all expected functions."""
-        import training.notebook_generator as legacy
-
         self.assertTrue(callable(legacy.generate_inference_notebook))
         self.assertTrue(callable(legacy.generate_usage_notebook))
         self.assertTrue(callable(legacy.generate_training_notebook))
         self.assertTrue(callable(legacy.generate_colab_inference_notebook))
         self.assertTrue(callable(legacy.generate_colab_usage_notebook))
         self.assertTrue(callable(legacy.generate_colab_training_notebook))
-        self.assertTrue(callable(legacy._load_runtime_env))
-        self.assertTrue(callable(legacy._build_env_var_lines))
+        # The private env helpers are part of the shim's declared re-export surface.
+        for name in ("_load_runtime_env", "_build_env_var_lines"):
+            self.assertIn(name, legacy.__all__)
+            self.assertTrue(callable(vars(legacy)[name]))
 
     def _assert_valid_notebook(self, nb_path: Path) -> None:
         """Assert notebook exists, is valid JSON, and adheres to nbformat 4 schema."""
@@ -185,16 +175,22 @@ class TestNotebookSubsystem(unittest.TestCase):
         with open(nb_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         self.assertEqual(data.get("nbformat"), 4, f"Invalid nbformat in {nb_path.name}")
-        self.assertGreaterEqual(data.get("nbformat_minor", 0), 2, f"Invalid nbformat_minor in {nb_path.name}")
+        self.assertGreaterEqual(
+            data.get("nbformat_minor", 0), 2, f"Invalid nbformat_minor in {nb_path.name}"
+        )
         self.assertIn("cells", data, f"Missing cells in {nb_path.name}")
         cells = data["cells"]
-        self.assertGreater(len(cells), 5, f"Notebook {nb_path.name} has too few cells ({len(cells)})")
+        self.assertGreater(
+            len(cells), 5, f"Notebook {nb_path.name} has too few cells ({len(cells)})"
+        )
 
         cell_types = [c.get("cell_type") for c in cells]
         self.assertIn("markdown", cell_types, f"No markdown cells in {nb_path.name}")
         self.assertIn("code", cell_types, f"No code cells in {nb_path.name}")
         for idx, cell in enumerate(cells):
-            self.assertIn(cell.get("cell_type"), ("code", "markdown"), f"Invalid cell type at index {idx}")
+            self.assertIn(
+                cell.get("cell_type"), ("code", "markdown"), f"Invalid cell type at index {idx}"
+            )
             self.assertIn("source", cell, f"Missing source in cell {idx}")
             self.assertIsInstance(cell["source"], list, f"Cell source should be list in cell {idx}")
 
@@ -214,7 +210,9 @@ class TestNotebookSubsystem(unittest.TestCase):
 
         gen_cells = gen_data["cells"]
         base_cells = base_data["cells"]
-        self.assertEqual(len(gen_cells), len(base_cells), f"Cell count mismatch in {generated_path.name}")
+        self.assertEqual(
+            len(gen_cells), len(base_cells), f"Cell count mismatch in {generated_path.name}"
+        )
 
         for i, (g_cell, b_cell) in enumerate(zip(gen_cells, base_cells)):
             self.assertEqual(
@@ -260,30 +258,19 @@ class TestNotebookSubsystem(unittest.TestCase):
         self._assert_valid_notebook(out_dir / f"{model_key}_colab_training.ipynb")
         self._assert_valid_notebook(out_dir / f"{model_key}_colab_usage.ipynb")
 
-    def test_dataset_compiler_notebook_generator_parity(self) -> None:
-        """Verify that lemgendary-datasets delegates to training suite SSOT notebook generator."""
-        ds_repo = Path(__file__).resolve().parent.parent.parent.parent / "lemgendary-datasets"
-        manifold_compile_path = ds_repo / "core" / "manifold_compile.py"
-        self.assertTrue(manifold_compile_path.exists(), f"manifold_compile.py missing at: {manifold_compile_path}")
+    def test_training_notebook_generators_emit_valid_notebooks(self) -> None:
+        """Training notebook generators (used by lemgendary-datasets) emit valid notebooks.
 
-        # Verify that manifold_compile.py declares the SSOT dynamic import
-        with open(manifold_compile_path, "r", encoding="utf-8") as f:
-            mc_source = f.read()
-        self.assertIn("def _get_training_suite_notebook_generators", mc_source)
-        self.assertIn("from training.notebooks import", mc_source)
-
-        # Verify that the SSOT notebook generators emit valid notebooks
-        from training.notebooks import (
-            generate_colab_training_notebook,
-            generate_training_notebook,
-        )
-
+        The delegation itself is covered by the datasets contract test.
+        """
         model_key = "mirnet_exposure"
         out_dir = Path(self.temp_dir) / f"{model_key}_ds_ssot"
         out_dir.mkdir(parents=True, exist_ok=True)
 
         p_train = generate_training_notebook(model_key, str(out_dir), self.registry, self.config)
-        p_colab = generate_colab_training_notebook(model_key, str(out_dir), self.registry, self.config)
+        p_colab = generate_colab_training_notebook(
+            model_key, str(out_dir), self.registry, self.config
+        )
 
         self.assertIsNotNone(p_train)
         self.assertIsNotNone(p_colab)
@@ -298,4 +285,3 @@ class TestNotebookSubsystem(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

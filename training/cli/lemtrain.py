@@ -7,28 +7,37 @@ operations directly in-process via training.services, or delegates to local side
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
-import socket
+import logging
 import subprocess
 import sys
-from typing import Any, List, Optional
-import urllib.error
-import urllib.request
+import unittest
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Annotated
+
 import typer
 
-_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-from training.server.state import ServerState
+from tools.judicial_audit import JudicialAuditRequest
+from training import model_soup
+from training.cli.llm_commands import llm_app
+from training.cli.option_groups import option_group
+from training.cli.server_commands import server_app
+from training.cli.service_calls import (
+    RunFlags,
+    announce_sidecar,
+    export_targets,
+    run_training,
+)
+from training.cli.sync_commands import sync_app
 from training.services.audit_service import AuditService
 from training.services.checkpoint_service import CheckpointService
 from training.services.eval_service import EvaluationService
-from training.services.export_service import ExportService
 from training.services.notebook_service import NotebookService
-from training.services.sync_service import CloudSyncService
 from training.services.training_service import TrainingService
+from training.utils.paths import get_project_root
+from training.version import __version__
+
+logger = logging.getLogger("lemtrain.cli.lemtrain")
 
 app = typer.Typer(
     name="lemtrain",
@@ -39,10 +48,9 @@ app = typer.Typer(
 checkpoints_app = typer.Typer(name="checkpoints", help="Checkpoint management and inspection.")
 presets_app = typer.Typer(name="presets", help="Preset profile exploration and management.")
 audit_app = typer.Typer(name="audit", help="System resources, model topology, and judicial audits.")
-sync_app = typer.Typer(name="sync", help="Cloud storage synchronization and provider telemetry.")
-server_app = typer.Typer(name="server", help="FastAPI sidecar daemon process management.")
-notebooks_app = typer.Typer(name="notebooks", help="Jupyter training, inference, and usage notebook generation.")
-llm_app = typer.Typer(name="llm", help="Causal LLM instruction tuning and tri-format export operations.")
+notebooks_app = typer.Typer(
+    name="notebooks", help="Jupyter training, inference, and usage notebook generation."
+)
 
 app.add_typer(checkpoints_app, name="checkpoints")
 app.add_typer(presets_app, name="presets")
@@ -52,78 +60,86 @@ app.add_typer(server_app, name="server")
 app.add_typer(notebooks_app, name="notebooks")
 app.add_typer(llm_app, name="llm")
 
-SIDECAR_PORT = 8200
-
-
-def is_sidecar_online(port: int = SIDECAR_PORT) -> bool:
-    """Check if the training suite daemon sidecar is listening on port."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(0.1)
-        return s.connect_ex(("127.0.0.1", port)) == 0
-
 
 @app.command("soup")
 def soup(
     model: str = typer.Argument(..., help="Model key to blend vault checkpoints for."),
-    weights: Optional[str] = typer.Option(None, "--weights", "-w", help="Comma-separated weights (0.6,0.4)"),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output filename or path"),
+    donors: str | None = typer.Option(
+        None,
+        "--donors",
+        "-d",
+        help="Comma-separated vault metrics (psnr,lpips). Default: every vault_*.pth.",
+    ),
+    weights: str | None = typer.Option(
+        None, "--weights", "-w", help="Comma-separated weights (0.6,0.4)"
+    ),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output filename or path"),
 ) -> None:
     """Blend specialized vault checkpoints using Pareto Model Soup."""
-    from training.export.soup import create_pareto_model_soup
-    from training.utils.paths import get_project_root
-    model_dir = get_project_root() / "LemGendaryModels" / model
-    ckpt_dir = model_dir / "checkpoints"
-    if not ckpt_dir.exists():
-        typer.echo(f"[ERROR] Checkpoint directory not found at {ckpt_dir}")
-        raise typer.Exit(1)
+    parsed_donors = [x.strip() for x in donors.split(",") if x.strip()] if donors else None
+    try:
+        parsed_weights = [float(x.strip()) for x in weights.split(",")] if weights else None
+    except ValueError as exc:
+        typer.echo(f"[ERROR] Invalid --weights value '{weights}': {exc}")
+        raise typer.Exit(1) from exc
 
-    parsed_weights = [float(x.strip()) for x in weights.split(",")] if weights else None
-    out_path = Path(output) if output else (ckpt_dir / "best_soup.pth")
+    try:
+        result = model_soup.blend_model_soup(
+            model,
+            project_root=get_project_root(),
+            recipe=model_soup.SoupRecipe(
+                donors=parsed_donors, weights=parsed_weights, output=output
+            ),
+        )
+    except model_soup.SoupError as exc:
+        typer.echo(f"[ERROR] {exc}")
+        raise typer.Exit(1) from exc
 
-    soup_state = create_pareto_model_soup(ckpt_dir, weights=parsed_weights, output_path=out_path)
-    if soup_state is not None:
-        typer.echo(f"[SUCCESS] Pareto Model Soup created at {out_path}")
-    else:
-        typer.echo("[NOTICE] Vault checkpoints not available for blending.")
+    typer.echo(f"[INFO] Donors: {', '.join(p.name for p in result.donors)}")
+    typer.echo(f"[SUCCESS] Pareto Model Soup created at {result.output_path}")
 
 
 @app.command("version")
 def version() -> None:
     """Show LemGendary Training Suite version."""
-    typer.echo("LemGendary Model Training Suite v16.2.9 (Refactored & Hardened)")
+    typer.echo(f"LemGendary Model Training Suite v{__version__} (Refactored & Hardened)")
+
+
+@dataclass(frozen=True)
+class TrainHyper:
+    """Hyper-parameter options of ``lemtrain train``."""
+
+    epochs: Annotated[int | None, typer.Option("--epochs", "-e", help="Total epochs to train.")] = (
+        None
+    )
+    batch_size: Annotated[
+        int | None, typer.Option("--batch-size", "-b", help="Batch size per step.")
+    ] = None
+    lr: Annotated[float | None, typer.Option("--lr", help="Base learning rate.")] = None
 
 
 @app.command("train")
+@option_group("hyper", TrainHyper)
+@option_group("run", RunFlags)
 def train(
     model: str = typer.Argument(..., help="Model architecture key (e.g. nima_aesthetic_mobile)."),
-    epochs: Optional[int] = typer.Option(None, "--epochs", "-e", help="Total epochs to train."),
-    batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Batch size per step."),
-    lr: Optional[float] = typer.Option(None, "--lr", help="Base learning rate."),
-    preset: Optional[str] = typer.Option(None, "--preset", "-p", help="Canonical preset profile from presets.yaml."),
-    env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."),
-    clean: bool = typer.Option(False, "--clean", help="Wipe local checkpoints and start fresh."),
-    auto_sync: bool = typer.Option(False, "--auto-sync", help="Enable cloud checkpoint synchronization."),
-    parallel: str = typer.Option("auto", "--parallel", help="Parallel execution strategy ('auto', 'single', 'dp', 'ddp')."),
+    *,
+    hyper: TrainHyper,
+    run: RunFlags,
+    parallel: Annotated[
+        str,
+        typer.Option(
+            "--parallel", help="Parallel execution strategy ('auto', 'single', 'dp', 'ddp')."
+        ),
+    ] = "auto",
 ) -> None:
     """Launch model training workflow in-process."""
-    sidecar_active = is_sidecar_online()
-    if sidecar_active:
-        typer.echo(f"[INFO] Detected active LemGendary Sidecar Daemon on port {SIDECAR_PORT}.")
-
-    typer.echo(f"[START] Initiating training run for model '{model}' (preset={preset}, env={env})...")
-
-    service = TrainingService()
-    summary = service.train(
-        model_key=model,
-        epochs=epochs,
-        batch_size=batch_size,
-        lr=lr,
-        preset=preset,
-        env=env,
-        clean=clean,
-        auto_sync=auto_sync,
-        parallel=parallel,
+    announce_sidecar()
+    typer.echo(
+        f"[START] Initiating training run for model '{model}' "
+        f"(preset={run.preset}, env={run.env})..."
     )
+    summary = run_training(model, **asdict(hyper), **asdict(run), parallel=parallel)
 
     typer.echo(f"[SUCCESS] Training complete for '{summary.model_name}' (status={summary.status}).")
     typer.echo(f"Final Epoch Completed: {summary.final_epoch}")
@@ -134,9 +150,15 @@ def train(
 @app.command("eval")
 def evaluate(
     model: str = typer.Argument(..., help="Model architecture key to evaluate."),
-    checkpoint: Optional[str] = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
-    batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Evaluation batch size."),
-    env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."),
+    checkpoint: str | None = typer.Option(
+        None, "--checkpoint", "-c", help="Path to checkpoint file."
+    ),
+    batch_size: int | None = typer.Option(
+        None, "--batch-size", "-b", help="Evaluation batch size."
+    ),
+    env: str = typer.Option(
+        "local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."
+    ),
 ) -> None:
     """Evaluate a trained model checkpoint in-process."""
     typer.echo(f"[EVAL] Evaluating model '{model}'...")
@@ -158,19 +180,24 @@ def evaluate(
 @app.command("export")
 def export(
     model: str = typer.Argument(..., help="Model key to export."),
-    checkpoint: Optional[str] = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
-    target: Optional[List[str]] = typer.Option(None, "--target", "-t", help="Target formats ('onnx_fp32', 'onnx_fp16', 'torch_pt', 'webgpu', 'forex')."),
-    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="Target directory for binaries."),
+    checkpoint: str | None = typer.Option(
+        None, "--checkpoint", "-c", help="Path to checkpoint file."
+    ),
+    target: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--target",
+            "-t",
+            help="Target formats ('onnx_fp32', 'onnx_fp16', 'torch_pt', 'webgpu', 'forex').",
+        ),
+    ] = None,
+    output_dir: str | None = typer.Option(
+        None, "--output-dir", "-o", help="Target directory for binaries."
+    ),
 ) -> None:
     """Compile and export model binaries into deployment targets."""
     typer.echo(f"[EXPORT] Compiling export targets for '{model}'...")
-    service = ExportService()
-    results = service.export(
-        model_key=model,
-        checkpoint_path=checkpoint,
-        output_dir=output_dir,
-        targets=target,
-    )
+    results = export_targets(model, checkpoint, output_dir, target)
 
     typer.echo("[SUCCESS] Artifacts exported:")
     for tgt, path in results.items():
@@ -179,9 +206,15 @@ def export(
 
 @app.command("test-all")
 def test_all(
-    epochs: int = typer.Option(1, "--epochs", "-e", help="Epochs per model (default: 1 for unit test)."),
-    yes: bool = typer.Option(True, "--yes", "-y", help="Auto-confirm all models without interactive prompt."),
-    force: bool = typer.Option(False, "--force", "-f", help="Force execution even if artifacts exist."),
+    epochs: int = typer.Option(
+        1, "--epochs", "-e", help="Epochs per model (default: 1 for unit test)."
+    ),
+    yes: bool = typer.Option(
+        True, "--yes", "-y", help="Auto-confirm all models without interactive prompt."
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Force execution even if artifacts exist."
+    ),
     env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle')."),
 ) -> None:
     """Run sequential diagnostic unit-test pass across all registered neural models."""
@@ -202,8 +235,12 @@ def test_all(
 @app.command("notebooks")
 def notebooks(
     model: str = typer.Argument(..., help="Model key for notebook generation."),
-    platform: str = typer.Option("kaggle", "--platform", "-p", help="Target platform ('kaggle' or 'colab')."),
-    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="Directory for generated .ipynb files."),
+    platform: str = typer.Option(
+        "kaggle", "--platform", "-p", help="Target platform ('kaggle' or 'colab')."
+    ),
+    output_dir: str | None = typer.Option(
+        None, "--output-dir", "-o", help="Directory for generated .ipynb files."
+    ),
 ) -> None:
     """Generate standalone training, inference, and usage notebooks."""
     typer.echo(f"[NOTEBOOKS] Synthesizing {platform} notebooks for '{model}'...")
@@ -221,7 +258,9 @@ def notebooks(
 
 @checkpoints_app.command("list")
 def checkpoints_list(
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Filter checkpoints by model key."),
+    model: str | None = typer.Option(
+        None, "--model", "-m", help="Filter checkpoints by model key."
+    ),
 ) -> None:
     """List stored model checkpoints."""
     service = CheckpointService()
@@ -234,7 +273,9 @@ def checkpoints_list(
     for r in records:
         best_tag = "[BEST]" if r["is_best"] else ""
         epoch_tag = f"Epoch {r['epoch']}" if r["epoch"] is not None else "Epoch ?"
-        typer.echo(f"  [{r['model_key']}] {r['filename']} ({r['size_mb']} MB) {epoch_tag} {best_tag}")
+        typer.echo(
+            f"  [{r['model_key']}] {r['filename']} ({r['size_mb']} MB) {epoch_tag} {best_tag}"
+        )
 
 
 @checkpoints_app.command("inspect")
@@ -258,12 +299,18 @@ def checkpoints_inspect(
 @checkpoints_app.command("prune")
 def checkpoints_prune(
     model: str = typer.Argument(..., help="Model key whose checkpoints to prune."),
-    keep_last_k: int = typer.Option(3, "--keep", "-k", help="Number of recent checkpoints to retain."),
-    keep_best: bool = typer.Option(True, "--keep-best/--no-keep-best", help="Retain best checkpoint."),
+    keep_last_k: int = typer.Option(
+        3, "--keep", "-k", help="Number of recent checkpoints to retain."
+    ),
+    keep_best: bool = typer.Option(
+        True, "--keep-best/--no-keep-best", help="Retain best checkpoint."
+    ),
 ) -> None:
     """Prune intermediate checkpoints to free disk space."""
     service = CheckpointService()
-    deleted = service.prune_checkpoints(model_key=model, keep_last_k=keep_last_k, keep_best=keep_best)
+    deleted = service.prune_checkpoints(
+        model_key=model, keep_last_k=keep_last_k, keep_best=keep_best
+    )
     if deleted:
         typer.echo(f"Pruned {len(deleted)} checkpoints:")
         for name in deleted:
@@ -316,7 +363,10 @@ def audit_system() -> None:
     typer.echo(f"  Python: {info['python_version']} | PyTorch: {info['torch_version']}")
     typer.echo(f"  Compute Device: {info['device_name']} ({info['device_type']})")
     typer.echo(f"  CUDA Available: {info['cuda_available']} (GPUs: {info['gpu_count']})")
-    typer.echo(f"  VRAM Total: {info['vram_total_gb']} GB (Allocated: {info['vram_allocated_gb']} GB, Reserved: {info['vram_reserved_gb']} GB)")
+    typer.echo(
+        f"  VRAM Total: {info['vram_total_gb']} GB (Allocated: {info['vram_allocated_gb']} GB, "
+        f"Reserved: {info['vram_reserved_gb']} GB)"
+    )
     typer.echo(f"  CPU Threads: {info['cpu_threads']}")
     typer.echo(f"  Disk Free: {info['disk_free_gb']} GB (Healthy: {info['disk_healthy']})")
 
@@ -339,188 +389,40 @@ def audit_model(
     typer.echo(f"  Estimated Memory (FP16): {report['estimated_fp16_mb']} MB")
 
 
+@dataclass(frozen=True)
+class JudicialAuditOptions:
+    """Options of ``lemtrain audit judicial`` (the fields of ``JudicialAuditRequest``)."""
+
+    model_path: Annotated[
+        str, typer.Option("--model-path", "-m", help="Path to .pth or .onnx model.")
+    ]
+    dataset_dir: Annotated[
+        str, typer.Option("--dataset-dir", "-d", help="Directory of evaluation images.")
+    ]
+    labels_csv: Annotated[str, typer.Option("--labels-csv", "-l", help="Ground truth labels CSV.")]
+    output_json: Annotated[
+        str | None, typer.Option("--output-json", "-o", help="Path to save report.")
+    ] = None
+    model_type: Annotated[str, typer.Option("--model-type", help="Architecture key.")] = (
+        "nima_aesthetic_mobile"
+    )
+    batch_size: Annotated[int, typer.Option("--batch-size", help="Batch size.")] = 32
+    device: Annotated[str, typer.Option("--device", help="Execution device ('cuda' or 'cpu').")] = (
+        "cpu"
+    )
+
+
 @audit_app.command("judicial")
-def audit_judicial(
-    model_path: str = typer.Option(..., "--model-path", "-m", help="Path to .pth or .onnx model."),
-    dataset_dir: str = typer.Option(..., "--dataset-dir", "-d", help="Directory of evaluation images."),
-    labels_csv: str = typer.Option(..., "--labels-csv", "-l", help="Ground truth labels CSV."),
-    output_json: Optional[str] = typer.Option(None, "--output-json", "-o", help="Path to save report."),
-    model_type: str = typer.Option("nima_aesthetic_mobile", "--model-type", help="Architecture key."),
-    batch_size: int = typer.Option(32, "--batch-size", help="Batch size."),
-    device: str = typer.Option("cpu", "--device", help="Execution device ('cuda' or 'cpu')."),
-) -> None:
+@option_group("opts", JudicialAuditOptions)
+def audit_judicial(*, opts: JudicialAuditOptions) -> None:
     """Run judicial correlation verification (PLCC / SRCC)."""
     service = AuditService()
-    results = service.audit_judicial(
-        model_path=model_path,
-        dataset_dir=dataset_dir,
-        labels_csv=labels_csv,
-        output_json=output_json,
-        model_type=model_type,
-        batch_size=batch_size,
-        device=device,
-    )
+    results = service.audit_judicial(JudicialAuditRequest(**asdict(opts)))
 
     typer.echo(f"Judicial Correlation Audit Results ({results['samples_evaluated']} samples):")
     typer.echo(f"  Backend: {results['backend']}")
     typer.echo(f"  PLCC: {results['metrics']['PLCC']:.4f}")
     typer.echo(f"  SRCC: {results['metrics']['SRCC']:.4f}")
-
-
-@sync_app.command("probe")
-def sync_probe() -> None:
-    """Probe health and connectivity across cloud providers."""
-    service = CloudSyncService()
-    health = service.probe_providers()
-
-    typer.echo("Cloud Provider Health Telemetry:")
-    for provider, status in health.items():
-        ok = status.get("healthy", False) or status.get("authenticated", False)
-        status_label = "HEALTHY" if ok else "UNCONFIGURED"
-        typer.echo(f"  [{provider.upper()}] Status: {status_label}")
-        for k, v in status.items():
-            typer.echo(f"    {k}: {v}")
-
-
-@sync_app.command("run")
-def sync_run(
-    model: str = typer.Argument(..., help="Model key to sync."),
-    target: str = typer.Option("gdrive", "--target", "-t", help="Target provider ('gdrive', 'kaggle', 'github')."),
-    epoch: int = typer.Option(1, "--epoch", "-e", help="Epoch checkpoint to sync."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Simulate without transferring files."),
-) -> None:
-    """Sync model checkpoints and artifacts to remote cloud target."""
-    service = CloudSyncService()
-    res = service.sync_model(model_key=model, target=target, epoch=epoch, dry_run=dry_run)
-
-    if res.get("success"):
-        typer.echo(f"[SUCCESS] Cloud sync complete: {res.get('message', '')}")
-    else:
-        typer.echo(f"[ERROR] Cloud sync failed: {res.get('message', '')}")
-
-
-@sync_app.command("push")
-def sync_push(
-    model: Optional[str] = typer.Argument(None, help="Model key to upload to Kaggle Models (optional if --all is specified)."),
-    all_models: bool = typer.Option(False, "--all", "-a", help="Push all 22 registered models to Kaggle Models Hub."),
-    variation: str = typer.Option("all", "--variation", "-v", help="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')."),
-    version_notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Optional release version notes."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Validate isolation and metadata without uploading to Kaggle."),
-    source_dir: Optional[str] = typer.Option(None, "--source-dir", "-s", help="Optional custom source directory."),
-    username: Optional[str] = typer.Option(None, "--username", "-u", help="Optional Kaggle username override."),
-) -> None:
-    """Stage and upload local model checkpoints, variations, and metrics to Kaggle Models."""
-    if not model and not all_models:
-        typer.echo("[ERROR] Please specify either a model key or --all.")
-        raise typer.Exit(code=1)
-
-    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-    from training.export.staging import VariationStagingService
-    from training.registry import get_model_registry
-
-    sync_mgr = KaggleModelSyncManager(username=username)
-    staging_service = VariationStagingService()
-
-    if all_models:
-        reg = get_model_registry()
-        models = reg.list_models()
-        total_models = len(models)
-        typer.echo(f"[START] Commencing fleet Kaggle push for all {total_models} models (variation: {variation}, dry_run: {dry_run})...")
-        succeeded = 0
-        failed = 0
-
-        for idx, m_spec in enumerate(models, 1):
-            m_key = m_spec.key
-            typer.echo(f"[{idx}/{total_models}] Processing '{m_key}' ({m_spec.name})...")
-            try:
-                sync_mgr.ensure_model_metadata(m_key)
-                staged = staging_service.stage_variations(m_key)
-                if staged.staged_files:
-                    typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
-                res = sync_mgr.push_model(
-                    model_key=m_key,
-                    variation=variation,
-                    version_notes=version_notes,
-                    dry_run=dry_run,
-                )
-                if res.success:
-                    succeeded += 1
-                    handles = [v.handle for v in res.variations.values() if v.success]
-                    typer.echo(f"  [SUCCESS] Pushed -> {handles}")
-                else:
-                    failed += 1
-                    typer.echo(f"  [WARN] Failed/skipped: {'; '.join(res.errors)}")
-            except Exception as e:
-                failed += 1
-                typer.echo(f"  [ERROR] Exception for '{m_key}': {e}")
-
-        typer.echo(f"[COMPLETED] Fleet push finished: {succeeded} succeeded, {failed} failed/skipped out of {total_models} models.")
-        if failed > 0 and not dry_run and succeeded == 0:
-            raise typer.Exit(code=1)
-    else:
-        if not model:
-            typer.echo("[ERROR] No target model specified. Provide a --model argument or use --all-models.", err=True)
-            raise typer.Exit(code=1)
-
-        typer.echo(f"[START] Staging and pushing '{model}' to Kaggle Models (variation: {variation}, dry_run: {dry_run})...")
-        sync_mgr.ensure_model_metadata(model)
-        staged = staging_service.stage_variations(model)
-        if staged.staged_files:
-            typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
-        res = sync_mgr.push_model(
-            model_key=model,
-            variation=variation,
-            version_notes=version_notes,
-            dry_run=dry_run,
-        )
-        if res.success:
-            handles = [v.handle for v in res.variations.values() if v.success]
-            typer.echo(f"[SUCCESS] Model '{model}' pushed successfully -> {handles}")
-        else:
-            typer.echo(f"[ERROR] Model push failed: {'; '.join(res.errors)}")
-            raise typer.Exit(code=1)
-
-
-@sync_app.command("pull")
-def sync_pull(
-    model: str = typer.Argument(..., help="Target model key to download from Kaggle Models Hub."),
-    variation: str = typer.Option("all", "--variation", "-v", help="Variation to pull ('all', 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32')."),
-    force_download: bool = typer.Option(False, "--force", "-f", help="Force re-download even if already present locally."),
-    username: Optional[str] = typer.Option(None, "--username", "-u", help="Optional Kaggle username override."),
-) -> None:
-    """Download model variation(s) from Kaggle Models Hub into canonical directories."""
-    from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-    from training.cloud.variations import VARIATION_BY_KEY
-
-    sync_mgr = KaggleModelSyncManager(username=username)
-    vars_to_pull = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
-    total = len(vars_to_pull)
-
-    typer.echo(f"[START] Pulling {total} variation(s) for '{model}' from Kaggle Models Hub...")
-    succeeded = 0
-    failed = 0
-
-    for idx, var_key in enumerate(vars_to_pull, 1):
-        handle = sync_mgr.get_handle(model, var_key)
-        target_dir = sync_mgr.get_variation_dir(model, var_key)
-        typer.echo(f"[{idx}/{total}] Pulling variation [{var_key}] <- {handle}...")
-        try:
-            ok = sync_mgr.pull_variation(model_key=model, variation=var_key, force_download=force_download)
-            if ok:
-                succeeded += 1
-                typer.echo(f"  [SUCCESS] Downloaded to {target_dir}")
-            else:
-                failed += 1
-                typer.echo(f"  [ERROR] Pull returned false for {var_key}")
-        except Exception as e:
-            failed += 1
-            typer.echo(f"  [ERROR] Failed to pull {var_key}: {e}")
-
-    if succeeded == total:
-        typer.echo(f"[SUCCESS] Model '{model}' pulled successfully from Kaggle ({total} variations).")
-    else:
-        typer.echo(f"[ERROR] Pull incomplete for '{model}': {succeeded}/{total} succeeded.")
-        raise typer.Exit(code=1)
 
 
 @notebooks_app.command("list")
@@ -535,11 +437,26 @@ def notebooks_list() -> None:
 
 @notebooks_app.command("generate")
 def notebooks_generate(
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Target model key (e.g. nima_aesthetic_mobile)."),
-    platform: str = typer.Option("all", "--platform", "-p", help="Target platform ('kaggle', 'colab', 'all')."),
-    kind: Optional[List[str]] = typer.Option(None, "--kind", "-k", help="Notebook kind ('training', 'inference', 'usage'). Default is all."),
-    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="Custom output directory."),
-    all_models: bool = typer.Option(False, "--all", "-a", help="Generate notebooks for all registered models."),
+    model: str | None = typer.Option(
+        None, "--model", "-m", help="Target model key (e.g. nima_aesthetic_mobile)."
+    ),
+    platform: str = typer.Option(
+        "all", "--platform", "-p", help="Target platform ('kaggle', 'colab', 'all')."
+    ),
+    kind: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--kind",
+            "-k",
+            help="Notebook kind ('training', 'inference', 'usage'). Default is all.",
+        ),
+    ] = None,
+    output_dir: str | None = typer.Option(
+        None, "--output-dir", "-o", help="Custom output directory."
+    ),
+    all_models: bool = typer.Option(
+        False, "--all", "-a", help="Generate notebooks for all registered models."
+    ),
 ) -> None:
     """Generate Jupyter training, inference, and usage notebooks."""
     if not model and not all_models:
@@ -571,175 +488,19 @@ def notebooks_generate(
             typer.echo(f"[SUCCESS] Generated {len(res)} notebooks for '{model}':")
             for k, p in res.items():
                 typer.echo(f"  * {k}: {p}")
-        except Exception as e:
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+            logger.error("Notebook generation failed for '%s' (%s): %s", model, platform, e)
             typer.echo(f"[ERROR] Notebook generation failed: {e}")
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=1) from e
 
-
-@server_app.command("start")
-def server_start(
-    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind address"),
-    port: int = typer.Option(8200, "--port", "-p", help="Server port"),
-    daemon: bool = typer.Option(False, "--daemon", "-d", help="Run detached in background"),
-) -> None:
-    """Start the FastAPI sidecar daemon."""
-    if is_sidecar_online(port):
-        typer.echo(f"[INFO] Server is already running on http://{host}:{port}")
-        return
-
-    if daemon:
-        typer.echo(f"[START] Launching LemGendary Sidecar Daemon on http://{host}:{port} (daemon mode)...")
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "training.server.app:app", "--host", host, "--port", str(port)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        state = ServerState()
-        state.write_pid(proc.pid)
-        token = state.get_or_create_token()
-        typer.echo(f"[SUCCESS] Server daemon launched with PID {proc.pid}.")
-        typer.echo(f"  Endpoint: http://{host}:{port}/api/health")
-        typer.echo(f"  Interactive Docs: http://{host}:{port}/docs")
-        typer.echo(f"  Auth Token: {token}")
-    else:
-        typer.echo(f"[START] Starting LemGendary Sidecar Daemon on http://{host}:{port} (foreground)...")
-        import uvicorn
-        uvicorn.run("training.server.app:app", host=host, port=port)
-
-
-@server_app.command("stop")
-def server_stop() -> None:
-    """Stop running sidecar daemon process."""
-    state = ServerState()
-    pid = state.read_pid()
-    if not pid:
-        typer.echo("No active server PID file found.")
-        return
-
-    try:
-        import psutil
-        if psutil.pid_exists(pid):
-            p = psutil.Process(pid)
-            p.terminate()
-            typer.echo(f"[SUCCESS] Terminated server process with PID {pid}.")
-        else:
-            typer.echo(f"Process {pid} is no longer running.")
-    except Exception as e:
-        typer.echo(f"[ERROR] Could not terminate process {pid}: {e}")
-    finally:
-        state.clear_pid()
-
-
-@server_app.command("status")
-def server_status(
-    port: int = typer.Option(8200, "--port", "-p", help="Target port to probe"),
-) -> None:
-    """Check sidecar daemon status and health endpoint."""
-    state = ServerState()
-    pid = state.read_pid()
-    online = is_sidecar_online(port)
-
-    typer.echo("LemGendary Sidecar Daemon Telemetry:")
-    typer.echo(f"  Port: {port}")
-    typer.echo(f"  Listening: {'ONLINE' if online else 'OFFLINE'}")
-    typer.echo(f"  PID: {pid if pid else 'None'}")
-    typer.echo(f"  Token File: {state.token_path}")
-    typer.echo(f"  SQLite DB: {state.db_path}")
-
-    if online:
-        try:
-            url = f"http://127.0.0.1:{port}/api/health"
-            req = urllib.request.Request(url, headers={"User-Agent": "LemTrain-CLI"})
-            with urllib.request.urlopen(req, timeout=2.0) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                typer.echo("  Health Response:")
-                typer.echo(f"    Service: {data.get('service')}")
-                typer.echo(f"    Version: {data.get('version')}")
-                typer.echo(f"    Device: {data.get('device', {}).get('name')}")
-        except Exception as e:
-            typer.echo(f"  Health probe failed: {e}")
-
-
-@server_app.command("openapi")
-def server_openapi(
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="File path to save openapi.json. If omitted, prints to stdout."),
-) -> None:
-    """Export the OpenAPI 3.1 schema specification of the sidecar daemon."""
-    from training.server.app import app as application
-
-    schema = application.openapi()
-    content = json.dumps(schema, indent=2) + "\n"
-    if output:
-        out_path = Path(output).resolve()
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(content, encoding="utf-8")
-        typer.echo(f"[SUCCESS] Exported OpenAPI specification to {out_path}")
-    else:
-        typer.echo(content)
-
-
-if __name__ == "__main__":
-    app()
-
-# ??? LLM Operations Sub-Commands ?????????????????????????????????????????????
-@llm_app.command("train")
-def llm_train(
-    model: str = typer.Argument("ai_helper_lemgend", help="LLM model key (e.g. ai_helper_lemgend, test_llm)."),
-    epochs: Optional[int] = typer.Option(None, "--epochs", "-e", help="Total training epochs."),
-    batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Per-device micro-batch size."),
-    lr: Optional[float] = typer.Option(None, "--lr", help="Learning rate for LoRA adapters."),
-    max_seq_length: Optional[int] = typer.Option(2048, "--max-seq-length", help="Maximum sequence context length."),
-    preset: Optional[str] = typer.Option(None, "--preset", "-p", help="Canonical preset profile from presets.yaml."),
-    env: str = typer.Option("local", "--env", help="Execution environment ('local', 'kaggle', 'colab')."),
-    clean: bool = typer.Option(False, "--clean", help="Wipe local checkpoints and start fresh."),
-    auto_sync: bool = typer.Option(False, "--auto-sync", help="Enable cloud checkpoint synchronization."),
-) -> None:
-    """Launch instruction fine-tuning for any causal LLM architecture."""
-    if is_sidecar_online():
-        typer.echo(f"[INFO] Detected active LemGendary Sidecar Daemon on port {SIDECAR_PORT}.")
-
-    typer.echo(f"[START] Initiating LLM training run for model '{model}' (env={env})...")
-    service = TrainingService()
-    summary = service.train(
-        model_key=model,
-        epochs=epochs,
-        batch_size=batch_size,
-        lr=lr,
-        preset=preset,
-        env=env,
-        clean=clean,
-        auto_sync=auto_sync,
-    )
-    typer.echo(f"[COMPLETE] Final training status: {summary.status} at epoch {summary.final_epoch}")
-
-
-@llm_app.command("export")
-def llm_export(
-    model: str = typer.Argument("ai_helper_lemgend", help="LLM model key to export."),
-    checkpoint: Optional[str] = typer.Option(None, "--checkpoint", "-c", help="Path to checkpoint file."),
-    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="Target directory for binaries."),
-    target: Optional[List[str]] = typer.Option(None, "--target", "-t", help="Target formats ('qlora_adapter', 'merged_safetensors', 'gguf_fp16')."),
-) -> None:
-    """Compile and export tri-format binaries for an LLM."""
-    typer.echo(f"[EXPORT] Compiling tri-format LLM export targets for '{model}'...")
-    service = ExportService()
-    results = service.export(
-        model_key=model,
-        checkpoint_path=checkpoint,
-        output_dir=output_dir,
-        targets=target,
-    )
-    typer.echo("[SUCCESS] LLM Artifacts exported:")
-    for tgt, path in results.items():
-        typer.echo(f"  [{tgt}] -> {path}")
 
 @app.command("test")
 def test_unit(
-    pattern: str = typer.Option("test_*.py", "--pattern", "-p", help="Test file pattern to execute (e.g. 'test_llm*.py')."),
+    pattern: str = typer.Option(
+        "test_*.py", "--pattern", "-p", help="Test file pattern to execute (e.g. 'test_llm*.py')."
+    ),
 ) -> None:
     """Run unit test suites for the Model Training Suite in-process using unittest."""
-    import unittest
     project_root = Path(__file__).resolve().parent.parent.parent
     tests_dir = project_root / "tests" / "unit"
     typer.echo(f"[TEST] Running Training Suite unit tests in {tests_dir} (pattern: {pattern})...")
@@ -748,7 +509,9 @@ def test_unit(
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     if not result.wasSuccessful():
-        typer.echo(f"[FAIL] Unit tests failed ({len(result.failures)} failures, {len(result.errors)} errors)")
+        typer.echo(
+            f"[FAIL] Unit tests failed ({len(result.failures)} failures, {len(result.errors)} "
+            "errors)"
+        )
         raise typer.Exit(1)
     typer.echo(f"[SUCCESS] All {result.testsRun} unit tests passed successfully!")
-

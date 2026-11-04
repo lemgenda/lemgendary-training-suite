@@ -7,18 +7,21 @@ from typing import Any, TextIO
 
 
 class ForceTTY:
-    """Stream wrapper forcing isatty() to True for unbuffered terminal and notebook progress bars."""
+    """Stream wrapper forcing isatty() to True so terminal and notebook progress bars render."""
 
     def __init__(self, stream: TextIO) -> None:
         self.stream = stream
 
     def write(self, data: str) -> int:
+        """Write data to the wrapped stream."""
         return self.stream.write(data)
 
     def flush(self) -> None:
+        """Flush the wrapped stream."""
         self.stream.flush()
 
     def isatty(self) -> bool:
+        """Always report a TTY so progress bars render in place."""
         return True
 
     def __getattr__(self, attr: str) -> Any:

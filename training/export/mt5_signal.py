@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn as nn
+from torch import nn
 
-from data.forex_dataset import TIMEFRAME_LOOKBACK
-from models.forex_predictor import FOREX_FEATURES_PER_BAR
-from training.export.common import ExportError
+from data.forex_spec import TIMEFRAME_LOOKBACK
+from models.forex_predictor import FOREX_FEATURES_PER_BAR, ForexPredictor
+from training.export.common import ExportError, load_checkpoint_weights
 
 logger = logging.getLogger("lemtrain.export.mt5_signal")
 
@@ -25,11 +25,26 @@ class _OnnxForexWrapper(nn.Module):
         self.tf_keys = tf_keys
 
     def forward(self, *args: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Map flat (timeframe tensors..., pair_idx) args to the model and return its two heads."""
         pair_idx = args[-1]
         tf_tensors = args[:-1]
         tf_dict = {int(k): t for k, t in zip(self.tf_keys, tf_tensors)}
         out = self.model(tf_dict, pair_idx)
         return out["direction_logits"], out["magnitude"]
+
+
+def _dummy_inputs(model: nn.Module, timeframes: list[int]) -> tuple[torch.Tensor, ...]:
+    """Zero tensors ``(tf_1, ..., tf_n, pair_idx)`` for batch 1 on the model's device."""
+    batch_size = 1
+    in_feats = getattr(model, "in_features", FOREX_FEATURES_PER_BAR)
+    device = next(model.parameters()).device if list(model.parameters()) else torch.device("cpu")
+
+    tf_inputs = [
+        torch.zeros(batch_size, TIMEFRAME_LOOKBACK.get(tf, 48), in_feats, device=device)
+        for tf in timeframes
+    ]
+    pair_dummy = torch.zeros(batch_size, dtype=torch.long, device=device)
+    return (*tf_inputs, pair_dummy)
 
 
 def export_forex_onnx_from_model(
@@ -42,21 +57,13 @@ def export_forex_onnx_from_model(
     out_file = Path(out_path).resolve()
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
-    timeframes = active_timeframes or getattr(model, "active_timeframes", None) or [1, 5, 15, 60, 240, 1440]
+    timeframes = (
+        active_timeframes or getattr(model, "active_timeframes", None) or [1, 5, 15, 60, 240, 1440]
+    )
     model.eval()
 
-    batch_size = 1
-    in_feats = getattr(model, "in_features", FOREX_FEATURES_PER_BAR)
-    device = next(model.parameters()).device if list(model.parameters()) else torch.device("cpu")
-
-    tf_inputs = [
-        torch.zeros(batch_size, TIMEFRAME_LOOKBACK.get(tf, 48), in_feats, device=device)
-        for tf in timeframes
-    ]
-    pair_dummy = torch.zeros(batch_size, dtype=torch.long, device=device)
-
-    tf_keys = [str(tf) for tf in timeframes]
-    wrapper = _OnnxForexWrapper(model, tf_keys)
+    dummy_inputs = _dummy_inputs(model, timeframes)
+    wrapper = _OnnxForexWrapper(model, [str(tf) for tf in timeframes])
     wrapper.eval()
 
     input_names = [f"tf_{tf}" for tf in timeframes] + ["pair_idx"]
@@ -67,7 +74,7 @@ def export_forex_onnx_from_model(
     try:
         torch.onnx.export(
             wrapper,
-            (*tf_inputs, pair_dummy),
+            dummy_inputs,
             str(out_file),
             input_names=input_names,
             output_names=output_names,
@@ -105,22 +112,12 @@ def export_forex_onnx(
     except Exception as exc:
         raise ExportError("LOAD_FAILED", f"Could not load checkpoint {ckpt_file}: {exc}") from exc
 
-    try:
-        from models.forex_predictor import ForexPredictor
-    except ImportError as exc:
-        raise ExportError("MODEL_DEF_MISSING", f"ForexPredictor class could not be imported: {exc}") from exc
-
     raw_kwargs = ckpt.get("model_kwargs", {}) if isinstance(ckpt, dict) else {}
     model_kwargs: dict[str, Any] = dict(raw_kwargs)
     model_kwargs["active_timeframes"] = timeframes
     model = ForexPredictor(**model_kwargs)
 
-    raw_state = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt)) if isinstance(ckpt, dict) else ckpt
-    state_dict = {
-        k[7:] if k.startswith("module.") else k: v
-        for k, v in raw_state.items()
-    }
-    model.load_state_dict(state_dict, strict=False)
+    load_checkpoint_weights(model, ckpt)
 
     return export_forex_onnx_from_model(
         model=model,

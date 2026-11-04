@@ -15,7 +15,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
-from training.cloud.variations import ONNX_FP16, ONNX_FP32, PYTORCH_DEFAULT, PYTORCH_FP32, VARIATIONS
+from training.cloud.variations import (
+    ONNX_FP16,
+    ONNX_FP32,
+    PYTORCH_DEFAULT,
+    PYTORCH_FP32,
+    VARIATIONS,
+)
 from training.registry import ModelSpecification, get_model_registry
 from training.utils.paths import get_project_root
 
@@ -34,6 +40,17 @@ class VariationValidationReport:
     warnings: list[str] = field(default_factory=list)
 
 
+def _warn_unexpected_names(
+    report: VariationValidationReport, binaries: list[Path], expected_name: str
+) -> None:
+    """Record a warning for each binary not named after the canonical model stem."""
+    for binary in binaries:
+        if binary.name != expected_name:
+            report.warnings.append(
+                f"Binary '{binary.name}' does not match the canonical name '{expected_name}'."
+            )
+
+
 @dataclass
 class IsolationReport:
     """Comprehensive isolation report for all model variations."""
@@ -49,7 +66,9 @@ class IsolationReport:
         lines = [f"Isolation Validation [{status}] for model '{self.model_key}':"]
         for var_name, report in self.variations.items():
             sub_status = "OK" if report.is_valid else "ERROR"
-            lines.append(f"  - Variation '{var_name}': {sub_status} ({len(report.files_found)} files)")
+            lines.append(
+                f"  - Variation '{var_name}': {sub_status} ({len(report.files_found)} files)"
+            )
             for err in report.errors:
                 lines.append(f"      [ERROR] {err}")
             for warn in report.warnings:
@@ -57,8 +76,18 @@ class IsolationReport:
         return "\n".join(lines)
 
 
+def resolve_model_stem(model_key: str, spec: ModelSpecification | None = None) -> str:
+    """Canonical binary stem: ``spec.filename``, else the registry's, else ``model_key``."""
+    if spec and spec.filename:
+        return spec.filename
+    reg_spec = get_model_registry().get_model(model_key)
+    if reg_spec and reg_spec.filename:
+        return reg_spec.filename
+    return model_key
+
+
 class StrictIsolationValidator:
-    """Audits staged variation directories to guarantee strict binary isolation across all 4 variations."""
+    """Audits staged variation directories for strict binary isolation across all 4 variations."""
 
     ALLOWED_EXTENSIONS_BY_VARIATION: ClassVar[dict[str, set[str]]] = {
         PYTORCH_DEFAULT.key: {".md", ".csv", ".pth"},
@@ -72,13 +101,7 @@ class StrictIsolationValidator:
 
     def _resolve_stem(self, model_key: str) -> str:
         """Resolve canonical binary stem."""
-        if self.spec and self.spec.filename:
-            return self.spec.filename
-        reg = get_model_registry()
-        spec = reg.get_model(model_key)
-        if spec and spec.filename:
-            return spec.filename
-        return model_key
+        return resolve_model_stem(model_key, self.spec)
 
     def validate_pytorch_default_variation(
         self,
@@ -93,12 +116,16 @@ class StrictIsolationValidator:
 
         entries = list(variation_dir.iterdir())
         files = [p for p in entries if p.is_file()]
-        dirs = [p for p in entries if p.is_dir()]
         report.files_found = [p.name for p in entries]
 
-        # 1. Reject rogue .pt or .onnx binary files (and metadata files if staged in isolated subfolder)
+        # 1. Reject rogue .pt or .onnx binary files (and metadata files if staged in isolated
+        # subfolder)
         is_hub_root = (variation_dir / "checkpoints").exists() and (variation_dir / "dist").exists()
-        forbidden_substrings = (".pt", ".onnx") if is_hub_root else ("model-metadata", "model_metadata", ".pt", ".onnx")
+        forbidden_substrings = (
+            (".pt", ".onnx")
+            if is_hub_root
+            else ("model-metadata", "model_metadata", ".pt", ".onnx")
+        )
         for f in files:
             for forb in forbidden_substrings:
                 if forb in f.name.lower():
@@ -142,7 +169,8 @@ class StrictIsolationValidator:
             if f.suffix not in allowed_exts:
                 report.is_valid = False
                 report.errors.append(
-                    f"Foreign file detected in pytorch/fp32 variation: '{f.name}'. Only *.pt files are permitted."
+                    f"Foreign file detected in pytorch/fp32 variation: '{f.name}'. Only *.pt "
+                    "files are permitted."
                 )
 
         # 2. Check for expected binary
@@ -152,7 +180,11 @@ class StrictIsolationValidator:
             report.errors.append("No .pt file found in pytorch/fp32 variation directory.")
         elif len(pt_files) > 1:
             report.is_valid = False
-            report.errors.append(f"Multiple .pt files detected in pytorch/fp32 variation: {[f.name for f in pt_files]}")
+            report.errors.append(
+                "Multiple .pt files detected in pytorch/fp32 variation: "
+                f"{[f.name for f in pt_files]}"
+            )
+        _warn_unexpected_names(report, pt_files, f"{expected_stem}.pt")
 
         return report
 
@@ -193,6 +225,7 @@ class StrictIsolationValidator:
         if not onnx_files:
             report.is_valid = False
             report.errors.append("No .onnx file found in onnx/fp32 variation directory.")
+        _warn_unexpected_names(report, onnx_files, f"{expected_stem}_FP32.onnx")
 
         return report
 
@@ -221,7 +254,8 @@ class StrictIsolationValidator:
             elif f.suffix != ".onnx":
                 report.is_valid = False
                 report.errors.append(
-                    f"Foreign file detected in onnx/fp16 variation: '{f.name}'. Only *.onnx files are permitted."
+                    f"Foreign file detected in onnx/fp16 variation: '{f.name}'. Only *.onnx files "
+                    "are permitted."
                 )
 
         onnx_files = [f for f in files if f.suffix == ".onnx"]
@@ -230,7 +264,10 @@ class StrictIsolationValidator:
             report.errors.append("No .onnx file found in onnx/fp16 variation directory.")
         elif len(onnx_files) > 1:
             report.is_valid = False
-            report.errors.append(f"Multiple .onnx files found in onnx/fp16 variation: {[f.name for f in onnx_files]}")
+            report.errors.append(
+                f"Multiple .onnx files found in onnx/fp16 variation: {[f.name for f in onnx_files]}"
+            )
+        _warn_unexpected_names(report, onnx_files, f"{expected_stem}.onnx")
 
         return report
 
@@ -244,16 +281,17 @@ class StrictIsolationValidator:
         expected_stem = self._resolve_stem(model_key)
         if variation_key == PYTORCH_DEFAULT.key:
             return self.validate_pytorch_default_variation(variation_dir)
-        elif variation_key == PYTORCH_FP32.key:
+        if variation_key == PYTORCH_FP32.key:
             return self.validate_pytorch_fp32_variation(variation_dir, expected_stem)
-        elif variation_key == ONNX_FP32.key:
+        if variation_key == ONNX_FP32.key:
             return self.validate_onnx_fp32_variation(variation_dir, expected_stem)
-        elif variation_key == ONNX_FP16.key:
+        if variation_key == ONNX_FP16.key:
             return self.validate_onnx_fp16_variation(variation_dir, expected_stem)
-        else:
-            rep = VariationValidationReport(variation=variation_key, directory=variation_dir, is_valid=False)
-            rep.errors.append(f"Unknown variation key: '{variation_key}'")
-            return rep
+        rep = VariationValidationReport(
+            variation=variation_key, directory=variation_dir, is_valid=False
+        )
+        rep.errors.append(f"Unknown variation key: '{variation_key}'")
+        return rep
 
     def validate_all(
         self,
@@ -274,7 +312,10 @@ class StrictIsolationValidator:
             var_dir = dist_kaggle / variation.payload_dir
             # Fallback check for legacy folder names or canonical model root for pytorch/default
             if not var_dir.exists():
-                if variation.key == PYTORCH_DEFAULT.key and (model_hub_dir / "checkpoints").exists():
+                if (
+                    variation.key == PYTORCH_DEFAULT.key
+                    and (model_hub_dir / "checkpoints").exists()
+                ):
                     var_dir = model_hub_dir
                 else:
                     legacy_mapping = {

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from training.cloud.metadata_generator import KaggleMetadataService
 from training.registry import get_model_registry

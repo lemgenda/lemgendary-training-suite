@@ -1,9 +1,8 @@
 """Backward-compatibility adapter delegating to modular training.checkpoint subsystem."""
 
 import logging
-import os
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import Any
 
 from training.checkpoint.manager import safe_atomic_save
@@ -24,7 +23,9 @@ def load_scheduler_state_stretched(
     expected_step: int | None = None,
 ) -> None:
     """Loads scheduler state dict while stretching the runway if total_steps mismatch."""
-    stretch_scheduler_runway(scheduler, state_dict, current_total_steps, expected_step=expected_step)
+    stretch_scheduler_runway(
+        scheduler, state_dict, current_total_steps, expected_step=expected_step
+    )
 
 
 def safe_replace(src: str | Path, dst: str | Path) -> bool:
@@ -49,5 +50,5 @@ def safe_replace(src: str | Path, dst: str | Path) -> bool:
             return True
         except (PermissionError, OSError) as exc:
             logger.debug("File replacement retry %d/%d for %s: %s", i + 1, max_retries, dst_p, exc)
-            time.sleep(base_delay * (1.5 ** i))
+            time.sleep(base_delay * (1.5**i))
     return False

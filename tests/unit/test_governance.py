@@ -1,14 +1,22 @@
 """Unit tests for governance subsystem: metrics, curriculum, thermal, sota, and governor."""
 
+import argparse
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 from training.governance.curriculum import CurriculumState
-from training.governance.governor import GovernorStateError, SmartTrainingGovernor
+from training.governance.epoch_audit import EpochSignals
+from training.governance.governor import SmartTrainingGovernor
 from training.governance.metrics import MetricRegistry
 from training.governance.sota import SotaTracker
 from training.governance.thermal import ThermalState
-from training.optimization_engine import (
-    CurriculumState as LegacyCurriculumState,
-    SmartTrainingGovernor as LegacyGovernor,
+from training.governance.yolo_governor import (
+    BatchBudget,
+    YOLOCurriculumGovernor,
+    build_ladder_curriculum,
+    compute_safe_batch_size,
 )
 
 
@@ -16,6 +24,7 @@ class TestMetricRegistry(unittest.TestCase):
     """Tests for MetricRegistry directionality, weights, and scoring."""
 
     def test_default_directions(self) -> None:
+        """Verify default metric directions (loss/lpips lower is better, psnr higher)."""
         reg = MetricRegistry()
         self.assertFalse(reg.is_higher_better("val_loss"))
         self.assertFalse(reg.is_higher_better("lpips"))
@@ -26,6 +35,7 @@ class TestMetricRegistry(unittest.TestCase):
         self.assertTrue(reg.is_higher_better("win_rate"))
 
     def test_is_improved(self) -> None:
+        """Verify is_improved honours each metric's direction."""
         reg = MetricRegistry()
         # Loss: lower is better
         self.assertTrue(reg.is_improved("val_loss", new_val=0.45, baseline_val=0.50))
@@ -35,12 +45,14 @@ class TestMetricRegistry(unittest.TestCase):
         self.assertFalse(reg.is_improved("psnr", new_val=27.5, baseline_val=28.0))
 
     def test_composite_score_vision(self) -> None:
+        """Verify the composite quality score for vision metrics."""
         reg = MetricRegistry()
         metrics = {"psnr": 30.0, "ssim": 0.92, "lpips": 0.12}
         score = reg.compute_composite_score(metrics, task_type="quality")
         self.assertGreater(score, 0.0)
 
     def test_composite_score_forex(self) -> None:
+        """Verify the composite score for forex metrics."""
         reg = MetricRegistry()
         forex_metrics = {
             "dir_acc": 0.65,
@@ -57,6 +69,7 @@ class TestCurriculumState(unittest.TestCase):
     """Tests for CurriculumState resolution and batch management."""
 
     def test_resolution_promotion(self) -> None:
+        """Verify resolution promotion walks the ladder and stops at the top."""
         curr = CurriculumState(res_ladder=[256, 384, 512], current_res=256)
         self.assertTrue(curr.promote_resolution())
         self.assertEqual(curr.current_res, 384)
@@ -66,6 +79,7 @@ class TestCurriculumState(unittest.TestCase):
         self.assertEqual(curr.current_res, 512)
 
     def test_fraction_expansion(self) -> None:
+        """Verify fraction expansion steps by the increment."""
         curr = CurriculumState(current_fraction=0.15, fraction_increment=0.15)
         self.assertTrue(curr.expand_fraction())
         self.assertAlmostEqual(curr.current_fraction, 0.30, places=2)
@@ -73,12 +87,14 @@ class TestCurriculumState(unittest.TestCase):
         self.assertFalse(curr.expand_fraction())
 
     def test_batch_and_accumulation(self) -> None:
+        """Verify batch growth recomputes gradient accumulation."""
         curr = CurriculumState(target_effective_batch=32, current_batch=8)
         curr.update_batch_and_accumulation(16)
         self.assertEqual(curr.current_batch, 16)
         self.assertEqual(curr.current_acc, 2)
 
     def test_serialization(self) -> None:
+        """Verify CurriculumState round-trips through to_dict/from_dict."""
         curr = CurriculumState(res_ladder=[256, 512], current_res=512, current_fraction=0.8)
         data = curr.to_dict()
         restored = CurriculumState.from_dict(data)
@@ -91,17 +107,20 @@ class TestThermalState(unittest.TestCase):
     """Tests for ThermalState temperature decay and turbulence dampening."""
 
     def test_step_epoch(self) -> None:
+        """Verify one epoch step cools the temperature by the cooling factor."""
         thermal = ThermalState(temperature=1.0, cooling_factor=0.9, min_temperature=0.2)
         new_temp = thermal.step_epoch()
         self.assertAlmostEqual(new_temp, 0.9, places=2)
 
     def test_dampen_turbulence(self) -> None:
+        """Verify turbulence dampening triggers above the gradient-norm threshold."""
         thermal = ThermalState(temperature=0.5, turbulence_dampening=True)
         boosted = thermal.dampen_turbulence(gradient_norm=15.0, threshold=10.0)
         self.assertTrue(boosted)
         self.assertGreater(thermal.temperature, 0.5)
 
     def test_serialization(self) -> None:
+        """Verify ThermalState round-trips through to_dict/from_dict."""
         thermal = ThermalState(temperature=0.75, cooling_factor=0.95)
         data = thermal.to_dict()
         restored = ThermalState.from_dict(data)
@@ -113,6 +132,7 @@ class TestSotaTracker(unittest.TestCase):
     """Tests for SotaTracker metric recording and rollback logic."""
 
     def test_record_epoch_new_sota(self) -> None:
+        """Verify a first quality record is a new SOTA."""
         tracker = SotaTracker()
         is_sota = tracker.record_epoch(current_quality=0.82)
         self.assertTrue(is_sota)
@@ -120,6 +140,7 @@ class TestSotaTracker(unittest.TestCase):
         self.assertEqual(len(tracker.history), 1)
 
     def test_reset_best(self) -> None:
+        """Verify reset_best clears the best quality."""
         tracker = SotaTracker(best_quality=0.95, prev_quality=0.94)
         tracker.reset_best()
         self.assertEqual(tracker.best_quality, 0.0)
@@ -127,6 +148,7 @@ class TestSotaTracker(unittest.TestCase):
         self.assertEqual(len(tracker.history), 0)
 
     def test_register_rollback_and_breakout(self) -> None:
+        """Verify rollback registration and loop-breaker breakout."""
         tracker = SotaTracker(
             loop_breaker_enabled=True,
             loop_breaker_threshold=2,
@@ -159,6 +181,7 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         }
 
     def test_initialization_and_properties(self) -> None:
+        """Verify governor initial resolution/fraction properties from model info."""
         gov = SmartTrainingGovernor(self.model_info)
         self.assertEqual(gov.current_res, 256)
         self.assertAlmostEqual(gov.current_fraction, 0.20)
@@ -172,6 +195,7 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         self.assertEqual(gov.current_res, 384)
 
     def test_suggest_batch_growth(self) -> None:
+        """Verify batch growth suggestions within the VRAM budget."""
         gov = SmartTrainingGovernor(self.model_info)
         new_b, new_acc = gov.suggest_batch_growth(
             current_batch=8,
@@ -183,19 +207,19 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         self.assertEqual(new_acc, 1)
 
     def test_audit_epoch_returns_8_tuple(self) -> None:
+        """Verify audit_epoch returns six change flags, a stop flag and a message."""
         gov = SmartTrainingGovernor(self.model_info)
-        res = gov.audit_epoch(
-            current_quality=0.85,
-            best_quality=0.80,
-            epochs_no_improve=0,
-            regression_epochs=0,
-        )
+        res = gov.audit_epoch(EpochSignals(current_quality=0.85), epochs_no_improve=0)
         self.assertEqual(len(res), 8)
-        f_chg, r_chg, lr_chg, t_chg, c_chg, b_chg, stop_trig, msg = res
+        *change_flags, stop_trig, msg = res
+        self.assertEqual(len(change_flags), 6)
+        for flag in change_flags:
+            self.assertIsInstance(flag, bool)
         self.assertIsInstance(stop_trig, bool)
         self.assertIsInstance(msg, str)
 
     def test_get_and_load_state_roundtrip(self) -> None:
+        """Verify governor state survives get_state/load_state."""
         gov = SmartTrainingGovernor(self.model_info)
         gov.current_fraction = 0.65
         gov.current_res = 384
@@ -213,6 +237,7 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         self.assertEqual(new_gov.best_quality, 0.91)
 
     def test_load_state_preserves_100_percent_fraction_on_resume(self) -> None:
+        """Verify load_state keeps a 100% data fraction on resume."""
         gov = SmartTrainingGovernor(self.model_info)
         gov.current_fraction = 1.0
         gov.current_res = 256
@@ -232,6 +257,7 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         self.assertEqual(resumed_gov.current_res, 256)
 
     def test_steady_improvement_advances_data_fraction(self) -> None:
+        """Verify steady improvement advances the data fraction monotonically."""
         gov = SmartTrainingGovernor(self.model_info)
         self.assertAlmostEqual(gov.current_fraction, 0.20)
         fractions_seen = [gov.current_fraction]
@@ -240,12 +266,8 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         for _ in range(25):
             quality += 1.5
             gov.audit_epoch(
-                current_quality=quality,
-                best_quality=quality,
+                EpochSignals(current_quality=quality, current_loss=0.1, train_loss=0.1),
                 epochs_no_improve=0,
-                regression_epochs=0,
-                current_loss=0.1,
-                train_loss=0.1,
             )
             fractions_seen.append(gov.current_fraction)
             resolutions_seen.append(gov.current_res)
@@ -253,38 +275,40 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         self.assertIn(384, resolutions_seen)
 
     def test_recoil_never_steps_data_fraction_backwards(self) -> None:
+        """Verify a recoil never steps the data fraction backwards."""
         gov = SmartTrainingGovernor(self.model_info)
         gov.current_fraction = 0.80
         gov.best_quality = 90.0
         gov.epoch_count = 20
         gov.audit_epoch(
-            current_quality=70.0,
-            best_quality=90.0,
+            EpochSignals(current_quality=70.0, current_loss=0.5, train_loss=0.2),
             epochs_no_improve=5,
-            regression_epochs=4,
-            current_loss=0.5,
-            train_loss=0.2,
         )
         self.assertGreaterEqual(gov.current_fraction, 0.80)
 
+    def test_plateau_patience_from_manifold_config(self) -> None:
+        """Review D-07: ``governor.manifold.plateau_patience`` of config.yaml is honoured."""
+        config = {"governor": {"manifold": {"plateau_patience": 9}}}
+        gov = SmartTrainingGovernor(self.model_info, config=config)
+        self.assertEqual(gov.plateau_patience, 9)
+
     def test_legacy_shim_compatibility(self) -> None:
-        gov = LegacyGovernor(self.model_info)
+        """Verify the legacy governor shim is a SmartTrainingGovernor."""
+        gov = SmartTrainingGovernor(self.model_info)
         self.assertIsInstance(gov, SmartTrainingGovernor)
         self.assertEqual(gov.current_res, 256)
 
 
 class TestYOLOLadderCurriculum(unittest.TestCase):
-    """Unit tests for YOLO ladder curriculum and gradual 15-20% intra-resolution fraction progression."""
+    """Unit tests for the YOLO ladder curriculum and gradual 15-20% intra-resolution fractions."""
 
     def test_ladder_intra_resolution_fractions(self) -> None:
-        from training.governance.yolo_governor import build_ladder_curriculum
+        """Verify intra-resolution fractions grow gradually on each ladder rung."""
         opt_cfg = {"initial_fraction": 0.15, "plateau_patience": 10}
         stages = build_ladder_curriculum(
             res_ladder=[320, 480, 640],
             total_epochs=300,
-            vram_gb=4.0,
-            requested_batch=16,
-            opt_config=opt_cfg,
+            budget=BatchBudget(vram_gb=4.0, requested_batch=16, opt_config=opt_cfg),
         )
         # 15 stages total: 5 on 320px, 5 on 480px, 5 on 640px
         self.assertEqual(len(stages), 15)
@@ -314,13 +338,11 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
         self.assertEqual(sum(s.target_epochs for s in stages), 300)
 
     def test_ladder_start_resolution_override(self) -> None:
-        from training.governance.yolo_governor import build_ladder_curriculum
+        """Verify a start-resolution override skips lower rungs."""
         stages = build_ladder_curriculum(
             res_ladder=[320, 480, 640],
             total_epochs=100,
-            vram_gb=8.0,
-            requested_batch=16,
-            opt_config={},
+            budget=BatchBudget(vram_gb=8.0, requested_batch=16, opt_config={}),
             start_resolution=480,
         )
         # 10 stages total: 5 on 480px, 5 on 640px starting from 15% fraction
@@ -336,13 +358,11 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
         self.assertEqual(sum(s.target_epochs for s in stages), 100)
 
     def test_ladder_single_resolution(self) -> None:
-        from training.governance.yolo_governor import build_ladder_curriculum
+        """Verify a single-resolution ladder still yields gradual fraction stages."""
         stages = build_ladder_curriculum(
             res_ladder=[640],
             total_epochs=50,
-            vram_gb=8.0,
-            requested_batch=8,
-            opt_config={},
+            budget=BatchBudget(vram_gb=8.0, requested_batch=8, opt_config={}),
         )
         # 5 stages total: 15% -> 35% -> 55% -> 75% -> 100%
         self.assertEqual(len(stages), 5)
@@ -350,17 +370,11 @@ class TestYOLOLadderCurriculum(unittest.TestCase):
         self.assertEqual(sum(s.target_epochs for s in stages), 50)
 
 
-
 class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
     """Tests to verify checkpoint isolation to checkpoints subfolders and SOTA export behavior."""
 
     def test_checkpoint_isolation_directories(self) -> None:
-        import argparse
-        import tempfile
-        from pathlib import Path
-        from unittest.mock import MagicMock
-        from training.governance.yolo_governor import YOLOCurriculumGovernor
-
+        """Verify checkpoint sync writes only into the hub checkpoints directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
             proj_root = Path(tmpdir) / "lemgendary-training-suite"
             models_root = Path(tmpdir) / "LemGendaryModels" / "yolov8n"
@@ -396,7 +410,7 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             fake_last.write_bytes(b"FAKEMODELLAST")
 
             # Call checkpoint sync
-            governor._synchronize_checkpoints(
+            governor.synchronize_checkpoints(
                 stage_dir=stage_dir,
                 resolution=320,
                 fraction=0.30,
@@ -421,12 +435,7 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             self.assertFalse((governor.models_hub_dir / "curriculum_state.json").exists())
 
     def test_sota_model_export(self) -> None:
-        import argparse
-        import tempfile
-        from pathlib import Path
-        from unittest.mock import patch, MagicMock
-        from training.governance.yolo_governor import YOLOCurriculumGovernor
-
+        """Verify SOTA export writes the .pt and .onnx artifacts to the model hub dir."""
         with tempfile.TemporaryDirectory() as tmpdir:
             proj_root = Path(tmpdir) / "lemgendary-training-suite"
             models_root = Path(tmpdir) / "LemGendaryModels" / "yolov8n"
@@ -462,12 +471,21 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             mock_yolo_instance.export.return_value = str(fake_onnx_source)
 
             def mock_tri_format(trainer, model_key, output_dir):
+                self.assertIs(trainer, mock_yolo_instance)
                 (output_dir / f"{model_key}.pt").write_bytes(fake_weight.read_bytes())
                 (output_dir / f"{model_key}.onnx").write_bytes(fake_onnx_source.read_bytes())
 
-            with patch("ultralytics.YOLO", return_value=mock_yolo_instance), \
-                 patch("training.governance.yolo_governor.export_tri_format_yolo", side_effect=mock_tri_format):
-                governor._export_sota_models(fake_weight, resolution=640)
+            with (
+                patch(
+                    "training.governance.yolo_governor.create_yolo_model",
+                    return_value=mock_yolo_instance,
+                ),
+                patch(
+                    "training.governance.yolo_governor.export_tri_format_yolo",
+                    side_effect=mock_tri_format,
+                ),
+            ):
+                governor.export_sota_models(fake_weight)
 
             # Verify PyTorch model and ONNX model were exported to LemGendaryModels/yolov8n
             exported_pt = governor.models_hub_dir / "yolov8n.pt"
@@ -478,12 +496,7 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             self.assertEqual(exported_onnx.read_bytes(), b"ONNXMODELDATA")
 
     def test_open_ended_sota_convergence_protocol(self) -> None:
-        import argparse
-        import tempfile
-        from pathlib import Path
-        from unittest.mock import patch, MagicMock
-        from training.governance.yolo_governor import YOLOCurriculumGovernor
-
+        """Verify the governor extends training until SOTA is reached."""
         with tempfile.TemporaryDirectory() as tmpdir:
             proj_root = Path(tmpdir) / "lemgendary-training-suite"
             models_root = Path(tmpdir) / "LemGendaryModels" / "yolov8n"
@@ -513,7 +526,8 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             )
 
             call_count = 0
-            def mock_train(**kwargs):
+
+            def mock_train(**_train_kwargs):
                 nonlocal call_count
                 call_count += 1
                 # When reaching extension cycle (call 5), simulate SOTA achievement
@@ -526,25 +540,33 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
             fake_onnx.write_bytes(b"ONNXDATA")
             mock_yolo_instance.export.return_value = str(fake_onnx)
 
-            with patch("ultralytics.YOLO", return_value=mock_yolo_instance), \
-                 patch("training.governance.yolo_governor.generate_yolo_yaml", return_value="mock.yaml"):
+            with (
+                patch(
+                    "training.governance.yolo_governor.create_yolo_model",
+                    return_value=mock_yolo_instance,
+                ),
+                patch(
+                    "training.governance.yolo_governor.generate_yolo_yaml", return_value="mock.yaml"
+                ),
+            ):
                 summary = governor.run()
 
-            # Governor executed 4 planned stages (50%, 65%, 80%, 100%) + 1 extension cycle until SOTA
+            # Governor ran 4 planned stages (50%, 65%, 80%, 100%) + 1 extension cycle until SOTA
             self.assertEqual(call_count, 5)
             self.assertTrue(governor.sota_achieved)
             self.assertEqual(summary.status, "completed")
 
-
     def test_compute_safe_batch_size_yolo_480px(self) -> None:
-        from training.governance.yolo_governor import compute_safe_batch_size
+        """Verify the safe YOLO batch size for 480 px on a 4 GB GPU."""
         # 4.0 GB VRAM GPU (e.g. GTX 1650)
         vram_4gb = 4.0
         # At resolution 480, safe batch size must allow 16
         safe_batch_480 = compute_safe_batch_size(imgsz=480, vram_gb=vram_4gb, requested_batch=16)
         self.assertEqual(safe_batch_480, 16)
         # When requested batch is 32, clamped to safe max of 16
-        safe_batch_clamped = compute_safe_batch_size(imgsz=480, vram_gb=vram_4gb, requested_batch=32)
+        safe_batch_clamped = compute_safe_batch_size(
+            imgsz=480, vram_gb=vram_4gb, requested_batch=32
+        )
         self.assertEqual(safe_batch_clamped, 16)
         # At 320px on 4GB, allows 32
         safe_batch_320 = compute_safe_batch_size(imgsz=320, vram_gb=vram_4gb, requested_batch=32)
@@ -553,6 +575,3 @@ class TestYOLOCheckpointIsolationAndSotaExport(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-

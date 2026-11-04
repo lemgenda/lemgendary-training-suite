@@ -20,11 +20,11 @@ class CloudSyncError(Exception):
 class CloudManager(Protocol):
     """Base protocol for cloud storage and synchronization providers."""
 
-    def sync(self, model_name: str, epoch: int, src_dir: Path, **kwargs: Any) -> bool:
+    def sync(self, model_name: str, epoch: int, src_dir: Path) -> bool:
         """Synchronize local artifacts to remote cloud target."""
         ...
 
-    def pull(self, remote_identifier: str, dest_dir: Path, **kwargs: Any) -> bool:
+    def pull(self, remote_identifier: str, dest_dir: Path) -> bool:
         """Download remote artifacts to local destination."""
         ...
 

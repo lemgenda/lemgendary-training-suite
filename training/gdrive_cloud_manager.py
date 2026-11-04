@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -36,13 +35,15 @@ class GDriveCloudManager:
         self.model_name = model_name
         self.config = config or {}
         fleet_cfg = self.config.get("fleet", {})
-        self.folder_id = folder_id or fleet_cfg.get("google_drive_folder_id", DEFAULT_ROOT_FOLDER_ID)
-        self.token = resolve_gdrive_credentials(token)
+        self.folder_id = folder_id or fleet_cfg.get(
+            "google_drive_folder_id", DEFAULT_ROOT_FOLDER_ID
+        )
+        resolved_token = resolve_gdrive_credentials(token)
         self.suite_dir = Path(__file__).resolve().parent.parent
 
         self.gdrive_mgr = GDriveSyncManager(
             root_folder_id=self.folder_id,
-            token=self.token,
+            token=resolved_token,
         )
         self.model_dir = self._resolve_model_dir()
         self.checkpoint_dir = self.model_dir / "checkpoints"
@@ -92,7 +93,9 @@ def sync_single_model(model_name: str, config: dict[str, Any], dry_run: bool = F
     """Synchronize single model manifold to Google Drive."""
     mgr = GDriveCloudManager(model_name, config=config)
     if dry_run:
-        logger.info("[DRY RUN] Discovered %d artifacts for %s", len(mgr.discover_artifacts()), model_name)
+        logger.info(
+            "[DRY RUN] Discovered %d artifacts for %s", len(mgr.discover_artifacts()), model_name
+        )
         return True
     return mgr.sync()
 
@@ -110,9 +113,15 @@ def main() -> None:
     """CLI entrypoint for Google Drive model synchronization."""
     parser = argparse.ArgumentParser(description="LemGendary Google Drive Model Synchronizer")
     parser.add_argument("--model", type=str, help="Specific model key to synchronize")
-    parser.add_argument("--all", action="store_true", help="Synchronize all models across the fleet")
-    parser.add_argument("--dry-run", action="store_true", help="Preview synchronization without file transfers")
-    parser.add_argument("--folder-id", type=str, default=DEFAULT_ROOT_FOLDER_ID, help="Google Drive Root Folder ID")
+    parser.add_argument(
+        "--all", action="store_true", help="Synchronize all models across the fleet"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Preview synchronization without file transfers"
+    )
+    parser.add_argument(
+        "--folder-id", type=str, default=DEFAULT_ROOT_FOLDER_ID, help="Google Drive Root Folder ID"
+    )
     parser.add_argument("--token", type=str, help="Explicit Google Drive authorization token")
     args = parser.parse_args()
 

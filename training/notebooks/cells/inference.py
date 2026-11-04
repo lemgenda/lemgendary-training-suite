@@ -12,9 +12,11 @@ from .base import make_code_cell
 
 def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     """Build the PyTorch standalone model inference code cell."""
-    stem = meta.filename or meta.pascal_name
-    pt_handle = meta.handle_pytorch_fp32 or f"{meta.k_username}/{meta.k_slug}/pytorch/fp32"
-    if meta.is_forex:
+    stem = meta.identity.filename or meta.identity.pascal_name
+    pt_handle = (
+        meta.kaggle.pytorch_fp32 or f"{meta.kaggle.username}/{meta.kaggle.slug}/pytorch/fp32"
+    )
+    if meta.identity.is_forex:
         source = [
             "import os, base64\n",
             "try:\n",
@@ -31,7 +33,10 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "        model = torch.nn.DataParallel(model)\n",
             "    model.eval()\n",
             "\n",
-            "    input_dict = {tf: torch.randn(1, 168, 14, device=device) for tf in [1, 5, 15, 60, 240, 1440]}\n",
+            (
+                "    input_dict = {tf: torch.randn(1, 168, 14, device=device) for tf in [1, 5, 15, "
+                "60, 240, 1440]}\n"
+            ),
             "\n",
             "    with torch.no_grad():\n",
             "        direction_logits, tp_sl_pips = model(input_dict)\n",
@@ -60,7 +65,10 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    model.eval()\n",
             "\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
-            "    input_tensor = torch.from_numpy(np.array(img)).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0\n",
+            (
+                "    input_tensor = torch.from_numpy(np.array(img)).permute(2, 0, "
+                "1).float().unsqueeze(0).to(device) / 255.0\n"
+            ),
             "    \n",
             "    mean = torch.tensor([0.485, 0.456, 0.406]).to(device).view(1, 3, 1, 1)\n",
             "    std = torch.tensor([0.229, 0.224, 0.225]).to(device).view(1, 3, 1, 1)\n",
@@ -76,21 +84,27 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
 
 def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     """Build the ONNX FP32 external-weight model inference code cell."""
-    stem = meta.filename or meta.pascal_name
-    onnx_handle = meta.handle_onnx_fp32 or f"{meta.k_username}/{meta.k_slug}/onnx/fp32"
-    if meta.is_forex:
+    stem = meta.identity.filename or meta.identity.pascal_name
+    onnx_handle = meta.kaggle.onnx_fp32 or f"{meta.kaggle.username}/{meta.kaggle.slug}/onnx/fp32"
+    if meta.identity.is_forex:
         source = [
             "import os, base64, numpy as np\n",
             "try:\n",
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
-            f"    onnx_path = os.path.join(onnx_dir, '{stem}_FP32.onnx') if onnx_dir else '{stem}_FP32.onnx'\n",
+            (
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}_FP32.onnx') if onnx_dir else "
+                f"'{stem}_FP32.onnx'\n"
+            ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
-            "    inputs = {f'tf_{tf}': np.random.randn(1, 168, 14).astype(np.float32) for tf in [1, 5, 15, 60, 240, 1440]}\n",
+            (
+                "    inputs = {f'tf_{tf}': np.random.randn(1, 168, 14).astype(np.float32) for tf "
+                "in [1, 5, 15, 60, 240, 1440]}\n"
+            ),
             "\n",
             "    output = session.run(None, inputs)\n",
             "    print(f'Prediction Raw: {output}')\n",
@@ -103,7 +117,10 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "try:\n",
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
-            f"    onnx_path = os.path.join(onnx_dir, '{stem}_FP32.onnx') if onnx_dir else '{stem}_FP32.onnx'\n",
+            (
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}_FP32.onnx') if onnx_dir else "
+                f"'{stem}_FP32.onnx'\n"
+            ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "    from PIL import Image\n",
@@ -111,7 +128,10 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
-            "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]\n",
+            (
+                "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, "
+                "0.406]) / [0.229, 0.224, 0.225]\n"
+            ),
             "    input_data = input_data.transpose(2, 0, 1)[np.newaxis, :]\n",
             "\n",
             "    output = session.run(None, {'input': input_data})[0]\n",
@@ -123,21 +143,27 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
 
 def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     """Build the ONNX FP16 embedded model inference code cell."""
-    stem = meta.filename or meta.pascal_name
-    onnx_handle = meta.handle_onnx_fp16 or f"{meta.k_username}/{meta.k_slug}/onnx/fp16"
-    if meta.is_forex:
+    stem = meta.identity.filename or meta.identity.pascal_name
+    onnx_handle = meta.kaggle.onnx_fp16 or f"{meta.kaggle.username}/{meta.kaggle.slug}/onnx/fp16"
+    if meta.identity.is_forex:
         source = [
             "import os, base64, numpy as np\n",
             "try:\n",
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
-            f"    onnx_path = os.path.join(onnx_dir, '{stem}.onnx') if onnx_dir else '{stem}.onnx'\n",
+            (
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}.onnx') if onnx_dir else "
+                f"'{stem}.onnx'\n"
+            ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "\n",
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
-            "    inputs = {f'tf_{tf}': np.random.randn(1, 168, 14).astype(np.float16) for tf in [1, 5, 15, 60, 240, 1440]}\n",
+            (
+                "    inputs = {f'tf_{tf}': np.random.randn(1, 168, 14).astype(np.float16) for tf "
+                "in [1, 5, 15, 60, 240, 1440]}\n"
+            ),
             "\n",
             "    output = session.run(None, inputs)\n",
             "    print(f'Production Signal: {output}')\n",
@@ -150,7 +176,10 @@ def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "try:\n",
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
-            f"    onnx_path = os.path.join(onnx_dir, '{stem}.onnx') if onnx_dir else '{stem}.onnx'\n",
+            (
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}.onnx') if onnx_dir else "
+                f"'{stem}.onnx'\n"
+            ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
             "    from PIL import Image\n",
@@ -158,7 +187,10 @@ def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
-            "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]\n",
+            (
+                "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, "
+                "0.406]) / [0.229, 0.224, 0.225]\n"
+            ),
             "    input_data = input_data.transpose(2, 0, 1)[np.newaxis, :]\n",
             "\n",
             "    output = session.run(None, {'input': input_data})[0]\n",

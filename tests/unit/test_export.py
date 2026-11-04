@@ -1,17 +1,14 @@
 """Unit tests for model export subsystem: ONNX, TorchScript, WebGPU, and export_all."""
 
-import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from training.export.common import (
-    ExportError,
     extract_input_dimensions,
-    resolve_checkpoint_file,
     resolve_export_paths,
 )
 from training.export.onnx import export_onnx
@@ -29,6 +26,7 @@ class DummyExportNet(nn.Module):
         self.out = nn.Conv2d(8, 3, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply conv, ReLU and the output conv."""
         return self.out(self.relu(self.conv(x)))
 
 
@@ -36,6 +34,7 @@ class TestExportCommon(unittest.TestCase):
     """Tests for export path resolution and dimension extraction."""
 
     def test_extract_input_dimensions(self) -> None:
+        """Verify input dimensions are extracted from scalar and list input_size values."""
         # Scalar
         h, w = extract_input_dimensions({"input_size": 224})
         self.assertEqual((h, w), (224, 224))
@@ -49,6 +48,7 @@ class TestExportCommon(unittest.TestCase):
         self.assertEqual((h, w), (512, 512))
 
     def test_resolve_export_paths(self) -> None:
+        """Verify export paths resolve to the canonical stem and production dir."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             base_name, prod_dir = resolve_export_paths(
@@ -70,6 +70,7 @@ class TestModelExporters(unittest.TestCase):
         self.model.eval()
 
     def test_onnx_export_fp32_and_fp16(self) -> None:
+        """Verify ONNX export writes both FP32 and FP16 graphs."""
         with tempfile.TemporaryDirectory() as tmp:
             out_fp32 = Path(tmp) / "model_fp32.onnx"
             out_fp16 = Path(tmp) / "model_fp16.onnx"
@@ -87,6 +88,7 @@ class TestModelExporters(unittest.TestCase):
             self.assertGreater(out_fp16.stat().st_size, 100)
 
     def test_torch_standalone_export(self) -> None:
+        """Verify the standalone PyTorch export succeeds and writes the file."""
         with tempfile.TemporaryDirectory() as tmp:
             out_pt = Path(tmp) / "model_standalone.pt"
             ok = export_torch_standalone(self.model, out_pt, metadata={"version": "1.0"})
@@ -100,6 +102,7 @@ class TestModelExporters(unittest.TestCase):
             self.assertEqual(loaded.get("metadata", {}).get("version"), "1.0")
 
     def test_webgpu_export(self) -> None:
+        """Verify the WebGPU ONNX export succeeds."""
         with tempfile.TemporaryDirectory() as tmp:
             out_webgpu = Path(tmp) / "model_webgpu.onnx"
             ok = export_webgpu_onnx(self.model, out_webgpu, dummy_input_shape=(1, 3, 64, 64))

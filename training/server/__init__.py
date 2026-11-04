@@ -1,19 +1,31 @@
-"""LemGendary Model Training Suite Sidecar Server Subsystem."""
+"""LemGendary Model Training Suite Sidecar Server Subsystem.
 
-from typing import Any
+Exports are resolved lazily so that light submodules (for example
+``training.server.security``) import without the training stack.
+"""
 
-from training.server.jobs import JobManager
-from training.server.state import ServerState
+import importlib
+from typing import TYPE_CHECKING, Any
 
-__all__ = ["JobManager", "ServerState", "app", "create_app"]
+if TYPE_CHECKING:
+    from training.server.app import create_app
+    from training.server.jobs import JobManager
+    from training.server.state import ServerState
+
+__all__ = ["JobManager", "ServerState", "create_app"]
+
+
+# Public name -> submodule that defines it (PEP 562 lazy exports).
+_LAZY_EXPORTS = {
+    "JobManager": "jobs",
+    "ServerState": "state",
+    "create_app": "app",
+}
 
 
 def __getattr__(name: str) -> Any:
-    """Lazily import app and create_app on access."""
-    if name in ("app", "create_app"):
-        from training.server.app import create_app as _create_app, get_app as _get_app
-        if name == "create_app":
-            return _create_app
-        return _get_app()
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
-
+    """Lazily import the public server objects on access."""
+    submodule = _LAZY_EXPORTS.get(name)
+    if submodule is None:
+        raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    return getattr(importlib.import_module(f"{__name__}.{submodule}"), name)

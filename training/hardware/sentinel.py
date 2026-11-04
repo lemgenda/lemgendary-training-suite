@@ -2,6 +2,7 @@
 
 import gc
 import logging
+
 import torch
 
 logger = logging.getLogger("lemtrain.hardware.sentinel")
@@ -65,14 +66,15 @@ class SentinelGuard:
         new_batch = max(min_batch, current_batch // 2)
         logger.warning(
             "SentinelGuard throttled batch size from %d to %d due to memory pressure.",
-            current_batch, new_batch
+            current_batch,
+            new_batch,
         )
         return new_batch
 
     def veto_resolution_jump(self, requested_res: int, current_res: int) -> tuple[bool, str]:
         """
         Evaluate whether a curriculum resolution jump should be vetoed based on free VRAM headroom.
-        
+
         Returns:
             (is_vetoed, reason_string)
         """
@@ -83,7 +85,7 @@ class SentinelGuard:
         if metrics["free_gb"] < 1.0 or metrics["usage_ratio"] >= self.memory_ceiling_ratio:
             reason = (
                 f"VRAM headroom too tight ({metrics['free_gb']:.2f} GB free, "
-                f"{metrics['usage_ratio']*100:.1f}% reserved). "
+                f"{metrics['usage_ratio'] * 100:.1f}% reserved). "
                 f"Resolution jump from {current_res}px to {requested_res}px vetoed."
             )
             logger.warning("SentinelGuard vetoed spatial jump: %s", reason)

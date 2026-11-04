@@ -2,19 +2,47 @@
 
 import logging
 import os
-from pathlib import Path
+import pickle
 import shutil
 import sys
 import time
+from pathlib import Path
 from typing import Any
+
 import torch
 
 logger = logging.getLogger("lemtrain.checkpoint.manager")
 
+# Failure modes of torch.load / safe_load_checkpoint on a missing, empty, corrupt, truncated or
+# incompatible checkpoint (I/O, zip-archive, unpickling, missing classes, non-dict payloads).
+CHECKPOINT_LOAD_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    RuntimeError,
+    ValueError,
+    EOFError,
+    pickle.UnpicklingError,
+    AttributeError,
+    ImportError,
+)
+# Failure modes of torch.save (I/O, serialization of unpicklable objects, torch storage errors).
+CHECKPOINT_SAVE_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    RuntimeError,
+    pickle.PicklingError,
+    TypeError,
+    AttributeError,
+)
+
 
 class CheckpointSaveError(RuntimeError):
     """Raised when an atomic checkpoint save cannot be completed."""
-    pass
+
+
+class CheckpointPayloadTypeError(TypeError, ValueError):
+    """Raised when a checkpoint deserializes to something other than a dict.
+
+    Subclasses ValueError as well so existing handlers of malformed checkpoints keep catching it.
+    """
 
 
 def audit_disk_space(target_dir: Path, min_free_gb: float = 5.0) -> float:
@@ -27,7 +55,11 @@ def audit_disk_space(target_dir: Path, min_free_gb: float = 5.0) -> float:
         return 999.0
 
     if free_gb < 1.0:
-        logger.warning("Low disk space on %s: %.2f GB available. Pruning stale temporary files...", target_dir, free_gb)
+        logger.warning(
+            "Low disk space on %s: %.2f GB available. Pruning stale temporary files...",
+            target_dir,
+            free_gb,
+        )
         try:
             for item in target_dir.iterdir():
                 if item.is_file() and (item.suffix == ".tmp" or "_progress.pth" in item.name):
@@ -43,17 +75,28 @@ def audit_disk_space(target_dir: Path, min_free_gb: float = 5.0) -> float:
 
     if free_gb < 0.2:
         raise CheckpointSaveError(
-            f"Disk critically full on {target_dir} ({free_gb:.2f} GB remaining). Save aborted to preserve filesystem."
+            f"Disk critically full on {target_dir} ({free_gb:.2f} GB remaining). Save aborted to "
+            "preserve filesystem."
         )
 
     if free_gb < min_free_gb:
-        logger.warning("Disk space warning on %s: %.2f GB remaining (< %.1f GB threshold).", target_dir, free_gb, min_free_gb)
+        logger.warning(
+            "Disk space warning on %s: %.2f GB remaining (< %.1f GB threshold).",
+            target_dir,
+            free_gb,
+            min_free_gb,
+        )
 
     return free_gb
 
 
-def _resilient_replace(src: Path, dst: Path, max_retries: int = 8, initial_delay: float = 0.1) -> None:
-    """Atomically replace dst with src, retrying with exponential backoff on transient Windows file lock errors (WinError 5 / 32)."""
+def _resilient_replace(
+    src: Path, dst: Path, max_retries: int = 8, initial_delay: float = 0.1
+) -> None:
+    """Atomically replace dst with src, retrying with exponential backoff.
+
+    Retries cover transient Windows file lock errors (WinError 5 / 32).
+    """
     last_err: Exception | None = None
     for attempt in range(max_retries):
         try:
@@ -68,12 +111,15 @@ def _resilient_replace(src: Path, dst: Path, max_retries: int = 8, initial_delay
                 raise
             delay = initial_delay * (1.5**attempt)
             time.sleep(delay)
-            # If multiple retries failed and destination exists, attempt unlinking dst before final attempts
+            # If multiple retries failed and destination exists, attempt unlinking dst before final
+            # attempts
             if attempt >= 3 and dst.exists():
                 try:
                     dst.unlink()
-                except Exception:
-                    pass
+                except OSError as unlink_err:
+                    logger.debug(
+                        "Could not unlink locked destination %s before retry: %s", dst, unlink_err
+                    )
     if last_err:
         raise last_err
 
@@ -97,7 +143,7 @@ def safe_atomic_save(payload: Any, path: Path | str, min_free_gb: float = 5.0) -
         _resilient_replace(tmp_path, target_path)
         logger.info("Saved atomic checkpoint to %s", target_path)
         return True
-    except Exception as exc:
+    except CHECKPOINT_SAVE_ERRORS as exc:
         logger.error("Failed saving atomic checkpoint to %s: %s", target_path, exc)
         if tmp_path.exists():
             try:
@@ -124,6 +170,8 @@ def safe_load_checkpoint(path: Path | str, map_location: Any = "cpu") -> dict[st
         payload = torch.load(str(ckpt_path), map_location=map_location)
 
     if not isinstance(payload, dict):
-        raise ValueError(f"Expected dict payload from checkpoint {ckpt_path}, got {type(payload).__name__}")
+        raise CheckpointPayloadTypeError(
+            f"Expected dict payload from checkpoint {ckpt_path}, got {type(payload).__name__}"
+        )
 
     return payload

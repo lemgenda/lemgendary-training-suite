@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import dataclass
+from pathlib import Path
 
 import torch
 
@@ -16,17 +17,20 @@ from training.data.instruction_dataset import (
 )
 
 
+@dataclass
 class DummyMockTokenizer:
     """Deterministic mock tokenizer for testing instruction prompt masking."""
 
-    def __init__(self) -> None:
-        self.pad_token_id = 0
-        self.eos_token_id = 2
+    pad_token_id: int = 0
+    eos_token_id: int = 2
 
     def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+        """Map ``text`` to deterministic token ids; append EOS when ``add_special_tokens``."""
         # Simple ASCII-based deterministic token mapping
-        tokens = [max(1, ord(c) % 500) for c in text.strip()]
-        return tokens or [1]
+        tokens = [max(1, ord(c) % 500) for c in text.strip()] or [1]
+        if add_special_tokens:
+            tokens.append(self.eos_token_id)
+        return tokens
 
 
 class TestLLMEngine(unittest.TestCase):
@@ -80,7 +84,9 @@ class TestLLMEngine(unittest.TestCase):
             unmasked_count = (labels != -100).sum().item()
 
             self.assertGreater(masked_count, 0, "System and user tokens must be masked with -100")
-            self.assertGreater(unmasked_count, 0, "Assistant response tokens must have valid supervised labels")
+            self.assertGreater(
+                unmasked_count, 0, "Assistant response tokens must have valid supervised labels"
+            )
 
     def test_collate_instruction_batch(self) -> None:
         """Verify dynamic batch padding and attention mask alignment."""

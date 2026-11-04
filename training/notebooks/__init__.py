@@ -22,14 +22,14 @@ from .registry import (
 )
 
 __all__ = [
+    "ModelNotebookMeta",
+    "generate_colab_inference_notebook",
+    "generate_colab_training_notebook",
+    "generate_colab_usage_notebook",
     "generate_inference_notebook",
-    "generate_usage_notebook",
     "generate_kaggle_usage_notebook",
     "generate_training_notebook",
-    "generate_colab_inference_notebook",
-    "generate_colab_usage_notebook",
-    "generate_colab_training_notebook",
-    "resolve_model_metadata",
+    "generate_usage_notebook",
     "load_registry",
-    "ModelNotebookMeta",
+    "resolve_model_metadata",
 ]

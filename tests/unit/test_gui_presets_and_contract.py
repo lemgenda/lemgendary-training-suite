@@ -11,11 +11,14 @@ Verifies:
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import logging
 import shutil
 import tempfile
-from typing import Any
 import unittest
+from pathlib import Path
+from typing import Any
+from unittest import mock
+
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
@@ -23,6 +26,9 @@ from training.cli.lemtrain import app as cli_app
 from training.server.app import create_app
 from training.server.state import ServerState
 from training.utils.paths import get_project_root
+from training.version import __version__
+
+_log = logging.getLogger("lemtrain.tests.test_gui_presets_and_contract")
 
 
 class TestOpenAPIAndContract(unittest.TestCase):
@@ -41,7 +47,7 @@ class TestOpenAPIAndContract(unittest.TestCase):
         self.assertEqual(data.get("openapi"), "3.1.0")
         info = data.get("info", {})
         self.assertEqual(info.get("title"), "LemGendary Model Training Suite Sidecar API")
-        self.assertEqual(info.get("version"), "16.2.9")
+        self.assertEqual(info.get("version"), __version__)
 
         paths = data.get("paths", {})
         required_paths = [
@@ -82,8 +88,7 @@ class TestDesktopGUIAndPresets(unittest.TestCase):
     """Verify Desktop GUI routes and canonical presets execution."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
+        self.root = Path(tempfile.mkdtemp())
         real_root = get_project_root()
 
         # Copy canonical presets.yaml and unified_models_v2.yaml
@@ -93,7 +98,10 @@ class TestDesktopGUIAndPresets(unittest.TestCase):
 
         self.state = ServerState(project_root=self.root)
         self.app = create_app(project_root=self.root, enforce_auth=False)
-        self.app.state.job_manager._run_job_worker = lambda *args, **kwargs: None
+        # Stub the background worker so submitted jobs never start a real training run.
+        worker_patch = mock.patch.object(self.app.state.job_manager, "_run_job_worker")
+        worker_patch.start()
+        self.addCleanup(worker_patch.stop)
         self.client = TestClient(self.app)
 
     def tearDown(self) -> None:
@@ -101,9 +109,9 @@ class TestDesktopGUIAndPresets(unittest.TestCase):
             self.app.state.job_manager.shutdown()
         self.client.close()
         try:
-            self.temp_dir.cleanup()
-        except OSError:
-            pass
+            shutil.rmtree(self.root)
+        except OSError as exc:
+            _log.warning("Temp dir cleanup failed for %s: %s", self.root, exc)
 
     def test_gui_state_snapshot(self) -> None:
         """Verify GET /api/gui/state returns unified dashboard snapshot."""

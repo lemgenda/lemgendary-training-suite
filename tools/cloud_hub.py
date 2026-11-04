@@ -9,9 +9,11 @@ import asyncio
 import json
 import logging
 from typing import Any
+
 import websockets
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("lemtrain.tools.cloud_hub")
 
 
 class LemGendaryCloudHub:
@@ -27,19 +29,23 @@ class LemGendaryCloudHub:
     async def register(self, websocket: Any) -> None:
         """Register newly connected node."""
         self.connected_nodes.add(websocket)
-        logging.info("Node connected. Total nodes: %d", len(self.connected_nodes))
-        await websocket.send(json.dumps({
-            "type": "SYNC_STATE",
-            "global_epoch": self.global_epoch,
-            "global_lr": self.global_lr,
-        }))
+        logger.info("Node connected. Total nodes: %d", len(self.connected_nodes))
+        await websocket.send(
+            json.dumps(
+                {
+                    "type": "SYNC_STATE",
+                    "global_epoch": self.global_epoch,
+                    "global_lr": self.global_lr,
+                }
+            )
+        )
 
     async def unregister(self, websocket: Any) -> None:
         """Unregister disconnected node."""
         self.connected_nodes.remove(websocket)
         if websocket in self.node_states:
             del self.node_states[websocket]
-        logging.info("Node disconnected. Total nodes: %d", len(self.connected_nodes))
+        logger.info("Node disconnected. Total nodes: %d", len(self.connected_nodes))
 
     async def handle_message(self, websocket: Any, message: str) -> None:
         """Process incoming coordinator control messages."""
@@ -49,33 +55,45 @@ class LemGendaryCloudHub:
 
             if msg_type == "NODE_HEARTBEAT":
                 self.node_states[websocket] = data.get("params", {})
-                logging.info("Heartbeat from node. Parameters: %s", data.get("params", {}))
+                logger.info("Heartbeat from node. Parameters: %s", data.get("params", {}))
 
             elif msg_type == "EPOCH_SYNC":
-                logging.info("Epoch sync received from node: %s", data.get("epoch"))
+                logger.info("Epoch sync received from node: %s", data.get("epoch"))
                 self.global_epoch = max(self.global_epoch, data.get("epoch", 0))
 
             elif msg_type == "LR_RECOIL":
-                logging.warning("Learning Rate Recoil broadcasted by node: %s", data.get("lr"))
+                logger.warning("Learning Rate Recoil broadcasted by node: %s", data.get("lr"))
                 self.global_lr = data.get("lr")
-                websockets.broadcast(self.connected_nodes, json.dumps({
-                    "type": "LR_RECOIL_SYNC",
-                    "global_lr": self.global_lr,
-                }))
+                websockets.broadcast(
+                    self.connected_nodes,
+                    json.dumps(
+                        {
+                            "type": "LR_RECOIL_SYNC",
+                            "global_lr": self.global_lr,
+                        }
+                    ),
+                )
 
             elif msg_type == "GRADIENT_PUSH":
                 self.accumulated_gradients += 1
-                logging.info("Federated gradient chunk received. Total: %d", self.accumulated_gradients)
+                logger.info(
+                    "Federated gradient chunk received. Total: %d", self.accumulated_gradients
+                )
                 if self.accumulated_gradients >= max(1, len(self.connected_nodes)):
-                    logging.info("Broadcasting unified average-sync gradient vector to all nodes.")
-                    websockets.broadcast(self.connected_nodes, json.dumps({
-                        "type": "GRADIENT_AVERAGE_SYNC",
-                        "status": "success",
-                    }))
+                    logger.info("Broadcasting unified average-sync gradient vector to all nodes.")
+                    websockets.broadcast(
+                        self.connected_nodes,
+                        json.dumps(
+                            {
+                                "type": "GRADIENT_AVERAGE_SYNC",
+                                "status": "success",
+                            }
+                        ),
+                    )
                     self.accumulated_gradients = 0
 
         except json.JSONDecodeError:
-            logging.error("Failed to decode message.")
+            logger.error("Failed to decode message.")
 
     async def handler(self, websocket: Any) -> None:
         """Connection handler loop."""
@@ -91,7 +109,7 @@ async def main() -> None:
     """Start websocket coordinator server."""
     hub = LemGendaryCloudHub()
     async with websockets.serve(hub.handler, "0.0.0.0", 8765):
-        logging.info("LemGendary Cloud Link Coordinator Hub started on ws://0.0.0.0:8765")
+        logger.info("LemGendary Cloud Link Coordinator Hub started on ws://0.0.0.0:8765")
         await asyncio.Future()
 
 

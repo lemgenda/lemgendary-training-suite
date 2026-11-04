@@ -1,13 +1,19 @@
+"""Unit tests for Pareto model soup blending and checkpoint export."""
+
+import tempfile
 import unittest
 from pathlib import Path
-import tempfile
+
 import torch
 
 from training.export.soup import blend_state_dicts, create_pareto_model_soup
 
 
 class TestParetoModelSoup(unittest.TestCase):
+    """Tests for uniform/weighted state-dict blending and soup export."""
+
     def test_uniform_blending(self) -> None:
+        """Verify uniform blending averages the state dicts."""
         sd1 = {"weight": torch.tensor([1.0, 3.0]), "bias": torch.tensor([2.0])}
         sd2 = {"weight": torch.tensor([3.0, 5.0]), "bias": torch.tensor([4.0])}
 
@@ -16,6 +22,7 @@ class TestParetoModelSoup(unittest.TestCase):
         self.assertTrue(torch.allclose(blended["bias"], torch.tensor([3.0])))
 
     def test_weighted_blending(self) -> None:
+        """Verify weighted blending applies the given weights."""
         sd1 = {"weight": torch.tensor([0.0, 0.0])}
         sd2 = {"weight": torch.tensor([10.0, 10.0])}
 
@@ -23,6 +30,7 @@ class TestParetoModelSoup(unittest.TestCase):
         self.assertTrue(torch.allclose(blended["weight"], torch.tensor([7.5, 7.5])))
 
     def test_checkpoint_soup_export(self) -> None:
+        """Verify a soup of checkpoints is exported to disk."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp = Path(tmp_dir)
             p1 = tmp / "vault_psnr.pth"
@@ -40,4 +48,3 @@ class TestParetoModelSoup(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

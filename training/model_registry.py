@@ -1,10 +1,10 @@
-import torch
+"""Legacy model utilities: VRAM audit re-export, pruned path search, robust state-dict loading."""
+
 import os
-import sys
 
 from training.hardware.probe import audit_hardware_vram
 
-
+__all__ = ["audit_hardware_vram", "find_paths_pruned", "load_state_dict_robust"]
 
 
 def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
@@ -15,7 +15,17 @@ def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
     if not os.path.exists(root_path):
         return []
 
-    prune_dirs = {"datasets", "images", "train", "val", "test", "validation", "dataset", "val_images", "train_images"}
+    prune_dirs = {
+        "datasets",
+        "images",
+        "train",
+        "val",
+        "test",
+        "validation",
+        "dataset",
+        "val_images",
+        "train_images",
+    }
     results = []
     queue = [(root_path, 0)]
 
@@ -53,18 +63,17 @@ def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
     return results
 
 
-
 def load_state_dict_robust(model, state_dict, strict=True):
     """Loads a state dict dynamically handling DataParallel 'module.' prefix mismatches."""
-    is_model_dp = hasattr(model, 'module')
-    is_state_dict_dp = any(k.startswith('module.') for k in state_dict.keys())
+    is_model_dp = hasattr(model, "module")
+    is_state_dict_dp = any(k.startswith("module.") for k in state_dict)
 
     new_state_dict = {}
     for k, v in state_dict.items():
         if is_model_dp and not is_state_dict_dp:
-            new_key = 'module.' + k
+            new_key = "module." + k
         elif not is_model_dp and is_state_dict_dp:
-            new_key = k[7:] if k.startswith('module.') else k
+            new_key = k.removeprefix("module.")
         else:
             new_key = k
         new_state_dict[new_key] = v

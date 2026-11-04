@@ -4,9 +4,11 @@ Enforces uniform model export across all architectures and training methods:
 1. [ModelName].pt: FP32 PyTorch model weights (isolated in dist/kaggle/pytorch/)
 2. [ModelName]_FP32.onnx + [ModelName]_FP32.onnx.data: FP32 with external binary weights sidecar
    (isolated in dist/kaggle/onnx_fp32/)
-3. [ModelName].onnx: FP16 precision with integrated self-contained weights (isolated in dist/kaggle/onnx_fp16/)
+3. [ModelName].onnx: FP16 precision with integrated self-contained weights
+   (isolated in dist/kaggle/onnx_fp16/)
 
-All exports persist exclusively to LemGendaryModels/[ModelName]/ and NEVER to lemgendary-training-suite/.
+All exports persist exclusively to LemGendaryModels/[ModelName]/ and NEVER to
+lemgendary-training-suite/.
 """
 
 from __future__ import annotations
@@ -17,13 +19,15 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn as nn
+from torch import nn
 
+from models.factory import get_model
 from training.export.exporter_factory import ExporterFactory
 from training.export.pytorch_exporter import PyTorchModelExporter
 from training.export.staging import StagingResult, VariationStagingService
 from training.export.yolo_exporter import YOLOModelExporter
 from training.registry import get_model_registry
+from training.utils.fs import remove_tree
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export.universal")
@@ -47,13 +51,13 @@ def export_tri_format_pytorch(
     model_key: str,
     dummy_input: torch.Tensor,
     output_dir: Path | str | None = None,
-    dynamic_axes: dict[str, dict[int, str]] | None = None,
-    input_names: list[str] | None = None,
-    output_names: list[str] | None = None,
-    opset: int = 17,
     stage_dist: bool = True,
+    **onnx_options: Any,
 ) -> dict[str, Path]:
     """Export standard PyTorch model into all 3 required formats with automatic variation staging.
+
+    ``onnx_options`` (``dynamic_axes``, ``input_names``, ``output_names``, ``opset``) go to
+    :meth:`PyTorchModelExporter.export` unchanged.
 
     Returns dict with keys: 'onnx_fp16', 'onnx_fp32', 'onnx_fp32_data', 'pt'
     """
@@ -67,18 +71,16 @@ def export_tri_format_pytorch(
         model_key=model_key,
         output_dir=staging_dir,
         dummy_input=dummy_input,
-        dynamic_axes=dynamic_axes,
-        input_names=input_names,
-        output_names=output_names,
-        opset=opset,
+        **onnx_options,
     )
 
     if stage_dist:
         staging_svc = VariationStagingService()
-        st_res = staging_svc.stage_variations(model_key=model_key, source_files=exported, base_dir=target_dir)
+        st_res = staging_svc.stage_variations(
+            model_key=model_key, source_files=exported, base_dir=target_dir
+        )
         if staging_dir.exists():
-            import shutil
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            remove_tree(staging_dir, purpose="export staging cleanup")
         if st_res.staged_files:
             exported = st_res.staged_files
 
@@ -91,7 +93,7 @@ def export_tri_format_yolo(
     output_dir: Path | str | None = None,
     stage_dist: bool = True,
 ) -> dict[str, Path]:
-    """Export Ultralytics YOLO model into all 3 required formats with automatic variation staging."""
+    """Export an Ultralytics YOLO model to all 3 required formats and stage the variations."""
     target_dir = Path(output_dir).resolve() if output_dir else get_model_hub_dir(model_key)
     staging_dir = target_dir / ".export_staging" if stage_dist else target_dir
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -105,10 +107,11 @@ def export_tri_format_yolo(
 
     if stage_dist:
         staging_svc = VariationStagingService()
-        st_res = staging_svc.stage_variations(model_key=model_key, source_files=exported, base_dir=target_dir)
+        st_res = staging_svc.stage_variations(
+            model_key=model_key, source_files=exported, base_dir=target_dir
+        )
         if staging_dir.exists():
-            import shutil
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            remove_tree(staging_dir, purpose="export staging cleanup")
         if st_res.staged_files:
             exported = st_res.staged_files
 
@@ -130,8 +133,6 @@ def export_universal_model(
     staging_dir.mkdir(parents=True, exist_ok=True)
 
     if model is None:
-        from models.factory import get_model
-
         model = get_model(model_key)
 
     exporter = ExporterFactory.get_exporter(model_key, spec)
@@ -153,8 +154,7 @@ def export_universal_model(
             validate=True,
         )
         if staging_dir.exists():
-            import shutil
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            remove_tree(staging_dir, purpose="export staging cleanup")
         if staging_result.staged_files:
             exported = staging_result.staged_files
 
@@ -164,10 +164,18 @@ def export_universal_model(
 def main() -> None:
     """CLI entrypoint for universal exporter."""
     parser = argparse.ArgumentParser(description="Universal Model Exporter & Variation Stager")
-    parser.add_argument("--model", type=str, required=True, help="Model key (e.g. yolov8n, ai_helper_lemgend)")
+    parser.add_argument(
+        "--model", type=str, required=True, help="Model key (e.g. yolov8n, ai_helper_lemgend)"
+    )
     parser.add_argument("--output-dir", type=str, default=None, help="Custom export destination")
-    parser.add_argument("--stage-dist", action="store_true", default=True, help="Stage into dist/kaggle/ subfolders")
-    parser.add_argument("--stage-only", action="store_true", help="Only stage existing binaries without re-exporting")
+    parser.add_argument(
+        "--stage-dist", action="store_true", default=True, help="Stage into dist/kaggle/ subfolders"
+    )
+    parser.add_argument(
+        "--stage-only",
+        action="store_true",
+        help="Only stage existing binaries without re-exporting",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")

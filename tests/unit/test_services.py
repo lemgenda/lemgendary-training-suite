@@ -6,16 +6,16 @@ ExportService, CloudSyncService, NotebookService, and AuditService.
 
 from __future__ import annotations
 
-from pathlib import Path
+import shutil
 import tempfile
-from typing import Any
 import unittest
+from pathlib import Path
+
 import torch
 import yaml
 
 from training.services.audit_service import AuditService
 from training.services.checkpoint_service import CheckpointService
-from training.services.eval_service import EvaluationService
 from training.services.export_service import ExportService
 from training.services.notebook_service import NotebookService
 from training.services.sync_service import CloudSyncService
@@ -26,8 +26,8 @@ class TestServicesLayer(unittest.TestCase):
     """Test suite for S.O.L.I.D. in-process services."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.root_path = Path(self.temp_dir.name)
+        self.root_path = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root_path)
 
         # Create dummy presets.yaml
         presets_data = {
@@ -48,9 +48,6 @@ class TestServicesLayer(unittest.TestCase):
         }
         with open(self.root_path / "presets.yaml", "w", encoding="utf-8") as f:
             yaml.safe_dump(presets_data, f)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def test_training_service_presets(self) -> None:
         """Verify TrainingService correctly parses and queries presets."""
@@ -155,7 +152,9 @@ class TestServicesLayer(unittest.TestCase):
             service.generate_notebooks("nima_aesthetic_mobile", platform="invalid_platform")
 
         with self.assertRaises(ValueError):
-            service.generate_notebooks("nima_aesthetic_mobile", platform="kaggle", kinds=["invalid_kind"])
+            service.generate_notebooks(
+                "nima_aesthetic_mobile", platform="kaggle", kinds=["invalid_kind"]
+            )
 
     def test_audit_service_system_and_model(self) -> None:
         """Verify AuditService system resource and model topology auditing."""

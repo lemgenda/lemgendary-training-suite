@@ -26,20 +26,30 @@ import logging
 import shutil
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import torch
+import torch.distributed as dist
 import yaml
 from torch import nn
 
-from training.checkpoint.manager import safe_atomic_save, safe_load_checkpoint
-from training.checkpoint.preflight_generator import generate_preflight_assets
-from training.doc_generator import build_model_readme
+from training.checkpoint.manager import (
+    CHECKPOINT_LOAD_ERRORS,
+    safe_atomic_save,
+    safe_load_checkpoint,
+)
+from training.checkpoint.preflight_generator import (
+    PREFLIGHT_ERRORS,
+    generate_preflight_assets,
+)
+from training.export.base import EXPORT_ERRORS
 from training.export.universal_exporter import (
     export_universal_model,
     get_model_hub_dir,
 )
+from training.model_card import build_model_readme
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.checkpoint.lifecycle")
@@ -100,6 +110,7 @@ CANONICAL_METRIC_ALIASES: dict[str, str] = {
     "map50-95": "map50_95",
 }
 
+
 def normalize_metric_name(name: str) -> str:
     """Normalize metric key to canonical lower-cased snake_case representation."""
     cleaned = name.strip().lower().replace("-", "_")
@@ -115,8 +126,55 @@ def is_lower_better(metric_name: str) -> bool:
     return any(sub in norm for sub in ("loss", "mae", "mse", "drawdown", "lpips", "fid"))
 
 
+STAGING_DIR_NAMES = (".kaggle_upload_stage", ".export_staging")
+"""Transient staging folders that :func:`canonicalize_checkpoints` never touches."""
+
+
+def _in_staging_dir(pth: Path) -> bool:
+    return any(parent.name in STAGING_DIR_NAMES for parent in pth.resolve().parents)
+
+
+def _canonical_checkpoint_name(name_lower: str) -> str | None:
+    """Canonical file name for a lower-cased checkpoint name, or None if it is not one."""
+    if "vault_" in name_lower:
+        metric_part = name_lower.split("vault_")[-1].replace(".pth", "")
+        metric_clean = normalize_metric_name(metric_part)
+        return f"vault_{metric_clean}.pth"
+    if "best" in name_lower:
+        return "best.pth"
+    if "latest" in name_lower or "last" in name_lower:
+        return "latest.pth"
+    if "progress" in name_lower:
+        return "progress.pth"
+    return None
+
+
+def _move_to_canonical(pth: Path, target_path: Path) -> str | None:
+    """Move ``pth`` to ``target_path``; returns the action message, None on failure."""
+    try:
+        shutil.move(str(pth), str(target_path))
+    except OSError as move_err:
+        logger.warning("Failed renaming checkpoint %s -> %s: %s", pth, target_path, move_err)
+        return None
+    msg = f"Renamed legacy checkpoint {pth.name} -> {target_path.name}"
+    logger.info(msg)
+    return msg
+
+
+def _purge_duplicate(pth: Path, target_path: Path) -> str | None:
+    """Delete ``pth`` since ``target_path`` exists; returns the action message, None on failure."""
+    try:
+        pth.unlink()
+    except OSError as unlink_err:
+        logger.debug("Failed unlinking duplicate checkpoint %s: %s", pth, unlink_err)
+        return None
+    msg = f"Purged redundant duplicate checkpoint {pth.name} (canonical {target_path.name} exists)"
+    logger.info(msg)
+    return msg
+
+
 def canonicalize_checkpoints(model_hub_dir: Path, checkpoints_dir: Path) -> list[str]:
-    """Scan model directory for legacy-named checkpoints and rename to canonical if canonical does not exist.
+    """Rename legacy-named checkpoints in a model directory to canonical names when missing.
 
     Canonical format:
     - best.pth
@@ -131,55 +189,88 @@ def canonicalize_checkpoints(model_hub_dir: Path, checkpoints_dir: Path) -> list
         return actions
 
     for pth in list(model_hub_dir.rglob("*.pth")):
-        if not pth.is_file():
-            continue
-
         # Strictly ignore transient staging directories
-        pth_resolved_parents = pth.resolve().parents
-        if any(parent.name in (".kaggle_upload_stage", ".export_staging") for parent in pth_resolved_parents):
+        if not pth.is_file() or _in_staging_dir(pth):
             continue
 
-        name_lower = pth.name.lower()
-
-        # Determine target canonical filename
-        target_name: str | None = None
-        if "vault_" in name_lower:
-            metric_part = name_lower.split("vault_")[-1].replace(".pth", "")
-            metric_clean = normalize_metric_name(metric_part)
-            target_name = f"vault_{metric_clean}.pth"
-        elif "best" in name_lower:
-            target_name = "best.pth"
-        elif "latest" in name_lower or "last" in name_lower:
-            target_name = "latest.pth"
-        elif "progress" in name_lower:
-            target_name = "progress.pth"
-
+        target_name = _canonical_checkpoint_name(pth.name.lower())
         if not target_name:
             continue
 
         target_path = checkpoints_dir / target_name
-
         if pth.resolve() == target_path.resolve():
             continue
 
         if not target_path.exists():
-            try:
-                shutil.move(str(pth), str(target_path))
-                msg = f"Renamed legacy checkpoint {pth.name} -> {target_path.name}"
-                actions.append(msg)
-                logger.info(msg)
-            except OSError as move_err:
-                logger.warning("Failed renaming checkpoint %s -> %s: %s", pth, target_path, move_err)
+            msg = _move_to_canonical(pth, target_path)
         else:
-            try:
-                pth.unlink()
-                msg = f"Purged redundant duplicate checkpoint {pth.name} (canonical {target_path.name} exists)"
-                actions.append(msg)
-                logger.info(msg)
-            except OSError as unlink_err:
-                logger.debug("Failed unlinking duplicate checkpoint %s: %s", pth, unlink_err)
+            msg = _purge_duplicate(pth, target_path)
+        if msg is not None:
+            actions.append(msg)
 
     return actions
+
+
+def _is_improvement(val: float, prev_best: float | None, lower_better: bool) -> bool:
+    """True when ``val`` beats ``prev_best`` (always true without a previous best)."""
+    if prev_best is None:
+        return True
+    if lower_better:
+        return val < prev_best
+    return val > prev_best
+
+
+@dataclass(frozen=True)
+class ExportSource:
+    """What :meth:`CheckpointLifecycleManager.export_tri_format` exports.
+
+    The YOLO trainer replaces the model when ``is_yolo`` is set.
+    """
+
+    model: nn.Module | Any | None = None
+    dummy_input: torch.Tensor | None = None
+    is_yolo: bool = False
+    yolo_trainer: Any | None = None
+
+    def target(self) -> Any:
+        """The object handed to the exporter."""
+        return self.yolo_trainer if self.is_yolo else self.model
+
+
+@dataclass(frozen=True)
+class LifecyclePaths:
+    """Authoritative per-model locations under ``LemGendaryModels/[ModelName]``."""
+
+    model_hub_dir: Path
+    checkpoints_dir: Path
+    visualizations_dir: Path
+    metrics_csv_path: Path
+    progress_path: Path
+    latest_path: Path
+    best_path: Path
+
+    @classmethod
+    def for_hub(cls, model_hub_dir: Path) -> LifecyclePaths:
+        """Resolve the checkpoint, visualization and metrics paths of one model hub dir."""
+        checkpoints_dir = (model_hub_dir / "checkpoints").resolve()
+        return cls(
+            model_hub_dir=model_hub_dir,
+            checkpoints_dir=checkpoints_dir,
+            visualizations_dir=(model_hub_dir / "visualizations").resolve(),
+            metrics_csv_path=(model_hub_dir / "metrics.csv").resolve(),
+            progress_path=checkpoints_dir / "progress.pth",
+            latest_path=checkpoints_dir / "latest.pth",
+            best_path=checkpoints_dir / "best.pth",
+        )
+
+
+@dataclass
+class LifecycleTracking:
+    """Mutable save-cadence and best-score state of one lifecycle manager."""
+
+    last_progress_save_time: float
+    best_quality_score: float = float("-inf")
+    vault_bests: dict[str, float] = field(default_factory=dict)
 
 
 class CheckpointLifecycleManager:
@@ -198,106 +289,142 @@ class CheckpointLifecycleManager:
         self.min_progress_interval_sec = min_progress_interval_sec
 
         # Authoritative paths under LemGendaryModels/[ModelName]
-        self.model_hub_dir = get_model_hub_dir(model_name, self.root)
-        self.checkpoints_dir = (self.model_hub_dir / "checkpoints").resolve()
-        self.visualizations_dir = (self.model_hub_dir / "visualizations").resolve()
-        self.metrics_csv_path = (self.model_hub_dir / "metrics.csv").resolve()
+        self.paths = LifecyclePaths.for_hub(get_model_hub_dir(model_name, self.root))
+        self.paths.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        self.paths.visualizations_dir.mkdir(parents=True, exist_ok=True)
 
-        self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
-        self.visualizations_dir.mkdir(parents=True, exist_ok=True)
+        # Enforce canonical naming: rename legacy checkpoints if canonical missing, purge redundant
+        # duplicates
+        canonicalize_checkpoints(self.paths.model_hub_dir, self.paths.checkpoints_dir)
 
-        # Enforce canonical naming: rename legacy checkpoints if canonical missing, purge redundant duplicates
-        canonicalize_checkpoints(self.model_hub_dir, self.checkpoints_dir)
-
-        self.progress_path = self.checkpoints_dir / "progress.pth"
-        self.latest_path = self.checkpoints_dir / "latest.pth"
-        self.best_path = self.checkpoints_dir / "best.pth"
-
-        # Automated safeguard: Purge stale progress.pth if latest.pth represents an equal or newer epoch
-        if self.progress_path.exists() and self.latest_path.exists():
+        # Automated safeguard: Purge stale progress.pth if latest.pth represents an equal or newer
+        # epoch
+        if self.paths.progress_path.exists() and self.paths.latest_path.exists():
             try:
-                p_meta = safe_load_checkpoint(self.progress_path, map_location="cpu")
-                l_meta = safe_load_checkpoint(self.latest_path, map_location="cpu")
+                p_meta = safe_load_checkpoint(self.paths.progress_path, map_location="cpu")
+                l_meta = safe_load_checkpoint(self.paths.latest_path, map_location="cpu")
                 p_ep = int(p_meta.get("epoch", 0)) if isinstance(p_meta, dict) else 0
                 l_ep = int(l_meta.get("epoch", 0)) if isinstance(l_meta, dict) else 0
                 if l_ep >= p_ep:
-                    self.progress_path.unlink()
-                    logger.info("Purged obsolete progress checkpoint %s (progress ep %d <= latest ep %d)", self.progress_path, p_ep, l_ep)
-            except Exception as clean_err:
+                    self.paths.progress_path.unlink()
+                    logger.info(
+                        "Purged obsolete progress checkpoint %s (progress ep %d <= latest ep %d)",
+                        self.paths.progress_path,
+                        p_ep,
+                        l_ep,
+                    )
+            except CHECKPOINT_LOAD_ERRORS as clean_err:
                 logger.debug("Progress checkpoint clean check notice: %s", clean_err)
 
         # Tracking state
-        self.last_progress_save_time = time.time()
-        self.best_quality_score: float = float("-inf")
-        self.vault_bests: dict[str, float] = {}
+        self.tracking = LifecycleTracking(last_progress_save_time=time.time())
 
         # Initialize vault tracking from sota_targets or existing metrics.csv
         self._initialize_vault_history()
-        if self.best_path.exists():
+        if self.paths.best_path.exists():
             try:
-                best_data = safe_load_checkpoint(self.best_path)
+                best_data = safe_load_checkpoint(self.paths.best_path)
                 if isinstance(best_data, dict):
                     saved_q = best_data.get("best_quality_score") or best_data.get("quality_score")
                     if saved_q is not None:
                         q_val = float(saved_q)
-                        self.best_quality_score = max(self.best_quality_score, q_val)
-            except Exception as e:
+                        self.tracking.best_quality_score = max(
+                            self.tracking.best_quality_score, q_val
+                        )
+            except (*CHECKPOINT_LOAD_ERRORS, TypeError) as e:
                 logger.debug("Failed reading best.pth quality score: %s", e)
 
         # Pre-flight asset generation (README and cloud notebooks before Epoch 1)
         self.run_preflight(force=False)
 
+    @property
+    def model_hub_dir(self) -> Path:
+        """``paths.model_hub_dir`` (read-only)."""
+        return self.paths.model_hub_dir
+
+    @property
+    def checkpoints_dir(self) -> Path:
+        """``paths.checkpoints_dir`` (read-only)."""
+        return self.paths.checkpoints_dir
+
+    @property
+    def metrics_csv_path(self) -> Path:
+        """``paths.metrics_csv_path`` (read-only)."""
+        return self.paths.metrics_csv_path
+
+    @property
+    def progress_path(self) -> Path:
+        """``paths.progress_path`` (read-only)."""
+        return self.paths.progress_path
+
+    @property
+    def latest_path(self) -> Path:
+        """``paths.latest_path`` (read-only)."""
+        return self.paths.latest_path
+
+    @property
+    def best_path(self) -> Path:
+        """``paths.best_path`` (read-only)."""
+        return self.paths.best_path
+
     def run_preflight(self, force: bool = False) -> dict[str, Path]:
-        """Generate pre-flight deployment documentation and cloud training notebooks (Rank 0 only)."""
-        import torch.distributed as dist
+        """Generate pre-flight README docs and cloud training notebooks (Rank 0 only)."""
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return {}
         try:
             assets = generate_preflight_assets(self.model_name, self.root, force=force)
-            logger.info("Pre-flight assets verified for %s: %s", self.model_name, list(assets.keys()))
+            logger.info(
+                "Pre-flight assets verified for %s: %s", self.model_name, list(assets.keys())
+            )
             return assets
-        except Exception as exc:
+        except PREFLIGHT_ERRORS as exc:
             logger.warning("Pre-flight generation notice for %s: %s", self.model_name, exc)
             return {}
 
     def _initialize_vault_history(self) -> None:
         """Scan existing metrics.csv to establish historical baselines for vault targets."""
-        if not self.metrics_csv_path.exists():
+        if not self.paths.metrics_csv_path.exists():
             return
 
         try:
-            with open(self.metrics_csv_path, encoding="utf-8", errors="ignore") as f:
+            with open(self.paths.metrics_csv_path, encoding="utf-8", errors="ignore") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    # Quality score baseline
-                    for q_key in ["Quality", "Quality_Score", "quality_score"]:
-                        if row.get(q_key):
-                            try:
-                                q_val = float(row[q_key])
-                                self.best_quality_score = max(self.best_quality_score, q_val)
-                            except ValueError:
-                                pass
-
-                    # SOTA target metric baselines
-                    for target_key in self.sota_targets:
-                        lower_better = is_lower_better(target_key)
-                        norm_target = normalize_metric_name(target_key)
-                        for k, v in row.items():
-                            if k and normalize_metric_name(k) == norm_target and v:
-                                try:
-                                    val = float(v)
-                                    cur = self.vault_bests.get(target_key)
-                                    if cur is None:
-                                        self.vault_bests[target_key] = val
-                                    elif lower_better:
-                                        if val < cur:
-                                            self.vault_bests[target_key] = val
-                                    elif val > cur:
-                                        self.vault_bests[target_key] = val
-                                except ValueError:
-                                    pass
+                    self._absorb_quality_row(row)
+                    self._absorb_vault_row(row)
         except OSError as exc:
             logger.debug("Failed parsing metrics.csv history for vault baselines: %s", exc)
+
+    def _absorb_quality_row(self, row: dict[str, str]) -> None:
+        """Raise the quality score baseline from one metrics.csv row."""
+        for q_key in ["Quality", "Quality_Score", "quality_score"]:
+            if row.get(q_key):
+                try:
+                    q_val = float(row[q_key])
+                    self.tracking.best_quality_score = max(self.tracking.best_quality_score, q_val)
+                except ValueError as q_err:
+                    logger.debug(
+                        "Skipping non-numeric %s value %r in metrics.csv: %s",
+                        q_key,
+                        row[q_key],
+                        q_err,
+                    )
+
+    def _absorb_vault_row(self, row: dict[str, str]) -> None:
+        """Update the SOTA target metric baselines from one metrics.csv row."""
+        for target_key in self.sota_targets:
+            lower_better = is_lower_better(target_key)
+            norm_target = normalize_metric_name(target_key)
+            for k, v in row.items():
+                if not (k and normalize_metric_name(k) == norm_target and v):
+                    continue
+                try:
+                    val = float(v)
+                except ValueError as v_err:
+                    logger.debug("Skipping non-numeric %s value %r in metrics.csv: %s", k, v, v_err)
+                    continue
+                if _is_improvement(val, self.tracking.vault_bests.get(target_key), lower_better):
+                    self.tracking.vault_bests[target_key] = val
 
     def check_and_save_progress(
         self,
@@ -307,9 +434,6 @@ class CheckpointLifecycleManager:
         total_steps: int,
         payload_builder: Callable[[], dict[str, Any]],
     ) -> bool:
-        import torch.distributed as dist
-        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
-            return False
         """Evaluate and conditionally persist progress.pth checkpoint.
 
         Guardrails:
@@ -318,6 +442,8 @@ class CheckpointLifecycleManager:
            0.02 <= (step / total_steps) <= 0.98.
         Avoids saving during initial warmup (<2%) or immediately before epoch completion (>98%).
         """
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return False
         if total_steps <= 0:
             return False
 
@@ -329,7 +455,7 @@ class CheckpointLifecycleManager:
             return False
 
         now = time.time()
-        elapsed = now - self.last_progress_save_time
+        elapsed = now - self.tracking.last_progress_save_time
         if elapsed < self.min_progress_interval_sec:
             return False
 
@@ -344,12 +470,13 @@ class CheckpointLifecycleManager:
             "timestamp": now,
         }
 
-        success = safe_atomic_save(payload, self.progress_path)
+        success = safe_atomic_save(payload, self.paths.progress_path)
         if success:
-            self.last_progress_save_time = now
+            self.tracking.last_progress_save_time = now
             logger.info(
-                "Saved intra-epoch progress checkpoint to %s (Epoch %d, %s phase, step %d/%d = %.1f%%)",
-                self.progress_path,
+                "Saved intra-epoch progress checkpoint to %s (Epoch %d, %s phase, step %d/%d = "
+                "%.1f%%)",
+                self.paths.progress_path,
                 epoch,
                 phase,
                 step,
@@ -357,37 +484,41 @@ class CheckpointLifecycleManager:
                 progress_fraction * 100.0,
             )
             print(
-                f"[PROGRESS] Intra-epoch checkpoint captured: Epoch {epoch} ({phase} {progress_fraction * 100.0:.1f}%) "
-                f"to {self.progress_path.name}",
+                f"[PROGRESS] Intra-epoch checkpoint captured: Epoch {epoch} ({phase} "
+                f"{progress_fraction * 100.0:.1f}%) "
+                f"to {self.paths.progress_path.name}",
                 flush=True,
             )
         else:
-            # Back off for 60 seconds on failure so subsequent 1-second batch iterations do not hammer locked files
-            self.last_progress_save_time = now - self.min_progress_interval_sec + 60.0
+            # Back off for 60 seconds on failure so subsequent 1-second batch iterations do not
+            # hammer locked files
+            self.tracking.last_progress_save_time = now - self.min_progress_interval_sec + 60.0
         return success
 
     def save_latest(self, epoch: int, payload: dict[str, Any]) -> bool:
         """Save latest.pth at epoch completion and immediately purge progress.pth (Rank 0 only)."""
-        import torch.distributed as dist
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return True
-        success = safe_atomic_save(payload, self.latest_path)
+        success = safe_atomic_save(payload, self.paths.latest_path)
         if not success:
             logger.error("Failed saving latest checkpoint at epoch %d", epoch)
             return False
 
-        logger.info("Saved latest checkpoint to %s (Epoch %d)", self.latest_path, epoch)
+        logger.info("Saved latest checkpoint to %s (Epoch %d)", self.paths.latest_path, epoch)
 
         # Immediate action: purge progress.pth upon saving latest.pth
-        if self.progress_path.exists():
+        if self.paths.progress_path.exists():
             try:
-                self.progress_path.unlink()
-                logger.info("Purged intra-epoch progress checkpoint %s after saving latest.pth", self.progress_path)
+                self.paths.progress_path.unlink()
+                logger.info(
+                    "Purged intra-epoch progress checkpoint %s after saving latest.pth",
+                    self.paths.progress_path,
+                )
             except OSError as unlink_err:
                 logger.debug("Failed unlinking progress checkpoint: %s", unlink_err)
 
         # Reset 15-minute timer for upcoming epoch
-        self.last_progress_save_time = time.time()
+        self.tracking.last_progress_save_time = time.time()
         return True
 
     def save_best(
@@ -396,46 +527,38 @@ class CheckpointLifecycleManager:
         quality_score: float,
         payload: dict[str, Any],
         *,
-        model: nn.Module | Any | None = None,
-        dummy_input: torch.Tensor | None = None,
-        is_yolo: bool = False,
-        yolo_trainer: Any | None = None,
+        export: ExportSource | None = None,
     ) -> bool:
         """Save best.pth, invoke universal tri-format export, and refresh README (Rank 0 only)."""
-        import torch.distributed as dist
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return False
-        if quality_score <= self.best_quality_score:
+        if quality_score <= self.tracking.best_quality_score:
             return False
 
-        self.best_quality_score = quality_score
+        self.tracking.best_quality_score = quality_score
         payload["best_quality_score"] = quality_score
         payload["best_epoch"] = epoch
 
-        success = safe_atomic_save(payload, self.best_path)
+        success = safe_atomic_save(payload, self.paths.best_path)
         if not success:
             logger.error("Failed saving best checkpoint at epoch %d", epoch)
             return False
 
         logger.info(
             "Saved new best checkpoint to %s (Epoch %d, Quality Score: %.4f)",
-            self.best_path,
+            self.paths.best_path,
             epoch,
             quality_score,
         )
         print(
-            f"[SOTA] New best checkpoint achieved at Epoch {epoch} (Quality Score: {quality_score:.4f}). "
-            f"Persisted to {self.best_path.name}",
+            f"[SOTA] New best checkpoint achieved at Epoch {epoch} (Quality Score: "
+            f"{quality_score:.4f}). "
+            f"Persisted to {self.paths.best_path.name}",
             flush=True,
         )
 
         # Trigger Universal Tri-Format Export
-        self.export_tri_format(
-            model=model,
-            dummy_input=dummy_input,
-            is_yolo=is_yolo,
-            yolo_trainer=yolo_trainer,
-        )
+        self.export_tri_format(export)
 
         # Refresh LemGendaryModels/[ModelName]/README.md
         self.refresh_readme(epoch, payload.get("best_metrics", {}))
@@ -448,97 +571,77 @@ class CheckpointLifecycleManager:
         metrics: dict[str, float],
         payload: dict[str, Any],
     ) -> list[str]:
-        import torch.distributed as dist
-        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
-            return []
         """Check all target metrics against historical vault milestones.
 
         For each metric defined in sota_targets, if the current epoch sets a new
         best score, saves vault_[metric].pth.
         Returns list of newly achieved vault metric names.
         """
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return []
         achieved_vaults: list[str] = []
 
         for target_key in self.sota_targets:
-            norm_target = normalize_metric_name(target_key)
-            val: float | None = None
-            for k, v in metrics.items():
-                if normalize_metric_name(k) == norm_target:
-                    try:
-                        val = float(v)
-                        break
-                    except (ValueError, TypeError):
-                        pass
-
+            val = _vault_metric_value(target_key, metrics)
             if val is None:
                 continue
 
-            lower_better = is_lower_better(target_key)
-            prev_best = self.vault_bests.get(target_key)
-
-            if prev_best is None:
-                is_milestone = True
-            elif lower_better:
-                is_milestone = (val < prev_best)
-            else:
-                is_milestone = (val > prev_best)
-
-            if is_milestone:
-                self.vault_bests[target_key] = val
+            prev_best = self.tracking.vault_bests.get(target_key)
+            if _is_improvement(val, prev_best, is_lower_better(target_key)):
+                self.tracking.vault_bests[target_key] = val
                 achieved_vaults.append(target_key)
-
-                vault_metric_clean = target_key.lower().strip().replace("-", "_")
-                vault_filename = f"vault_{vault_metric_clean}.pth"
-                vault_path = self.checkpoints_dir / vault_filename
-                vault_payload = dict(payload)
-                vault_payload["vault_metric"] = target_key
-                vault_payload["vault_score"] = val
-                vault_payload["vault_epoch"] = epoch
-
-                saved = safe_atomic_save(vault_payload, vault_path)
-                if saved:
-                    logger.info(
-                        "Saved vault milestone checkpoint to %s: %s = %.4f (Epoch %d)",
-                        vault_path,
-                        target_key,
-                        val,
-                        epoch,
-                    )
-                    print(
-                        f"[VAULT] Milestone achieved: {target_key} = {val:.4f} at Epoch {epoch}. "
-                        f"Saved to {vault_filename}",
-                        flush=True,
-                    )
+                self._save_vault(target_key, val, epoch, payload)
 
         return achieved_vaults
 
-    def export_tri_format(
-        self,
-        model: nn.Module | Any | None = None,
-        dummy_input: torch.Tensor | None = None,
-        is_yolo: bool = False,
-        yolo_trainer: Any | None = None,
-    ) -> dict[str, Path]:
+    def _save_vault(self, target_key: str, val: float, epoch: int, payload: dict[str, Any]) -> None:
+        """Write vault_[metric].pth for a new milestone."""
+        vault_metric_clean = target_key.lower().strip().replace("-", "_")
+        vault_filename = f"vault_{vault_metric_clean}.pth"
+        vault_path = self.paths.checkpoints_dir / vault_filename
+        vault_payload = dict(payload)
+        vault_payload["vault_metric"] = target_key
+        vault_payload["vault_score"] = val
+        vault_payload["vault_epoch"] = epoch
+
+        saved = safe_atomic_save(vault_payload, vault_path)
+        if saved:
+            logger.info(
+                "Saved vault milestone checkpoint to %s: %s = %.4f (Epoch %d)",
+                vault_path,
+                target_key,
+                val,
+                epoch,
+            )
+            print(
+                f"[VAULT] Milestone achieved: {target_key} = {val:.4f} at Epoch {epoch}. "
+                f"Saved to {vault_filename}",
+                flush=True,
+            )
+
+    def export_tri_format(self, source: ExportSource | None = None) -> dict[str, Path]:
         """Trigger universal tri-format export to LemGendaryModels/[ModelName]/."""
-        print(f"[EXPORT] Initiating universal tri-format export for {self.model_name}...", flush=True)
+        print(
+            f"[EXPORT] Initiating universal tri-format export for {self.model_name}...", flush=True
+        )
         try:
-            target_model = yolo_trainer if is_yolo else model
+            source = source or ExportSource()
             exported, _ = export_universal_model(
                 model_key=self.model_name,
-                model=target_model,
-                output_dir=self.model_hub_dir,
-                checkpoint_path=self.best_path if self.best_path.exists() else None,
-                dummy_input=dummy_input,
+                model=source.target(),
+                output_dir=self.paths.model_hub_dir,
+                checkpoint_path=self.paths.best_path if self.paths.best_path.exists() else None,
+                dummy_input=source.dummy_input,
                 stage_dist=True,
             )
             return exported
-        except Exception as exc:
+        except EXPORT_ERRORS as exc:
             logger.error("Universal tri-format export failed for %s: %s", self.model_name, exc)
             return {}
 
     def refresh_readme(self, epoch: int, best_metrics: dict[str, float]) -> None:
         """Update LemGendaryModels/[ModelName]/README.md with current best metrics."""
-        readme_path = self.model_hub_dir / "README.md"
+        readme_path = self.paths.model_hub_dir / "README.md"
         try:
             config_path = self.root / "config.yaml"
             unified_dict = {}
@@ -559,5 +662,23 @@ class CheckpointLifecycleManager:
             )
             readme_path.write_text(readme_content, encoding="utf-8")
             logger.info("Refreshed model hub README at %s", readme_path)
-        except Exception as exc:
+        except (OSError, yaml.YAMLError, KeyError, ValueError, TypeError, AttributeError) as exc:
             logger.debug("Non-fatal README refresh notice for %s: %s", self.model_name, exc)
+
+
+def _vault_metric_value(target_key: str, metrics: dict[str, float]) -> float | None:
+    """First numeric metric whose normalized name matches ``target_key``, else None."""
+    norm_target = normalize_metric_name(target_key)
+    for k, v in metrics.items():
+        if normalize_metric_name(k) == norm_target:
+            try:
+                return float(v)
+            except (ValueError, TypeError) as conv_err:
+                logger.debug(
+                    "Ignoring non-numeric metric %s=%r for vault %s: %s",
+                    k,
+                    v,
+                    target_key,
+                    conv_err,
+                )
+    return None

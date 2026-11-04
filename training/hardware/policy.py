@@ -1,9 +1,10 @@
-"""Execution policy, AMP, cuDNN, and memory format configuration for LemGendary Model Training Suite."""
+"""Execution policy, AMP, cuDNN, and memory format configuration for LemGendary training."""
 
-from dataclasses import dataclass
 import logging
-import torch
+from dataclasses import dataclass
 from typing import Any
+
+import torch
 
 from training.hardware.discovery import DeviceInfo
 
@@ -13,6 +14,7 @@ logger = logging.getLogger("lemtrain.hardware.policy")
 @dataclass(frozen=True)
 class HardwarePolicyResult:
     """Configured execution parameters and mixed-precision state."""
+
     amp_enabled: bool
     amp_dtype: torch.dtype
     cudnn_benchmark: bool
@@ -24,16 +26,43 @@ class HardwarePolicyResult:
 ExecutionPolicy = HardwarePolicyResult
 
 
+def _cuda_amp(hw_cfg: dict[str, Any], device_info: DeviceInfo) -> tuple[bool, torch.dtype]:
+    """``(amp_enabled, amp_dtype)`` for a non-Forex model on CUDA."""
+    # Detect NVIDIA GeForce GTX 16xx series (TU116/TU117 Turing chips without Tensor Cores)
+    # These architectures have a well-documented hardware/driver cuDNN bug that produces NaNs
+    # in FP16 batched 2D convolutions (e.g. batch_size >= 2 at 512x512).
+    gpu_name = torch.cuda.get_device_name(0).lower()
+    is_gtx16xx = any(tag in gpu_name for tag in ("gtx 1660", "gtx 1650", "gtx 1630"))
+
+    if is_gtx16xx:
+        amp_enabled = False
+        logger.info(
+            "AMP disabled on %s to prevent known Turing non-Tensor-Core FP16 convolution NaNs.",
+            gpu_name,
+        )
+    else:
+        amp_enabled = hw_cfg.get("amp_enabled", True)
+
+    # Check for BF16 support on sm_80+
+    use_bf16 = (
+        hw_cfg.get("use_bf16", False)
+        and device_info.capability[0] >= 8
+        and torch.cuda.is_bf16_supported()
+    )
+    amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
+    return amp_enabled, amp_dtype
+
+
 def apply_hardware_policy(
     model_key: str,
     model_info: dict[str, Any],
     device_info: DeviceInfo,
     config: dict[str, Any] | None = None,
 ) -> HardwarePolicyResult:
-    """
-    Apply global execution and mixed-precision policies based on accelerator capabilities and task domain.
-    
-    Forex tasks disable AMP by default due to high dynamic range / overflow risks in return distributions.
+    """Apply execution and mixed-precision policies for the accelerator and task domain.
+
+    Forex tasks disable AMP by default due to high dynamic range / overflow risks in return
+    distributions.
     Vision and restoration models on CUDA sm_70+ utilize AMP FP16 and cuDNN benchmarking.
     """
     cfg = config or {}
@@ -64,21 +93,7 @@ def apply_hardware_policy(
         amp_enabled = False
         logger.info("AMP disabled for Forex model '%s' (FP16 overflow prevention).", model_key)
     elif is_cuda:
-        # Detect NVIDIA GeForce GTX 16xx series (TU116/TU117 Turing chips without Tensor Cores)
-        # These architectures have a well-documented hardware/driver cuDNN bug that produces NaNs
-        # in FP16 batched 2D convolutions (e.g. batch_size >= 2 at 512x512).
-        gpu_name = torch.cuda.get_device_name(0).lower()
-        is_gtx16xx = any(tag in gpu_name for tag in ("gtx 1660", "gtx 1650", "gtx 1630"))
-
-        if is_gtx16xx:
-            amp_enabled = False
-            logger.info("AMP disabled on %s to prevent known Turing non-Tensor-Core FP16 convolution NaNs.", gpu_name)
-        else:
-            amp_enabled = hw_cfg.get("amp_enabled", True)
-
-        # Check for BF16 support on sm_80+
-        use_bf16 = hw_cfg.get("use_bf16", False) and device_info.capability[0] >= 8 and torch.cuda.is_bf16_supported()
-        amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
+        amp_enabled, amp_dtype = _cuda_amp(hw_cfg, device_info)
 
     # 4. GradScaler
     scaler = None
@@ -91,8 +106,14 @@ def apply_hardware_policy(
         channels_last = hw_cfg.get("channels_last", True)
 
     logger.debug(
-        "Hardware policy applied for %s: AMP=%s (%s), cuDNN Benchmark=%s, TF32=%s, Channels-Last=%s",
-        model_key, amp_enabled, amp_dtype, cudnn_benchmark, tf32_enabled, channels_last
+        "Hardware policy applied for %s: AMP=%s (%s), cuDNN Benchmark=%s, TF32=%s, "
+        "Channels-Last=%s",
+        model_key,
+        amp_enabled,
+        amp_dtype,
+        cudnn_benchmark,
+        tf32_enabled,
+        channels_last,
     )
 
     return HardwarePolicyResult(

@@ -1,10 +1,43 @@
-import os
-import sys
-import argparse
-import subprocess
-import glob
+"""Publish trained model binaries (ONNX/PyTorch weights) to GitHub Releases via ``gh``."""
 
-def publish_model_release(model_key, models_root, tag="v1.0.0-sota", repo="lemgenda/lemgendary-pretrained-models"):
+import argparse
+import glob
+import os
+import subprocess
+
+
+def _ensure_release(tag, repo):
+    """Create the GitHub Release ``tag`` in ``repo`` unless it exists; False on failure."""
+    check_cmd = ["gh", "release", "view", tag, "--repo", repo]
+    # Non-zero exit just means the release does not exist yet.
+    res = subprocess.run(check_cmd, capture_output=True, text=True, check=False)
+    if res.returncode == 0:
+        return True
+    print(f"[RELEASE] Creating new GitHub Release: {tag} in {repo}...")
+    create_cmd = [
+        "gh",
+        "release",
+        "create",
+        tag,
+        "--repo",
+        repo,
+        "--title",
+        f"LemGendary SOTA Model Weights ({tag})",
+        "--notes",
+        "Official production weights and ONNX exports for LemGendary AI models.",
+    ]
+    res_create = subprocess.run(create_cmd, capture_output=True, text=True, check=False)
+    if res_create.returncode != 0:
+        print(f"[ERROR] Failed to create release: {res_create.stderr}")
+        print("[REMEDY] Ensure GITHUB_PAT is set with 'repo' permissions.")
+        return False
+    print(f"[OK] Release {tag} created successfully.")
+    return True
+
+
+def publish_model_release(
+    model_key, models_root, tag="v1.0.0-sota", repo="lemgenda/lemgendary-pretrained-models"
+):
     """
     Publishes all compiled binary assets for a given model to a GitHub Release.
     """
@@ -13,75 +46,85 @@ def publish_model_release(model_key, models_root, tag="v1.0.0-sota", repo="lemge
         print(f"[ERROR] Model directory not found: {model_dir}")
         print("[REMEDY] Check if the model has been trained and saved successfully.")
         return False
-        
+
     # Discover all weight binaries
     extensions = ["*.onnx", "*.pt", "*.pth", "*.data", "*.safetensors"]
     asset_files = []
     for ext in extensions:
         asset_files.extend(glob.glob(os.path.join(model_dir, ext)))
-        
+
     if not asset_files:
         print(f"[WARNING] No binary assets found in {model_dir}")
         return False
-        
+
     print(f"\n[RELEASE] Model: {model_key} | Tag: {tag} | Assets ({len(asset_files)}):")
     for a in asset_files:
         size_mb = os.path.getsize(a) / (1024 * 1024)
         print(f"  -> {os.path.basename(a)} ({size_mb:.2f} MB)")
-        
-    # Check if release exists
-    check_cmd = ["gh", "release", "view", tag, "--repo", repo]
-    res = subprocess.run(check_cmd, capture_output=True, text=True)
-    
-    if res.returncode != 0:
-        # Create the release
-        print(f"[RELEASE] Creating new GitHub Release: {tag} in {repo}...")
-        create_cmd = [
-            "gh", "release", "create", tag,
-            "--repo", repo,
-            "--title", f"LemGendary SOTA Model Weights ({tag})",
-            "--notes", f"Official production weights and ONNX exports for LemGendary AI models."
-        ]
-        res_create = subprocess.run(create_cmd, capture_output=True, text=True)
-        if res_create.returncode != 0:
-            print(f"[ERROR] Failed to create release: {res_create.stderr}")
-            print("[REMEDY] Ensure GITHUB_PAT is set with 'repo' permissions.")
-            return False
-        print(f"[OK] Release {tag} created successfully.")
-        
+
+    if not _ensure_release(tag, repo):
+        return False
+
     # Upload assets
     upload_cmd = ["gh", "release", "upload", tag, "--repo", repo, "--clobber"] + asset_files
     print(f"[RELEASE] Uploading {len(asset_files)} assets to {tag}...")
-    res_upload = subprocess.run(upload_cmd, capture_output=True, text=True)
+    res_upload = subprocess.run(upload_cmd, capture_output=True, text=True, check=False)
     if res_upload.returncode == 0:
         print(f"[SUCCESS] Assets for {model_key} successfully uploaded to {repo}@{tag}!")
         return True
-    else:
-        print(f"[ERROR] Asset upload failed: {res_upload.stderr}")
-        print("[REMEDY] Check your network connection and Github API limits.")
-        return False
+    print(f"[ERROR] Asset upload failed: {res_upload.stderr}")
+    print("[REMEDY] Check your network connection and Github API limits.")
+    return False
 
 
-if __name__ == "__main__":
+def main():
+    """CLI entrypoint: publish one model (--model) or every model (--all)."""
     parser = argparse.ArgumentParser(description="LemGendary GitHub Releases Publisher")
-    parser.add_argument("--model", type=str, help="Publish binary weights for a specific model key.")
-    parser.add_argument("--all", action="store_true", help="Publish binary weights for all available models.")
-    parser.add_argument("--tag", type=str, default="v1.0.0-sota", help="GitHub Release tag (default: v1.0.0-sota).")
-    parser.add_argument("--repo", type=str, default="lemgenda/lemgendary-pretrained-models", help="GitHub repository.")
+    parser.add_argument(
+        "--model", type=str, help="Publish binary weights for a specific model key."
+    )
+    parser.add_argument(
+        "--all", action="store_true", help="Publish binary weights for all available models."
+    )
+    parser.add_argument(
+        "--tag", type=str, default="v1.0.0-sota", help="GitHub Release tag (default: v1.0.0-sota)."
+    )
+    parser.add_argument(
+        "--repo",
+        type=str,
+        default="lemgenda/lemgendary-pretrained-models",
+        help="GitHub repository.",
+    )
     args = parser.parse_args()
-    
+
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    models_root = os.path.abspath(os.path.join(base_dir, "../LemGendaryModels"))
-    
+    models_root = os.path.abspath(os.path.join(base_dir, "..", "LemGendaryModels"))
+
     if args.all:
-        model_dirs = sorted([d for d in os.listdir(models_root) if os.path.isdir(os.path.join(models_root, d)) and not d.startswith('.')])
-        print(f"[START] Publishing weights for {len(model_dirs)} models to {args.repo} ({args.tag})...")
+        model_dirs = sorted(
+            [
+                d
+                for d in os.listdir(models_root)
+                if os.path.isdir(os.path.join(models_root, d)) and not d.startswith(".")
+            ]
+        )
+        print(
+            f"[START] Publishing weights for {len(model_dirs)} models "
+            f"to {args.repo} ({args.tag})..."
+        )
         success_count = 0
         for m in model_dirs:
             if publish_model_release(m, models_root, tag=args.tag, repo=args.repo):
                 success_count += 1
-        print(f"\n[DONE] Successfully published {success_count}/{len(model_dirs)} models to GitHub Releases.")
+        print(
+            f"\n[DONE] Successfully published {success_count}/{len(model_dirs)} models "
+            "to GitHub Releases."
+        )
     elif args.model:
         publish_model_release(args.model, models_root, tag=args.tag, repo=args.repo)
     else:
         parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

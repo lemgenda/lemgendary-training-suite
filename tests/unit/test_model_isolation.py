@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from training.export.validation import StrictIsolationValidator
 
 
 class TestModelIsolation(unittest.TestCase):
-    """Verifies that variation folders strictly isolate binary formats with zero cross-contamination."""
+    """Verifies variation folders strictly isolate binary formats with zero cross-contamination."""
 
     def setUp(self) -> None:
         self.validator = StrictIsolationValidator()
@@ -99,9 +99,8 @@ class TestModelIsolation(unittest.TestCase):
             self.assertTrue(report.is_valid)
             self.assertEqual(len(report.variations), 4)
 
-
     def test_validate_all_single_source_of_truth(self) -> None:
-        """Verify validate_all passes when pytorch/default is directly in model root checkpoints without duplicates."""
+        """Verify validate_all passes with pytorch/default in root checkpoints, no duplicates."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             model_root = Path(tmp_dir)
             (model_root / "checkpoints").mkdir(parents=True)

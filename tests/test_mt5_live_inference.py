@@ -5,26 +5,27 @@ Validates end-to-end multi-timeframe feature calculation, tensor ingestion,
 model inference, and trade execution signals with sub-5ms latency verification.
 """
 
-import os
-import sys
 import time
 import unittest
-import torch
+
 import numpy as np
-import pandas as pd
+import pytest
+import torch
 
-# Anchor root
-_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _root not in sys.path:
-    sys.path.insert(0, _root)
+# pandas is an optional dependency of the MT5 Forex pipeline only (requirements.txt,
+# not the core pyproject dependency set); skip this module cleanly when absent.
+try:
+    import pandas as pd
+except ImportError as exc:
+    pytest.skip(f"pandas is not installed: {exc}", allow_module_level=True)
 
-from data.mt5_pipeline import (
+from data.forex_spec import PAIR_INDEX, TIMEFRAME_LOOKBACK
+from data.mt5_features import (
     FEATURES,
-    TITAN_PAIRS,
-    PAIR_INDEX,
-    TIMEFRAME_LOOKBACK,
     compute_indicators,
     normalize_ohlcv,
+)
+from data.mt5_terminal import (
     connect_mt5,
     disconnect_mt5,
     download_bars,
@@ -46,25 +47,32 @@ def generate_synthetic_candles(n_bars: int = 600) -> pd.DataFrame:
     open_ = close + np.random.randn(n_bars) * 0.0002
     volume = np.random.randint(100, 5000, size=n_bars)
 
-    df = pd.DataFrame({
-        "time": dt_index,
-        "open": open_,
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": volume,
-    })
+    df = pd.DataFrame(
+        {
+            "time": dt_index,
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+        }
+    )
     return df
 
 
 def test_multi_timeframe_live_pipeline():
+    """Run the multi-timeframe forex pipeline end to end and return the model outputs."""
     print("\n" + "=" * 80, flush=True)
     print(" [MT5 INFERENCE TEST] Starting Multi-Timeframe Forex Inference Suite", flush=True)
     print("=" * 80, flush=True)
 
     # 1. MT5 Terminal Discovery
     mt5_active = connect_mt5()
-    print(f" -> MT5 Terminal Connection: {'LIVE' if mt5_active else 'OFFLINE (Running Synthetic Mock)'}", flush=True)
+    print(
+        " -> MT5 Terminal Connection: "
+        f"{'LIVE' if mt5_active else 'OFFLINE (Running Synthetic Mock)'}",
+        flush=True,
+    )
 
     # 2. Multi-Timeframe Tensors Setup
     active_tfs = [1, 5, 15, 60, 240, 1440]
@@ -73,22 +81,7 @@ def test_multi_timeframe_live_pipeline():
     print(f" -> Target Asset: {test_pair} (Pair ID: {pair_id})", flush=True)
     print(f" -> Active Confluence Ladder: {active_tfs} (M1, M5, M15, H1, H4, D1)", flush=True)
 
-    tf_inputs = {}
-    for tf in active_tfs:
-        seq_len = TIMEFRAME_LOOKBACK[tf]
-        if mt5_active:
-            raw_df = download_bars(test_pair, tf, n_bars=seq_len + 50)
-            if raw_df is None or len(raw_df) < seq_len:
-                print(f"    [WARN] Live pull failed for {test_pair}@{tf}m, falling back to mock.", flush=True)
-                raw_df = generate_synthetic_candles(seq_len + 50)
-        else:
-            raw_df = generate_synthetic_candles(seq_len + 50)
-
-        df_ind = compute_indicators(raw_df)
-        df_norm = normalize_ohlcv(df_ind)
-        features = df_norm[FEATURES].values[-seq_len:]
-        tf_inputs[tf] = torch.from_numpy(np.array(features, copy=True)).float().unsqueeze(0)  # [1, seq_len, 14]
-        print(f"    [OK] Timeframe {tf}m Tensor Built: Shape {list(tf_inputs[tf].shape)}", flush=True)
+    tf_inputs = _build_timeframe_inputs(test_pair, active_tfs, mt5_active)
 
     # 3. Model Instantiation & Forward Pass
     print("\n -> Instantiating ForexPredictor (4 Heads, Cross-Timeframe Fusion)...", flush=True)
@@ -101,8 +94,46 @@ def test_multi_timeframe_live_pipeline():
     )
     model.eval()
 
-    pair_tensor = torch.tensor([pair_id], dtype=torch.long)
+    preds = _benchmark_latency(model, tf_inputs, torch.tensor([pair_id], dtype=torch.long))
+    _print_signal(test_pair, preds)
 
+    if mt5_active:
+        disconnect_mt5()
+
+    print(" [SUCCESS] All MT5 Inference & Latency assertions passed successfully.\n", flush=True)
+    return preds
+
+
+def _build_timeframe_inputs(test_pair: str, active_tfs: list[int], mt5_active: bool) -> dict:
+    """Build one normalised ``[1, seq_len, features]`` tensor per timeframe (live or synthetic)."""
+    tf_inputs = {}
+    for tf in active_tfs:
+        seq_len = TIMEFRAME_LOOKBACK[tf]
+        if mt5_active:
+            raw_df = download_bars(test_pair, tf, n_bars=seq_len + 50)
+            if raw_df is None or len(raw_df) < seq_len:
+                print(
+                    f"    [WARN] Live pull failed for {test_pair}@{tf}m, falling back to mock.",
+                    flush=True,
+                )
+                raw_df = generate_synthetic_candles(seq_len + 50)
+        else:
+            raw_df = generate_synthetic_candles(seq_len + 50)
+
+        df_ind = compute_indicators(raw_df)
+        df_norm = normalize_ohlcv(df_ind)
+        features = df_norm[FEATURES].values[-seq_len:]
+        tf_inputs[tf] = (
+            torch.from_numpy(np.array(features, copy=True)).float().unsqueeze(0)
+        )  # [1, seq_len, 14]
+        print(
+            f"    [OK] Timeframe {tf}m Tensor Built: Shape {list(tf_inputs[tf].shape)}", flush=True
+        )
+    return tf_inputs
+
+
+def _benchmark_latency(model: ForexPredictor, tf_inputs: dict, pair_tensor: torch.Tensor) -> dict:
+    """Time 100 forward passes after a warm-up; print mean/P95 latency; return the last outputs."""
     # 4. Latency Benchmark (100 Iterations)
     print(" -> Benchmarking Inference Latency over 100 passes...", flush=True)
     latencies = []
@@ -120,8 +151,17 @@ def test_multi_timeframe_live_pipeline():
 
     avg_lat = np.mean(latencies)
     p95_lat = np.percentile(latencies, 95)
-    print(f"    [LATENCY] Mean: {avg_lat:.2f} ms | P95: {p95_lat:.2f} ms | Sub-5ms Target: {'PASS' if avg_lat < 5.0 else 'EXCEEDED'}", flush=True)
+    print(
+        f"    [LATENCY] Mean: {avg_lat:.2f} ms | P95: {p95_lat:.2f} ms | "
+        f"Sub-5ms Target: {'PASS' if avg_lat < 5.0 else 'EXCEEDED'}",
+        flush=True,
+    )
 
+    return preds
+
+
+def _print_signal(test_pair: str, preds: dict) -> None:
+    """Print the direction, confidence and TP/SL read from the model outputs."""
     # 5. Output Signal Parsing
     dir_logits = preds["direction_logits"]
     mag_preds = preds["magnitude"]
@@ -135,23 +175,23 @@ def test_multi_timeframe_live_pipeline():
     print("\n" + "-" * 80, flush=True)
     print(f" [SIGNAL RESULT] Asset: {test_pair}", flush=True)
     print(f"  -> Direction:       {dir_map[pred_dir_idx]}", flush=True)
-    print(f"  -> Confidence:      {probs[pred_dir_idx]*100:.2f}% (Probabilities: Sell={probs[0]*100:.1f}%, Hold={probs[1]*100:.1f}%, Buy={probs[2]*100:.1f}%)", flush=True)
+    print(
+        f"  -> Confidence:      {probs[pred_dir_idx] * 100:.2f}% "
+        f"(Probabilities: Sell={probs[0] * 100:.1f}%, Hold={probs[1] * 100:.1f}%, "
+        f"Buy={probs[2] * 100:.1f}%)",
+        flush=True,
+    )
     print(f"  -> Target Take-Profit: {tp_pips:.1f} pips", flush=True)
     print(f"  -> Risk Stop-Loss:     {sl_pips:.1f} pips", flush=True)
     print(f"  -> Risk/Reward Ratio:  {tp_pips / max(0.1, sl_pips):.2f}", flush=True)
     print("-" * 80, flush=True)
-
-    if mt5_active:
-        disconnect_mt5()
-
-    print(" [SUCCESS] All MT5 Inference & Latency assertions passed successfully.\n", flush=True)
-    return preds
 
 
 class TestMT5LiveInference(unittest.TestCase):
     """Unit/Integration wrapper for MT5 multi-timeframe inference pipeline."""
 
     def test_multi_timeframe_live_pipeline(self) -> None:
+        """Verify the pipeline returns direction logits and magnitude predictions."""
         preds = test_multi_timeframe_live_pipeline()
         self.assertIn("direction_logits", preds)
         self.assertIn("magnitude", preds)

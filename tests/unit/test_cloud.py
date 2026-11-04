@@ -1,11 +1,12 @@
 """Unit tests for cloud subsystem: credentials, git, kaggle, and gdrive bit-exact parity."""
 
-import hashlib
-import os
-from pathlib import Path
+import shutil
 import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
+from training.cloud import gdrive
 from training.cloud.credentials import (
     mask_secret,
     resolve_gdrive_credentials,
@@ -15,13 +16,14 @@ from training.cloud.credentials import (
 from training.cloud.gdrive import GDriveSyncManager, compute_file_sha256
 from training.cloud.git_hub import GitHubSyncManager
 from training.cloud.kaggle_hub import KaggleHubManager
-from training.cloud.manager import CloudManager, CloudSyncError
+from training.cloud.manager import CloudSyncError
 
 
 class TestCloudCredentials(unittest.TestCase):
     """Tests for credentials parsing and stealth masking."""
 
     def test_mask_secret(self) -> None:
+        """Verify secrets are masked inside command strings."""
         raw = "git clone https://ghp_secretToken12345@github.com/repo.git"
         secret = "ghp_secretToken12345"
         masked = mask_secret(raw, secret)
@@ -33,10 +35,13 @@ class TestCloudCredentials(unittest.TestCase):
         self.assertEqual(mask_secret("hello world", "ab"), "hello world")
 
     def test_resolve_credentials_overrides(self) -> None:
+        """Verify explicit credential overrides take precedence."""
         gh_token = resolve_github_credentials(override_pat="test_gh_token")
         self.assertEqual(gh_token, "test_gh_token")
 
-        k_user, k_key = resolve_kaggle_credentials(override_user="custom_user", override_key="custom_key")
+        k_user, k_key = resolve_kaggle_credentials(
+            override_user="custom_user", override_key="custom_key"
+        )
         self.assertEqual(k_user, "custom_user")
         self.assertEqual(k_key, "custom_key")
 
@@ -48,6 +53,7 @@ class TestCloudSyncError(unittest.TestCase):
     """Tests for structured CloudSyncError."""
 
     def test_error_attributes(self) -> None:
+        """Verify CloudSyncError exposes code, message and retryable."""
         err = CloudSyncError(code="NET_ERR", message="Connection reset", retryable=True)
         self.assertEqual(err.code, "NET_ERR")
         self.assertEqual(err.message, "Connection reset")
@@ -60,6 +66,7 @@ class TestGitHubSyncManager(unittest.TestCase):
     """Tests for GitHubSyncManager setup and health probing."""
 
     def test_probe_health(self) -> None:
+        """Verify the GitHub sync manager health probe reports its status."""
         with tempfile.TemporaryDirectory() as tmp:
             mgr = GitHubSyncManager(hub_root=Path(tmp), hub_user="testuser")
             health = mgr.probe_health()
@@ -72,6 +79,7 @@ class TestKaggleHubManager(unittest.TestCase):
     """Tests for KaggleHubManager handle and bundle creation."""
 
     def test_handle_generation(self) -> None:
+        """Verify Kaggle model handles are built as user/slug/framework/variation."""
         mgr = KaggleHubManager(username="tester")
         handle = mgr.get_handle("mirnet_exposure")
         self.assertEqual(handle, "tester/mirnet-exposure/pytorch/default")
@@ -81,6 +89,7 @@ class TestKaggleHubManager(unittest.TestCase):
         self.assertEqual(nima_handle, "tester/nima-aesthetics/pytorch/default")
 
     def test_create_cloud_kernel_bundle(self) -> None:
+        """Verify the Kaggle cloud kernel bundle contains metadata and the training script."""
         mgr = KaggleHubManager(username="tester")
         bundle_dir = mgr.create_cloud_kernel_bundle("test_model", gpu="T4")
         try:
@@ -88,16 +97,20 @@ class TestKaggleHubManager(unittest.TestCase):
             self.assertTrue((bundle_dir / "kernel-metadata.json").exists())
             self.assertTrue((bundle_dir / "train_cloud.py").exists())
         finally:
-            import shutil
             if bundle_dir.exists():
-                shutil.rmtree(bundle_dir, ignore_errors=True)
+                shutil.rmtree(bundle_dir)
 
 
 class TestGDriveBitExactParity(unittest.TestCase):
     """Gate 7: Verify bit-exact SHA256 parity during push and pull."""
 
     def test_push_and_pull_bit_exact_parity(self) -> None:
-        with tempfile.TemporaryDirectory() as source_tmp, tempfile.TemporaryDirectory() as mount_tmp, tempfile.TemporaryDirectory() as dest_tmp:
+        """Verify a GDrive push followed by a pull is bit-exact."""
+        with (
+            tempfile.TemporaryDirectory() as source_tmp,
+            tempfile.TemporaryDirectory() as mount_tmp,
+            tempfile.TemporaryDirectory() as dest_tmp,
+        ):
             source_dir = Path(source_tmp)
             mount_dir = Path(mount_tmp)
             dest_dir = Path(dest_tmp)
@@ -105,32 +118,59 @@ class TestGDriveBitExactParity(unittest.TestCase):
             # 1. Create a deterministic fixture model checkpoint
             ckpt_dir = source_dir / "checkpoints"
             ckpt_dir.mkdir()
-            payload = b"LEMGENDARY_TEST_CHECKPOINT_DATA_1234567890_XYZ"
             ckpt_file = ckpt_dir / "best_model.pth"
-            ckpt_file.write_bytes(payload)
+            ckpt_file.write_bytes(b"LEMGENDARY_TEST_CHECKPOINT_DATA_1234567890_XYZ")
 
             src_hash = compute_file_sha256(ckpt_file)
 
             # 2. Sync to simulated Google Drive mount
             mgr = GDriveSyncManager(mount_root=mount_dir)
-            sync_ok = mgr.sync("test_model", epoch=1, src_dir=source_dir)
-            self.assertTrue(sync_ok)
+            self.assertTrue(mgr.sync("test_model", epoch=1, src_dir=source_dir))
 
             # Verify synced file on mount
-            mounted_ckpt = mount_dir / "LemGendaryModels" / "test_model" / "checkpoints" / "best_model.pth"
+            mounted_ckpt = (
+                mount_dir / "LemGendaryModels" / "test_model" / "checkpoints" / "best_model.pth"
+            )
             self.assertTrue(mounted_ckpt.exists())
             self.assertEqual(compute_file_sha256(mounted_ckpt), src_hash)
 
             # 3. Pull back to a new destination directory
-            pull_ok = mgr.pull("test_model", dest_dir=dest_dir)
-            self.assertTrue(pull_ok)
+            self.assertTrue(mgr.pull("test_model", dest_dir=dest_dir))
 
             # 4. Verify bit-exact SHA256 digest on pulled artifact
             pulled_ckpt = dest_dir / "checkpoints" / "best_model.pth"
             self.assertTrue(pulled_ckpt.exists())
-            pulled_hash = compute_file_sha256(pulled_ckpt)
+            self.assertEqual(compute_file_sha256(pulled_ckpt), src_hash)
 
-            self.assertEqual(pulled_hash, src_hash)
+
+class TestGDriveMountDiscovery(unittest.TestCase):
+    """Google Drive mount roots come from the environment or a drive scan, not a fixed letter."""
+
+    def test_env_root_is_probed_first(self) -> None:
+        """``LEMGENDARY_GDRIVE_ROOT`` names the mount when it exists."""
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict("os.environ", {gdrive.GDRIVE_ROOT_ENV: tmp}),
+        ):
+            self.assertEqual(gdrive.mount_candidates()[0], Path(tmp))
+            self.assertEqual(GDriveSyncManager.resolve_mounted_root(), Path(tmp).resolve())
+
+    def test_desktop_drive_found_on_any_letter(self) -> None:
+        """A ``My Drive`` folder at a scanned drive root is the mount."""
+        with tempfile.TemporaryDirectory() as tmp:
+            my_drive = Path(tmp) / "My Drive"
+            my_drive.mkdir()
+            with (
+                mock.patch.dict("os.environ", {gdrive.GDRIVE_ROOT_ENV: ""}),
+                mock.patch.object(gdrive, "_COLAB_MOUNTS", ()),
+                mock.patch.object(gdrive, "drive_letter_roots", return_value=[Path(tmp)]),
+            ):
+                self.assertEqual(GDriveSyncManager.resolve_mounted_root(), my_drive.resolve())
+
+    def test_drive_letter_roots_exist(self) -> None:
+        """Every scanned drive root exists (and none are scanned off Windows)."""
+        roots = gdrive.drive_letter_roots()
+        self.assertTrue(all(root.exists() for root in roots))
 
 
 if __name__ == "__main__":

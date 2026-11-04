@@ -7,15 +7,71 @@ and execution loops without subprocess self-invocation.
 from __future__ import annotations
 
 import argparse
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any
 
 import yaml
 
+from training.core_loop import build_training_context
+from training.governance.yolo_governor import run_governed_yolo_training
+from training.services.notebook_service import NotebookService
+from training.training.engine import TrainingSummary, run_training
 from training.utils.paths import get_project_root
 
-if TYPE_CHECKING:
-    from training.training.engine import TrainingSummary
+logger = logging.getLogger("lemtrain.services.training_service")
+
+
+@dataclass(frozen=True)
+class TrainHyperparams:
+    """Run-size overrides; ``None`` keeps the preset/config value.
+
+    Attributes:
+        epochs: Total training epochs (overrides preset/config if specified).
+        batch_size: Physical batch size per gradient step.
+        lr: Base learning rate.
+        preset: Optional preset profile name from presets.yaml.
+        resolution: Selected input spatial resolution or timeframe horizon.
+    """
+
+    epochs: int | None = None
+    batch_size: int | None = None
+    lr: float | None = None
+    preset: str | None = None
+    resolution: int | None = None
+
+
+@dataclass(frozen=True)
+class TrainRequest:
+    """One in-process training run.
+
+    Attributes:
+        model_key: Target model key registered in unified_models.yaml.
+        hyper: Epochs, batch size, learning rate, preset and resolution overrides.
+        env: Execution environment ('local', 'kaggle', 'colab').
+        clean: Whether to ignore prior checkpoints and start fresh from epoch 1.
+        auto_sync: Enable automated cloud synchronization.
+        parallel: Parallel strategy ('auto', 'single', 'dp', 'ddp').
+        enable_sawtooth: Enable Sawtooth VRAM Governor memory protection.
+    """
+
+    model_key: str
+    hyper: TrainHyperparams = TrainHyperparams()
+    env: str = "local"
+    clean: bool = False
+    auto_sync: bool = False
+    parallel: str = "auto"
+    enable_sawtooth: bool = True
+
+    @classmethod
+    def from_options(cls, model_key: str, **options: Any) -> TrainRequest:
+        """Build a request from flat keyword options (hyperparameters and run flags mixed)."""
+        hyper_names = {f.name for f in fields(TrainHyperparams)}
+        hyper = TrainHyperparams(**{k: v for k, v in options.items() if k in hyper_names})
+        flags = {k: v for k, v in options.items() if k not in hyper_names}
+        return cls(model_key=model_key, hyper=hyper, **flags)
 
 
 class TrainingService:
@@ -48,54 +104,19 @@ class TrainingService:
         presets = self.load_presets()
         return presets.get(preset_name)
 
-    def train(
-        self,
-        model_key: str,
-        epochs: int | None = None,
-        batch_size: int | None = None,
-        lr: float | None = None,
-        preset: str | None = None,
-        env: str = "local",
-        clean: bool = False,
-        auto_sync: bool = False,
-        parallel: str = "auto",
-        resolution: int | None = None,
-        enable_sawtooth: bool = True,
-        on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
-        cancel_check: Callable[[], bool] | None = None,
-    ) -> TrainingSummary:
-        """Execute a training job in-process.
-
-        Args:
-            model_key: Target model key registered in unified_models.yaml.
-            epochs: Total training epochs (overrides preset/config if specified).
-            batch_size: Physical batch size per gradient step.
-            lr: Base learning rate.
-            preset: Optional preset profile name from presets.yaml.
-            env: Execution environment ('local', 'kaggle', 'colab').
-            clean: Whether to ignore prior checkpoints and start fresh from epoch 1.
-            auto_sync: Enable automated cloud synchronization.
-            parallel: Parallel strategy ('auto', 'single', 'dp', 'ddp').
-            resolution: Selected input spatial resolution or timeframe horizon.
-            enable_sawtooth: Enable Sawtooth VRAM Governor memory protection.
-            on_epoch_end: Optional callback invoked after each epoch.
-            cancel_check: Optional callable returning True when cancellation is requested.
-
-        Returns:
-            TrainingSummary: Completed run metrics and summary.
-        """
-        # 0. Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds, and training dirs
+    def _sync_notebooks(self, model_key: str) -> None:
+        """Regenerate the model's notebooks; failures only skip this pre-flight step."""
         try:
-            from training.services.notebook_service import NotebookService
             nb_service = NotebookService(project_root=self.project_root)
             nb_service.generate_notebooks(model_key=model_key, platform="all")
-        except Exception as e:
-            import logging
-            logging.getLogger("lemtrain").warning(f"Pre-flight notebook generation skipped for {model_key}: {e}")
+        except (OSError, yaml.YAMLError, ValueError, KeyError, TypeError, AttributeError) as e:
+            logger.warning("Pre-flight notebook generation skipped for %s: %s", model_key, e)
 
-        # 1. Resolve preset parameters if requested
-        if preset:
-            preset_cfg = self.get_preset(preset)
+    def _with_preset(self, hyper: Any) -> tuple[Any, Any, Any]:
+        """``(epochs, batch_size, lr)``; unset values come from ``hyper.preset`` if given."""
+        epochs, batch_size, lr = hyper.epochs, hyper.batch_size, hyper.lr
+        if hyper.preset:
+            preset_cfg = self.get_preset(hyper.preset)
             if preset_cfg:
                 if epochs is None:
                     epochs = preset_cfg.get("epochs")
@@ -103,6 +124,32 @@ class TrainingService:
                     batch_size = preset_cfg.get("batch_size")
                 if lr is None:
                     lr = preset_cfg.get("learning_rate")
+        return epochs, batch_size, lr
+
+    def train(
+        self,
+        request: TrainRequest,
+        *,
+        on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> TrainingSummary:
+        """Execute a training job in-process.
+
+        Args:
+            request: Model key and run options (see :class:`TrainRequest`).
+            on_epoch_end: Optional callback invoked after each epoch.
+            cancel_check: Optional callable returning True when cancellation is requested.
+
+        Returns:
+            TrainingSummary: Completed run metrics and summary.
+        """
+        model_key, hyper = request.model_key, request.hyper
+        # 0. Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds,
+        # and training dirs
+        self._sync_notebooks(model_key)
+
+        # 1. Resolve preset parameters if requested
+        epochs, batch_size, lr = self._with_preset(hyper)
 
         # 2. Build synthetic CLI namespace for deterministic context builder
         args = argparse.Namespace(
@@ -110,23 +157,25 @@ class TrainingService:
             epochs=epochs,
             batch_size=batch_size,
             lr=lr,
-            env=env,
+            env=request.env,
             prefetch_datasets="",
             hub_user=None,
             hub_repo=None,
-            auto_sync=auto_sync,
+            auto_sync=request.auto_sync,
             reset_scheduler=False,
-            clean=clean,
+            clean=request.clean,
             phase=1,
             fold=1,
             pairs=None,
-            timeframes=[resolution] if resolution and model_key == "forex_predictor" else None,
-            resolution=resolution,
-            enable_sawtooth=enable_sawtooth,
+            timeframes=(
+                [hyper.resolution] if hyper.resolution and model_key == "forex_predictor" else None
+            ),
+            resolution=hyper.resolution,
+            enable_sawtooth=request.enable_sawtooth,
             num_workers=None,
             val_num_workers=None,
             enable_batch_growth=False,
-            parallel=parallel,
+            parallel=request.parallel,
         )
 
         # 3. Intercept yolov8n before building TrainingContext - it uses Ultralytics native trainer
@@ -134,8 +183,7 @@ class TrainingService:
             config_path = self.project_root / "config.yaml"
             with open(config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
-            from training.core_loop import _run_yolo_native
-            return _run_yolo_native(
+            return run_governed_yolo_training(
                 args,
                 config,
                 self.project_root,
@@ -144,9 +192,6 @@ class TrainingService:
             )
 
         # 4. Construct deterministic TrainingContext
-        from training.core_loop import build_training_context
-        from training.training.engine import run_training
-
         ctx = build_training_context(args)
 
         # 5. Run training coordinator

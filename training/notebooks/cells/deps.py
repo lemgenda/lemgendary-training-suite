@@ -33,7 +33,10 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "            cuda_tag = 'cu' + ''.join(parts)\n",
             "            torch_index = f'https://download.pytorch.org/whl/{cuda_tag}'\n",
             "            accel_type = f'cuda_{cuda_tag}'\n",
-            "        elif hasattr(torch, 'version') and hasattr(torch.version, 'hip') and torch.version.hip:\n",
+            (
+                "        elif hasattr(torch, 'version') and hasattr(torch.version, 'hip') and "
+                "torch.version.hip:\n"
+            ),
             "            v = torch.version.hip or ''\n",
             "            parts = v.split('.')[:2]\n",
             "            rocm_tag = 'rocm' + '.'.join(parts)\n",
@@ -50,8 +53,14 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "print(f'[ENV] PyTorch index: {torch_index}')\n",
             "\n",
             "req_candidates = [\n",
-            "    '/kaggle/working/lemgendary-env-manager/requirements/requirements-training.txt',\n",
-            "    '/kaggle/working/lemgendary-env-manager/requirements/lemgendary-training-suite.requirements.txt',\n",
+            (
+                "    '/kaggle/working/lemgendary-env-manager/requirements/requirements-training.txt"
+                "',\n"
+            ),
+            (
+                "    '/kaggle/working/lemgendary-env-manager/requirements/lemgendary-training-suite"
+                ".requirements.txt',\n"
+            ),
             "    '/kaggle/working/lemgendary-training-suite/requirements.txt',\n",
             "    '/kaggle/working/model-training/lemgendary-training-suite/requirements.txt',\n",
             "]\n",
@@ -60,7 +69,10 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "if req_path:\n",
             "    print(f'[ENV] Manifest: {req_path}')\n",
             "    res = subprocess.run(\n",
-            "        [sys.executable, '-m', 'pip', 'install', '-q', '--upgrade', 'kaggle>=2.2.5',\n",
+            (
+                "        [sys.executable, '-m', 'pip', 'install', '-q', '--upgrade', "
+                "'kaggle>=2.2.5',\n"
+            ),
             "         '--extra-index-url', torch_index,\n",
             "         '--upgrade-strategy', 'only-if-needed',\n",
             "         '-r', req_path],\n",
@@ -75,16 +87,32 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "        except Exception:\n",
             "            pass\n",
             "    else:\n",
-            "        print('[WARNING] Dependency installation finished with non-zero exit code.')\n",
+            (
+                "        print('[WARNING] Dependency installation finished with non-zero exit "
+                "code.')\n"
+            ),
             "        if res.stderr:\n",
             "            print(res.stderr[-2000:])\n",
             "else:\n",
             "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
-            "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the repository.\")\n",
-            "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n",
-            "    print('[ACTION REQUIRED] Fix: Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n",
+            (
+                "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the "
+                'repository.")\n'
+            ),
+            (
+                "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because "
+                "SUITE_PAT/GITHUB_PAT is missing from Kaggle Secrets.')\n"
+            ),
+            (
+                "    print('[ACTION REQUIRED] Fix: Go to Kaggle Notebook top bar -> Add-ons -> "
+                "Secrets -> Add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n"
+            ),
             "    print('[INFO] Installing core container streaming dependencies as fallback...')\n",
-            "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'webdataset==1.0.2', 'litdata>=0.2.0,<1.0.0', 'pyarrow>=25.0.1', 'zstandard>=0.23.0'])\n",
+            (
+                "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', "
+                "'webdataset==1.0.2', 'litdata>=0.2.0,<1.0.0', 'pyarrow>=25.0.1', "
+                "'zstandard>=0.23.0'])\n"
+            ),
         ]
     else:
         source = [
@@ -108,7 +136,10 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "            cuda_tag = 'cu' + ''.join(parts)\n",
             "            torch_index = f'https://download.pytorch.org/whl/{cuda_tag}'\n",
             "            accel_type = f'cuda_{cuda_tag}'\n",
-            "        elif hasattr(torch, 'version') and hasattr(torch.version, 'hip') and torch.version.hip:\n",
+            (
+                "        elif hasattr(torch, 'version') and hasattr(torch.version, 'hip') and "
+                "torch.version.hip:\n"
+            ),
             "            v = torch.version.hip or ''\n",
             "            parts = v.split('.')[:2]\n",
             "            rocm_tag = 'rocm' + '.'.join(parts)\n",
@@ -122,7 +153,10 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "\n",
             "req_candidates = [\n",
             "    '/content/lemgendary-env-manager/requirements/requirements-training.txt',\n",
-            "    '/content/lemgendary-env-manager/requirements/lemgendary-training-suite.requirements.txt',\n",
+            (
+                "    '/content/lemgendary-env-manager/requirements/lemgendary-training-suite.requir"
+                "ements.txt',\n"
+            ),
             "    '/content/lemgendary-training-suite/requirements.txt',\n",
             "    '/content/model-training/lemgendary-training-suite/requirements.txt',\n",
             "]\n",
@@ -146,16 +180,32 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "        except Exception:\n",
             "            pass\n",
             "    else:\n",
-            "        print('[WARNING] Dependency installation finished with non-zero exit code.')\n",
+            (
+                "        print('[WARNING] Dependency installation finished with non-zero exit "
+                "code.')\n"
+            ),
             "        if res.stderr:\n",
             "            print(res.stderr[-2000:])\n",
             "else:\n",
             "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
-            "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the repository.\")\n",
-            "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because SUITE_PAT/GITHUB_PAT is missing from Colab Secrets.')\n",
-            "    print('[ACTION REQUIRED] Fix: Go to Colab Secrets and add SUITE_PAT or GITHUB_PAT with your GitHub token.')\n",
+            (
+                "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the "
+                'repository.")\n'
+            ),
+            (
+                "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because "
+                "SUITE_PAT/GITHUB_PAT is missing from Colab Secrets.')\n"
+            ),
+            (
+                "    print('[ACTION REQUIRED] Fix: Go to Colab Secrets and add SUITE_PAT or "
+                "GITHUB_PAT with your GitHub token.')\n"
+            ),
             "    print('[INFO] Installing core container streaming dependencies as fallback...')\n",
-            "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'webdataset==1.0.2', 'litdata>=0.2.0,<1.0.0', 'pyarrow>=25.0.1', 'zstandard>=0.23.0'])\n",
+            (
+                "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', "
+                "'webdataset==1.0.2', 'litdata>=0.2.0,<1.0.0', 'pyarrow>=25.0.1', "
+                "'zstandard>=0.23.0'])\n"
+            ),
         ]
 
     return make_code_cell(source)
