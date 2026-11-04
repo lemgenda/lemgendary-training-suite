@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import textwrap
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -27,6 +28,46 @@ _REGISTRY_ERRORS: tuple[type[Exception], ...] = (
     AttributeError,
     TypeError,
 )
+
+
+def _wrap_md_bullet(text: str, width: int = 80) -> str:
+    """Wrap a top-level markdown bullet item (`- ...`) to ``width`` columns."""
+    return textwrap.fill(
+        text,
+        width=width,
+        subsequent_indent="  ",
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+
+
+def _wrap_bibtex(bibtex: str, width: int = 80) -> str:
+    """Wrap BibTeX lines so none exceed ``width`` characters."""
+    out: list[str] = []
+    for line in bibtex.splitlines():
+        if len(line) <= width:
+            out.append(line)
+        else:
+            out.append(
+                textwrap.fill(
+                    line,
+                    width=width,
+                    subsequent_indent="    ",
+                    break_long_words=False,
+                    break_on_hyphens=False,
+                )
+            )
+    return "\n".join(out)
+
+
+def _wrap_md_paragraph(text: str, width: int = 80) -> str:
+    """Wrap a plain markdown paragraph to ``width`` columns."""
+    return textwrap.fill(
+        text,
+        width=width,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
 
 
 def _registry_reference(model_key: str) -> dict[str, str] | None:
@@ -240,13 +281,19 @@ def _evaluation_profile(task: Any) -> tuple[str, str, str]:
     """Return the input requirements, the validation protocol and the metrics label."""
     if task == "forex":
         return (
-            (
-                "- **Input Requirements**: Normalized OHLCV tensor sequences across multiple "
-                "timeframes.\n"
-                "- **Failures**: Susceptible to spread friction and lookahead leakage if "
-                "walk-forward validation is compromised."
+            "\n".join(
+                [
+                    _wrap_md_bullet(
+                        "- **Input Requirements**: Normalized OHLCV tensor sequences across "
+                        "multiple timeframes."
+                    ),
+                    _wrap_md_bullet(
+                        "- **Failures**: Susceptible to spread friction and lookahead leakage if "
+                        "walk-forward validation is compromised."
+                    ),
+                ]
             ),
-            (
+            _wrap_md_bullet(
                 "- **Validation Protocol**: 6-Fold Anchored Walk-Forward Cross-Validation "
                 "(14-day Embargo)."
             ),
@@ -254,19 +301,35 @@ def _evaluation_profile(task: Any) -> tuple[str, str, str]:
         )
     if task in ["detection", "yolo"]:
         return (
-            (
-                "- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats.\n"
-                "- **Failures**: Small bounding box occlusion and extreme aspect ratio distortions."
+            "\n".join(
+                [
+                    _wrap_md_bullet(
+                        "- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats."
+                    ),
+                    _wrap_md_bullet(
+                        "- **Failures**: Small bounding box occlusion and extreme aspect ratio "
+                        "distortions."
+                    ),
+                ]
             ),
-            "- **Validation Protocol**: 80/20 train/validate with zero ground-truth label leakage.",
+            _wrap_md_bullet(
+                "- **Validation Protocol**: 80/20 train/validate with zero ground-truth label "
+                "leakage."
+            ),
             "Target Detection SOTA",
         )
     return (
-        (
-            "- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats.\n"
-            "- **Failures**: Large aspect ratio distortions during standard resize phases."
+        "\n".join(
+            [
+                _wrap_md_bullet(
+                    "- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats."
+                ),
+                _wrap_md_bullet(
+                    "- **Failures**: Large aspect ratio distortions during standard resize phases."
+                ),
+            ]
         ),
-        "- **Split**: 80/20 train/validate with zero sample-leakage.",
+        _wrap_md_bullet("- **Split**: 80/20 train/validate with zero sample-leakage."),
         "Baseline Achievement",
     )
 
@@ -292,9 +355,10 @@ def _dataset_manifest(card: ModelCard, unified_models: dict[str, Any]) -> str:
         if isinstance(count, int) and count >= 1000:
             count = f"{round(count / 1000)}k"
         if card.task == "forex":
-            ds_sizes.append(f"- **{d}**: ~{count} time-series OHLCV sequences (2019-2026).")
+            line = f"- **{d}**: ~{count} time-series OHLCV sequences (2019-2026)."
         else:
-            ds_sizes.append(f"- **{d}**: ~{count} binary image samples.")
+            line = f"- **{d}**: ~{count} binary image samples."
+        ds_sizes.append(_wrap_md_bullet(line))
     return "\n".join(ds_sizes)
 
 
@@ -304,7 +368,10 @@ def _whitepaper_line(model_key: str) -> str:
         metadata_generator = load_cloud_module("metadata_generator")
         wp_url = metadata_generator.resolve_whitepaper_url(model_key)
         if wp_url:
-            return f"- **Ecosystem Architecture Whitepaper**: [{wp_url}]({wp_url})\n"
+            return (
+                "- **Ecosystem Architecture Whitepaper**: [Whitepaper][whitepaper]\n\n"
+                f"[whitepaper]:\n  {wp_url}\n"
+            )
     except ImportError as exc:
         logger.warning("Whitepaper URL resolver unavailable for %s: %s", model_key, exc)
     return ""
@@ -330,15 +397,24 @@ def _paper_section(model_key: str) -> str:
 
     whitepaper_link_line = _whitepaper_line(model_key)
     if paper:
+        title_line = _wrap_md_bullet(f"- **Title**: {paper['title']}")
+        authors_line = _wrap_md_bullet(f"- **Authors**: {paper['authors']}")
+        pub_line = _wrap_md_bullet(
+            f"- **Publication**: {paper['venue']} ({paper['year']})"
+        )
+        src_line = (
+            "- **Canonical Source / Link**:\n"
+            f"  [Reference Link]({paper['link']})"
+        )
         return f"""## Scientific Research & Reference Paper
 
-- **Title**: {paper["title"]}
-- **Authors**: {paper["authors"]}
-- **Publication**: {paper["venue"]} ({paper["year"]})
-- **Canonical Source / Link**: [{paper["link"]}]({paper["link"]})
+{title_line}
+{authors_line}
+{pub_line}
+{src_line}
 {whitepaper_link_line}
 ```bibtex
-{paper["bibtex"]}
+{_wrap_bibtex(paper["bibtex"])}
 ```
 
 """
@@ -359,34 +435,36 @@ def _tip_block(model_key: str) -> str:
         extra_tip = (
             "\n>\n"
             "> **Artifacts & Checkpoints Structure**:\n>\n"
-            "> - Production SOTA exports: `yolov8n.onnx` and `yolov8n.pt` are deployed to this "
-            "directory whenever "
-            "SOTA targets are achieved.\n"
-            "> - Training checkpoints & curriculum state: Preserved strictly in "
-            "[`checkpoints/`](checkpoints/) "
-            "(`best.pt`, `best.pth`, `last.pt`, `progress.pth`, `curriculum_state.json`)."
+            "> - Production SOTA exports: `yolov8n.onnx` and `yolov8n.pt` are\n"
+            ">   deployed to this directory whenever SOTA targets are achieved.\n"
+            "> - Training checkpoints & curriculum state: Preserved strictly in\n"
+            ">   [`checkpoints/`](checkpoints/) (`best.pt`, `best.pth`, `last.pt`,\n"
+            ">   `progress.pth`, `curriculum_state.json`)."
         )
 
     return (
         "> [!TIP]\n"
-        "> **Implementation Guide**: For high-performance deployment including ONNX (FP32/FP16) "
-        "and standalone "
-        f"PyTorch snippets, refer to the **[{kaggle_usage_name}]({kaggle_usage_name})** or "
-        f"**[{colab_usage_name}]({colab_usage_name})** notebooks in this directory.{extra_tip}"
+        "> **Implementation Guide**: For high-performance deployment including\n"
+        "> ONNX (FP32/FP16) and standalone PyTorch snippets, refer to the\n"
+        "> **[Kaggle Usage Notebook][kaggle-nb]** or\n"
+        "> **[Colab Usage Notebook][colab-nb]**\n"
+        f"> notebooks in this directory.{extra_tip}\n\n"
+        f"[kaggle-nb]: {kaggle_usage_name}\n"
+        f"[colab-nb]: {colab_usage_name}"
     )
 
 
 def _badges(res_str: str, epochs_trained: Any) -> str:
     """Render the status, hardware, epoch and resolution badges."""
     # --- 2026: Nuclear Badging (Task 7.1) ---
-    badge_res = res_str.replace(" ", "_").replace("(", "").replace(")", "")
+    badge_res = res_str.split(" (", 1)[0].replace(" ", "_").replace("(", "").replace(")", "")
     badges = [
         "![SOTA](https://img.shields.io/badge/Status-SOTA-brightgreen)",
         "![Hardware](https://img.shields.io/badge/Hardware-Accelerated-blue)",
         f"![Epochs](https://img.shields.io/badge/Epochs-{epochs_trained}-orange)",
         f"![Resolution](https://img.shields.io/badge/Res-{badge_res}-blueviolet)",
     ]
-    return " ".join(badges)
+    return "\n".join(badges)
 
 
 # --- Premium 10-Section Template ---
@@ -396,13 +474,12 @@ _CARD_TEMPLATE = """# {name}
 
 ## Overview
 
-The **{name}** is a professional-grade AI model optimized for the `{task}` lifecycle
-within the LemGendary Training Suite.
+{overview_para}
 
-- **Architecture**: {arch} ({arch_type})
-- **Input Resolution**: {res_str}
-- **Use Case**: {desc}
-- **Training Data**: {datasets}
+{arch_bullet}
+{res_bullet}
+{use_case_bullet}
+{datasets_bullet}
 
 ## Manifold Topology
 
@@ -418,15 +495,15 @@ within the LemGendary Training Suite.
 
 ## Implementation Requirements
 
-- **Hardware**: {hardware}
+{hw_bullet}
 - **Software**: PyTorch 2.1+, CUDA 12.1.
-- **Training Lifecycle**: Successfully processed over {epochs_trained} total epochs securely.
+{lifecycle_bullet}
 
 ## Model Stats
 
 - **Precision**: ONNX FP16 (Edge) / PyTorch FP32 (Training).
 - **Latency**: Sub-50ms inference bound on target local GPU hardware.
-- **Stability**: {stability_str}
+{stability_bullet}
 
 ## Data Manifest
 
@@ -434,7 +511,7 @@ within the LemGendary Training Suite.
 
 ## Evaluation Results
 
-- **{metrics_label}**: {metrics_summary}
+{eval_metrics_bullet}
 {eval_split_str}
 
 {paper_section}---
@@ -456,25 +533,36 @@ def build_model_readme(
         "usage_snippet": usage_snippet(card.task, model_key, *card.size),
         "badge_str": _badges(card.res_str, epochs_trained),
         "topology_mermaid": topology_mermaid(card.task, card.res_str, card.arch),
-        "stability_str": _stability_line(card.info),
+        "stability_bullet": _wrap_md_bullet(f"- **Stability**: {_stability_line(card.info)}"),
     }
-    fields["metrics_summary"], fields["vector_section"] = _metrics_summary(card)
+    metrics_summary, fields["vector_section"] = _metrics_summary(card)
     fields["ds_str"] = _dataset_manifest(card, unified_models)
-    fields["input_reqs_str"], fields["eval_split_str"], fields["metrics_label"] = (
+    fields["input_reqs_str"], fields["eval_split_str"], metrics_label = (
         _evaluation_profile(card.task)
     )
+    fields["eval_metrics_bullet"] = _wrap_md_bullet(
+        f"- **{metrics_label}**: {metrics_summary}"
+    )
     fields["paper_section"] = _paper_section(model_key)
+    arch_type = card.info.get("architecture_type", "Standard Backbone")
+    desc = card.info.get("description", "Premium LemGendary AI Training Suite Matrix Model.")
+    overview_para = _wrap_md_paragraph(
+        f"The **{card.name}** is a professional-grade AI model optimized for the "
+        f"`{card.task}` lifecycle within the LemGendary Training Suite."
+    )
     return _CARD_TEMPLATE.format(
         name=card.name,
-        task=card.task,
-        arch=card.arch,
-        arch_type=card.info.get("architecture_type", "Standard Backbone"),
-        res_str=card.res_str,
-        desc=card.info.get("description", "Premium LemGendary AI Training Suite Matrix Model."),
+        overview_para=overview_para,
+        arch_bullet=_wrap_md_bullet(f"- **Architecture**: {card.arch} ({arch_type})"),
+        res_bullet=_wrap_md_bullet(f"- **Input Resolution**: {card.res_str}"),
+        use_case_bullet=_wrap_md_bullet(f"- **Use Case**: {desc}"),
+        datasets_bullet=_wrap_md_bullet(f"- **Training Data**: {', '.join(card.datasets)}"),
         vector_spacer="\n" if fields["vector_section"] else "",
         tip_block=_tip_block(model_key),
-        hardware=hardware,
-        epochs_trained=epochs_trained,
-        datasets=", ".join(card.datasets),
+        hw_bullet=_wrap_md_bullet(f"- **Hardware**: {hardware}"),
+        lifecycle_bullet=_wrap_md_bullet(
+            f"- **Training Lifecycle**: Successfully processed over {epochs_trained} total "
+            "epochs securely."
+        ),
         **fields,
     )

@@ -29,10 +29,8 @@ _HUB_CONTRACT_LINES: tuple[str, ...] = (
     "",
     "## Canonical Directory Topology & Storage Invariants",
     "",
-    (
-        "Every model repository in `LemGendaryModels/` adheres to a strict, standardized "
-        "directory structure:"
-    ),
+    "Every model repository in `LemGendaryModels/` adheres to a strict,",
+    "standardized directory structure:",
     "",
     "```text",
     "LemGendaryModels/<model_key>/",
@@ -44,34 +42,26 @@ _HUB_CONTRACT_LINES: tuple[str, ...] = (
     "├── dist/                   # Isolated production distributions",
     "│   └── kaggle/",
     "│       ├── pytorch/        # Variation 1: Standalone PyTorch binary (*.pt)",
-    ("│       ├── onnx_fp32/      # Variation 2: ONNX FP32 with external data (*_FP32.onnx*)"),
-    "│       └── onnx_fp16/      # Variation 3: Edge-optimized ONNX FP16 (*.onnx)",
-    "└── visualizations/         # Training curves, confusion matrices, and diagnostics",
+    "│       ├── onnx_fp32/      # Variation 2: ONNX FP32 (*_FP32.onnx*)",
+    "│       └── onnx_fp16/      # Variation 3: Edge ONNX FP16 (*.onnx)",
+    "└── visualizations/         # Training curves and diagnostics",
     "```",
     "",
     "## Strict 3-Variation Isolation Contract",
     "",
-    (
-        "All model distributions published to Kaggle Models Hub must satisfy strict binary "
-        "isolation:"
-    ),
+    "All model distributions published to Kaggle Models Hub must satisfy strict",
+    "binary isolation:",
     "",
-    ("1. **Variation 1 (`pytorch`)**: Exclusively standalone PyTorch weights (`<ModelStem>.pt`)."),
-    (
-        "2. **Variation 2 (`onnx_fp32`)**: Exclusively standard precision ONNX model "
-        "(`<ModelStem>_FP32.onnx`)"
-        " and sidecar tensor data (`<ModelStem>_FP32.onnx.data`)."
-    ),
-    (
-        "3. **Variation 3 (`onnx_fp16`)**: Exclusively half-precision embedded ONNX model "
-        "(`<ModelStem>.onnx`)"
-        " with zero external tensor references."
-    ),
+    "1. **Variation 1 (`pytorch`)**: Exclusively standalone PyTorch weights",
+    "   (`<ModelStem>.pt`).",
+    "2. **Variation 2 (`onnx_fp32`)**: Exclusively standard precision ONNX model",
+    "   (`<ModelStem>_FP32.onnx`) and sidecar tensor data",
+    "   (`<ModelStem>_FP32.onnx.data`).",
+    "3. **Variation 3 (`onnx_fp16`)**: Exclusively half-precision embedded ONNX",
+    "   model (`<ModelStem>.onnx`) with zero external tensor references.",
     "",
-    (
-        "This contract is strictly validated prior to upload via `StrictIsolationValidator`"
-        " to ensure zero cross-contamination."
-    ),
+    "This contract is strictly validated prior to upload via",
+    "`StrictIsolationValidator` to ensure zero cross-contamination.",
     "",
 )
 """Static directory-topology and variation-isolation sections of the dashboard."""
@@ -235,10 +225,8 @@ class _Dashboard:
             "",
             "## Completed (SOTA Targets Achieved)",
             "",
-            (
-                "Models that have fully satisfied their strict target benchmarks "
-                "and exported their architecture for production deployment."
-            ),
+            "Models that have fully satisfied their strict target benchmarks",
+            "and exported their architecture for production deployment.",
             "",
         ]
         lines.extend(self._completed_lines())
@@ -247,10 +235,8 @@ class _Dashboard:
                 "",
                 "## In Progress (Training)",
                 "",
-                (
-                    "Models actively scaling the resolution ladder and optimizing weights across "
-                    "dataset manifolds."
-                ),
+                "Models actively scaling the resolution ladder and optimizing",
+                "weights across dataset manifolds.",
                 "",
             ]
         )
@@ -274,10 +260,11 @@ class _Dashboard:
     def _completed_lines(self) -> list[str]:
         if not self.completed:
             return ["- *No models have achieved SOTA targets yet.*"]
-        return [
-            f"- {m} ![SOTA](https://img.shields.io/badge/Status-SOTA-brightgreen)"
-            for m in sorted(self.completed)
-        ]
+        out: list[str] = []
+        for m in sorted(self.completed):
+            out.append(f"- {m}")
+            out.append("  ![SOTA](https://img.shields.io/badge/Status-SOTA-brightgreen)")
+        return out
 
     def _in_progress_lines(self) -> list[str]:
         if not self.in_progress:
@@ -289,10 +276,13 @@ class _Dashboard:
         # Sort descending by completeness
         self.in_progress.sort(key=lambda x: x[1], reverse=True)
         for m, pct, ep, df, res, t_type, ph, fd in self.in_progress:
+            disp_m = m.split(" (", 1)[0] if len(m) > 42 and " (" in m else m
             if t_type == "forex":
-                lines.append(f"| {m} | **{pct:.1f}%** | {ep} | Phase {ph} | Fold {fd} |")
+                lines.append(f"| {disp_m} | **{pct:.1f}%** | {ep} | Phase {ph} | Fold {fd} |")
             else:
-                lines.append(f"| {m} | **{pct:.1f}%** | {ep} | {df * 100:.0f}% | {int(res)}px |")
+                lines.append(
+                    f"| {disp_m} | **{pct:.1f}%** | {ep} | {df * 100:.0f}% | {int(res)}px |"
+                )
         return lines
 
 
@@ -313,7 +303,7 @@ def generate_hub_readme(project_root: str = workspace_root) -> None:
 
     # Save
     os.makedirs(hub_dir, exist_ok=True)
-    with open(readme_path, "w", encoding="utf-8") as f:
+    with open(readme_path, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(dashboard.markdown_lines()))
 
     print(f"[HUB SYNC] Dashboard successfully updated at: {readme_path}")

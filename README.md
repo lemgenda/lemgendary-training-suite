@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.125-STABLE`
+- **Version**: `v16.9.126-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,21 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.126 - 80-Column Markdown and Yamllint Compliance for Model Hub Assets
+
+- `training/model_card.py`, `training/model_card_snippets.py`,
+  `training/hub_readme_generator.py`, `training/doc_generator.py`: wrapped
+  generated model card and hub `README.md` badges, bullets, paragraphs,
+  reference links, and BibTeX blocks to 80 columns and enforced LF line
+  endings.
+- `training/cloud/model_metadata.py` & `training/cloud/metadata_generator.py`:
+  indented YAML sequence items under parent keys (`indentless=False`), wrapped
+  description and citation lines within `yamllint` limits, and enforced LF line
+  endings in `model_metadata.yaml`.
+- `training/governance/__init__.py`: lazily resolved `YOLOCurriculumGovernor`
+  and `run_governed_yolo_training` via `__getattr__` to avoid circular imports
+  when `training.telemetry` is imported directly.
 
 ### v16.9.125 - Merge of main (`ad3b2c8`) Into the Remediation Branch
 

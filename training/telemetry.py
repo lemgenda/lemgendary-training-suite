@@ -20,11 +20,11 @@ from training.governance.metrics import (
 )
 from training.utils.lazy_imports import load_mean_average_precision
 
-# --- 2026 Resilience: Extended Mathematical Governance (SSOT Delegation) ---
-logger = logging.getLogger("lemtrain.telemetry")
-
 METRIC_WEIGHTS = DEFAULT_METRIC_WEIGHTS
 METRIC_DIRECTIONS = DEFAULT_METRIC_DIRECTIONS
+
+# --- 2026 Resilience: Extended Mathematical Governance (SSOT Delegation) ---
+logger = logging.getLogger("lemtrain.telemetry")
 
 
 @dataclass(frozen=True)

@@ -149,7 +149,7 @@ def _description_overview_lines(
     """Description, architecture, keywords, training data and variation handles."""
     owner, slug = owner_slug
     raw_desc = spec.description or spec.name
-    wrapped_desc = textwrap.fill(raw_desc, width=120) if len(raw_desc) > 120 else raw_desc
+    wrapped_desc = textwrap.fill(raw_desc, width=100) if len(raw_desc) > 100 else raw_desc
     lines: list[str] = [wrapped_desc, ""]
     lines.append(f"**Architecture:** {spec.architecture_type}")
     lines.append(f"**Category:** {spec.category}")
@@ -177,16 +177,21 @@ def _citation_lines(spec: ModelSpecification, resolved_whitepaper: str) -> list[
     lines = ["", "### Citations & Technical Documentation"]
     if resolved_whitepaper:
         lines.append(
-            f"- **Architecture Whitepaper:** [Whitepaper Reference]({resolved_whitepaper})"
+            "- **Architecture Whitepaper:**\n"
+            f"  [Whitepaper Reference]({resolved_whitepaper})"
         )
 
     ref = spec.academic_reference
     if ref and ref.title:
         citation = f"{ref.authors} ({ref.year}). {ref.title}. {ref.venue}".strip()
         full_ref = f"- **Academic Reference:** {citation} {ref.link}".strip()
-        if len(full_ref) > 120:
+        if len(full_ref) > 100:
             wrapped_ref = textwrap.fill(
-                full_ref, width=120, break_long_words=False, break_on_hyphens=False
+                full_ref,
+                width=100,
+                subsequent_indent="  ",
+                break_long_words=False,
+                break_on_hyphens=False,
             )
             lines.append(wrapped_ref)
         else:

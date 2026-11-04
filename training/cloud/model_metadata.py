@@ -275,7 +275,7 @@ class ModelMetadata:
     def write(self, path: Path) -> Path:
         """Write the YAML document to path and return it."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self.to_yaml(), encoding="utf-8")
+        path.write_text(self.to_yaml(), encoding="utf-8", newline="\n")
         return path
 
     @classmethod
@@ -365,6 +365,9 @@ def _split_path(dotted: str) -> list[str]:
 
 class _LiteralDumper(yaml.SafeDumper):
     """YAML dumper that emits multi-line strings in literal block style."""
+
+    def increase_indent(self, flow: bool = False, indentless: bool = False) -> None:
+        return super().increase_indent(flow=flow, indentless=False)
 
 
 def _represent_str(dumper: yaml.SafeDumper, data: str) -> yaml.ScalarNode:

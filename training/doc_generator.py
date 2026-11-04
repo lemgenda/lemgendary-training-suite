@@ -29,7 +29,7 @@ _MANIFEST_HEADING = "## Physical Data Manifest"
 
 def save_readme(path, text):
     """Write ``text`` to ``path`` as UTF-8."""
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
 
 

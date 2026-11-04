@@ -29,7 +29,8 @@ model.eval()
 
 # 4. Forward Pass
 img = Image.open("photo.jpg").convert('RGB').resize(({h}, {w}))
-input_tensor = torch.from_numpy(np.array(img)).permute(2,0,1).float().unsqueeze(0).to(device) / 255.0
+arr = torch.from_numpy(np.array(img)).permute(2, 0, 1).float()
+input_tensor = arr.unsqueeze(0).to(device) / 255.0
 with torch.no_grad():
     probs = model(input_tensor)
 
@@ -67,12 +68,14 @@ model.eval()
 
 # 4. Restoration Pass
 img = Image.open("degraded.jpg").convert('RGB')
-input_tensor = torch.from_numpy(np.array(img)).permute(2,0,1).float().unsqueeze(0).to(device) / 255.0
+arr = torch.from_numpy(np.array(img)).permute(2, 0, 1).float()
+input_tensor = arr.unsqueeze(0).to(device) / 255.0
 with torch.no_grad():
     restored = model(input_tensor)
 
 # 5. Ejection
-restored_img = Image.fromarray((restored.squeeze().permute(1,2,0).cpu().numpy() * 255).astype('uint8'))
+out_arr = restored.squeeze().permute(1, 2, 0).cpu().numpy()
+restored_img = Image.fromarray((out_arr * 255).astype('uint8'))
 restored_img.save("restored.png")
 ```"""
     )
@@ -115,7 +118,8 @@ with torch.no_grad():
     probs = torch.softmax(direction_logits, dim=-1)
     # Signal: 0=SELL, 1=HOLD, 2=BUY
     signal = torch.argmax(probs, dim=-1).item()
-    print(f"Trade Signal: {{signal}}, Predicted TP/SL Pips: {{tp_sl_pips.cpu().numpy()}}")
+    pips = tp_sl_pips.cpu().numpy()
+    print(f"Trade Signal: {{signal}}, Predicted TP/SL Pips: {{pips}}")
 ```"""
     )
 
