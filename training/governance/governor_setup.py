@@ -56,12 +56,55 @@ def _trains_on_full_data(model_info: dict[str, Any]) -> bool:
         or model_info.get("dataset_type") == "forex"
         or model_info.get("filename") == "ForexPredictor"
     )
-    is_llm_model = (
+    return is_forex_model or _is_llm_model(model_info)
+
+
+def _is_llm_model(model_info: dict[str, Any]) -> bool:
+    """Return True for causal LLM / text-instruction models."""
+    return (
         model_info.get("category") == "llm"
         or model_info.get("task_type") in ("text_instruction", "llm")
         or model_info.get("dataset_type") in ("text_instruction", "llm")
     )
-    return is_forex_model or is_llm_model
+
+
+def configured_data_fraction(model_info: dict[str, Any]) -> float | None:
+    """Return the model's configured data fraction, or None when unset.
+
+    ``sample_fraction`` wins over ``curriculum.data_fraction``.
+    """
+    curriculum_cfg = model_info.get("curriculum") or {}
+    configured = model_info.get("sample_fraction") or curriculum_cfg.get("data_fraction")
+    return float(configured) if configured else None
+
+
+def _initial_fraction(
+    model_info: dict[str, Any], opt: dict[str, Any], manifold_defaults: dict[str, Any]
+) -> float:
+    """Return the starting data fraction.
+
+    Precedence: ``sample_fraction``, ``curriculum.data_fraction``,
+    ``optimization.initial_fraction``, then 1.0 for forex/LLM models or the
+    manifold default for the rest.
+    """
+    configured = configured_data_fraction(model_info) or opt.get("initial_fraction")
+    if configured:
+        return float(configured)
+    if _trains_on_full_data(model_info):
+        return 1.0
+    return float(manifold_defaults.get("initial_fraction", 0.15))
+
+
+def _initial_batch(model_info: dict[str, Any]) -> int:
+    """Return the configured physical batch; 2 for LLMs and 16 otherwise when unset."""
+    batch_val = model_info.get("batch_size")
+    if isinstance(batch_val, bool):
+        batch_val = None
+    if isinstance(batch_val, int) and batch_val > 0:
+        return batch_val
+    if isinstance(batch_val, str) and batch_val.isdigit() and int(batch_val) > 0:
+        return int(batch_val)
+    return 2 if _is_llm_model(model_info) else 16
 
 
 def _initial_resolution(model_info: dict[str, Any]) -> int:
@@ -147,27 +190,29 @@ def build_curriculum(
     """Build the starting rung, batch and resolution ladder of the curriculum."""
     opt = model_info.get("optimization", {})
     manifold_defaults = config.get("governor", {}).get("manifold", {})
+    curriculum_cfg = model_info.get("curriculum") or {}
     curriculum = CurriculumState()
     curriculum.target_effective_batch = opt.get(
         "target_effective_batch",
-        manifold_defaults.get("target_effective_batch", 24),
+        curriculum_cfg.get(
+            "target_effective_batch",
+            manifold_defaults.get("target_effective_batch", 24),
+        ),
     )
     curriculum.fraction_increment = opt.get(
         "fraction_increment",
         manifold_defaults.get("fraction_increment", 0.20),
     )
-    if _trains_on_full_data(model_info):
-        initial_fraction = 1.0
-    else:
-        initial_fraction = model_info.get("sample_fraction") or opt.get(
-            "initial_fraction",
-            manifold_defaults.get("initial_fraction", 0.15),
-        )
-    curriculum.current_fraction = float(initial_fraction)
+    curriculum.current_fraction = _initial_fraction(model_info, opt, manifold_defaults)
 
-    batch_val = model_info.get("batch_size", 16)
-    curriculum.current_batch = int(batch_val) if batch_val and batch_val != "auto" else 16
-    curriculum.current_acc = 1
+    curriculum.current_batch = _initial_batch(model_info)
+    configured_acc = model_info.get("accumulation_steps") or curriculum_cfg.get(
+        "accumulation_steps"
+    )
+    if configured_acc is not None:
+        curriculum.current_acc = max(1, int(configured_acc))
+    else:
+        curriculum.update_batch_and_accumulation(curriculum.current_batch)
     curriculum.current_res = _initial_resolution(model_info)
 
     res_ladder = opt.get("res_ladder")

@@ -76,6 +76,14 @@ class TaskTotals:
 
 
 @dataclass
+class LlmTotals:
+    """Next-token accuracy totals of causal LLMs (labels ``!= -100``)."""
+
+    total_llm_correct_tokens: int = 0
+    total_llm_valid_tokens: int = 0
+
+
+@dataclass
 class ImageMetricModules:
     """Lazily built LPIPS and FID modules: None before the first try, False after a failure."""
 
@@ -83,7 +91,17 @@ class ImageMetricModules:
     fid: Any = None
 
 
-_Group = ImageTotals | ForexDirectionTotals | ForexTradeTotals | QualityTotals | TaskTotals
+@dataclass
+class ForexTotals:
+    """Forex direction and trade totals."""
+
+    direction: ForexDirectionTotals = field(default_factory=ForexDirectionTotals)
+    trades: ForexTradeTotals = field(default_factory=ForexTradeTotals)
+
+
+_Group = (
+    ImageTotals | ForexDirectionTotals | ForexTradeTotals | QualityTotals | TaskTotals | LlmTotals
+)
 
 
 def _snapshot_items(group: _Group) -> Iterator[tuple[str, Any]]:
@@ -106,14 +124,31 @@ class ValAccumulators:
 
     total_loss: float = 0.0
     image: ImageTotals = field(default_factory=ImageTotals)
-    direction: ForexDirectionTotals = field(default_factory=ForexDirectionTotals)
-    trades: ForexTradeTotals = field(default_factory=ForexTradeTotals)
+    forex: ForexTotals = field(default_factory=ForexTotals)
     quality: QualityTotals = field(default_factory=QualityTotals)
     tasks: TaskTotals = field(default_factory=TaskTotals)
+    llm: LlmTotals = field(default_factory=LlmTotals)
     modules: ImageMetricModules = field(default_factory=ImageMetricModules)
 
+    @property
+    def direction(self) -> ForexDirectionTotals:
+        """Forex direction totals."""
+        return self.forex.direction
+
+    @property
+    def trades(self) -> ForexTradeTotals:
+        """Forex take-profit / stop-loss and trade-return totals."""
+        return self.forex.trades
+
     def _groups(self) -> tuple[_Group, ...]:
-        return (self.image, self.direction, self.trades, self.quality, self.tasks)
+        return (
+            self.image,
+            self.direction,
+            self.trades,
+            self.quality,
+            self.tasks,
+            self.llm,
+        )
 
     def snapshot(self) -> dict[str, Any]:
         """Return the flat progress-checkpoint snapshot (lists are copied)."""

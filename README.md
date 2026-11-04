@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.124-STABLE`
+- **Version**: `v16.9.125-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,24 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.125 - Merge of main (`ad3b2c8`) Into the Remediation Branch
+
+- Merged the owner's `ad3b2c8` (LLM VRAM probe, LLM telemetry, dynamo ONNX
+  export, LLM token accuracy, configurable curriculum fraction and
+  accumulation) into `fix/review-remediation`, so the branch fast-forwards
+  onto `main` with no conflicts.
+- Each change is re-applied on the branch's structure: the curriculum config
+  lives in `governance/governor_setup.py`, the LLM batch probe in
+  `hardware/probe.py` (`_llm_batch`), token accuracy in
+  `training/val_metrics.py` (`update_llm_tokens`) with its totals in the
+  progress snapshot, and the LLM resume telemetry in `context_resume.py`.
+- Adapted to the repo rules: no bare `except Exception`, no swallowed errors,
+  no inline imports, lines within 100 columns, no model-name heuristic
+  (`ai_helper`) in the probe (the `category: llm` flag covers it), and no
+  second `ONNXProgram.save()` that would re-embed the weights.
+- Tests: `tests/unit/test_llm_metrics_and_curriculum.py` and two probe tests
+  in `tests/unit/test_hardware.py`.
 
 ### v16.9.124 - Kaggle Routes Reject Unknown Models
 
@@ -1477,13 +1495,29 @@ Enabled._
   CORS preflight, WebSocket handshakes and the app wiring (checked statically),
   plus one real-app test of the guard and the token check behind it.
 
+### v16.9.64 (main) - LLM VRAM Probing, LLM Telemetry & Dynamo ONNX Export
+
+_Released on `main` as v16.9.64 in parallel with the branch's v16.9.64;
+merged in v16.9.125._
+
+- **LLM VRAM probe (`training/hardware/probe.py`)**:
+  - Sizes the micro-batch of causal LLMs (~1.5B parameters, 2048-token
+    context) from free VRAM so 4 GB GPUs do not run out of memory.
+- **LLM manifold telemetry (`training/core_loop.py`)**:
+  - The curriculum line of language models shows the context window in
+    tokens and the data fraction instead of an image resolution.
+- **Dynamo ONNX export (`training/export/llm_exporter.py`)**:
+  - Exports with `torch.onnx.export(dynamo=True)` and the KV cache disabled
+    during the export, which removes the TorchScript `TracerWarning` at its
+    source instead of filtering it.
+
 ### v16.9.63 - 100% Manifold Fraction Enforcement for Causal LLM Instruction
 
 _Full title: 100% Manifold Fraction Enforcement for Causal LLM Instruction
 Tuning._
 
-- **Curriculum & Governor LLM Data Fraction Lock (
-  raining/governance/governor.py, raining/core_loop.py)**:
+- **Curriculum & Governor LLM Data Fraction Lock
+  (`training/governance/governor.py`, `training/core_loop.py`)**:
   - Enforced 100% active manifold training data fraction (initial_fraction =
     1.0) for all LLM and text instruction models across SmartTrainingGovernor
     initialization, resume state restoration, and core_loop.py execution.
@@ -1495,14 +1529,16 @@ Tuning._
 _Full title: Validation DataLoader Collation Fix for Variable-Length LLM
 Sequences._
 
-- **uild_val_loader Padding-Aware Collation (    raining/data/loaders.py)**:
-  - Added collate_fn parameter to uild_val_loader so LLM instruction datasets
-    are padded dynamically during validation batches, resolving RuntimeError:
-    stack expects each tensor to be equal size during validation passes.
-- **core_loop.py Collate Propagation (    raining/core_loop.py)**:
-  - Propagated collate_fn=collate_fn to canonical_build_val_loader whenever
-    ask_type is ext_instruction or llm, ensuring uniform token padding across
-    train and validation DataLoaders.
+- **`build_val_loader` Padding-Aware Collation
+  (`training/data/loaders.py`)**:
+  - Added a `collate_fn` parameter to `build_val_loader` so LLM instruction
+    datasets are padded dynamically during validation batches, resolving
+    `RuntimeError: stack expects each tensor to be equal size` during
+    validation passes.
+- **core_loop.py Collate Propagation (`training/core_loop.py`)**:
+  - Propagated `collate_fn=collate_fn` to `canonical_build_val_loader`
+    whenever `task_type` is `text_instruction` or `llm`, ensuring uniform
+    token padding across train and validation DataLoaders.
 
 ### v16.9.61 - Causal LLM Dictionary Batch Unpacking & Native Step Execution
 

@@ -81,7 +81,8 @@ def _risk_ratios(returns_arr: np.ndarray) -> tuple[Any, Any]:
     return (mean_r / max(1e-6, std_r)) * horizon, (mean_r / max(1e-6, downside_std)) * horizon
 
 
-def _is_llm(ctx: Any) -> bool:
+def is_llm(ctx: Any) -> bool:
+    """Whether the context's model is a causal LLM (by model key or class name)."""
     model_name = getattr(ctx, "model_name", "").lower()
     return (
         model_name.startswith("ai_helper")
@@ -95,6 +96,18 @@ def _perplexity(avg_loss: float) -> float:
         return float(math.exp(avg_loss))
     except OverflowError:
         return 9999.0
+
+
+def _llm_results(acc: ValAccumulators, avg_loss: float, results: dict[str, float]) -> None:
+    """``eval_loss``, ``token_accuracy`` (percent) and ``perplexity`` of a causal LLM."""
+    results["eval_loss"] = avg_loss
+    tasks = acc.llm
+    if tasks.total_llm_valid_tokens > 0:
+        results["token_accuracy"] = round(
+            (tasks.total_llm_correct_tokens / tasks.total_llm_valid_tokens) * 100.0, 4
+        )
+    if avg_loss < 20.0:
+        results["perplexity"] = round(_perplexity(avg_loss), 4)
 
 
 def _image_results(acc: ValAccumulators, step_count: int, results: dict[str, float]) -> None:
@@ -205,8 +218,8 @@ def summarize(ctx: Any, acc: ValAccumulators, step_count: int, elapsed: float) -
     """Return the validation metrics of a finished pass."""
     avg_loss = acc.total_loss / max(1, step_count)
     results: dict[str, float] = {"val_loss": avg_loss, "val_time": elapsed}
-    if _is_llm(ctx) and avg_loss < 20.0:
-        results["perplexity"] = _perplexity(avg_loss)
+    if is_llm(ctx):
+        _llm_results(acc, avg_loss, results)
     _image_results(acc, step_count, results)
     _quality_results(acc, results)
     _task_results(acc, results)

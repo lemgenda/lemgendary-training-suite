@@ -383,12 +383,11 @@ def build_model_stack(spec: RunSpec, total_epochs: int) -> tuple[TrainState, Any
 def build_data(spec: RunSpec, governor: Any, raw_model: Any, batch_size: int):
     """Build the datasets and loaders at the governor's data fraction.
 
+    The governor already resolves the configured fraction (``sample_fraction``,
+    ``curriculum.data_fraction``) and the full-data default of LLM / forex models.
     Returns the train ``LoaderState`` and the validation loader (or ``None``).
     """
-    sample_fraction = getattr(governor.curriculum, "current_fraction", 1.0)
-    if spec.is_llm:
-        sample_fraction = 1.0
-        governor.curriculum.current_fraction = 1.0
+    sample_fraction = getattr(governor.curriculum, "current_fraction", None) or 1.0
 
     train_ds, val_ds = build_datasets(spec, raw_model, sample_fraction)
     data = LoaderState(

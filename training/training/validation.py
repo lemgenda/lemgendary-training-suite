@@ -30,7 +30,7 @@ from training.training.step_progress import (
 )
 from training.training.val_accumulators import ValAccumulators
 from training.training.val_metrics import BATCH_METRICS, ValBatch
-from training.training.val_summary import summarize
+from training.training.val_summary import is_llm, summarize
 
 logger = logging.getLogger("lemtrain.training.validation")
 
@@ -163,9 +163,12 @@ class _ValidationPass:
         )
         print(line, end="\n" if step == clock.num_batches else "", flush=True)
 
-    def batch_view(self, preds: Any, targets: Any) -> ValBatch:
+    def batch_view(self, preds: Any, targets: Any, inputs: Any = None) -> ValBatch:
         """Bundle one batch with the evaluation settings of the model."""
         ctx = self.ctx
+        labels = None
+        if is_llm(ctx):
+            labels = inputs.get("labels") if isinstance(inputs, dict) else targets
         return ValBatch(
             preds=preds,
             targets=targets,
@@ -173,6 +176,7 @@ class _ValidationPass:
             dataset_type=ctx.run.model_info.get("dataset_type"),
             device=ctx.hardware.device_info.device,
             governor=ctx.governance.governor,
+            labels=labels,
         )
 
 
@@ -232,7 +236,7 @@ def validate_one_epoch(
             run.save_progress()
             run.log(loss)
 
-            view = run.batch_view(preds, targets)
+            view = run.batch_view(preds, targets, inputs)
             for update in BATCH_METRICS:
                 update(run.acc, view)
 

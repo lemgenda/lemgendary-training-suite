@@ -4,12 +4,20 @@ Exports trained or adapted AIHelperLemGend models to:
 1. PyTorch FP32 standalone checkpoint (dist/kaggle/pytorch/AIHelperLemGend.pt)
 2. ONNX FP32 with external tensor data sidecar (dist/kaggle/onnx_fp32/AIHelperLemGend_FP32.onnx)
 3. ONNX FP16 with embedded weights (dist/kaggle/onnx_fp16/AIHelperLemGend.onnx)
+
+ONNX export uses ``torch.onnx.export(dynamo=True)`` (the ``torch.export`` path), which is
+fully symbolic. The legacy TorchScript trace (``dynamo=False``) records a static trace and
+emits ``TracerWarning`` when Hugging Face masking code branches on tensor values; that
+graph does not generalise to variable-length sequences. Warnings are not suppressed: the
+root cause is removed by using the symbolic exporter.
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -22,12 +30,7 @@ from training.export.base import (
     BaseModelExporter,
     spec_dataset_types,
 )
-from training.export.common import (
-    OnnxGraphSpec,
-    detach_onnx_weights,
-    run_onnx_export,
-    unwrap_export_model,
-)
+from training.export.common import unwrap_export_model
 from training.registry import ModelSpecification
 
 logger = logging.getLogger("lemtrain.export.llm")
@@ -38,44 +41,114 @@ _LLM_STEMS = {
     "test_llm": "TestLLM",
 }
 
+# Upper bound of the dynamic batch dimension of the exported graph.
+_MAX_EXPORT_BATCH = 32
+DEFAULT_MAX_SEQ_LENGTH = 512
 
-def _export_fp32_with_sidecar(model: nn.Module, fp32_onnx_path: Path) -> dict[str, Path]:
-    """FP32 ONNX graph with weights detached to a ``.onnx.data`` sidecar; {} on failure."""
-    fp32_data_path = fp32_onnx_path.with_name(f"{fp32_onnx_path.name}.data")
-    logger.info("Exporting FP32 ONNX LLM graph to %s...", fp32_onnx_path)
-    device = torch.device("cpu")
+
+def _hf_config(model: nn.Module) -> Any:
+    """Return the Hugging Face config of ``model`` (or its ``.model``), else None."""
+    hf_cfg = getattr(model, "config", None)
+    if hf_cfg is None:
+        inner = getattr(model, "model", None)
+        hf_cfg = getattr(inner, "config", None)
+    return hf_cfg
+
+
+@contextlib.contextmanager
+def _kv_cache_disabled(model: nn.Module) -> Iterator[None]:
+    """Turn off ``config.use_cache`` for the export and restore it afterwards.
+
+    The KV cache returns dynamically sized tensors that ``torch.export`` cannot
+    represent; disabling it is standard Hugging Face ONNX practice and configures
+    the graph rather than hiding a warning.
+    """
+    hf_cfg = _hf_config(model)
+    orig_use_cache = getattr(hf_cfg, "use_cache", None)
+    if orig_use_cache is not None:
+        hf_cfg.use_cache = False
     try:
-        dummy_input = torch.randint(1, 1000, (1, 16), dtype=torch.long, device=device)
-        dummy_mask = torch.ones((1, 16), dtype=torch.long, device=device)
+        yield
+    finally:
+        if orig_use_cache is not None:
+            hf_cfg.use_cache = orig_use_cache
 
-        run_onnx_export(
-            model,
-            (dummy_input, dummy_mask),
-            fp32_onnx_path,
-            OnnxGraphSpec(
+
+def _export_fp32_with_sidecar(
+    model: nn.Module, fp32_onnx_path: Path, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH
+) -> dict[str, Path]:
+    """FP32 ONNX graph (dynamo) with weights in a ``.onnx.data`` sidecar; {} on failure."""
+    fp32_data_path = fp32_onnx_path.with_name(f"{fp32_onnx_path.name}.data")
+    logger.info(
+        "Exporting FP32 ONNX LLM graph to %s (dynamo=True, torch.export path)...",
+        fp32_onnx_path,
+    )
+    device = torch.device("cpu")
+    dummy_input_ids = torch.randint(1, 1000, (1, 16), dtype=torch.long, device=device)
+    dummy_attention_mask = torch.ones((1, 16), dtype=torch.long, device=device)
+    batch_dim = torch.export.Dim("batch", min=1, max=_MAX_EXPORT_BATCH)
+    seq_dim = torch.export.Dim("sequence", min=1, max=max_seq_length)
+    dynamic_shapes = {
+        "input_ids": {0: batch_dim, 1: seq_dim},
+        "attention_mask": {0: batch_dim, 1: seq_dim},
+    }
+    try:
+        with _kv_cache_disabled(model):
+            # ``f`` + ``external_data=True`` writes the graph and its
+            # ``<name>.data`` sidecar in one step; no second save is needed.
+            torch.onnx.export(
+                model,
+                args=(dummy_input_ids,),
+                kwargs={"attention_mask": dummy_attention_mask},
+                f=str(fp32_onnx_path),
                 input_names=["input_ids", "attention_mask"],
                 output_names=["logits"],
-                dynamic_axes={
-                    "input_ids": {0: "batch", 1: "sequence"},
-                    "attention_mask": {0: "batch", 1: "sequence"},
-                    "logits": {0: "batch", 1: "sequence"},
-                },
-                opset=17,
-            ),
+                dynamic_shapes=dynamic_shapes,
+                opset_version=17,
+                dynamo=True,
+                external_data=True,
+            )
+    except EXPORT_ERRORS:
+        logger.exception(
+            "Dynamo ONNX export failed for %s. Check the model forward() signature "
+            "(input_ids, attention_mask) against torch.export.",
+            fp32_onnx_path.name,
         )
-        detach_onnx_weights(fp32_onnx_path, fp32_data_path.name)
-    except EXPORT_ERRORS as exc:
-        logger.warning("FP32 ONNX sidecar export note: %s", exc)
         return {}
-    return {"onnx_fp32": fp32_onnx_path, "onnx_fp32_data": fp32_data_path}
+    exported = {"onnx_fp32": fp32_onnx_path}
+    if fp32_data_path.exists():
+        exported["onnx_fp32_data"] = fp32_data_path
+    return exported
+
+
+def _copy_fp16(fp32_onnx_path: Path, fp16_onnx_path: Path) -> dict[str, Path]:
+    """Produce the FP16 ONNX artifact from the FP32 graph; {} when it cannot."""
+    logger.info("Exporting FP16 ONNX LLM graph to %s...", fp16_onnx_path)
+    if not fp32_onnx_path.exists():
+        logger.error(
+            "FP16 ONNX export skipped: FP32 source %s does not exist. "
+            "FP32 export must succeed before the FP16 copy can be produced.",
+            fp32_onnx_path,
+        )
+        return {}
+    try:
+        shutil.copy2(str(fp32_onnx_path), str(fp16_onnx_path))
+    except OSError:
+        logger.exception("FP16 ONNX export failed for %s", fp16_onnx_path)
+        return {}
+    return {"onnx_fp16": fp16_onnx_path}
 
 
 def export_llm_tri_format(
     model: nn.Module,
     model_key: str = "ai_helper_lemgend",
     output_dir: Path | str | None = None,
+    max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH,
 ) -> dict[str, Path]:
-    """Export Causal LLM into all 3 required isolated Kaggle variations."""
+    """Export Causal LLM into all 3 required isolated Kaggle variations.
+
+    ``max_seq_length`` bounds the dynamic sequence dimension of the ONNX graph.
+    """
     target_dir = (
         Path(output_dir).resolve()
         if output_dir
@@ -107,17 +180,12 @@ def export_llm_tri_format(
 
     # 2. ONNX FP32 with External Tensor Data Sidecar
     fp32_onnx_path = dirs["onnx_fp32"] / f"{binary_stem}_FP32.onnx"
-    exported_files.update(_export_fp32_with_sidecar(model_to_export, fp32_onnx_path))
+    exported_files.update(
+        _export_fp32_with_sidecar(model_to_export, fp32_onnx_path, max_seq_length)
+    )
 
     # 3. ONNX FP16 with Integrated Weights
-    fp16_onnx_path = dirs["onnx_fp16"] / f"{binary_stem}.onnx"
-    logger.info("Exporting FP16 ONNX LLM graph to %s...", fp16_onnx_path)
-    try:
-        if fp32_onnx_path.exists():
-            shutil.copy2(str(fp32_onnx_path), str(fp16_onnx_path))
-            exported_files["onnx_fp16"] = fp16_onnx_path
-    except OSError as exc:
-        logger.warning("FP16 ONNX export note: %s", exc)
+    exported_files.update(_copy_fp16(fp32_onnx_path, dirs["onnx_fp16"] / f"{binary_stem}.onnx"))
 
     return exported_files
 
@@ -144,10 +212,14 @@ class LLMModelExporter(BaseModelExporter):
         spec: ModelSpecification | None = None,
         **kwargs: Any,
     ) -> dict[str, Path]:
-        """Export Causal LLM into all 3 required isolated Kaggle variations."""
+        """Export Causal LLM into all 3 required isolated Kaggle variations.
+
+        ``max_seq_length`` (kwarg) bounds the graph's dynamic sequence dimension.
+        """
         target_dir = self.resolve_destination(model_key, output_dir)
         return export_llm_tri_format(
             model=model,
             model_key=model_key,
             output_dir=target_dir,
+            max_seq_length=int(kwargs.get("max_seq_length", DEFAULT_MAX_SEQ_LENGTH)),
         )

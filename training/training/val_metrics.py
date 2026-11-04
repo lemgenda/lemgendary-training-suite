@@ -42,6 +42,8 @@ class ValBatch:
     dataset_type: Any
     device: torch.device
     governor: Any
+    # Causal-LM token labels (``-100`` = ignored); None for non-LLM models.
+    labels: Any = None
 
 
 def _relieve_metric_oom(governor: Any) -> None:
@@ -406,6 +408,26 @@ def update_forex(acc: ValAccumulators, batch: ValBatch) -> None:
     _simulate_trades(acc, pred_dir, dir_targets, mag_targets)
 
 
+def update_llm_tokens(acc: ValAccumulators, batch: ValBatch) -> None:
+    """Next-token accuracy of causal LLMs over the non-ignored (``!= -100``) labels."""
+    preds, labels = batch.preds, batch.labels
+    if not (
+        isinstance(preds, torch.Tensor)
+        and isinstance(labels, torch.Tensor)
+        and preds.dim() == 3
+        and labels.shape == preds.shape[:2]
+    ):
+        return
+    shift_preds = preds[..., :-1, :].argmax(dim=-1)
+    shift_targets = labels[..., 1:]
+    mask = shift_targets != -100
+    if not bool(mask.any()):
+        return
+    correct = (shift_preds[mask] == shift_targets[mask]).sum()
+    acc.llm.total_llm_correct_tokens += int(correct.item())
+    acc.llm.total_llm_valid_tokens += int(mask.sum().item())
+
+
 BATCH_METRICS: tuple[Callable[[ValAccumulators, ValBatch], None], ...] = (
     update_image,
     update_quality,
@@ -413,5 +435,6 @@ BATCH_METRICS: tuple[Callable[[ValAccumulators, ValBatch], None], ...] = (
     update_parameter_mae,
     update_segmentation,
     update_detection,
+    update_llm_tokens,
     update_forex,
 )

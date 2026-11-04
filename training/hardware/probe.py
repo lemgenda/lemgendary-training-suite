@@ -45,6 +45,12 @@ _RESTORATION_KEYS = (
 # also reach the batch.
 _FOREX_TIERS = ((256, 20.0), (128, 12.0), (64, 6.0), (32, 3.2))
 
+# LLM activation estimate: GB per sample at the reference context length, and the
+# auto-batch ceiling.
+_LLM_REF_SEQ_LEN = 2048
+_LLM_GB_PER_REF_SAMPLE = 0.45
+_LLM_MAX_BATCH = 32
+
 
 @dataclass(frozen=True)
 class VramProbe:
@@ -95,7 +101,7 @@ def _is_no_kernel_error(message: str) -> bool:
 # --------------------------------------------------------------------------- forex
 
 
-def _forex_free_gb() -> float:
+def _gpu0_free_gb() -> float:
     """Free VRAM on GPU 0 in GB (0.0 without CUDA or when the query fails)."""
     if not torch.cuda.is_available():
         return 0.0
@@ -146,7 +152,7 @@ def _forex_batch(model_info: dict[str, Any], probe: VramProbe) -> int:
         if torch.cuda.is_available()
         else 0.0
     )
-    free_gb = _forex_free_gb()
+    free_gb = _gpu0_free_gb()
 
     if isinstance(configured_batch, int) and configured_batch > 0:
         final_batch = configured_batch if probe.mode == "train" else configured_batch * 2
@@ -167,6 +173,64 @@ def _forex_batch(model_info: dict[str, Any], probe: VramProbe) -> int:
         symbols_str,
     )
     return final_batch
+
+
+# --------------------------------------------------------------------------- llm
+
+
+def _is_llm(model_key: str, model_info: dict[str, Any]) -> bool:
+    """Whether the model is a causal LLM / text-instruction model."""
+    return (
+        model_info.get("category") == "llm"
+        or model_info.get("dataset_type") in ("text_instruction", "llm")
+        or "llm" in model_key.lower()
+    )
+
+
+def _llm_auto_batch(seq_len: int, free_gb: float, mode: str) -> int:
+    """Power-of-two LLM batch (1..32) sized from free VRAM and sequence length.
+
+    Activation footprint is estimated at ~0.45 GB per 2048-token sample and scales
+    linearly with the sequence length; 30% of free VRAM is kept as headroom.
+    Without CUDA (or a free-VRAM reading) the safe default is 2 (train) / 4 (val).
+    """
+    if not torch.cuda.is_available() or free_gb <= 0:
+        return 2 if mode == "train" else 4
+    sample_gb = (seq_len / _LLM_REF_SEQ_LEN) * _LLM_GB_PER_REF_SAMPLE
+    usable_gb = max(0.2, free_gb * 0.70)
+    dyn_batch = max(1, int(usable_gb // sample_gb))
+    pow2_batch = 1 << (dyn_batch.bit_length() - 1)
+    return max(1, min(pow2_batch, _LLM_MAX_BATCH))
+
+
+def _llm_batch(model_info: dict[str, Any], probe: VramProbe) -> int:
+    """LLM batch: the configured size, else sized from free VRAM and context length."""
+    configured_batch = model_info.get("batch_size", "auto")
+    seq_len = int(probe.res_override or model_info.get("input_size") or _LLM_REF_SEQ_LEN)
+    gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
+    vram_gb = (
+        (torch.cuda.get_device_properties(0).total_memory / _GIB)
+        if torch.cuda.is_available()
+        else 0.0
+    )
+    free_gb = _gpu0_free_gb()
+
+    if isinstance(configured_batch, int) and configured_batch > 0:
+        final_batch = configured_batch if probe.mode == "train" else configured_batch * 2
+    else:
+        final_batch = _llm_auto_batch(seq_len, free_gb, probe.mode)
+
+    logger.info(
+        "LLM Dynamic Hardware Probe: %s (Free: %.1fGB / Total: %.1fGB) | Mode: %s | "
+        "Batch: %d | SeqLen: %d",
+        gpu_name,
+        free_gb,
+        vram_gb,
+        probe.mode.capitalize(),
+        final_batch,
+        seq_len,
+    )
+    return max(1, final_batch)
 
 
 # --------------------------------------------------------------------------- vision
@@ -492,4 +556,6 @@ def audit_hardware_vram(
     is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
     if is_forex:
         return _forex_batch(model_info, probe)
+    if _is_llm(model_key, model_info):
+        return _llm_batch(model_info, probe)
     return _vision_batch(model_key, model_info, config, model, probe)

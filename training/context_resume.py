@@ -21,6 +21,7 @@ from training.checkpoint import (
 )
 from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS
 from training.context_data import RunSpec, rebuild_resumed_train_loader
+from training.governance.governor_setup import configured_data_fraction
 from training.hardware.probe import VramProbe, audit_hardware_vram
 from training.utils.error_types import STATE_RESTORE_ERRORS
 
@@ -165,8 +166,8 @@ def _resync_train_loader(spec: RunSpec, train: TrainState, data: LoaderState) ->
     rec_res = getattr(governor, "current_res", None)
     rec_frac = getattr(governor, "current_fraction", None)
     if spec.is_llm:
-        rec_frac = 1.0
-        governor.current_fraction = 1.0
+        rec_frac = configured_data_fraction(spec.model_info) or 1.0
+        governor.current_fraction = rec_frac
     if rec_frac is None and rec_res is None:
         return
     train_ds = data.train_ds
@@ -205,7 +206,15 @@ def _resync_train_loader(spec: RunSpec, train: TrainState, data: LoaderState) ->
     data.train_loader = rebuild_resumed_train_loader(spec, train_ds, data.train_loader, curr_batch)
     total_ds_samples = len(getattr(train_ds, "all_samples", [])) or len(train_ds)
     shown_frac = rec_frac if rec_frac is not None else 1.0
-    if os.environ.get("RANK", "0") == "0":
+    if os.environ.get("RANK", "0") == "0" and spec.is_llm:
+        ctx_len = rec_res or spec.model_info.get("input_size") or 2048
+        print(
+            f"[CURRICULUM] Active LLM instruction manifold: {len(train_ds)} samples "
+            f"({shown_frac * 100:.0f}% data fraction) | Context: {ctx_len} tokens | "
+            f"Batch: {curr_batch} | Total Batches: {len(data.train_loader)}",
+            flush=True,
+        )
+    elif os.environ.get("RANK", "0") == "0":
         print(
             "[CURRICULUM] Active training manifold: "
             f"{len(train_ds)}/{total_ds_samples} samples "

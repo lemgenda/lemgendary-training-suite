@@ -1550,6 +1550,9 @@ ai_helper_lemgend:
   datasets:
     - LemGendizedAIHelperLemGend
   curriculum:
+    data_fraction: 1.0
+    target_effective_batch: 24
+    accumulation_steps: 12
     max_seq_length: 2048
     lora_r: 16
     lora_alpha: 32
