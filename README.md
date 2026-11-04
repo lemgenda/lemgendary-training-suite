@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.123-STABLE`
+- **Version**: `v16.9.124-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,20 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.124 - Kaggle Routes Reject Unknown Models
+
+- **`POST /api/training/kaggle/push-model`** answered HTTP 500 for a model
+  key that is not in the registry. It now checks the key against the model
+  registry first and answers 404 (`Model '<key>' not found in registry`)
+  before any staging folder is created.
+- The sibling routes `kaggle/train`, `kaggle/pull`, `kaggle/push` and
+  `kaggle/monitor` (when a `model` is given) run the same check, so an
+  unknown key no longer enqueues a job that can only fail. The 404 response
+  is documented in `openapi.json`.
+- `tests/unit/test_kaggle_routes.py` covers each route: 404 with the
+  detail message, no job queued, no file written (workspace, project root
+  `cloud_jobs/` kernel bundle).
 
 ### v16.9.123 - Validator Findings Fixed
 

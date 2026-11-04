@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.123"
+    "version": "16.9.124"
   },
   "paths": {
     "/api/health": {
@@ -1131,6 +1131,9 @@
               }
             }
           },
+          "404": {
+            "description": "Model key not found in registry"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1174,6 +1177,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Model key not found in registry"
           },
           "422": {
             "description": "Validation Error",
@@ -1219,6 +1225,9 @@
               }
             }
           },
+          "404": {
+            "description": "Model key not found in registry"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1263,6 +1272,9 @@
               }
             }
           },
+          "404": {
+            "description": "Model key not found in registry"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1306,6 +1318,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Model key not found in registry"
           },
           "422": {
             "description": "Validation Error",

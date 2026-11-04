@@ -6,13 +6,14 @@ import logging
 import unittest
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 from training.kaggle_accounts import authenticate_kaggle_user, fetch_user_kernels
+from training.registry.model_specs import get_model_registry
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.server.routes.training")
@@ -114,6 +115,16 @@ def enqueue_unit_test_all(payload: UnitTestAllRequest, request: Request) -> dict
 
 # ─── Kaggle Cloud Engine Endpoints ───────────────────────────────────────────
 
+_UNKNOWN_MODEL: dict[int | str, dict[str, Any]] = {
+    404: {"description": "Model key not found in registry"}
+}
+
+
+def _require_registered_model(model_key: str) -> None:
+    """Reject a model key the registry does not know (404) before any job or file is created."""
+    if get_model_registry().get_model(model_key) is None:
+        raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
+
 
 class KaggleTrainRequest(BaseModel):
     """Payload for launching Kaggle cloud training."""
@@ -191,9 +202,10 @@ def list_kaggle_kernels(limit: int = 20) -> list[dict[str, Any]]:
     return fetch_user_kernels(api, user, limit=limit)
 
 
-@router.post("/kaggle/train")
+@router.post("/kaggle/train", responses=_UNKNOWN_MODEL)
 def launch_kaggle_train(payload: KaggleTrainRequest, request: Request) -> dict[str, Any]:
     """Enqueue and launch Kaggle cloud training with live WebSocket telemetry."""
+    _require_registered_model(payload.model)
     manager = request.app.state.job_manager
     params = payload.model_dump()
     job_id = manager.submit_job(job_type="kaggle_train", model_key=payload.model, params=params)
@@ -205,9 +217,11 @@ def launch_kaggle_train(payload: KaggleTrainRequest, request: Request) -> dict[s
     }
 
 
-@router.post("/kaggle/monitor")
+@router.post("/kaggle/monitor", responses=_UNKNOWN_MODEL)
 def monitor_kaggle_kernel(payload: KaggleMonitorRequest, request: Request) -> dict[str, Any]:
     """Connect live WebSocket telemetry to an active Kaggle kernel."""
+    if payload.model:
+        _require_registered_model(payload.model)
     manager = request.app.state.job_manager
     params = payload.model_dump()
     target_key = payload.model or payload.kernel_slug.split("/")[-1]
@@ -220,9 +234,10 @@ def monitor_kaggle_kernel(payload: KaggleMonitorRequest, request: Request) -> di
     }
 
 
-@router.post("/kaggle/pull")
+@router.post("/kaggle/pull", responses=_UNKNOWN_MODEL)
 def pull_kaggle_model_artifacts(payload: KagglePullRequest, request: Request) -> dict[str, Any]:
     """Enqueue a job that downloads all 4 model variations from Kaggle Models Hub."""
+    _require_registered_model(payload.model)
     manager = request.app.state.job_manager
     params: dict[str, Any] = {
         "variation": payload.variation,
@@ -241,9 +256,10 @@ def pull_kaggle_model_artifacts(payload: KagglePullRequest, request: Request) ->
     }
 
 
-@router.post("/kaggle/push")
+@router.post("/kaggle/push", responses=_UNKNOWN_MODEL)
 def push_kaggle_model_artifacts(payload: KagglePushRequest, request: Request) -> dict[str, Any]:
     """Enqueue a job staging and pushing all 4 variations of one model to Kaggle Models."""
+    _require_registered_model(payload.model)
     manager = request.app.state.job_manager
     params: dict[str, Any] = {"variation": "all", "dry_run": False, "username": payload.username}
     job_id = manager.submit_job(job_type="kaggle_push", model_key=payload.model, params=params)
@@ -271,9 +287,10 @@ class KagglePushModelRequest(BaseModel):
     )
 
 
-@router.post("/kaggle/push-model")
+@router.post("/kaggle/push-model", responses=_UNKNOWN_MODEL)
 def push_kaggle_model_variations(payload: KagglePushModelRequest) -> dict[str, Any]:
     """Publish validated isolated model variation(s) to Kaggle Models Hub."""
+    _require_registered_model(payload.model)
     sync_mgr = KaggleModelSyncManager()
     result = sync_mgr.push_model(
         model_key=payload.model,
