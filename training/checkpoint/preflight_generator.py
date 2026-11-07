@@ -18,6 +18,7 @@ from typing import Any, NamedTuple
 
 import yaml
 
+from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.model_card import build_model_readme
 from training.notebooks import (
     generate_colab_training_notebook,
@@ -25,7 +26,7 @@ from training.notebooks import (
     generate_training_notebook,
     generate_usage_notebook,
 )
-from training.utils.paths import get_project_root
+from training.utils.paths import get_model_hub_dir, get_project_root
 
 logger = logging.getLogger("lemtrain.checkpoint.preflight")
 
@@ -67,7 +68,7 @@ def _load_registry_and_config(project_root: Path) -> tuple[dict[str, Any], dict[
 
 def _prepare_hub_dir(root: Path, model_key: str) -> tuple[Path, Path]:
     """Create ``LemGendaryModels/<model_key>`` and its folders; return (hub dir, notebooks)."""
-    hub_dir = (root.parent / "LemGendaryModels" / model_key).resolve()
+    hub_dir = get_model_hub_dir(model_key, root)
     hub_dir.mkdir(parents=True, exist_ok=True)
     (hub_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
     nb_dir = hub_dir / "notebooks"
@@ -100,7 +101,7 @@ def _last_metrics(hub_dir: Path, model_key: str) -> tuple[int, dict[str, Any]]:
                         epochs_trained = int(last_ep) + 1
                     else:
                         epochs_trained = len(reader)
-                    metrics = reader[-1]
+                    metrics = filter_metrics_row_for_fid_provenance(reader[-1], hub_dir)
         except (OSError, csv.Error, ValueError) as exc:
             logger.debug("Metrics parsing notice for %s: %s", model_key, exc)
     return epochs_trained, metrics

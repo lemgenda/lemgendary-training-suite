@@ -23,7 +23,7 @@ from training.cloud.variations import (
     VARIATIONS,
 )
 from training.registry import ModelSpecification, get_model_registry
-from training.utils.paths import get_project_root
+from training.utils.paths import get_model_hub_dir
 
 logger = logging.getLogger("lemtrain.export.validation")
 
@@ -302,8 +302,7 @@ class StrictIsolationValidator:
         if base_dir:
             model_hub_dir = Path(base_dir).resolve()
         else:
-            root = get_project_root()
-            model_hub_dir = (root.parent / "LemGendaryModels" / model_key).resolve()
+            model_hub_dir = get_model_hub_dir(model_key)
 
         dist_kaggle = model_hub_dir / "dist" / "kaggle"
         overall_report = IsolationReport(model_key=model_key, is_valid=True)

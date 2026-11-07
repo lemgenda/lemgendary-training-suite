@@ -129,7 +129,7 @@ class TestThermalState(unittest.TestCase):
 
 
 class TestSotaTracker(unittest.TestCase):
-    """Tests for SotaTracker metric recording and rollback logic."""
+    """Tests for SotaTracker metric recording and drift-gate logic."""
 
     def test_record_epoch_new_sota(self) -> None:
         """Verify a first quality record is a new SOTA."""
@@ -147,21 +147,18 @@ class TestSotaTracker(unittest.TestCase):
         self.assertEqual(tracker.stabilization_epochs, 2)
         self.assertEqual(len(tracker.history), 0)
 
-    def test_register_rollback_and_breakout(self) -> None:
-        """Verify rollback registration and loop-breaker breakout."""
+    def test_drift_gate_and_regression_limit(self) -> None:
+        """Verify active drift gate and regression limits during and after gate relaxation."""
         tracker = SotaTracker(
-            loop_breaker_enabled=True,
-            loop_breaker_threshold=2,
-            loop_breaker_strategy="escalate",
+            gate_relaxation_epochs=1,
+            plateau_patience=6,
             task_type="quality",
         )
-        res_ladder = [256, 384, 512]
-        res1 = tracker.register_rollback(current_res=256, res_ladder=res_ladder)
-        self.assertFalse(res1["breakout_triggered"])
-
-        res2 = tracker.register_rollback(current_res=256, res_ladder=res_ladder)
-        self.assertTrue(res2["breakout_triggered"])
-        self.assertEqual(res2["new_res"], 384)
+        self.assertEqual(tracker.get_active_regression_limit(4, current_res=256), 8)
+        self.assertLess(tracker.get_active_drift_gate(0.90), 0.90)
+        self.assertEqual(tracker.gate_relaxation_epochs, 0)
+        self.assertEqual(tracker.get_active_regression_limit(4, current_res=256), 4)
+        self.assertAlmostEqual(tracker.get_active_drift_gate(0.90), 0.90)
 
 
 class TestSmartTrainingGovernor(unittest.TestCase):
@@ -244,7 +241,12 @@ class TestSmartTrainingGovernor(unittest.TestCase):
         gov.best_quality = 94.71
         gov.epoch_count = 198
         gov.last_action_epoch = 190
-        gov.history = [80.0, 85.0, 90.0, 94.71]
+        gov.history = [
+            (80.0, None, None),
+            (85.0, None, None),
+            (90.0, None, None),
+            (94.71, None, None),
+        ]
 
         state = gov.get_state()
         self.assertEqual(state["sample_fraction"], 1.0)

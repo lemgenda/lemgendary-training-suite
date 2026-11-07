@@ -72,7 +72,14 @@ _FIELD_GROUP: dict[str, str] = {
 
 
 class SotaTracker:
-    """Manages SOTA metric history, stability locks, and rollback breakout policies.
+    """Manages SOTA metric history, stability locks, and drift-gate policies.
+
+    Used in two distinct roles across the training suite:
+    1. Global SOTA tracker (``ctx.governance.sota_tracker`` in ``core_loop.py``): tracks the
+       all-time best Quality Score across the entire run to gate ``best.pth`` saves.
+    2. Per-rung curriculum tracker (``governor.sota`` in ``SmartTrainingGovernor``): tracks
+       plateau patience, stabilization windows, and recent epoch history within the active
+       curriculum rung.
 
     The state lives in four groups; every field stays reachable as a flat attribute and
     as a keyword of the constructor (``SotaTracker(best_quality=0.9)``).
@@ -139,66 +146,6 @@ class SotaTracker:
         self.history.clear()
         self.stress.stabilization_epochs = 2
         logger.info("SOTA Memory Purged. Establishing fresh baseline for current manifold.")
-
-    def register_rollback(
-        self,
-        current_res: int,
-        res_ladder: list[int],
-    ) -> dict[str, Any]:
-        """Record a rollback and trigger breakout or gate relaxation once the threshold is met."""
-        result: dict[str, Any] = {
-            "breakout_triggered": False,
-            "strategy": None,
-            "new_res": None,
-            "reset_best": False,
-        }
-        if not self.loop_breaker_enabled:
-            return result
-
-        self.rollback.consecutive_rollbacks += 1
-        res_key = current_res
-        self.rollback_history[res_key] = self.rollback_history.get(res_key, 0) + 1
-
-        if self.rollback_history.get(res_key, 0) >= self.loop_breaker_threshold:
-            strategy = self.loop_breaker_strategy
-            if strategy == "auto":
-                strategy = "escalate" if self.task_type == "quality" else "relax"
-            result["strategy"] = strategy
-
-            current_idx = res_ladder.index(current_res) if current_res in res_ladder else -1
-            has_higher_res = 0 <= current_idx < len(res_ladder) - 1
-            target_res = (
-                self.sota_resolution
-                if (self.sota_resolution is not None and self.sota_resolution > current_res)
-                else (res_ladder[current_idx + 1] if has_higher_res else None)
-            )
-
-            if strategy == "escalate" and target_res is not None:
-                self.rollback_history[target_res] = 0
-                self.rollback.consecutive_rollbacks = 0
-                self.rollback.gate_relaxation_epochs = 0
-                self.rollback.breakout_lock = 8
-                self.reset_best()
-                result["breakout_triggered"] = True
-                result["new_res"] = target_res
-                result["reset_best"] = True
-                logger.warning(
-                    "Resolution-Regression Lock detected at %dpx! Promoting to %dpx with "
-                    "breakout protection.",
-                    current_res,
-                    target_res,
-                )
-            elif strategy in ["escalate", "relax"]:
-                self.rollback.gate_relaxation_epochs = 6
-                self.rollback.consecutive_rollbacks = 0
-                result["breakout_triggered"] = True
-                logger.warning(
-                    "Stagnation Rollback Lock detected at %dpx! Dynamic Gate Relaxation active "
-                    "for 6 epochs.",
-                    res_key,
-                )
-
-        return result
 
     def get_active_drift_gate(self, config_gate: float) -> float:
         """Return dynamic drift gate with relaxation decay."""

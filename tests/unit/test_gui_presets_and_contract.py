@@ -18,6 +18,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 from unittest import mock
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
@@ -218,6 +219,56 @@ class TestDesktopGUIAndPresets(unittest.TestCase):
         resp = self.client.post("/api/gui/quick-train", json=payload)
         self.assertEqual(resp.status_code, 400)
         self.assertIn("Invalid preset", resp.json()["detail"])
+
+    def test_quick_train_precedence_request_model_preset(self) -> None:
+        """Verify quick_train parameter precedence: request -> model registry -> preset."""
+
+        fake_registry = {
+            "custom_model": {
+                "epochs": 42,
+                "batch_size": 16,
+                "learning_rate": 0.005,
+            }
+        }
+
+        # Case 1: When request fields are None, model registry overrides preset
+        with patch("training.server.routes.gui._load_registry", return_value=fake_registry):
+            resp1 = self.client.post("/api/gui/quick-train", json={
+                "model_key": "custom_model",
+                "preset": "quick-sota",
+            })
+            self.assertEqual(resp1.status_code, 200)
+            params1 = resp1.json()["params"]
+            self.assertEqual(params1.get("epochs"), 42)
+            self.assertEqual(params1.get("batch_size"), 16)
+            self.assertEqual(params1.get("learning_rate"), 0.005)
+
+        # Case 2: Request payload explicitly overrides both model registry and preset
+        with patch("training.server.routes.gui._load_registry", return_value=fake_registry):
+            resp2 = self.client.post("/api/gui/quick-train", json={
+                "model_key": "custom_model",
+                "preset": "quick-sota",
+                "epochs": 99,
+                "batch_size": 32,
+                "learning_rate": 0.001,
+            })
+            self.assertEqual(resp2.status_code, 200)
+            params2 = resp2.json()["params"]
+            self.assertEqual(params2.get("epochs"), 99)
+            self.assertEqual(params2.get("batch_size"), 32)
+            self.assertEqual(params2.get("learning_rate"), 0.001)
+
+        # Case 3: When model registry has no overrides, preset values are used
+        with patch("training.server.routes.gui._load_registry", return_value={}):
+            resp3 = self.client.post("/api/gui/quick-train", json={
+                "model_key": "custom_model",
+                "preset": "quick-sota",
+            })
+            self.assertEqual(resp3.status_code, 200)
+            params3 = resp3.json()["params"]
+            self.assertEqual(params3.get("epochs"), 10)
+            self.assertEqual(params3.get("batch_size"), 4)
+            self.assertAlmostEqual(float(params3["learning_rate"]), 0.0002)
 
 
 class TestCLIExportAndContract(unittest.TestCase):

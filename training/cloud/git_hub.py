@@ -13,6 +13,7 @@ from typing import Any
 
 from training.cloud.credentials import mask_secret, resolve_github_credentials
 from training.cloud.manager import CloudSyncError
+from training.utils.paths import get_models_hub_root
 
 logger = logging.getLogger("lemtrain.cloud.git_hub")
 
@@ -51,7 +52,7 @@ class GitHubSyncManager:
             if is_cloud:
                 self.hub_root = Path("/kaggle/working/LemGendaryModels").resolve()
             else:
-                self.hub_root = (Path.cwd().parent / "LemGendaryModels").resolve()
+                self.hub_root = get_models_hub_root()
 
     def run_git(self, args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
         """Run git command safely with masked secret logging.

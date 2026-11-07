@@ -8,6 +8,8 @@ logger = logging.getLogger("lemtrain.governance.metrics")
 DEFAULT_METRIC_DIRECTIONS: dict[str, bool] = {
     # True = Higher is better, False = Lower is better
     "val_loss": False,
+    "eval_loss": False,
+    "perplexity": False,
     "train_loss": False,
     "loss": False,
     "plcc": True,
@@ -21,6 +23,7 @@ DEFAULT_METRIC_DIRECTIONS: dict[str, bool] = {
     "rank_margin": False,
     "accuracy": True,
     "mae": False,
+    "mse": False,
     "miou": True,
     "map_medium": True,
     "map_hard": True,
@@ -65,17 +68,93 @@ DEFAULT_METRIC_WEIGHTS: dict[str, float] = {
     "dir_entropy": 2.0,
 }
 
+LOWER_IS_BETTER_METRICS: set[str] = {
+    "loss",
+    "val_loss",
+    "eval_loss",
+    "perplexity",
+    "train_loss",
+    "lpips",
+    "fid",
+    "mae",
+    "mse",
+    "tp_mae",
+    "sl_mae",
+    "max_drawdown",
+    "maxdd",
+    "drawdown",
+    "rank_margin",
+    "entropy",
+    "dir_entropy",
+}
 
-def _forex_composite(metrics: dict[str, float]) -> float:
-    """Forex composite: direction accuracy, win rate, capped PF/Sharpe, minus drawdown."""
-    score = (
-        (metrics.get("dir_acc", 0.0) * 40.0)
-        + (metrics.get("win_rate", 0.0) * 30.0)
-        + (min(metrics.get("profit_factor", 0.0), 3.0) * 10.0)
-        + (min(metrics.get("sharpe_ratio", 0.0), 3.0) * 10.0)
-        - (metrics.get("max_drawdown", 0.0) * 20.0)
+CANONICAL_METRIC_ALIASES: dict[str, str] = {
+    "evalloss": "eval_loss",
+    "eval_loss": "eval_loss",
+    "valloss": "eval_loss",
+    "val_loss": "eval_loss",
+    "perplexity": "perplexity",
+    "tokenaccuracy": "token_accuracy",
+    "token_accuracy": "token_accuracy",
+    "diracc": "dir_acc",
+    "dir_acc": "dir_acc",
+    "winrate": "win_rate",
+    "win_rate": "win_rate",
+    "profitfactor": "profit_factor",
+    "profit_factor": "profit_factor",
+    "sharpe": "sharpe_ratio",
+    "sharperatio": "sharpe_ratio",
+    "sharpe_ratio": "sharpe_ratio",
+    "sortino": "sortino_ratio",
+    "sortinoratio": "sortino_ratio",
+    "sortino_ratio": "sortino_ratio",
+    "maxdd": "max_drawdown",
+    "max_drawdown": "max_drawdown",
+    "tpmae": "tp_mae",
+    "tp_mae": "tp_mae",
+    "slmae": "sl_mae",
+    "sl_mae": "sl_mae",
+    "direntropy": "dir_entropy",
+    "dir_entropy": "dir_entropy",
+    "map_50": "map50",
+    "map50": "map50",
+    "map_50_95": "map50_95",
+    "map50_95": "map50_95",
+    "map50-95": "map50_95",
+}
+
+
+def normalize_metric_name(name: str) -> str:
+    """Normalize metric key to canonical lower-cased snake_case representation."""
+    cleaned = name.strip().lower().replace("-", "_")
+    unscored = cleaned.replace("_", "")
+    return CANONICAL_METRIC_ALIASES.get(cleaned, CANONICAL_METRIC_ALIASES.get(unscored, cleaned))
+
+
+def is_lower_better(metric_name: str) -> bool:
+    """Determine whether a metric improves when its value decreases."""
+    norm = normalize_metric_name(metric_name)
+    if norm in LOWER_IS_BETTER_METRICS:
+        return True
+    if norm in DEFAULT_METRIC_DIRECTIONS:
+        return not DEFAULT_METRIC_DIRECTIONS[norm]
+    return any(
+        sub in norm for sub in ("loss", "mae", "mse", "drawdown", "lpips", "fid", "margin")
     )
-    return round(score, 4)
+
+
+def _lower_is_better_contribution(metric_key: str, val: float) -> float:
+    """Bounded positive contribution for a lower-is-better metric (matches TelemetryEngine)."""
+    bounded_metrics = {
+        "fid": 100.0 - val,
+        "lpips": 1.0 - val,
+        "rank_margin": 10.0 - val,
+        "max_drawdown": max(0.0, 100.0 - val),
+        "tp_mae": max(0.0, 50.0 - val),
+        "sl_mae": max(0.0, 50.0 - val),
+        "dir_entropy": max(0.0, 1.099 - val),
+    }
+    return bounded_metrics.get(metric_key, 1.0 / (val + 1e-6))
 
 
 @dataclass
@@ -111,7 +190,9 @@ class MetricRegistry:
     def is_higher_better(self, metric_name: str) -> bool:
         """Return True if higher values indicate performance improvement."""
         name_clean = metric_name.lower().replace(" ", "_")
-        return self.directions.get(name_clean, True)
+        if name_clean in self.directions:
+            return self.directions[name_clean]
+        return not is_lower_better(name_clean)
 
     def is_improved(
         self,
@@ -131,27 +212,25 @@ class MetricRegistry:
         metrics: dict[str, float],
         task_type: str = "image",
     ) -> float:
-        """Compute normalized composite quality score across tracked metrics."""
+        """Compute canonical weighted Quality Score (aligned with TelemetryEngine)."""
         if not metrics:
             return 0.0
 
-        if task_type == "forex":
-            return _forex_composite(metrics)
+        if task_type == "quality":
+            plcc_val = metrics.get("plcc", 0.0)
+            srcc_val = metrics.get("srcc", 0.0)
+            if plcc_val < 0.0 or srcc_val < 0.0:
+                return 0.0
 
-        # Vision composite score
-        total_weighted_score = 0.0
-        total_weight = 0.0
-
+        quality_score = 0.0
         for key, val in metrics.items():
-            k_lower = key.lower().replace(" ", "_")
+            k_lower = normalize_metric_name(key.replace(" ", "_"))
             if k_lower in self.weights:
                 w = self.weights[k_lower]
                 higher_better = self.directions.get(k_lower, True)
-                norm_val = val if higher_better else (1.0 / max(1e-4, abs(val)))
-                total_weighted_score += norm_val * w
-                total_weight += w
+                if higher_better:
+                    quality_score += val * w
+                else:
+                    quality_score += _lower_is_better_contribution(k_lower, val) * w
 
-        if total_weight == 0.0:
-            return 0.0
-
-        return round(total_weighted_score / total_weight, 4)
+        return round(quality_score, 4)

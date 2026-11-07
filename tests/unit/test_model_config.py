@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import unittest
 
+import torch
+
 from models.core_restoration import NAFNet, NAFNetConfig
 from models.forex_predictor import ForexArch, ForexPredictor
 from models.generic_causal_llm import GenericCausalLLM, LoraSettings
@@ -50,6 +52,33 @@ class TestModelConfigs(unittest.TestCase):
         )
         self.assertEqual(flat.arch, typed.arch)
         self.assertEqual(_shapes(flat), _shapes(typed))
+
+    def test_forex_expand_timeframe_copies_projection_weights_along_dim1(self) -> None:
+        """``ForexPredictor.expand_timeframe`` warm-starts old TF and pair columns on dim=1."""
+        d_model = 16
+        head_hidden = 12
+        model = ForexPredictor(
+            [1, 5],
+            arch=ForexArch(d_model=d_model, n_heads=2, n_layers=1, head_hidden=head_hidden),
+        )
+        old_linear = model.fused_project[0]
+        self.assertEqual(tuple(old_linear.weight.shape), (head_hidden, 3 * d_model))
+        with torch.no_grad():
+            old_linear.weight[:, : 2 * d_model].fill_(2.5)
+            old_linear.weight[:, 2 * d_model :].fill_(-1.75)
+
+        model.expand_timeframe(15)
+        new_linear = model.fused_project[0]
+        self.assertEqual(model.active_timeframes, [1, 5, 15])
+        self.assertEqual(tuple(new_linear.weight.shape), (head_hidden, 4 * d_model))
+        self.assertTrue(
+            torch.allclose(new_linear.weight[:, : 2 * d_model], torch.full((head_hidden, 32), 2.5))
+        )
+        self.assertTrue(
+            torch.allclose(
+                new_linear.weight[:, 3 * d_model :], torch.full((head_hidden, 16), -1.75)
+            )
+        )
 
     def test_causal_llm_lora_settings(self) -> None:
         """LoRA keywords and ``LoraSettings`` set the same adapter switch."""

@@ -10,10 +10,12 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any, NamedTuple
 
 import yaml
 
+from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.telemetry import TelemetryEngine
 
 logger = logging.getLogger("lemtrain.docs.hub_readme_generator")
@@ -131,7 +133,10 @@ def _read_progress(metrics_csv: str, max_res: int, task_type: str, model_key: st
             with open(metrics_csv, encoding="utf-8") as f:
                 reader = list(csv.DictReader(f))
                 if reader:
-                    _update_from_row(progress, reader[-1], task_type)
+                    last_row = filter_metrics_row_for_fid_provenance(
+                        reader[-1], Path(metrics_csv).parent
+                    )
+                    _update_from_row(progress, last_row, task_type)
         except (OSError, UnicodeDecodeError, csv.Error, ValueError) as e:
             # ValueError: non-numeric Epoch/Data/Res/Quality_Score/Phase/Fold cells.
             logger.warning("Failed parsing metrics %s for %s: %s", metrics_csv, model_key, e)

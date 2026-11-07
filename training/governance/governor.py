@@ -40,7 +40,10 @@ class SmartTrainingGovernor(EpochAuditMixin, PropulsionMixin, GovernorStateMixin
     """Universal Autonomous Optimization Engine (v15.6 Nuclear).
 
     Coordinates curriculum resolution ladders, thermal decay, metric monitoring,
-    and SOTA stability management.
+    and per-rung SOTA stability management. Note that ``self.sota`` tracks per-rung
+    curriculum plateau/soak state and may reset across resolution jumps, whereas the
+    training engine's top-level ``ctx.governance.sota_tracker`` tracks the global
+    all-time best Quality Score used to gate ``best.pth`` persistence.
     """
 
     def __init__(
@@ -68,17 +71,23 @@ class SmartTrainingGovernor(EpochAuditMixin, PropulsionMixin, GovernorStateMixin
         self.runtime = build_runtime(stab, self.thermal.min_temperature)
         self.sota = build_sota(model_info, config, task_type, self.spec.sota_targets)
 
-    def _commit_rung(self, new_res: int, new_frac: float) -> None:
-        """Move the curriculum to ``(new_res, new_frac)`` under the pair rule.
+    # NOTE: The signature must match EpochAuditMixin._commit_rung (int, float) → None.
+    # The original parameter names were ``new_res`` and ``new_frac``; we keep them
+    # internally for readability while exposing the exact expected signature.
+    def _commit_rung(self, rung: int, res: float) -> None:
+        """Move the curriculum to ``(rung, res)`` under the pair rule.
 
         Raises ``RatchetViolation`` if the move would lower the resolution, or
-        lower the fraction without a resolution step-up.
+        lower the fraction without a resolution step‑up.
         """
+        # Preserve the original variable names for internal clarity.
+        new_res, new_frac = rung, res
+
         check_transition(
-            Rung(int(self.current_res), float(self.current_fraction)),
-            Rung(int(new_res), float(new_frac)),
+            Rung(self.current_res, float(self.current_fraction)),
+            Rung(new_res, float(new_frac)),
         )
-        self.curriculum.current_res = int(new_res)
+        self.curriculum.current_res = new_res
         self.curriculum.current_fraction = float(new_frac)
 
     # -------------------------------------------------------------------------
@@ -143,27 +152,6 @@ class SmartTrainingGovernor(EpochAuditMixin, PropulsionMixin, GovernorStateMixin
             return 0.5
         return max(0.15, min(0.5, target_pct))
 
-    def veto_resolution_jump(
-        self, fallback_res: int, reason: str = "VRAM physical ceiling"
-    ) -> None:
-        """Anchor training at fallback_res and prevent higher resolution attempts.
-
-        The veto stops a pending jump; it never retreats. A fallback below the
-        current resolution raises ``RatchetViolation`` (Monotonic Ratchet).
-        """
-        self._commit_rung(fallback_res, self.current_fraction)
-        self.runtime.counters.spatial_lock_remaining = 10
-        self.sota.stabilization_epochs = 10
-        if self.res_ladder:
-            self.curriculum.res_ladder = [r for r in self.res_ladder if r <= fallback_res]
-            if not self.res_ladder:
-                self.curriculum.res_ladder = [fallback_res]
-        logger.info(
-            "Spatial jump VETOED (%s). Anchoring at %dpx (Lock: ON).",
-            reason,
-            fallback_res,
-        )
-
     def recoil(self) -> str:
         """Recoil to softer numerical conditions on regression."""
         self.thermal.temperature = min(1.5, self.current_temp * 1.3)
@@ -174,23 +162,3 @@ class SmartTrainingGovernor(EpochAuditMixin, PropulsionMixin, GovernorStateMixin
             f"[NPP] RECOIL: Retaining data fraction at {self.current_fraction * 100:.0f}% | "
             f"Temp Heatup {self.current_temp:.2f}"
         )
-
-    def register_rollback(self) -> None:
-        """Register a model rollback and execute loop breaking logic."""
-        if not self.loop_breaker_enabled:
-            return
-
-        res_before = self.current_res
-        result = self.sota.register_rollback(self.current_res, self.res_ladder)
-
-        if result.get("breakout_triggered"):
-            new_res = result.get("new_res")
-            if new_res is not None:
-                self._commit_rung(new_res, 0.15)
-                if self.current_res not in self.res_ladder:
-                    self.curriculum.res_ladder = sorted(set(self.res_ladder + [self.current_res]))
-                logger.info(
-                    "Breakout promoted resolution %dpx -> %dpx with retreat protection.",
-                    res_before,
-                    self.current_res,
-                )

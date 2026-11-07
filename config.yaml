@@ -10,7 +10,6 @@ unified_models: "unified_models_v2.yaml"
 # Optimized for sequential SOTA training on restricted hardware.
 hardware:
   target_device: "cuda"
-  vram_limit_gb: 4.0
   # cudnn_workspace_cap_train and cudnn_workspace_cap_val are intentionally unset.
   # audit_hardware_vram() computes VRAM-tier-aware dynamic caps at runtime:
   #   <4.5GB VRAM (GTX 1650):  val_cap=4,  train_cap=16
@@ -20,9 +19,6 @@ hardware:
   # Override here ONLY if you need to force a specific cap on this machine.
   # cudnn_workspace_cap_val: 4
   # cudnn_workspace_cap_train: 16
-  max_allowed_local_resolution: 640
-  max_allowed_cloud_resolution: 512
-  safety_headroom_multiplier: 0.75
   enable_expandable_segments: true
   num_workers: auto  # Dynamically managed by train.py: 0 on Windows, 4 on Kaggle/Colab
   val_num_workers: auto  # Independent validation workers: 0 on Windows, 1-2 on Kaggle/Colab
@@ -43,7 +39,6 @@ governor:
   emergency_breakout_threshold: 0.10  # 10% quality drop shatters the lock
   jolt_cooldown_epochs: 5
   sharpening_cooling_rate: 0.98
-  min_softmax_temp: 0.1
   stabilization_lock_epochs: 3
   logit_clamp: 10.0
   # Resume of face and synthesis models: a restored best quality above `above` is the
@@ -59,7 +54,6 @@ fleet:
   kaggle_slug_prefix: ""  # Default prefix for Kaggle Model slugs
   kaggle_slug_suffix: ""  # Standardized suffix for model checkpoints
   force_kaggle_sync: false  # Trigger Kaggle Model upload even on local machine
-  inter_model_cooldown_seconds: 2
   retry_attempts: 3
   model_hub_repo: "https://github.com/lemgenda/lemgendary-pretrained-models.git"
   failure_log: "fleet_failure_report.json"
@@ -109,11 +103,6 @@ swa:
   update_every: 1
   eval_every: 0
   bn_update_batches: null
-
-# --- Security & Stealth ---
-security:
-  mask_tokens: true
-  stealth_mode: true
 
 # --- Execution Matrix ---
 execution:

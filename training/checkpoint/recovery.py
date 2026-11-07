@@ -11,7 +11,12 @@ from typing import Any
 
 from training.cloud.errors import kagglehub_errors
 from training.ecosystem import kaggle_owner
-from training.utils.paths import get_project_root, get_workspace_root, unique_resolved
+from training.utils.paths import (
+    get_models_hub_root,
+    get_project_root,
+    get_workspace_root,
+    unique_resolved,
+)
 
 logger = logging.getLogger("lemtrain.checkpoint.recovery")
 
@@ -145,13 +150,14 @@ class CheckpointRecoveryEngine:
     def _local_roots(self, model_name: str, cfg: dict[str, Any]) -> list[Path]:
         """Existing local hub, checkpoint and scratch directories for ``model_name``."""
         roots: list[Path] = []
+        hub_root = get_models_hub_root(self.project_root)
 
         # Local Hub & Checkpoints in LemGendaryModels
         hub_candidates = [
             (self.workspace_root / "LemGendaryModels" / model_name / "checkpoints").resolve(),
             (self.workspace_root / "LemGendaryModels" / model_name).resolve(),
-            (self.project_root.parent / "LemGendaryModels" / model_name / "checkpoints").resolve(),
-            (self.project_root.parent / "LemGendaryModels" / model_name).resolve(),
+            (hub_root / model_name / "checkpoints").resolve(),
+            (hub_root / model_name).resolve(),
         ]
         p_paths = cfg.get("paths", {})
         export_root = p_paths.get("export_root", "../LemGendaryModels")

@@ -45,85 +45,30 @@ from training.checkpoint.preflight_generator import (
     generate_preflight_assets,
 )
 from training.export.base import EXPORT_ERRORS
-from training.export.universal_exporter import (
-    export_universal_model,
-    get_model_hub_dir,
+from training.export.universal_exporter import export_universal_model
+from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
+from training.governance.metrics import (
+    CANONICAL_METRIC_ALIASES,
+    LOWER_IS_BETTER_METRICS,
+    is_lower_better,
+    normalize_metric_name,
 )
 from training.model_card import build_model_readme
-from training.utils.paths import get_project_root
+from training.utils.paths import get_model_hub_dir, get_project_root
 
 logger = logging.getLogger("lemtrain.checkpoint.lifecycle")
 
-
-LOWER_IS_BETTER_METRICS: set[str] = {
-    "loss",
-    "val_loss",
-    "eval_loss",
-    "perplexity",
-    "train_loss",
-    "lpips",
-    "fid",
-    "mae",
-    "mse",
-    "tp_mae",
-    "sl_mae",
-    "max_drawdown",
-    "maxdd",
-    "drawdown",
-    "rank_margin",
-    "entropy",
-    "dir_entropy",
-}
-
-CANONICAL_METRIC_ALIASES: dict[str, str] = {
-    "evalloss": "eval_loss",
-    "eval_loss": "eval_loss",
-    "valloss": "eval_loss",
-    "val_loss": "eval_loss",
-    "perplexity": "perplexity",
-    "tokenaccuracy": "token_accuracy",
-    "token_accuracy": "token_accuracy",
-    "diracc": "dir_acc",
-    "dir_acc": "dir_acc",
-    "winrate": "win_rate",
-    "win_rate": "win_rate",
-    "profitfactor": "profit_factor",
-    "profit_factor": "profit_factor",
-    "sharpe": "sharpe_ratio",
-    "sharperatio": "sharpe_ratio",
-    "sharpe_ratio": "sharpe_ratio",
-    "sortino": "sortino_ratio",
-    "sortinoratio": "sortino_ratio",
-    "sortino_ratio": "sortino_ratio",
-    "maxdd": "max_drawdown",
-    "max_drawdown": "max_drawdown",
-    "tpmae": "tp_mae",
-    "tp_mae": "tp_mae",
-    "slmae": "sl_mae",
-    "sl_mae": "sl_mae",
-    "direntropy": "dir_entropy",
-    "dir_entropy": "dir_entropy",
-    "map_50": "map50",
-    "map50": "map50",
-    "map_50_95": "map50_95",
-    "map50_95": "map50_95",
-    "map50-95": "map50_95",
-}
-
-
-def normalize_metric_name(name: str) -> str:
-    """Normalize metric key to canonical lower-cased snake_case representation."""
-    cleaned = name.strip().lower().replace("-", "_")
-    unscored = cleaned.replace("_", "")
-    return CANONICAL_METRIC_ALIASES.get(cleaned, CANONICAL_METRIC_ALIASES.get(unscored, cleaned))
-
-
-def is_lower_better(metric_name: str) -> bool:
-    """Determine whether a metric improves when its value decreases."""
-    norm = normalize_metric_name(metric_name)
-    if norm in LOWER_IS_BETTER_METRICS:
-        return True
-    return any(sub in norm for sub in ("loss", "mae", "mse", "drawdown", "lpips", "fid"))
+__all__ = [
+    "CANONICAL_METRIC_ALIASES",
+    "LOWER_IS_BETTER_METRICS",
+    "CheckpointLifecycleManager",
+    "ExportSource",
+    "LifecyclePaths",
+    "LifecycleTracking",
+    "canonicalize_checkpoints",
+    "is_lower_better",
+    "normalize_metric_name",
+]
 
 
 STAGING_DIR_NAMES = (".kaggle_upload_stage", ".export_staging")
@@ -389,7 +334,10 @@ class CheckpointLifecycleManager:
         try:
             with open(self.paths.metrics_csv_path, encoding="utf-8", errors="ignore") as f:
                 reader = csv.DictReader(f)
-                for row in reader:
+                for raw_row in reader:
+                    row = filter_metrics_row_for_fid_provenance(
+                        raw_row, self.paths.model_hub_dir
+                    )
                     self._absorb_quality_row(row)
                     self._absorb_vault_row(row)
         except OSError as exc:
@@ -532,7 +480,7 @@ class CheckpointLifecycleManager:
         """Save best.pth, invoke universal tri-format export, and refresh README (Rank 0 only)."""
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return False
-        if quality_score <= self.tracking.best_quality_score:
+        if quality_score < self.tracking.best_quality_score:
             return False
 
         self.tracking.best_quality_score = quality_score

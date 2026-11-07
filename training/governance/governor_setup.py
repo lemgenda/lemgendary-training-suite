@@ -12,7 +12,7 @@ from typing import Any
 
 import torch
 
-from training.governance.curriculum import CurriculumState
+from training.governance.curriculum import CurriculumState, is_forex_model
 from training.governance.governor_groups import (
     Calibration,
     GovernorRuntime,
@@ -50,13 +50,7 @@ def resolve_task_type(model_info: dict[str, Any]) -> str:
 
 def _trains_on_full_data(model_info: dict[str, Any]) -> bool:
     """Return True for forex and LLM models, which always train on the whole dataset."""
-    is_forex_model = (
-        model_info.get("category") == "forex"
-        or model_info.get("task_type") == "forex"
-        or model_info.get("dataset_type") == "forex"
-        or model_info.get("filename") == "ForexPredictor"
-    )
-    return is_forex_model or _is_llm_model(model_info)
+    return is_forex_model(model_info=model_info) or _is_llm_model(model_info)
 
 
 def _is_llm_model(model_info: dict[str, Any]) -> bool:
