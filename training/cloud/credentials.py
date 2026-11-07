@@ -81,7 +81,7 @@ def find_kaggle_users_file(explicit_path: Path | None = None) -> Path | None:
 
 
 def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, Any]]:
-    """Parse configured Kaggle user accounts, prioritizing default from .secrets.yaml."""
+    """Parse configured Kaggle user accounts from .secrets.yaml."""
     accounts: list[dict[str, Any]] = []
 
     # 1. Primary: load from .secrets.yaml
@@ -106,7 +106,7 @@ def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, Any]]:
             if accounts:
                 return accounts
 
-    # 2. Fallback: parse .kaggle_users dotfile
+    # 2. Fallback: parse .kaggle_users dotfile if provided or present
     target_file = find_kaggle_users_file(users_file)
     if target_file and target_file.exists():
         try:

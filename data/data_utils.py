@@ -6,6 +6,7 @@ import shutil
 
 import psutil
 
+from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import kagglehub_errors
 from training.ecosystem import kaggle_owner
 from training.utils.lazy_imports import load_kagglehub
@@ -46,14 +47,8 @@ def download_and_extract_dataset(ds_name, data_dir, source_ref=None):
 
 
 def _inject_kaggle_token(username):
-    """Export Kaggle credentials from the local ``.kaggle_token`` (prevents 403 errors)."""
-    token_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".kaggle_token")
-    if os.path.exists(token_path):
-        with open(token_path, "r", encoding="utf-8") as f:
-            token = f.read().strip()
-        token = token.removeprefix("KGAT_")
-        os.environ["KAGGLE_USERNAME"] = username
-        os.environ["KAGGLE_KEY"] = token
+    """Export Kaggle credentials (prevents 403 errors)."""
+    resolve_kaggle_credentials(override_user=username)
 
 
 def _kaggle_slug(username, ds_name, ref):

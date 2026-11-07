@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.126-STABLE`
+- **Version**: `v16.9.127-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,20 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.127 - Authoritative .secrets.yaml SSOT & Credential Hardening
+
+- `training/config/secrets.py`: refactored credential mapping to directly query
+  records from authoritative `.secrets.yaml` via `load_secrets_records()` with
+  ambient environment variable override precedence. Eliminated scans of legacy
+  `.GITHUB_PAT`, `.GOOGLE_DRIVE`, `.kaggle_token`, `.kaggle_users`,
+  `.SATURN_PAT`, and `.SUITE_PAT` dotfiles.
+- `training/cloud/credentials.py`: updated `load_kaggle_users()` and resolution
+  logic to read credentials directly from `.secrets.yaml` multi-account records.
+- `training/kaggle_accounts.py`: unified multi-account loading by delegating
+  cleanly to vault provider without reading project root token dotfiles.
+- `data/data_utils.py`: migrated `_inject_kaggle_token()` to resolve tokens
+  directly from `.secrets.yaml` single source of truth.
 
 ### v16.9.126 - Step B6 Remediation, Shared Governance Helpers, and Hub Lint Compliance
 

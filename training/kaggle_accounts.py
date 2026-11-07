@@ -10,7 +10,10 @@ from typing import Any
 
 import yaml
 
-from training.cloud.credentials import parse_kaggle_users_text
+from training.cloud.credentials import (
+    load_kaggle_users as load_vault_users,
+    parse_kaggle_users_text,
+)
 from training.cloud.errors import KAGGLE_API_ERRORS
 from training.utils.lazy_imports import load_kaggle_api
 
@@ -43,9 +46,17 @@ def find_kaggle_users_file(explicit_path: Path | None = None) -> Path | None:
 
 def load_kaggle_users(users_file: Path | None = None) -> tuple[list[dict[str, str]], Path]:
     """
-    Parses configured Kaggle user accounts from .kaggle_users.
-    Expected format per line: KAGGLE_USERNAME=<user>, KAGGLE_API_TOKEN=<token>;
+    Parses configured Kaggle user accounts, prioritizing .secrets.yaml.
     """
+    vault_accounts = load_vault_users(users_file)
+    if vault_accounts:
+        target_file = find_kaggle_users_file(users_file) or (Path.cwd() / ".kaggle_users")
+        clean_accounts = [
+            {"username": str(a.get("username", "")), "token": str(a.get("token", ""))}
+            for a in vault_accounts
+        ]
+        return clean_accounts, target_file
+
     target_file = find_kaggle_users_file(users_file)
     accounts: list[dict[str, str]] = []
 
