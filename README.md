@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.131-STABLE`
+- **Version**: `v16.9.132-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,12 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.132 - Local 4GB Hardware Sequence Clamping for AIHelperLemGend
+
+- `unified_models_v2.yaml`: clamped `ai_helper_lemgend` max sequence length to
+  512 tokens (from 1024/2048) and input size to 512, eliminating quadratic $O(N^2)$
+  attention latency and preventing WDDM PCIe paging thrashing on 4GB VRAM accelerators.
 
 ### v16.9.131 - Resilient Architecture State Recovery on Checkpoint Mismatch
 
