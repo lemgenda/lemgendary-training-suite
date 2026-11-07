@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.127-STABLE`
+- **Version**: `v16.9.128-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,20 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.128 - Three-Way Split (Train / Val / Test) Ingestion & Evaluation
+
+- `training/context_data.py`: implemented `instruction_all_jsonl_paths` and
+  updated `_instruction_datasets()` to discover and tokenize held-out test
+  split (`*_test.jsonl`), preserving backward compatibility with two-way
+  `instruction_jsonl_paths()`.
+- `training/training/context.py`: added optional `test_loader` to
+  `DataComponents`.
+- `training/core_loop.py`: wired `test_loader` into context builder.
+- `training/training/validation.py`: parameterized `validate_one_epoch()` with an
+  explicit target loader parameter.
+- `training/training/engine.py`: added automatic post-training evaluation pass
+  on held-out `test_loader`, appending test metrics to `TrainingSummary`.
 
 ### v16.9.127 - Authoritative .secrets.yaml SSOT & Credential Hardening
 

@@ -45,23 +45,18 @@ def _log_due(clock: BatchClock, step: int, now: float) -> bool:
 
 
 class _ValidationPass:
-    """One validation pass over ``ctx.data.val_loader``."""
+    """One validation pass over ``ctx.data.val_loader`` or an explicit test loader."""
 
-    def __init__(self, ctx: TrainingContext, epoch: int) -> None:
+    def __init__(self, ctx: TrainingContext, epoch: int, loader: Any = None) -> None:
         self.ctx = ctx
         self.epoch = epoch
-        self.raw_model = (
-            ctx.models.raw_model if ctx.models.raw_model is not None else ctx.models.model
-        )
-        self.autocast_ctx = get_autocast_context(
-            ctx.hardware.policy, ctx.hardware.device_info.device
-        )
+        self.loader = loader if loader is not None else ctx.data.val_loader
         self.acc = ValAccumulators()
         self.step_count = 0
         start_time = time.time()
         num_batches = (
-            len(ctx.data.val_loader)
-            if ctx.data.val_loader is not None and hasattr(ctx.data.val_loader, "__len__")
+            len(self.loader)
+            if self.loader is not None and hasattr(self.loader, "__len__")
             else 0
         )
         self.clock = BatchClock(num_batches, start_time, time.time())
@@ -90,7 +85,10 @@ class _ValidationPass:
     def forward(self, inputs: Any, targets: Any, task_idx: Any) -> tuple[Any, Any]:
         """Return ``(preds, loss)`` for one batch under autocast."""
         ctx = self.ctx
-        with self.autocast_ctx:
+        autocast_ctx = get_autocast_context(
+            ctx.hardware.policy, ctx.hardware.device_info.device
+        )
+        with autocast_ctx:
             eval_step_fn = getattr(ctx.models.model, "eval_step", None)
             if callable(eval_step_fn):
                 val_out = eval_step_fn(inputs)
@@ -142,7 +140,11 @@ class _ValidationPass:
             step=self.step_count,
             total_steps=total_val,
             payload_builder=partial(
-                _val_payload, ctx, self.epoch, self.raw_model, self.acc.snapshot()
+                _val_payload,
+                ctx,
+                self.epoch,
+                ctx.models.raw_model or ctx.models.model,
+                self.acc.snapshot(),
             ),
         )
 
@@ -198,36 +200,39 @@ def validate_one_epoch(
     ctx: TrainingContext,
     epoch: int,
     cancel_check: Any = None,
+    loader: Any = None,
 ) -> dict[str, float]:
-    """Execute validation over the evaluation loader.
+    """Execute validation over the evaluation loader or an explicit loader (e.g. test_loader).
 
     Args:
         ctx: Training context holding model, validation data loader, and policies.
         epoch: Epoch index being evaluated.
         cancel_check: Optional callable returning True when cancellation is requested.
+        loader: Optional explicit DataLoader; defaults to ctx.data.val_loader.
 
     Returns:
         dict[str, float]: Dictionary of validation metrics.
     """
-    if ctx.data.val_loader is None or len(ctx.data.val_loader) == 0:
+    target_loader = loader if loader is not None else ctx.data.val_loader
+    if target_loader is None or len(target_loader) == 0:
         return {"val_loss": 0.0}
 
     ctx.models.model.eval()
-    run = _ValidationPass(ctx, epoch)
+    run = _ValidationPass(ctx, epoch, loader=target_loader)
     run.resume()
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
     with torch.no_grad():
-        for batch_idx, batch in enumerate(ctx.data.val_loader):
+        for batch_idx, batch in enumerate(target_loader):
             if run.clock.skip_resumed(batch_idx, "VAL BATCH", "validation"):
                 continue
             if cancel_check is not None and cancel_check():
                 raise InterruptedError("Validation cancelled by user request.")
 
-            inputs, targets, task_idx = _unpack_batch(batch, ctx.hardware.device_info.device)
-            outcome = run.guarded_forward(batch_idx, (inputs, targets, task_idx))
+            unpacked = _unpack_batch(batch, ctx.hardware.device_info.device)
+            outcome = run.guarded_forward(batch_idx, unpacked)
             if outcome is None:
                 continue
             preds, loss = outcome
@@ -236,7 +241,7 @@ def validate_one_epoch(
             run.save_progress()
             run.log(loss)
 
-            view = run.batch_view(preds, targets, inputs)
+            view = run.batch_view(preds, unpacked[1], unpacked[0])
             for update in BATCH_METRICS:
                 update(run.acc, view)
 

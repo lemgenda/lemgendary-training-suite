@@ -66,11 +66,12 @@ class ModelStack:
 
 @dataclass
 class DataComponents:
-    """Train/validation loaders and the gradient accumulation they are consumed with."""
+    """Train/validation/test loaders and the gradient accumulation they are consumed with."""
 
     train_loader: DataLoader
     val_loader: DataLoader | None
     accumulation_steps: int = 1
+    test_loader: DataLoader | None = None
 
 
 @dataclass

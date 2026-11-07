@@ -753,13 +753,28 @@ def run_training(
     if ctx.governance.swa is not None:
         ctx.governance.swa.finish(ctx, loop.last_epoch_executed)
 
+    # Post-training evaluation on held-out test split if available
+    test_metrics: dict[str, float] = {}
+    if ctx.data.test_loader is not None and len(ctx.data.test_loader) > 0:
+        logger.info("Executing final evaluation pass on held-out test split...")
+        test_metrics = validate_one_epoch(
+            ctx, epoch=loop.last_epoch_executed, loader=ctx.data.test_loader
+        )
+        logger.info("Test split evaluation completed: %s", test_metrics)
+
     total_elapsed = time.time() - loop.started_at
     final_status = "completed" if loop.stop_reason is StopReason.CONVERGED else "partially_trained"
+
+    summary_metrics = dict(loop.best_metrics)
+    if test_metrics:
+        for k, v in test_metrics.items():
+            test_key = f"test_{k}" if not k.startswith("test_") else k
+            summary_metrics[test_key] = v
 
     return TrainingSummary(
         model_name=ctx.model_name,
         final_epoch=loop.last_epoch_executed,
-        best_metrics=loop.best_metrics,
+        best_metrics=summary_metrics,
         total_time=total_elapsed,
         status=final_status,
         stop_reason=loop.stop_reason.value if loop.stop_reason is not None else "",

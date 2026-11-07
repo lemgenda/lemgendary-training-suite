@@ -167,30 +167,41 @@ def datasets_root(spec: RunSpec) -> Path:
 
 def instruction_jsonl_paths(spec: RunSpec) -> tuple[Path, Path]:
     """Locate the train and validation JSONL files of an instruction dataset."""
+    train_jsonl, val_jsonl, _ = instruction_all_jsonl_paths(spec)
+    return train_jsonl, val_jsonl
+
+
+def instruction_all_jsonl_paths(spec: RunSpec) -> tuple[Path, Path, Path | None]:
+    """Locate the train, validation, and optional test JSONL files of an instruction dataset."""
     declared_datasets = spec.model_info.get("datasets", [])
     dataset_name = declared_datasets[0] if declared_datasets else DEFAULT_INSTRUCTION_DATASET
     data_dir = datasets_root(spec) / dataset_name / "data"
 
     train_jsonl = data_dir / f"{spec.model_key}_train.jsonl"
     val_jsonl = data_dir / f"{spec.model_key}_val.jsonl"
+    test_jsonl = data_dir / f"{spec.model_key}_test.jsonl"
     if not train_jsonl.exists():
         # Fall back to generic *_train.jsonl / *_val.jsonl candidates in data/.
         candidates_train = list(data_dir.glob("*_train.jsonl")) if data_dir.exists() else []
         candidates_val = list(data_dir.glob("*_val.jsonl")) if data_dir.exists() else []
+        candidates_test = list(data_dir.glob("*_test.jsonl")) if data_dir.exists() else []
         if candidates_train:
             train_jsonl = candidates_train[0]
         if candidates_val:
             val_jsonl = candidates_val[0]
+        if candidates_test:
+            test_jsonl = candidates_test[0]
     if not train_jsonl.exists():
         # Fall back to the default ai_helper files.
         train_jsonl = data_dir / "ai_helper_train.jsonl"
         val_jsonl = data_dir / "ai_helper_val.jsonl"
-    return train_jsonl, val_jsonl
+        test_jsonl = data_dir / "ai_helper_test.jsonl"
+    return train_jsonl, val_jsonl, (test_jsonl if test_jsonl.exists() else None)
 
 
 def _instruction_datasets(spec: RunSpec, raw_model: Any, sample_fraction: float):
     """Instruction-tuning JSONL datasets tokenized with the model's tokenizer."""
-    train_jsonl, val_jsonl = instruction_jsonl_paths(spec)
+    train_jsonl, val_jsonl, test_jsonl = instruction_all_jsonl_paths(spec)
     tokenizer = getattr(raw_model, "tokenizer", None)
     max_length = int(spec.model_info.get("input_size", 2048))
     train_ds = InstructionDataset(
@@ -204,7 +215,12 @@ def _instruction_datasets(spec: RunSpec, raw_model: Any, sample_fraction: float)
         if val_jsonl.exists()
         else None
     )
-    return train_ds, val_ds
+    test_ds = (
+        InstructionDataset(test_jsonl, tokenizer=tokenizer, max_length=max_length)
+        if test_jsonl and test_jsonl.exists()
+        else None
+    )
+    return train_ds, val_ds, test_ds
 
 
 def _image_datasets(spec: RunSpec, sample_fraction: float):
@@ -236,7 +252,7 @@ def _image_datasets(spec: RunSpec, sample_fraction: float):
 
 
 def build_datasets(spec: RunSpec, raw_model: Any, sample_fraction: float):
-    """Return ``(train_ds, val_ds)`` for the run's task type; ``val_ds`` may be ``None``."""
+    """Return ``(train_ds, val_ds)`` or ``(train_ds, val_ds, test_ds)`` for task type."""
     if spec.task_type == "forex":
         return _forex_datasets(spec, sample_fraction)
     if spec.task_type in LLM_TASKS:

@@ -385,18 +385,26 @@ def build_data(spec: RunSpec, governor: Any, raw_model: Any, batch_size: int):
 
     The governor already resolves the configured fraction (``sample_fraction``,
     ``curriculum.data_fraction``) and the full-data default of LLM / forex models.
-    Returns the train ``LoaderState`` and the validation loader (or ``None``).
+    Returns the train ``LoaderState``, validation loader, and optional test loader.
     """
     sample_fraction = getattr(governor.curriculum, "current_fraction", None) or 1.0
 
-    train_ds, val_ds = build_datasets(spec, raw_model, sample_fraction)
+    datasets = build_datasets(spec, raw_model, sample_fraction)
+    if len(datasets) == 3:
+        train_ds, val_ds, test_ds = datasets
+    else:
+        train_ds, val_ds = datasets
+        test_ds = None
+
     data = LoaderState(
         train_ds=train_ds,
         train_loader=build_initial_train_loader(spec, train_ds, batch_size, sample_fraction),
         batch_size=batch_size,
         sample_fraction=sample_fraction,
     )
-    return data, build_val_loader_for(spec, val_ds, batch_size)
+    val_loader = build_val_loader_for(spec, val_ds, batch_size)
+    test_loader = build_val_loader_for(spec, test_ds, batch_size) if test_ds else None
+    return data, val_loader, test_loader
 
 
 def build_training_context(args: argparse.Namespace) -> TrainingContext:
@@ -409,13 +417,13 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     batch_size = resolve_batch_size(spec, train.raw_model)
 
     # Sentinels and governance.
-    sentinel = SentinelGuard(device=spec.device)
     train.governor = SmartTrainingGovernor(model_info=spec.model_info, config=spec.config)
     train.governor.curriculum.update_batch_and_accumulation(batch_size)
     train.sota_tracker = SotaTracker()
-    vault = MetricVault()
 
-    data, val_loader = build_data(spec, train.governor, train.raw_model, batch_size)
+    data, val_loader, test_loader = build_data(
+        spec, train.governor, train.raw_model, batch_size
+    )
 
     resume_state = None
     if not args.clean:
@@ -439,16 +447,17 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             train_loader=data.train_loader,
             val_loader=val_loader,
             accumulation_steps=max(1, int(getattr(train.governor, "current_acc", 1))),
+            test_loader=test_loader,
         ),
         hardware=HardwareComponents(
             device_info=setup.device_info,
             policy=setup.policy,
-            sentinel=sentinel,
+            sentinel=SentinelGuard(device=spec.device),
         ),
         governance=GovernanceComponents(
             governor=train.governor,
             sota_tracker=train.sota_tracker,
-            vault=vault,
+            vault=MetricVault(),
             lifecycle_manager=setup.lifecycle_manager,
         ),
         run=RunSettings(
