@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.130-STABLE`
+- **Version**: `v16.9.131-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,13 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.131 - Resilient Architecture State Recovery on Checkpoint Mismatch
+
+- `training/context_resume.py`: wrapped `train.raw_model.load_state_dict` in
+  `STATE_RESTORE_ERRORS` guard to safely handle shape mismatches when resuming
+  between quantized 4-bit NF4 backbones and legacy full-precision checkpoints,
+  logging a clear diagnostic and continuing from initialized base weights.
 
 ### v16.9.130 - CUDA Acceleration, 4-bit NF4 QLoRA & Paged 8-bit AdamW
 

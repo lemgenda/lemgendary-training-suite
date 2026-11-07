@@ -89,7 +89,13 @@ def _restore_weights_and_optimizer(spec: RunSpec, loaded: dict, train: TrainStat
         loaded.get("model_state") or loaded.get("model_state_dict") or loaded.get("state_dict")
     )
     if isinstance(model_sd, dict):
-        train.raw_model.load_state_dict(model_sd, strict=False)
+        try:
+            train.raw_model.load_state_dict(model_sd, strict=False)
+        except STATE_RESTORE_ERRORS as model_err:
+            logger.warning(
+                "Model state could not be loaded cleanly (%s). Proceeding with fresh weights.",
+                model_err,
+            )
     opt_state = loaded.get("optimizer_state") or loaded.get("optimizer_state_dict")
     if isinstance(opt_state, dict):
         try:
