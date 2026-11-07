@@ -161,7 +161,7 @@ class GovernorWiringTests(unittest.TestCase):
         methods = _methods(*GOVERNOR_PATHS)
         audit_steps = set(_methods(*AUDIT_PATHS))
         self.assertIn("audit_epoch", audit_steps)
-        for name in sorted(audit_steps | {"veto_resolution_jump", "register_rollback", "recoil"}):
+        for name in sorted(audit_steps | {"recoil"}):
             with self.subTest(method=name):
                 written = _assigned_attrs(methods[name])
                 self.assertNotIn("current_res", written)

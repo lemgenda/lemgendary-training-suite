@@ -17,10 +17,11 @@ from typing import Any
 
 import yaml
 
+from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.model_card import DEFAULT_HARDWARE, build_model_readme
 from training.registry import get_model_registry
 from training.utils.lazy_imports import load_hub_readme_generator, load_variation_staging
-from training.utils.paths import get_workspace_root
+from training.utils.paths import get_model_hub_dir
 
 logger = logging.getLogger("lemtrain.docs.doc_generator")
 
@@ -121,10 +122,7 @@ class ModelDocumentationService:
         hardware: str = DEFAULT_HARDWARE,
     ) -> Path:
         """Write model README.md to disk."""
-        if output_dir:
-            dest_dir = Path(output_dir).resolve()
-        else:
-            dest_dir = (get_workspace_root() / "LemGendaryModels" / model_key).resolve()
+        dest_dir = Path(output_dir).resolve() if output_dir else get_model_hub_dir(model_key)
         dest_dir.mkdir(parents=True, exist_ok=True)
         content = self.generate_readme(model_key, epochs_trained, metrics, hardware)
         dest_file = dest_dir / "README.md"
@@ -146,7 +144,9 @@ def _read_metrics(m_csv: str, m_key: str) -> tuple[int, dict[str, Any]]:
                         epochs_trained = int(last_ep) + 1
                     else:
                         epochs_trained = len(reader)
-                    metrics = reader[-1]
+                    metrics = filter_metrics_row_for_fid_provenance(
+                        reader[-1], Path(m_csv).parent
+                    )
         except (OSError, UnicodeDecodeError, csv.Error) as exc:
             logger.warning("Failed reading metrics %s for %s: %s", m_csv, m_key, exc)
     return epochs_trained, metrics

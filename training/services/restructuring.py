@@ -25,10 +25,11 @@ from training.checkpoint.lifecycle_manager import canonicalize_checkpoints
 from training.cloud.metadata_generator import KaggleMetadataService
 from training.doc_generator import ModelDocumentationService
 from training.export.staging import VariationStagingService
+from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.hub_readme_generator import generate_hub_readme
 from training.registry import get_model_registry
 from training.utils.fs import remove_tree
-from training.utils.paths import get_project_root
+from training.utils.paths import get_models_hub_root, get_project_root
 
 logger = logging.getLogger("lemtrain.services.restructuring")
 
@@ -95,7 +96,7 @@ def _readme_metrics(model_dir: Path) -> tuple[int, dict[str, Any]]:
                 rows = list(csv.DictReader(cf))
                 if rows:
                     epochs_trained = len(rows)
-                    metrics = rows[-1]
+                    metrics = filter_metrics_row_for_fid_provenance(rows[-1], model_dir)
         except (OSError, csv.Error, UnicodeDecodeError) as csv_err:
             logger.warning(
                 "Could not parse %s for README metrics; using empty metrics: %s",
@@ -113,7 +114,7 @@ class ModelTopologyRestructuringService:
         if base_dir:
             self.base_dir = Path(base_dir).resolve()
         else:
-            self.base_dir = (self.project_root.parent / "LemGendaryModels").resolve()
+            self.base_dir = get_models_hub_root(self.project_root)
 
         self.registry = get_model_registry()
         self.metadata_service = KaggleMetadataService()

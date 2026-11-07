@@ -28,22 +28,16 @@ from training.export.staging import StagingResult, VariationStagingService
 from training.export.yolo_exporter import YOLOModelExporter
 from training.registry import get_model_registry
 from training.utils.fs import remove_tree
-from training.utils.paths import get_project_root
+from training.utils.paths import get_model_hub_dir
 
 logger = logging.getLogger("lemtrain.export.universal")
 
-
-def get_model_hub_dir(model_key: str, project_root: Path | None = None) -> Path:
-    """Return the authoritative target directory in LemGendaryModels."""
-    root = (project_root or get_project_root()).resolve()
-    proj_root = get_project_root().resolve()
-    if root != proj_root:
-        # Isolated test environment / custom root: keep model hub inside provided root
-        hub_dir = (root / "LemGendaryModels" / model_key).resolve()
-    else:
-        hub_dir = (root.parent / "LemGendaryModels" / model_key).resolve()
-    hub_dir.mkdir(parents=True, exist_ok=True)
-    return hub_dir
+__all__ = [
+    "export_tri_format_pytorch",
+    "export_tri_format_yolo",
+    "export_universal_model",
+    "get_model_hub_dir",
+]
 
 
 def export_tri_format_pytorch(

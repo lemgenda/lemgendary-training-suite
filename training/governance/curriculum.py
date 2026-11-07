@@ -6,6 +6,42 @@ from typing import Any
 
 logger = logging.getLogger("lemtrain.governance.curriculum")
 
+DEFAULT_SPATIAL_LADDER: tuple[int, ...] = (256, 384, 512)
+"""Canonical spatial resolution ladder (px) for vision models."""
+
+DEFAULT_FOREX_LADDER: tuple[int, ...] = (1, 5, 15, 60, 240, 1440)
+"""Canonical multi-timeframe curriculum ladder (minutes) for ForexPredictor."""
+
+
+def is_forex_model(
+    model_identifier: str | dict[str, Any] | None = None,
+    model_info_or_key: str | dict[str, Any] | None = None,
+    *,
+    model_info: dict[str, Any] | None = None,
+    model_key: str = "",
+) -> bool:
+    """Return True when the model configuration or key identifies the Forex predictor family.
+
+    Supports positional calls in either order (model_key, model_info) or
+    (model_info, model_key), as well as explicit keyword arguments.
+    """
+    key = model_key
+    info = model_info or {}
+
+    for arg in (model_identifier, model_info_or_key):
+        if isinstance(arg, str) and not key:
+            key = arg
+        elif isinstance(arg, dict) and not info:
+            info = arg
+
+    return (
+        key == "forex_predictor"
+        or info.get("category") == "forex"
+        or info.get("task_type") == "forex"
+        or info.get("dataset_type") == "forex"
+        or info.get("filename") == "ForexPredictor"
+    )
+
 
 @dataclass
 class CurriculumState:

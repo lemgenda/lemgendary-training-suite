@@ -27,6 +27,11 @@ from training.epoch_budget import (
     EpochBudgetPolicy,
     StopReason,
 )
+from training.governance.curriculum import (
+    DEFAULT_FOREX_LADDER,
+    DEFAULT_SPATIAL_LADDER,
+    is_forex_model,
+)
 from training.governance.epoch_audit import EpochSignals
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS
 from training.ratchet import (
@@ -183,11 +188,7 @@ class _Pillars(NamedTuple):
 
 def _is_forex(ctx: TrainingContext) -> bool:
     """Return True when the context trains the forex predictor family."""
-    return (
-        ctx.run.model_info.get("category") == "forex"
-        or ctx.run.model_info.get("task_type") == "forex"
-        or ctx.model_name == "forex_predictor"
-    )
+    return is_forex_model(ctx.model_name, ctx.run.model_info)
 
 
 def _resolve_start_epoch(ctx: TrainingContext) -> int:
@@ -432,7 +433,7 @@ def _audit_governor(
         )
         if gov_msg:
             print(f"{gov_msg}", flush=True)
-        governor_early_stop = bool(stop_trig)
+        governor_early_stop = stop_trig
         governor_reports_improvement = not governor_early_stop
 
         # Dynamic manifold scaling: update dataset and rebuild train_loader if fraction,
@@ -557,14 +558,14 @@ def _ladder_passed(ctx: TrainingContext, executed_res: int) -> bool:
         res_ladder = (
             opt_cfg.get("res_ladder")
             or getattr(ctx.governance.governor, "res_ladder", None)
-            or [1, 5, 15, 60, 240, 1440]
+            or list(DEFAULT_FOREX_LADDER)
         )
-        target_res = max(res_ladder) if res_ladder else 1440
+        target_res = max(res_ladder) if res_ladder else DEFAULT_FOREX_LADDER[-1]
         return getattr(ctx.run.args, "fold", 1) >= 6 or executed_res >= target_res
     res_ladder = (
         opt_cfg.get("res_ladder")
         or getattr(ctx.governance.governor, "res_ladder", None)
-        or [256, 384, 512]
+        or list(DEFAULT_SPATIAL_LADDER)
     )
     return top_resolution_reached(executed_res, res_ladder)
 

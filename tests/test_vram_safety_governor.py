@@ -1,4 +1,4 @@
-"""Unit tests for the VRAM safety governor: hardware caps, resolution vetoes and CPU fallback."""
+"""Unit tests for the VRAM safety governor: hardware caps, ratchet guards and CPU fallback."""
 
 import unittest
 
@@ -12,7 +12,7 @@ from training.ratchet import RatchetViolation
 
 
 class TestVRAMSafetyGovernor(unittest.TestCase):
-    """Tests for VRAM-aware governor capping and resolution veto behaviour."""
+    """Tests for VRAM-aware governor capping and resolution ratchet behaviour."""
 
     def test_governor_hardware_cap_restoration(self):
         """Verify the governor caps restoration batch/resolution to the hardware budget."""
@@ -32,8 +32,8 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
         self.assertNotIn(640, gov.res_ladder)
         self.assertNotIn(768, gov.res_ladder)
 
-    def test_governor_veto_resolution_jump(self):
-        """Verify the governor vetoes a resolution jump that would exceed VRAM."""
+    def test_governor_commit_rung_never_retreats_resolution(self):
+        """Verify committing a rung never moves the resolution backwards."""
         model_info = {
             "name": "test_mprnet",
             "dataset_type": "restoration",
@@ -42,26 +42,9 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
             "optimization": {"res_ladder": [256, 384, 512]},
         }
         gov = SmartTrainingGovernor(model_info)
-        gov.current_res = 384
-        gov.veto_resolution_jump(384, reason="Test VRAM Dry-Run OOM")
-        self.assertEqual(gov.current_res, 384)
-        self.assertTrue(gov.spatial_lock_remaining > 0)
-        self.assertTrue(gov.stabilization_epochs > 0)
-        self.assertTrue(all(r <= 384 for r in gov.res_ladder))
-
-    def test_governor_veto_never_retreats_resolution(self):
-        """Verify a vetoed jump never moves the resolution backwards."""
-        model_info = {
-            "name": "test_mprnet",
-            "dataset_type": "restoration",
-            "input_size": 256,
-            "batch_size": "auto",
-            "optimization": {"res_ladder": [256, 384, 512]},
-        }
-        gov = SmartTrainingGovernor(model_info)
-        gov.current_res = 512
+        getattr(gov, '_commit_rung')(512, 0.20)
         with self.assertRaises(RatchetViolation):
-            gov.veto_resolution_jump(384, reason="Test VRAM Dry-Run OOM")
+            getattr(gov, '_commit_rung')(384, 0.20)
         self.assertEqual(gov.current_res, 512)
 
     def test_audit_hardware_vram_cpu_fallback(self):

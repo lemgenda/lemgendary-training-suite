@@ -11,10 +11,14 @@ import ast
 import csv
 from pathlib import Path
 from typing import ClassVar
+from unittest.mock import patch
 
 import pytest
 import torch
 import torch.nn.functional as F
+
+from training.checkpoint.lifecycle_manager import CheckpointLifecycleManager
+from training.server.routes.gui_model_stats import model_with_stats
 
 from training.fid_reeval import cli, inputs, ledger
 from training.fid_reeval.measure import (
@@ -56,7 +60,7 @@ class FakeFid:
     def update(self, imgs: torch.Tensor, real: bool) -> None:
         """Project pooled uint8 images to ``feature`` dimensions."""
         assert imgs.dtype == torch.uint8
-        self.chunks.append(int(imgs.size(0)))
+        self.chunks.append(imgs.size(0))
         feats = F.adaptive_avg_pool2d(imgs.float() / 255.0, (4, 4)).flatten(1) @ self.proj
         (self.real if real else self.fake).append(feats)
         if real:
@@ -377,6 +381,42 @@ def test_status_reports_counts(fake_fid: type[FakeFid], tiny_stack: Path, capsys
 # --- scope: no metrics.csv writes, no rung state ------------------------------------------------
 
 
+def test_filter_metrics_row_for_fid_provenance(tmp_path: Path) -> None:
+    """Unverified epochs drop FID and Quality_Score; reevaluated epochs restore measured FID."""
+    hub = tmp_path / "codeformer"
+    _write_metrics(hub)
+    assert (
+        cli.main(["mark-unverified", "--model", "codeformer", "--models-root", str(tmp_path)]) == 0
+    )
+    assert ledger.unverified_fid_epochs(hub) == {"1", "2"}
+
+    raw_row = {"Epoch": "1", "PSNR": "30.0", "FID": "2.8500", "Quality_Score": "500.0"}
+    filtered = ledger.filter_metrics_row_for_fid_provenance(raw_row, hub)
+    assert "FID" not in filtered
+    assert "Quality_Score" not in filtered
+    assert filtered["PSNR"] == "30.0"
+
+    ledger.append_rows(
+        ledger.ledger_path(hub),
+        [
+            ledger.new_row(
+                recorded_at=ledger.utc_now(),
+                model_id="codeformer",
+                status=ledger.STATUS_REEVALUATED,
+                source=ledger.SOURCE_REEVALUATED,
+                epoch="1",
+                metric="FID",
+                value="14.2500",
+            )
+        ],
+    )
+    assert ledger.unverified_fid_epochs(hub) == {"2"}
+    assert ledger.reevaluated_fid_by_epoch(hub) == {"1": pytest.approx(14.25)}
+    after_reeval = ledger.filter_metrics_row_for_fid_provenance(raw_row, hub)
+    assert after_reeval["FID"] == "14.2500"
+    assert "Quality_Score" not in after_reeval
+
+
 def test_tool_never_touches_rung_state_or_writes_metrics_csv() -> None:
     """The package imports no governor/ratchet code and calls no metrics.csv writer."""
     for path in PACKAGE_DIR.glob("*.py"):
@@ -388,3 +428,76 @@ def test_tool_never_touches_rung_state_or_writes_metrics_csv() -> None:
                 )
             if isinstance(node, ast.Attribute):
                 assert node.attr not in {"_commit_rung", "write_epoch_row", "export_csv"}
+
+
+def test_filter_metrics_in_lifecycle_manager(tmp_path: Path) -> None:
+    """Verify CheckpointLifecycleManager ignores unverified FID and Quality_Score."""
+
+    hub_dir = tmp_path / "LemGendaryModels" / "codeformer"
+    hub_dir.mkdir(parents=True)
+    metrics_file = hub_dir / "metrics.csv"
+    with open(metrics_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["Epoch", "PSNR", "FID", "Quality_Score"])
+        writer.writeheader()
+        writer.writerow({"Epoch": "1", "PSNR": "30.0", "FID": "2.85", "Quality_Score": "500.0"})
+
+    ledger.append_rows(
+        ledger.ledger_path(hub_dir),
+        [
+            ledger.new_row(
+                recorded_at=ledger.utc_now(),
+                model_id="codeformer",
+                status=ledger.STATUS_UNVERIFIED,
+                source=ledger.SOURCE_RECALIBRATED,
+                epoch="1",
+                metric="FID",
+                value="2.85",
+            )
+        ],
+    )
+
+    with patch("training.checkpoint.lifecycle_manager.get_model_hub_dir", return_value=hub_dir):
+        mgr = CheckpointLifecycleManager(model_name="codeformer", project_root=tmp_path)
+        # LifecycleManager initial scan should NOT adopt Quality_Score 500.0 from unverified FID row
+        # Since the unverified FID/Quality_Score row is ignored, best_quality_score remains -inf
+        assert mgr.tracking.best_quality_score < 0.0
+
+
+def test_filter_metrics_in_gui_model_stats(tmp_path: Path) -> None:
+    """Verify model_with_stats omits unverified FID from history."""
+
+    hub_root = tmp_path / "models_hub"
+    hub_dir = hub_root / "codeformer"
+    hub_dir.mkdir(parents=True)
+    metrics_file = hub_dir / "metrics.csv"
+    with open(metrics_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["Epoch", "Resolution", "Fraction", "PSNR", "FID"])
+        writer.writeheader()
+        writer.writerow({
+            "Epoch": "1",
+            "Resolution": "512",
+            "Fraction": "1.0",
+            "PSNR": "30.0",
+            "FID": "2.85",
+        })
+
+    ledger.append_rows(
+        ledger.ledger_path(hub_dir),
+        [
+            ledger.new_row(
+                recorded_at=ledger.utc_now(),
+                model_id="codeformer",
+                status=ledger.STATUS_UNVERIFIED,
+                source=ledger.SOURCE_RECALIBRATED,
+                epoch="1",
+                metric="FID",
+                value="2.85",
+            )
+        ],
+    )
+
+    info = {"name": "CodeFormer", "category": "face", "dataset_type": "face"}
+    model_stat = model_with_stats("codeformer", info, tmp_path, hub_root, [])
+    keys = [d.key for d in model_stat.best_metrics_details]
+    assert "fid" not in keys
+    assert "psnr" in keys

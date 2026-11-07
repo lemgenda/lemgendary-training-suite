@@ -656,7 +656,7 @@ class ForexPredictor(nn.Module):
         new_linear = nn.Linear(fused_dim, m0.out_features)
         new_ln = nn.LayerNorm(m0.out_features)
         new_proj = nn.Sequential(new_linear, nn.GELU(), nn.Dropout(float(m2.p)), new_ln)
-        _copy_projection_weights(m0, m3, new_linear, new_ln)
+        _copy_projection_weights(m0, m3, new_linear, new_ln, pair_dim=self.arch.d_model)
         self.add_module("fused_project", new_proj)
 
         print(f" [ForexPredictor] Expanded to {n_tf} timeframes. Added: {new_tf}min rung.")
@@ -667,17 +667,35 @@ class ForexPredictor(nn.Module):
 
 
 def _copy_projection_weights(
-    old_linear: nn.Linear, old_norm: nn.LayerNorm, new_first_linear: nn.Linear, new_ln: nn.LayerNorm
+    old_linear: nn.Linear,
+    old_norm: nn.LayerNorm,
+    new_first_linear: nn.Linear,
+    new_ln: nn.LayerNorm,
+    pair_dim: int | None = None,
 ) -> None:
     """Copy the old input-block weights and LayerNorm into a wider ``fused_project``.
 
-    2026 v1.1: the fused_tf layout is [n_tf * d_model, pair_emb(d_model)], so the old
-    timeframe block + the pair embedding block occupy the FIRST ``in_features`` rows of
-    the old linear. The new d_model rows at the tail belong to the new timeframe and
-    keep their Kaiming initialization.
+    In ``forward()``, the fused input tensor is ``torch.cat([fused_tf, pair_emb], dim=1)``:
+    ``[old_timeframes (n_old * d_model) | new_timeframe (d_model) | pair_emb (d_model)]``.
+    ``nn.Linear.weight`` has shape ``[out_features, in_features]``, so ``dim=1`` is sliced:
+    the old timeframe columns ``[:, :old_tf_dim]`` copy into ``[:, :old_tf_dim]``, the pair
+    embedding columns ``[:, -pair_dim:]`` copy into ``[:, -pair_dim:]``, and the middle
+    ``d_model`` columns belonging to the newly added timeframe retain their Kaiming
+    initialization.
     """
     with torch.no_grad():
-        new_first_linear.weight[: old_linear.in_features] = old_linear.weight
+        inferred_pair_dim = (
+            pair_dim
+            if pair_dim is not None
+            else (new_first_linear.in_features - old_linear.in_features)
+        )
+        old_tf_dim = max(0, old_linear.in_features - inferred_pair_dim)
+        if old_tf_dim > 0:
+            new_first_linear.weight[:, :old_tf_dim].copy_(old_linear.weight[:, :old_tf_dim])
+        if 0 < inferred_pair_dim <= old_linear.in_features:
+            new_first_linear.weight[:, -inferred_pair_dim:].copy_(
+                old_linear.weight[:, -inferred_pair_dim:]
+            )
         if new_first_linear.bias is not None and old_linear.bias is not None:
             new_first_linear.bias.copy_(old_linear.bias)
         # LayerNorm at the tail is shape-invariant (hidden-dim); copy directly

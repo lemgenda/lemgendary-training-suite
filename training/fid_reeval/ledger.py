@@ -8,10 +8,11 @@ rewritten. ``metrics.csv`` is read, never written.
 from __future__ import annotations
 
 import csv
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 LEDGER_NAME = "fid_provenance.csv"
 METRICS_NAME = "metrics.csv"
@@ -178,3 +179,80 @@ def ledger_status(hub_dir: Path, model_id: str) -> LedgerStatus:
         reevaluations=len(reevaluated),
         latest=reevaluated[-1] if reevaluated else None,
     )
+
+
+def _safe_read_ledger(hub_dir: Path) -> list[LedgerRow]:
+    """Return rows of ``hub_dir/fid_provenance.csv`` or ``[]`` on missing/corrupt ledger."""
+    try:
+        return read_ledger(ledger_path(hub_dir))
+    except (OSError, csv.Error, LedgerError):
+        return []
+
+
+def unverified_fid_epochs(hub_dir: Path) -> set[str]:
+    """Epochs marked ``unverified`` without a ``reevaluated`` row in ``fid_provenance.csv``."""
+    rows = _safe_read_ledger(hub_dir)
+    unv = {
+        r["epoch"].strip()
+        for r in rows
+        if r.get("status") == STATUS_UNVERIFIED and r.get("epoch")
+    }
+    reeval = {
+        r["epoch"].strip()
+        for r in rows
+        if r.get("status") == STATUS_REEVALUATED and r.get("epoch")
+    }
+    return unv - reeval
+
+
+def reevaluated_fid_by_epoch(hub_dir: Path) -> dict[str, float]:
+    """Map ``epoch`` -> latest ``reevaluated`` FID value in ``hub_dir/fid_provenance.csv``."""
+    out: dict[str, float] = {}
+    for row in _safe_read_ledger(hub_dir):
+        if row.get("status") != STATUS_REEVALUATED:
+            continue
+        ep = (row.get("epoch") or "").strip()
+        val_str = (row.get("value") or "").strip()
+        if not ep or not val_str:
+            continue
+        try:
+            out[ep] = float(val_str)
+        except ValueError:
+            continue
+    return out
+
+
+def filter_metrics_row_for_fid_provenance(row: Mapping[str, Any], hub_dir: Path) -> dict[str, Any]:
+    """Return a copy of a ``metrics.csv`` row with unverified FID/Quality_Score stripped or updated.
+
+    - If the row's epoch is in :func:`unverified_fid_epochs`, ``FID``/``fid`` and
+      ``Quality_Score``/``quality_score``/``Quality`` are removed because both columns were
+      fabricated by ``tools/recalibrate_fid.py``.
+    - If the row's epoch has a ``reevaluated`` entry in :func:`reevaluated_fid_by_epoch`, ``FID``
+      is replaced with the re-evaluated value while ``Quality_Score`` remains stripped if that
+      epoch was previously marked ``unverified``.
+    """
+    filtered = dict(row)
+    ep = str(filtered.get("Epoch") or filtered.get("epoch") or "").strip()
+    if not ep:
+        return filtered
+    rows = _safe_read_ledger(hub_dir)
+    if not rows:
+        return filtered
+    was_unverified = any(
+        (r.get("epoch") or "").strip() == ep and r.get("status") == STATUS_UNVERIFIED
+        for r in rows
+    )
+    reeval = reevaluated_fid_by_epoch(hub_dir)
+    if ep in reeval:
+        if "FID" in filtered:
+            filtered["FID"] = f"{reeval[ep]:.4f}"
+        if "fid" in filtered:
+            filtered["fid"] = f"{reeval[ep]:.4f}"
+        if was_unverified:
+            for q_key in ("Quality", "Quality_Score", "quality_score"):
+                filtered.pop(q_key, None)
+    elif was_unverified:
+        for k in ("FID", "fid", "Quality", "Quality_Score", "quality_score"):
+            filtered.pop(k, None)
+    return filtered

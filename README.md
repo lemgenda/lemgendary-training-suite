@@ -26,8 +26,29 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
-### v16.9.126 - 80-Column Markdown and Yamllint Compliance for Model Hub Assets
+### v16.9.126 - Step B6 Remediation, Shared Governance Helpers, and Hub Lint Compliance
 
+- `models/forex_predictor.py` (`B6.4`): fixed `_copy_projection_weights` in
+  `ForexPredictor.expand_timeframe` to slice `dim=1` (`[:, :old_tf_dim]` and
+  `[:, -inferred_pair_dim:]`), matching `forward()`'s
+  `[old_timeframes | new_timeframe | pair_emb]` concatenation order.
+- `training/fid_reeval/ledger.py`, `training/checkpoint/lifecycle_manager.py`,
+  `training/server/routes/gui_model_stats.py`, `training/doc_generator.py`,
+  `training/checkpoint/preflight_generator.py`, and
+  `training/services/restructuring.py` (`B6.3`): added
+  `unverified_fid_epochs`, `reevaluated_fid_by_epoch`, and
+  `filter_metrics_row_for_fid_provenance` so readers skip `FID` and
+  `Quality_Score` on epochs marked `unverified` in `fid_provenance.csv`
+  while keeping `metrics.csv` untouched.
+- `config.yaml`, `pyproject.toml`, `training/export/soup.py`,
+  `training/server/routes/gui.py`, and `training/governance/*` (`B6.6 O-1`
+  to `O-10`, `B6.7`): removed 8 dead `config.yaml` keys, aligned
+  `pyproject.toml` dependencies with `requirements.txt`, removed dead
+  `register_rollback`, `veto_resolution_jump`, and `trigger_mini_swa` from
+  `SmartTrainingGovernor`, normalized `soup_weights` and stripped optimizer
+  and scheduler state in `create_pareto_model_soup`, standardized
+  `quick_train` precedence to `request -> model registry -> preset`, and
+  centralized model-hub path, ladder/Forex, and metric helpers.
 - `training/model_card.py`, `training/model_card_snippets.py`,
   `training/hub_readme_generator.py`, `training/doc_generator.py`: wrapped
   generated model card and hub `README.md` badges, bullets, paragraphs,

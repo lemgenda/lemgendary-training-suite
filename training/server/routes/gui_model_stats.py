@@ -12,6 +12,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
+from training.governance.curriculum import (
+    DEFAULT_FOREX_LADDER,
+    DEFAULT_SPATIAL_LADDER,
+    is_forex_model,
+)
+from training.governance.metrics import is_lower_better
 from training.server.routes.gui_schemas import ModelWithStats
 from training.server.routes.gui_status import RungTracker, training_verdict
 
@@ -76,11 +83,9 @@ _VISION_PRIORITY: tuple[tuple[str, str, bool], ...] = (
     ("eval_loss", "Eval Loss", True),
     ("perplexity", "Perplexity", True),
 )
-_PRIMARY_LOWER_HINTS = ("mae", "loss", "fid", "lpips", "max_drawdown")
-_DETAIL_LOWER_HINTS = (*_PRIMARY_LOWER_HINTS, "margin")
 
-_FOREX_LADDER: tuple[int, ...] = (1, 5, 15, 60, 240, 1440)
-_SPATIAL_LADDER: tuple[int, ...] = (256, 384, 512)
+_FOREX_LADDER: tuple[int, ...] = DEFAULT_FOREX_LADDER
+_SPATIAL_LADDER: tuple[int, ...] = DEFAULT_SPATIAL_LADDER
 
 _EPOCH_COLS = ("Epoch", "epoch")
 _RES_COLS = ("Res", "res", "resolution", "Resolution", "imgsz")
@@ -144,11 +149,7 @@ class _CsvStats:
 
 
 def _model_kind(model_key: str, info: dict[str, Any]) -> _ModelKind:
-    is_forex = (
-        model_key == "forex_predictor"
-        or info.get("category") == "forex"
-        or info.get("dataset_type") == "forex"
-    )
+    is_forex = is_forex_model(model_key, info)
     is_llm = (
         info.get("category") == "llm"
         or info.get("dataset_type") in ("text_instruction", "llm")
@@ -216,7 +217,7 @@ def _primary_metric(sota: Any, is_forex: bool) -> _Primary:
         first_k,
         first_k.upper(),
         sota[first_k],
-        any(m in first_k.lower() for m in _PRIMARY_LOWER_HINTS),
+        is_lower_better(first_k),
     )
 
 
@@ -302,15 +303,20 @@ def _read_metrics(
 
 
 def _read_csv_stats(
-    chosen: Path | None, is_forex: bool, model_key: str
+    chosen: Path | None,
+    is_forex: bool,
+    model_key: str,
+    hub_dir: Path | None = None,
 ) -> tuple[_CsvStats, RungTracker]:
     stats = _CsvStats()
     rungs = RungTracker(str(chosen))
     if chosen is None:
         return stats, rungs
+    provenance_hub = hub_dir if hub_dir is not None else chosen.parent
     try:
         with open(chosen, encoding="utf-8", errors="ignore") as f:
-            for row in csv.DictReader(f):
+            for raw_row in csv.DictReader(f):
+                row = filter_metrics_row_for_fid_provenance(raw_row, provenance_hub)
                 _read_epoch(stats, row, chosen)
                 row_res = _read_res(stats, row, chosen)
                 _read_fold(stats, row, chosen)
@@ -362,7 +368,7 @@ def _metric_meta(ykey: str) -> tuple[bool, str]:
     if reg_entry:
         _col_name, is_low, lbl, _ = reg_entry
         return is_low, lbl
-    is_low = any(m in ykey.lower() for m in _DETAIL_LOWER_HINTS)
+    is_low = is_lower_better(ykey)
     return is_low, ykey.replace("_", " ").title()
 
 
@@ -636,6 +642,7 @@ def model_with_stats(
         _choose_csv([hub_dir / "metrics.csv", root / "checkpoints" / model_key / "metrics.csv"]),
         kind.is_forex,
         model_key,
+        hub_dir=hub_dir,
     )
     has_checkpoint = _has_checkpoint(model_key, info, root, hub_dir, model_ckpts)
     sota = _sota_fields(model_key, info, kind.is_forex, stats.history, has_checkpoint)

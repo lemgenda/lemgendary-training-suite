@@ -16,6 +16,20 @@ import torch
 logger = logging.getLogger("lemtrain.export.soup")
 
 
+def _normalize_weights(n: int, weights: list[float] | None) -> list[float]:
+    """Return normalized blending coefficients summing to 1.0."""
+    if weights is None:
+        return [1.0 / n] * n
+    if len(weights) != n:
+        raise ValueError(
+            f"Weights count ({len(weights)}) does not match state_dicts count ({n})."
+        )
+    total_w = sum(weights)
+    if total_w <= 0:
+        raise ValueError("Sum of weights must be positive.")
+    return [w / total_w for w in weights]
+
+
 def blend_state_dicts(
     state_dicts: list[dict[str, torch.Tensor]],
     weights: list[float] | None = None,
@@ -35,19 +49,7 @@ def blend_state_dicts(
     if len(state_dicts) == 1:
         return {k: v.clone() for k, v in state_dicts[0].items()}
 
-    n = len(state_dicts)
-    if weights is None:
-        coeffs = [1.0 / n] * n
-    else:
-        if len(weights) != n:
-            raise ValueError(
-                f"Weights count ({len(weights)}) does not match state_dicts count ({n})."
-            )
-        total_w = sum(weights)
-        if total_w <= 0:
-            raise ValueError("Sum of weights must be positive.")
-        coeffs = [w / total_w for w in weights]
-
+    coeffs = _normalize_weights(len(state_dicts), weights)
     base_keys = state_dicts[0].keys()
     blended: dict[str, torch.Tensor] = {}
 
@@ -99,14 +101,23 @@ def create_pareto_model_soup(
             raise KeyError(f"Checkpoint at {p} does not contain valid model_state dictionary.")
         state_dicts.append(sd)
 
-    blended_sd = blend_state_dicts(state_dicts, weights=weights)
+    coeffs = _normalize_weights(len(valid_paths), weights)
+    blended_sd = blend_state_dicts(state_dicts, weights=coeffs)
 
-    # Use first checkpoint as template for metadata payload
+    # Use first checkpoint as template for metadata payload, stripping single-donor optimizer
+    # and scheduler state so resuming from a soup checkpoint starts with a clean optimizer.
     out_payload = dict(loaded_payloads[0])
+    for stale_key in (
+        "optimizer_state",
+        "optimizer_state_dict",
+        "scheduler_state",
+        "scheduler_state_dict",
+    ):
+        out_payload.pop(stale_key, None)
     out_payload["model_state"] = blended_sd
     out_payload["is_pareto_soup"] = True
     out_payload["soup_donors"] = [p.name for p in valid_paths]
-    out_payload["soup_weights"] = weights or [1.0 / len(valid_paths)] * len(valid_paths)
+    out_payload["soup_weights"] = coeffs
 
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)

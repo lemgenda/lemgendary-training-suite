@@ -17,7 +17,7 @@ from training.server.routes.models import _load_registry
 from training.services.audit_service import AuditService
 from training.services.checkpoint_service import CheckpointService
 from training.services.training_service import TrainingService
-from training.utils.paths import get_project_root, get_workspace_root
+from training.utils.paths import get_models_hub_root, get_project_root
 
 logger = logging.getLogger("lemtrain.server.routes.gui")
 
@@ -117,7 +117,7 @@ def get_models_with_stats(request: Request) -> list[ModelWithStats]:
     for c in checkpoints:
         ckpts_by_model.setdefault(c["model_key"], []).append(c)
 
-    hub_root = get_workspace_root() / "LemGendaryModels"
+    hub_root = get_models_hub_root(root)
 
     results: list[ModelWithStats] = []
     for model_key, info in registry.items():
@@ -165,13 +165,13 @@ def quick_train(payload: QuickTrainRequest, request: Request) -> dict[str, Any]:
         resolved_batch = preset_cfg.get("batch_size")
 
     resolved_lr = payload.learning_rate
-    if resolved_lr is None:
-        resolved_lr = preset_cfg.get("learning_rate")
     if resolved_lr is None and model_cfg.get("learning_rate") is not None:
         try:
             resolved_lr = float(model_cfg["learning_rate"])
         except (ValueError, TypeError):
             resolved_lr = None
+    if resolved_lr is None:
+        resolved_lr = preset_cfg.get("learning_rate")
 
     manager = request.app.state.job_manager
     params: dict[str, Any] = {

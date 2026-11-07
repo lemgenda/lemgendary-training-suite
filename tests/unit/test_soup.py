@@ -30,19 +30,40 @@ class TestParetoModelSoup(unittest.TestCase):
         self.assertTrue(torch.allclose(blended["weight"], torch.tensor([7.5, 7.5])))
 
     def test_checkpoint_soup_export(self) -> None:
-        """Verify a soup of checkpoints is exported to disk."""
+        """Verify a soup of checkpoints is exported with normalized weights.
+
+        Also asserts optimizer and scheduler state are stripped from blended output.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp = Path(tmp_dir)
             p1 = tmp / "vault_psnr.pth"
             p2 = tmp / "vault_lpips.pth"
             out = tmp / "blended_sota.pth"
 
-            torch.save({"model_state": {"w": torch.tensor([1.0, 1.0])}, "epoch": 5}, p1)
-            torch.save({"model_state": {"w": torch.tensor([3.0, 3.0])}, "epoch": 8}, p2)
+            torch.save(
+                {
+                    "model_state": {"w": torch.tensor([1.0, 1.0])},
+                    "optimizer_state": {"step": 100},
+                    "scheduler_state_dict": {"last_epoch": 5},
+                    "epoch": 5,
+                },
+                p1,
+            )
+            torch.save(
+                {
+                    "model_state": {"w": torch.tensor([3.0, 3.0])},
+                    "optimizer_state": {"step": 200},
+                    "epoch": 8,
+                },
+                p2,
+            )
 
-            res = create_pareto_model_soup([p1, p2], weights=[0.5, 0.5], output_path=out)
+            res = create_pareto_model_soup([p1, p2], weights=[2.0, 2.0], output_path=out)
             self.assertTrue(out.exists())
             self.assertTrue(res["is_pareto_soup"])
+            self.assertEqual(res["soup_weights"], [0.5, 0.5])
+            self.assertNotIn("optimizer_state", res)
+            self.assertNotIn("scheduler_state_dict", res)
             self.assertTrue(torch.allclose(res["model_state"]["w"], torch.tensor([2.0, 2.0])))
 
 

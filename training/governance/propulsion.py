@@ -195,12 +195,6 @@ class PropulsionMixin(GovernorHost):
                 f"REFINEMENT: [MAX STRESS] Forcing Jolt (x{jolt_base:.2f}) to maintain "
                 f"momentum (Stuck: {self.max_stress_stuck_epochs}/{stuck_patience})"
             )
-            if self.max_stress_stuck_epochs >= stuck_patience:
-                self.runtime.lr.trigger_mini_swa = True
-                d.msg_parts.append(
-                    "[MINI-SWA PULSE] Triggering weight averaging pulse across top "
-                    f"checkpoints (Stuck: {self.max_stress_stuck_epochs} epochs)"
-                )
         else:
             if self.jolt_window_remaining == 0:
                 self.runtime.lr.lr_multiplier = self.cooling_factor

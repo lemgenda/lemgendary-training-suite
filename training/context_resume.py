@@ -21,6 +21,7 @@ from training.checkpoint import (
 )
 from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS
 from training.context_data import RunSpec, rebuild_resumed_train_loader
+from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.governance.governor_setup import configured_data_fraction
 from training.hardware.probe import VramProbe, audit_hardware_vram
 from training.utils.error_types import STATE_RESTORE_ERRORS
@@ -144,7 +145,8 @@ def reconcile_metrics_csv(governor: Any, metrics_csv: Path | None, sample_fracti
     curr_res_val = int(getattr(governor, "current_res", 256))
     max_frac_at_res = float(getattr(governor, "current_fraction", sample_fraction))
     max_quality_csv = float(getattr(governor, "best_quality", 0.0))
-    for r in rows:
+    for raw_row in rows:
+        r = filter_metrics_row_for_fid_provenance(raw_row, metrics_csv.parent)
         try:
             r_res = int(float(r.get("Res") or curr_res_val))
             r_frac = float(r.get("Data") or 0.0)

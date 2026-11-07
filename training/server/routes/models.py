@@ -16,7 +16,7 @@ from training.export.validation import StrictIsolationValidator
 from training.registry.kaggle_datasets import with_kaggle_dataset_refs
 from training.server.routes.registry_file import registry_path
 from training.services.audit_service import AuditService
-from training.utils.paths import get_project_root, get_workspace_root
+from training.utils.paths import get_model_hub_dir, get_project_root
 
 logger = logging.getLogger("lemtrain.server.routes.models")
 
@@ -106,8 +106,7 @@ def generate_model_docs(model_key: str, request: Request) -> dict[str, Any]:
         doc_service = ModelDocumentationService()
         meta_service = KaggleMetadataService()
 
-        model_hub_dir = (get_workspace_root() / "LemGendaryModels" / model_key).resolve()
-        model_hub_dir.mkdir(parents=True, exist_ok=True)
+        model_hub_dir = get_model_hub_dir(model_key, root)
 
         readme_file = doc_service.write_readme(model_key, output_dir=model_hub_dir)
         metadata_file = meta_service.write_metadata(model_key, output_dir=model_hub_dir)
