@@ -8,6 +8,7 @@ on assistant outputs.
 
 from __future__ import annotations
 
+import collections.abc
 import json
 import logging
 import random
@@ -129,16 +130,37 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
     ) -> dict[str, torch.Tensor] | None:
         """Tokenize with the tokenizer's chat template; ``None`` when the template fails."""
         try:
-            input_ids = tokenizer.apply_chat_template(
+            res = tokenizer.apply_chat_template(
                 messages,
                 tokenize=True,
                 max_length=self.max_length,
                 truncation=True,
                 return_tensors="pt",
-            )[0]
+            )
         except _CHAT_TEMPLATE_ERRORS as exc:
             logger.debug("apply_chat_template failed: %s. Using manual tokenization.", exc)
             return None
+
+        # Normalize extracted output to a 1D torch.Tensor
+        if hasattr(res, "input_ids"):
+            raw_ids = res.input_ids
+        elif isinstance(res, (dict, collections.abc.Mapping)) and "input_ids" in res:
+            raw_ids = res["input_ids"]
+        elif isinstance(res, (list, tuple)):
+            raw_ids = res[0]
+        else:
+            raw_ids = res
+
+        if hasattr(raw_ids, "ids"):
+            input_ids = torch.tensor(raw_ids.ids, dtype=torch.long)
+        elif isinstance(raw_ids, torch.Tensor):
+            input_ids = raw_ids.squeeze().to(dtype=torch.long)
+        else:
+            input_ids = torch.tensor(raw_ids, dtype=torch.long)
+
+        if input_ids.ndim == 0:
+            input_ids = input_ids.unsqueeze(0)
+
         return {
             "input_ids": input_ids,
             "attention_mask": torch.ones_like(input_ids),

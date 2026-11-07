@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.128-STABLE`
+- **Version**: `v16.9.130-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,24 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.130 - CUDA Acceleration, 4-bit NF4 QLoRA & Paged 8-bit AdamW
+
+- `models/generic_causal_llm.py`: enabled default 4-bit NF4 quantization on
+  CUDA, enabled gradient checkpointing for k-bit training, and configured
+  Scaled Dot-Product Attention (`sdpa`).
+- `training/training/optimizer.py`: automatically wired `bitsandbytes.optim.PagedAdamW8bit`
+  for LLM architectures on CUDA to fit 4GB VRAM hardware profiles.
+- `unified_models_v2.yaml`: updated `ai_helper_lemgend` with micro-batch size 1,
+  16 accumulation steps, and 1024 max sequence length for local GPU stability.
+
+### v16.9.129 - Robust Chat Template Encoding Normalization for Fast Tokenizers
+
+- `training/data/instruction_dataset.py`: normalized `apply_chat_template`
+  outputs in `_chat_template_encode` to extract token IDs from fast tokenizer
+  `tokenizers.Encoding` objects, lists, and batched tensors before casting to 1D
+  `torch.Tensor`. Prevents `TypeError: ones_like(): argument 'input' must be
+  Tensor, not tokenizers.Encoding` during `ai_helper_lemgend` instruction fine-tuning.
 
 ### v16.9.128 - Three-Way Split (Train / Val / Test) Ingestion & Evaluation
 

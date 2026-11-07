@@ -67,7 +67,7 @@ class LoraSettings:
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
-    load_in_4bit: bool = False
+    load_in_4bit: bool = True
 
 
 class GenericCausalLLM(nn.Module):
@@ -98,12 +98,18 @@ class GenericCausalLLM(nn.Module):
             transformers = load_transformers()
 
             self.tokenizer = _load_tokenizer(transformers, self.base_model_name)
+            model_kwargs: dict[str, Any] = {
+                "quantization_config": _quant_config(transformers, settings.load_in_4bit),
+                "torch_dtype": torch.float32 if not torch.cuda.is_available() else torch.bfloat16,
+                "trust_remote_code": True,
+                "low_cpu_mem_usage": True,
+            }
+            if torch.cuda.is_available():
+                model_kwargs["attn_implementation"] = "sdpa"
+
             self.model = transformers.AutoModelForCausalLM.from_pretrained(
                 self.base_model_name,
-                quantization_config=_quant_config(transformers, settings.load_in_4bit),
-                torch_dtype=torch.float32 if not torch.cuda.is_available() else torch.bfloat16,
-                trust_remote_code=True,
-                low_cpu_mem_usage=True,
+                **model_kwargs,
             )
 
             if self.use_lora:
@@ -132,7 +138,9 @@ class GenericCausalLLM(nn.Module):
             peft = load_peft()
 
             if load_in_4bit:
-                self.model = peft.prepare_model_for_kbit_training(self.model)
+                self.model = peft.prepare_model_for_kbit_training(
+                    self.model, use_gradient_checkpointing=True
+                )
 
             peft_config = peft.LoraConfig(
                 **lora,
@@ -141,6 +149,10 @@ class GenericCausalLLM(nn.Module):
                 task_type="CAUSAL_LM",
             )
             self.model = peft.get_peft_model(self.model, peft_config)
+            if hasattr(self.model, "gradient_checkpointing_enable"):
+                self.model.gradient_checkpointing_enable(
+                    gradient_checkpointing_kwargs={"use_reentrant": False}
+                )
             logger.info("Injected LoRA adapter into GenericCausalLLM backbone (r=%d)", lora["r"])
         except ImportError:
             logger.warning("PEFT not installed. GenericCausalLLM operating in standard mode.")

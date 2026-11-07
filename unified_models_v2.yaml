@@ -1535,8 +1535,8 @@ ai_helper_lemgend:
   category: llm
   filename: AIHelperLemGend
   checkpoint: AIHelperLemGend_best.pth
-  input_size: 2048
-  batch_size: 2
+  input_size: 1024
+  batch_size: 1
   learning_rate: 0.0002
   loss_fn: cross_entropy
   dataset_type: text_instruction
@@ -1551,9 +1551,9 @@ ai_helper_lemgend:
     - LemGendizedAIHelperLemGend
   curriculum:
     data_fraction: 1.0
-    target_effective_batch: 24
-    accumulation_steps: 12
-    max_seq_length: 2048
+    target_effective_batch: 16
+    accumulation_steps: 16
+    max_seq_length: 1024
     lora_r: 16
     lora_alpha: 32
     lora_dropout: 0.05

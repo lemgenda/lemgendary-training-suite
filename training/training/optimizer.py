@@ -6,6 +6,7 @@ and instantiates modern schedulers with warmup and cosine decay.
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any
 
@@ -19,6 +20,13 @@ from torch.optim.lr_scheduler import (
     ReduceLROnPlateau,
     StepLR,
 )
+
+logger = logging.getLogger("lemtrain.training.optimizer")
+
+try:
+    import bitsandbytes as bnb
+except ImportError:
+    bnb = None
 
 
 def _param_groups(model: torch.nn.Module, base_wd: float) -> list[dict[str, Any]]:
@@ -80,6 +88,16 @@ def build_optimizer(
         return optim.SGD(param_groups, lr=base_lr, momentum=momentum)
     if opt_type == "rmsprop":
         return optim.RMSprop(param_groups, lr=base_lr, eps=eps)
+
+    # Use 8-bit Paged AdamW when bitsandbytes is available and CUDA is active
+    if (
+        opt_type in ("paged_adamw_8bit", "adamw_8bit")
+        or (opt_type == "adamw" and torch.cuda.is_available() and config.get("category") == "llm")
+    ) and bnb is not None:
+        try:
+            return bnb.optim.PagedAdamW8bit(param_groups, lr=base_lr, betas=beta_tuple, eps=eps)
+        except (AttributeError, RuntimeError) as exc:
+            logger.warning("Failed to initialize PagedAdamW8bit (%s); falling back.", exc)
 
     # Default to AdamW
     return optim.AdamW(param_groups, lr=base_lr, betas=beta_tuple, eps=eps)
