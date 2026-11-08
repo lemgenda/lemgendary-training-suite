@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.133-STABLE`
+- **Version**: `v16.9.134-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,15 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.134 - Resilient Unquantized LoRA Merging & Opset 18 Dynamo ONNX Export
+
+- `training/export/llm_exporter.py`: Added `_prepare_unquantized_llm()` to unwrap
+  and reconstruct clean unquantized float32 base models on CPU and merge LoRA
+  adapters via `merge_and_unload()` prior to symbolic torch dynamo ONNX export.
+- Upgraded ONNX dynamo export operator set version from 17 to 18 to remove
+  onnxscript version converter runtime assertions and ensure seamless Kaggle
+  FP32 sidecar and self-contained FP16 export.
 
 ### v16.9.133 - PyTorch 2.15.0+cu134 Toolchain Upgrade & Ecosystem Alignment
 

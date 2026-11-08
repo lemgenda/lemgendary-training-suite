@@ -32,6 +32,7 @@ from training.export.base import (
 )
 from training.export.common import unwrap_export_model
 from training.registry import ModelSpecification
+from training.utils.lazy_imports import load_peft, load_transformers
 
 logger = logging.getLogger("lemtrain.export.llm")
 
@@ -74,6 +75,68 @@ def _kv_cache_disabled(model: nn.Module) -> Iterator[None]:
             hf_cfg.use_cache = orig_use_cache
 
 
+def _prepare_unquantized_llm(model: nn.Module) -> nn.Module:
+    """Unwrap or merge quantized LoRA backbones into clean float32 modules for export."""
+    raw = unwrap_export_model(model)
+    inner_model = getattr(raw, "model", None)
+    target = inner_model if inner_model is not None else raw
+
+    # If it is a PeftModel, merge and unload LoRA adapters into clean base model
+    if hasattr(target, "merge_and_unload"):
+        try:
+            logger.info("Merging PeftModel adapters into unquantized base module for ONNX export...")
+            merged = target.merge_and_unload()
+            merged.eval()
+            return merged
+        except (AttributeError, RuntimeError, ValueError) as exc:
+            logger.warning("Could not merge_and_unload directly (%s); attempting reconstruction.", exc)
+
+    # Detect if parameters are quantized (e.g. bitsandbytes Params4bit)
+    is_quantized = any(
+        "Params4bit" in type(p).__name__ or "Int8" in type(p).__name__
+        for p in raw.parameters()
+    )
+    if is_quantized:
+        logger.info("Detected quantized weights; loading unquantized float32 base model on CPU...")
+        base_name = getattr(raw, "base_model_name", None) or "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+        try:
+            transformers = load_transformers()
+            peft = load_peft()
+            base_model = transformers.AutoModelForCausalLM.from_pretrained(
+                base_name,
+                torch_dtype=torch.float32,
+                device_map="cpu",
+                low_cpu_mem_usage=True,
+            )
+            # Find LoRA state dict from raw
+            target_modules = [
+                "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"
+            ]
+            peft_cfg = peft.LoraConfig(
+                r=16,
+                lora_alpha=32,
+                lora_dropout=0.05,
+                target_modules=target_modules,
+                bias="none",
+                task_type="CAUSAL_LM",
+            )
+            peft_m = peft.get_peft_model(base_model, peft_cfg)
+            lora_sd = {
+                k.replace("model.", ""): v
+                for k, v in raw.state_dict().items()
+                if "lora_" in k
+            }
+            if lora_sd:
+                peft_m.load_state_dict(lora_sd, strict=False)
+            merged = peft_m.merge_and_unload()
+            merged.eval()
+            return merged
+        except (ImportError, OSError, RuntimeError, ValueError) as exc:
+            logger.warning("Failed unquantized base reconstruction: %s; falling back to raw model.", exc)
+
+    return target
+
+
 def _export_fp32_with_sidecar(
     model: nn.Module, fp32_onnx_path: Path, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH
 ) -> dict[str, Path]:
@@ -95,7 +158,7 @@ def _export_fp32_with_sidecar(
     try:
         with _kv_cache_disabled(model):
             # ``f`` + ``external_data=True`` writes the graph and its
-            # ``<name>.data`` sidecar in one step; no second save is needed.
+            # ``<name>.data`` sidecar in one step; opset_version=18 aligns with torch 2.6+ dynamo
             torch.onnx.export(
                 model,
                 args=(dummy_input_ids,),
@@ -104,7 +167,7 @@ def _export_fp32_with_sidecar(
                 input_names=["input_ids", "attention_mask"],
                 output_names=["logits"],
                 dynamic_shapes=dynamic_shapes,
-                opset_version=17,
+                opset_version=18,
                 dynamo=True,
                 external_data=True,
             )
@@ -179,9 +242,10 @@ def export_llm_tri_format(
         logger.error("Failed saving PyTorch LLM weights to %s: %s", pt_path, exc)
 
     # 2. ONNX FP32 with External Tensor Data Sidecar
+    onnx_module = _prepare_unquantized_llm(model_to_export)
     fp32_onnx_path = dirs["onnx_fp32"] / f"{binary_stem}_FP32.onnx"
     exported_files.update(
-        _export_fp32_with_sidecar(model_to_export, fp32_onnx_path, max_seq_length)
+        _export_fp32_with_sidecar(onnx_module, fp32_onnx_path, max_seq_length)
     )
 
     # 3. ONNX FP16 with Integrated Weights
