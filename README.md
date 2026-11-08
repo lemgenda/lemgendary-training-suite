@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.134-STABLE`
+- **Version**: `v16.9.135-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,14 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.135 - Pyrefly Diagnostics Hardening in LLM Exporter
+
+- `training/export/llm_exporter.py`: Refactored context manager typing annotation
+  to `Generator[None, None, None]` to adhere to modern typing deprecation rules.
+- `training/export/llm_exporter.py`: Bound dynamic `merge_and_unload` resolution
+  via `Callable[[], nn.Module] | None` and callable validation, resolving Pyrefly
+  not-callable diagnostic assertions.
 
 ### v16.9.134 - Resilient Unquantized LoRA Merging & Opset 18 Dynamo ONNX Export
 

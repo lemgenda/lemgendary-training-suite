@@ -17,9 +17,9 @@ from __future__ import annotations
 import contextlib
 import logging
 import shutil
-from collections.abc import Iterator
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import torch
 from torch import nn
@@ -57,7 +57,7 @@ def _hf_config(model: nn.Module) -> Any:
 
 
 @contextlib.contextmanager
-def _kv_cache_disabled(model: nn.Module) -> Iterator[None]:
+def _kv_cache_disabled(model: nn.Module) -> Generator[None, None, None]:
     """Turn off ``config.use_cache`` for the export and restore it afterwards.
 
     The KV cache returns dynamically sized tensors that ``torch.export`` cannot
@@ -82,19 +82,23 @@ def _prepare_unquantized_llm(model: nn.Module) -> nn.Module:
     target = inner_model if inner_model is not None else raw
 
     # If it is a PeftModel, merge and unload LoRA adapters into clean base model
-    if hasattr(target, "merge_and_unload"):
+    merge_fn: Callable[[], nn.Module] | None = getattr(target, "merge_and_unload", None)
+    if callable(merge_fn):
         try:
-            logger.info("Merging PeftModel adapters into unquantized base module for ONNX export...")
-            merged = target.merge_and_unload()
+            logger.info(
+                "Merging PeftModel adapters into unquantized base module for ONNX export..."
+            )
+            merged = merge_fn()
             merged.eval()
             return merged
         except (AttributeError, RuntimeError, ValueError) as exc:
-            logger.warning("Could not merge_and_unload directly (%s); attempting reconstruction.", exc)
+            logger.warning(
+                "Could not merge_and_unload directly (%s); attempting reconstruction.", exc
+            )
 
     # Detect if parameters are quantized (e.g. bitsandbytes Params4bit)
     is_quantized = any(
-        "Params4bit" in type(p).__name__ or "Int8" in type(p).__name__
-        for p in raw.parameters()
+        "Params4bit" in type(p).__name__ or "Int8" in type(p).__name__ for p in raw.parameters()
     )
     if is_quantized:
         logger.info("Detected quantized weights; loading unquantized float32 base model on CPU...")
@@ -110,7 +114,13 @@ def _prepare_unquantized_llm(model: nn.Module) -> nn.Module:
             )
             # Find LoRA state dict from raw
             target_modules = [
-                "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
             ]
             peft_cfg = peft.LoraConfig(
                 r=16,
@@ -122,9 +132,7 @@ def _prepare_unquantized_llm(model: nn.Module) -> nn.Module:
             )
             peft_m = peft.get_peft_model(base_model, peft_cfg)
             lora_sd = {
-                k.replace("model.", ""): v
-                for k, v in raw.state_dict().items()
-                if "lora_" in k
+                k.replace("model.", ""): v for k, v in raw.state_dict().items() if "lora_" in k
             }
             if lora_sd:
                 peft_m.load_state_dict(lora_sd, strict=False)
@@ -132,7 +140,9 @@ def _prepare_unquantized_llm(model: nn.Module) -> nn.Module:
             merged.eval()
             return merged
         except (ImportError, OSError, RuntimeError, ValueError) as exc:
-            logger.warning("Failed unquantized base reconstruction: %s; falling back to raw model.", exc)
+            logger.warning(
+                "Failed unquantized base reconstruction: %s; falling back to raw model.", exc
+            )
 
     return target
 
@@ -244,9 +254,7 @@ def export_llm_tri_format(
     # 2. ONNX FP32 with External Tensor Data Sidecar
     onnx_module = _prepare_unquantized_llm(model_to_export)
     fp32_onnx_path = dirs["onnx_fp32"] / f"{binary_stem}_FP32.onnx"
-    exported_files.update(
-        _export_fp32_with_sidecar(onnx_module, fp32_onnx_path, max_seq_length)
-    )
+    exported_files.update(_export_fp32_with_sidecar(onnx_module, fp32_onnx_path, max_seq_length))
 
     # 3. ONNX FP16 with Integrated Weights
     exported_files.update(_copy_fp16(fp32_onnx_path, dirs["onnx_fp16"] / f"{binary_stem}.onnx"))
