@@ -11,6 +11,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from data.dataset_targets import multitask_head
 from training.utils.lazy_imports import load_lpips_metric, load_optional
 
 LearnedPerceptualImagePatchSimilarity = load_optional(load_lpips_metric)
@@ -20,6 +21,70 @@ logger = logging.getLogger("lemtrain.losses")
 # ─────────────────────────────────────────────────────────────────────────────
 # Forex Dual Loss
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Multitask Restoration Head Registry
+# ─────────────────────────────────────────────────────────────────────────────
+
+MULTITASK_HEAD_NAMES: tuple[str, ...] = (
+    "denoise",        # 0
+    "deblur",         # 1
+    "derain",         # 2
+    "dehaze_indoor",  # 3
+    "dehaze_outdoor", # 4
+    "lowlight",       # 5
+    "exposure",       # 6
+    "superres",       # 7
+    "vintage",        # 8
+    "face_restorer",  # 9
+    "face_parser",    # 10
+)
+
+MULTITASK_HEAD_TO_INDEX: dict[str, int] = {
+    name: idx for idx, name in enumerate(MULTITASK_HEAD_NAMES)
+}
+
+
+def _resolve_task_index_tensor(
+    task_idx: Any,
+    batch_size: int,
+    device: torch.device,
+) -> torch.Tensor | None:
+    """Resolve varied task representations into an integer class index tensor.
+
+    Handles torch.Tensor (int or float), sequence of strings/integers (from DataLoader collation),
+    single string, or None. Returns None if task_idx cannot be resolved.
+    """
+    if task_idx is None:
+        return None
+
+    if isinstance(task_idx, torch.Tensor):
+        return task_idx.to(device=device, dtype=torch.long) if task_idx.numel() > 0 else None
+
+    if isinstance(task_idx, (list, tuple)):
+        indices: list[int] = []
+        for item in task_idx:
+            if isinstance(item, int):
+                indices.append(item)
+            elif isinstance(item, str):
+                canonical = multitask_head(item)
+                indices.append(MULTITASK_HEAD_TO_INDEX.get(canonical, 0))
+            elif isinstance(item, torch.Tensor):
+                indices.append(int(item.item()))
+            else:
+                indices.append(0)
+        return torch.tensor(indices, dtype=torch.long, device=device)
+
+    if isinstance(task_idx, str):
+        canonical = multitask_head(task_idx)
+        idx = MULTITASK_HEAD_TO_INDEX.get(canonical, 0)
+        return torch.full((batch_size,), idx, dtype=torch.long, device=device)
+
+    if isinstance(task_idx, (int, float)):
+        return torch.full((batch_size,), int(task_idx), dtype=torch.long, device=device)
+
+    return None
 
 
 @dataclass(frozen=True)
@@ -429,6 +494,49 @@ class CombinedLoss(nn.Module):
                 # Weight download/cache failures (OSError incl. URLError) or CUDA/state-dict errors.
                 logger.warning("LPIPS failed to bind (%s). Defaulting to pure L1.", e)
 
+    def _perceptual_loss(self, p_img: torch.Tensor, t_img: torch.Tensor, t_idx) -> torch.Tensor:
+        """Compute LPIPS perceptual loss scaled by task weights or default coefficient."""
+        if self.perc is None:
+            return torch.tensor(0.0, device=p_img.device)
+        p_scaled = torch.clamp(p_img, 0, 1) * 2.0 - 1.0
+        t_scaled = torch.clamp(t_img, 0, 1) * 2.0 - 1.0
+        raw_lpips = self.perc(p_scaled, t_scaled).view(-1)
+        if t_idx is not None and t_idx.ndim > 0:
+            return (raw_lpips * self.task_lpips_weights[t_idx]).mean()
+        return 0.025 * raw_lpips.mean()
+
+    def _compute_restoration_loss(self, pred, target, task_idx) -> torch.Tensor:
+        """Compute composite L1, cross-entropy routing, and perceptual loss."""
+        detect_loss = None
+        restored = _restoration_output(pred)
+        if restored is not None:
+            img_pred = restored["restored_image"]
+            img_target = target["image"] if isinstance(target, dict) else target
+            bbox_pred = restored.get("detections")
+            if bbox_pred is not None and isinstance(bbox_pred, torch.Tensor):
+                detect_loss = F.smooth_l1_loss(bbox_pred, torch.zeros_like(bbox_pred))
+        elif isinstance(pred, (tuple, list)):
+            img_pred = pred[0]
+            img_target = target
+        else:
+            img_pred = pred
+            img_target = target
+
+        base_loss = self.criteria.l1(img_pred, img_target)
+        batch_sz = img_pred.shape[0] if hasattr(img_pred, "shape") else 1
+        device = img_pred.device if hasattr(img_pred, "device") else torch.device("cpu")
+        task_tensor = _resolve_task_index_tensor(task_idx, batch_sz, device)
+
+        if isinstance(pred, (tuple, list)) and len(pred) > 1 and task_tensor is not None:
+            base_loss = base_loss + 0.1 * self.criteria.ce(pred[1], task_tensor)
+
+        base_loss = base_loss + self._perceptual_loss(img_pred, img_target, task_tensor)
+
+        if detect_loss is not None:
+            base_loss = base_loss + 0.1 * detect_loss
+
+        return base_loss
+
     def forward(self, pred, target, task_idx=None):
         """Dispatch to the loss for ``self.task_type`` and return the scalar loss."""
         if self.task_type in ("forex", "forex_dual") or _is_forex_prediction(pred):
@@ -436,40 +544,7 @@ class CombinedLoss(nn.Module):
             return self.forex_dual(pred, target)
 
         if self.task_type in ["restoration", "enhancement"]:
-            detect_loss = None
-            restored = _restoration_output(pred)
-            if restored is not None:
-                img_pred = restored["restored_image"]
-                img_target = target["image"] if isinstance(target, dict) else target
-                bbox_pred = restored.get("detections")
-                if bbox_pred is not None and isinstance(bbox_pred, torch.Tensor):
-                    detect_loss = F.smooth_l1_loss(bbox_pred, torch.zeros_like(bbox_pred))
-            elif isinstance(pred, (tuple, list)):
-                img_pred = pred[0]
-                img_target = target
-            else:
-                img_pred = pred
-                img_target = target
-
-            base_loss = self.criteria.l1(img_pred, img_target)
-            if isinstance(pred, (tuple, list)) and len(pred) > 1 and task_idx is not None:
-                base_loss = base_loss + 0.1 * self.criteria.ce(pred[1], task_idx)
-
-            if self.perc is not None:
-                p_scaled = torch.clamp(img_pred, 0, 1) * 2.0 - 1.0
-                t_scaled = torch.clamp(img_target, 0, 1) * 2.0 - 1.0
-                raw_lpips = self.perc(p_scaled, t_scaled).view(-1)
-                if task_idx is not None and len(task_idx.shape) > 0:
-                    dynamic_weights = self.task_lpips_weights[task_idx]
-                    perc_loss = (raw_lpips * dynamic_weights).mean()
-                else:
-                    perc_loss = 0.025 * raw_lpips.mean()
-                base_loss = base_loss + perc_loss
-
-            if detect_loss is not None:
-                base_loss = base_loss + 0.1 * detect_loss
-
-            return base_loss
+            return self._compute_restoration_loss(pred, target, task_idx)
 
         if self.task_type == "quality":
             return self._compute_quality_loss(pred, target)

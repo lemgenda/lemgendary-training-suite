@@ -126,7 +126,10 @@ class DatasetContainerMixin:
         task_type = self.spec.task_type
 
         if task_type in ("restoration", "enhancement", "face"):
-            return self._container_restoration_item(img, target_img, img_tensor, seed)
+            sample_name = getattr(sample, "name", "")
+            return self._container_restoration_item(
+                img, target_img, img_tensor, seed, sample_name=sample_name
+            )
         if task_type == "quality":
             return img_tensor, _quality_scores(sample.label), "quality"
         if task_type == "classification":
@@ -140,7 +143,9 @@ class DatasetContainerMixin:
         torch.manual_seed(seed)
         return self.pipes.transform(img)
 
-    def _container_restoration_item(self, img, target_img, img_tensor, seed: int):
+    def _container_restoration_item(
+        self, img, target_img, img_tensor, seed: int, sample_name: str = ""
+    ):
         """Restoration triple: decoded target, a synthesized degradation or the input itself."""
         model_info = self.spec.unified_models.get(self.spec.model_key, {})
         needs_syn = getattr(self, "needs_synthesis", False) or model_info.get(
@@ -157,6 +162,10 @@ class DatasetContainerMixin:
             img_tensor = self._seeded_transform(degraded_input, seed)
         else:
             target_tensor = self._seeded_transform(img, seed)
+
+        if self.spec.model_key == "professional_multitask_restoration" and sample_name:
+            from data.dataset_targets import multitask_head
+            return img_tensor, target_tensor, multitask_head(sample_name)
         return img_tensor, target_tensor, self.spec.task_type
 
     def _container_class_index(self, ds_name: str, label) -> int:

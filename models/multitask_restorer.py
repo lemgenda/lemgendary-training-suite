@@ -14,6 +14,7 @@ from models.heads.facerestore import FaceRestoreHead
 from models.heads.lowlight import LowLightHead
 from models.heads.superres import SuperResHead
 from models.heads.vintage import VintageHead
+from training.losses import MULTITASK_HEAD_NAMES
 
 
 class TaskClassifier(nn.Module):
@@ -56,19 +57,7 @@ class MultiTaskRestorer(nn.Module):
             ]
         )
 
-        self.task_names = [
-            "denoise",
-            "deblur",
-            "derain",
-            "dehaze_indoor",
-            "dehaze_outdoor",
-            "lowlight",
-            "exposure",
-            "superres",
-            "vintage",
-            "face_restorer",
-            "face_parser",
-        ]
+        self.task_names = list(MULTITASK_HEAD_NAMES)
 
     def forward(self, x, task=None):
         """Return (restored image, task logits); ``task`` forces a single head."""

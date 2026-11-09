@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.135-STABLE`
+- **Version**: `v16.9.137-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,18 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.137 - Multitask Restoration Class Index Resolution & Container Routing
+
+- `training/losses.py`: Added canonical `MULTITASK_HEAD_NAMES` and
+  `_resolve_task_index_tensor` in `CombinedLoss`, transparently normalizing string
+  tuples from DataLoader collation into integer class index tensors for auxiliary
+  cross-entropy loss and perceptual weighting.
+- `data/dataset_containers.py`: Fixed container restoration sample decoding to
+  resolve dynamic task heads from sample filenames for
+  `professional_multitask_restoration`.
+- `tests/unit/test_losses.py`: Added comprehensive unit tests covering tuple,
+  string, tensor, and None task indicators under `CombinedLoss`.
 
 ### v16.9.136 - High-Fidelity ONNX FP16 Weight Serialization
 
