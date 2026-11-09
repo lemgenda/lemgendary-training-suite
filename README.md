@@ -26,6 +26,15 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.136 - High-Fidelity ONNX FP16 Weight Serialization
+
+- `training/export/llm_exporter.py`: Replaced empty topology copy with
+  `_export_fp16_with_sidecar()`, converting FP32 weights to true half-precision
+  tensors stored in `[ModelStem].onnx.data` (2.94 GB vs 5.88 GB FP32).
+- `training/export/validation.py`: Updated `validate_onnx_fp16_variation` to
+  support valid matching `.onnx.data` binary sidecars for large neural network
+  architectures exceeding the 2 GB Protobuf message boundary.
+
 ### v16.9.135 - Pyrefly Diagnostics Hardening in LLM Exporter
 
 - `training/export/llm_exporter.py`: Refactored context manager typing annotation

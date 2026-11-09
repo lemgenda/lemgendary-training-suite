@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import onnx
+from onnx import TensorProto, helper
 import torch
 
 from training.export.llm_exporter import _copy_fp16, _kv_cache_disabled
@@ -128,13 +130,24 @@ class TestLlmExportHelpers(unittest.TestCase):
         self.assertTrue(model.config.use_cache)
 
     def test_fp16_copy_requires_fp32_source(self) -> None:
-        """Without an FP32 graph the FP16 step reports nothing; with one it copies."""
+        """Without an FP32 graph the FP16 step reports nothing; with one it converts or copies."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp = Path(tmp_dir)
             fp32, fp16 = tmp / "m_FP32.onnx", tmp / "m.onnx"
             self.assertEqual(_copy_fp16(fp32, fp16), {})
-            fp32.write_bytes(b"onnx")
-            self.assertEqual(_copy_fp16(fp32, fp16), {"onnx_fp16": fp16})
+            # Create a valid minimal ONNX model with a float32 tensor
+            node = helper.make_node("Relu", ["X"], ["Y"])
+            graph = helper.make_graph(
+                [node],
+                "test",
+                [helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 2])],
+                [helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 2])],
+            )
+            model = helper.make_model(graph, producer_name="test")
+            onnx.save(model, str(fp32))
+            res = _copy_fp16(fp32, fp16)
+            self.assertIn("onnx_fp16", res)
+            self.assertEqual(res["onnx_fp16"], fp16)
             self.assertTrue(fp16.exists())
 
 

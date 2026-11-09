@@ -244,18 +244,20 @@ class StrictIsolationValidator:
         files = [p for p in variation_dir.iterdir() if p.is_file()]
         report.files_found = [f.name for f in files]
 
+        expected_data = f"{expected_stem}.onnx.data"
         for f in files:
             if f.suffix == ".data" or f.name.endswith(".onnx.data"):
-                report.is_valid = False
-                report.errors.append(
-                    f"External data sidecar detected in onnx/fp16 variation: '{f.name}'. "
-                    f"ONNX FP16 variation must be self-contained with embedded weights."
-                )
+                if f.name != expected_data:
+                    report.is_valid = False
+                    report.errors.append(
+                        f"Unexpected sidecar detected in onnx/fp16 variation: '{f.name}'. "
+                        f"Expected '{expected_data}'."
+                    )
             elif f.suffix != ".onnx":
                 report.is_valid = False
                 report.errors.append(
-                    f"Foreign file detected in onnx/fp16 variation: '{f.name}'. Only *.onnx files "
-                    "are permitted."
+                    f"Foreign file detected in onnx/fp16 variation: '{f.name}'. Only *.onnx and "
+                    "matching .onnx.data sidecar files are permitted."
                 )
 
         onnx_files = [f for f in files if f.suffix == ".onnx"]

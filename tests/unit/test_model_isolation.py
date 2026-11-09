@@ -75,9 +75,9 @@ class TestModelIsolation(unittest.TestCase):
             rep1 = self.validator.validate_onnx_fp16_variation(fp16_dir, expected_stem="TestModel")
             self.assertTrue(rep1.is_valid)
 
-            # 2. External sidecar in fp16 variation is rejected (FP16 must be embedded)
-            sidecar = fp16_dir / "TestModel.onnx.data"
-            sidecar.write_bytes(b"sidecar")
+            # 2. Foreign file in fp16 variation is rejected
+            sidecar = fp16_dir / "rogue.txt"
+            sidecar.write_bytes(b"rogue")
             rep2 = self.validator.validate_onnx_fp16_variation(fp16_dir, expected_stem="TestModel")
             self.assertFalse(rep2.is_valid)
 

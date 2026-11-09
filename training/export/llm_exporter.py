@@ -16,10 +16,9 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import shutil
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import torch
 from torch import nn
@@ -195,21 +194,38 @@ def _export_fp32_with_sidecar(
 
 
 def _copy_fp16(fp32_onnx_path: Path, fp16_onnx_path: Path) -> dict[str, Path]:
-    """Produce the FP16 ONNX artifact from the FP32 graph; {} when it cannot."""
-    logger.info("Exporting FP16 ONNX LLM graph to %s...", fp16_onnx_path)
+    """Legacy alias forwarding to _export_fp16_with_sidecar."""
+    return _export_fp16_with_sidecar(fp32_onnx_path, fp16_onnx_path)
+
+
+def _export_fp16_with_sidecar(fp32_onnx_path: Path, fp16_onnx_path: Path) -> dict[str, Path]:
+    """Convert FP32 ONNX graph to FP16 with external weights sidecar; {} on failure."""
+    logger.info("Converting FP32 ONNX LLM graph to FP16: %s...", fp16_onnx_path)
     if not fp32_onnx_path.exists():
-        logger.error(
-            "FP16 ONNX export skipped: FP32 source %s does not exist. "
-            "FP32 export must succeed before the FP16 copy can be produced.",
-            fp32_onnx_path,
-        )
+        logger.error("FP16 ONNX export skipped: FP32 source %s does not exist.", fp32_onnx_path)
         return {}
     try:
-        shutil.copy2(str(fp32_onnx_path), str(fp16_onnx_path))
-    except OSError:
-        logger.exception("FP16 ONNX export failed for %s", fp16_onnx_path)
+        import onnx
+        import onnxconverter_common.float16 as f16
+
+        model = onnx.load(str(fp32_onnx_path), load_external_data=True)
+        m16 = f16.convert_float_to_float16(model, keep_io_types=True, disable_shape_infer=True)
+        data_name = f"{fp16_onnx_path.name}.data"
+        onnx.save_model(
+            m16,
+            str(fp16_onnx_path),
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location=data_name,
+        )
+        exported = {"onnx_fp16": fp16_onnx_path}
+        fp16_data = fp16_onnx_path.parent / data_name
+        if fp16_data.exists():
+            exported["onnx_fp16_data"] = fp16_data
+        return exported
+    except EXPORT_ERRORS:
+        logger.exception("FP16 ONNX conversion failed for %s", fp16_onnx_path)
         return {}
-    return {"onnx_fp16": fp16_onnx_path}
 
 
 def export_llm_tri_format(
@@ -256,8 +272,10 @@ def export_llm_tri_format(
     fp32_onnx_path = dirs["onnx_fp32"] / f"{binary_stem}_FP32.onnx"
     exported_files.update(_export_fp32_with_sidecar(onnx_module, fp32_onnx_path, max_seq_length))
 
-    # 3. ONNX FP16 with Integrated Weights
-    exported_files.update(_copy_fp16(fp32_onnx_path, dirs["onnx_fp16"] / f"{binary_stem}.onnx"))
+    # 3. ONNX FP16 with External Tensor Data Sidecar
+    exported_files.update(
+        _export_fp16_with_sidecar(fp32_onnx_path, dirs["onnx_fp16"] / f"{binary_stem}.onnx")
+    )
 
     return exported_files
 
