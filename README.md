@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.137-STABLE`
+- **Version**: `v16.9.139-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,26 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.139 - MultiTask Restorer Dynamic Spatial Pooling ONNX Export Hardening
+
+- `training/training/val_metrics.py`: Updated `_image_pair()` to unpack
+  multi-head tuple model outputs `(restored_image, task_logits)` so image
+  reconstruction metrics (PSNR, SSIM, LPIPS, FID) are computed and recorded
+  to `metrics.csv` for multi-task vision restoration architectures.
+- `training/export/llm_exporter.py`: Refactored `_export_fp16_integrated()` to
+  save FP16 ONNX weights integrated directly inside the standalone `.onnx` file
+  (`save_as_external_data=False`), ensuring strict parity with PyTorch vision
+  model exports where FP32 uses external `.onnx.data` sidecars and FP16
+  integrates all weights.
+- `models/encoder.py`: Replaced `F.adaptive_avg_pool2d` with dynamic bilinear
+  `F.interpolate` downsampling to fixed 32x32 spatial target in
+  `TransformerBlock`, resolving TorchScript ONNX export failure under dynamic
+  spatial axes.
+- `models/multitask_restorer.py`: Replaced `nn.AdaptiveAvgPool2d(1)` with
+  dynamic spatial mean reduction (`x.mean(dim=(-2, -1))`) in `TaskClassifier`,
+  enabling seamless TorchScript ONNX operator translation across dynamic
+  batch, height, and width tensors.
 
 ### v16.9.138 - Dynamic Worker Topology & WebDataset Concurrent Decompression
 

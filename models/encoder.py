@@ -23,7 +23,7 @@ class TransformerBlock(nn.Module):
         # 2026 Resilience: Downsample sequence length to prevent quadratic spatial complexity OOM
         # Downsample to 32x32 features for efficient global contextual attention
         target_size = (32, 32)
-        x_down = F.adaptive_avg_pool2d(x, target_size)
+        x_down = F.interpolate(x, size=target_size, mode='bilinear', align_corners=False)
 
         x_flat = x_down.view(batch, channels, target_size[0] * target_size[1]).permute(0, 2, 1)
 

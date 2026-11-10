@@ -153,7 +153,11 @@ def _update_fid_pairs(
 def _image_pair(batch: ValBatch) -> tuple[torch.Tensor, torch.Tensor] | None:
     """Return same-shape 4D prediction and target images, or None."""
     preds, targets = batch.preds, batch.targets
+    if isinstance(preds, (tuple, list)) and len(preds) > 0:
+        preds = preds[0]
     pred = preds.get("restored_image", preds) if isinstance(preds, dict) else preds
+    if isinstance(targets, (tuple, list)) and len(targets) > 0:
+        targets = targets[0]
     target = targets.get("image", targets) if isinstance(targets, dict) else targets
     if not (isinstance(pred, torch.Tensor) and isinstance(target, torch.Tensor)):
         return None

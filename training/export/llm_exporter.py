@@ -194,12 +194,12 @@ def _export_fp32_with_sidecar(
 
 
 def _copy_fp16(fp32_onnx_path: Path, fp16_onnx_path: Path) -> dict[str, Path]:
-    """Legacy alias forwarding to _export_fp16_with_sidecar."""
-    return _export_fp16_with_sidecar(fp32_onnx_path, fp16_onnx_path)
+    """Legacy alias forwarding to _export_fp16_integrated."""
+    return _export_fp16_integrated(fp32_onnx_path, fp16_onnx_path)
 
 
-def _export_fp16_with_sidecar(fp32_onnx_path: Path, fp16_onnx_path: Path) -> dict[str, Path]:
-    """Convert FP32 ONNX graph to FP16 with external weights sidecar; {} on failure."""
+def _export_fp16_integrated(fp32_onnx_path: Path, fp16_onnx_path: Path) -> dict[str, Path]:
+    """Convert FP32 ONNX graph to FP16 with integrated weights in the single .onnx file; {} on failure."""
     logger.info("Converting FP32 ONNX LLM graph to FP16: %s...", fp16_onnx_path)
     if not fp32_onnx_path.exists():
         logger.error("FP16 ONNX export skipped: FP32 source %s does not exist.", fp32_onnx_path)
@@ -210,19 +210,12 @@ def _export_fp16_with_sidecar(fp32_onnx_path: Path, fp16_onnx_path: Path) -> dic
 
         model = onnx.load(str(fp32_onnx_path), load_external_data=True)
         m16 = f16.convert_float_to_float16(model, keep_io_types=True, disable_shape_infer=True)
-        data_name = f"{fp16_onnx_path.name}.data"
         onnx.save_model(
             m16,
             str(fp16_onnx_path),
-            save_as_external_data=True,
-            all_tensors_to_one_file=True,
-            location=data_name,
+            save_as_external_data=False,
         )
-        exported = {"onnx_fp16": fp16_onnx_path}
-        fp16_data = fp16_onnx_path.parent / data_name
-        if fp16_data.exists():
-            exported["onnx_fp16_data"] = fp16_data
-        return exported
+        return {"onnx_fp16": fp16_onnx_path}
     except EXPORT_ERRORS:
         logger.exception("FP16 ONNX conversion failed for %s", fp16_onnx_path)
         return {}
@@ -272,9 +265,9 @@ def export_llm_tri_format(
     fp32_onnx_path = dirs["onnx_fp32"] / f"{binary_stem}_FP32.onnx"
     exported_files.update(_export_fp32_with_sidecar(onnx_module, fp32_onnx_path, max_seq_length))
 
-    # 3. ONNX FP16 with External Tensor Data Sidecar
+    # 3. ONNX FP16 with Integrated Weights (.onnx)
     exported_files.update(
-        _export_fp16_with_sidecar(fp32_onnx_path, dirs["onnx_fp16"] / f"{binary_stem}.onnx")
+        _export_fp16_integrated(fp32_onnx_path, dirs["onnx_fp16"] / f"{binary_stem}.onnx")
     )
 
     return exported_files

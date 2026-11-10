@@ -22,12 +22,12 @@ class TaskClassifier(nn.Module):
 
     def __init__(self, in_ch=64, num_tasks=11):
         super().__init__()
-        self.pool = nn.AdaptiveAvgPool2d(1)
+        # Adaptive pooling replaced with dynamic spatial mean for ONNX export compatibility
         self.fc = nn.Linear(in_ch, num_tasks)
 
     def forward(self, x):
         """Return task logits of shape [B, num_tasks]."""
-        x = self.pool(x).flatten(1)
+        x = x.mean(dim=(-2, -1))
         logits = self.fc(x)
         return logits
 
