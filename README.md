@@ -26,6 +26,23 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.138 - Dynamic Worker Topology & WebDataset Concurrent Decompression
+
+- `training/data/workers.py`: Implemented dynamic resource-aware DataLoader
+  worker sizing based on live available RAM and CPU logical threads
+  (`_compute_dynamic_workers`), removing static Windows 2-worker limits while
+  strictly maintaining 0-worker isolation for Forex memory-mapped manifolds
+  (Pathology 24).
+- `training/data/workers.py`: Enabled dynamic `persistent_workers` across all
+  platforms when available system memory exceeds 16GB with adequate buffer
+  headroom, eliminating inter-epoch teardown latency.
+- `training/data/containers/webdataset.py`: Hardened `WebDatasetReader` with
+  process-isolated `_tar_handles` caches, recreating file descriptor stacks
+  across worker spawns to avoid Tar member stream collisions.
+- `tests/unit/test_dynamic_workers.py`: Added comprehensive unit tests for
+  dynamic worker calculations, Forex zero-worker preservation, and memory
+  headroom thresholds.
+
 ### v16.9.137 - Multitask Restoration Class Index Resolution & Container Routing
 
 - `training/losses.py`: Added canonical `MULTITASK_HEAD_NAMES` and

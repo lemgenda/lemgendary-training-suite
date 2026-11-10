@@ -43,6 +43,15 @@ def _system_ram_gb() -> float:
         return 16.0
 
 
+def _available_ram_gb() -> float:
+    """Available system RAM in GB (8.0 when psutil cannot tell)."""
+    try:
+        return psutil.virtual_memory().available / (1024**3)
+    except OSError as exc:
+        logger.debug("psutil unavailable for available memory calculation: %s", exc)
+        return 8.0
+
+
 def _set_cpu_threads(env: str, cpu_count: int) -> int:
     """Set torch CPU threads (1 on Kaggle, else every core); return the count."""
     num_threads = 1 if env == "kaggle" else max(1, cpu_count)
@@ -53,32 +62,60 @@ def _set_cpu_threads(env: str, cpu_count: int) -> int:
     return num_threads
 
 
-def _default_train_workers(env: str, ram_gb: float, cpu_count: int, cfg: dict[str, Any]) -> int:
-    """Training DataLoader workers for the environment and platform."""
+def _default_train_workers(
+    env: str,
+    ram_gb: float,
+    available_ram_gb: float,
+    cpu_count: int,
+    cfg: dict[str, Any],
+) -> int:
+    """Dynamically determine training DataLoader workers based on live resources.
+
+    Allocates workers proportional to CPU cores and available RAM headroom to maximize
+    disk/decompression throughput without risking host pagefile thrashing.
+    """
     if env in {"kaggle", "colab"}:
         world_size = int(os.environ.get("WORLD_SIZE", "1"))
         # In multi-GPU DDP on Kaggle (2 GPUs), 4 workers per process spawns 8 total workers,
         # exhausting shared memory and RAM. Cap to 2 workers per process in DDP.
-        return 2 if world_size > 1 else 4
-    if sys.platform == "win32":
-        # Windows multi-process PyTorch spawns via freeze_support; restrict to 2 if ample RAM
-        return 2 if ram_gb >= 16.0 else 0
-    cfg_workers = cfg.get("hardware", {}).get("num_workers", 4)
-    if isinstance(cfg_workers, int):
+        return 2 if world_size > 1 else min(cpu_count, 4)
+
+    cfg_workers = cfg.get("hardware", {}).get("num_workers", "auto")
+    if isinstance(cfg_workers, int) and cfg_workers >= 0:
         return min(cpu_count, cfg_workers)
-    return min(cpu_count, 4)
+
+    # Dynamic resource sizing:
+    # 1. CPU Core Headroom: leave 1 core for OS / main training process
+    core_limit = max(1, cpu_count - 1)
+
+    # 2. Memory Headroom: budget ~1.5 GB available RAM per worker process
+    mem_limit = max(0, int(available_ram_gb // 1.5))
+
+    # 3. Safe upper bound per environment
+    if sys.platform == "win32":
+        # On Windows, spawning processes incurs more memory overhead than Linux fork.
+        # Dynamically scale up to 6 workers if RAM and cores allow; scale down if RAM is low.
+        if ram_gb < 8.0 or available_ram_gb < 2.0:
+            return 0
+        if ram_gb < 16.0 or available_ram_gb < 4.0:
+            return min(core_limit, mem_limit, 2)
+        return max(2, min(core_limit, mem_limit, 6))
+
+    # Linux / macOS
+    return max(1, min(core_limit, mem_limit, 8))
 
 
 def _default_val_workers(env: str, num_workers: int, cfg: dict[str, Any]) -> int:
-    """Validation workers: ``hardware.val_num_workers`` if an int, else per environment."""
+    """Validation workers: ``hardware.val_num_workers`` if an int, else dynamically scaled."""
     cfg_val = cfg.get("hardware", {}).get("val_num_workers", "auto")
-    if isinstance(cfg_val, int):
+    if isinstance(cfg_val, int) and cfg_val >= 0:
         return cfg_val
     if env in {"kaggle", "colab"}:
         return 2
-    if sys.platform == "win32":
+    if num_workers == 0:
         return 0
-    return min(2, num_workers)
+    # Scale validation workers proportionally to avoid stalling evaluation
+    return min(2, max(1, num_workers // 2))
 
 
 def _prefetch_factor(env: str, num_workers: int) -> int | None:
@@ -102,6 +139,7 @@ def compute_worker_topology(
     dev_type = (device or torch.device("cuda" if torch.cuda.is_available() else "cpu")).type
 
     ram_gb = _system_ram_gb()
+    available_ram_gb = _available_ram_gb()
     num_threads = _set_cpu_threads(env, cpu_count)
 
     # Determine training workers
@@ -111,7 +149,13 @@ def compute_worker_topology(
         # Time-series datasets stream efficiently from memory/mmap; multi-process adds IPC overhead
         num_workers = 0
     else:
-        num_workers = _default_train_workers(env, ram_gb, cpu_count, config or {})
+        num_workers = _default_train_workers(
+            env=env,
+            ram_gb=ram_gb,
+            available_ram_gb=available_ram_gb,
+            cpu_count=cpu_count,
+            cfg=config or {},
+        )
 
     # Determine validation workers
     if user.val is not None:
@@ -120,7 +164,7 @@ def compute_worker_topology(
         val_num_workers = _default_val_workers(env, num_workers, config or {})
 
     pin_memory = dev_type == "cuda"
-    persistent_workers = num_workers > 0 and ram_gb >= 16.0 and sys.platform != "win32"
+    persistent_workers = num_workers > 0 and ram_gb >= 16.0 and available_ram_gb >= 3.0
     prefetch_factor = _prefetch_factor(env, num_workers)
 
     logger.info(

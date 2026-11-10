@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import tarfile
 from contextlib import ExitStack
 from pathlib import Path
@@ -284,6 +285,7 @@ class WebDatasetReader:
         # Map sample index -> (mode, tar_path, img_ref, tgt_ref, mask_ref, txt_ref, json_ref)
         self.index_map: list[tuple[str, Path | None, Any, Any, Any, Any, Any]] = []
         self._tar_handles: dict[Path, tarfile.TarFile] = {}
+        self._handles_pid: int | None = None
         # Owns the cached tar handles; close() unwinds it.
         self._tar_stack = ExitStack()
 
@@ -318,7 +320,17 @@ class WebDatasetReader:
         return self._tar_sample(entry, index)
 
     def _tar_file(self, t_path: Path) -> tarfile.TarFile:
-        """Return the cached open handle of ``t_path``, opening it on first use."""
+        """Return the cached open handle of ``t_path``, opening it on first use.
+
+        Recreates the handle stack if invoked across a multiprocessing process spawn
+        to ensure isolated, non-corrupted file streams per worker.
+        """
+        current_pid = os.getpid()
+        if self._handles_pid != current_pid:
+            self._tar_handles.clear()
+            self._tar_stack = ExitStack()
+            self._handles_pid = current_pid
+
         tf = self._tar_handles.get(t_path)
         if tf is None:
             # Open under a temporary stack, then hand ownership to the long-lived one.
