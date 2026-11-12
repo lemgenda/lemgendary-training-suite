@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.139-STABLE`
+- **Version**: `v16.9.140-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,17 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.140 - Validator Findings: No Swallowed Errors
+
+- `lemgendary_models_hub.ps1`: the Python lookup no longer swallows a missing
+  interpreter with `-ErrorAction SilentlyContinue`; it catches
+  `CommandNotFoundException`, reports it and returns. The running-server
+  lookup filters `Get-Process` output instead of suppressing lookup errors.
+- `models/core_restoration.py`: the two silent `except RuntimeError: pass`
+  blocks around `data_ptr()` alignment checks are replaced by one
+  `is_unaligned()` helper (16-byte cuDNN alignment) that logs a debug message
+  when a tensor has no addressable storage.
 
 ### v16.9.139 - MultiTask Restorer Dynamic Spatial Pooling ONNX Export Hardening
 

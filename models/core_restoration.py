@@ -1,5 +1,6 @@
 """Core image-restoration architectures (NAFNet, FFANet, MIRNet/MPRNet proxies, RDB, ESPCN, UPN)."""
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -10,6 +11,27 @@ from torch.nn.modules.utils import _pair
 from torchvision import models
 
 from models.model_config import resolve_config
+
+logger = logging.getLogger("lemtrain.models.core_restoration")
+
+CUDNN_ALIGNMENT_BYTES = 16
+"""Byte alignment some cuDNN kernels require of weight and bias storage."""
+
+
+def is_unaligned(tensor: torch.Tensor | None) -> bool:
+    """True when ``tensor`` has real storage that is not cuDNN-aligned.
+
+    Tensors without storage (FakeTensor during ONNX/FX tracing) have no address to
+    align; ``data_ptr()`` raises ``RuntimeError`` for them and they count as aligned.
+    """
+    if not isinstance(tensor, torch.Tensor):
+        return False
+    try:
+        return tensor.data_ptr() % CUDNN_ALIGNMENT_BYTES != 0
+    except RuntimeError as exc:
+        logger.debug("Tensor has no storage address (tracing); alignment skipped: %s", exc)
+        return False
+
 
 # ==========================================
 # 0. ALIGNMENT HOTFIX FOR DATAPARALLEL
@@ -46,12 +68,7 @@ class _AlignedConv2d(nn.Conv2d):
 
     def forward(self: nn.Conv2d, input: torch.Tensor) -> torch.Tensor:
         """Conv2d forward that re-allocates 16-byte-unaligned weights before calling cuDNN."""
-        is_unaligned = False
-        try:
-            is_unaligned = self.weight.data_ptr() % 16 != 0
-        except RuntimeError:
-            pass  # FakeTensor during ONNX/FX tracing
-        if is_unaligned:
+        if is_unaligned(self.weight):
             w = self.weight.clone()
             b = self.bias.clone() if self.bias is not None else None
 
@@ -279,15 +296,10 @@ class NAFNet(nn.Module):
 
 def _align_transpose_params(up: nn.ConvTranspose2d) -> None:
     """Re-allocate weight/bias that are not 16-byte aligned (some cuDNN kernels require it)."""
-    try:
-        w = up.weight
-        b = up.bias
-        if isinstance(w, torch.Tensor) and w.data_ptr() % 16 != 0:
-            w.data = w.data.clone()
-        if isinstance(b, torch.Tensor) and b.data_ptr() % 16 != 0:
-            b.data = b.data.clone()
-    except RuntimeError:
-        pass  # FakeTensor during ONNX/FX tracing
+    if is_unaligned(up.weight):
+        up.weight.data = up.weight.data.clone()
+    if up.bias is not None and is_unaligned(up.bias):
+        up.bias.data = up.bias.data.clone()
 
 
 # ==========================================
