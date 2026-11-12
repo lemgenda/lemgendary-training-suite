@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.172-STABLE`
+- **Version**: `v16.9.173-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,33 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.173 - Kaggle Notebook Recovery by Slug and Stored Epoch (R3-K1)
+
+- Kaggle notebook checkpoint recovery (`build_checkpoint_recovery_cell`)
+  is rewritten (K-NB-2, K-NB-3). The latest `pytorch/default` Hub version
+  is loaded first and every model file of that explicit download folder
+  is used (no name filter, so the 18 models whose key has `_` recover
+  again). `/kaggle/input` folders count only when named after the Kaggle
+  slug (hyphenated) or the model key, and only when their checkpoints are
+  newer. Every choice compares the epoch stored in the checkpoint
+  (`checkpoint_epoch` from the `model_payload` loader), never the file
+  size, so a pinned old `model_sources` version cannot replace newer
+  weights. `metrics.csv` comes with the adopted `latest` checkpoint. The
+  Colab variant scans Google Drive folders named after the slug or key.
+- `build_stealth_cell` considers `.pth` and `.pt` files (it globbed only
+  `.pth` and filtered on the key in the file name) and loads the highest
+  stored epoch through `load_model_payload`.
+- The forex `.pt` usage cell indexes the model output dict
+  (`out['direction_logits']`, `out['magnitude']`) like the model card; it
+  unpacked the dict as a tuple and got its keys.
+- `training/notebooks/platform_paths.py` (new): the notebook platform
+  folders (working dir, checkout dir, suite, env-manager, hub root) in one
+  place; the hub-prep and recovery cells use it.
+- Generated notebooks are written at preflight/export time; none are
+  committed here.
+- Tests: `tests/unit/test_notebook_kaggle_cells.py` (the recovery cell is
+  executed against a temp hub with a fake kagglehub).
 
 ### v16.9.172 - Isolated, Throttled Per-Epoch Kaggle Sync and Merged Editors (R3-K1)
 
