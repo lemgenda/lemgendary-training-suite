@@ -3,6 +3,7 @@
 import functools
 import os
 import sys
+import sysconfig
 from pathlib import Path
 
 
@@ -87,13 +88,24 @@ def ensure_dir(path: str | Path) -> Path:
     return p
 
 
+def venv_site_packages(venv_dir: Path) -> Path:
+    """``site-packages`` of the virtual environment at ``venv_dir`` on this platform.
+
+    Windows venvs use ``Lib/site-packages``; POSIX venvs ``lib/pythonX.Y/site-packages``.
+    The layout comes from the interpreter's ``venv`` install scheme.
+    """
+    base = str(venv_dir)
+    purelib = sysconfig.get_path("purelib", scheme="venv", vars={"base": base, "platbase": base})
+    return Path(os.path.normpath(purelib))
+
+
 def bootstrap_sys_path() -> None:
     """Ensure project root and sibling dependency fallbacks are on sys.path."""
     proj_root = str(get_project_root())
     if proj_root not in sys.path:
         sys.path.insert(0, proj_root)
 
-    venv_site_pkgs = os.path.normpath(os.path.join(proj_root, ".venv", "Lib", "site-packages"))
+    venv_site_pkgs = str(venv_site_packages(Path(proj_root) / ".venv"))
     if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
         sys.path.insert(1, venv_site_pkgs)
 

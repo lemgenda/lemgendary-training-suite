@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.145-STABLE`
+- **Version**: `v16.9.146-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,25 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.146 - Cross-Platform Bootstrap, DDP Backend and Process Cleanup
+
+- `training/utils/paths.py`: `venv_site_packages` resolves the venv's
+  site-packages with `sysconfig`'s venv scheme (`Lib/site-packages` on
+  Windows, `lib/pythonX.Y/site-packages` on POSIX). `bootstrap_sys_path`
+  used the Windows layout only.
+- `training/train.py`: delegates to `bootstrap_sys_path` (loaded by file
+  path before `training` is importable) instead of its own Windows-only
+  copy.
+- `training/parallel/ddp.py`: `select_backend` picks NCCL only with CUDA on
+  a platform that ships it (not Windows), else Gloo; `device_id` is passed
+  to `init_process_group` only for NCCL.
+- `training/data/workers.py`: macOS starts workers with spawn like Windows,
+  so it gets the spawn-aware worker budget (`SPAWN_PLATFORMS`).
+- `training/utils/interrupt.py`: on POSIX, cleanup signals the child's
+  process group (torchrun ranks, dataloader workers) and falls back to
+  terminating the child alone, matching `taskkill /T` on Windows.
+- Tests: `test_platform_compat.py`.
 
 ### v16.9.145 - Deterministic Mid-Epoch Resume and GradScaler State
 

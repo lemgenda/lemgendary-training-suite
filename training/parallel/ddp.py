@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+import sys
 from contextlib import AbstractContextManager, nullcontext
 from typing import Any, cast
 
@@ -15,6 +16,18 @@ from torch import nn
 from training.parallel.base import ParallelStrategy, generic_prepare_batch
 
 logger = logging.getLogger("lemtrain.parallel.ddp")
+
+
+def select_backend() -> str:
+    """``nccl`` where CUDA and NCCL are available (never on Windows), else ``gloo``."""
+    if (
+        torch.cuda.is_available()
+        and sys.platform != "win32"
+        and dist.is_available()
+        and dist.is_nccl_available()
+    ):
+        return "nccl"
+    return "gloo"
 
 
 class DistributedDataParallelStrategy(ParallelStrategy):
@@ -40,7 +53,7 @@ class DistributedDataParallelStrategy(ParallelStrategy):
     def setup(self) -> nn.Module:
         """Initialise the process group (if needed) and wrap the model in DDP."""
         if not dist.is_initialized():
-            backend = "nccl" if torch.cuda.is_available() else "gloo"
+            backend = select_backend()
             master_addr = os.environ.get("MASTER_ADDR", "127.0.0.1")
             master_port = os.environ.get("MASTER_PORT", "29500")
             os.environ.setdefault("MASTER_ADDR", master_addr)
@@ -55,7 +68,8 @@ class DistributedDataParallelStrategy(ParallelStrategy):
                 "world_size": self._world_size,
                 "timeout": datetime.timedelta(seconds=1800),
             }
-            if torch.cuda.is_available():
+            if backend == "nccl":
+                # Binding a device is an NCCL feature; Gloo rejects or ignores it.
                 init_kwargs["device_id"] = torch.device(f"cuda:{self._local_rank}")
             dist.init_process_group(**init_kwargs)
             self._initialized = True

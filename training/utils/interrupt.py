@@ -43,7 +43,7 @@ def cleanup_active_processes() -> None:
     for p in _ACTIVE_PROCESSES:
         if p.poll() is None:
             try:
-                if os.name == "nt":
+                if sys.platform == "win32":
                     cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
                     subprocess.run(
                         ["taskkill", "/F", "/T", "/PID", str(p.pid)],
@@ -52,12 +52,26 @@ def cleanup_active_processes() -> None:
                         creationflags=cflags,
                     )
                 else:
-                    p.terminate()
+                    _terminate_posix(p)
             except (OSError, subprocess.SubprocessError) as exc:
                 logger.warning(
                     "Failed to terminate subprocess PID %s: %s", getattr(p, "pid", "unknown"), exc
                 )
     _ACTIVE_PROCESSES.clear()
+
+
+def _terminate_posix(proc: subprocess.Popen[Any]) -> None:
+    """SIGTERM ``proc``'s process group when it leads one, else ``proc`` alone.
+
+    A child started with ``start_new_session`` leads a group holding its own children
+    (torchrun ranks, dataloader workers); signalling the negative pid stops all of them,
+    like ``taskkill /T`` on Windows. Without such a group the signal fails with
+    ``ProcessLookupError`` and only the child is terminated.
+    """
+    try:
+        os.kill(-proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        proc.terminate()
 
 
 atexit.register(cleanup_active_processes)
