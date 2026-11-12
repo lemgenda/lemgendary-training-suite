@@ -47,6 +47,7 @@ from training.checkpoint.preflight_generator import (
 from training.export.base import EXPORT_ERRORS
 from training.export.universal_exporter import export_universal_model
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
+from training.governance.measurement import drop_target_echoes
 from training.governance.metrics import (
     CANONICAL_METRIC_ALIASES,
     LOWER_IS_BETTER_METRICS,
@@ -343,11 +344,13 @@ class CheckpointLifecycleManager:
 
         try:
             with open(self.paths.metrics_csv_path, encoding="utf-8", errors="ignore") as f:
-                reader = csv.DictReader(f)
-                for raw_row in reader:
-                    row = filter_metrics_row_for_fid_provenance(raw_row, self.paths.model_hub_dir)
-                    self._absorb_quality_row(row)
-                    self._absorb_vault_row(row)
+                rows = [
+                    filter_metrics_row_for_fid_provenance(raw_row, self.paths.model_hub_dir)
+                    for raw_row in csv.DictReader(f)
+                ]
+            for row in drop_target_echoes(rows, self.sota_targets, self.paths.metrics_csv_path):
+                self._absorb_quality_row(dict(row))
+                self._absorb_vault_row(dict(row))
         except OSError as exc:
             logger.debug("Failed parsing metrics.csv history for vault baselines: %s", exc)
 

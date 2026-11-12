@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.163-STABLE`
+- **Version**: `v16.9.164-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,55 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.164 - Honest Forex Validation Metrics and Unmeasured Epochs (R2-T10)
+
+- Owner's Forex `metrics.csv`: epoch 1 held the registry `sota_targets`
+  digit for digit (58.5/56/1.65/1.85/2.1/12/12.5/12.5) with
+  `Quality_Score = 100 - Val_Loss` (99.7291); epoch 2 had `WinRate ==
+  DirAcc`, Sharpe/Sortino pinned at -5 and MaxDD pinned at 100. No code
+  path in this repository (any branch, any version) writes targets into
+  the metric dict, and the validation code always sets `quality_score`
+  next to `dir_entropy`, so the epoch-1 row was not produced by the
+  engine's validation; it survives later runs because the CSV upsert
+  keeps rows of other epochs. What the code did allow, and what is now
+  closed: a missing metric written as `0`, a substitute quality
+  (`100 - val_loss`) ranking as a best, model cards printing targets as
+  achieved results, and such a row anchoring later baselines.
+- Never targets as measurements: `metrics.csv` writes an unmeasured
+  metric (absent, NaN) and a missing quality score as an empty cell, never
+  `0`; model cards print `not measured` instead of the SOTA target or a
+  hardcoded figure (`training.model_card.measured`, every task family).
+- Unmeasured or degenerate epochs never become `best.pth` or a vault
+  checkpoint (`training/governance/measurement.py`): an epoch that
+  measured no SOTA target, has a non-finite quality score, or (Forex)
+  opened no trade is logged, keeps a NaN quality, is not offered to the
+  SOTA tracker, the vault or the governor audit. The `100 - val_loss`
+  substitute is gone; a model without SOTA targets ranks by its measured
+  validation loss, `1 / (1 + val_loss)`.
+- History: a `metrics.csv` row whose target columns equal the SOTA
+  targets exactly is skipped (logged) by the lifecycle manager's vault and
+  best-score baselines and by the resume reconciliation.
+- Forex trade metrics: with no directional prediction the win rate (no
+  longer the direction accuracy), profit factor, Sharpe, Sortino and
+  drawdown are not reported (logged). The drawdown is a real percentage
+  of an explicit equity model (`training/training/forex_equity.py`):
+  fixed-fractional 1 % risk per trade, a win returns `TP/SL` R and a loss
+  -1 R, equity compounds from 1.0, MaxDD is the largest peak-to-trough
+  fall in percent of the peak. The clips on profit factor, Sharpe,
+  Sortino and drawdown are gone from the reported metrics; the score
+  bounds them inside `weighted_quality_score` only (PF 0..10, Sharpe and
+  Sortino -5..10). A profit factor without losses is `inf`.
+- One score scale: `val_summary` no longer computes its own
+  `40*DirAcc + 30*WinRate + ...` Forex score (percent values on a
+  fraction formula, floored at 0 by the clipped 100 % drawdown, never on
+  the scale of the target). Forex epochs use `score_metrics` like the
+  target; the scheme is `forex_weighted_targets_v2`, old untagged Forex
+  anchors are dropped and old rows are rescored from their metric columns.
+- Tests: `tests/unit/test_forex_measurement.py` reproduces both rows
+  (target echo, resume baseline, unmeasured epoch, empty cells, model
+  card; no-trade epoch, unclipped Sharpe and equity drawdown, equity
+  model, in-score bounds, one scale).
 
 ### v16.9.163 - Target Quality Score over the Targets Measured That Epoch (R2-T7)
 

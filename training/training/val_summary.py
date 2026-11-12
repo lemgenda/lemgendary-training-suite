@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 
+from training.training.forex_equity import max_drawdown_pct
 from training.training.val_accumulators import ForexTradeTotals, ValAccumulators
 from training.training.val_metrics import METRIC_ERRORS
 
@@ -35,40 +36,47 @@ def compute_psnr(mse: float, max_val: float = 1.0) -> float:
 
 @dataclass(frozen=True)
 class TradeStats:
-    """Risk statistics of the simulated trade returns."""
+    """Risk statistics of the simulated trades, as measured (no clipping).
 
-    profit_factor: float = 1.0
-    sharpe_ratio: float = 0.0
-    sortino_ratio: float = 0.0
-    max_drawdown: float = 0.0
+    ``max_drawdown`` is a percentage of the compounded equity curve
+    (:mod:`training.training.forex_equity`). Bounds the quality score needs are applied
+    inside the score (``training.governance.quality_score``), never to these values.
+    """
+
+    profit_factor: float
+    sharpe_ratio: float
+    sortino_ratio: float
+    max_drawdown: float
 
 
-def trade_stats(trade_returns: list[float]) -> TradeStats:
-    """Profit factor, Sharpe, Sortino and maximum drawdown of the simulated returns."""
+def trade_stats(trade_returns: list[float], risk_multiples: list[float]) -> TradeStats | None:
+    """Profit factor, Sharpe, Sortino and equity drawdown; ``None`` without any trade."""
     if len(trade_returns) == 0:
-        return TradeStats()
+        return None
     returns_arr = np.array(trade_returns, dtype=np.float64)
     sharpe, sortino = _risk_ratios(returns_arr)
-    cum_r = np.cumsum(returns_arr)
-    drawdown = np.maximum.accumulate(cum_r) - cum_r
-    max_dd = float(np.max(drawdown)) if len(drawdown) > 0 else 0.0
+    if len(risk_multiples) != len(trade_returns):
+        logger.warning(
+            "Equity curve covers %d of %d simulated trades (trades without a positive "
+            "stop-loss, or a validation pass resumed from an older progress checkpoint).",
+            len(risk_multiples),
+            len(trade_returns),
+        )
     return TradeStats(
-        profit_factor=float(np.clip(_profit_factor(returns_arr), 0.0, 10.0)),
-        sharpe_ratio=float(np.clip(sharpe, -5.0, 10.0)),
-        sortino_ratio=float(np.clip(sortino, -5.0, 10.0)),
-        max_drawdown=float(np.clip(max_dd, 0.0, 100.0)),
+        profit_factor=float(_profit_factor(returns_arr)),
+        sharpe_ratio=float(sharpe),
+        sortino_ratio=float(sortino),
+        max_drawdown=max_drawdown_pct(risk_multiples),
     )
 
 
 def _profit_factor(returns_arr: np.ndarray) -> float:
-    """Gross profit over gross loss; without losses, the profit capped at 3 (1 if flat)."""
-    pos_returns = returns_arr[returns_arr > 0]
-    neg_returns = np.abs(returns_arr[returns_arr < 0])
-    gross_profit = float(pos_returns.sum()) if len(pos_returns) > 0 else 0.0
-    gross_loss = float(neg_returns.sum()) if len(neg_returns) > 0 else 0.0
+    """Gross profit over gross loss: ``inf`` without losses, ``nan`` when every trade is flat."""
+    gross_profit = float(returns_arr[returns_arr > 0].sum())
+    gross_loss = float(np.abs(returns_arr[returns_arr < 0]).sum())
     if gross_loss > 0:
-        return gross_profit / max(1e-4, gross_loss)
-    return min(3.0, gross_profit) if gross_profit > 0 else 1.0
+        return gross_profit / gross_loss
+    return math.inf if gross_profit > 0 else math.nan
 
 
 def _risk_ratios(returns_arr: np.ndarray) -> tuple[Any, Any]:
@@ -179,37 +187,42 @@ def _magnitude_mae(trades: ForexTradeTotals) -> tuple[float, float]:
 
 
 def _forex_results(acc: ValAccumulators, results: dict[str, float]) -> None:
+    """Direction accuracy, magnitude errors and, when the model traded, the trade metrics.
+
+    Without a single directional (non-HOLD) prediction there is no trade to measure: the
+    win rate, profit factor, Sharpe, Sortino and drawdown are left out (not substituted by
+    the direction accuracy or by neutral defaults) and the pass is logged. The epoch's
+    quality score is computed by the engine from these metrics with the single score
+    definition (``training.governance.quality_score``).
+    """
     totals = acc.direction
     if not (totals.has_forex_metrics and totals.total_forex_samples > 0):
         return
     samples = max(1, totals.total_forex_samples)
-    dir_acc = (totals.correct_forex_samples / samples) * 100.0
-    win_rate = (
-        (totals.winning_trades / max(1, totals.total_trades)) * 100.0
-        if totals.total_trades > 0
-        else dir_acc
-    )
     tp_mae, sl_mae = _magnitude_mae(acc.trades)
-    stats = trade_stats(acc.trades.trade_returns)
-    forex_quality = (
-        (dir_acc * 40.0)
-        + (win_rate * 30.0)
-        + (min(stats.profit_factor, 3.0) * 10.0)
-        + (min(stats.sharpe_ratio, 3.0) * 10.0)
-        - (stats.max_drawdown * 20.0)
-    )
     results.update(
         {
-            "dir_acc": dir_acc,
-            "win_rate": win_rate,
+            "dir_acc": (totals.correct_forex_samples / samples) * 100.0,
+            "tp_mae": tp_mae,
+            "sl_mae": sl_mae,
+            "dir_entropy": totals.total_forex_entropy / samples,
+        }
+    )
+    stats = trade_stats(acc.trades.trade_returns, acc.trades.trade_risk_multiples)
+    if totals.total_trades <= 0 or stats is None:
+        logger.warning(
+            "Forex validation: no directional predictions over %d samples; win rate and "
+            "trade metrics are not reported for this epoch.",
+            totals.total_forex_samples,
+        )
+        return
+    results.update(
+        {
+            "win_rate": (totals.winning_trades / totals.total_trades) * 100.0,
             "profit_factor": stats.profit_factor,
             "sharpe_ratio": stats.sharpe_ratio,
             "sortino_ratio": stats.sortino_ratio,
             "max_drawdown": stats.max_drawdown,
-            "tp_mae": tp_mae,
-            "sl_mae": sl_mae,
-            "dir_entropy": totals.total_forex_entropy / samples,
-            "quality_score": max(0.0, float(forex_quality)),
         }
     )
 

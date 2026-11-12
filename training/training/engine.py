@@ -7,6 +7,7 @@ SOTA tracking, atomic checkpointing, rollback recovery, and cloud sync triggers.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from collections.abc import Callable
@@ -35,6 +36,7 @@ from training.governance.curriculum import (
 )
 from training.governance.epoch_audit import EpochSignals
 from training.governance.logit_cap_sync import sync_logit_cap
+from training.governance.measurement import unmeasured_reason
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS
 from training.ratchet import (
     FULL_FRACTION_THRESHOLD,
@@ -169,6 +171,8 @@ class _EpochScore:
     train_loss: float
     current_quality: float
     is_best: bool = False
+    # Why the epoch cannot rank as a best (``None`` for a real measurement).
+    unmeasured: str | None = None
 
 
 class _GovernorSnapshot(NamedTuple):
@@ -312,10 +316,20 @@ def _score_epoch(
             combined_metrics, sota_targets, task_type_str
         )
         current_quality = float(computed_qs)
-        combined_metrics["quality_score"] = current_quality
+    elif "val_time" in combined_metrics:
+        # No SOTA targets: rank by the measured validation loss, mapped to (0, 1] so a
+        # lower loss scores higher and every score stays positive.
+        current_quality = 1.0 / (1.0 + max(0.0, current_loss))
     else:
-        current_quality = max(0.0, 100.0 - current_loss)
-        combined_metrics["quality_score"] = current_quality
+        current_quality = math.nan
+    unmeasured = unmeasured_reason(combined_metrics, sota_targets, current_quality, task_type_str)
+    if unmeasured is not None:
+        # Never a substitute score (the old ``100 - val_loss`` became a best): no quality.
+        current_quality = math.nan
+        logger.warning(
+            "Epoch metrics are not a measurement (%s); it cannot rank as a best.", unmeasured
+        )
+    combined_metrics["quality_score"] = current_quality
 
     return _EpochScore(
         train_metrics=train_metrics,
@@ -323,6 +337,7 @@ def _score_epoch(
         current_loss=current_loss,
         train_loss=train_loss,
         current_quality=current_quality,
+        unmeasured=unmeasured,
     )
 
 
@@ -522,7 +537,9 @@ def _save_checkpoints(
             export=ExportSource(model=raw_model, dummy_input=dummy_input),
         )
 
-    # Check and save vault milestones
+    # Check and save vault milestones (an unmeasured epoch has none to offer)
+    if score.unmeasured is not None:
+        return
     lifecycle_manager.check_and_save_vault(
         epoch=epoch,
         metrics=score.combined,
@@ -670,7 +687,7 @@ def _run_epoch(
     # 3. Validate one epoch
     val_metrics = validate_one_epoch(ctx, epoch, cancel_check=hooks.cancel_check)
     score = _score_epoch(ctx, train_metrics, val_metrics)
-    score.is_best = ctx.governance.sota_tracker.record_epoch(
+    score.is_best = score.unmeasured is None and ctx.governance.sota_tracker.record_epoch(
         current_quality=score.current_quality,
         current_loss=score.current_loss,
         train_loss=score.train_loss,
@@ -687,7 +704,11 @@ def _run_epoch(
 
     # 7. Check governor directives (curriculum fraction/resolution promotion before saving
     # checkpoints)
-    audit = _audit_governor(ctx, epoch, score, loop.epochs_no_improve)
+    audit = (
+        _audit_governor(ctx, epoch, score, loop.epochs_no_improve)
+        if score.unmeasured is None
+        else _AuditOutcome(False, False)
+    )
 
     # 7b. Stochastic Weight Averaging (no-op when disabled; never touches the governor)
     if ctx.governance.swa is not None:

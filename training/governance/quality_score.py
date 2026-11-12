@@ -35,6 +35,22 @@ QUALITY_SCHEME_KEY = "quality_scheme"
 
 RESTORATION_SCHEME = "robots_psnr_ssim_lpips_v1"
 WEIGHTED_SCHEME = "weighted_targets_v1"
+FOREX_SCHEME = "forex_weighted_targets_v2"
+"""Forex epochs scored by :func:`score_metrics` (R2-T10). Before, ``val_summary`` scored
+them with its own ``40*DirAcc + 30*WinRate + ...`` formula on percent values, so the
+targets and the epochs were on different scales and the score floored at 0 for any run
+whose clipped drawdown reached 100."""
+FOREX_TASKS = frozenset({"forex"})
+_FOREX_CSV_COLUMNS = {
+    "dir_acc": "DirAcc",
+    "win_rate": "WinRate",
+    "profit_factor": "ProfitFactor",
+    "sharpe_ratio": "Sharpe",
+    "sortino_ratio": "Sortino",
+    "max_drawdown": "MaxDD",
+    "tp_mae": "TP_MAE",
+    "sl_mae": "SL_MAE",
+}
 
 SSIM_FACTOR = 20.0
 LPIPS_FACTOR = 20.0
@@ -56,6 +72,29 @@ _LOWER_IS_BETTER_TERM: dict[str, Callable[[float], float]] = {
 }
 
 
+# Bounds applied to a metric inside the weighted score only; the reported metric keeps its
+# measured value (an infinite profit factor of a run without losses still scores 10).
+_SCORE_BOUNDS: dict[str, tuple[float, float]] = {
+    "profit_factor": (0.0, 10.0),
+    "sharpe_ratio": (-5.0, 10.0),
+    "sortino_ratio": (-5.0, 10.0),
+}
+
+
+def _score_value(key: str, value: Any) -> float | None:
+    """The value ``key`` contributes to the score: bounded when listed, else finite only."""
+    bounds = _SCORE_BOUNDS.get(key)
+    if bounds is None:
+        return finite_number(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(number):
+        return None
+    return min(max(number, bounds[0]), bounds[1])
+
+
 def uses_restoration_formula(task_type: str) -> bool:
     """Whether ``task_type`` is scored with ``PSNR + 20*SSIM - 20*LPIPS``."""
     return task_type in RESTORATION_QS_TASKS
@@ -63,10 +102,13 @@ def uses_restoration_formula(task_type: str) -> bool:
 
 def quality_scheme(task_type: str) -> str:
     """Name of the score scheme ``task_type`` uses."""
-    return RESTORATION_SCHEME if uses_restoration_formula(task_type) else WEIGHTED_SCHEME
+    if uses_restoration_formula(task_type):
+        return RESTORATION_SCHEME
+    return FOREX_SCHEME if task_type in FOREX_TASKS else WEIGHTED_SCHEME
 
 
-def _finite(value: Any) -> float | None:
+def finite_number(value: Any) -> float | None:
+    """``value`` as a finite float, else ``None`` (absent, non-numeric, NaN or infinite)."""
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -76,11 +118,11 @@ def _finite(value: Any) -> float | None:
 
 def restoration_quality_score(metrics: Mapping[str, Any]) -> float | None:
     """``PSNR + 20*SSIM - 20*LPIPS`` over the measured terms; ``None`` without PSNR and SSIM."""
-    psnr = _finite(metrics.get("psnr"))
-    ssim = _finite(metrics.get("ssim"))
+    psnr = finite_number(metrics.get("psnr"))
+    ssim = finite_number(metrics.get("ssim"))
     if psnr is None and ssim is None:
         return None
-    lpips = _finite(metrics.get("lpips"))
+    lpips = finite_number(metrics.get("lpips"))
     return (psnr or 0.0) + SSIM_FACTOR * (ssim or 0.0) - LPIPS_FACTOR * (lpips or 0.0)
 
 
@@ -92,7 +134,7 @@ def weighted_quality_score(
     for key in targets:
         if key in exclude:
             continue
-        value = _finite(metrics.get(key))
+        value = _score_value(key, metrics.get(key))
         if value is None:
             continue
         weight = DEFAULT_METRIC_WEIGHTS.get(key, 1.0)
@@ -121,7 +163,9 @@ def measured_targets(
     """The ``targets`` that ``measured`` holds a finite value for (all when ``None``)."""
     if measured is None:
         return dict(targets)
-    return {key: value for key, value in targets.items() if _finite(measured.get(key)) is not None}
+    return {
+        key: value for key, value in targets.items() if finite_number(measured.get(key)) is not None
+    }
 
 
 def target_quality_score(
@@ -148,15 +192,19 @@ def target_quality_score(
 def csv_row_quality(row: Mapping[str, str], task_type: str) -> float | None:
     """Quality of one ``metrics.csv`` row on the current scale (``None`` when unknown).
 
-    Restoration-formula rows are rescored from their PSNR/SSIM/LPIPS columns, so rows
-    written under the old weighted score still compare; other rows keep their stored
-    score.
+    Restoration-formula rows are rescored from their PSNR/SSIM/LPIPS columns and Forex
+    rows from their trade-metric columns, so rows written under an older score still
+    compare; other rows keep their stored score.
     """
     if uses_restoration_formula(task_type):
         values = {key: row.get(column) for key, column in _CSV_COLUMNS.items()}
         return restoration_quality_score({k: v for k, v in values.items() if v not in ("", None)})
+    if task_type in FOREX_TASKS:
+        forex = {key: row.get(column) for key, column in _FOREX_CSV_COLUMNS.items()}
+        measured = {k: v for k, v in forex.items() if v not in ("", None)}
+        return weighted_quality_score(measured, measured) if measured else None
     for key in _CSV_QUALITY_KEYS:
-        value = _finite(row.get(key))
+        value = finite_number(row.get(key))
         if value is not None:
             return value
     return None

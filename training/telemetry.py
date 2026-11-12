@@ -1,6 +1,7 @@
 """Telemetry engine: metrics.csv schema management, row logging, and Quality Score math."""
 
 import logging
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -70,9 +71,24 @@ def _epoch_index(epoch: int) -> int:
     return int(epoch) if int(epoch) >= 1 else int(epoch) + 1
 
 
+def _cell(value: Any) -> str:
+    """A ``.4f`` metric cell; empty when the value was not measured (absent, NaN, None).
+
+    An unmeasured metric is never written as ``0`` or as a substitute value (R2-T10);
+    ``+inf``/``-inf`` (e.g. the profit factor of a run without losses) are kept.
+    """
+    if value is None:
+        return ""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return ""
+    return "" if math.isnan(number) else f"{number:.4f}"
+
+
 def _metric_columns(metrics: dict[str, Any], names: tuple[str, ...]) -> str:
-    """Format ``names`` from ``metrics`` as comma-separated ``.4f`` floats (missing = 0)."""
-    return ",".join(f"{float(metrics.get(name, 0.0)):.4f}" for name in names)
+    """Format ``names`` from ``metrics`` as comma-separated cells (missing = empty)."""
+    return ",".join(_cell(metrics.get(name)) for name in names)
 
 
 _FOREX_METRICS = (
@@ -108,10 +124,6 @@ def _forex_line(row: EpochRow) -> tuple[str, tuple[str, ...]]:
     """Return the 24-column Forex CSV line and its (phase, fold, epoch) key."""
     gov = row.governor_state
     epoch_idx = _epoch_index(row.epoch)
-    raw_ent = row.metrics.get("dir_entropy", 0.0)
-    dir_entropy = (
-        0.0 if (raw_ent is None or np.isinf(raw_ent) or np.isnan(raw_ent)) else float(raw_ent)
-    )
     pairs = (
         row.forex.num_pairs
         if row.forex.num_pairs is not None
@@ -120,8 +132,8 @@ def _forex_line(row: EpochRow) -> tuple[str, tuple[str, ...]]:
     new_line = (
         f"{row.forex.phase},{row.forex.fold},{epoch_idx},{row.losses.train_loss:.8f},"
         f"{row.losses.val_loss:.8f},{row.losses.lr:.8f},"
-        f"{_metric_columns(row.metrics, _FOREX_METRICS)},{dir_entropy:.4f},"
-        f"{row.quality_score:.4f},{pairs},{_governor_columns(gov)},{row.stress:.6f}\n"
+        f"{_metric_columns(row.metrics, _FOREX_METRICS)},{_cell(row.metrics.get('dir_entropy'))},"
+        f"{_cell(row.quality_score)},{pairs},{_governor_columns(gov)},{row.stress:.6f}\n"
     )
     return new_line, (str(row.forex.phase), str(row.forex.fold), str(epoch_idx))
 
@@ -133,7 +145,7 @@ def _vision_line(row: EpochRow) -> tuple[str, tuple[str, ...]]:
     res = gov.get("input_size", 512) if gov else 512
     new_line = (
         f"{epoch_idx},{row.losses.train_loss:.8f},{row.losses.val_loss:.8f},{row.losses.lr:.8f},"
-        f"{_metric_columns(row.metrics, _VISION_METRICS)},{row.quality_score:.4f},"
+        f"{_metric_columns(row.metrics, _VISION_METRICS)},{_cell(row.quality_score)},"
         f"{res},{_governor_columns(gov)},{row.stress:.6f}\n"
     )
     return new_line, (str(epoch_idx),)

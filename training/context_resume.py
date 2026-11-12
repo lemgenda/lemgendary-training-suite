@@ -25,6 +25,7 @@ from training.data.locality import LocalityConfig
 from training.data.locality_resume import pin_resumed_locality
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.governance.governor_setup import configured_data_fraction
+from training.governance.measurement import drop_target_echoes
 from training.governance.quality_score import (
     anchor_is_comparable,
     csv_row_quality,
@@ -224,6 +225,8 @@ def reconcile_metrics_csv(governor: Any, metrics_csv: Path | None, sample_fracti
     if not rows:
         return
     rows = [filter_metrics_row_for_fid_provenance(r, metrics_csv.parent) for r in rows]
+    targets = getattr(governor, "sota_targets", None) or {}
+    rows = [dict(r) for r in drop_target_echoes(rows, targets, metrics_csv)]
     max_frac_at_res, max_quality_csv = _csv_maxima(
         rows,
         str(getattr(governor, "task_type", "")),

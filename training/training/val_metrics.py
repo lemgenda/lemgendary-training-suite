@@ -16,6 +16,7 @@ from typing import Any
 import torch
 
 from training.training.amp import compute_ssim_gpu
+from training.training.forex_equity import risk_multiple
 from training.training.val_accumulators import ImageMetricModules, ValAccumulators
 from training.utils.error_types import METRIC_INIT_ERRORS
 from training.utils.lazy_imports import load_fid_metric, load_lpips_metric, load_optional
@@ -381,7 +382,11 @@ def _simulate_trades(
     for idx, pred_d in enumerate(dirs_np):
         tp_val = float(mags_np[idx, 0]) if mags_np is not None else 15.0
         sl_val = float(mags_np[idx, 1]) if mags_np is not None else 15.0
-        acc.trades.trade_returns.append(tp_val if int(pred_d) == int(targets_np[idx]) else -sl_val)
+        won = int(pred_d) == int(targets_np[idx])
+        acc.trades.trade_returns.append(tp_val if won else -sl_val)
+        multiple = risk_multiple(tp_val, sl_val, won)
+        if multiple is not None:
+            acc.trades.trade_risk_multiples.append(multiple)
 
 
 def update_forex(acc: ValAccumulators, batch: ValBatch) -> None:

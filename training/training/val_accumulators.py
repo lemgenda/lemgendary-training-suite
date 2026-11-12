@@ -50,6 +50,8 @@ class ForexTradeTotals:
     total_sl_mae: float = 0.0
     total_mag_samples: int = 0
     trade_returns: list[float] = field(default_factory=list)
+    # Outcome of each trade in units of its stop-loss risk (``training.training.forex_equity``).
+    trade_risk_multiples: list[float] = field(default_factory=list)
 
 
 @dataclass
