@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.141-STABLE`
+- **Version**: `v16.9.142-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,15 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.142 - Chat-Template Prompt Masking
+
+- `training/data/instruction_dataset.py`: chat-template encoding now masks
+  the prompt. The prompt (every turn before the final assistant reply,
+  rendered with `add_generation_prompt=True`) is tokenized once more and its
+  length set to `IGNORE_INDEX` (-100) in the labels, as the manual ChatML
+  path already did. Before, every system and user token was supervised.
+- `tests/unit/test_llm_engine.py`: chat-template masking test.
 
 ### v16.9.141 - Registry Dataset Lists Deduplicated
 

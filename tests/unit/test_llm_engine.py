@@ -12,6 +12,7 @@ import torch
 
 from models.ai_helper_llm import AIHelperLemGend
 from training.data.instruction_dataset import (
+    IGNORE_INDEX,
     InstructionDataset,
     collate_instruction_batch,
 )
@@ -118,3 +119,36 @@ class TestLLMEngine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@dataclass
+class ChatTemplateTokenizer(DummyMockTokenizer):
+    """Mock tokenizer with a ChatML-like chat template (one token per character)."""
+
+    def apply_chat_template(
+        self, messages: list, add_generation_prompt: bool = False, **_kwargs: object
+    ) -> torch.Tensor:
+        """Render ``messages`` and tokenize them as a ``[1, T]`` tensor."""
+        text = "".join(f"<{m['role']}>{m['content']}</s>" for m in messages)
+        if add_generation_prompt:
+            text += "<assistant>"
+        return torch.tensor([self.encode(text)], dtype=torch.long)
+
+
+def test_chat_template_masks_prompt_tokens(tmp_path: Path) -> None:
+    """Only the final assistant reply is supervised when the chat template is used."""
+    messages = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Hi"},
+        {"role": "assistant", "content": "Hello there"},
+    ]
+    jsonl_file = tmp_path / "chat.jsonl"
+    jsonl_file.write_text(json.dumps({"messages": messages}) + "\n", encoding="utf-8")
+    tokenizer = ChatTemplateTokenizer()
+    item = InstructionDataset(jsonl_path=jsonl_file, tokenizer=tokenizer, max_length=512)[0]
+
+    prompt_len = tokenizer.apply_chat_template(messages[:-1], add_generation_prompt=True).numel()
+    labels = item["labels"]
+    assert torch.all(labels[:prompt_len] == IGNORE_INDEX)
+    assert torch.equal(labels[prompt_len:], item["input_ids"][prompt_len:])
+    assert int((labels != IGNORE_INDEX).sum()) == len("Hello there</s>")

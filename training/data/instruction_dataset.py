@@ -41,6 +41,31 @@ _CHAT_TEMPLATE_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+IGNORE_INDEX = -100
+"""Label value cross-entropy skips (system and user prompt tokens)."""
+
+
+def _template_ids(res: Any) -> torch.Tensor:
+    """Normalize an ``apply_chat_template`` result to a 1-D ``torch.long`` id tensor."""
+    if hasattr(res, "input_ids"):
+        raw_ids = res.input_ids
+    elif isinstance(res, collections.abc.Mapping) and "input_ids" in res:
+        raw_ids = res["input_ids"]
+    elif isinstance(res, (list, tuple)) and res and isinstance(res[0], (list, tuple)):
+        raw_ids = res[0]
+    else:
+        raw_ids = res
+
+    encoding_ids = getattr(raw_ids, "ids", None)
+    if encoding_ids is not None:
+        input_ids = torch.tensor(encoding_ids, dtype=torch.long)
+    elif isinstance(raw_ids, torch.Tensor):
+        input_ids = raw_ids.reshape(-1).to(dtype=torch.long)
+    else:
+        input_ids = torch.tensor(raw_ids, dtype=torch.long).reshape(-1)
+    return input_ids
+
+
 class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
     """Dataset for causal language model instruction fine-tuning."""
 
@@ -128,44 +153,50 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
     def _chat_template_encode(
         self, tokenizer: Any, messages: list
     ) -> dict[str, torch.Tensor] | None:
-        """Tokenize with the tokenizer's chat template; ``None`` when the template fails."""
+        """Tokenize with the chat template, prompt tokens masked; ``None`` when it fails.
+
+        The prompt is every message before the final assistant turn, rendered with
+        ``add_generation_prompt=True`` so the assistant header counts as prompt. Its token
+        length is masked to ``IGNORE_INDEX`` exactly as :meth:`_manual_encode` does.
+        """
         try:
-            res = tokenizer.apply_chat_template(
-                messages,
-                tokenize=True,
-                max_length=self.max_length,
-                truncation=True,
-                return_tensors="pt",
+            input_ids = _template_ids(
+                tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=True,
+                    max_length=self.max_length,
+                    truncation=True,
+                    return_tensors="pt",
+                )
             )
+            prompt_len = self._template_prompt_len(tokenizer, messages)
         except _CHAT_TEMPLATE_ERRORS as exc:
             logger.debug("apply_chat_template failed: %s. Using manual tokenization.", exc)
             return None
 
-        # Normalize extracted output to a 1D torch.Tensor
-        if hasattr(res, "input_ids"):
-            raw_ids = res.input_ids
-        elif isinstance(res, (dict, collections.abc.Mapping)) and "input_ids" in res:
-            raw_ids = res["input_ids"]
-        elif isinstance(res, (list, tuple)):
-            raw_ids = res[0]
-        else:
-            raw_ids = res
-
-        if hasattr(raw_ids, "ids"):
-            input_ids = torch.tensor(raw_ids.ids, dtype=torch.long)
-        elif isinstance(raw_ids, torch.Tensor):
-            input_ids = raw_ids.squeeze().to(dtype=torch.long)
-        else:
-            input_ids = torch.tensor(raw_ids, dtype=torch.long)
-
-        if input_ids.ndim == 0:
-            input_ids = input_ids.unsqueeze(0)
-
+        labels = input_ids.clone()
+        labels[: min(prompt_len, labels.numel())] = IGNORE_INDEX
         return {
             "input_ids": input_ids,
             "attention_mask": torch.ones_like(input_ids),
-            "labels": input_ids.clone(),
+            "labels": labels,
         }
+
+    def _template_prompt_len(self, tokenizer: Any, messages: list) -> int:
+        """Token count of the chat-template prompt (all turns before the last assistant)."""
+        if not messages or messages[-1].get("role") != "assistant":
+            return 0
+        prompt_ids = _template_ids(
+            tokenizer.apply_chat_template(
+                messages[:-1],
+                tokenize=True,
+                add_generation_prompt=True,
+                max_length=self.max_length,
+                truncation=True,
+                return_tensors="pt",
+            )
+        )
+        return int(prompt_ids.numel())
 
     def _manual_encode(self, tokenizer: Any, messages: list) -> dict[str, torch.Tensor]:
         """ChatML turns with prompt tokens masked out of the labels."""
@@ -191,7 +222,7 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
 
         # Label masking: set -100 on prompt tokens so loss is only calculated on assistant tokens
         labels = input_ids.clone()
-        labels[:prompt_len] = -100
+        labels[:prompt_len] = IGNORE_INDEX
 
         return {
             "input_ids": input_ids,
