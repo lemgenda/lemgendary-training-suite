@@ -28,6 +28,7 @@ from training.training.step_progress import (
     deadline_reached,
     is_main_process,
     progress_payload,
+    progress_save_agreed,
     resume_iteration,
 )
 from training.training.val_accumulators import ValAccumulators
@@ -133,8 +134,13 @@ class _ValidationPass:
             else 0
         )
         manager = ctx.governance.lifecycle_manager
-        save = manager.save_progress_now if force else manager.check_and_save_progress
-        save(
+        if not force and not progress_save_agreed(
+            manager.progress_due(self.step_count, total_val),
+            self.step_count,
+            ctx.hardware.device_info.device,
+        ):
+            return
+        manager.save_progress_now(
             epoch=self.epoch,
             phase="val",
             step=self.step_count,

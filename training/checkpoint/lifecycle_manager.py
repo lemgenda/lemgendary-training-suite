@@ -419,17 +419,20 @@ class CheckpointLifecycleManager:
         total_steps: int,
         payload_builder: Callable[[], dict[str, Any]],
     ) -> bool:
-        """Persist progress.pth now (rank 0 only), without the :meth:`progress_due` guardrails."""
-        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
-            return False
+        """Persist progress.pth now, without the :meth:`progress_due` guardrails.
+
+        Every rank calls this together: the payload builder gathers the generator state of
+        all ranks (a collective call under DDP); only rank 0 writes the file.
+        """
         if total_steps <= 0:
             return False
 
         progress_fraction = step / float(total_steps)
         now = time.time()
 
-        # Build payload and write atomically
         payload = payload_builder()
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return False
         payload["progress_metadata"] = {
             "epoch": epoch,
             "phase": phase,

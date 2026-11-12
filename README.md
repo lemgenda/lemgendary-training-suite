@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.178-STABLE`
+- **Version**: `v16.9.179-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,33 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.179 - Generator State per DDP Rank, Self-Describing .pt Exports (R3-K3)
+
+- K-CK-3 under DDP: checkpoints hold `rng_state_ranks`, the generator
+  record of every rank gathered with one `all_gather_object`
+  (`training/utils/rng_state.py` `rng_payload`); `rng_state` stays rank
+  0's record. A resumed rank restores its own entry; a single-rank
+  checkpoint (or a rank beyond the saved list) restores `rng_state` on
+  every rank, which is logged.
+- The gather is collective, so every rank builds the payload: at epoch
+  end (all ranks already ran `_save_checkpoints`) and for intra-epoch
+  progress through `step_progress.progress_save_agreed` (under DDP the
+  ranks agree on decision steps, every 25 steps, with one `all_reduce`
+  of `progress_due`), then `save_progress_now` on all ranks; only rank 0
+  writes `progress.pth`.
+- Forex exporter: the `.pt` `metadata` holds `model_kwargs`
+  (`ForexPredictor.model_kwargs()`: the `ForexArch` fields,
+  `active_timeframes`, `pairs`); `load_forex_checkpoint` rebuilds the
+  model from them (explicit `active_timeframes` still override), so a
+  non-default architecture loads without the registry.
+- LLM exporter: the `.pt` is the suite's dict format (`model_state`,
+  `metadata` with model key, architecture and base model), read by
+  `load_model_payload` with `weights_only=True`; the default output folder
+  is the hub root (it was `../LemGendaryModels` relative to the cwd).
+- Tests: `tests/unit/test_rng_ranks.py` (simulated two-rank group: save
+  all, restore per rank, single-rank fallback, agreed decision steps) and
+  `tests/unit/test_export_pt_metadata.py`.
 
 ### v16.9.178 - Vault-Only Kaggle Accounts, Plain Secrets Cell (R3-K3)
 

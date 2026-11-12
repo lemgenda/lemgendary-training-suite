@@ -26,6 +26,7 @@ from training.training.step_progress import (
     deadline_reached,
     is_main_process,
     progress_payload,
+    progress_save_agreed,
     resume_iteration,
 )
 from training.utils.tensors import to_device
@@ -212,11 +213,17 @@ class _TrainingPass:
             return
         raw_m = ctx.models.raw_model if ctx.models.raw_model is not None else ctx.models.model
         manager = ctx.governance.lifecycle_manager
-        save = manager.save_progress_now if force else manager.check_and_save_progress
-        save(
+        step = batch_idx + 1
+        if not force and not progress_save_agreed(
+            manager.progress_due(step, self.clock.num_batches),
+            step,
+            ctx.hardware.device_info.device,
+        ):
+            return
+        manager.save_progress_now(
             epoch=self.epoch,
             phase="train",
-            step=batch_idx + 1,
+            step=step,
             total_steps=self.clock.num_batches,
             payload_builder=partial(
                 progress_payload,

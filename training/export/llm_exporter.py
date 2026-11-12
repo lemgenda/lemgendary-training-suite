@@ -40,6 +40,7 @@ from training.export.onnx_variants import (
 from training.export.onnx_weights import save_program, save_proto
 from training.registry import ModelSpecification
 from training.utils.lazy_imports import load_peft, load_transformers
+from training.utils.paths import get_model_hub_dir
 
 logger = logging.getLogger("lemtrain.export.llm")
 
@@ -226,6 +227,21 @@ def _export_fp16_integrated(fp32_onnx_path: Path, fp16_onnx_path: Path) -> dict[
     return exported
 
 
+def llm_pt_payload(model: nn.Module, model_key: str) -> dict[str, Any]:
+    """The LLM ``.pt`` payload: ``model_state`` and ``metadata`` (the suite's dict format).
+
+    The same keys as the vision and forex ``.pt`` files, so one loader
+    (:func:`training.utils.model_payload.load_model_payload`) reads all of them. The module
+    object is not pickled (a quantized or adapter-wrapped backbone does not pickle portably);
+    ``metadata`` names the model key, the architecture class and the base model.
+    """
+    metadata: dict[str, Any] = {"model_key": model_key, "architecture": type(model).__name__}
+    base_model = getattr(model, "base_model_name", None)
+    if isinstance(base_model, str):
+        metadata["base_model"] = base_model
+    return {"model_state": model.state_dict(), "metadata": metadata}
+
+
 def export_llm_tri_format(
     model: nn.Module,
     model_key: str = "ai_helper_lemgend",
@@ -236,11 +252,7 @@ def export_llm_tri_format(
 
     ``max_seq_length`` bounds the dynamic sequence dimension of the ONNX graph.
     """
-    target_dir = (
-        Path(output_dir).resolve()
-        if output_dir
-        else Path(f"../LemGendaryModels/{model_key}").resolve()
-    )
+    target_dir = Path(output_dir).resolve() if output_dir else get_model_hub_dir(model_key)
     target_dir.mkdir(parents=True, exist_ok=True)
 
     dist_dir = target_dir / "dist" / "kaggle"
@@ -260,7 +272,7 @@ def export_llm_tri_format(
     pt_path = dirs["pytorch"] / f"{binary_stem}.pt"
     logger.info("Saving standalone PyTorch LLM weights to %s...", pt_path)
     try:
-        torch.save(model_to_export.state_dict(), str(pt_path))
+        torch.save(llm_pt_payload(model_to_export, model_key), str(pt_path))
         exported_files["pt"] = pt_path
     except MODEL_IO_ERRORS as exc:
         logger.error("Failed saving PyTorch LLM weights to %s: %s", pt_path, exc)

@@ -124,7 +124,11 @@ def export_forex_onnx_from_model(
 def load_forex_checkpoint(
     checkpoint_path: Path | str, active_timeframes: list[int] | None = None
 ) -> ForexPredictor:
-    """Rebuild a ForexPredictor from a checkpoint with its weights loaded (eval mode)."""
+    """Rebuild a ForexPredictor from a checkpoint with its weights loaded (eval mode).
+
+    The architecture comes from the file's ``model_kwargs`` (a training checkpoint's own key,
+    or the exported ``.pt`` ``metadata``); ``active_timeframes`` overrides the stored ones.
+    """
     ckpt_file = Path(checkpoint_path).resolve()
     if not ckpt_file.exists():
         raise ExportError("CKPT_NOT_FOUND", f"Checkpoint not found at {ckpt_file}")
@@ -137,7 +141,9 @@ def load_forex_checkpoint(
 
     raw_kwargs = payload.raw.get("model_kwargs") or payload.metadata.get("model_kwargs") or {}
     model_kwargs: dict[str, Any] = dict(raw_kwargs)
-    model_kwargs["active_timeframes"] = list(active_timeframes or DEFAULT_TIMEFRAMES)
+    model_kwargs["active_timeframes"] = list(
+        active_timeframes or model_kwargs.get("active_timeframes") or DEFAULT_TIMEFRAMES
+    )
     model = ForexPredictor(**model_kwargs)
     load_checkpoint_weights(model, payload.state_dict)
     model.eval()

@@ -15,8 +15,7 @@ import torch.distributed as dist
 from training.data.locality_resume import PAYLOAD_KEY as LOCALITY_PAYLOAD_KEY
 from training.data.locality_resume import locality_record
 from training.training.context import TrainingContext
-from training.utils.rng_state import PAYLOAD_KEY as RNG_PAYLOAD_KEY
-from training.utils.rng_state import capture_rng_state
+from training.utils.rng_state import rng_payload
 
 
 @dataclass
@@ -133,11 +132,23 @@ def progress_payload(
         else None,
         # Shard-locality settings the run trains with; a resume keeps them.
         LOCALITY_PAYLOAD_KEY: locality_record(ctx.run.config),
-        # Python, NumPy, torch CPU and device generators; a resume continues from them.
-        RNG_PAYLOAD_KEY: capture_rng_state(),
+        # Python, NumPy, torch CPU and device generators of every rank (collective under
+        # DDP); a resume continues from them.
+        **rng_payload(),
     }
     payload.update(extra)
     return payload
+
+
+def progress_save_agreed(due: bool, step: int, device: torch.device) -> bool:
+    """Whether all ranks save intra-epoch progress at ``step`` (``due``: this rank's guardrails).
+
+    The payload gathers every rank's generator state, so all ranks must build it together:
+    under DDP the ranks agree only on decision steps (one collective call there).
+    """
+    if not decision_step(step):
+        return False
+    return any_rank(due, device)
 
 
 def format_rate(rate: float) -> str:

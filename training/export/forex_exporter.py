@@ -13,6 +13,7 @@ from typing import Any
 
 from torch import nn
 
+from models.forex_predictor import ForexPredictor
 from training.cloud.variations import PT_SUFFIX
 from training.export.base import (
     EXPORT_ERRORS,
@@ -43,6 +44,18 @@ def _resolve_forex_model(
         return load_forex_checkpoint(checkpoint_path, active_timeframes)
     logger.warning("No model instance or checkpoint file provided for Forex export.")
     return None
+
+
+def _pt_metadata(model_key: str, model: nn.Module) -> dict[str, Any]:
+    """``.pt`` metadata: the model key and, for a ``ForexPredictor``, its ``model_kwargs``.
+
+    :func:`training.export.mt5_signal.load_forex_checkpoint` rebuilds the model from them, so a
+    non-default architecture loads without the registry.
+    """
+    metadata: dict[str, Any] = {"model_key": model_key}
+    if isinstance(model, ForexPredictor):
+        metadata["model_kwargs"] = model.model_kwargs()
+    return metadata
 
 
 def _active_timeframes(requested: list[int] | None, spec: ModelSpecification | None) -> list[int]:
@@ -89,7 +102,9 @@ class ForexModelExporter(BaseModelExporter):
 
         pt_path = target_dir / f"{stem}{PT_SUFFIX}"
         try:
-            export_torch_standalone(forex_model, pt_path, metadata={"model_key": model_key})
+            export_torch_standalone(
+                forex_model, pt_path, metadata=_pt_metadata(model_key, forex_model)
+            )
             exported["pt"] = pt_path
         except (*EXPORT_ERRORS, *MODEL_IO_ERRORS) as exc:
             logger.warning("Failed saving Forex .pt model: %s", exc)

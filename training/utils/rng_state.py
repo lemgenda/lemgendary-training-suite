@@ -9,6 +9,12 @@ depend on this state: :mod:`training.data.sample_seed` derives it per sample.
 The record holds only lists, ints, floats, strings and tensors, so it also loads under
 ``torch.load(weights_only=True)``. Checkpoints written before the record existed resume
 with fresh generators, which is logged.
+
+Under DDP every rank has its own generators (dropout masks differ per rank), so a checkpoint
+also holds ``rng_state_ranks``: the record of every rank, gathered with one collective
+``all_gather_object``. A resumed rank restores its own entry; a checkpoint with only
+``rng_state`` (single process, or written before per-rank records) restores that one on every
+rank, and a rank beyond the recorded list (more processes than the run that saved) does too.
 """
 
 from __future__ import annotations
@@ -21,11 +27,14 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.distributed as dist
 
 logger = logging.getLogger("lemtrain.rng_state")
 
 PAYLOAD_KEY = "rng_state"
-"""Checkpoint payload key of the generator record."""
+"""Checkpoint payload key of the generator record (rank 0, or the only process)."""
+RANKS_PAYLOAD_KEY = "rng_state_ranks"
+"""Checkpoint payload key of the per-rank generator records (index = DDP rank)."""
 
 RNG_RESTORE_ERRORS: tuple[type[BaseException], ...] = (
     RuntimeError,
@@ -142,6 +151,47 @@ def capture_rng_state() -> dict[str, Any]:
     return {**capture_host_rng(), "devices": devices}
 
 
+def _distributed() -> bool:
+    return dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1
+
+
+def capture_rank_rng_states() -> list[dict[str, Any]]:
+    """The generator record of every DDP rank (index = rank); this process's alone without DDP.
+
+    A collective call under DDP: every rank must call it at the same point.
+    """
+    own = capture_rng_state()
+    if not _distributed():
+        return [own]
+    gathered: list[Any] = [None] * dist.get_world_size()
+    dist.all_gather_object(gathered, own)
+    return [record for record in gathered if isinstance(record, dict)]
+
+
+def rng_payload() -> dict[str, Any]:
+    """Payload entries of the generator state: ``rng_state`` and ``rng_state_ranks``.
+
+    A collective call under DDP (see :func:`capture_rank_rng_states`).
+    """
+    ranks = capture_rank_rng_states()
+    return {PAYLOAD_KEY: ranks[0], RANKS_PAYLOAD_KEY: ranks}
+
+
+def _record_for_this_rank(payload: dict[str, Any]) -> Any:
+    """This rank's record from ``rng_state_ranks``, else the single ``rng_state`` record."""
+    ranks = payload.get(RANKS_PAYLOAD_KEY)
+    rank = dist.get_rank() if _distributed() else 0
+    if isinstance(ranks, list) and rank < len(ranks) and isinstance(ranks[rank], dict):
+        return ranks[rank]
+    if isinstance(ranks, list) and ranks:
+        logger.info(
+            "[RNG] Checkpoint has generator states for %d rank(s); rank %d restores rank 0's.",
+            len(ranks),
+            rank,
+        )
+    return payload.get(PAYLOAD_KEY)
+
+
 def _restore_devices(saved: dict[str, Any]) -> list[str]:
     """Restore the recorded device generators that this host also has; log the rest."""
     restored: list[str] = []
@@ -173,12 +223,13 @@ def _restore_devices(saved: dict[str, Any]) -> list[str]:
 
 
 def restore_rng_state(payload: dict[str, Any]) -> bool:
-    """Restore the generators recorded in a checkpoint ``payload``; return whether it had one.
+    """Restore this rank's generators from a checkpoint ``payload``; return whether it had one.
 
-    A checkpoint without a record (written before it existed) or with an unreadable one
-    keeps the current generators, which is logged.
+    Each DDP rank restores its own record (``rng_state_ranks``); a single-process checkpoint
+    restores ``rng_state``. A checkpoint without a record (written before it existed) or with
+    an unreadable one keeps the current generators, which is logged.
     """
-    record = payload.get(PAYLOAD_KEY)
+    record = _record_for_this_rank(payload)
     if not isinstance(record, dict):
         logger.info(
             "[RNG] Checkpoint has no generator state (written before it was recorded); "
