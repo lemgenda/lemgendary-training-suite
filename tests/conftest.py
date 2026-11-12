@@ -7,8 +7,11 @@ owner and the docs URL come from the fixture (deliberately different from the re
 proves the code reads the file instead of literals).
 ``LEMGENDARY_TASK_TAXONOMY_FILE`` is unset, so the datasets task taxonomy is looked up in the empty
 workspace; tests that need it point the variable at ``tests/fixtures/task_taxonomy.json``.
-The ``.secrets.yaml`` vault reader returns no records, so no test can read the real vault next
-to the checkout (tests that need accounts patch it with fixture records).
+The ``.secrets.yaml`` vault reader (``training.config.secrets.load_secrets_records``, which the
+Kaggle account lookup and ``get_secret`` both use) returns no records, so no test can read the
+real vault next to the checkout or mount its tokens into ``os.environ`` (tests that need accounts
+patch it with fixture records). The GitHub and Google Drive token variables are unset, so
+``get_secret`` sees only what a test sets itself.
 """
 
 from collections.abc import Iterator
@@ -17,12 +20,20 @@ from pathlib import Path
 import pytest
 
 from training import ecosystem
-from training.cloud import credentials
+from training.config import secrets as secrets_vault
 from training.data import task_resolution
 from training.ecosystem import ECOSYSTEM_FILE_ENV
 from training.utils.paths import WORKSPACE_ROOT_ENV
 
 ECOSYSTEM_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "ecosystem.json"
+
+TOKEN_SECRET_VARS = ("GITHUB_PAT", "SUITE_PAT", "GOOGLE_DRIVE", "GOOGLE_DRIVE_JSON")
+"""Environment variables ``get_secret`` serves for the GitHub and Google Drive credentials."""
+
+
+def _no_vault_records(_project_root: Path | None = None) -> list[dict[str, object]]:
+    """Stand-in for the vault reader: the test workspace has no ``.secrets.yaml``."""
+    return []
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +44,11 @@ def fake_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     monkeypatch.setenv(WORKSPACE_ROOT_ENV, str(workspace))
     monkeypatch.setenv(ECOSYSTEM_FILE_ENV, str(ECOSYSTEM_FIXTURE))
     monkeypatch.delenv(task_resolution.TASK_TAXONOMY_ENV, raising=False)
-    monkeypatch.setattr(credentials, "load_secrets_yaml_registry", list)
+    monkeypatch.setattr(secrets_vault, "load_secrets_records", _no_vault_records)
+    for name in TOKEN_SECRET_VARS:
+        # setenv records the original state, so the real value comes back afterwards.
+        monkeypatch.setenv(name, "unset")
+        monkeypatch.delenv(name)
     ecosystem.clear_cache()
     task_resolution.clear_cache()
     yield workspace

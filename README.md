@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.182-STABLE`
+- **Version**: `v16.9.183-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,23 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.183 - Tests Never Read the Real Token Vault
+
+- `tests/conftest.py` stubs the one `.secrets.yaml` reader
+  (`training.config.secrets.load_secrets_records`) and unsets
+  `GITHUB_PAT`, `SUITE_PAT`, `GOOGLE_DRIVE` and `GOOGLE_DRIVE_JSON`, so
+  `get_secret` (GitHub and Google Drive tokens) never reads the vault
+  next to the checkout nor mounts its tokens into `os.environ` during a
+  test. Before, `tests/unit/test_secrets.py` called the real
+  `load_secrets`.
+- `training/cloud/credentials.py`: `load_secrets_yaml_registry` delegates
+  to `load_secrets_records` instead of a second vault reader with its own
+  candidate list (SSOT); the resolver docstrings name the vault instead of
+  dotfiles that are not read.
+- Tests: `tests/unit/test_secrets.py` (isolation, environment and
+  override precedence, the real reader against a vault in the fake
+  workspace).
 
 ### v16.9.182 - Per-Job Kaggle Auto-Resume Options
 

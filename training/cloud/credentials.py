@@ -8,11 +8,9 @@ import os
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from training.config import secrets as secrets_vault
 from training.config.secrets import get_secret
 from training.ecosystem import kaggle_owner
-from training.utils.paths import get_project_root, get_workspace_root
 
 logger = logging.getLogger("lemtrain.cloud.credentials")
 
@@ -29,7 +27,7 @@ def resolve_github_credentials(override_pat: str | None = None) -> str | None:
 
     1. Explicit override parameter
     2. Environment variables: GITHUB_PAT, SUITE_PAT
-    3. Structured secrets loaded from dotfiles
+    3. The default ``github`` record of the ``.secrets.yaml`` vault (``get_secret``)
     """
     if override_pat and override_pat.strip():
         return override_pat.strip()
@@ -42,21 +40,8 @@ def resolve_github_credentials(override_pat: str | None = None) -> str | None:
 
 
 def load_secrets_yaml_registry() -> list[dict[str, Any]]:
-    """Load secrets registry from workspace .secrets.yaml."""
-    candidates = [
-        get_workspace_root() / ".secrets.yaml",
-        get_project_root() / ".secrets.yaml",
-        get_project_root().parent / ".secrets.yaml",
-        Path.cwd() / ".secrets.yaml",
-    ]
-    for p in candidates:
-        if p.exists() and p.is_file():
-            try:
-                data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-                return data.get("secrets", [])
-            except (OSError, UnicodeDecodeError, yaml.YAMLError, AttributeError) as e:
-                logger.warning("Failed parsing .secrets.yaml at %s: %s", p, e)
-    return []
+    """Records of the workspace ``.secrets.yaml`` vault (the one vault reader, SSOT)."""
+    return secrets_vault.load_secrets_records()
 
 
 def load_kaggle_users() -> list[dict[str, Any]]:
@@ -236,9 +221,8 @@ def resolve_gdrive_credentials(override_token: str | None = None) -> str | None:
     """Resolve Google Drive access credentials using precedence.
 
     1. Explicit override token
-    2. Local file .GOOGLE_DRIVE or .GOOGLE_DRIVE_JSON
-    3. Environment variable GOOGLE_DRIVE or GOOGLE_DRIVE_JSON
-    4. Structured secrets from config loader
+    2. Environment variable GOOGLE_DRIVE or GOOGLE_DRIVE_JSON
+    3. The default ``google_drive`` record of the ``.secrets.yaml`` vault (``get_secret``)
     """
     if override_token and override_token.strip():
         return override_token.strip()
