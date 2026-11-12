@@ -3,7 +3,8 @@
 Exports trained or adapted AIHelperLemGend models to:
 1. PyTorch FP32 standalone checkpoint (dist/kaggle/pytorch/AIHelperLemGend.pt)
 2. ONNX FP32 with external tensor data sidecar (dist/kaggle/onnx_fp32/AIHelperLemGend_FP32.onnx)
-3. ONNX FP16 with embedded weights (dist/kaggle/onnx_fp16/AIHelperLemGend.onnx)
+3. ONNX FP16 with embedded weights (dist/kaggle/onnx_fp16/AIHelperLemGend.onnx); a model
+   whose FP16 weights exceed 2 GB (the 1.5B backbone) gets AIHelperLemGend.onnx.data instead
 
 ONNX export uses ``torch.onnx.export(dynamo=True)`` (the ``torch.export`` path), which is
 fully symbolic. The legacy TorchScript trace (``dynamo=False``) records a static trace and
@@ -20,6 +21,7 @@ from collections.abc import Callable, Generator
 from pathlib import Path
 from typing import Any
 
+import onnx
 import torch
 from torch import nn
 
@@ -29,7 +31,13 @@ from training.export.base import (
     BaseModelExporter,
     spec_dataset_types,
 )
-from training.export.common import unwrap_export_model
+from training.export.common import DEFAULT_ONNX_OPSET, ExportError, unwrap_export_model
+from training.export.onnx_variants import (
+    ONNX_FP16_VARIANT,
+    ONNX_FP32_VARIANT,
+    convert_proto_to_fp16,
+)
+from training.export.onnx_weights import save_program, save_proto
 from training.registry import ModelSpecification
 from training.utils.lazy_imports import load_peft, load_transformers
 
@@ -74,6 +82,51 @@ def _kv_cache_disabled(model: nn.Module) -> Generator[None, None, None]:
             hf_cfg.use_cache = orig_use_cache
 
 
+def _rebuild_unquantized(raw: nn.Module) -> nn.Module | None:
+    """Float32 CPU base model with ``raw``'s LoRA weights merged in; None when that fails."""
+    logger.info("Detected quantized weights; loading unquantized float32 base model on CPU...")
+    base_name = getattr(raw, "base_model_name", None) or "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+    try:
+        transformers = load_transformers()
+        peft = load_peft()
+        base_model = transformers.AutoModelForCausalLM.from_pretrained(
+            base_name,
+            torch_dtype=torch.float32,
+            device_map="cpu",
+            low_cpu_mem_usage=True,
+        )
+        # Find LoRA state dict from raw
+        target_modules = [
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ]
+        peft_cfg = peft.LoraConfig(
+            r=16,
+            lora_alpha=32,
+            lora_dropout=0.05,
+            target_modules=target_modules,
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+        peft_m = peft.get_peft_model(base_model, peft_cfg)
+        lora_sd = {k.replace("model.", ""): v for k, v in raw.state_dict().items() if "lora_" in k}
+        if lora_sd:
+            peft_m.load_state_dict(lora_sd, strict=False)
+        merged = peft_m.merge_and_unload()
+        merged.eval()
+        return merged
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
+        logger.warning(
+            "Failed unquantized base reconstruction: %s; falling back to raw model.", exc
+        )
+        return None
+
+
 def _prepare_unquantized_llm(model: nn.Module) -> nn.Module:
     """Unwrap or merge quantized LoRA backbones into clean float32 modules for export."""
     raw = unwrap_export_model(model)
@@ -100,48 +153,9 @@ def _prepare_unquantized_llm(model: nn.Module) -> nn.Module:
         "Params4bit" in type(p).__name__ or "Int8" in type(p).__name__ for p in raw.parameters()
     )
     if is_quantized:
-        logger.info("Detected quantized weights; loading unquantized float32 base model on CPU...")
-        base_name = getattr(raw, "base_model_name", None) or "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-        try:
-            transformers = load_transformers()
-            peft = load_peft()
-            base_model = transformers.AutoModelForCausalLM.from_pretrained(
-                base_name,
-                torch_dtype=torch.float32,
-                device_map="cpu",
-                low_cpu_mem_usage=True,
-            )
-            # Find LoRA state dict from raw
-            target_modules = [
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "gate_proj",
-                "up_proj",
-                "down_proj",
-            ]
-            peft_cfg = peft.LoraConfig(
-                r=16,
-                lora_alpha=32,
-                lora_dropout=0.05,
-                target_modules=target_modules,
-                bias="none",
-                task_type="CAUSAL_LM",
-            )
-            peft_m = peft.get_peft_model(base_model, peft_cfg)
-            lora_sd = {
-                k.replace("model.", ""): v for k, v in raw.state_dict().items() if "lora_" in k
-            }
-            if lora_sd:
-                peft_m.load_state_dict(lora_sd, strict=False)
-            merged = peft_m.merge_and_unload()
-            merged.eval()
-            return merged
-        except (ImportError, OSError, RuntimeError, ValueError) as exc:
-            logger.warning(
-                "Failed unquantized base reconstruction: %s; falling back to raw model.", exc
-            )
+        rebuilt = _rebuild_unquantized(raw)
+        if rebuilt is not None:
+            return rebuilt
 
     return target
 
@@ -150,14 +164,13 @@ def _export_fp32_with_sidecar(
     model: nn.Module, fp32_onnx_path: Path, max_seq_length: int = DEFAULT_MAX_SEQ_LENGTH
 ) -> dict[str, Path]:
     """FP32 ONNX graph (dynamo) with weights in a ``.onnx.data`` sidecar; {} on failure."""
-    fp32_data_path = fp32_onnx_path.with_name(f"{fp32_onnx_path.name}.data")
     logger.info(
         "Exporting FP32 ONNX LLM graph to %s (dynamo=True, torch.export path)...",
         fp32_onnx_path,
     )
     device = torch.device("cpu")
-    dummy_input_ids = torch.randint(1, 1000, (1, 16), dtype=torch.long, device=device)
-    dummy_attention_mask = torch.ones((1, 16), dtype=torch.long, device=device)
+    dummy_input_ids = torch.randint(1, 1000, (2, 16), dtype=torch.long, device=device)
+    dummy_attention_mask = torch.ones((2, 16), dtype=torch.long, device=device)
     batch_dim = torch.export.Dim("batch", min=1, max=_MAX_EXPORT_BATCH)
     seq_dim = torch.export.Dim("sequence", min=1, max=max_seq_length)
     dynamic_shapes = {
@@ -165,21 +178,22 @@ def _export_fp32_with_sidecar(
         "attention_mask": {0: batch_dim, 1: seq_dim},
     }
     try:
-        with _kv_cache_disabled(model):
-            # ``f`` + ``external_data=True`` writes the graph and its
-            # ``<name>.data`` sidecar in one step; opset_version=18 aligns with torch 2.6+ dynamo
-            torch.onnx.export(
+        with _kv_cache_disabled(model), torch.no_grad():
+            program = torch.onnx.export(
                 model,
                 args=(dummy_input_ids,),
                 kwargs={"attention_mask": dummy_attention_mask},
-                f=str(fp32_onnx_path),
                 input_names=["input_ids", "attention_mask"],
                 output_names=["logits"],
                 dynamic_shapes=dynamic_shapes,
-                opset_version=18,
+                opset_version=DEFAULT_ONNX_OPSET,
                 dynamo=True,
-                external_data=True,
+                # Progress lines contain symbols a cp1252 console cannot encode.
+                verbose=False,
             )
+        if program is None:
+            raise ExportError("ONNX_EXPORT_FAILED", "torch.onnx.export returned no ONNX program")
+        data_path = save_program(program, fp32_onnx_path, ONNX_FP32_VARIANT.layout)
     except EXPORT_ERRORS:
         logger.exception(
             "Dynamo ONNX export failed for %s. Check the model forward() signature "
@@ -187,38 +201,29 @@ def _export_fp32_with_sidecar(
             fp32_onnx_path.name,
         )
         return {}
-    exported = {"onnx_fp32": fp32_onnx_path}
-    if fp32_data_path.exists():
-        exported["onnx_fp32_data"] = fp32_data_path
+    exported = {ONNX_FP32_VARIANT.key: fp32_onnx_path}
+    if data_path is not None:
+        exported[ONNX_FP32_VARIANT.data_key] = data_path
     return exported
 
 
-def _copy_fp16(fp32_onnx_path: Path, fp16_onnx_path: Path) -> dict[str, Path]:
-    """Legacy alias forwarding to _export_fp16_integrated."""
-    return _export_fp16_integrated(fp32_onnx_path, fp16_onnx_path)
-
-
 def _export_fp16_integrated(fp32_onnx_path: Path, fp16_onnx_path: Path) -> dict[str, Path]:
-    """Convert FP32 ONNX graph to FP16 with integrated weights in the single .onnx file; {} on failure."""
+    """Convert the FP32 ONNX graph to FP16 (FP32 I/O); embedded below 2 GB; {} on failure."""
     logger.info("Converting FP32 ONNX LLM graph to FP16: %s...", fp16_onnx_path)
     if not fp32_onnx_path.exists():
         logger.error("FP16 ONNX export skipped: FP32 source %s does not exist.", fp32_onnx_path)
         return {}
     try:
-        import onnx
-        import onnxconverter_common.float16 as f16
-
         model = onnx.load(str(fp32_onnx_path), load_external_data=True)
-        m16 = f16.convert_float_to_float16(model, keep_io_types=True, disable_shape_infer=True)
-        onnx.save_model(
-            m16,
-            str(fp16_onnx_path),
-            save_as_external_data=False,
-        )
-        return {"onnx_fp16": fp16_onnx_path}
+        m16 = convert_proto_to_fp16(model, keep_io_types=True, disable_shape_infer=True)
+        data_path = save_proto(m16, fp16_onnx_path, ONNX_FP16_VARIANT.layout)
     except EXPORT_ERRORS:
         logger.exception("FP16 ONNX conversion failed for %s", fp16_onnx_path)
         return {}
+    exported = {ONNX_FP16_VARIANT.key: fp16_onnx_path}
+    if data_path is not None:
+        exported[ONNX_FP16_VARIANT.data_key] = data_path
+    return exported
 
 
 def export_llm_tri_format(

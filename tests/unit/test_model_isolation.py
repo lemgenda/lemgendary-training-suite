@@ -93,6 +93,7 @@ class TestModelIsolation(unittest.TestCase):
             (dist_kaggle / "pytorch_default" / "checkpoints" / "best.pth").write_bytes(b"pth")
             (dist_kaggle / "pytorch" / "ModelA.pt").write_bytes(b"pt")
             (dist_kaggle / "onnx_fp32" / "ModelA_FP32.onnx").write_bytes(b"onnx32")
+            (dist_kaggle / "onnx_fp32" / "ModelA_FP32.onnx.data").write_bytes(b"weights")
             (dist_kaggle / "onnx_fp16" / "ModelA.onnx").write_bytes(b"onnx16")
 
             report = self.validator.validate_all("ModelA", base_dir=tmp_dir)
@@ -115,6 +116,7 @@ class TestModelIsolation(unittest.TestCase):
 
             (dist_kaggle / "pytorch" / "ModelA.pt").write_bytes(b"pt")
             (dist_kaggle / "onnx_fp32" / "ModelA_FP32.onnx").write_bytes(b"onnx32")
+            (dist_kaggle / "onnx_fp32" / "ModelA_FP32.onnx.data").write_bytes(b"weights")
             (dist_kaggle / "onnx_fp16" / "ModelA.onnx").write_bytes(b"onnx16")
 
             # Notice: dist/kaggle/pytorch_default does NOT exist!

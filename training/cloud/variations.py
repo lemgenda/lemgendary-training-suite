@@ -4,7 +4,7 @@ Every model is published as one Kaggle Model with four Model Instances ("variati
 
     pytorch/default  checkpoints/ + root files (README.md, metrics.csv)
     pytorch/fp32     <Stem>.pt
-    onnx/fp16        <Stem>.onnx
+    onnx/fp16        <Stem>.onnx (+ <Stem>.onnx.data only when the weights exceed 2 GB)
     onnx/fp32        <Stem>_FP32.onnx + <Stem>_FP32.onnx.data
 
 The backend publisher, the metadata generator and the notebook generator must all import
@@ -42,15 +42,34 @@ ONNX_FP32 = KaggleVariation("onnx/fp32", "onnx", "fp32", "onnx_fp32", "ONNX FP32
 VARIATIONS: tuple[KaggleVariation, ...] = (PYTORCH_DEFAULT, PYTORCH_FP32, ONNX_FP16, ONNX_FP32)
 VARIATION_BY_KEY: dict[str, KaggleVariation] = {v.key: v for v in VARIATIONS}
 
+PT_SUFFIX = ".pt"
+"""``<Stem>.pt``: self-contained PyTorch FP32 model (module object and weights)."""
+ONNX_FP32_SUFFIX = "_FP32.onnx"
+"""``<Stem>_FP32.onnx``: FP32 ONNX graph; its weights always live in the external sidecar."""
+ONNX_FP16_SUFFIX = ".onnx"
+"""``<Stem>.onnx``: FP16 ONNX graph; weights embedded unless they exceed the protobuf limit."""
+ONNX_SIDECAR_SUFFIX = ".data"
+"""Appended to an ONNX file name to name its external weights sidecar (``<file>.onnx.data``)."""
+
+
+def onnx_sidecar_name(onnx_name: str) -> str:
+    """External weights sidecar file name of the ONNX file ``onnx_name``."""
+    return f"{onnx_name}{ONNX_SIDECAR_SUFFIX}"
+
 
 def variation_files(variation: KaggleVariation, stem: str) -> list[str]:
-    """Return the binary file names a variation must contain (excluding checkpoints dir)."""
+    """Return the binary file names a variation must contain (excluding checkpoints dir).
+
+    The FP16 sidecar is not listed: it exists only for models whose weights exceed the
+    protobuf limit (see :mod:`training.export.onnx_weights`).
+    """
     if variation is PYTORCH_FP32:
-        return [f"{stem}.pt"]
+        return [f"{stem}{PT_SUFFIX}"]
     if variation is ONNX_FP16:
-        return [f"{stem}.onnx"]
+        return [f"{stem}{ONNX_FP16_SUFFIX}"]
     if variation is ONNX_FP32:
-        return [f"{stem}_FP32.onnx", f"{stem}_FP32.onnx.data"]
+        fp32_name = f"{stem}{ONNX_FP32_SUFFIX}"
+        return [fp32_name, onnx_sidecar_name(fp32_name)]
     return []
 
 

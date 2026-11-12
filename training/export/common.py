@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import io
 import logging
-from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import onnx
 import torch
-from onnx import external_data_helper
 from torch import nn
 
 from models.nima import SoftmaxWrapper
@@ -149,59 +145,38 @@ def model_device(model: nn.Module) -> torch.device:
         return torch.device("cpu")
 
 
+DEFAULT_ONNX_OPSET = 18
+"""Opset of every exported graph: the lowest opset the ``torch.export``-based exporter emits."""
+
+
 @dataclass(frozen=True)
 class OnnxGraphSpec:
-    """Graph options for one ONNX export: I/O names, dynamic axes, opset and weight layout.
+    """Graph options for one ONNX export: I/O names, dynamic axes and opset.
 
-    ``external_data`` moves the weights into a ``<file>.data`` sidecar after the export; it is
-    honoured by :func:`training.export.onnx.export_onnx`, not by :func:`run_onnx_export`.
+    ``dynamic_axes`` maps an input name to ``{axis index: axis name}``; output axes are
+    inferred by the exporter. Weight layout is a property of the variant, not of the graph
+    (see :mod:`training.export.onnx_weights`).
     """
 
     input_names: list[str] = field(default_factory=lambda: ["input"])
     output_names: list[str] = field(default_factory=lambda: ["output"])
     dynamic_axes: dict[str, dict[int, str]] | None = None
-    opset: int = 17
-    external_data: bool = False
+    opset: int = DEFAULT_ONNX_OPSET
 
 
-def run_onnx_export(
-    model: nn.Module,
-    inputs: tuple[torch.Tensor, ...],
-    out_file: Path,
-    graph: OnnxGraphSpec,
-) -> None:
-    """Run the TorchScript ``torch.onnx.export`` with the suite's standard options.
-
-    The exporter's console chatter is captured and logged at debug level.
-    """
-    buf = io.StringIO()
-    try:
-        with redirect_stdout(buf), redirect_stderr(buf):
-            torch.onnx.export(
-                model,
-                inputs,
-                str(out_file),
-                export_params=True,
-                opset_version=graph.opset,
-                do_constant_folding=True,
-                input_names=graph.input_names,
-                output_names=graph.output_names,
-                dynamic_axes=graph.dynamic_axes,
-                dynamo=False,
-            )
-    finally:
-        if buf.getvalue():
-            logger.debug("torch.onnx.export output for %s:\n%s", out_file, buf.getvalue())
-
-
-def detach_onnx_weights(onnx_path: Path, data_filename: str) -> None:
-    """Move an ONNX model's tensors into one external ``data_filename`` sidecar file."""
-    onnx_model = onnx.load(str(onnx_path))
-    external_data_helper.convert_model_to_external_data(
-        onnx_model,
-        all_tensors_to_one_file=True,
-        location=data_filename,
-        size_threshold=1024,
-        convert_attribute=False,
+def default_graph_spec(
+    sample: torch.Tensor,
+    input_names: list[str] | None = None,
+    output_names: list[str] | None = None,
+    dynamic_axes: dict[str, dict[int, str]] | None = None,
+) -> OnnxGraphSpec:
+    """Spec with dynamic batch, plus dynamic height and width for 4-D image inputs."""
+    in_names = input_names or ["input"]
+    out_names = output_names or ["output"]
+    image_axes = {0: "batch", 2: "height", 3: "width"}
+    default_axes = {in_names[0]: image_axes if sample.ndim >= 4 else {0: "batch"}}
+    return OnnxGraphSpec(
+        input_names=in_names,
+        output_names=out_names,
+        dynamic_axes=dynamic_axes or default_axes,
     )
-    onnx.save(onnx_model, str(onnx_path))

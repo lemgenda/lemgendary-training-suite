@@ -7,15 +7,32 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+import onnx
 from fastapi.testclient import TestClient
+from onnx import TensorProto, helper, numpy_helper
 
 from training.cloud.metadata_generator import KaggleMetadataService
 from training.cloud.model_metadata import ModelMetadata
 from training.doc_generator import ModelDocumentationService
+from training.export.onnx_weights import WeightLayout, save_proto
 from training.export.staging import VariationStagingService
 from training.export.validation import StrictIsolationValidator
 from training.server.app import create_app
 from training.utils.paths import get_project_root
+
+
+def _tiny_onnx_model() -> onnx.ModelProto:
+    """``Y = X + W`` with a 16-element FP32 initializer ``W``."""
+    weight = numpy_helper.from_array(np.arange(16, dtype=np.float32), name="W")
+    graph = helper.make_graph(
+        [helper.make_node("Add", ["X", "W"], ["Y"])],
+        "tiny",
+        [helper.make_tensor_value_info("X", TensorProto.FLOAT, [16])],
+        [helper.make_tensor_value_info("Y", TensorProto.FLOAT, [16])],
+        initializer=[weight],
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
 
 
 class TestIntegrationModels(unittest.TestCase):
@@ -68,8 +85,9 @@ class TestIntegrationModels(unittest.TestCase):
             # Create mock source exports and checkpoints
             src_pt = model_dir / "LemGendaryMirNetExposure.pt"
             src_pt.write_bytes(b"dummy_pt_weights")
+            # A real graph with a sidecar: staging renames it and must rewrite the location.
             src_fp32 = model_dir / "LemGendaryMirNetExposure_FP32.onnx"
-            src_fp32.write_bytes(b"dummy_fp32_onnx")
+            save_proto(_tiny_onnx_model(), src_fp32, WeightLayout.SIDECAR)
             src_fp16 = model_dir / "LemGendaryMirNetExposure.onnx"
             src_fp16.write_bytes(b"dummy_fp16_onnx")
 
@@ -90,7 +108,7 @@ class TestIntegrationModels(unittest.TestCase):
             )
 
             self.assertTrue(staging_res.success)
-            self.assertIsNotNone(staging_res.report)
+            assert staging_res.report is not None
             self.assertTrue(staging_res.report.is_valid)
 
             # Audit with validator
@@ -98,6 +116,17 @@ class TestIntegrationModels(unittest.TestCase):
             report = validator.validate_all("mirnet_exposure", base_dir=model_dir)
             self.assertTrue(report.is_valid)
             self.assertEqual(len(report.variations), 4)
+
+            # The renamed FP32 graph loads its weights from the renamed sidecar.
+            staged_fp32 = staging_res.staged_files["onnx_fp32"]
+            self.assertEqual(
+                staging_res.staged_files["onnx_fp32_data"].name, f"{staged_fp32.name}.data"
+            )
+            reloaded = onnx.load(str(staged_fp32))
+            np.testing.assert_array_equal(
+                numpy_helper.to_array(reloaded.graph.initializer[0]),
+                np.arange(16, dtype=np.float32),
+            )
 
     def test_fastapi_docs_generate_endpoint(self) -> None:
         """Verify POST /api/models/{model_key}/docs/generate."""

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.157-STABLE`
+- **Version**: `v16.9.158-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,52 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.158 - torch.export ONNX Exporter and the Three Release Variants
+
+- Every ONNX export now uses the supported `torch.export`-based exporter
+  (`torch.onnx.export(..., dynamo=True)`, opset 18); the legacy TorchScript
+  exporter and its 30 test-suite `DeprecationWarning`s are gone. Graph
+  capture lives in `training/export/dynamo_onnx.py`.
+- Release rule (owner decision, one writer for all exporters): `<Stem>.pt`
+  self-contained PyTorch FP32; `<Stem>_FP32.onnx` with weights always in
+  `<Stem>_FP32.onnx.data`; `<Stem>.onnx` FP16 with embedded weights, or a
+  `<Stem>.onnx.data` sidecar when the model exceeds the 2 GB protobuf
+  limit. The layout policy is `training/export/onnx_weights.py`, the
+  variants are `training/export/onnx_variants.py`, and the file suffixes
+  come from `training/cloud/variations.py` (SSOT for the GUI readiness
+  flags).
+- Dynamic axes are verified: after export the FP32 graph runs in ONNX
+  Runtime (CPU) at a larger batch and resolution against PyTorch. A model
+  with a shape-dependent branch (Swin window shift in
+  `nima_aesthetic_pro`) is re-exported with fixed height/width instead of
+  silently computing a different function, as the old trace did. Export
+  samples use batch 2 so the batch axis is not specialised to 1.
+- FP16 graphs are captured from a half-precision copy of the model; the
+  old path cast the caller's model to FP16 and back, losing FP32 weight
+  precision of a model that kept training. FP16-unsafe layers stay FP32
+  inside the FP16 graph (`training/export/precision.py`): Swin V2 window
+  attention normalises with `eps=1e-12`, which underflows in FP16 and
+  turned `nima_aesthetic_pro` outputs into NaN for padded windows.
+- Forex (MT5) FP16 keeps FP32 inputs/outputs in both the training
+  exporter and `export/mt5_signal.py`; `export_all` exports Forex through
+  `ForexModelExporter` (all three variants instead of one FP32 graph under
+  the FP16 name). PyTorch and Forex `.pt` files use the self-contained
+  `export_torch_standalone` payload.
+- LLM and YOLO graphs keep their producers (LLM already used the dynamo
+  exporter; YOLO uses Ultralytics' exporter) but save through the shared
+  writer, so a >2 GB FP16 LLM gets its sidecar. YOLO FP16 is converted
+  from the FP32 graph because Ultralytics writes FP16 only on CUDA.
+- Staging moves an ONNX file together with its sidecar and re-saves it
+  when the stem changes, so the location recorded in the graph matches;
+  before, a renamed FP32 graph pointed at a missing `.onnx.data`. The
+  isolation validator requires the FP32 sidecar.
+- Export progress output of `torch.onnx` is off (`verbose=False`): it
+  printed symbols a cp1252 Windows console cannot encode.
+- Tests: `tests/unit/test_onnx_parity.py` (every CPU-instantiable registry
+  model plus Forex: FP32/FP16 ONNX Runtime parity, second resolution,
+  `.pt` reload, file layout) and `tests/unit/test_onnx_weights.py`
+  (sidecar rules incl. a mocked >2 GB threshold, relocation, axis pinning).
 
 ### v16.9.157 - Sampler Order State and Optional bitsandbytes Adapter
 

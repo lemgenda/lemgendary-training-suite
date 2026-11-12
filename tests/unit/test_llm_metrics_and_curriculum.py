@@ -8,10 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import onnx
-from onnx import TensorProto, helper
 import torch
+from onnx import TensorProto, helper
 
-from training.export.llm_exporter import _copy_fp16, _kv_cache_disabled
+from training.export.llm_exporter import _export_fp16_integrated, _kv_cache_disabled
 from training.governance.governor_setup import build_curriculum, configured_data_fraction
 from training.training.val_accumulators import ValAccumulators
 from training.training.val_metrics import ValBatch, update_llm_tokens
@@ -134,7 +134,7 @@ class TestLlmExportHelpers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp = Path(tmp_dir)
             fp32, fp16 = tmp / "m_FP32.onnx", tmp / "m.onnx"
-            self.assertEqual(_copy_fp16(fp32, fp16), {})
+            self.assertEqual(_export_fp16_integrated(fp32, fp16), {})
             # Create a valid minimal ONNX model with a float32 tensor
             node = helper.make_node("Relu", ["X"], ["Y"])
             graph = helper.make_graph(
@@ -145,7 +145,7 @@ class TestLlmExportHelpers(unittest.TestCase):
             )
             model = helper.make_model(graph, producer_name="test")
             onnx.save(model, str(fp32))
-            res = _copy_fp16(fp32, fp16)
+            res = _export_fp16_integrated(fp32, fp16)
             self.assertIn("onnx_fp16", res)
             self.assertEqual(res["onnx_fp16"], fp16)
             self.assertTrue(fp16.exists())

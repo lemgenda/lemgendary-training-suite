@@ -33,6 +33,7 @@ from training.cloud.variations import (
     PYTORCH_FP32,
     VARIATIONS,
     KaggleVariation,
+    variation_files,
 )
 from training.ecosystem import docs_url
 from training.registry import KaggleModelMetadata, ModelSpecification, get_model_registry
@@ -177,8 +178,7 @@ def _citation_lines(spec: ModelSpecification, resolved_whitepaper: str) -> list[
     lines = ["", "### Citations & Technical Documentation"]
     if resolved_whitepaper:
         lines.append(
-            "- **Architecture Whitepaper:**\n"
-            f"  [Whitepaper Reference]({resolved_whitepaper})"
+            f"- **Architecture Whitepaper:**\n  [Whitepaper Reference]({resolved_whitepaper})"
         )
 
     ref = spec.academic_reference
@@ -418,7 +418,7 @@ class KaggleMetadataService:
                 f'weights = torch.load(f"{{path}}/{stem}.pt", map_location="cpu")\n'
                 "```\n"
             )
-        file_name = f"{stem}.onnx" if variation is ONNX_FP16 else f"{stem}_FP32.onnx"
+        file_name = variation_files(variation, stem)[0]
         return (
             "```python\n"
             "import kagglehub\n"
