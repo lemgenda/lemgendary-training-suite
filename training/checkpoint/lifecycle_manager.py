@@ -55,12 +55,11 @@ from training.governance.metrics import (
     normalize_metric_name,
 )
 from training.governance.quality_score import (
-    anchor_is_comparable,
+    ScoreScheme,
     csv_row_quality,
     payload_quality_scheme,
 )
 from training.model_card import build_model_readme
-from training.registry.forex_risk import DEFAULT_RISK_PER_TRADE
 from training.utils.paths import get_model_hub_dir, get_project_root
 
 logger = logging.getLogger("lemtrain.checkpoint.lifecycle")
@@ -234,14 +233,12 @@ class CheckpointLifecycleManager:
         project_root: Path | None = None,
         sota_targets: dict[str, float] | None = None,
         min_progress_interval_sec: float = 900.0,  # 15 minutes
-        task_type: str = "",
-        risk_per_trade: float = DEFAULT_RISK_PER_TRADE,
+        score_scheme: ScoreScheme | None = None,
     ) -> None:
         self.model_name = model_name
-        # Dataset type; selects the quality score scheme of best.pth and metrics.csv rows.
-        self.task_type = task_type
-        # Forex evaluation.risk_per_trade: part of the Forex quality scheme id.
-        self.risk_per_trade = risk_per_trade
+        # Task type and options (Forex risk per trade) of the quality score scheme of
+        # best.pth and metrics.csv rows.
+        self.score_scheme = score_scheme or ScoreScheme()
         self.root = (project_root or get_project_root()).resolve()
         self.sota_targets = sota_targets or {}
         self.min_progress_interval_sec = min_progress_interval_sec
@@ -282,8 +279,8 @@ class CheckpointLifecycleManager:
         if self.paths.best_path.exists():
             try:
                 best_data = safe_load_checkpoint(self.paths.best_path)
-                if isinstance(best_data, dict) and anchor_is_comparable(
-                    payload_quality_scheme(best_data), self.task_type, self.risk_per_trade
+                if isinstance(best_data, dict) and self.score_scheme.is_comparable(
+                    payload_quality_scheme(best_data)
                 ):
                     saved_q = best_data.get("best_quality_score") or best_data.get("quality_score")
                     if saved_q is not None:
@@ -360,7 +357,7 @@ class CheckpointLifecycleManager:
 
     def _absorb_quality_row(self, row: dict[str, str]) -> None:
         """Raise the quality score baseline from one metrics.csv row (current scale)."""
-        q_val = csv_row_quality(row, self.task_type)
+        q_val = csv_row_quality(row, self.score_scheme.task_type)
         if q_val is not None:
             self.tracking.best_quality_score = max(self.tracking.best_quality_score, q_val)
 

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.189-STABLE`
+- **Version**: `v16.9.190-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,19 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.190 - Score Scheme Object, EMD Form in the Resume State
+
+- Lint fix for v16.9.184 and v16.9.186 (env-manager validate gate):
+  `CheckpointLifecycleManager` takes one `score_scheme`
+  (`training.governance.quality_score.ScoreScheme`: task type and Forex
+  risk per trade, with `scheme_id` and `is_comparable`) instead of the
+  separate `task_type` and `risk_per_trade` arguments.
+- `TrainState` no longer carries the loss: the checkpoint's `emd_form` is
+  read into `ResumeState.governance.emd_form`, and `build_training_context`
+  pins it on the criterion (`pin_resumed_emd_form(recorded, criterion)`)
+  for checkpoints without a run-settings record.
+- Tests: `tests/unit/test_nima_temperature_emd.py` (resume state field).
 
 ### v16.9.189 - Universal NSFW Classifier Builds 5 Classes
 

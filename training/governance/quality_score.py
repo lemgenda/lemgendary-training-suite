@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS, DEFAULT_METRIC_WEIGHTS
@@ -222,6 +223,23 @@ def csv_row_quality(row: Mapping[str, str], task_type: str) -> float | None:
         if value is not None:
             return value
     return None
+
+
+@dataclass(frozen=True)
+class ScoreScheme:
+    """The task type and the options its quality score scheme depends on."""
+
+    task_type: str = ""
+    risk_per_trade: float = DEFAULT_RISK_PER_TRADE
+
+    @property
+    def scheme_id(self) -> str:
+        """The scheme id (:func:`quality_scheme`)."""
+        return quality_scheme(self.task_type, self.risk_per_trade)
+
+    def is_comparable(self, saved_scheme: Any) -> bool:
+        """Whether a score saved under ``saved_scheme`` is on this scheme's scale."""
+        return anchor_is_comparable(saved_scheme, self.task_type, self.risk_per_trade)
 
 
 def anchor_is_comparable(

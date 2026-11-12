@@ -39,9 +39,15 @@ from training.context_data import (
     build_val_loader_for,
     resolve_batch_size,
 )
-from training.context_resume import LoaderState, TrainState, resume_from_checkpoint
+from training.context_resume import (
+    LoaderState,
+    TrainState,
+    pin_resumed_emd_form,
+    resume_from_checkpoint,
+)
 from training.export import export_all
 from training.governance import SmartTrainingGovernor, SotaTracker
+from training.governance.quality_score import ScoreScheme
 from training.governance.yolo_governor import run_governed_yolo_training
 from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
@@ -356,8 +362,7 @@ def resolve_run(args: argparse.Namespace) -> tuple[RunSpec, RunSetup]:
         project_root=project_root,
         sota_targets=model_info.get("sota_targets", {}),
         # The governor's task type, so best.pth and the governor share one score scheme.
-        task_type=resolve_task_type(model_info),
-        risk_per_trade=risk_per_trade(model_info),
+        score_scheme=ScoreScheme(resolve_task_type(model_info), risk_per_trade(model_info)),
     )
     device_info = discover_device()
     policy = apply_hardware_policy(model_key, model_info, device_info, config)
@@ -468,7 +473,6 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     run_settings = track_run_settings(spec, train, total_epochs, setup.paths.export_dir)
 
     # Sentinels and governance.
-    train.criterion = criterion
     train.governor = SmartTrainingGovernor(model_info=spec.model_info, config=spec.config)
     train.governor.curriculum.update_batch_and_accumulation(batch_size)
     train.sota_tracker = SotaTracker()
@@ -482,6 +486,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         hub = setup.paths.models_hub
         metrics_csv = hub.metrics_csv if hub is not None else None
         resume_state = resume_from_checkpoint(spec, train, data, metrics_csv, run_settings)
+        if resume_state is not None and run_settings.legacy_checkpoint:
+            pin_resumed_emd_form(resume_state.governance.emd_form, criterion)
     total_epochs = grant_resume_budget(args, resume_state, total_epochs)
 
     return TrainingContext(

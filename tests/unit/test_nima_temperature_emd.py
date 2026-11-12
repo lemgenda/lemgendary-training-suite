@@ -20,6 +20,7 @@ import yaml
 from torch import nn
 
 from models.nima import NIMAModel
+from training.checkpoint.resume import parse_resume_state
 from training.context_resume import pin_resumed_emd_form
 from training.export.common import wrap_quality_model
 from training.governance.governor import SmartTrainingGovernor
@@ -128,15 +129,22 @@ def test_nima_has_no_temperature_parameter() -> None:
     assert "self.softmax_temp" not in inspect.getsource(NIMAModel)
 
 
+def test_resume_state_carries_the_recorded_form() -> None:
+    """``parse_resume_state`` reads the checkpoint's ``emd_form`` (``None`` when absent)."""
+    payload: dict[str, Any] = {"epoch": 2, "model_state": {}, "emd_form": "squared"}
+    assert parse_resume_state(payload).governance.emd_form == SQUARED_EMD_FORM
+    assert parse_resume_state({"epoch": 2, "model_state": {}}).governance.emd_form is None
+
+
 def test_resume_pins_the_recorded_or_legacy_form() -> None:
     """Fresh runs use the registry form; a resume keeps the checkpoint's (legacy if none)."""
     loss = CombinedLoss(task_type="quality", stabilizers={"emd_form": "nima"})
-    assert pin_resumed_emd_form({}, loss) == LEGACY_EMD_FORM
+    assert pin_resumed_emd_form(None, loss) == LEGACY_EMD_FORM
     assert loss.emd_form == LEGACY_EMD_FORM
     loss = CombinedLoss(task_type="quality", stabilizers={"emd_form": "nima"})
-    assert pin_resumed_emd_form({"emd_form": "squared"}, loss) == SQUARED_EMD_FORM
+    assert pin_resumed_emd_form("squared", loss) == SQUARED_EMD_FORM
     other = CombinedLoss(task_type="restoration")
-    assert pin_resumed_emd_form({}, other) == NIMA_EMD_FORM
+    assert pin_resumed_emd_form(None, other) == NIMA_EMD_FORM
     assert other.emd_form == NIMA_EMD_FORM
 
 
