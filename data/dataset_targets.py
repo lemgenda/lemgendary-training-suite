@@ -23,6 +23,7 @@ from torchvision import transforms
 from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
 from data.sample_labels import (
     authenticity_distribution,
+    class_index,
     empty_face_target,
     face_target_from_text,
     ffanet_boxes,
@@ -273,24 +274,35 @@ class DatasetTargetsMixin:
         return sample.img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
 
     def _label_class(self, sample: DirectorySample) -> int | None:
-        """Class index from ``labels/<name>.txt``, or ``None``."""
-        label_path = self.label_path(sample)
-        try:
-            text = read_text(label_path)
-            return None if text is None else int(float(text.strip()))
-        except (ValueError, TypeError) as cls_err:
-            logger.debug("Invalid classification label in %s: %s", label_path, cls_err)
-            return None
+        """Class index from ``labels/<name>.txt`` (an id or a registry class name), or ``None``.
 
-    @staticmethod
-    def _folder_class(sample: DirectorySample) -> int:
-        """Class index from the parent folder name (a number or a ``classes.txt`` entry)."""
+        ``ClassLabelRangeError`` for an id outside the registry ``class_names``.
+        """
+        label_path = self.label_path(sample)
+        text = read_text(label_path)
+        if text is None:
+            return None
+        class_idx = class_index(text, self.spec.class_names)
+        if class_idx is None:
+            logger.debug("Invalid classification label in %s: %r", label_path, text)
+        return class_idx
+
+    def _folder_class(self, sample: DirectorySample) -> int:
+        """Class index from the parent folder name.
+
+        The name is an id or a registry class name; only a model without registry
+        ``class_names`` falls back to a ``classes.txt`` entry. Class 0 when none matches.
+        """
         parent_dir = os.path.dirname(sample.paths.fname)
         if not parent_dir:
             return 0
         class_candidate = os.path.basename(parent_dir)
-        if class_candidate.isdigit():
-            return int(class_candidate)
+        class_idx = class_index(class_candidate, self.spec.class_names)
+        if class_idx is not None:
+            return class_idx
+        if self.spec.class_names:
+            logger.debug("Folder %r is not a registry class name; using class 0", class_candidate)
+            return 0
         classes_file = os.path.join(sample.paths.ds_path, "classes.txt")
         try:
             c_lines = [line.strip() for line in read_lines(classes_file) if line.strip()]

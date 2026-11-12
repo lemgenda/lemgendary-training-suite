@@ -27,6 +27,7 @@ from training.export.onnx_variants import OnnxVariantWriter, write_release_varia
 from training.export.torch_standalone import export_torch_standalone
 from training.export.validation import resolve_model_stem
 from training.registry import ModelSpecification
+from training.registry.class_names import class_names
 
 logger = logging.getLogger("lemtrain.export.pytorch")
 
@@ -46,10 +47,22 @@ def _dummy_input(resolved_spec: ModelSpecification | None, kwargs: dict[str, Any
     return dummy_input
 
 
-def _save_pt(model: torch.nn.Module, pt_path: Path, model_key: str) -> dict[str, Path]:
-    """1. Self-contained FP32 PyTorch model (``.pt``); {} on failure."""
+def pt_metadata(model_key: str, spec: ModelSpecification | None) -> dict[str, Any]:
+    """``.pt`` metadata: the model key and, for a classifier, its registry ``class_names``.
+
+    The names map each logit index of the output to its class without the registry.
+    """
+    metadata: dict[str, Any] = {"model_key": model_key}
+    names = class_names(spec.raw_config if spec else None)
+    if names:
+        metadata["class_names"] = list(names)
+    return metadata
+
+
+def _save_pt(model: torch.nn.Module, pt_path: Path, metadata: dict[str, Any]) -> dict[str, Path]:
+    """1. Self-contained FP32 PyTorch model (``.pt``) with ``metadata``; {} on failure."""
     try:
-        export_torch_standalone(model, pt_path, metadata={"model_key": model_key})
+        export_torch_standalone(model, pt_path, metadata=metadata)
     except (ExportError, *MODEL_IO_ERRORS) as exc:
         logger.error("Failed saving FP32 PyTorch model to %s: %s", pt_path, exc)
         return {}
@@ -104,7 +117,11 @@ class PyTorchModelExporter(BaseModelExporter):
             output_names=kwargs.get("output_names"),
             dynamic_axes=kwargs.get("dynamic_axes"),
         )
-        exported = _save_pt(model_to_export, target_dir / f"{stem}{PT_SUFFIX}", model_key)
+        exported = _save_pt(
+            model_to_export,
+            target_dir / f"{stem}{PT_SUFFIX}",
+            pt_metadata(model_key, resolved_spec),
+        )
         writer = OnnxVariantWriter(model_to_export, (dummy_input,), graph)
         exported.update(write_release_variants(writer, target_dir, stem))
         return exported

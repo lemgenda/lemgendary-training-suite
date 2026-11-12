@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.186-STABLE`
+- **Version**: `v16.9.189-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,34 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.189 - Universal NSFW Classifier Builds 5 Classes
+
+- `universal_nsfw_classification` declared no class count, so the factory
+  built `UniversalClassifier` with its default 2-logit head while the docs
+  and the labels use 5 classes. The registry entry now sets
+  `kwargs.num_classes: 5` and a new `class_names` list in id order:
+  `0 drawings, 1 hentai, 2 neutral, 3 porn, 4 sexy`.
+- New single reader `training/registry/class_names.py`: `class_names()`
+  returns the names (empty when none are declared) and raises
+  `ClassNamesError` for a malformed list or a count that differs from
+  `kwargs.num_classes`. `load_model_info` checks it at load time.
+- Label decoding: `data.sample_labels.class_index()` decodes an int, a whole
+  float, numeric text or a registry class name, for both container and
+  directory samples. An id outside `0..len(class_names) - 1` (or negative)
+  raises `ClassLabelRangeError` at decoding instead of failing in the loss.
+  `classes.txt` is only consulted for models without registry names.
+- Model card: classifiers list their output classes and show top-5 accuracy
+  only above 5 classes; a classification usage snippet (softmax, top-1 class
+  name) replaces the generic placeholder. The `.pt` export metadata carries
+  `class_names`.
+- Consumers checked: validation accuracy (argmax), focal/cross-entropy loss,
+  ONNX export (dynamic batch, inferred output shape) and the notebook cells
+  are class-count agnostic. An existing 2-class checkpoint does not load
+  into the 5-class head.
+- Tests: `tests/unit/test_nsfw_classifier_classes.py` (factory build with 5
+  logits, reader validation, label ids 0..4 and names, out-of-range ids,
+  model card, `.pt` metadata).
 
 ### v16.9.188 - DirectML Free Memory from the DXGI Budget (R4-C6)
 

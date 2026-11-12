@@ -27,6 +27,8 @@ class ModelSpec:
     model_key: str
     model_info: dict
     task_type: str
+    # Registry ``class_names`` of a classifier in id order (``()`` when none are declared).
+    class_names: tuple[str, ...] = ()
 
 
 @dataclass

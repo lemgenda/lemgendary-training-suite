@@ -6,7 +6,8 @@ same targets:
 
 * quality: a 10-bin NIMA score distribution,
 * face detection: ``[conf, cx, cy, w, h, 10 landmark coordinates]`` (15 values),
-* FFA-Net: up to 50 five-value YOLO boxes.
+* FFA-Net: up to 50 five-value YOLO boxes,
+* classification: a class id (:func:`class_index`).
 
 Landmark coordinates a label does not carry are set to :data:`LANDMARK_ABSENT`; the face
 detection loss masks them out instead of training towards made-up points. A box-only label
@@ -186,3 +187,49 @@ def ffanet_boxes(text: str | None) -> torch.Tensor:
         count = min(len(boxes), MAX_FFANET_BOXES)
         tensor[:count] = torch.tensor(boxes[:count], dtype=torch.float32)
     return tensor
+
+
+class ClassLabelRangeError(ValueError):
+    """A class id below 0 or not below the number of the model's registry ``class_names``.
+
+    Raised instead of returning the id: the cross-entropy loss would fail on it far from the
+    sample (a device-side assert on CUDA), or a fallback would train it as another class.
+    """
+
+
+def _integral(value: float) -> int | None:
+    """``value`` as an int when it is a finite whole number, else ``None``."""
+    return int(value) if value.is_integer() else None
+
+
+def _raw_class_index(label: Any, class_names: Sequence[str]) -> int | None:
+    """Unchecked class id of ``label``; ``None`` when it names no class."""
+    if isinstance(label, bool):
+        return None
+    if isinstance(label, int):
+        return label
+    if isinstance(label, float):
+        return _integral(label)
+    if not isinstance(label, str):
+        return None
+    text = label.strip()
+    try:
+        return _integral(float(text))
+    except ValueError:
+        return class_names.index(text) if text in class_names else None
+
+
+def class_index(label: Any, class_names: Sequence[str] = ()) -> int | None:
+    """Class id of ``label``: an int, a whole float, a numeric string or one of ``class_names``.
+
+    ``None`` when ``label`` names no class (missing, a bool, a fraction or an unknown name).
+    ``ClassLabelRangeError`` for a negative id, or an id ``>= len(class_names)`` when names
+    are declared, so a 5-class model accepts the ids 0..4.
+    """
+    idx = _raw_class_index(label, class_names)
+    if idx is None:
+        return None
+    if idx < 0 or (class_names and idx >= len(class_names)):
+        bound = f"0..{len(class_names) - 1}" if class_names else "a non-negative id"
+        raise ClassLabelRangeError(f"Class label {label!r} is outside {bound}")
+    return idx

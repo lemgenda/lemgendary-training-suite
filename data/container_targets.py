@@ -28,6 +28,7 @@ from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, Transfo
 from data.dataset_targets import MAX_MASK_CLASS, RESTORATION_TASKS, multitask_head, reseed
 from data.sample_labels import (
     authenticity_distribution,
+    class_index,
     empty_face_target,
     face_target_from_json,
     face_target_from_text,
@@ -201,24 +202,23 @@ class ContainerTargetsMixin:
         return decoded.img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
 
     def _container_class_index(self, decoded: DecodedSample) -> int | None:
+        """Class id of the sample's label (:func:`data.sample_labels.class_index`).
+
+        A name resolves through the registry ``class_names``; only a model without them
+        falls back to the dataset's ``classes.txt``. ``ClassLabelRangeError`` for an id
+        outside the registry classes.
+        """
         label = decoded.sample.label
         meta = decoded.meta_json
         if label is None and isinstance(meta, dict):
             label = meta.get("label", meta.get("class", meta.get("class_id")))
-        if isinstance(label, bool):
-            return None
-        if isinstance(label, (int, float)):
-            return int(label)
-        if not isinstance(label, str):
-            return None
-        text = label.strip()
-        try:
-            return int(float(text))
-        except ValueError:
-            classes_file = os.path.join(
-                self.catalog.path_cache.get(decoded.ds_name) or "", "classes.txt"
-            )
-            return class_index_from_file(classes_file, text)
+        class_idx = class_index(label, self.spec.class_names)
+        if class_idx is not None or self.spec.class_names or not isinstance(label, str):
+            return class_idx
+        classes_file = os.path.join(
+            self.catalog.path_cache.get(decoded.ds_name) or "", "classes.txt"
+        )
+        return class_index_from_file(classes_file, label.strip())
 
     # --- segmentation (ParseNet) ----------------------------------------------------------
 

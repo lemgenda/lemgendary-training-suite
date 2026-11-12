@@ -14,12 +14,16 @@ import yaml
 from training.loss_emd import registry_emd_form
 from training.model_card_snippets import topology_mermaid, usage_snippet
 from training.registry import get_model_registry
+from training.registry.class_names import class_names
 from training.registry.forex_risk import risk_label, risk_per_trade
 from training.utils.lazy_imports import load_cloud_module
 
 logger = logging.getLogger("lemtrain.docs.doc_generator")
 
 DEFAULT_HARDWARE = "NVIDIA GeForce GTX 1650 (4G VRAM)"
+
+TOP5_CLASSES = 5
+"""Class count up to which top-5 accuracy is trivially 1.0 and is left off the card."""
 
 # Registry lookups load unified_models_v2.yaml lazily: import failures, unreadable or malformed
 # YAML, and spec entries of unexpected shape are the expected failure modes.
@@ -265,10 +269,19 @@ def _parameter_summary(card: ModelCard) -> tuple[str, str]:
 
 
 def _classification_summary(card: ModelCard) -> tuple[str, str]:
+    """Top-1 (and, above 5 classes, top-5) accuracy and the registry output classes."""
     metrics = card.metrics
-    top1 = measured(metrics, "acc", "accuracy")
-    top5 = measured(metrics, "acc_top5")
-    return f"**Top-1 Accuracy**: {top1} | **Top-5 Accuracy**: {top5}", ""
+    names = class_names(card.info)
+    summary = f"**Top-1 Accuracy**: {measured(metrics, 'acc', 'accuracy')}"
+    # Top-5 accuracy is always 1.0 for a model with 5 or fewer classes.
+    if not names or len(names) > TOP5_CLASSES:
+        summary += f" | **Top-5 Accuracy**: {measured(metrics, 'acc_top5')}"
+    if not names:
+        return summary, ""
+    bullets = "".join(f"> - `{idx}`: {name}\n" for idx, name in enumerate(names))
+    return summary, (
+        f"> [!NOTE]\n> **Output Classes**: {len(names)} logits in class id order.\n>\n{bullets}"
+    )
 
 
 def _restoration_summary(card: ModelCard) -> tuple[str, str]:
@@ -549,7 +562,9 @@ def build_model_readme(
     card = ModelCard.load(model_key, unified_models, metrics or {})
     # Sections are rendered in the original order so warnings are logged in that order.
     fields = {
-        "usage_snippet": usage_snippet(card.task, model_key, *card.size),
+        "usage_snippet": usage_snippet(
+            card.task, model_key, *card.size, classes=class_names(card.info)
+        ),
         "badge_str": _badges(card.res_str, epochs_trained),
         "topology_mermaid": topology_mermaid(card.task, card.res_str, card.arch),
         "stability_bullet": _wrap_md_bullet(f"- **Stability**: {_stability_line(card.info)}"),

@@ -16,6 +16,7 @@ from data.dataset_sources import DatasetSourcesMixin
 from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
 from data.dataset_targets import DatasetTargetsMixin
 from training.data.sample_seed import AugmentationSeed, seeded_sample_rngs
+from training.registry.class_names import class_names
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
 
@@ -92,6 +93,7 @@ class MultiTaskDataset(
             model_key=model_key,
             model_info=model_info,
             task_type=raw_type[0] if isinstance(raw_type, list) else raw_type,
+            class_names=class_names(model_info),
         )
         self.opts = DatasetOptions(
             is_train=is_train,

@@ -124,17 +124,60 @@ with torch.no_grad():
     )
 
 
+def _classification_usage(model_key: str, h: int, w: int, classes: tuple[str, ...]) -> str:
+    """Return the classifier usage snippet; ``classes`` are the registry class names."""
+    names = repr(list(classes)) if classes else "None  # class ids only"
+    return (
+        "```"
+        + f"""python
+import numpy as np
+import torch
+from PIL import Image
+
+# 1. Hardware-Agnostic Setup
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# 2. Stealth Load (v16.0)
+model_path = "{model_key}_latest.pth"
+{_PT_LOAD}
+# 3. Initialization (the registry sizes the head: one logit per class)
+from models.factory import get_model
+model = get_model("{model_key}").to(device)
+model.load_state_dict(state)
+model.eval()
+
+# 4. Forward Pass (inputs in [0, 1], as in training)
+CLASS_NAMES = {names}
+img = Image.open("photo.jpg").convert('RGB').resize(({w}, {h}))
+arr = torch.from_numpy(np.array(img)).permute(2, 0, 1).float()
+input_tensor = arr.unsqueeze(0).to(device) / 255.0
+with torch.no_grad():
+    probs = torch.softmax(model(input_tensor), dim=-1)[0]
+
+# 5. Top-1 Class
+top = int(torch.argmax(probs))
+label = CLASS_NAMES[top] if CLASS_NAMES else top
+print(f"Class: {{label}} ({{probs[top].item():.2%}})")
+```"""
+    )
+
+
 _GENERIC_USAGE = "```python\n# Premium CLI Integration provided for generative/VLM tasks.\n```"
 
 
-def usage_snippet(task: str, model_key: str, h: int, w: int) -> str:
-    """Return the fenced usage snippet of ``task`` for ``model_key`` at ``h`` x ``w``."""
+def usage_snippet(task: str, model_key: str, h: int, w: int, classes: tuple[str, ...] = ()) -> str:
+    """Return the fenced usage snippet of ``task`` for ``model_key`` at ``h`` x ``w``.
+
+    ``classes`` are the registry class names of a classification model.
+    """
     if task == "quality":
         return _quality_usage(model_key, h, w)
     if task in ["restoration", "enhancement"]:
         return _restoration_usage(model_key)
     if task == "forex":
         return _forex_usage(model_key)
+    if task == "classification":
+        return _classification_usage(model_key, h, w, classes)
     return _GENERIC_USAGE
 
 

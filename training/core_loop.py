@@ -56,6 +56,7 @@ from training.notebook_generator import (
     generate_usage_notebook,
 )
 from training.parallel import build_parallel_strategy
+from training.registry.class_names import class_names
 from training.registry.forex_risk import risk_per_trade
 from training.registry.task_type import resolve_task_type
 from training.run_settings.capture import (
@@ -218,9 +219,11 @@ def load_model_info(project_root: Path, config: dict, model_key: str) -> dict:
     if not isinstance(models_dict, dict):
         models_dict = unified_models_registry
     model_info = models_dict.get(model_key, {})
-    # Rejects an invalid ``evaluation.risk_per_trade`` / ``stabilizers.emd_form`` at load time.
+    # Rejects an invalid ``evaluation.risk_per_trade`` / ``stabilizers.emd_form`` /
+    # ``class_names`` at load time.
     risk_per_trade(model_info)
     registry_emd_form(model_info.get("stabilizers"))
+    class_names(model_info)
     return model_info
 
 
