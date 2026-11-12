@@ -7,12 +7,9 @@ training subprocess management, and final artifact uploads to KaggleHub and Goog
 import logging
 from typing import Any
 
-import yaml
-
 from training.cloud.session_deadline import DEADLINE_MARKER
 from training.ecosystem import kaggle_owner
 from training.platform_paths import platform_paths
-from training.utils.lazy_imports import load_cloud_module
 
 from ..registry import ModelNotebookMeta
 from .base import make_code_cell
@@ -371,167 +368,41 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
 
 
 def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
-    """Build the KaggleHub (4 variations) and Google Drive deployment code cell."""
-    local_path = (
-        f"/kaggle/working/LemGendaryModels/{meta.identity.model_key}"
-        if target == "kaggle"
-        else f"/content/LemGendaryModels/{meta.identity.model_key}"
-    )
+    """Build the release cell: one call into the suite's publish policy, then Google Drive.
 
-    metadata_yaml_str = ""
-    try:
-        metadata_generator = load_cloud_module("metadata_generator")
-        meta_svc = metadata_generator.KaggleMetadataService(owner_slug=meta.kaggle.username)
-        metadata_obj = meta_svc.build(meta.identity.model_key)
-        metadata_yaml_str = metadata_obj.to_yaml()
-    except (ImportError, OSError, ValueError, KeyError, yaml.YAMLError) as exc:
-        # ValueError includes MetadataValidationError (model missing from registry or
-        # invalid fields).
-        logger.warning(
-            "Could not embed Kaggle metadata for %s; push cell ships without it: %s",
-            meta.identity.model_key,
-            exc,
-        )
-        metadata_yaml_str = ""
-
+    ``publish_release`` exports every format and runs ``KaggleModelSyncManager.push_model``,
+    the same policy as the GUI and CLI push (model page first, license, unchanged variations
+    skipped, version notes with epoch, metrics and suite version). An export or upload failure
+    stops the cell with exit code 1.
+    """
+    model_key = meta.identity.model_key
+    local_path = f"{platform_paths(target).hub_root}/{model_key}"
     source = [
-        "import os, sys, shutil, json, tempfile\n",
-        f"model_key = '{meta.identity.model_key}'\n",
-        f"local_path = '{local_path}'\n",
-        f"owner_slug = '{meta.kaggle.username}'\n",
-        f"model_slug = '{meta.kaggle.slug}'\n",
-        f"handles = {meta.kaggle.handles!r}\n",
-        f"EMBEDDED_METADATA_YAML = {metadata_yaml_str!r}\n",
+        "import os, sys\n",
+        f"model_key = {model_key!r}\n",
+        f"local_path = {local_path!r}\n",
         "\n",
-        "print(f'[PUBLISH] Initiating 4-variation Kaggle Model Hub publish for {model_key}...')\n",
-        "if not os.path.exists(local_path):\n",
-        "    print(f'[ERROR] Local manifold directory not found at {local_path}')\n",
-        "    sys.exit(1)\n",
-        "\n",
-        "try:\n",
-        "    # 1. Run Universal Exporter to generate .pt, ONNX FP32 and ONNX FP16\n",
-        "    print('[1/4] Running Universal Exporter for all production formats...')\n",
-        "    from training.export import export_all\n",
-        "    export_res = export_all(model_key, output_dir=local_path)\n",
-        "    print(f'   -> Exporter completed: {export_res}')\n",
-        "except Exception as exp_err:\n",
-        "    print(f'   -> [NOTICE] Exporter step note: {exp_err}')\n",
-        "\n",
-        "try:\n",
-        "    # 2. Stage isolated variations under dist/kaggle/\n",
-        (
-            "    print('[2/4] Staging 4 isolated variations (default, fp32, onnx_fp16, "
-            "onnx_fp32)...')\n"
-        ),
-        "    from training.export.staging import VariationStagingService\n",
-        "    from training.export.validation import StrictIsolationValidator\n",
-        "    staging_svc = VariationStagingService()\n",
-        (
-            "    staging_res = staging_svc.stage_variations(model_key, base_dir=local_path, "
-            "validate=True)\n"
-        ),
-        "    if not staging_res.success:\n",
-        "        print(f'[ERROR] Variation staging audit failed: {staging_res.errors}')\n",
-        "        sys.exit(1)\n",
-        "    print('   -> Staging isolation verification passed successfully.')\n",
-        "except Exception as stage_err:\n",
-        "    print(f'[ERROR] Staging failed: {stage_err}')\n",
-        "    sys.exit(1)\n",
-        "\n",
-        "# 3. Upload each of the 4 variations via kagglehub\n",
-        "print('[3/4] Uploading 4 variations to Kaggle Models Hub...')\n",
-        "import kagglehub\n",
-        "dist_root = os.path.join(local_path, 'dist', 'kaggle')\n",
-        "var_payload_dirs = {\n",
-        (
-            "    'pytorch/default': local_path if not os.path.exists(os.path.join(dist_root, "
-            "'pytorch_default')) else os.path.join(dist_root, 'pytorch_default'),\n"
-        ),
-        "    'pytorch/fp32': os.path.join(dist_root, 'pytorch'),\n",
-        "    'onnx/fp16': os.path.join(dist_root, 'onnx_fp16'),\n",
-        "    'onnx/fp32': os.path.join(dist_root, 'onnx_fp32'),\n",
-        "}\n",
-        "\n",
-        "upload_errors = []\n",
-        "for var_key, handle in handles.items():\n",
-        "    p_dir = var_payload_dirs.get(var_key)\n",
-        "    if not p_dir or not os.path.exists(p_dir):\n",
-        "        err = f'Missing payload directory for variation {var_key}: {p_dir}'\n",
-        "        upload_errors.append(err)\n",
-        "        print(f'   [ERROR] {err}')\n",
-        "        continue\n",
-        "    print(f'   [UPLOAD] Uploading variation {var_key} -> {handle}...')\n",
-        "    temp_dir = None\n",
-        "    actual_dir = p_dir\n",
-        "    if var_key == 'pytorch/default' and p_dir == local_path:\n",
-        "        temp_dir = tempfile.mkdtemp(prefix='lemtrain_default_upload_')\n",
-        "        t_ckpt = os.path.join(temp_dir, 'checkpoints')\n",
-        "        os.makedirs(t_ckpt, exist_ok=True)\n",
-        "        src_ckpt = os.path.join(local_path, 'checkpoints')\n",
-        "        if os.path.exists(src_ckpt):\n",
-        "            for f in os.listdir(src_ckpt):\n",
-        "                if f.endswith('.pth'):\n",
-        "                    shutil.copy2(os.path.join(src_ckpt, f), os.path.join(t_ckpt, f))\n",
-        "        for rf in ('README.md', 'metrics.csv', 'history.csv'):\n",
-        "            src_rf = os.path.join(local_path, rf)\n",
-        "            if os.path.exists(src_rf):\n",
-        "                shutil.copy2(src_rf, os.path.join(temp_dir, rf))\n",
-        "        actual_dir = temp_dir\n",
-        "    try:\n",
-        "        kagglehub.model_upload(\n",
-        "            handle=handle,\n",
-        "            local_model_dir=actual_dir,\n",
-        "            version_notes=f'Automated SOTA Release: {model_key} [{var_key}]',\n",
-        "        )\n",
-        "        print(f'   [OK] Variation {var_key} uploaded successfully.')\n",
-        "    except Exception as up_err:\n",
-        "        upload_errors.append(f'[{var_key}] {up_err}')\n",
-        "        print(f'   [ERROR] Failed uploading {var_key}: {up_err}')\n",
-        "    finally:\n",
-        "        if temp_dir and os.path.exists(temp_dir):\n",
-        "            try:\n",
-        "                shutil.rmtree(temp_dir)\n",
-        "            except OSError as rm_err:\n",
-        "                print(f'   [WARNING] Could not remove temp dir {temp_dir}: {rm_err}')\n",
-        "\n",
-        "if upload_errors:\n",
-        "    print(f'[ERROR] Variation upload failed: {\"; \".join(upload_errors)}')\n",
-        "    sys.exit(1)\n",
-        "\n",
-        "print(f'[SUCCESS] Model {model_key} pushed successfully to Kaggle (4 variations)')\n",
-        "\n",
-        "# 4. Apply model and instance metadata via Kaggle API\n",
-        "print('[4/4] Synchronizing Kaggle Model and Variation metadata...')\n",
-        "meta_synced = False\n",
-        "try:\n",
-        "    from training.cloud.model_metadata import ModelMetadata\n",
-        "    from training.cloud.kaggle_api_sync import KaggleApiSyncService\n",
-        "    if EMBEDDED_METADATA_YAML:\n",
-        "        import yaml\n",
-        "        meta_dict = yaml.safe_load(EMBEDDED_METADATA_YAML)\n",
-        "        metadata = ModelMetadata.from_dict(meta_dict)\n",
+        "print(f'[PUBLISH] Exporting and publishing {model_key} to the Kaggle Models Hub...')\n",
+        "from training.cloud.release_publish import publish_release\n",
+        "release = publish_release(model_key)\n",
+        "for var_key, var_res in release.variations.items():\n",
+        "    if not var_res.success:\n",
+        "        print(f'   [ERROR] {var_key}: {var_res.error}')\n",
+        "    elif var_res.skipped:\n",
+        "        print(f'   [UNCHANGED] {var_key}: no new version ({var_res.handle})')\n",
         "    else:\n",
-        "        meta_yaml_path = os.path.join(local_path, 'model_metadata.yaml')\n",
-        "        metadata = ModelMetadata.load(meta_yaml_path)\n",
-        "    api_service = KaggleApiSyncService(username=owner_slug)\n",
-        "    sync_res = api_service.sync_metadata(metadata)\n",
-        "    if sync_res.get('errors'):\n",
-        "        print(f\"   [WARN] Metadata update warnings: {sync_res['errors']}\")\n",
-        "    meta_synced = True\n",
-        "    print(f'[SUCCESS] Kaggle metadata updated successfully for {model_key}')\n",
-        "except Exception as meta_err:\n",
-        "    print(f'   [WARN] Metadata synchronization notice: {meta_err}')\n",
+        "        print(f'   [OK] {var_key} -> {var_res.handle}')\n",
+        "if not release.success:\n",
+        "    print(f'[ERROR] Release publish failed: {release.errors}')\n",
+        "    sys.exit(1)\n",
+        "print(f'[SUCCESS] Release of {model_key} published to the Kaggle Models Hub.')\n",
         "\n",
-        "# Google Drive mirror\n",
         "print('[GDRIVE] Synchronizing production artifacts to Google Drive...')\n",
-        "try:\n",
-        "    from training.gdrive_cloud_manager import GDriveCloudManager\n",
-        "    g_mgr = GDriveCloudManager(model_key)\n",
-        "    g_mgr.sync()\n",
-        "except Exception as g_err:\n",
-        "    print(f'   [NOTICE] Google Drive sync note: {g_err}')\n",
-        "\n",
-        "print(f'[COMPLETED] Fleet publishing completed successfully for {model_key}.')\n",
+        "from training.gdrive_cloud_manager import GDriveCloudManager\n",
+        "if GDriveCloudManager(model_key).sync():\n",
+        "    print('[GDRIVE] Google Drive mirror updated.')\n",
+        "else:\n",
+        "    print('[GDRIVE] Google Drive mirror not updated (see the log above).')\n",
     ]
     return make_code_cell(_skip_after_deadline(source, local_path))
 

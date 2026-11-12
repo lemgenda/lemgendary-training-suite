@@ -192,14 +192,22 @@ class TestLemTrainCLI(unittest.TestCase):
         ):
             push.return_value = SimpleNamespace(success=True, variations={})
             result = runner.invoke(
-                app, ["sync", "push", "m", "--dry-run", "-v", "pytorch", "-u", "me"]
+                app, ["sync", "push", "m", "--dry-run", "-v", "onnx/fp16", "-u", "me"]
             )
         self.assertEqual(result.exit_code, 0, result.output)
         mgr.assert_called_once_with(username="me", hub_root=None)
         self.assertEqual(
             push.call_args.args[2],
-            {"variation": "pytorch", "version_notes": None, "dry_run": True},
+            {"variation": "onnx/fp16", "version_notes": None, "dry_run": True},
         )
+
+    def test_cli_sync_push_rejects_legacy_variation_names(self) -> None:
+        """Verify `sync push -v pytorch` (a pre-v16.9.177 name) is rejected before any push."""
+        with mock.patch("training.cli.sync_commands.KaggleModelSyncManager") as mgr:
+            result = runner.invoke(app, ["sync", "push", "m", "-v", "pytorch"])
+        self.assertNotEqual(result.exit_code, 0, result.output)
+        self.assertIn("pytorch/default", str(result.exception) + result.output)
+        mgr.assert_not_called()
 
     def test_cli_sync_push_without_model_or_all_exits_1(self) -> None:
         """Verify `sync push` with neither a model nor --all exits 1."""

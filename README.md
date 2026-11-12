@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.176-STABLE`
+- **Version**: `v16.9.177-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,46 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.177 - One Kaggle Push Policy, Variation Enum (R3-K3)
+
+- `KaggleModelSyncManager.push_model` is the one push policy for the GUI
+  job, `lemtrain sync push`, `kaggle_cloud_manager` and the notebook
+  release: validate the key, stage `dist/kaggle` (not on a dry run,
+  K-MDL-8), create or update the model page BEFORE the first upload (a
+  failed page sync uploads nothing, K-MDL-6), upload each variation with
+  `license_name` from the model metadata, then sync model and instance
+  metadata again. The GUI job reports progress through a `PushObserver`
+  (`training/cloud/push_observer.py`) instead of its own loop.
+- Unchanged variations are skipped (K-MDL-5): the SHA-256 of every staged
+  file is compared with the last upload of that variation recorded in
+  `<model>/.kaggle_sync.json`; equal payloads create no Hub version
+  (`skipped: true` in the result, `UNCHANGED` in the job log). The Kaggle
+  API returns no file hashes, so the comparison is against the local
+  record (a fresh Kaggle session uploads once).
+- Version notes (`training/cloud/version_notes.py`): every upload says
+  the epoch (stored in `latest.pth`, `progress.pth` or `best.pth`, else the
+  last `metrics.csv` row), up to 6 measured values of the last metrics row
+  (FID provenance applied) and the suite version, for push, auto-sync and
+  notebook alike. The per-epoch auto-sync also syncs the model page before
+  its first upload from a folder.
+- Variation names (K-MDL-4): `VariationKey` (`training/cloud/variations.py`)
+  is the SSOT; `POST /api/training/kaggle/pull`, `/push-model` and
+  `/push-all` take `variation: VariationKey | "all"` (OpenAPI enum
+  `VariationKey`; the old `pytorch` / `onnx_fp16` names are 422), and
+  `lemtrain sync push|pull --variation` accept only those values.
+- Notebook release cell: one call to
+  `training.cloud.release_publish.publish_release` (export, then
+  `push_model`); an export failure publishes nothing and the cell exits 1.
+  The embedded metadata copy, the own upload loop and the broad
+  `except Exception` blocks are gone; Google Drive mirroring reports its
+  boolean result.
+- `sync_kaggle_metadata` builds the metadata from the manager's own hub
+  folder (hand edits there were ignored for a custom hub root).
+- Tests: `tests/unit/test_kaggle_push_policy.py` (page before upload,
+  license, notes, skip unchanged, failed page, dry run, enum routes,
+  notebook cell, export failure); auto-sync, CLI and hub-dir tests
+  updated.
 
 ### v16.9.176 - One Models Hub Root, Also on Kaggle (R3-K3)
 

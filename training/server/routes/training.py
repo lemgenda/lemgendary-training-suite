@@ -17,12 +17,17 @@ from training.cloud.kaggle_client import (
 )
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 from training.cloud.kernel_bundle import KernelBundleError, checked_accelerator
+from training.cloud.variations import ALL_VARIATIONS, VariationChoice, VariationKey
 from training.ecosystem import kaggle_accelerator, kaggle_accelerators
 from training.kaggle_accounts import fetch_user_kernels
 from training.registry.model_specs import get_model_registry
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.server.routes.training")
+
+_VARIATION_HELP = "Kaggle Model Instance: 'all' or one of " + ", ".join(
+    f"'{key.value}'" for key in VariationKey
+)
 
 router = APIRouter(prefix="/training", tags=["training"])
 
@@ -177,12 +182,7 @@ class KagglePullRequest(BaseModel):
     """Payload for downloading model variations from Kaggle Models Hub."""
 
     model: str = Field(..., description="Target model key")
-    variation: str = Field(
-        "all",
-        description=(
-            "Variation to pull ('all', 'pytorch', 'pytorch_fp32', 'onnx_fp16', 'onnx_fp32')"
-        ),
-    )
+    variation: VariationChoice = Field(ALL_VARIATIONS, description=_VARIATION_HELP)
     force_download: bool = Field(
         False, description="Force re-download even if cached version is current"
     )
@@ -328,9 +328,7 @@ class KagglePushModelRequest(BaseModel):
     """Payload for pushing validated isolated variations to Kaggle Models Hub."""
 
     model: str = Field(..., description="Target model key")
-    variation: str = Field(
-        "all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')"
-    )
+    variation: VariationChoice = Field(ALL_VARIATIONS, description=_VARIATION_HELP)
     version_notes: str | None = Field(None, description="Optional release version notes")
     dry_run: bool = Field(
         False, description="Validate payload and isolation without publishing to Kaggle"
@@ -354,9 +352,7 @@ def push_kaggle_model_variations(payload: KagglePushModelRequest) -> dict[str, A
 class KagglePushAllRequest(BaseModel):
     """Payload for staging and pushing all registered models to Kaggle Models Hub."""
 
-    variation: str = Field(
-        "all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')"
-    )
+    variation: VariationChoice = Field(ALL_VARIATIONS, description=_VARIATION_HELP)
     version_notes: str | None = Field(None, description="Optional release version notes")
     dry_run: bool = Field(
         False, description="Validate payload and isolation without publishing to Kaggle"

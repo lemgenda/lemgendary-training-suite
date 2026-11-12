@@ -14,7 +14,28 @@ this module instead of re-declaring handles or file names.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
+from typing import Literal
+
+
+class VariationKey(StrEnum):
+    """Key of one Kaggle Model Instance: the only accepted variation names (API, CLI, GUI).
+
+    The sidecar API exposes these values as an OpenAPI enum, so the GUI type is generated
+    from the same list.
+    """
+
+    PYTORCH_DEFAULT = "pytorch/default"
+    PYTORCH_FP32 = "pytorch/fp32"
+    ONNX_FP16 = "onnx/fp16"
+    ONNX_FP32 = "onnx/fp32"
+
+
+ALL_VARIATIONS = "all"
+"""Request value selecting every variation."""
+VariationChoice = VariationKey | Literal["all"]
+"""One variation key, or ``"all"``."""
 
 
 @dataclass(frozen=True)
@@ -33,14 +54,32 @@ class KaggleVariation:
 
 
 PYTORCH_DEFAULT = KaggleVariation(
-    "pytorch/default", "pytorch", "default", "pytorch_default", "PyTorch Checkpoints"
+    VariationKey.PYTORCH_DEFAULT.value,
+    "pytorch",
+    "default",
+    "pytorch_default",
+    "PyTorch Checkpoints",
 )
-PYTORCH_FP32 = KaggleVariation("pytorch/fp32", "pytorch", "fp32", "pytorch_fp32", "PyTorch FP32")
-ONNX_FP16 = KaggleVariation("onnx/fp16", "onnx", "fp16", "onnx_fp16", "ONNX FP16")
-ONNX_FP32 = KaggleVariation("onnx/fp32", "onnx", "fp32", "onnx_fp32", "ONNX FP32")
+PYTORCH_FP32 = KaggleVariation(
+    VariationKey.PYTORCH_FP32.value, "pytorch", "fp32", "pytorch_fp32", "PyTorch FP32"
+)
+ONNX_FP16 = KaggleVariation(VariationKey.ONNX_FP16.value, "onnx", "fp16", "onnx_fp16", "ONNX FP16")
+ONNX_FP32 = KaggleVariation(VariationKey.ONNX_FP32.value, "onnx", "fp32", "onnx_fp32", "ONNX FP32")
 
 VARIATIONS: tuple[KaggleVariation, ...] = (PYTORCH_DEFAULT, PYTORCH_FP32, ONNX_FP16, ONNX_FP32)
 VARIATION_BY_KEY: dict[str, KaggleVariation] = {v.key: v for v in VARIATIONS}
+
+
+def selected_variations(choice: str) -> list[str]:
+    """Variation keys selected by ``choice`` (``"all"`` or one key); ValueError otherwise."""
+    if choice == ALL_VARIATIONS:
+        return list(VARIATION_BY_KEY)
+    if choice not in VARIATION_BY_KEY:
+        raise ValueError(
+            f"Unknown variation '{choice}'. Allowed: {[ALL_VARIATIONS, *VARIATION_BY_KEY]}"
+        )
+    return [str(choice)]
+
 
 CHECKPOINTS_DIR = "checkpoints"
 """Folder of a model hub dir (and of the ``pytorch/default`` payload) holding checkpoints."""

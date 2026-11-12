@@ -11,10 +11,9 @@ from typing import Any
 
 import yaml
 
-from training.cloud.errors import KAGGLE_API_ERRORS, kagglehub_errors
-from training.cloud.kaggle_model_sync import KaggleModelSyncManager, ModelPushResult
-from training.cloud.variations import VARIATION_BY_KEY
-from training.export.staging import VariationStagingService
+from training.cloud.errors import kagglehub_errors
+from training.cloud.kaggle_model_sync import KaggleModelSyncManager, VariationPushResult
+from training.cloud.variations import selected_variations
 from training.registry import get_model_registry
 from training.server.state import ServerState
 
@@ -60,6 +59,49 @@ def _push_succeeded(result: Any) -> bool:
     )
 
 
+class _JobPushObserver:
+    """Turns push steps into job log lines (``[UPLOAD]`` lines feed the GUI progress parser)."""
+
+    def __init__(self, broadcast: Callable[[str, str], None], run: _PushRun) -> None:
+        self._broadcast = broadcast
+        self._run = run
+
+    def staged(self, model_key: str, files: list[str]) -> None:
+        """Log the staged file names."""
+        if files:
+            self._broadcast(
+                self._run.job_id,
+                f"{self._run.prefix}[STAGING] Staged {len(files)} files for '{model_key}': {files}",
+            )
+
+    def variation_started(self, index: int, total: int, variation: str, handle: str) -> None:
+        """Log the upload start; stop the push when the job was cancelled."""
+        if self._run.cancel_event.is_set():
+            raise InterruptedError("Push cancelled")
+        pct = int(((index - 1) / total) * 100)
+        self._broadcast(
+            self._run.job_id,
+            f"{self._run.prefix}[UPLOAD] [Step {index}/{total}] PUSHING "
+            f"{self._run.request.model_key} [{variation}] -> {handle} ({pct}%)",
+        )
+
+    def variation_done(self, index: int, total: int, result: VariationPushResult) -> None:
+        """Log the variation outcome (uploaded, unchanged or failed)."""
+        model_key, prefix = self._run.request.model_key, self._run.prefix
+        if not result.success:
+            self._broadcast(
+                self._run.job_id,
+                f"{prefix}[ERROR] {model_key} [{result.variation}]: {result.error}",
+            )
+            return
+        state = "UNCHANGED (no new version)" if result.skipped else f"DONE files={result.files}"
+        self._broadcast(
+            self._run.job_id,
+            f"{prefix}[UPLOAD] [Step {index}/{total}] {state} {model_key} [{result.variation}] "
+            f"({int((index / total) * 100)}%)",
+        )
+
+
 class KaggleSyncJobsMixin:
     """Kaggle model push and pull job executors."""
 
@@ -77,96 +119,17 @@ class KaggleSyncJobsMixin:
         cancel_event: threading.Event,
         prefix: str = "",
     ) -> Any:
-        """Stage, then push each variation one by one, emitting progress lines and summary logs."""
+        """Run the one push policy (``push_model``), emitting progress lines and summary logs."""
         run = _PushRun(job_id, sync_mgr, request, cancel_event, prefix)
-        model_key, variation = request.model_key, request.variation
-        sync_mgr.ensure_model_metadata(model_key)
-        staging_res = VariationStagingService().stage_variations(
-            model_key, base_dir=sync_mgr.get_model_dir(model_key)
+        result = sync_mgr.push_model(
+            model_key=request.model_key,
+            variation=request.variation,
+            version_notes=request.version_notes,
+            dry_run=request.dry_run,
+            observer=_JobPushObserver(self._broadcast_log, run),
         )
-        if staging_res.staged_files:
-            staged_names = [f.name for f in staging_res.staged_files.values()]
-            self._broadcast_log(
-                job_id,
-                (
-                    f"{prefix}[STAGING] Staged {len(staged_names)} files for '{model_key}': "
-                    f"{staged_names}"
-                ),
-            )
-
-        variations = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
-        result = ModelPushResult(
-            model_key=model_key,
-            success=True,
-            isolation_report=sync_mgr.validate_isolation(model_key),
-        )
-
-        # 1. Push all variations with progress
-        self._push_variations(run, result, variations)
-        # 2. Sync metadata via API unconditionally (publishes model card & instance docs)
-        self._sync_push_metadata(run, result)
-        # 3. Emit exact 2 clean summary log entries on success
-        self._log_push_summary(run, result, len(variations))
+        self._log_push_summary(run, result, len(result.variations))
         return result
-
-    def _push_variations(self, run: _PushRun, result: Any, variations: list[str]) -> None:
-        """Push each variation, recording its result and logging progress."""
-        model_key, prefix = run.request.model_key, run.prefix
-        total = len(variations)
-        for i, var in enumerate(variations, 1):
-            if run.cancel_event.is_set():
-                raise InterruptedError("Push cancelled")
-
-            pct_start = int(((i - 1) / total) * 100)
-            handle = run.sync_mgr.get_handle(model_key, var)
-            # Format with [UPLOAD] keyword so progressParser.ts detects upload operation
-            self._broadcast_log(
-                run.job_id,
-                (
-                    f"{prefix}[UPLOAD] [Step {i}/{total}] PUSHING {model_key} [{var}] -> {handle} "
-                    f"({pct_start}%)"
-                ),
-            )
-            var_res = run.sync_mgr.push_variation(
-                model_key=model_key,
-                variation=var,
-                version_notes=run.request.version_notes,
-                dry_run=run.request.dry_run,
-            )
-            result.variations[var] = var_res
-            pct_done = int((i / total) * 100)
-            if var_res.success:
-                self._broadcast_log(
-                    run.job_id,
-                    (
-                        f"{prefix}[UPLOAD] [Step {i}/{total}] DONE {model_key} [{var}] "
-                        f"files={var_res.files} ({pct_done}%)"
-                    ),
-                )
-            else:
-                result.success = False
-                result.errors.append(f"[{var}] {var_res.error}")
-                self._broadcast_log(
-                    run.job_id, f"{prefix}[ERROR] {model_key} [{var}]: {var_res.error}"
-                )
-
-    def _sync_push_metadata(self, run: _PushRun, result: Any) -> None:
-        """Publish the model card and instance docs; record errors on ``result``."""
-        model_key = run.request.model_key
-        try:
-            sync_meta_res = run.sync_mgr.sync_kaggle_metadata(
-                model_key, dry_run=run.request.dry_run
-            )
-            result.metadata_sync_result = sync_meta_res
-            if sync_meta_res.get("errors"):
-                result.errors.extend(sync_meta_res["errors"])
-        except (*KAGGLE_API_ERRORS, yaml.YAMLError) as meta_exc:
-            err_str = f"Metadata synchronization error: {meta_exc}"
-            logger.error("%s (model=%s)", err_str, model_key)
-            result.errors.append(err_str)
-            self._broadcast_log(
-                run.job_id, f"{run.prefix}[ERROR] {model_key} metadata sync: {err_str}"
-            )
 
     def _log_push_summary(self, run: _PushRun, result: Any, total: int) -> None:
         model_key, prefix = run.request.model_key, run.prefix
@@ -397,7 +360,7 @@ class KaggleSyncJobsMixin:
         """Download all 4 model variations from Kaggle Models Hub with live telemetry."""
         variation = params.get("variation", "all")
         sync_mgr = KaggleModelSyncManager(username=params.get("username"))
-        vars_to_pull = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
+        vars_to_pull = selected_variations(variation)
         run = _PullRun(
             job_id, sync_mgr, model_key, params.get("force_download", False), len(vars_to_pull)
         )

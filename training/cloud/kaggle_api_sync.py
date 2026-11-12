@@ -129,6 +129,18 @@ class KaggleApiSyncService:
             self._api = api
         return api
 
+    def sync_model(self, metadata: ModelMetadata) -> dict[str, Any]:
+        """Create or update only the model page (title, subtitle, license) on Kaggle.
+
+        ``results["model"]`` is ``"updated"``, ``"created"`` or None when both calls failed
+        (the reasons are in ``results["errors"]``). A push runs this before its first upload,
+        so a new model never starts with Kaggle's defaults (K-MDL-6).
+        """
+        results: dict[str, Any] = {"model": None, "variations": {}, "errors": []}
+        full_model_ref = f"{metadata.model.owner}/{metadata.model.slug}"
+        _sync_model_metadata(self.client(), metadata, full_model_ref, results)
+        return results
+
     def sync_metadata(self, metadata: ModelMetadata) -> dict[str, Any]:
         """Apply model-level and instance-level metadata to Kaggle via KaggleApi."""
         api = self.client()

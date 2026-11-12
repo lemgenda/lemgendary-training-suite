@@ -29,8 +29,11 @@ class _UploadRecorder:
     def __init__(self) -> None:
         self.uploads: list[tuple[str, list[str], str]] = []
 
-    def model_upload(self, handle: str, local_model_dir: str, version_notes: str) -> None:
+    def model_upload(
+        self, handle: str, local_model_dir: str, license_name: str, version_notes: str
+    ) -> None:
         """Record the uploaded handle, files (relative, POSIX) and notes."""
+        assert license_name
         root = Path(local_model_dir)
         files = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
         self.uploads.append((handle, files, version_notes))
@@ -66,6 +69,19 @@ def _recorder(monkeypatch: pytest.MonkeyPatch) -> _UploadRecorder:
     recorder = _UploadRecorder()
     monkeypatch.setitem(sys.modules, "kagglehub", recorder)
     return recorder
+
+
+@pytest.fixture(name="model_pages", autouse=True)
+def _model_pages(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Fake model page sync (no network); records the synced model slugs."""
+    synced: list[str] = []
+
+    def sync_model(_self: KaggleApiSyncService, metadata: Any) -> dict[str, Any]:
+        synced.append(metadata.model.slug)
+        return {"model": "updated", "variations": {}, "errors": []}
+
+    monkeypatch.setattr(KaggleApiSyncService, "sync_model", sync_model)
+    return synced
 
 
 @pytest.fixture(autouse=True)

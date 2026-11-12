@@ -13,7 +13,7 @@ from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 from training.cloud.kernel_bundle import BundleRequest, model_kernel_handle
 from training.cloud.kernel_launch import KernelLaunch, launch_kernel
 from training.cloud.kernel_status import status_name
-from training.cloud.variations import VARIATION_BY_KEY
+from training.cloud.variations import ALL_VARIATIONS, VARIATION_BY_KEY
 from training.ecosystem import kaggle_accelerators
 from training.kaggle_stream import stream_kernel_logs
 
@@ -73,13 +73,13 @@ def pull_kaggle_artifacts(
 def push_kaggle_artifacts(model_name: str, username: str | None = None) -> bool:
     """Stage and upload multi-variation model to Kaggle Models Hub via unified sync pipeline."""
     sync_mgr = KaggleModelSyncManager(username=username)
-    res = sync_mgr.push_model(model_key=model_name, variation="all")
+    res = sync_mgr.push_model(model_key=model_name, variation=ALL_VARIATIONS)
     return res.success
 
 
 def push_kaggle_model(
     model_name: str,
-    variation: str = "all",
+    variation: str = ALL_VARIATIONS,
     dry_run: bool = False,
     username: str | None = None,
     key: str | None = None,
@@ -118,8 +118,8 @@ def main() -> None:
     parser.add_argument(
         "--variation",
         type=str,
-        default="all",
-        choices=["all", *VARIATION_BY_KEY],
+        default=ALL_VARIATIONS,
+        choices=[ALL_VARIATIONS, *VARIATION_BY_KEY],
         help="Variation to push",
     )
     parser.add_argument(

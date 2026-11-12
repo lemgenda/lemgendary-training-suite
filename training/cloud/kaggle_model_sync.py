@@ -25,10 +25,12 @@ from training.cloud.hub_versions import VersionLookup
 from training.cloud.kaggle_api_sync import KaggleApiSyncService
 from training.cloud.kaggle_client import KaggleAuthError
 from training.cloud.metadata_generator import KaggleMetadataService
-from training.cloud.model_metadata import METADATA_FILENAME
+from training.cloud.model_metadata import METADATA_FILENAME, ModelMetadata
 from training.cloud.model_pull import merge_downloaded_payload
-from training.cloud.sync_manifest import SyncManifest
+from training.cloud.push_observer import PushObserver
+from training.cloud.sync_manifest import SyncManifest, payload_hashes
 from training.cloud.variations import (
+    ALL_VARIATIONS,
     CHECKPOINTS_DIR,
     ONNX_FP16,
     ONNX_FP32,
@@ -37,7 +39,9 @@ from training.cloud.variations import (
     VARIATION_BY_KEY,
     default_payload_files,
     is_default_payload_file,
+    selected_variations,
 )
+from training.cloud.version_notes import ReleaseFacts, build_version_notes, release_facts
 from training.ecosystem import kaggle_owner
 from training.export.validation import IsolationReport, StrictIsolationValidator
 from training.registry import get_model_registry
@@ -80,6 +84,19 @@ class VariationPushResult:
     files: list[str] = field(default_factory=list)
     error: str | None = None
     dry_run: bool = False
+    skipped: bool = False
+    """True when the payload equals the last uploaded one: no new Hub version (K-MDL-5)."""
+
+
+@dataclass(frozen=True)
+class _Upload:
+    """One checked upload: the variation, its payload folder, notes and dry-run flag."""
+
+    model_key: str
+    variation: str
+    payload_dir: Path
+    notes: str
+    dry_run: bool
 
 
 @dataclass
@@ -106,6 +123,7 @@ class ModelPushResult:
                     "files": v.files,
                     "error": v.error,
                     "dry_run": v.dry_run,
+                    "skipped": v.skipped,
                 }
                 for k, v in self.variations.items()
             },
@@ -179,6 +197,16 @@ class KaggleModelSyncManager:
             return model_dir
         return dist_dir / _UPLOAD_SUBDIRS.get(variation.key, variation_key)
 
+    def model_metadata(self, model_key: str) -> ModelMetadata:
+        """The validated publish metadata of ``model_key`` (this hub's hand edits merged)."""
+        return self.metadata_service.build(model_key, output_dir=self.get_model_dir(model_key))
+
+    def variation_license(self, model_key: str, variation: str) -> str:
+        """License of ``variation`` from the model metadata (passed to every upload, K-MDL-6)."""
+        metadata = self.model_metadata(model_key)
+        section = metadata.variations.get(variation)
+        return section.licensing.license if section else metadata.model.publishing.license
+
     def ensure_model_metadata(self, model_key: str) -> Path:
         """Ensure both model_metadata.yaml and model-metadata.json are materialized.
 
@@ -202,12 +230,18 @@ class KaggleModelSyncManager:
         variation: str,
         version_notes: str | None = None,
         dry_run: bool = False,
+        facts: ReleaseFacts | None = None,
     ) -> VariationPushResult:
         """Validate and upload a single isolated model variation to Kaggle Models Hub.
 
         ``pytorch/default`` is staged first (hard links of ``checkpoints/*.pth``,
         ``README.md`` and ``metrics.csv`` only) and the staged copy is validated and uploaded,
         so the model folder's notebooks, ``dist/`` and exports never reach Kaggle.
+
+        A payload whose files hash exactly like the last upload of this variation (recorded in
+        ``.kaggle_sync.json``) is skipped: no new Hub version (K-MDL-5). Without
+        ``version_notes`` the notes come from :func:`build_version_notes` (``facts`` when the
+        caller already read them).
         """
         if variation not in VARIATION_BY_KEY:
             return VariationPushResult(
@@ -230,8 +264,10 @@ class KaggleModelSyncManager:
                 error=f"Variation directory does not exist: {variation_dir}",
                 dry_run=dry_run,
             )
-        notes = version_notes or (
-            f"Production SOTA Release: {model_key} [{VARIATION_BY_KEY[variation].label}]"
+        notes = version_notes or build_version_notes(
+            model_key,
+            facts or release_facts(self.get_model_dir(model_key)),
+            label=VARIATION_BY_KEY[variation].label,
         )
         with contextlib.ExitStack() as stack:
             upload_dir = variation_dir
@@ -245,49 +281,57 @@ class KaggleModelSyncManager:
                     )
                 )
                 _stage_default_payload(variation_dir, upload_dir)
-            return self._upload_checked(model_key, variation, upload_dir, notes, dry_run=dry_run)
+            return self._upload_checked(_Upload(model_key, variation, upload_dir, notes, dry_run))
 
-    def _upload_checked(
-        self,
-        model_key: str,
-        variation: str,
-        upload_dir: Path,
-        notes: str,
-        *,
-        dry_run: bool,
-    ) -> VariationPushResult:
-        """Audit ``upload_dir`` for isolation, then upload it (or report it on dry run)."""
+    def _upload_checked(self, upload: _Upload) -> VariationPushResult:
+        """Audit the payload, skip it when unchanged, else upload it (or report on dry run)."""
+        model_key, variation = upload.model_key, upload.variation
         handle = self.get_handle(model_key, variation)
-        blocked = self._payload_problem(model_key, variation, upload_dir, handle, dry_run)
+        blocked = self._payload_problem(
+            model_key, variation, upload.payload_dir, handle, upload.dry_run
+        )
         if blocked is not None:
             return blocked
 
-        file_names = [p.name for p in upload_dir.iterdir() if p.is_file() or p.is_dir()]
-        if dry_run:
+        files = [p.name for p in upload.payload_dir.iterdir() if p.is_file() or p.is_dir()]
+        hashes = payload_hashes(upload.payload_dir)
+        manifest = SyncManifest(self.get_model_dir(model_key))
+        if hashes and manifest.pushed_hashes(variation) == hashes:
+            logger.info("Skipping %s: payload unchanged since the last upload", handle)
+            return VariationPushResult(
+                variation, handle, True, files, dry_run=upload.dry_run, skipped=True
+            )
+        if upload.dry_run:
             logger.info("[DRY-RUN] Verified Kaggle model variation payload %s", handle)
-            return VariationPushResult(variation, handle, True, file_names, dry_run=True)
+            return VariationPushResult(variation, handle, True, files, dry_run=True)
 
+        error = self._upload(handle, upload, self.variation_license(model_key, variation))
+        if error is not None:
+            return VariationPushResult(variation, handle, False, files, error=error)
+        manifest.record_push(variation, hashes, upload.notes)
+        manifest.save()
+        logger.info("[OK] Successfully uploaded %s to Kaggle Models Hub", handle)
+        return VariationPushResult(variation, handle, True, files)
+
+    @staticmethod
+    def _upload(handle: str, upload: _Upload, license_name: str) -> str | None:
+        """Upload the payload as a new version of ``handle``; the error text, or None."""
         try:
             kagglehub = importlib.import_module("kagglehub")
         except ImportError:
-            return VariationPushResult(
-                variation,
-                handle,
-                False,
-                file_names,
-                error="kagglehub SDK is not installed in runtime environment.",
-            )
-
+            return "kagglehub SDK is not installed in runtime environment."
         try:
-            logger.info("Uploading %s variation to Kaggle Models Hub: %s ...", variation, handle)
+            logger.info("Uploading %s to Kaggle Models Hub: %s ...", upload.variation, handle)
             kagglehub.model_upload(
-                handle=handle, local_model_dir=str(upload_dir), version_notes=notes
+                handle=handle,
+                local_model_dir=str(upload.payload_dir),
+                license_name=license_name,
+                version_notes=upload.notes,
             )
         except kagglehub_errors() as exc:
             logger.error("Failed uploading %s to Kaggle Models Hub: %s", handle, exc)
-            return VariationPushResult(variation, handle, False, file_names, error=str(exc))
-        logger.info("[OK] Successfully uploaded %s to Kaggle Models Hub", handle)
-        return VariationPushResult(variation, handle, True, file_names)
+            return str(exc)
+        return None
 
     def _payload_problem(
         self, model_key: str, variation: str, variation_dir: Path, handle: str, dry_run: bool
@@ -318,7 +362,7 @@ class KaggleModelSyncManager:
     def sync_kaggle_metadata(self, model_key: str, dry_run: bool = False) -> dict[str, Any]:
         """Synchronize model and variation metadata to Kaggle via REST API."""
         self.ensure_model_metadata(model_key)
-        metadata = self.metadata_service.build(model_key)
+        metadata = self.model_metadata(model_key)
         if dry_run:
             logger.info("[DRY-RUN] Validated metadata synchronization for %s", model_key)
             return {"status": "validated_dry_run", "model": metadata.model.slug}
@@ -327,52 +371,93 @@ class KaggleModelSyncManager:
     def push_model(
         self,
         model_key: str,
-        variation: str = "all",
+        variation: str = ALL_VARIATIONS,
         version_notes: str | None = None,
         dry_run: bool = False,
+        observer: PushObserver | None = None,
     ) -> ModelPushResult:
-        """Stage, validate, sync metadata, and push specified or all 4 variations for a model."""
-        # 1. Validate the model key (metadata), then stage variations into this hub's model
-        #    folder to ensure the canonical file layout.
+        """Publish ``variation`` (one key or ``"all"``) of a model: the one push policy.
+
+        Used by the GUI job, the CLI and the notebook release, so all publish identically:
+
+        1. validate the key and write ``model_metadata.yaml``; stage ``dist/kaggle`` (not on a
+           dry run, K-MDL-8);
+        2. create or update the model page (title, license) BEFORE the first upload; when that
+           fails nothing is uploaded (K-MDL-6);
+        3. upload each variation with its license and version notes (epoch, metrics, suite
+           version), skipping payloads unchanged since the last upload (K-MDL-5);
+        4. sync model and instance metadata again (instances created by step 3).
+        """
+        variations = selected_variations(variation)
         self.ensure_model_metadata(model_key)
-        self.staging_service.stage_variations(model_key, base_dir=self.get_model_dir(model_key))
-
-        isolation_rep = self.validate_isolation(model_key)
-
-        variations_to_push = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
-
-        push_result = ModelPushResult(
+        if not dry_run:
+            staged = self.staging_service.stage_variations(
+                model_key, base_dir=self.get_model_dir(model_key)
+            )
+            if observer is not None:
+                observer.staged(model_key, [f.name for f in staged.staged_files.values()])
+        result = ModelPushResult(
             model_key=model_key,
             success=True,
-            isolation_report=isolation_rep,
+            isolation_report=self.validate_isolation(model_key),
         )
+        if not dry_run and not self._prepare_model_page(model_key, result):
+            return result
 
-        # 2. Push variation binaries to Kaggle Models Hub
-        for var in variations_to_push:
+        facts = release_facts(self.get_model_dir(model_key))
+        total = len(variations)
+        for index, var in enumerate(variations, 1):
+            if observer is not None:
+                observer.variation_started(index, total, var, self.get_handle(model_key, var))
             var_res = self.push_variation(
-                model_key=model_key,
-                variation=var,
-                version_notes=version_notes,
-                dry_run=dry_run,
+                model_key, var, version_notes=version_notes, dry_run=dry_run, facts=facts
             )
-            push_result.variations[var] = var_res
+            result.variations[var] = var_res
             if not var_res.success:
-                push_result.success = False
-                if var_res.error:
-                    push_result.errors.append(f"[{var}] {var_res.error}")
+                result.success = False
+                result.errors.append(f"[{var}] {var_res.error}")
+            if observer is not None:
+                observer.variation_done(index, total, var_res)
 
-        # 3. Synchronize Kaggle Metadata via REST API (always sync regardless of upload outcome)
+        self._finish_metadata(model_key, result, dry_run)
+        return result
+
+    def sync_model_page(self, model_key: str) -> dict[str, Any]:
+        """Create or update the model page (title, subtitle, license) before uploads (K-MDL-6).
+
+        ``result["model"]`` is None when Kaggle refused both the update and the create; the
+        reasons are in ``result["errors"]``.
+        """
+        try:
+            return self.api_sync_service.sync_model(self.model_metadata(model_key))
+        except (*KAGGLE_API_ERRORS, KaggleAuthError, yaml.YAMLError) as exc:
+            return {"model": None, "variations": {}, "errors": [str(exc)]}
+
+    def _prepare_model_page(self, model_key: str, result: ModelPushResult) -> bool:
+        """Sync the model page before any upload; False (and ``result`` failed) on error."""
+        page = self.sync_model_page(model_key)
+        if page.get("model") is not None:
+            return True
+        reasons = "; ".join(page.get("errors") or ["unknown error"])
+        message = f"Model page metadata sync failed; nothing uploaded: {reasons}"
+        logger.error("%s (model=%s)", message, model_key)
+        result.success = False
+        result.metadata_sync_result = page
+        result.errors.append(message)
+        return False
+
+    def _finish_metadata(self, model_key: str, result: ModelPushResult, dry_run: bool) -> None:
+        """Sync model and instance metadata after the uploads; record errors on ``result``."""
         try:
             sync_meta_res = self.sync_kaggle_metadata(model_key, dry_run=dry_run)
-            push_result.metadata_sync_result = sync_meta_res
-            if sync_meta_res.get("errors"):
-                push_result.errors.extend(sync_meta_res["errors"])
         except (*KAGGLE_API_ERRORS, KaggleAuthError, yaml.YAMLError) as meta_exc:
             err_str = f"Metadata synchronization error: {meta_exc}"
             logger.error(err_str)
-            push_result.errors.append(err_str)
-
-        return push_result
+            result.errors.append(err_str)
+            return
+        result.metadata_sync_result = sync_meta_res
+        if sync_meta_res.get("errors"):
+            result.errors.extend(sync_meta_res["errors"])
 
     def pull_destination(self, model_key: str, variation_key: str) -> Path:
         """Local folder a pulled variation is merged into.

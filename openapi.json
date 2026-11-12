@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.176"
+    "version": "16.9.177"
   },
   "paths": {
     "/api/health": {
@@ -1895,9 +1895,17 @@
             "description": "Target model key"
           },
           "variation": {
-            "type": "string",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariationKey"
+              },
+              {
+                "type": "string",
+                "const": "all"
+              }
+            ],
             "title": "Variation",
-            "description": "Variation to pull ('all', 'pytorch', 'pytorch_fp32', 'onnx_fp16', 'onnx_fp32')",
+            "description": "Kaggle Model Instance: 'all' or one of 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32'",
             "default": "all"
           },
           "force_download": {
@@ -1929,9 +1937,17 @@
       "KagglePushAllRequest": {
         "properties": {
           "variation": {
-            "type": "string",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariationKey"
+              },
+              {
+                "type": "string",
+                "const": "all"
+              }
+            ],
             "title": "Variation",
-            "description": "Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')",
+            "description": "Kaggle Model Instance: 'all' or one of 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32'",
             "default": "all"
           },
           "version_notes": {
@@ -1965,9 +1981,17 @@
             "description": "Target model key"
           },
           "variation": {
-            "type": "string",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariationKey"
+              },
+              {
+                "type": "string",
+                "const": "all"
+              }
+            ],
             "title": "Variation",
-            "description": "Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')",
+            "description": "Kaggle Model Instance: 'all' or one of 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32'",
             "default": "all"
           },
           "version_notes": {
@@ -3026,6 +3050,17 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VariationKey": {
+        "type": "string",
+        "enum": [
+          "pytorch/default",
+          "pytorch/fp32",
+          "onnx/fp16",
+          "onnx/fp32"
+        ],
+        "title": "VariationKey",
+        "description": "Key of one Kaggle Model Instance: the only accepted variation names (API, CLI, GUI).\n\nThe sidecar API exposes these values as an OpenAPI enum, so the GUI type is generated\nfrom the same list."
       }
     }
   },
