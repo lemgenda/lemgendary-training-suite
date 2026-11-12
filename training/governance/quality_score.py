@@ -115,6 +115,36 @@ def score_metrics(metrics: Mapping[str, Any], targets: Mapping[str, Any], task_t
     return weighted_quality_score(metrics, targets)
 
 
+def measured_targets(
+    targets: Mapping[str, Any], measured: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """The ``targets`` that ``measured`` holds a finite value for (all when ``None``)."""
+    if measured is None:
+        return dict(targets)
+    return {key: value for key, value in targets.items() if _finite(measured.get(key)) is not None}
+
+
+def target_quality_score(
+    targets: Mapping[str, Any], task_type: str, measured: Mapping[str, Any] | None = None
+) -> float:
+    """The quality score of the SOTA ``targets`` themselves, the curriculum's aim.
+
+    With ``measured`` (an epoch's metrics) only the targets measured that epoch count, so
+    the aim is on the same terms as the epoch score it is compared with (R2-T7): FID
+    measured every few epochs, or a rank margin that needs two samples per batch, no
+    longer raise the aim on the epochs that do not measure them. The same
+    :func:`score_metrics` scores both. A non-positive score falls back to ``1.0``; a
+    quality-model score at or below 1 is scaled to percent.
+    """
+    subset = measured_targets(targets, measured)
+    target_score = score_metrics(subset, subset, task_type)
+    if target_score <= 0:
+        return 1.0
+    if target_score <= 1.0 and task_type == "quality":
+        target_score *= 100.0
+    return target_score
+
+
 def csv_row_quality(row: Mapping[str, str], task_type: str) -> float | None:
     """Quality of one ``metrics.csv`` row on the current scale (``None`` when unknown).
 

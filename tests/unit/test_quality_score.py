@@ -12,14 +12,15 @@ from pathlib import Path
 import pytest
 
 from training.context_resume import reconcile_metrics_csv
+from training.governance.epoch_audit import EpochSignals
 from training.governance.governor import SmartTrainingGovernor
-from training.governance.governor_setup import target_quality_score
 from training.governance.quality_score import (
     QUALITY_SCHEME_KEY,
     RESTORATION_SCHEME,
     anchor_is_comparable,
     csv_row_quality,
     score_metrics,
+    target_quality_score,
 )
 from training.telemetry import TelemetryEngine
 
@@ -132,3 +133,40 @@ def test_metrics_csv_reconcile_uses_the_current_scale(tmp_path: Path) -> None:
     gov.best_quality = 0.0
     reconcile_metrics_csv(gov, csv_path, 0.2)
     assert gov.best_quality == pytest.approx(46.0)
+
+
+def test_target_score_ignores_targets_not_measured_this_epoch() -> None:
+    """Only the targets the epoch measured enter the aim (R2-T7)."""
+    targets = {"plcc": 0.9, "srcc": 0.9, "rank_margin": 0.05}
+    full = target_quality_score(targets, "quality")
+    partial = target_quality_score(targets, "quality", {"plcc": 0.5, "srcc": 0.4})
+    assert partial == pytest.approx(target_quality_score({"plcc": 0.9, "srcc": 0.9}, "quality"))
+    assert partial < full
+    nan_measured = {"plcc": 0.5, "srcc": float("nan"), "rank_margin": None}
+    assert target_quality_score(targets, "quality", nan_measured) == pytest.approx(
+        target_quality_score({"plcc": 0.9}, "quality")
+    )
+    assert target_quality_score(targets, "quality", {}) == 1.0
+
+
+def test_governor_audit_aims_at_the_measured_targets() -> None:
+    """The governor's target score follows the epoch's measured metrics."""
+    governor = SmartTrainingGovernor(
+        model_info={
+            "dataset_type": "quality",
+            "sota_targets": {"plcc": 0.9, "srcc": 0.9, "rank_margin": 0.05},
+        },
+        config={},
+    )
+    governor.audit_epoch(
+        EpochSignals(
+            current_quality=50.0,
+            current_loss=1.0,
+            train_loss=1.0,
+            metrics_dict={"plcc": 0.5, "srcc": 0.5},
+        ),
+        epochs_no_improve=0,
+    )
+    assert governor.target_quality_score == pytest.approx(
+        target_quality_score({"plcc": 0.9, "srcc": 0.9}, "quality")
+    )

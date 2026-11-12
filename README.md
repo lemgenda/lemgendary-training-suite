@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.162-STABLE`
+- **Version**: `v16.9.163-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,20 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.163 - Target Quality Score over the Targets Measured That Epoch (R2-T7)
+
+- Owner decision: `target_quality_score` ignores targets an epoch did not
+  measure. The governor recomputes its aim in every audit from the targets
+  with a finite value in that epoch's metrics, so an FID or rank-margin
+  target no longer raises the aim on epochs that do not measure it, and
+  the aim is on the same terms as the epoch score it is compared with
+  (propulsion's 80 % / 90 % checks, the stride threshold).
+- `target_quality_score` and `measured_targets` moved to
+  `training/governance/quality_score.py`, next to the single score
+  definition (`governor_setup` imports it; no duplicate).
+- Tests: `tests/unit/test_quality_score.py` (subset scoring, NaN/None
+  metrics, nothing measured, governor audit).
 
 ### v16.9.162 - NIMA Logit Bound from the Registry as a Soft Cap (R2-T6)
 

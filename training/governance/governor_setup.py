@@ -20,7 +20,7 @@ from training.governance.governor_groups import (
     LossWeights,
     RankShaping,
 )
-from training.governance.quality_score import score_metrics
+from training.governance.quality_score import target_quality_score
 from training.governance.sota import SotaTracker
 from training.governance.thermal import ThermalState
 
@@ -274,19 +274,6 @@ def build_runtime(stab: dict[str, Any], min_temp: float) -> GovernorRuntime:
             current_clamp=float(stab.get("logit_clamp", 15.0)),
         ),
     )
-
-
-def target_quality_score(sota_targets: dict[str, float], task_type: str) -> float:
-    """Combine the SOTA targets into the quality score the curriculum aims for.
-
-    The same :func:`score_metrics` that scores each epoch scores the targets.
-    """
-    target_score = score_metrics(sota_targets, sota_targets, task_type)
-    if target_score <= 0:
-        return 1.0
-    if target_score <= 1.0 and task_type == "quality":
-        target_score *= 100.0
-    return target_score
 
 
 def build_sota(
