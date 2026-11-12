@@ -15,6 +15,7 @@ from data.dataset_containers import DatasetContainerMixin
 from data.dataset_sources import DatasetSourcesMixin
 from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
 from data.dataset_targets import DatasetTargetsMixin
+from training.data.sample_seed import AugmentationSeed, seeded_sample_rngs
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
 
@@ -112,6 +113,7 @@ class MultiTaskDataset(
 
         self.pipes = TransformSet()
         self.build_transforms()
+        self.augment_seed = AugmentationSeed()
 
     @property
     def task_type(self) -> str:
@@ -230,6 +232,10 @@ class MultiTaskDataset(
             logger.warning("I/O failure on %s; substituting neutral gray: %s", img_path, e)
             return Image.new("RGB", (self.opts.size[1], self.opts.size[0]), (128, 128, 128))
 
+    def set_epoch(self, epoch: int) -> None:
+        """Derive the per-sample augmentation seeds of ``epoch`` (workers included)."""
+        self.augment_seed.set_epoch(epoch)
+
     def __len__(self):
         return len(self.catalog.samples)
 
@@ -238,13 +244,15 @@ class MultiTaskDataset(
             return self.sync_dummy()
 
         ds_name, sample_id = self.catalog.samples[index]
+        # Same augmentation for the same (epoch, index) on any worker, rank or resume.
+        seed = self.augment_seed.sample_seed(index)
+        with seeded_sample_rngs(seed):
+            # Container-backed sample path: sample_id is an integer index.
+            if isinstance(sample_id, int):
+                return self.getitem_container(ds_name, sample_id, seed)
 
-        # Container-backed sample path: sample_id is an integer index.
-        if isinstance(sample_id, int):
-            return self.getitem_container(ds_name, sample_id)
-
-        # Directory-backed path: sample_id is a filename string.
-        return self.task_item(self.load_directory_sample(ds_name, sample_id))
+            # Directory-backed path: sample_id is a filename string.
+            return self.task_item(self.load_directory_sample(ds_name, sample_id, seed))
 
     def update_strategy(self, size=None, fraction=None, stress=None):
         """Dynamic manifold scaling for curriculum learning (v16.2)."""

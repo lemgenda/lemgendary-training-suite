@@ -9,7 +9,6 @@ from __future__ import annotations
 import io
 import logging
 import os
-import random
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -98,8 +97,11 @@ class DatasetContainerMixin:
         """Shard of each active sample, in loader index order."""
         return self.shard_keys_for(self.catalog.samples)
 
-    def getitem_container(self, ds_name: str, idx: int):
-        """Fetch, decode and build the task triple of a ContainerReader-backed sample."""
+    def getitem_container(self, ds_name: str, idx: int, seed: int):
+        """Fetch, decode and build the task triple of a ContainerReader-backed sample.
+
+        ``seed`` is the sample's augmentation seed; it aligns the paired crops and flips.
+        """
         reader = self.catalog.container_readers[ds_name]
         try:
             sample = reader[idx]
@@ -125,7 +127,6 @@ class DatasetContainerMixin:
             except (OSError, ValueError) as tdec_err:
                 logger.warning("Target decode failed for %s[%d]: %s", ds_name, idx, tdec_err)
 
-        seed = random.randint(0, 2**32 - 1)
         decoded = DecodedSample(
             ds_name=ds_name,
             sample=sample,

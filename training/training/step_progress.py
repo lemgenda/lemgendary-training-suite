@@ -16,6 +16,8 @@ import torch.distributed as dist
 from training.data.locality_resume import PAYLOAD_KEY as LOCALITY_PAYLOAD_KEY
 from training.data.locality_resume import locality_record
 from training.training.context import TrainingContext
+from training.utils.rng_state import PAYLOAD_KEY as RNG_PAYLOAD_KEY
+from training.utils.rng_state import capture_rng_state
 
 
 @dataclass
@@ -109,6 +111,8 @@ def progress_payload(
         else None,
         # Shard-locality settings the run trains with; a resume keeps them.
         LOCALITY_PAYLOAD_KEY: locality_record(ctx.run.config),
+        # Python, NumPy, torch CPU and device generators; a resume continues from them.
+        RNG_PAYLOAD_KEY: capture_rng_state(),
     }
     payload.update(extra)
     return payload

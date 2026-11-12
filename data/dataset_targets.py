@@ -125,8 +125,11 @@ class DatasetTargetsMixin:
     # ``split_path(ds_path, folder_name, fname, ext)``
     split_path: Callable[[str, str, str, str], str]
 
-    def load_directory_sample(self, ds_name: str, fname: str) -> DirectorySample:
-        """Resolve ``fname`` in ``ds_name``, load its input and (restoration) target tensors."""
+    def load_directory_sample(self, ds_name: str, fname: str, seed: int) -> DirectorySample:
+        """Resolve ``fname`` in ``ds_name``, load its input and (restoration) target tensors.
+
+        ``seed`` is the sample's augmentation seed; it aligns the paired crops and flips.
+        """
         ds_path = self.catalog.path_cache.get(ds_name)
         if ds_path is None:
             ds_path = self.get_dataset_path(ds_name)
@@ -142,6 +145,7 @@ class DatasetTargetsMixin:
                 tgt_path=self.split_path(ds_path, "targets", fname, ""),
             ),
             task_str=self.spec.task_type,
+            seed=seed,
         )
         has_img = os.path.exists(sample.paths.img_path)
         has_tgt = os.path.exists(sample.paths.tgt_path)
@@ -163,7 +167,6 @@ class DatasetTargetsMixin:
         """Degrade the clean target into the input; one seed aligns both crops and flips."""
         target = self.load_image(sample.paths.tgt_path)
         sample.img = synthesize_degradation(target)
-        sample.seed = random.randint(0, 2**32 - 1)
         reseed(sample.seed)
         sample.target_tensor = self.pipes.transform(target)
         reseed(sample.seed)
@@ -172,7 +175,6 @@ class DatasetTargetsMixin:
     def _load_input(self, sample: DirectorySample) -> None:
         """Load the input image; ``ultrazoom`` gets an on-the-fly 2x downscaled input."""
         sample.img = self.load_image(sample.paths.img_path)
-        sample.seed = random.randint(0, 2**32 - 1)
         if self.spec.model_key == "ultrazoom":
             lr_size = (self.opts.size[0] // 2, self.opts.size[1] // 2)
             input_transform = transforms.Compose(

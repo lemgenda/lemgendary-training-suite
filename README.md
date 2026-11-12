@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.166-STABLE`
+- **Version**: `v16.9.167-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,37 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.167 - Generator State in Checkpoints and Resume-Exact Augmentation (R2-T8)
+
+- Checkpoints (progress, latest and best; all built by `progress_payload`)
+  record an `rng_state` entry: the Python `random`, NumPy and torch CPU
+  generators plus every present device generator (CUDA, which covers ROCm,
+  MPS and XPU). `resume_from_checkpoint` restores them last, so the
+  training loop's own randomness continues where the interrupted run
+  stopped. The record loads under `torch.load(weights_only=True)`.
+  Checkpoints without it resume with fresh generators, which is logged;
+  device states for a backend the host lacks are skipped (logged).
+- Augmentation no longer draws `random.randint` seeds inside the loader
+  workers. `training/data/sample_seed.py` (new) derives each sample's seed
+  from (base seed 42, epoch, dataset index), and `MultiTaskDataset`
+  seeds Python, NumPy and torch with it for that sample only (the
+  previous states are restored afterwards). The same sample therefore
+  gets the same crop, flip and synthesized degradation on any worker,
+  DDP rank, shard-locality order or resume, and different ones in the
+  next epoch. The epoch sits in shared memory so persistent workers
+  follow `set_loader_epoch` without a re-spawn. Validation datasets stay
+  at epoch 0, so their synthesized degradations are now the same every
+  epoch.
+- The train DataLoader has its own generator, reseeded per epoch by
+  `set_loader_epoch`; starting an iteration no longer advances the global
+  torch generator, so a resumed loop draws the same numbers.
+- `training/utils/rng_state.py` (new) holds the capture/restore code.
+- Tests: `tests/unit/test_rng_resume.py` interrupts an epoch, resumes in
+  a scrambled process with 0 and 2 workers and checks that the remaining
+  batches' augmented tensors and the loop's draws equal an uninterrupted
+  run's; plus weights-only loading, legacy and malformed records and
+  mocked device backends.
 
 ### v16.9.166 - Inference Notebook Cells Use the Release File Names (R2-T1 Follow-Up)
 

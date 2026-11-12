@@ -175,11 +175,24 @@ def loader_batch_size(loader: Any, fallback: int) -> int:
 
 
 def set_loader_epoch(loader: Any, epoch: int) -> None:
-    """Reseed the loader's sampler and batch sampler for ``epoch`` when they support it."""
-    for source in (getattr(loader, "sampler", None), getattr(loader, "batch_sampler", None)):
+    """Reseed ``loader`` for ``epoch``: sampler, batch sampler, dataset and generator.
+
+    The sampler and batch sampler draw the epoch permutation, the dataset derives the
+    per-sample augmentation seeds (:mod:`training.data.sample_seed`) and the loader's own
+    generator, when it has one, yields the epoch's worker base seed.
+    """
+    sources = (
+        getattr(loader, "sampler", None),
+        getattr(loader, "batch_sampler", None),
+        getattr(loader, "dataset", None),
+    )
+    for source in sources:
         set_epoch = getattr(source, "set_epoch", None)
         if callable(set_epoch):
             set_epoch(epoch)
+    generator = getattr(loader, "generator", None)
+    if isinstance(generator, torch.Generator):
+        generator.manual_seed(DEFAULT_SAMPLER_SEED + int(epoch))
 
 
 def resume_start_batch(loader: Any, resume_step: int) -> int:

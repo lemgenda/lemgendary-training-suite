@@ -38,6 +38,7 @@ from training.training.param_groups import (
     migrate_scheduler_state,
 )
 from training.utils.error_types import STATE_RESTORE_ERRORS
+from training.utils.rng_state import restore_rng_state
 
 logger = logging.getLogger("lemtrain.core_loop")
 
@@ -398,4 +399,6 @@ def resume_from_checkpoint(
     if pinned != built_with and not resynced:
         _rebuild_for_locality(spec, data)
     _restore_sota_best(loaded, train)
+    # Last, so rebuilding the model, optimizer and loaders above cannot advance them.
+    restore_rng_state(loaded)
     return parse_resume_state(loaded)

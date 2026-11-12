@@ -285,7 +285,7 @@ def test_segmentation_without_mask_raises(tmp_path: Path) -> None:
     """A segmentation sample without a mask member fails loudly instead of all-zero masks."""
     dataset = _dataset_from(tmp_path, "parsenet", _image_members(paired=False))
     with pytest.raises(RuntimeError, match="no mask member"):
-        dataset.getitem_container(dataset.catalog.samples[0][0], 0)
+        dataset.getitem_container(dataset.catalog.samples[0][0], 0, seed=0)
 
 
 def _spec(model_key: str) -> context_data.RunSpec:

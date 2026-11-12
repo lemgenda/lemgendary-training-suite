@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, Sampler
 
 from training.data.locality import LocalityConfig, ShardWindow
-from training.data.resumable_sampler import ResumableBatchSampler
+from training.data.resumable_sampler import DEFAULT_SAMPLER_SEED, ResumableBatchSampler
 from training.data.workers import (
     UserWorkerCounts,
     compute_worker_topology,
@@ -137,6 +137,9 @@ def build_train_loader(
         "num_workers": workers,
         "persistent_workers": persistent,
         "pin_memory": pin,
+        # Own generator: starting an iteration (epoch start or resume) draws the worker base
+        # seed from it, not from the global torch generator the training loop restores.
+        "generator": torch.Generator().manual_seed(DEFAULT_SAMPLER_SEED),
     }
 
     if workers > 0:
