@@ -13,6 +13,8 @@ from typing import Any
 
 import torch
 
+from training.checkpoint.manager import safe_atomic_save
+
 logger = logging.getLogger("lemtrain.export.soup")
 
 
@@ -21,9 +23,7 @@ def _normalize_weights(n: int, weights: list[float] | None) -> list[float]:
     if weights is None:
         return [1.0 / n] * n
     if len(weights) != n:
-        raise ValueError(
-            f"Weights count ({len(weights)}) does not match state_dicts count ({n})."
-        )
+        raise ValueError(f"Weights count ({len(weights)}) does not match state_dicts count ({n}).")
     total_w = sum(weights)
     if total_w <= 0:
         raise ValueError("Sum of weights must be positive.")
@@ -120,8 +120,8 @@ def create_pareto_model_soup(
     out_payload["soup_weights"] = coeffs
 
     if output_path is not None:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(out_payload, output_path)
+        if not safe_atomic_save(out_payload, output_path):
+            raise OSError(f"Could not save the Pareto Model Soup to {output_path}")
         logger.info("Successfully exported Pareto Model Soup to %s", output_path)
 
     return out_payload

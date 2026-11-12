@@ -3,6 +3,7 @@
 import torch
 
 from data.sample_labels import LANDMARK_ABSENT
+from training.core_loop import uses_perceptual_loss
 from training.losses import (
     MULTITASK_HEAD_TO_INDEX,
     CombinedLoss,
@@ -104,3 +105,11 @@ def test_autocast_device_type_follows_tensor_device() -> None:
     assert autocast_device_type(torch.device("cuda", 0)) == "cuda"
     assert autocast_device_type(torch.device("mps")) == "mps"
     assert autocast_device_type(torch.device("meta")) == "cpu"
+
+
+def test_perceptual_loss_follows_registry_loss_fn() -> None:
+    """Only ``loss_fn`` names with an LPIPS term enable the perceptual loss (audit 3.2.3)."""
+    assert uses_perceptual_loss("l1_lpips")
+    assert uses_perceptual_loss("L1_LPIPS")
+    assert not uses_perceptual_loss("l1")
+    assert not uses_perceptual_loss("")

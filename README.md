@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.143-STABLE`
+- **Version**: `v16.9.144-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,32 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.144 - Governor LR Scaling, LPIPS and Quality Score Fixes
+
+- `training/core_loop.py`: `build_criterion` enables the LPIPS perceptual
+  term for models whose registry `loss_fn` names it (`l1_lpips`:
+  `film_restorer`, `ffanet_indoor`, `ffanet_outdoor`). Before, `use_perc`
+  was never passed and LPIPS was always 0.
+- `training/telemetry.py`: `compute_quality_score` skips SOTA metrics the
+  epoch did not measure. A missing FID used to count as 0.0, adding a
+  phantom +100 to the quality score.
+- `training/training/lr_scaling.py` (new): governor LR multipliers are
+  applied as the ratio between the new and the previously applied
+  multiplier to the group rates and the scheduler's `base_lrs`, so cosine
+  decay and governor cooling compose. `head_lr_multiplier` applies to param
+  groups tagged `group: head`. The applied multiplier is stored in the param
+  group and survives resume.
+- `training/governance/governor_groups.py`: `LrPropulsion` gains the
+  `trigger_mini_swa` field `GovernorHost` already delegated to (reading it
+  raised `AttributeError`).
+- `training/export/soup.py`, `training/training/engine.py`: the model soup
+  and the best checkpoint without a lifecycle manager are written with
+  `safe_atomic_save` instead of a raw `torch.save`.
+- `tests/unit/test_swa.py`: the engine-seam context resolves its model hub
+  inside its own temporary root, so a stale `LemGendaryModels` folder in the
+  system temp directory no longer leaks SWA files between runs.
+- Tests: `test_lr_scaling.py`, `test_quality_score.py`, LPIPS flag test.
 
 ### v16.9.143 - Container Targets for Every Task
 

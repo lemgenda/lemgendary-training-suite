@@ -263,6 +263,11 @@ def resolve_task_type(model_info: dict) -> str:
     return raw_task_type[0] if isinstance(raw_task_type, list) else str(raw_task_type)
 
 
+def uses_perceptual_loss(loss_fn_name: str) -> bool:
+    """True when the registry ``loss_fn`` names an LPIPS term (e.g. ``l1_lpips``)."""
+    return "lpips" in loss_fn_name.lower()
+
+
 def build_criterion(spec: RunSpec):
     """Forex models train on ``ForexDualLoss``; everything else on ``CombinedLoss``."""
     loss_fn_name = str(spec.model_info.get("loss_fn") or "").lower()
@@ -274,7 +279,9 @@ def build_criterion(spec: RunSpec):
         criterion = ForexDualLoss()
     else:
         criterion = CombinedLoss(
-            task_type=spec.task_type, stabilizers=spec.model_info.get("stabilizers")
+            task_type=spec.task_type,
+            stabilizers=spec.model_info.get("stabilizers"),
+            use_perc=uses_perceptual_loss(loss_fn_name),
         )
     criterion.to(spec.device)
     return criterion
@@ -421,9 +428,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     train.governor.curriculum.update_batch_and_accumulation(batch_size)
     train.sota_tracker = SotaTracker()
 
-    data, val_loader, test_loader = build_data(
-        spec, train.governor, train.raw_model, batch_size
-    )
+    data, val_loader, test_loader = build_data(spec, train.governor, train.raw_model, batch_size)
 
     resume_state = None
     if not args.clean:

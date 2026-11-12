@@ -259,7 +259,12 @@ class TelemetryEngine:
             f.writelines(updated_rows)
 
     def compute_quality_score(self, curr_metrics, sota_targets, task_type):
-        """Dynamic Quality Score: Weighted average of all SOTA targets."""
+        """Dynamic Quality Score: Weighted average of the SOTA targets measured this epoch.
+
+        A target metric absent from ``curr_metrics`` (e.g. FID when the metric module is
+        unavailable or the epoch's FID pass was incomplete) contributes nothing. Before,
+        it was read as 0.0, which scored a lower-is-better metric as perfect (+100 for FID).
+        """
         quality_score = 0.0
 
         # --- 2026: Metric Singularity Shield & Live Polarity Shield (v1.2.2) ---
@@ -273,7 +278,9 @@ class TelemetryEngine:
                 )  # Return score, and a flag indicating singularity or polarity collapse
 
         for k in sota_targets:
-            val = curr_metrics.get(k, 0.0)
+            if curr_metrics.get(k) is None:
+                continue
+            val = curr_metrics[k]
             direction = METRIC_DIRECTIONS.get(k, True)
             weight = METRIC_WEIGHTS.get(k, 1)
 

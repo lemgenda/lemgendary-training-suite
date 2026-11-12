@@ -104,11 +104,12 @@ class Calibration:
 
 @dataclass
 class LrPropulsion:
-    """Backbone and head LR multipliers and the jolt window."""
+    """Backbone and head LR multipliers, the jolt window and the mini-SWA trigger."""
 
     lr_multiplier: float = 1.0
     head_lr_multiplier: float = 1.0
     jolt_window_remaining: int = 0
+    trigger_mini_swa: bool = False
 
 
 @dataclass

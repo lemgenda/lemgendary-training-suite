@@ -17,7 +17,7 @@ import torch
 from torch.utils.data.distributed import DistributedSampler
 
 from data.forex_sampler import RowGroupAwareSampler
-from training.checkpoint import CheckpointLifecycleManager, ExportSource
+from training.checkpoint import CheckpointLifecycleManager, ExportSource, safe_atomic_save
 from training.cloud_sync import trigger_cloud_sync
 from training.data import rebuild_train_loader
 from training.data.loaders import LoaderPlacement, TrainLoaderOptions, WorkerOverrides
@@ -42,6 +42,7 @@ from training.ratchet import (
 from training.telemetry import EpochLosses, EpochRow, ForexRowTag, TelemetryEngine
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
+from training.training.lr_scaling import scale_learning_rates
 from training.training.step_progress import progress_payload
 from training.training.summary import TrainingSummary
 from training.training.swa import attach_swa
@@ -118,14 +119,14 @@ def _rebuild_loader_on_directive(ctx: TrainingContext, f_chg: bool, r_chg: bool)
 
 
 def _apply_lr_multiplier(ctx: TrainingContext) -> None:
-    """Scale every optimizer group's learning rate by the governor's ``lr_multiplier``."""
-    lr_mult = float(getattr(ctx.governance.governor, "lr_multiplier", 1.0))
-    for param_group in ctx.models.optimizer.param_groups:
-        if "initial_lr" in param_group:
-            param_group["lr"] = param_group["initial_lr"] * lr_mult
-        else:
-            param_group["lr"] = param_group.get("lr", 1e-4) * lr_mult
-    logger.debug("Applied governor learning rate multiplier: %.3fx", lr_mult)
+    """Compose the governor's LR multipliers with the scheduler's decay."""
+    governor = ctx.governance.governor
+    lr_mult = float(getattr(governor, "lr_multiplier", 1.0))
+    head_mult = float(getattr(governor, "head_lr_multiplier", lr_mult))
+    scale_learning_rates(ctx.models.optimizer, ctx.models.scheduler, lr_mult, head_mult)
+    logger.debug(
+        "Applied governor learning rate multipliers: %.3fx (head %.3fx)", lr_mult, head_mult
+    )
 
 
 @dataclass
@@ -501,7 +502,7 @@ def _save_checkpoints(
     lifecycle_manager = ctx.governance.lifecycle_manager
     if lifecycle_manager is None:
         if score.is_best and ctx.run.paths.best_checkpoint_path is not None:
-            torch.save(checkpoint_payload, ctx.run.paths.best_checkpoint_path)
+            safe_atomic_save(checkpoint_payload, ctx.run.paths.best_checkpoint_path)
         if ctx.run.paths.history_csv_path is not None:
             ctx.governance.vault.export_csv(ctx.run.paths.history_csv_path)
         return
