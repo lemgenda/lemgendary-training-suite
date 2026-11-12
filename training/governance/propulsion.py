@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from training.governance.epoch_signals import AuditDirectives
 from training.governance.governor_host import GovernorHost
+from training.governance.governor_setup import rung_entry_fraction
 from training.ratchet import (
     expand_fraction,
 )
@@ -115,14 +116,7 @@ class PropulsionMixin(GovernorHost):
             d.msg_parts.append("RECOIL: Insufficient Quality for spatial jump. Cooling LR.")
             self.sota.stabilization_epochs = self.stabilization_lock
         else:
-            init_frac = float(
-                self.model_info.get("optimization", {}).get(
-                    "initial_fraction",
-                    self.config.get("governor", {})
-                    .get("manifold", {})
-                    .get("initial_fraction", 0.15),
-                )
-            )
+            init_frac = rung_entry_fraction(self.model_info, self.config)
             self._commit_rung(next_res, init_frac)
             d.r_changed = d.b_changed = True
             d.f_changed = True

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.149-STABLE`
+- **Version**: `v16.9.150-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,35 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.150 - Rung Entry Fraction and VRAM Refit on Resolution Jumps
+
+- `training/governance/governor_setup.py`: `rung_entry_fraction` is the
+  one place that decides the data fraction a new resolution rung starts
+  at (`optimization.initial_fraction`, then the config's
+  `governor.manifold.initial_fraction`, then 0.15).
+- `training/governance/epoch_audit.py`: a SOTA-forced jump entered the
+  next rung at a hardcoded 50% data fraction, while an organic spatial
+  jump entered at `initial_fraction`. Both now use `rung_entry_fraction`;
+  the move still goes through `_commit_rung` (Monotonic Ratchet pair
+  rule: the resolution steps up, so the fraction may reset).
+- `training/governance/curriculum.py`: `fit_batch_to_budget` shrinks the
+  micro-batch to a VRAM budget and keeps `batch * accumulation` exactly
+  equal (largest divisor of the effective batch within the budget).
+  `update_batch_and_accumulation` rounds `target / batch` and could drift.
+- `training/training/batch_budget.py` (new): after a resolution jump the
+  engine re-runs the VRAM audit at the new resolution and fits the
+  micro-batch to it. Before, the micro-batch of the previous rung was
+  kept and only a resume re-audited it. The probe's train-mode passes
+  would move BatchNorm running statistics, so buffers and train/eval
+  mode are restored after it. Off CUDA there is no measurement, so no
+  probe runs.
+- `training/context_resume.py`: the resume VRAM clamp uses the same
+  `fit_batch_to_budget`, so a clamped resume keeps its effective batch.
+- Tests: `tests/unit/test_governor_jumps.py` (entry fraction precedence,
+  forced jump at `initial_fraction`, top-rung no-op) and
+  `tests/unit/test_batch_budget.py` (`b_micro * accum` invariant over a
+  grid, probe at the new resolution, model state untouched).
 
 ### v16.9.149 - Warning-Free SWA and MT5 Tests
 

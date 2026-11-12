@@ -89,6 +89,18 @@ def _initial_fraction(
     return float(manifold_defaults.get("initial_fraction", 0.15))
 
 
+def rung_entry_fraction(model_info: dict[str, Any], config: dict[str, Any]) -> float:
+    """Data fraction a new resolution rung starts at (spatial and SOTA-forced jumps).
+
+    Precedence: ``optimization.initial_fraction``, then the config's
+    ``governor.manifold.initial_fraction``, then 0.15. A resolution step-up may
+    lower the fraction under the Monotonic Ratchet pair rule.
+    """
+    opt = model_info.get("optimization") or {}
+    manifold_defaults = (config.get("governor") or {}).get("manifold") or {}
+    return float(opt.get("initial_fraction", manifold_defaults.get("initial_fraction", 0.15)))
+
+
 def _initial_batch(model_info: dict[str, Any]) -> int:
     """Return the configured physical batch; 2 for LLMs and 16 otherwise when unset."""
     batch_val = model_info.get("batch_size")

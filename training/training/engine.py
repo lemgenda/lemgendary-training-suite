@@ -41,6 +41,7 @@ from training.ratchet import (
     top_resolution_reached,
 )
 from training.telemetry import EpochLosses, EpochRow, ForexRowTag, TelemetryEngine
+from training.training.batch_budget import refit_batch_for_resolution
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
 from training.training.lr_scaling import scale_learning_rates
@@ -69,6 +70,8 @@ def _rebuild_loader_on_directive(ctx: TrainingContext, f_chg: bool, r_chg: bool)
             fraction=new_frac if f_chg else None,
             stress=stress_val,
         )
+        if r_chg:
+            refit_batch_for_resolution(ctx)
         fallback_batch = loader_batch_size(ctx.data.train_loader, 16)
         curr_batch = int(
             getattr(ctx.governance.governor.curriculum, "current_batch", fallback_batch)

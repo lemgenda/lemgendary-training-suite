@@ -10,6 +10,7 @@ from training.governance.epoch_signals import (
     AuditResult,
     EpochSignalsMixin,
 )
+from training.governance.governor_setup import rung_entry_fraction
 from training.governance.propulsion import PropulsionMixin
 
 __all__ = ["AuditDirectives", "AuditResult", "EpochAuditMixin", "EpochSignals"]
@@ -335,7 +336,7 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
         )
         if 0 <= current_idx < len(self.res_ladder) - 1:
             next_res = self.res_ladder[current_idx + 1]
-            self._commit_rung(next_res, 0.5)
+            self._commit_rung(next_res, rung_entry_fraction(self.model_info, self.config))
             self.runtime.counters.last_res_jump_epoch = self.epoch_count
             self.runtime.counters.spatial_lock_remaining = self.stabilization_lock
             self.sota.stabilization_epochs = self.stabilization_lock

@@ -213,6 +213,11 @@ def _resync_train_loader(spec: RunSpec, train: TrainState, data: LoaderState) ->
     )
     restored_batch = int(getattr(governor, "current_batch", data.batch_size))
     curr_batch = min(restored_batch, hw_safe_batch)
+    curriculum = getattr(governor, "curriculum", None)
+    if curr_batch != restored_batch and curriculum is not None:
+        # Same effective batch as before the resume: largest divisor within the budget.
+        curriculum.fit_batch_to_budget(hw_safe_batch)
+        curr_batch = int(curriculum.current_batch)
     if curr_batch != restored_batch:
         logger.warning(
             "[RESUME CLAMP] Clamped restored batch %d -> %d to prevent "
@@ -221,8 +226,6 @@ def _resync_train_loader(spec: RunSpec, train: TrainState, data: LoaderState) ->
             curr_batch,
             rec_res,
         )
-        if hasattr(governor, "update_batch_and_accumulation"):
-            governor.update_batch_and_accumulation(curr_batch)
 
     data.train_loader = rebuild_resumed_train_loader(spec, train_ds, data.train_loader, curr_batch)
     total_ds_samples = len(getattr(train_ds, "all_samples", [])) or len(train_ds)
