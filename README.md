@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.140-STABLE`
+- **Version**: `v16.9.141-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,13 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.141 - Registry Dataset Lists Deduplicated
+
+- `unified_models_v2.yaml`: 21 models listed their dataset twice
+  (`datasets: [X, X]`); each dataset is now listed once.
+  `_registry_metadata.datasets.LemGendizedForexUniverse.count` is corrected
+  from 30810572 to 26818700 rows.
 
 ### v16.9.140 - Validator Findings: No Swallowed Errors
 

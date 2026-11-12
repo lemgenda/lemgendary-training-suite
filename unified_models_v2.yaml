@@ -4,7 +4,7 @@ _registry_metadata:
   specialization: 2026_Resiliency
   datasets:
     LemGendizedForexUniverse:
-      count: 30810572
+      count: 26818700
   models_count: 23
 forex_predictor:
   status: TRAINING
@@ -30,7 +30,6 @@ forex_predictor:
 
     '
   datasets:
-    - LemGendizedForexUniverse
     - LemGendizedForexUniverse
   curriculum:
     active_folds:
@@ -156,7 +155,6 @@ nima_aesthetic_mobile:
     backbone for real-time mobile and edge inference.
   datasets:
     - LemGendizedNimaAesthetic
-    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.65
     srcc: 0.65
@@ -238,7 +236,6 @@ nima_aesthetic_efficientnet:
     optimized for artistic composition and color harmony using EfficientNetV2-S backbone.
   datasets:
     - LemGendizedNimaAesthetic
-    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.7
     srcc: 0.7
@@ -319,7 +316,6 @@ nima_aesthetic_pro:
     for high-res global composition.
   datasets:
     - LemGendizedNimaAesthetic
-    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.75
     srcc: 0.75
@@ -399,7 +395,6 @@ nima_technical:
   description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset,
     optimized for detecting micro-defects, noise, and artifacts.
   datasets:
-    - LemGendizedNimaTechnical
     - LemGendizedNimaTechnical
   stabilizers:
     min_temp: 0.96
@@ -482,7 +477,6 @@ nima_authenticity:
   architecture_type: EfficientNetV2-S (Distribution Scorer)
   description: DeepFake and AI-generated image detection model built on EfficientNetV2.
   datasets:
-    - LemGendizedNimaAuthenticity
     - LemGendizedNimaAuthenticity
   stabilizers:
     softmax_temp: 1.0
@@ -573,7 +567,6 @@ upn_v2:
     plateau_priority: data
   datasets:
     - LemGendizedUpnV2
-    - LemGendizedUpnV2
   val_resolution: 256
   kaggle_accelerator: T4
   architecture_type: MobileNetV3-Small Parameter Regressor
@@ -634,7 +627,6 @@ film_restorer:
     plateau_priority: resolution
   datasets:
     - LemGendizedFilmRestorer
-    - LemGendizedFilmRestorer
   val_resolution: 512
   kaggle_accelerator: Dual T4
   architecture_type: UniversalFilmRestorer (Residual Dense Autoencoder)
@@ -690,7 +682,6 @@ codeformer:
     logit_clamp: 15.0
   datasets:
     - LemGendizedCodeFormer
-    - LemGendizedCodeFormer
   sota_targets:
     fid: 5.2
     psnr: 30.5
@@ -738,7 +729,6 @@ parsenet:
   optimal_key: parsenet
   description: Face parsing model for segmentation
   datasets:
-    - LemGendizedParseNet
     - LemGendizedParseNet
   optimization:
     high_fidelity_fraction: 0.7
@@ -792,7 +782,6 @@ ffanet_indoor:
   optimal_key: ffanet_indoor
   description: FFANet indoor dehazing restoration
   datasets:
-    - LemGendizedFfaNetIndoor
     - LemGendizedFfaNetIndoor
   stabilizers:
     numerical_sentinel:
@@ -857,7 +846,6 @@ ffanet_outdoor:
   description: FFANet outdoor dehazing restoration
   datasets:
     - LemGendizedFfaNetOutdoor
-    - LemGendizedFfaNetOutdoor
   stabilizers:
     numerical_sentinel:
       - -0.2
@@ -919,7 +907,6 @@ mirnet_lowlight:
   optimal_key: mirnet_lowlight
   description: MIRNet v2 low-light image enhancement
   datasets:
-    - LemGendizedMirNetLowLight
     - LemGendizedMirNetLowLight
   stabilizers:
     numerical_sentinel:
@@ -983,7 +970,6 @@ mirnet_exposure:
   description: MIRNet v2 for overexposure correction and dynamic range adjustment
   datasets:
     - LemGendizedMirNetExposure
-    - LemGendizedMirNetExposure
   stabilizers:
     numerical_sentinel:
       - -0.2
@@ -1045,7 +1031,6 @@ mprnet_deraining:
   optimal_key: mprnet_deraining
   description: MPRNet image deraining
   datasets:
-    - LemGendizedMprNetDeraining
     - LemGendizedMprNetDeraining
   stabilizers:
     numerical_sentinel:
@@ -1121,7 +1106,6 @@ nafnet_debluring:
       - 512
   datasets:
     - LemGendizedNafNetDebluring
-    - LemGendizedNafNetDebluring
   stabilizers:
     numerical_sentinel:
       - -0.2
@@ -1184,7 +1168,6 @@ nafnet_denoising:
       - 384
       - 512
   datasets:
-    - LemGendizedNafNetDenoising
     - LemGendizedNafNetDenoising
   stabilizers:
     numerical_sentinel:
@@ -1330,7 +1313,6 @@ professional_multitask_restoration:
     fid: 12.0
   datasets:
     - LemGendizedMultitaskRestorationPro
-    - LemGendizedMultitaskRestorationPro
   val_resolution: 512
   kaggle_accelerator: Dual T4
   architecture_type: MultiTaskRestorer (Shared Encoder Multi-Task MoE)
@@ -1371,7 +1353,6 @@ ultrazoom:
   optimal_key: ultrazoom
   description: Dynamic scale super-resolution model
   datasets:
-    - LemGendizedUltraZoom
     - LemGendizedUltraZoom
   optimization:
     high_fidelity_fraction: 0.7
@@ -1432,7 +1413,6 @@ universal_nsfw_classification:
     content.
   datasets:
     - LemGendizedClassificationMaster
-    - LemGendizedClassificationMaster
   sota_targets:
     accuracy: 0.98
   optimization:
@@ -1489,7 +1469,6 @@ retinaface:
   description: Robust single-stage face and landmark detection with unified MobileNetV3-Small
     backbone for real-time edge deployment.
   datasets:
-    - LemGendizedRetinaFace
     - LemGendizedRetinaFace
   optimization:
     high_fidelity_fraction: 0.7
