@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.173-STABLE`
+- **Version**: `v16.9.174-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,29 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.174 - Token-Free Notebook Clone Outside the Kernel Output (R3-K1)
+
+- The notebook clone cell never puts the GitHub PAT in a URL or a file
+  (K-NB-4). Clone URLs are the plain `<identity.github_url>/<folder>.git`
+  from the ecosystem file (`github_repo_url`). The token reaches git only
+  through `GIT_ASKPASS`: a helper script under the system temp folder
+  that prints `$LEMGENDARY_GIT_TOKEN` from the git process environment;
+  the helper folder is deleted afterwards. The origin URL is reset to the
+  plain URL on every run (older notebooks stored the token in it).
+- On Kaggle the suite and env-manager are cloned to `/kaggle/temp`, not
+  `/kaggle/working`, so no `.git` folder (config, hooks, packed refs) is
+  saved as public kernel output. The cell exports
+  `LEMGENDARY_WORKSPACE_ROOT=/kaggle/working`,
+  `LEMGENDARY_ECOSYSTEM_FILE` (env-manager checkout) and
+  `KAGGLE_WORKING_DIR`, so `LemGendaryModels` stays under
+  `/kaggle/working`. The install and training cells read the suite and
+  requirement paths from `platform_paths`.
+- Generated kernel bundles were already private (`is_private: true`); no
+  change there.
+- Tests: `tests/unit/test_notebook_kaggle_cells.py` (no token placeholder
+  or credential URL in the generated notebook, no clone under
+  `/kaggle/working`).
 
 ### v16.9.173 - Kaggle Notebook Recovery by Slug and Stored Epoch (R3-K1)
 
@@ -53,7 +76,7 @@
 - Tests: `tests/unit/test_notebook_kaggle_cells.py` (the recovery cell is
   executed against a temp hub with a fake kagglehub).
 
-### v16.9.172 - Isolated, Throttled Per-Epoch Kaggle Sync and Merged Editors (R3-K1)
+### v16.9.172 - Throttled Kaggle Auto-Sync and Merged Editors (R3-K1)
 
 - The per-epoch Kaggle auto-sync (`--env kaggle --auto_sync`) goes
   through `KaggleModelSyncManager.push_variation(..., "pytorch/default")`:
@@ -88,7 +111,7 @@
 - Tests: `tests/unit/test_kaggle_autosync.py`, new cases in
   `tests/unit/test_ecosystem.py`.
 
-### v16.9.171 - Kaggle Pulls Merge Into the Hub Folder Without Losing Local Work (R3-K1)
+### v16.9.171 - Kaggle Pulls Merge Into the Hub Folder (R3-K1)
 
 - `KaggleModelSyncManager.pull_variation` downloads into a fresh
   temporary folder under the hub root and merges the files into
@@ -118,7 +141,7 @@
   `output_dir` rules; non-empty folder, `force=True`, repeated auto-pull,
   epoch beats size).
 
-### v16.9.170 - One Kaggle Credential Resolver and a Real Status Probe (R3-K1)
+### v16.9.170 - One Kaggle Credential Resolver, Real Status Probe (R3-K1)
 
 - `training/cloud/credentials.py`: `resolve_kaggle_credentials` is the one
   Kaggle credential resolver. Tokens are returned exactly as stored. A

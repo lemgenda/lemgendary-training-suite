@@ -12,6 +12,7 @@ import yaml
 from training.ecosystem import kaggle_owner
 from training.utils.lazy_imports import load_cloud_module
 
+from ..platform_paths import platform_paths
 from ..registry import ModelNotebookMeta
 from .base import make_code_cell
 
@@ -257,22 +258,9 @@ def build_continuous_sync_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
 
 def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
     """Build process janitor and training coordinator launch code cell."""
-    if target == "kaggle":
-        suite_candidates = [
-            "/kaggle/working/lemgendary-training-suite",
-            "/kaggle/working/model-training/lemgendary-training-suite",
-            "/kaggle/working",
-        ]
-        default_dir = "/kaggle/working/lemgendary-training-suite"
-        env_flag = "kaggle"
-    else:
-        suite_candidates = [
-            "/content/lemgendary-training-suite",
-            "/content/model-training/lemgendary-training-suite",
-            "/content",
-        ]
-        default_dir = "/content/lemgendary-training-suite"
-        env_flag = "colab"
+    default_dir = platform_paths(target).suite_dir
+    suite_candidates = [default_dir]
+    env_flag = "kaggle" if target == "kaggle" else "colab"
 
     launch_msg = "Forex Curriculum Orchestrator" if meta.identity.is_forex else "Training Matrix"
     cmd_dispatch = [

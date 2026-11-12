@@ -6,7 +6,19 @@ from lemgendary-env-manager or lemgendary-training-suite.
 
 from typing import Any
 
+from ..platform_paths import SUITE_FOLDER, platform_paths
 from .base import make_code_cell
+
+
+def _req_candidates(target: str) -> list[str]:
+    """Source lines listing the requirement manifests, most specific first."""
+    paths = platform_paths(target)
+    candidates = [
+        f"{paths.env_mgr_dir}/requirements/requirements-training.txt",
+        f"{paths.env_mgr_dir}/requirements/{SUITE_FOLDER}.requirements.txt",
+        f"{paths.suite_dir}/requirements.txt",
+    ]
+    return ["req_candidates = [\n", *(f"    {c!r},\n" for c in candidates), "]\n"]
 
 
 def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
@@ -52,18 +64,7 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "print(f'[ENV] Accelerator: {accel_type}')\n",
             "print(f'[ENV] PyTorch index: {torch_index}')\n",
             "\n",
-            "req_candidates = [\n",
-            (
-                "    '/kaggle/working/lemgendary-env-manager/requirements/requirements-training.txt"
-                "',\n"
-            ),
-            (
-                "    '/kaggle/working/lemgendary-env-manager/requirements/lemgendary-training-suite"
-                ".requirements.txt',\n"
-            ),
-            "    '/kaggle/working/lemgendary-training-suite/requirements.txt',\n",
-            "    '/kaggle/working/model-training/lemgendary-training-suite/requirements.txt',\n",
-            "]\n",
+            *_req_candidates(target),
             "req_path = next((p for p in req_candidates if os.path.exists(p)), None)\n",
             "\n",
             "if req_path:\n",
@@ -151,15 +152,7 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "print(f'[ENV] Accelerator: {accel_type}')\n",
             "print(f'[ENV] PyTorch index: {torch_index}')\n",
             "\n",
-            "req_candidates = [\n",
-            "    '/content/lemgendary-env-manager/requirements/requirements-training.txt',\n",
-            (
-                "    '/content/lemgendary-env-manager/requirements/lemgendary-training-suite.requir"
-                "ements.txt',\n"
-            ),
-            "    '/content/lemgendary-training-suite/requirements.txt',\n",
-            "    '/content/model-training/lemgendary-training-suite/requirements.txt',\n",
-            "]\n",
+            *_req_candidates(target),
             "req_path = next((p for p in req_candidates if os.path.exists(p)), None)\n",
             "\n",
             "if req_path:\n",

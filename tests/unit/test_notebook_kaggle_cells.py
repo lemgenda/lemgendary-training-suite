@@ -1,4 +1,4 @@
-"""Generated Kaggle notebook cells: epoch-based recovery, forex output.
+"""Generated Kaggle notebook cells: token-free clone, epoch-based recovery, forex output.
 
 The recovery cell is executed against a temporary hub with a fake kagglehub; nothing reaches
 the network. Paths come from ``training.notebooks.platform_paths`` (patched to temp folders).
@@ -6,6 +6,8 @@ the network. Paths come from ``training.notebooks.platform_paths`` (patched to t
 
 from __future__ import annotations
 
+import json
+import re
 import runpy
 import sys
 from pathlib import Path
@@ -15,9 +17,12 @@ from typing import Any
 import pytest
 import torch
 
+from training.ecosystem import github_repo_url
+from training.notebooks.builders.kaggle import generate_training_notebook
 from training.notebooks.cells import model as model_cells
 from training.notebooks.cells.inference import build_pth_cell
-from training.notebooks.platform_paths import PlatformPaths
+from training.notebooks.cells.repo import build_clone_cell
+from training.notebooks.platform_paths import PlatformPaths, platform_paths
 from training.notebooks.registry import load_registry, resolve_model_metadata
 from training.utils.model_payload import checkpoint_epoch
 
@@ -26,6 +31,46 @@ _KEY = "nima_aesthetic_mobile"
 
 def _source(cell: dict[str, Any]) -> str:
     return "".join(cell["source"])
+
+
+def _clone_targets(text: str) -> list[str]:
+    return re.findall(r"^(?:suite_path|env_mgr_path|checkout_dir) = '([^']*)'", text, re.MULTILINE)
+
+
+class TestCloneCellSecurity:
+    """K-NB-4: the PAT never lands in a URL or a file, and nothing is cloned to the output."""
+
+    @pytest.mark.parametrize("target", ["kaggle", "colab"])
+    def test_no_token_in_urls(self, target: str) -> None:
+        """Clone URLs are the plain ecosystem URLs; no credential form appears anywhere."""
+        text = _source(build_clone_cell(target))
+        assert f"suite_url = {github_repo_url('lemgendary-training-suite')!r}" in text
+        for forbidden in ("x-access-token:", "{pat", "{_safe_pat", "{token}@", "_url_quote"):
+            assert forbidden not in text
+        assert not re.search(r"https://[^'\s]*@", text)
+        assert "GIT_ASKPASS" in text
+        assert "['remote', 'set-url', 'origin', url]" in text
+
+    def test_kaggle_clone_outside_working(self) -> None:
+        """Kaggle checkouts live in the session-only folder, never under /kaggle/working."""
+        targets = _clone_targets(_source(build_clone_cell("kaggle")))
+        assert len(targets) == 3
+        assert all(t.startswith(platform_paths("kaggle").checkout_dir) for t in targets)
+        assert not any(t.startswith("/kaggle/working") for t in targets)
+
+    def test_generated_notebook(self, tmp_path: Path) -> None:
+        """The whole generated Kaggle training notebook carries no token or working clone."""
+        registry = load_registry()
+        path = generate_training_notebook(_KEY, str(tmp_path), registry, {})
+        assert path is not None
+        text = "".join(
+            "".join(c["source"])
+            for c in json.loads(Path(path).read_text(encoding="utf-8"))["cells"]
+        )
+        assert "x-access-token:" not in text
+        assert not re.search(r"https://[^'\s]*@", text)
+        assert "/kaggle/working/lemgendary-" not in text
+        assert all(t.startswith("/kaggle/temp") for t in _clone_targets(text))
 
 
 def _save(path: Path, epoch: int) -> None:
