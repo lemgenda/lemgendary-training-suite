@@ -12,12 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from kaggle.api.kaggle_api_extended import KaggleApi
-
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
+from training.cloud.kaggle_client import KaggleAuthError, authenticated_kaggle_api
 from training.cloud.kaggle_hub import KaggleHubManager
-from training.kaggle_accounts import authenticate_kaggle_user
 from training.kaggle_cloud_manager import pull_kaggle_artifacts
 from training.kaggle_stream import fetch_new_log_lines, is_epoch_milestone
 from training.server.state import ServerState
@@ -32,16 +30,15 @@ _TERMINAL_STATUSES = ("COMPLETE", "ERROR", "CANCELACK")
 
 
 def _authenticated_api(user: str, key: str, failure_hint: str) -> Any:
-    """Return a Kaggle API for ``user``/``key``, else for the ambient credentials."""
-    api = authenticate_kaggle_user(user, key) if (user and key) else None
-    if api:
-        return api
+    """Return a Kaggle API authenticated with the resolved ``user``/``key``.
+
+    :class:`KaggleAuthError` (a ``RuntimeError``) fails the job instead of the SDK's
+    ``exit(1)`` silently killing the job thread.
+    """
     try:
-        api = KaggleApi()
-        api.authenticate()
-    except KAGGLE_API_ERRORS as e:
-        raise RuntimeError(f"Kaggle authentication failed: {e}{failure_hint}") from e
-    return api
+        return authenticated_kaggle_api(user, key)
+    except KaggleAuthError as e:
+        raise KaggleAuthError(f"{e}{failure_hint}", e.http_status) from e
 
 
 @dataclass(frozen=True)

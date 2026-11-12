@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.169"
+    "version": "16.9.170"
   },
   "paths": {
     "/api/health": {
@@ -1033,7 +1033,7 @@
           "training"
         ],
         "summary": "Get Kaggle Status",
-        "description": "Check Kaggle credentials configuration and authentication status.",
+        "description": "Report whether the resolved Kaggle credentials really work.\n\nMakes one cheap authenticated call (list the user's own kernels, page size 1) and returns\nits outcome: ``authenticated``, ``username``, ``token_configured``, ``auth_method``\n(``access_token`` or ``legacy_api_key``), ``http_status`` and ``error``.",
         "operationId": "get_kaggle_status_api_training_kaggle_status_get",
         "responses": {
           "200": {

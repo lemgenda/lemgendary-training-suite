@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ from kaggle.api.kaggle_api_extended import KaggleApi
 
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
+from training.cloud.kaggle_client import authenticated_kaggle_api
 from training.cloud.model_metadata import ModelMetadata
 from training.cloud.variations import VARIATIONS, KaggleVariation
 from training.utils.lazy_imports import load_kaggle_iam
@@ -100,14 +100,11 @@ class KaggleApiSyncService:
 
     def client(self) -> KaggleApi:
         """The authenticated KaggleApi client (created on first use)."""
-        # Ensure official Kaggle API client uses active Bearer API token
-        if self.key and self.key.startswith("KGAT_"):
-            os.environ["KAGGLE_API_TOKEN"] = self.key
-        if self._api is None:
-            api = KaggleApi()
-            api.authenticate()
+        api = self._api
+        if api is None:
+            api = authenticated_kaggle_api(self.username, self.key)
             self._api = api
-        return self._api
+        return api
 
     def sync_metadata(self, metadata: ModelMetadata) -> dict[str, Any]:
         """Apply model-level and instance-level metadata to Kaggle via KaggleApi."""

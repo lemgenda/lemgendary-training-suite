@@ -10,9 +10,13 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from training.cloud.credentials import resolve_kaggle_credentials
-from training.cloud.errors import KAGGLE_API_ERRORS
+from training.cloud.kaggle_client import (
+    KaggleAuthError,
+    authenticated_kaggle_api,
+    probe_kaggle_auth,
+)
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-from training.kaggle_accounts import authenticate_kaggle_user, fetch_user_kernels
+from training.kaggle_accounts import fetch_user_kernels
 from training.registry.model_specs import get_model_registry
 from training.utils.paths import get_project_root
 
@@ -170,22 +174,17 @@ class KagglePushRequest(BaseModel):
 
 @router.get("/kaggle/status")
 def get_kaggle_status() -> dict[str, Any]:
-    """Check Kaggle credentials configuration and authentication status."""
-    user, token = resolve_kaggle_credentials()
-    authenticated = False
-    if user and token:
-        try:
-            api = authenticate_kaggle_user(user, token)
-            authenticated = api is not None
-        except (ImportError, *KAGGLE_API_ERRORS) as exc:
-            logger.warning("Kaggle authentication check failed for %s: %s", user, exc)
-            authenticated = False
+    """Report whether the resolved Kaggle credentials really work.
 
-    return {
-        "authenticated": authenticated,
-        "username": user or "",
-        "token_configured": bool(token),
-    }
+    Makes one cheap authenticated call (list the user's own kernels, page size 1) and returns
+    its outcome: ``authenticated``, ``username``, ``token_configured``, ``auth_method``
+    (``access_token`` or ``legacy_api_key``), ``http_status`` and ``error``.
+    """
+    user, token = resolve_kaggle_credentials()
+    status = probe_kaggle_auth(user, token)
+    if not status.authenticated:
+        logger.warning("Kaggle authentication check failed for %s: %s", user, status.error)
+    return status.to_dict()
 
 
 @router.get("/kaggle/kernels")
@@ -194,11 +193,11 @@ def list_kaggle_kernels(limit: int = 20) -> list[dict[str, Any]]:
     user, token = resolve_kaggle_credentials()
     if not user or not token:
         return []
-
-    api = authenticate_kaggle_user(user, token)
-    if not api:
+    try:
+        api = authenticated_kaggle_api(user, token)
+    except KaggleAuthError as exc:
+        logger.warning("Kaggle kernel listing skipped: %s", exc)
         return []
-
     return fetch_user_kernels(api, user, limit=limit)
 
 

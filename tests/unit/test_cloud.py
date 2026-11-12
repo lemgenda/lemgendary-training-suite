@@ -1,5 +1,6 @@
 """Unit tests for cloud subsystem: credentials, git, kaggle, and gdrive bit-exact parity."""
 
+import os
 import shutil
 import tempfile
 import unittest
@@ -39,9 +40,11 @@ class TestCloudCredentials(unittest.TestCase):
         gh_token = resolve_github_credentials(override_pat="test_gh_token")
         self.assertEqual(gh_token, "test_gh_token")
 
-        k_user, k_key = resolve_kaggle_credentials(
-            override_user="custom_user", override_key="custom_key"
-        )
+        # The resolver exports the credentials; keep them out of the other tests.
+        with mock.patch.dict(os.environ):
+            k_user, k_key = resolve_kaggle_credentials(
+                override_user="custom_user", override_key="custom_key"
+            )
         self.assertEqual(k_user, "custom_user")
         self.assertEqual(k_key, "custom_key")
 

@@ -10,12 +10,10 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
-from training.kaggle_accounts import (
-    authenticate_kaggle_user,
-    load_kaggle_users,
-    save_kaggle_user,
-)
+from training.cloud.kaggle_client import KaggleAuthError, authenticated_kaggle_api
+from training.kaggle_accounts import load_kaggle_users, save_kaggle_user
 from training.kaggle_launcher import interactive_kernel_monitor, interactive_train_launcher
 from training.kaggle_stream import AutoPull, stream_kernel_logs
 
@@ -86,6 +84,16 @@ def prompt_user_account_selection(
     return None
 
 
+def _authenticate(username: str, token: str) -> Any | None:
+    """Authenticated Kaggle API for the selected account, or None after printing why."""
+    try:
+        return authenticated_kaggle_api(username, token)
+    except KaggleAuthError as exc:
+        print(f"\n[ERROR] {exc}")
+        print("[REMEDY] Verify username and API token validity on kaggle.com/settings/api.")
+        return None
+
+
 def run_interactive_train(users_file_override: str | None = None) -> None:
     """
     Option 1: Train on Kaggle (Select notebook, launch, stream logs, auto-pull checkpoints).
@@ -96,7 +104,7 @@ def run_interactive_train(users_file_override: str | None = None) -> None:
             break
         username, token, _ = res
         print(f"\n[AUTH] Authenticating Kaggle API for user: {username}...")
-        api = authenticate_kaggle_user(username, token)
+        api = _authenticate(username, token)
         if not api:
             input("\nPress Enter to return to account selection...")
             continue
@@ -114,7 +122,7 @@ def run_interactive_monitor(users_file_override: str | None = None) -> None:
             break
         username, token, _ = res
         print(f"\n[AUTH] Authenticating Kaggle API for user: {username}...")
-        api = authenticate_kaggle_user(username, token)
+        api = _authenticate(username, token)
         if not api:
             input("\nPress Enter to return to account selection...")
             continue
@@ -141,7 +149,7 @@ def main():
     args = parser.parse_args()
 
     if args.user and args.token and args.kernel:
-        api = authenticate_kaggle_user(args.user, args.token)
+        api = _authenticate(args.user, args.token)
         if api:
             slug = args.kernel if "/" in args.kernel else f"{args.user}/{args.kernel}"
             pull = AutoPull(args.model, args.user) if args.auto_pull and args.model else None

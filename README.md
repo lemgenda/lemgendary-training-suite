@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.169-STABLE`
+- **Version**: `v16.9.170-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,33 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.170 - One Kaggle Credential Resolver and a Real Status Probe (R3-K1)
+
+- `training/cloud/credentials.py`: `resolve_kaggle_credentials` is the one
+  Kaggle credential resolver. Tokens are returned exactly as stored. A
+  `KGAT_` access token is exported unchanged as `KAGGLE_API_TOKEN` (read
+  first by kaggle 2.x, kagglesdk and kagglehub); a legacy key goes to
+  `KAGGLE_KEY`. It also reads `KAGGLE_API_TOKEN` from the environment and
+  `~/.kaggle/access_token.txt`. It no longer rewrites
+  `~/.kaggle/kaggle.json` on every call (that wrote `KGAT_` tokens as a
+  legacy `key`, which the CLI rejects with 401), and `.kaggle_token` is no
+  longer stripped of `KGAT_` (K-AUTH-1, K-AUTH-3).
+- `training/cloud/kaggle_client.py` (new): `authenticated_kaggle_api`
+  replaces `kaggle_accounts.authenticate_kaggle_user`, which stripped
+  `KGAT_`, sent the rest as a legacy key (401) and popped
+  `KAGGLE_API_TOKEN` process-wide. The SDK's `exit(1)` when no
+  credentials exist becomes `KaggleAuthError`, so a server job fails
+  instead of dying silently (K-AUTH-5). Callers: the status and kernels
+  routes, the Kaggle train and monitor jobs, the interactive monitor and
+  the metadata sync client.
+- `GET /api/training/kaggle/status` makes one cheap authenticated call
+  (`kernels_list(mine=True, page_size=1)`) and reports the real outcome:
+  `authenticated`, `username`, `token_configured`, plus the new
+  `auth_method`, `http_status` and `error` fields (K-AUTH-2).
+- `training/kaggle_accounts.py`: import order fixed (ruff I001).
+- Tests: `tests/unit/test_kaggle_auth.py` (fakes only; fake home folder).
+  `test_cloud.py` no longer leaks the exported variables into later tests.
 
 ### v16.9.169 - One Loader for Release Payloads and Bare State Dicts (R2-T1 Follow-Up)
 

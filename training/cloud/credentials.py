@@ -163,65 +163,87 @@ def _fill_from_kaggle_json(k_user: str, k_key: str) -> tuple[str, str]:
     return k_user, k_key
 
 
-def _token_file_key(k_key: str) -> str:
-    """Fall back to ~/.kaggle/access_token, then the project ``.kaggle_token`` (KGAT_ removed)."""
-    access_token_file = Path.home() / ".kaggle" / "access_token"
-    if not k_key and access_token_file.exists():
-        try:
-            tok = access_token_file.read_text(encoding="utf-8").strip()
-            if tok:
-                k_key = tok
-        except OSError as e:
-            logger.debug("Could not read ~/.kaggle/access_token: %s", e)
+KAGGLE_ACCESS_TOKEN_PREFIX = "KGAT_"
+"""Prefix of Kaggle access tokens (sent unchanged through ``KAGGLE_API_TOKEN``)."""
 
-    token_file = get_project_root() / ".kaggle_token"
-    if not k_key and token_file.exists():
-        try:
-            raw = token_file.read_text(encoding="utf-8").strip()
-            if raw.startswith("KGAT_"):
-                raw = raw.replace("KGAT_", "")
-            k_key = raw
-        except OSError as e:
-            logger.debug("Failed reading .kaggle_token: %s", e)
+_ACCESS_TOKEN_FILES = ("access_token", "access_token.txt")
+"""Files under ``~/.kaggle`` the Kaggle SDK reads an access token from, in its order."""
+
+
+def is_kaggle_access_token(token: str) -> bool:
+    """True for a ``KGAT_`` access token, False for a legacy API key."""
+    return token.strip().startswith(KAGGLE_ACCESS_TOKEN_PREFIX)
+
+
+def _read_token_file(path: Path) -> str:
+    """Return the stripped token in ``path`` ('' when absent or unreadable)."""
+    if not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError as e:
+        logger.debug("Could not read Kaggle token file %s: %s", path, e)
+        return ""
+
+
+def _env_token() -> str:
+    """``KAGGLE_API_TOKEN`` (a token, or a path to a token file, as the SDK accepts)."""
+    raw = os.environ.get("KAGGLE_API_TOKEN", "").strip()
+    if raw and Path(raw).is_file():
+        return _read_token_file(Path(raw))
+    return raw
+
+
+def _token_file_key(k_key: str) -> str:
+    """Fall back to ``~/.kaggle/access_token`` (``.txt``), then the project ``.kaggle_token``.
+
+    Tokens are returned unchanged: a ``KGAT_`` token is an access token, never a legacy key.
+    """
+    candidates = [Path.home() / ".kaggle" / name for name in _ACCESS_TOKEN_FILES]
+    candidates.append(get_project_root() / ".kaggle_token")
+    for candidate in candidates:
+        if k_key:
+            break
+        k_key = _read_token_file(candidate)
     return k_key
 
 
-def _export_kaggle_env(k_user: str, k_key: str) -> None:
-    """Export the credentials for the Kaggle Python SDK and child processes."""
+def export_kaggle_credentials(k_user: str, k_key: str) -> None:
+    """Export the credentials the Kaggle SDK, kagglehub and child processes read.
+
+    A ``KGAT_`` access token goes unchanged into ``KAGGLE_API_TOKEN`` (read first by the SDK);
+    a stale ``KGAT_`` value in ``KAGGLE_KEY`` is removed because the SDK would send it as a
+    legacy key. A legacy key goes into ``KAGGLE_KEY`` and clears ``KAGGLE_API_TOKEN``, which
+    would otherwise win over it. No credential file is written.
+    """
     if k_user:
         os.environ["KAGGLE_USERNAME"] = k_user
-    if k_key:
+    if not k_key:
+        return
+    if is_kaggle_access_token(k_key):
+        os.environ["KAGGLE_API_TOKEN"] = k_key.strip()
+        if is_kaggle_access_token(os.environ.get("KAGGLE_KEY", "")):
+            os.environ.pop("KAGGLE_KEY", None)
+    else:
         os.environ["KAGGLE_KEY"] = k_key
-        if k_key.startswith("KGAT_"):
-            os.environ["KAGGLE_API_TOKEN"] = k_key
-        else:
-            # If a legacy key is active, clear any conflicting access token in env
-            os.environ.pop("KAGGLE_API_TOKEN", None)
-
-
-def _sync_kaggle_json(k_user: str, k_key: str) -> None:
-    """Write ~/.kaggle/kaggle.json in clean UTF-8 so the Kaggle CLI works seamlessly."""
-    try:
-        k_json = Path.home() / ".kaggle" / "kaggle.json"
-        k_json.parent.mkdir(parents=True, exist_ok=True)
-        k_content = json.dumps({"username": k_user, "key": k_key}, indent=2)
-        k_json.write_text(k_content, encoding="utf-8")
-    except OSError as exc:
-        logger.warning("Could not sync Kaggle CLI credentials file %s: %s", k_json, exc)
+        os.environ.pop("KAGGLE_API_TOKEN", None)
 
 
 def resolve_kaggle_credentials(
     override_user: str | None = None,
     override_key: str | None = None,
 ) -> tuple[str, str]:
-    """Resolve Kaggle credentials with senior fallback hierarchy.
+    """Resolve Kaggle credentials (the one resolver of the suite) and export them.
 
     1. Explicit parameters
     2. Ecosystem .secrets.yaml vault (default active Kaggle secret)
-    3. Environment variables (KAGGLE_USERNAME, KAGGLE_KEY)
-    4. User home ~/.kaggle/kaggle.json
-    5. Sibling/project .kaggle_token or .kaggle_users
+    3. Environment variables (``KAGGLE_USERNAME``; ``KAGGLE_API_TOKEN``, then ``KAGGLE_KEY``)
+    4. User home ``~/.kaggle/kaggle.json``
+    5. ``~/.kaggle/access_token`` (or ``access_token.txt``), then the project ``.kaggle_token``
     6. The ecosystem Kaggle owner (``identity.kaggle_owner`` in ``ecosystem.json``)
+
+    The token is returned exactly as stored (``KGAT_`` prefix kept). Nothing is written to
+    disk; see :func:`export_kaggle_credentials` for the environment variables set.
     """
     k_user = override_user or ""
     k_key = override_key or ""
@@ -240,7 +262,7 @@ def resolve_kaggle_credentials(
     if not k_user:
         k_user = os.environ.get("KAGGLE_USERNAME", "")
     if not k_key:
-        k_key = os.environ.get("KAGGLE_KEY", "")
+        k_key = _env_token() or os.environ.get("KAGGLE_KEY", "")
 
     if not (k_user and k_key):
         k_user, k_key = _fill_from_kaggle_json(k_user, k_key)
@@ -249,10 +271,7 @@ def resolve_kaggle_credentials(
     if not k_user:
         k_user = kaggle_owner()
 
-    _export_kaggle_env(k_user, k_key)
-    if k_user and k_key:
-        _sync_kaggle_json(k_user, k_key)
-
+    export_kaggle_credentials(k_user, k_key)
     return k_user, k_key
 
 

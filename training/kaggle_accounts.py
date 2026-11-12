@@ -1,21 +1,20 @@
-"""Kaggle account registry, authentication and kernel and model lookups."""
+"""Kaggle account registry and kernel and model lookups.
+
+Authentication lives in :mod:`training.cloud.kaggle_client`.
+"""
 
 from __future__ import annotations
 
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from training.cloud.credentials import (
-    load_kaggle_users as load_vault_users,
-    parse_kaggle_users_text,
-)
+from training.cloud.credentials import load_kaggle_users as load_vault_users
+from training.cloud.credentials import parse_kaggle_users_text
 from training.cloud.errors import KAGGLE_API_ERRORS
-from training.utils.lazy_imports import load_kaggle_api
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_monitor")
 
@@ -85,28 +84,6 @@ def save_kaggle_user(users_file: Path, username: str, token: str) -> bool:
     except OSError as e:
         print(f"[ERROR] Failed to save user to {users_file}: {e}")
         return False
-
-
-def authenticate_kaggle_user(username: str, token: str) -> Any | None:
-    """
-    Configures environment variables and initializes authenticated KaggleApi instance.
-    """
-    clean_token = token.replace("KGAT_", "").strip().rstrip(";").strip()
-
-    # Clear conflicting access token variables that trigger OAuth introspection
-    os.environ.pop("KAGGLE_API_TOKEN", None)
-    os.environ["KAGGLE_USERNAME"] = username
-    os.environ["KAGGLE_KEY"] = clean_token
-
-    try:
-        # Deferred: the Kaggle SDK is optional and reads credentials at import time.
-        api = load_kaggle_api()()
-        api.authenticate()
-        return api
-    except (ImportError, *KAGGLE_API_ERRORS) as exc:
-        print(f"\n[ERROR] Authentication failed for user '{username}': {exc}")
-        print("[REMEDY] Verify username and API token validity on kaggle.com/settings/api.")
-        return None
 
 
 def fetch_user_kernels(api: Any, username: str, limit: int = 20) -> list[dict[str, Any]]:

@@ -21,6 +21,7 @@ import yaml
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS, kagglehub_errors
 from training.cloud.kaggle_api_sync import KaggleApiSyncService
+from training.cloud.kaggle_client import KaggleAuthError
 from training.cloud.metadata_generator import KaggleMetadataService
 from training.cloud.model_metadata import METADATA_FILENAME
 from training.cloud.variations import (
@@ -401,7 +402,7 @@ class KaggleModelSyncManager:
             push_result.metadata_sync_result = sync_meta_res
             if sync_meta_res.get("errors"):
                 push_result.errors.extend(sync_meta_res["errors"])
-        except (*KAGGLE_API_ERRORS, yaml.YAMLError) as meta_exc:
+        except (*KAGGLE_API_ERRORS, KaggleAuthError, yaml.YAMLError) as meta_exc:
             err_str = f"Metadata synchronization error: {meta_exc}"
             logger.error(err_str)
             push_result.errors.append(err_str)
