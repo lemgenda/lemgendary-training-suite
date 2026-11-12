@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.152-STABLE`
+- **Version**: `v16.9.153-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,19 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.153 - Zero-Rebuild Curriculum Transitions Pinned by a Test
+
+- `tests/unit/test_curriculum_rebuild.py` (new, audit 7.1.4): steps a
+  WebDataset-backed restoration dataset through four fraction and
+  resolution changes and checks that `update_strategy`, item reads and
+  readers pickled for respawned loader workers never call
+  `scan_tar_members` or `tarfile.open`. It also checks that the fraction
+  subsets are nested (each larger fraction keeps every sample of the
+  smaller one), so a step up never drops trained samples. The behaviour
+  was already correct (`_apply_sample_fraction` re-slices the cached
+  sample list, and the offset index travels with the pickled reader);
+  the test keeps it that way.
 
 ### v16.9.152 - One Quality Score Definition and the ROBOTS Restoration Formula
 
