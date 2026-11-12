@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import importlib
 import logging
+import os
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -24,17 +25,20 @@ from training.cloud.kaggle_api_sync import KaggleApiSyncService
 from training.cloud.kaggle_client import KaggleAuthError
 from training.cloud.metadata_generator import KaggleMetadataService
 from training.cloud.model_metadata import METADATA_FILENAME
+from training.cloud.model_pull import merge_downloaded_payload
 from training.cloud.variations import (
+    CHECKPOINTS_DIR,
     ONNX_FP16,
     ONNX_FP32,
     PYTORCH_DEFAULT,
     PYTORCH_FP32,
     VARIATION_BY_KEY,
+    default_payload_files,
+    is_default_payload_file,
 )
 from training.ecosystem import kaggle_owner
 from training.export.validation import IsolationReport, StrictIsolationValidator
 from training.registry import get_model_registry
-from training.utils.fs import remove_tree
 from training.utils.lazy_imports import load_variation_staging
 from training.utils.paths import get_workspace_root
 
@@ -50,17 +54,18 @@ _UPLOAD_SUBDIRS = {
 
 
 def _stage_default_payload(variation_dir: Path, temp_path: Path) -> None:
-    """Copy only checkpoints/*.pth, README.md and metrics.csv into ``temp_path``."""
-    temp_ckpt_dir = temp_path / "checkpoints"
-    temp_ckpt_dir.mkdir(parents=True, exist_ok=True)
-    src_ckpts = variation_dir / "checkpoints"
-    if src_ckpts.exists():
-        for pth in src_ckpts.glob("*.pth"):
-            shutil.copy2(pth, temp_ckpt_dir / pth.name)
-    for root_f in ("README.md", "metrics.csv"):
-        src_f = variation_dir / root_f
-        if src_f.exists():
-            shutil.copy2(src_f, temp_path / root_f)
+    """Link (or copy) only the ``pytorch/default`` payload into ``temp_path``.
+
+    The payload is :func:`training.cloud.variations.default_payload_files`: ``checkpoints/*.pth``,
+    ``README.md`` and ``metrics.csv``; notebooks, ``dist/`` and stray ``.pt`` files never ship.
+    """
+    (temp_path / CHECKPOINTS_DIR).mkdir(parents=True, exist_ok=True)
+    for rel in default_payload_files(variation_dir):
+        try:
+            os.link(variation_dir / rel, temp_path / rel)
+        except OSError as exc:
+            logger.debug("Cannot hard-link %s (%s); copying it", rel, exc)
+            shutil.copy2(variation_dir / rel, temp_path / rel)
 
 
 @dataclass
@@ -108,57 +113,6 @@ class ModelPushResult:
             "metadata_sync": self.metadata_sync_result,
             "errors": self.errors,
         }
-
-
-def _upload_variation(
-    kagglehub, handle: str, variation_dir: Path, notes: str, stage_default: bool
-) -> None:
-    """Upload ``variation_dir``; with ``stage_default`` upload a clean transient copy instead.
-
-    The copy holds strictly checkpoints/, README.md and metrics.csv to guarantee isolation.
-    """
-    with contextlib.ExitStack() as stack:
-        upload_dir = variation_dir
-        if stage_default:
-            temp_path = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-            _stage_default_payload(variation_dir, temp_path)
-            upload_dir = temp_path
-
-        kagglehub.model_upload(
-            handle=handle,
-            local_model_dir=str(upload_dir),
-            version_notes=notes,
-        )
-
-
-def _promote_default_payload(target_dir: Path, model_root: Path) -> None:
-    """Move a pulled pytorch/default payload into ``model_root`` and drop the duplicate dir.
-
-    Checkpoints, metrics.csv and README.md land in the canonical model root so there is
-    strictly one source of truth on disk.
-    """
-    src_ckpt_dir = target_dir / "checkpoints"
-    dst_ckpt_dir = model_root / "checkpoints"
-    if src_ckpt_dir.exists() and src_ckpt_dir.resolve() != dst_ckpt_dir.resolve():
-        dst_ckpt_dir.mkdir(parents=True, exist_ok=True)
-        for f in src_ckpt_dir.iterdir():
-            if f.is_file():
-                dest_f = dst_ckpt_dir / f.name
-                if not dest_f.exists() or f.stat().st_size != dest_f.stat().st_size:
-                    shutil.copy2(f, dest_f)
-    for rf_name in ("metrics.csv", "README.md"):
-        src_rf = target_dir / rf_name
-        dst_rf = model_root / rf_name
-        if (
-            src_rf.exists()
-            and src_rf.resolve() != dst_rf.resolve()
-            and (not dst_rf.exists() or src_rf.stat().st_size != dst_rf.stat().st_size)
-        ):
-            shutil.copy2(src_rf, dst_rf)
-
-    # Purge duplicate dist/kaggle/pytorch_default directory to prevent dual files on disk
-    if target_dir.exists() and target_dir.resolve() != model_root.resolve():
-        remove_tree(target_dir, purpose="duplicate pytorch_default purge")
 
 
 class KaggleModelSyncManager:
@@ -211,7 +165,7 @@ class KaggleModelSyncManager:
         return self.hub_root / model_key
 
     def get_variation_dir(self, model_key: str, variation_key: str) -> Path:
-        """Resolve local variation upload directory under dist/kaggle/."""
+        """Local source folder of a variation (model root for ``pytorch/default``)."""
         model_dir = self.get_model_dir(model_key)
         dist_dir = model_dir / "dist" / "kaggle"
         variation = VARIATION_BY_KEY.get(variation_key)
@@ -219,8 +173,8 @@ class KaggleModelSyncManager:
             return dist_dir / variation_key
 
         if variation is PYTORCH_DEFAULT:
-            payload_dir = dist_dir / PYTORCH_DEFAULT.payload_dir
-            return payload_dir if payload_dir.exists() else model_dir
+            # The checkpoints live in the model root; the push stages the isolated payload.
+            return model_dir
         return dist_dir / _UPLOAD_SUBDIRS.get(variation.key, variation_key)
 
     def ensure_model_metadata(self, model_key: str) -> Path:
@@ -247,7 +201,12 @@ class KaggleModelSyncManager:
         version_notes: str | None = None,
         dry_run: bool = False,
     ) -> VariationPushResult:
-        """Validate and upload a single isolated model variation to Kaggle Models Hub."""
+        """Validate and upload a single isolated model variation to Kaggle Models Hub.
+
+        ``pytorch/default`` is staged first (hard links of ``checkpoints/*.pth``,
+        ``README.md`` and ``metrics.csv`` only) and the staged copy is validated and uploaded,
+        so the model folder's notebooks, ``dist/`` and exports never reach Kaggle.
+        """
         if variation not in VARIATION_BY_KEY:
             return VariationPushResult(
                 variation=variation,
@@ -261,68 +220,72 @@ class KaggleModelSyncManager:
 
         variation_dir = self.get_variation_dir(model_key, variation)
         handle = self.get_handle(model_key, variation)
-        blocked = self._payload_problem(model_key, variation, variation_dir, handle, dry_run)
-        if blocked is not None:
-            return blocked
-
-        files = [p for p in variation_dir.iterdir() if p.is_file() or p.is_dir()]
-        file_names = [f.name for f in files]
-
-        if dry_run:
-            logger.info(
-                "[DRY-RUN] Verified Kaggle model variation payload %s (%s)", handle, variation_dir
-            )
+        if not variation_dir.exists():
             return VariationPushResult(
                 variation=variation,
                 handle=handle,
-                success=True,
-                files=file_names,
-                dry_run=True,
+                success=False,
+                error=f"Variation directory does not exist: {variation_dir}",
+                dry_run=dry_run,
             )
+        notes = version_notes or (
+            f"Production SOTA Release: {model_key} [{VARIATION_BY_KEY[variation].label}]"
+        )
+        with contextlib.ExitStack() as stack:
+            upload_dir = variation_dir
+            if variation == PYTORCH_DEFAULT.key:
+                self.hub_root.mkdir(parents=True, exist_ok=True)
+                upload_dir = Path(
+                    stack.enter_context(
+                        tempfile.TemporaryDirectory(
+                            prefix=f".kaggle-push-{model_key}-", dir=self.hub_root
+                        )
+                    )
+                )
+                _stage_default_payload(variation_dir, upload_dir)
+            return self._upload_checked(model_key, variation, upload_dir, notes, dry_run=dry_run)
 
-        # Upload via kagglehub
+    def _upload_checked(
+        self,
+        model_key: str,
+        variation: str,
+        upload_dir: Path,
+        notes: str,
+        *,
+        dry_run: bool,
+    ) -> VariationPushResult:
+        """Audit ``upload_dir`` for isolation, then upload it (or report it on dry run)."""
+        handle = self.get_handle(model_key, variation)
+        blocked = self._payload_problem(model_key, variation, upload_dir, handle, dry_run)
+        if blocked is not None:
+            return blocked
+
+        file_names = [p.name for p in upload_dir.iterdir() if p.is_file() or p.is_dir()]
+        if dry_run:
+            logger.info("[DRY-RUN] Verified Kaggle model variation payload %s", handle)
+            return VariationPushResult(variation, handle, True, file_names, dry_run=True)
+
         try:
             kagglehub = importlib.import_module("kagglehub")
         except ImportError:
             return VariationPushResult(
-                variation=variation,
-                handle=handle,
-                success=False,
-                files=file_names,
+                variation,
+                handle,
+                False,
+                file_names,
                 error="kagglehub SDK is not installed in runtime environment.",
-                dry_run=False,
             )
 
         try:
-            var_obj = VARIATION_BY_KEY[variation]
             logger.info("Uploading %s variation to Kaggle Models Hub: %s ...", variation, handle)
-            _upload_variation(
-                kagglehub,
-                handle,
-                variation_dir,
-                version_notes or f"Production SOTA Release: {model_key} [{var_obj.label}]",
-                # The canonical model_dir holds more than the default payload: stage it.
-                variation == PYTORCH_DEFAULT.key and variation_dir == self.get_model_dir(model_key),
-            )
-
-            logger.info("[OK] Successfully uploaded %s to Kaggle Models Hub", handle)
-            return VariationPushResult(
-                variation=variation,
-                handle=handle,
-                success=True,
-                files=file_names,
-                dry_run=False,
+            kagglehub.model_upload(
+                handle=handle, local_model_dir=str(upload_dir), version_notes=notes
             )
         except kagglehub_errors() as exc:
             logger.error("Failed uploading %s to Kaggle Models Hub: %s", handle, exc)
-            return VariationPushResult(
-                variation=variation,
-                handle=handle,
-                success=False,
-                files=file_names,
-                error=str(exc),
-                dry_run=False,
-            )
+            return VariationPushResult(variation, handle, False, file_names, error=str(exc))
+        logger.info("[OK] Successfully uploaded %s to Kaggle Models Hub", handle)
+        return VariationPushResult(variation, handle, True, file_names)
 
     def _payload_problem(
         self, model_key: str, variation: str, variation_dir: Path, handle: str, dry_run: bool
@@ -409,38 +372,60 @@ class KaggleModelSyncManager:
 
         return push_result
 
+    def pull_destination(self, model_key: str, variation_key: str) -> Path:
+        """Local folder a pulled variation is merged into.
+
+        ``pytorch/default`` merges into the model root (``LemGendaryModels/<model>``); the
+        other variations into their staged ``dist/kaggle`` folder.
+        """
+        if variation_key == PYTORCH_DEFAULT.key:
+            return self.get_model_dir(model_key)
+        return self.get_variation_dir(model_key, variation_key)
+
     def pull_variation(
         self,
         model_key: str,
         variation: str,
         force_download: bool = False,
     ) -> bool:
-        """Download one variation from Kaggle Models Hub into canonical model directory."""
+        """Download one variation into a temporary folder and merge it into the hub folder.
+
+        Local files are never deleted. ``force_download`` overwrites only the files being
+        pulled; without it, newer local checkpoints (by stored epoch) are kept. See
+        :mod:`training.cloud.model_pull`.
+        """
         if variation not in VARIATION_BY_KEY:
             raise ValueError(
                 f"Unknown variation '{variation}'. Allowed: {list(VARIATION_BY_KEY.keys())}"
             )
 
         handle = self.get_handle(model_key, variation)
-        target_dir = self.get_variation_dir(model_key, variation)
-        target_dir.mkdir(parents=True, exist_ok=True)
+        dest_dir = self.pull_destination(model_key, variation)
 
         try:
             kagglehub = importlib.import_module("kagglehub")
         except ImportError as exc:
             raise RuntimeError("kagglehub SDK is not installed in runtime environment.") from exc
 
-        logger.info("Pulling Kaggle variation %s -> %s", handle, target_dir)
-        downloaded_path = kagglehub.model_download(
-            handle=handle,
-            output_dir=str(target_dir),
-            force_download=force_download,
-        )
-
-        if variation == PYTORCH_DEFAULT.key:
-            _promote_default_payload(target_dir, self.get_model_dir(model_key))
-
-        return bool(downloaded_path)
+        self.hub_root.mkdir(parents=True, exist_ok=True)
+        logger.info("Pulling Kaggle variation %s -> %s", handle, dest_dir)
+        with tempfile.TemporaryDirectory(
+            prefix=f".kaggle-pull-{model_key}-", dir=self.hub_root
+        ) as tmp:
+            downloaded = kagglehub.model_download(
+                handle=handle, output_dir=str(Path(tmp) / "download")
+            )
+            if not downloaded or not Path(downloaded).is_dir():
+                logger.warning("Kaggle returned no folder for %s", handle)
+                return False
+            report = merge_downloaded_payload(
+                Path(downloaded),
+                dest_dir,
+                force=force_download,
+                keep=is_default_payload_file if variation == PYTORCH_DEFAULT.key else None,
+            )
+        logger.info("Pulled %s: wrote %s; kept newer local %s", handle, report.written, report.kept)
+        return True
 
     def pull_model(self, model_key: str, force_download: bool = False) -> bool:
         """Download all 4 variations of a model from Kaggle Models Hub."""

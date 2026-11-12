@@ -116,6 +116,36 @@ def load_model_payload(
     return model_payload_of(loaded)
 
 
+EPOCH_READ_ERRORS: tuple[type[BaseException], ...] = (
+    ModelPayloadError,
+    OSError,
+    RuntimeError,
+    EOFError,
+    pickle.UnpicklingError,
+    AttributeError,
+    ImportError,
+)
+"""Failures of reading a model file that mean "no readable epoch" to :func:`checkpoint_epoch`."""
+
+
+def checkpoint_epoch(path: Path | str) -> int | None:
+    """The ``epoch`` stored in a suite checkpoint, or None when the file has none or is unreadable.
+
+    Checkpoints are the suite's own artifacts (the local hub or the owner's Kaggle model), so
+    they are loaded with ``trust_pickle=True``. Callers compare checkpoints by this value,
+    never by file size.
+    """
+    try:
+        payload = load_model_payload(path, trust_pickle=True)
+    except EPOCH_READ_ERRORS as exc:
+        logger.warning("Cannot read the epoch of %s: %s", Path(path).name, exc)
+        return None
+    epoch = payload.raw.get("epoch")
+    if isinstance(epoch, bool) or not isinstance(epoch, (int, float)):
+        return None
+    return int(epoch)
+
+
 def pt_load_source(path_expr: str, device_expr: str) -> list[str]:
     """Source lines of generated code (notebooks, model cards, READMEs) loading a model file.
 

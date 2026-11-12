@@ -42,6 +42,37 @@ ONNX_FP32 = KaggleVariation("onnx/fp32", "onnx", "fp32", "onnx_fp32", "ONNX FP32
 VARIATIONS: tuple[KaggleVariation, ...] = (PYTORCH_DEFAULT, PYTORCH_FP32, ONNX_FP16, ONNX_FP32)
 VARIATION_BY_KEY: dict[str, KaggleVariation] = {v.key: v for v in VARIATIONS}
 
+CHECKPOINTS_DIR = "checkpoints"
+"""Folder of a model hub dir (and of the ``pytorch/default`` payload) holding checkpoints."""
+CHECKPOINT_SUFFIX = ".pth"
+"""Suffix of the training checkpoints published in ``pytorch/default``."""
+DEFAULT_PAYLOAD_ROOT_FILES: tuple[str, ...] = ("README.md", "metrics.csv")
+"""Root files published in ``pytorch/default`` next to ``checkpoints/*.pth``."""
+
+
+def is_default_payload_file(relative: Path) -> bool:
+    """Whether ``relative`` (a path inside a model dir) belongs to the ``pytorch/default`` payload.
+
+    The payload is exactly ``checkpoints/*.pth`` plus :data:`DEFAULT_PAYLOAD_ROOT_FILES`:
+    no notebooks, no ``dist/``, no ``.pt`` exports and no other history files.
+    """
+    parts = relative.parts
+    if len(parts) == 1:
+        return parts[0] in DEFAULT_PAYLOAD_ROOT_FILES
+    return len(parts) == 2 and parts[0] == CHECKPOINTS_DIR and relative.suffix == CHECKPOINT_SUFFIX
+
+
+def default_payload_files(model_dir: Path) -> list[Path]:
+    """Relative paths of the ``pytorch/default`` payload files present under ``model_dir``."""
+    candidates = [Path(name) for name in DEFAULT_PAYLOAD_ROOT_FILES]
+    ckpt_dir = model_dir / CHECKPOINTS_DIR
+    if ckpt_dir.is_dir():
+        candidates += sorted(
+            Path(CHECKPOINTS_DIR) / f.name for f in ckpt_dir.glob(f"*{CHECKPOINT_SUFFIX}")
+        )
+    return [rel for rel in candidates if (model_dir / rel).is_file()]
+
+
 PT_SUFFIX = ".pt"
 """``<Stem>.pt``: self-contained PyTorch FP32 model (module object and weights)."""
 ONNX_FP32_SUFFIX = "_FP32.onnx"

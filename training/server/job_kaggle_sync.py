@@ -342,7 +342,7 @@ class KaggleSyncJobsMixin:
             ok = run.sync_mgr.pull_variation(model_key, var_key, force_download=run.force_download)
             pct_done = int((i / total) * 100)
             if ok:
-                target_dir = run.sync_mgr.get_variation_dir(model_key, var_key)
+                target_dir = run.sync_mgr.pull_destination(model_key, var_key)
                 self._broadcast_log(
                     run.job_id,
                     (

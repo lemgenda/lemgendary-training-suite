@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.170-STABLE`
+- **Version**: `v16.9.171-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,36 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.171 - Kaggle Pulls Merge Into the Hub Folder Without Losing Local Work (R3-K1)
+
+- `KaggleModelSyncManager.pull_variation` downloads into a fresh
+  temporary folder under the hub root and merges the files into
+  `LemGendaryModels/<model>` (`pytorch/default`) or the staged
+  `dist/kaggle` folder (other variations) through the new
+  `training/cloud/model_pull.py`. kagglehub never sees the hub folder as
+  `output_dir` again: a non-empty folder used to fail with
+  `FileExistsError`, and `force_download` emptied it first (K-MDL-1).
+- Merge rules: a missing file is added; `force_download` overwrites only
+  the files being pulled and deletes nothing; otherwise a checkpoint
+  replaces its local copy only when its stored epoch is newer (never by
+  file size), and `metrics.csv` / `README.md` follow the newer
+  checkpoints. Export payloads (`.pt`, ONNX) keep existing local files
+  unless forced. The per-epoch GUI auto-pull now works on a non-empty
+  folder.
+- A pulled `pytorch/default` merges only the canonical payload:
+  `checkpoints/*.pth`, `README.md`, `metrics.csv`. Polluted older Hub
+  versions no longer bring `notebooks/`, `dist/` or stray `.pt` files.
+- `training/cloud/variations.py` owns that payload definition
+  (`is_default_payload_file`, `default_payload_files`), used by both pull
+  and push. `push_variation` now stages `pytorch/default` (hard links)
+  and audits and uploads the staged copy, so the model root's notebooks,
+  `dist/` and exports never reach Kaggle.
+- `training/utils/model_payload.py`: `checkpoint_epoch(path)` reads the
+  stored epoch through the one model-file loader.
+- Tests: `tests/unit/test_kaggle_pull.py` (fake kagglehub with the real
+  `output_dir` rules; non-empty folder, `force=True`, repeated auto-pull,
+  epoch beats size).
 
 ### v16.9.170 - One Kaggle Credential Resolver and a Real Status Probe (R3-K1)
 

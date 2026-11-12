@@ -199,7 +199,7 @@ def _pull_variation(
     sync_mgr: KaggleModelSyncManager, model: str, var_key: str, force_download: bool
 ) -> bool:
     """Pull one variation and report its outcome; True on success."""
-    target_dir = sync_mgr.get_variation_dir(model, var_key)
+    target_dir = sync_mgr.pull_destination(model, var_key)
     # Kaggle/transport/file errors, plus RuntimeError raised when kagglehub is not installed.
     pull_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), RuntimeError)
     try:
