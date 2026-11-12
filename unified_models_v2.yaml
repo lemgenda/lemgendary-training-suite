@@ -161,6 +161,7 @@ nima_aesthetic_mobile:
     plcc: 0.65
     srcc: 0.65
   stabilizers:
+    emd_form: nima
     min_temp: 1.0
     softmax_temp: 1.0
     emd_epsilon: 0.0001
@@ -242,6 +243,7 @@ nima_aesthetic_efficientnet:
     plcc: 0.7
     srcc: 0.7
   stabilizers:
+    emd_form: nima
     min_temp: 0.96
     softmax_temp: 1.0
     emd_epsilon: 0.0001
@@ -322,6 +324,7 @@ nima_aesthetic_pro:
     plcc: 0.75
     srcc: 0.75
   stabilizers:
+    emd_form: nima
     softmax_temp: 1.0
     emd_epsilon: 0.0001
     logit_clamp: 15.0
@@ -399,6 +402,7 @@ nima_technical:
   datasets:
     - LemGendizedNimaTechnical
   stabilizers:
+    emd_form: nima
     min_temp: 0.96
     softmax_temp: 1.0
     emd_epsilon: 0.0001
@@ -481,6 +485,7 @@ nima_authenticity:
   datasets:
     - LemGendizedNimaAuthenticity
   stabilizers:
+    emd_form: nima
     softmax_temp: 1.0
     emd_epsilon: 1.0e-05
     logit_clamp: 15.0

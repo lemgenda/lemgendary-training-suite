@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.185-STABLE`
+- **Version**: `v16.9.186-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,36 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.186 - NIMA Trains at Temperature 1 with the Paper EMD (R4-C4)
+
+- Quality (NIMA) models train at temperature 1 under a fixed logit soft cap
+  (15): `build_thermal` / `build_runtime` give them `PinnedThermalState`
+  and `PinnedCalibration` (`training/governance/pinned_state.py`, new), so
+  sharpening, recoil, resets, breakouts and checkpoint restore leave the
+  temperature at 1.0 and the clamp at the registry `logit_clamp` for the
+  whole run; other tasks are unchanged. The quality loss is a plain
+  softmax (it divided by the static `softmax_temp`, 1.0 for every NIMA
+  entry), and the `CombinedLoss` fallback stabilizers use temperature 1.0
+  instead of 0.1.
+- EMD (`training/loss_emd.py`, new): registry option `stabilizers.emd_form`,
+  `nima` (default, the paper's r = 2 form `sqrt(mean_k (CDF_p - CDF_t)^2 +
+  1e-8)` per sample, then the batch mean) or `squared` (`mean_k`). The
+  form is fixed for a run: checkpoints record `emd_form`, a resume keeps the
+  recorded form (a NIMA checkpoint without one keeps the pre-R4 `sum_k`
+  form, `legacy_sum`) and logs it; the new form applies to fresh runs.
+  The five NIMA entries set `emd_form: nima`; `load_model_info` rejects an
+  unknown form.
+- `NIMAModel` no longer has the unused `softmax_temp` parameter or
+  `set_temp` (old state dicts load non-strictly).
+- Optional post-hoc calibration (`training/quality_calibration.py`, new;
+  `python -m training.quality_calibration val_scores.npz`): fits one
+  temperature on validation logits (grid 0.5 to 2.0, lowest EMD) and keeps
+  it only if PLCC and SRCC do not drop. An accepted value goes into the
+  registry as `calibration.temperature`; the export `SoftmaxWrapper` uses it
+  (default 1.0, the training temperature).
+- Model card: the stability line names the EMD form and temperature 1.
+- Tests: `tests/unit/test_nima_temperature_emd.py`.
 
 ### v16.9.185 - MT5 Artefact Loads in ONNX Runtime 1.17, MQL5 Expert Advisor (R4-C1)
 

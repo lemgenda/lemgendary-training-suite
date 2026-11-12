@@ -11,6 +11,7 @@ from typing import Any
 
 import yaml
 
+from training.loss_emd import registry_emd_form
 from training.model_card_snippets import topology_mermaid, usage_snippet
 from training.registry import get_model_registry
 from training.registry.forex_risk import risk_label, risk_per_trade
@@ -361,10 +362,10 @@ def _stability_line(info: dict[str, Any]) -> str:
     """Describe the training loss used to stabilize the manifold."""
     loss_fn = info.get("loss_fn", "l1").upper()
     if loss_fn == "EMD":
-        softmax_temp = info.get("stabilizers", {}).get("softmax_temp", 0.1)
+        form = registry_emd_form(info.get("stabilizers"))
         return (
-            "Trained using **Earth Mover's Distance (EMD)** with strict "
-            f"{softmax_temp} Temperature Anchoring."
+            f"Trained using **Earth Mover's Distance (EMD, r = 2, {form} form)** on a plain "
+            "softmax (temperature 1); temperature is calibrated post hoc only."
         )
     return f"Trained using **{loss_fn} Loss** to enforce strict manifold alignment."
 

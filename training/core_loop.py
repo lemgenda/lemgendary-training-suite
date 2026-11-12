@@ -42,6 +42,7 @@ from training.governance.yolo_governor import run_governed_yolo_training
 from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
 from training.hardware.sentinel import SentinelGuard
+from training.loss_emd import registry_emd_form
 from training.losses import CombinedLoss, ForexDualLoss
 from training.model_card import build_model_readme
 from training.notebook_generator import (
@@ -204,8 +205,9 @@ def load_model_info(project_root: Path, config: dict, model_key: str) -> dict:
     if not isinstance(models_dict, dict):
         models_dict = unified_models_registry
     model_info = models_dict.get(model_key, {})
-    # Rejects an invalid ``evaluation.risk_per_trade`` when the registry entry loads.
+    # Rejects an invalid ``evaluation.risk_per_trade`` / ``stabilizers.emd_form`` at load time.
     risk_per_trade(model_info)
+    registry_emd_form(model_info.get("stabilizers"))
     return model_info
 
 
@@ -429,6 +431,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     batch_size = resolve_batch_size(spec, train.raw_model)
 
     # Sentinels and governance.
+    train.criterion = criterion
     train.governor = SmartTrainingGovernor(model_info=spec.model_info, config=spec.config)
     train.governor.curriculum.update_batch_and_accumulation(batch_size)
     train.sota_tracker = SotaTracker()

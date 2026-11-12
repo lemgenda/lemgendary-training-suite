@@ -81,7 +81,10 @@ class GeMPooling(nn.Module):
 class NIMAModel(LogitCapMixin, nn.Module):
     """
     Nuclear-Hardened NIMA (Neural IMage Assessment).
-    Implements Autonomous Temperature Sharpening, Spatial Statistical Pooling, and Logit Clamping.
+    Implements Spatial Statistical Pooling and the logit soft cap. The scores are a plain
+    softmax of the logits (temperature 1); a post-hoc calibrated temperature is applied only
+    at export (``SoftmaxWrapper``). Older state dicts hold a ``softmax_temp`` entry, which
+    the non-strict checkpoint loader skips.
     """
 
     def __init__(self, backbone="mobilenet_v3_small", hidden_dim=None, pooling="avg", **kwargs):
@@ -129,17 +132,10 @@ class NIMAModel(LogitCapMixin, nn.Module):
         else:
             self.classifier = nn.Sequential(nn.Dropout(p=0.5), nn.Linear(in_features, 10))
 
-        # 2026 Resilience: Dynamic Temperature Handle
-        self.softmax_temp = nn.Parameter(torch.tensor(1.0), requires_grad=False)
-
     @property
     def head_param_prefixes(self) -> tuple[str, ...]:
         """Layers added on the ImageNet backbone: the score head and a learnable GeM power."""
         return ("gem_pool.", "classifier.") if hasattr(self, "gem_pool") else ("classifier.",)
-
-    def set_temp(self, temp):
-        """Update sharpening manifold (Called by Governor)."""
-        self.softmax_temp.data = torch.tensor(temp).to(self.softmax_temp.device)
 
     def forward(self, x):
         """Return soft-capped logits over the 10 NIMA score bins."""
@@ -162,8 +158,7 @@ class NIMAModel(LogitCapMixin, nn.Module):
         # Logit safety valve: configurable tanh soft cap (see the module docstring).
         logits = self.cap_logits(logits)
 
-        # 2026: SOTA Autonomous Sharpening (Task 10.1)
-        # We return raw logits to ensure compatibility with the Unified Loss Engine (EMD+RankBoost).
+        # Logits for the loss (EMD + rank terms) and for the export SoftmaxWrapper.
         return logits
 
 

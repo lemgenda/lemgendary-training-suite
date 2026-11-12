@@ -68,7 +68,7 @@ class SmartTrainingGovernor(EpochAuditMixin, PropulsionMixin, GovernorStateMixin
         self.curriculum = build_curriculum(model_info, config, task_type)
         self.tuning = build_tuning(model_info, config, task_type)
         self.thermal = build_thermal(stab, task_type, self.tuning.clamp_range)
-        self.runtime = build_runtime(stab, self.thermal.min_temperature)
+        self.runtime = build_runtime(stab, self.thermal.min_temperature, task_type)
         self.sota = build_sota(model_info, config, task_type, self.spec.sota_targets)
 
     # NOTE: The signature must match EpochAuditMixin._commit_rung (int, float) → None.

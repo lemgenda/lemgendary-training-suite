@@ -14,6 +14,7 @@ from torch import nn
 from data.dataset_targets import multitask_head
 from data.sample_labels import FACE_BOX_SLICE, FACE_LANDMARK_SLICE, LANDMARK_ABSENT
 from training.governance.quality_score import RESTORATION_QS_TASKS
+from training.loss_emd import emd_loss, registry_emd_form
 from training.utils.lazy_imports import load_lpips_metric, load_optional
 
 LearnedPerceptualImagePatchSimilarity = load_optional(load_lpips_metric)
@@ -434,7 +435,9 @@ class CombinedLoss(nn.Module):
         super().__init__()
         self.task_type = task_type
         # 2026 Resilience: Dynamic injection from config hierarchy
-        self.stab = stabilizers or {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0}
+        self.stab = stabilizers or {"softmax_temp": 1.0, "emd_epsilon": 1e-6, "logit_clamp": 15.0}
+        # EMD form of quality models; a resume from an older checkpoint may pin another one.
+        self.emd_form = registry_emd_form(self.stab)
         self.criteria = _BaseCriteria()
         self.forex_dual = ForexDualLoss(stabilizers=self.stab)
         self.memory_bank = None
@@ -573,14 +576,13 @@ class CombinedLoss(nn.Module):
 
     def _compute_quality_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Compute multi-objective distribution, rank, and Spearman loss for quality assessment."""
-        p_probs = F.softmax(pred.float() / float(self.stab.get("softmax_temp", 1.0)), dim=-1)
+        # Plain softmax (temperature 1): NIMA calibrates temperature post hoc, never in training.
+        p_probs = F.softmax(pred.float(), dim=-1)
         tgt_f = target.float()
         t_probs = tgt_f / torch.clamp(
             tgt_f.sum(dim=-1, keepdim=True), min=float(self.stab.get("emd_epsilon", 1e-6))
         )
-        emd = torch.sum(
-            (torch.cumsum(p_probs, dim=-1) - torch.cumsum(t_probs, dim=-1)) ** 2, dim=-1
-        ).mean()
+        emd = emd_loss(p_probs, t_probs, self.emd_form)
 
         p_eval, t_eval = self._mean_scores(p_probs, t_probs)
 

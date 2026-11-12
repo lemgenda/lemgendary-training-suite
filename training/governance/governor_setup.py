@@ -20,11 +20,15 @@ from training.governance.governor_groups import (
     LossWeights,
     RankShaping,
 )
+from training.governance.pinned_state import PinnedCalibration, PinnedThermalState
 from training.governance.quality_score import target_quality_score
 from training.governance.sota import SotaTracker
 from training.governance.thermal import ThermalState
 
 logger = logging.getLogger("lemtrain.governance.governor")
+
+PINNED_CALIBRATION_TASKS = frozenset({"quality"})
+"""Tasks trained at temperature 1 under a fixed logit soft cap (NIMA, R4-C4)."""
 
 # Tasks whose resolution ladder is capped by the GPU's VRAM.
 _VRAM_CAPPED_TASKS = ("restoration", "enhancement", "face", "parameter_prediction")
@@ -245,7 +249,16 @@ def build_tuning(
 
 
 def build_thermal(stab: dict[str, Any], task_type: str, clamp_range: list[float]) -> ThermalState:
-    """Return the thermal state with the task's starting and minimum temperature."""
+    """Return the thermal state with the task's starting and minimum temperature.
+
+    Quality (NIMA) models train at temperature 1, fixed for the run (:mod:`pinned_state`).
+    """
+    if task_type in PINNED_CALIBRATION_TASKS:
+        pinned = PinnedThermalState()
+        pinned.clamp_range = list(clamp_range)
+        pinned.temperature = 1.0
+        pinned.min_temperature = 1.0
+        return pinned
     if task_type == "forex":
         min_temp = max(0.75, float(stab.get("min_temp", 0.75)))
         temperature = max(min_temp, float(stab.get("softmax_temp", 1.0)))
@@ -264,12 +277,16 @@ def build_thermal(stab: dict[str, Any], task_type: str, clamp_range: list[float]
     return thermal
 
 
-def build_runtime(stab: dict[str, Any], min_temp: float) -> GovernorRuntime:
-    """Return the per-epoch state with the stabilizer block's loss shaping."""
+def build_runtime(stab: dict[str, Any], min_temp: float, task_type: str = "") -> GovernorRuntime:
+    """Return the per-epoch state with the stabilizer block's loss shaping.
+
+    Quality (NIMA) models keep the registry logit clamp (their soft cap) for the whole run.
+    """
+    calibration_type = PinnedCalibration if task_type in PINNED_CALIBRATION_TASKS else Calibration
     return GovernorRuntime(
         rank=RankShaping.from_stabilizers(stab),
         weights=LossWeights.from_stabilizers(stab),
-        calibration=Calibration(
+        calibration=calibration_type(
             min_temp=min_temp,
             current_clamp=float(stab.get("logit_clamp", 15.0)),
         ),

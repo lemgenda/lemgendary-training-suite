@@ -11,6 +11,7 @@ import torch
 from torch import nn
 
 from models.nima import SoftmaxWrapper
+from training.quality_calibration import calibrated_temperature
 from training.utils.model_payload import model_payload_of
 from training.utils.paths import get_model_hub_dir, get_project_root
 
@@ -102,21 +103,19 @@ def extract_input_dimensions(
 
 
 def wrap_quality_model(model: nn.Module, model_info: dict[str, Any]) -> nn.Module:
-    """Applies softmax temperature wrapper for quality scoring models if needed."""
-    if model_info.get("dataset_type") == "quality":
-        try:
-            temp_raw = getattr(model, "softmax_temp", torch.tensor(1.0))
-            temp = float(temp_raw.item() if isinstance(temp_raw, torch.Tensor) else temp_raw)
-            if temp == 1.0:
-                stab = model_info.get("stabilizers", {})
-                temp = float(stab.get("softmax_temp", 1.0))
-            logger.info("Applying production SoftmaxWrapper with temperature=%.2f", temp)
-            wrapped = SoftmaxWrapper(model, temperature=temp)
-            wrapped.eval()
-            return wrapped
-        except (ValueError, TypeError, AttributeError, RuntimeError) as exc:
-            logger.debug("SoftmaxWrapper unavailable or unnecessary: %s", exc)
-    return model
+    """Wrap a quality (NIMA) model in a ``SoftmaxWrapper`` at its calibrated temperature.
+
+    The temperature is the registry ``calibration.temperature`` written by the post-hoc
+    calibration (:mod:`training.quality_calibration`), else 1.0, the
+    temperature the model was trained at.
+    """
+    if model_info.get("dataset_type") != "quality":
+        return model
+    temp = calibrated_temperature(model_info)
+    logger.info("Applying production SoftmaxWrapper with temperature=%.2f", temp)
+    wrapped = SoftmaxWrapper(model, temperature=temp)
+    wrapped.eval()
+    return wrapped
 
 
 def unwrap_export_model(model: nn.Module) -> nn.Module:

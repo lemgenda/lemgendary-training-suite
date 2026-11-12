@@ -33,6 +33,7 @@ from training.governance.quality_score import (
 )
 from training.hardware.device_memory import device_memory_for
 from training.hardware.probe import VramProbe, audit_hardware_vram
+from training.loss_emd import EMD_FORM_KEY, LEGACY_EMD_FORM
 from training.registry.forex_risk import risk_per_trade
 from training.training.param_groups import (
     legacy_group_sources,
@@ -57,6 +58,7 @@ class TrainState:
     governor: Any
     sota_tracker: Any
     scaler: Any = None
+    criterion: Any = None
 
 
 @dataclass
@@ -404,6 +406,27 @@ def _restore_sota_best(loaded: dict, train: TrainState) -> None:
         logger.warning("Ignoring non-numeric saved best quality %r: %s", saved_best, best_err)
 
 
+def pin_resumed_emd_form(loaded: dict, criterion: Any) -> str | None:
+    """Keep the quality loss on the checkpoint's EMD form; return the form now in use.
+
+    The form is fixed for a run (``training.loss_emd``). A quality checkpoint without a
+    recorded form predates the option and trained with :data:`LEGACY_EMD_FORM`.
+    """
+    current = getattr(criterion, "emd_form", None)
+    if current is None or getattr(criterion, "task_type", None) != "quality":
+        return current
+    recorded = loaded.get(EMD_FORM_KEY) or LEGACY_EMD_FORM
+    if recorded != current:
+        logger.warning(
+            "[EMD] Resumed run keeps its EMD form %r (configured %r applies to fresh runs; "
+            "use --clean to switch).",
+            recorded,
+            current,
+        )
+        criterion.emd_form = recorded
+    return recorded
+
+
 def resume_from_checkpoint(
     spec: RunSpec, train: TrainState, data: LoaderState, metrics_csv: Path | None
 ):
@@ -425,6 +448,7 @@ def resume_from_checkpoint(
     if pinned != built_with and not resynced:
         _rebuild_for_locality(spec, data)
     _restore_sota_best(loaded, train)
+    pin_resumed_emd_form(loaded, train.criterion)
     # Last, so rebuilding the model, optimizer and loaders above cannot advance them.
     restore_rng_state(loaded)
     return parse_resume_state(loaded)
