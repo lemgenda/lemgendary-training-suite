@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 
+from training.registry.forex_risk import DEFAULT_RISK_PER_TRADE, risk_per_trade
 from training.training.forex_equity import max_drawdown_pct
 from training.training.val_accumulators import ForexTradeTotals, ValAccumulators
 from training.training.val_metrics import METRIC_ERRORS
@@ -49,8 +50,12 @@ class TradeStats:
     max_drawdown: float
 
 
-def trade_stats(trade_returns: list[float], risk_multiples: list[float]) -> TradeStats | None:
-    """Profit factor, Sharpe, Sortino and equity drawdown; ``None`` without any trade."""
+def trade_stats(
+    trade_returns: list[float],
+    risk_multiples: list[float],
+    risk: float = DEFAULT_RISK_PER_TRADE,
+) -> TradeStats | None:
+    """Profit factor, Sharpe, Sortino and equity drawdown at ``risk``; ``None`` without a trade."""
     if len(trade_returns) == 0:
         return None
     returns_arr = np.array(trade_returns, dtype=np.float64)
@@ -66,7 +71,7 @@ def trade_stats(trade_returns: list[float], risk_multiples: list[float]) -> Trad
         profit_factor=float(_profit_factor(returns_arr)),
         sharpe_ratio=float(sharpe),
         sortino_ratio=float(sortino),
-        max_drawdown=max_drawdown_pct(risk_multiples),
+        max_drawdown=max_drawdown_pct(risk_multiples, risk),
     )
 
 
@@ -186,14 +191,15 @@ def _magnitude_mae(trades: ForexTradeTotals) -> tuple[float, float]:
     return trades.total_tp_mae / samples, trades.total_sl_mae / samples
 
 
-def _forex_results(acc: ValAccumulators, results: dict[str, float]) -> None:
+def _forex_results(acc: ValAccumulators, results: dict[str, float], risk: float) -> None:
     """Direction accuracy, magnitude errors and, when the model traded, the trade metrics.
 
     Without a single directional (non-HOLD) prediction there is no trade to measure: the
     win rate, profit factor, Sharpe, Sortino and drawdown are left out (not substituted by
     the direction accuracy or by neutral defaults) and the pass is logged. The epoch's
     quality score is computed by the engine from these metrics with the single score
-    definition (``training.governance.quality_score``).
+    definition (``training.governance.quality_score``). The drawdown compounds the
+    equity at ``risk`` per trade (the model's ``evaluation.risk_per_trade``).
     """
     totals = acc.direction
     if not (totals.has_forex_metrics and totals.total_forex_samples > 0):
@@ -208,7 +214,7 @@ def _forex_results(acc: ValAccumulators, results: dict[str, float]) -> None:
             "dir_entropy": totals.total_forex_entropy / samples,
         }
     )
-    stats = trade_stats(acc.trades.trade_returns, acc.trades.trade_risk_multiples)
+    stats = trade_stats(acc.trades.trade_returns, acc.trades.trade_risk_multiples, risk)
     if totals.total_trades <= 0 or stats is None:
         logger.warning(
             "Forex validation: no directional predictions over %d samples; win rate and "
@@ -227,6 +233,13 @@ def _forex_results(acc: ValAccumulators, results: dict[str, float]) -> None:
     )
 
 
+def _model_info(ctx: Any) -> dict[str, Any]:
+    """The run's registry entry (``ctx.run.model_info``), ``{}`` when the context has none."""
+    run = getattr(ctx, "run", None)
+    info = getattr(run, "model_info", None)
+    return info if isinstance(info, dict) else {}
+
+
 def summarize(ctx: Any, acc: ValAccumulators, step_count: int, elapsed: float) -> dict[str, float]:
     """Return the validation metrics of a finished pass."""
     avg_loss = acc.total_loss / max(1, step_count)
@@ -236,5 +249,5 @@ def summarize(ctx: Any, acc: ValAccumulators, step_count: int, elapsed: float) -
     _image_results(acc, step_count, results)
     _quality_results(acc, results)
     _task_results(acc, results)
-    _forex_results(acc, results)
+    _forex_results(acc, results, risk_per_trade(_model_info(ctx)))
     return results

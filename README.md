@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.183-STABLE`
+- **Version**: `v16.9.184-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,25 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.184 - Forex Risk per Trade Registry Setting (R4-C3)
+
+- `forex_predictor.evaluation.risk_per_trade` in `unified_models_v2.yaml`
+  (default 0.01, the common 1 % money-management rule) replaces the
+  `RISK_PER_TRADE` module constant of the validation equity model.
+  `training/registry/forex_risk.py` is its one reader: it validates
+  `0 < x <= 0.05` (a non-number is a `TypeError`, a value out of range a
+  `ValueError`) and `load_model_info` rejects an invalid entry when the
+  run loads it.
+- The validation MaxDD (`val_summary` through `max_drawdown_pct`) compounds
+  the equity at that risk. It is part of the metric definition: the Forex
+  quality scheme id now carries it (`forex_weighted_targets_v2_risk0.01`;
+  the bare tag of older checkpoints means 1 %), so a best score at another
+  risk is not reused as the SOTA anchor; the governor state in every
+  checkpoint records the id.
+- Model card: the Forex summary shows `MaxDD @ 1% risk`.
+- Tests: `tests/unit/test_forex_risk_setting.py` (default, bounds, registry
+  entries, load refusal, drawdown at 2 %, scheme ids, model card).
 
 ### v16.9.183 - Tests Never Read the Real Token Vault
 

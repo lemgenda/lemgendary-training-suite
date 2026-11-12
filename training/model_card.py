@@ -13,6 +13,7 @@ import yaml
 
 from training.model_card_snippets import topology_mermaid, usage_snippet
 from training.registry import get_model_registry
+from training.registry.forex_risk import risk_label, risk_per_trade
 from training.utils.lazy_imports import load_cloud_module
 
 logger = logging.getLogger("lemtrain.docs.doc_generator")
@@ -224,9 +225,11 @@ def _forex_summary(card: ModelCard) -> tuple[str, str]:
     pf = measured(metrics, "profit_factor", "ProfitFactor")
     sharpe = measured(metrics, "sharpe_ratio", "Sharpe")
     max_dd = measured(metrics, "max_drawdown", "MaxDD")
+    # The drawdown compounds the equity at the run's risk per trade, so it is shown with it.
+    risk = risk_label(risk_per_trade(card.info))
     return (
         f"**Dir Acc**: {dir_acc}% | **Win Rate**: {win_rate}% | **PF**: {pf} | "
-        f"**Sharpe**: {sharpe} | **MaxDD**: {max_dd}%"
+        f"**Sharpe**: {sharpe} | **MaxDD @ {risk} risk**: {max_dd}%"
     ), ""
 
 

@@ -15,6 +15,7 @@ from training.ratchet import (
     FRACTION_STATE_KEY,
     RESOLUTION_STATE_KEY,
 )
+from training.registry.forex_risk import risk_per_trade
 
 logger = logging.getLogger("lemtrain.governance.governor")
 
@@ -35,6 +36,11 @@ _OPTIONAL_WEIGHT_KEYS: dict[str, str] = {
 
 class GovernorStateMixin(GovernorHost):
     """Checkpoint serialisation of the governor's curriculum, thermal and SOTA state."""
+
+    @property
+    def risk_per_trade(self) -> float:
+        """The model's Forex ``evaluation.risk_per_trade`` (part of the quality scheme id)."""
+        return risk_per_trade(self.model_info)
 
     def get_state(self) -> dict[str, Any]:
         """Serialize complete governor state for checkpoint persistence."""
@@ -58,7 +64,7 @@ class GovernorStateMixin(GovernorHost):
             "last_action_epoch": self.last_action_epoch,
             "epoch_count": self.epoch_count,
             "best_quality": self.best_quality,
-            QUALITY_SCHEME_KEY: quality_scheme(self.task_type),
+            QUALITY_SCHEME_KEY: quality_scheme(self.task_type, self.risk_per_trade),
             "stress": self.current_stress,
             "last_jolt_epoch": self.last_jolt_epoch,
             "max_stress_stuck_epochs": self.max_stress_stuck_epochs,
@@ -94,7 +100,9 @@ class GovernorStateMixin(GovernorHost):
         counters.last_action_epoch = int(
             state.get("last_action_epoch", counters.last_res_jump_epoch)
         )
-        comparable = anchor_is_comparable(state.get(QUALITY_SCHEME_KEY), self.task_type)
+        comparable = anchor_is_comparable(
+            state.get(QUALITY_SCHEME_KEY), self.task_type, self.risk_per_trade
+        )
         self.sota.history = list(state.get("history", [])) if comparable else []
 
         if not preserve_curriculum:
@@ -112,7 +120,7 @@ class GovernorStateMixin(GovernorHost):
                 "Checkpoint quality scores use another scheme (%s, now %s); the best quality "
                 "%.2f and the quality history are not reused and are rebuilt from new epochs.",
                 state.get(QUALITY_SCHEME_KEY, "untagged"),
-                quality_scheme(self.task_type),
+                quality_scheme(self.task_type, self.risk_per_trade),
                 float(state.get("best_quality", 0.0) or 0.0),
             )
 

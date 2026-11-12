@@ -23,6 +23,7 @@ from training.governance.quality_score import (
     FOREX_SCHEME,
     anchor_is_comparable,
     csv_row_quality,
+    forex_scheme,
     quality_scheme,
     score_metrics,
     target_quality_score,
@@ -189,7 +190,8 @@ def test_score_bounds_apply_inside_the_score_only() -> None:
 
 def test_forex_scores_share_one_scale_with_the_target() -> None:
     """Epoch, CSV rescoring and target use the same score; old forex anchors are dropped."""
-    assert quality_scheme("forex") == FOREX_SCHEME
+    assert quality_scheme("forex") == forex_scheme(0.01)
+    assert anchor_is_comparable(FOREX_SCHEME, "forex")
     assert not anchor_is_comparable(None, "forex")
     row_values = {
         "DirAcc": "58.5",

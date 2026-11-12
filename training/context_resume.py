@@ -33,6 +33,7 @@ from training.governance.quality_score import (
 )
 from training.hardware.device_memory import device_memory_for
 from training.hardware.probe import VramProbe, audit_hardware_vram
+from training.registry.forex_risk import risk_per_trade
 from training.training.param_groups import (
     legacy_group_sources,
     migrate_legacy_optimizer_state,
@@ -381,7 +382,8 @@ def _restore_sota_best(loaded: dict, train: TrainState) -> None:
     if not hasattr(train.sota_tracker, "best_quality"):
         return
     task_type = str(getattr(train.governor, "task_type", ""))
-    if not anchor_is_comparable(payload_quality_scheme(loaded), task_type):
+    risk = risk_per_trade(getattr(train.governor, "model_info", None))
+    if not anchor_is_comparable(payload_quality_scheme(loaded), task_type, risk):
         logger.warning(
             "Checkpoint best quality is on another score scale; the SOTA tracker starts "
             "from the restored governor's best instead."

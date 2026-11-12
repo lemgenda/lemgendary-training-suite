@@ -26,6 +26,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS, DEFAULT_METRIC_WEIGHTS
+from training.registry.forex_risk import DEFAULT_RISK_PER_TRADE
 
 RESTORATION_QS_TASKS = frozenset({"restoration", "enhancement", "face"})
 """Dataset types scored with the ROBOTS restoration formula."""
@@ -39,7 +40,11 @@ FOREX_SCHEME = "forex_weighted_targets_v2"
 """Forex epochs scored by :func:`score_metrics` (R2-T10). Before, ``val_summary`` scored
 them with its own ``40*DirAcc + 30*WinRate + ...`` formula on percent values, so the
 targets and the epochs were on different scales and the score floored at 0 for any run
-whose clipped drawdown reached 100."""
+whose clipped drawdown reached 100.
+
+The scheme id of a Forex run carries its ``evaluation.risk_per_trade``
+(:func:`forex_scheme`, e.g. ``forex_weighted_targets_v2_risk0.01``): the drawdown, and so
+the score, depends on it. The bare tag was written before the setting existed, at 1 %."""
 FOREX_TASKS = frozenset({"forex"})
 _FOREX_CSV_COLUMNS = {
     "dir_acc": "DirAcc",
@@ -100,11 +105,20 @@ def uses_restoration_formula(task_type: str) -> bool:
     return task_type in RESTORATION_QS_TASKS
 
 
-def quality_scheme(task_type: str) -> str:
-    """Name of the score scheme ``task_type`` uses."""
+def forex_scheme(risk: float) -> str:
+    """Forex scheme id at ``risk`` per trade (the drawdown depends on it)."""
+    return f"{FOREX_SCHEME}_risk{risk:g}"
+
+
+_LEGACY_SCHEME_ALIASES: dict[str, str] = {FOREX_SCHEME: forex_scheme(DEFAULT_RISK_PER_TRADE)}
+"""Scheme tags written before a scheme option existed, mapped to the id they mean."""
+
+
+def quality_scheme(task_type: str, risk_per_trade: float = DEFAULT_RISK_PER_TRADE) -> str:
+    """Name of the score scheme ``task_type`` uses (Forex: at ``risk_per_trade``)."""
     if uses_restoration_formula(task_type):
         return RESTORATION_SCHEME
-    return FOREX_SCHEME if task_type in FOREX_TASKS else WEIGHTED_SCHEME
+    return forex_scheme(risk_per_trade) if task_type in FOREX_TASKS else WEIGHTED_SCHEME
 
 
 def finite_number(value: Any) -> float | None:
@@ -210,16 +224,19 @@ def csv_row_quality(row: Mapping[str, str], task_type: str) -> float | None:
     return None
 
 
-def anchor_is_comparable(saved_scheme: Any, task_type: str) -> bool:
+def anchor_is_comparable(
+    saved_scheme: Any, task_type: str, risk_per_trade: float = DEFAULT_RISK_PER_TRADE
+) -> bool:
     """Whether a best score saved under ``saved_scheme`` is on ``task_type``'s current scale.
 
     Untagged scores predate the scheme tag; they match only for weighted-score tasks,
-    whose formula did not change.
+    whose formula did not change. A Forex score is comparable only at the same
+    ``risk_per_trade``.
     """
-    current = quality_scheme(task_type)
+    current = quality_scheme(task_type, risk_per_trade)
     if saved_scheme is None:
         return current == WEIGHTED_SCHEME
-    return saved_scheme == current
+    return _LEGACY_SCHEME_ALIASES.get(saved_scheme, saved_scheme) == current
 
 
 def payload_quality_scheme(payload: Mapping[str, Any]) -> Any:

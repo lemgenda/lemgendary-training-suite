@@ -51,6 +51,7 @@ from training.notebook_generator import (
     generate_usage_notebook,
 )
 from training.parallel import build_parallel_strategy
+from training.registry.forex_risk import risk_per_trade
 from training.registry.task_type import resolve_task_type
 from training.training import (
     DataComponents,
@@ -202,7 +203,10 @@ def load_model_info(project_root: Path, config: dict, model_key: str) -> dict:
     models_dict = unified_models_registry.get("models")
     if not isinstance(models_dict, dict):
         models_dict = unified_models_registry
-    return models_dict.get(model_key, {})
+    model_info = models_dict.get(model_key, {})
+    # Rejects an invalid ``evaluation.risk_per_trade`` when the registry entry loads.
+    risk_per_trade(model_info)
+    return model_info
 
 
 def build_training_paths(project_root: Path, model_key: str) -> TrainingPaths:
@@ -335,6 +339,7 @@ def resolve_run(args: argparse.Namespace) -> tuple[RunSpec, RunSetup]:
         sota_targets=model_info.get("sota_targets", {}),
         # The governor's task type, so best.pth and the governor share one score scheme.
         task_type=resolve_task_type(model_info),
+        risk_per_trade=risk_per_trade(model_info),
     )
     device_info = discover_device()
     policy = apply_hardware_policy(model_key, model_info, device_info, config)

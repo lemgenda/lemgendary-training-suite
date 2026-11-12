@@ -60,6 +60,7 @@ from training.governance.quality_score import (
     payload_quality_scheme,
 )
 from training.model_card import build_model_readme
+from training.registry.forex_risk import DEFAULT_RISK_PER_TRADE
 from training.utils.paths import get_model_hub_dir, get_project_root
 
 logger = logging.getLogger("lemtrain.checkpoint.lifecycle")
@@ -234,10 +235,13 @@ class CheckpointLifecycleManager:
         sota_targets: dict[str, float] | None = None,
         min_progress_interval_sec: float = 900.0,  # 15 minutes
         task_type: str = "",
+        risk_per_trade: float = DEFAULT_RISK_PER_TRADE,
     ) -> None:
         self.model_name = model_name
         # Dataset type; selects the quality score scheme of best.pth and metrics.csv rows.
         self.task_type = task_type
+        # Forex evaluation.risk_per_trade: part of the Forex quality scheme id.
+        self.risk_per_trade = risk_per_trade
         self.root = (project_root or get_project_root()).resolve()
         self.sota_targets = sota_targets or {}
         self.min_progress_interval_sec = min_progress_interval_sec
@@ -279,7 +283,7 @@ class CheckpointLifecycleManager:
             try:
                 best_data = safe_load_checkpoint(self.paths.best_path)
                 if isinstance(best_data, dict) and anchor_is_comparable(
-                    payload_quality_scheme(best_data), self.task_type
+                    payload_quality_scheme(best_data), self.task_type, self.risk_per_trade
                 ):
                     saved_q = best_data.get("best_quality_score") or best_data.get("quality_score")
                     if saved_q is not None:
