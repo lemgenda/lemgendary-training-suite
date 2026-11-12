@@ -34,6 +34,7 @@ from training.governance.curriculum import (
     is_forex_model,
 )
 from training.governance.epoch_audit import EpochSignals
+from training.governance.logit_cap_sync import sync_logit_cap
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS
 from training.ratchet import (
     FULL_FRACTION_THRESHOLD,
@@ -262,6 +263,7 @@ def _train_phase(
         ctx.governance.governor.thermal, "step_epoch"
     ):
         ctx.governance.governor.thermal.step_epoch()
+    sync_logit_cap(ctx.models.raw_model or ctx.models.model, ctx.governance.governor)
 
     is_resuming_val = (
         ctx.state.resume_state is not None

@@ -1,10 +1,52 @@
-"""Image quality/aesthetic (NIMA) and authenticity/classification models."""
+"""Image quality/aesthetic (NIMA) and authenticity/classification models.
+
+Logit bound (owner decision R2-T6): the score logits used to be hard-clamped to the
+hardcoded range [-10, 10]. A hard clamp has zero gradient outside the range, so a
+saturated bin stops learning, and softmax does not need it for overflow (PyTorch's
+softmax subtracts the row maximum). The bound now comes from the registry
+(``stabilizers.logit_clamp`` of each model, the same value the governor tracks as its
+clamp) and is applied as a tanh soft cap, ``cap * tanh(logits / cap)``, the logit
+soft-capping of Gemma 2 (Gemma Team, 2024): smooth, monotonic, close to the identity
+for ``|logit|`` well below ``cap`` and bounded by ``cap``, so FP16/AMP logits stay
+finite after a resolution jump while every bin keeps a gradient. A cap of 15 still
+spans a probability ratio of e^30 between bins, far more than a 10-bin EMD target
+needs. ``0`` turns the cap off.
+"""
+
+import math
 
 import torch
 from torch import nn
 from torchvision import models
 
 # [SENIOR HARDENING v16.0 - SYNC_ID: 1312]
+
+DEFAULT_LOGIT_CAP = 15.0
+"""Soft cap of a model built without a registry ``stabilizers.logit_clamp``."""
+
+
+def soft_cap_logits(logits: torch.Tensor, cap: float) -> torch.Tensor:
+    """``cap * tanh(logits / cap)``; ``logits`` unchanged when ``cap <= 0``."""
+    if cap <= 0:
+        return logits
+    return cap * torch.tanh(logits / cap)
+
+
+class LogitCapMixin:
+    """A configurable logit soft cap (set from the registry and the governor's clamp)."""
+
+    logit_cap: float = DEFAULT_LOGIT_CAP
+
+    def set_logit_cap(self, cap: float) -> None:
+        """Set the soft cap (``0`` or less turns it off)."""
+        value = float(cap)
+        if math.isnan(value):
+            raise ValueError("logit cap must be a number, got NaN")
+        self.logit_cap = value
+
+    def cap_logits(self, logits: torch.Tensor) -> torch.Tensor:
+        """Apply this model's soft cap to ``logits``."""
+        return soft_cap_logits(logits, self.logit_cap)
 
 
 class SoftmaxWrapper(nn.Module):
@@ -36,7 +78,7 @@ class GeMPooling(nn.Module):
         )
 
 
-class NIMAModel(nn.Module):
+class NIMAModel(LogitCapMixin, nn.Module):
     """
     Nuclear-Hardened NIMA (Neural IMage Assessment).
     Implements Autonomous Temperature Sharpening, Spatial Statistical Pooling, and Logit Clamping.
@@ -100,7 +142,7 @@ class NIMAModel(nn.Module):
         self.softmax_temp.data = torch.tensor(temp).to(self.softmax_temp.device)
 
     def forward(self, x):
-        """Return clamped logits over the 10 NIMA score bins."""
+        """Return soft-capped logits over the 10 NIMA score bins."""
         x = self.features(x)
         if getattr(self, "backbone_name", "") == "swin_v2_t":
             # Swin outputs [B, H, W, C], pool2d needs [B, C, H, W]
@@ -117,16 +159,15 @@ class NIMAModel(nn.Module):
 
         logits = self.classifier(feat)
 
-        # 2026 Resilience: Logit Safety Valve (Task 10.4)
-        # Clamping to ±10.0 prevents probability collapse during sudden resolution shifts.
-        logits = torch.clamp(logits, -10.0, 10.0)
+        # Logit safety valve: configurable tanh soft cap (see the module docstring).
+        logits = self.cap_logits(logits)
 
         # 2026: SOTA Autonomous Sharpening (Task 10.1)
         # We return raw logits to ensure compatibility with the Unified Loss Engine (EMD+RankBoost).
         return logits
 
 
-class AuthenticityScorer(nn.Module):
+class AuthenticityScorer(LogitCapMixin, nn.Module):
     """
     SOTA Authenticity Scorer (AI vs Real) & Categorical Safety Engine.
     Supports standard GAP, Spatial Statistical Pooling (Mean + Std), and GeM.
@@ -158,10 +199,9 @@ class AuthenticityScorer(nn.Module):
         return ("gem_pool.", *head) if hasattr(self, "gem_pool") else head
 
     def forward(self, x):
-        """Return clamped class logits using the configured pooling."""
+        """Return soft-capped class logits using the configured pooling."""
         if self.pooling_type == "avg":
-            logits = self.backbone(x)
-            return torch.clamp(logits, -10.0, 10.0)
+            return self.cap_logits(self.backbone(x))
 
         x_feat = self.backbone.features(x)
         if self.pooling_type == "stats":
@@ -174,7 +214,7 @@ class AuthenticityScorer(nn.Module):
             feat = torch.flatten(nn.functional.adaptive_avg_pool2d(x_feat, (1, 1)), 1)
 
         logits = self.backbone.classifier(feat)
-        return torch.clamp(logits, -10.0, 10.0)
+        return self.cap_logits(logits)
 
 
 class UniversalClassifier(AuthenticityScorer):

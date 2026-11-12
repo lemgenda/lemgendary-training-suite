@@ -441,7 +441,7 @@ class CombinedLoss(nn.Module):
         if self.stab.get("rank_memory_bank_size", 0) > 0 or self.stab.get("use_memory_bank", False):
             mb_size = int(self.stab.get("rank_memory_bank_size", 32))
             self.memory_bank = RankMemoryBank(capacity=mb_size)
-        self.perc = None
+        self.perc: nn.Module | None = None
 
         # 2026: SOTA Rank-Boost Weights (Standard 10..1 mapping)
         self.register_buffer("rank_weights", torch.arange(1, 11).float())

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.161-STABLE`
+- **Version**: `v16.9.162-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,35 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.162 - NIMA Logit Bound from the Registry as a Soft Cap (R2-T6)
+
+- Owner decision: the NIMA logit clamp is configuration, not code. The
+  hardcoded `torch.clamp(logits, -10, 10)` in `models/nima.py` (and in the
+  EfficientNet `AuthenticityScorer`/`UniversalClassifier`) is gone. The
+  bound is the registry `stabilizers.logit_clamp` of each model (15.0 for
+  every NIMA entry; the model factory applies it, `DEFAULT_LOGIT_CAP` =
+  15.0 covers a model built without a registry entry), and `0` turns it
+  off.
+- Best practice: the bound is a tanh soft cap, `cap * tanh(logits / cap)`,
+  the final-logit soft-capping of Gemma 2, instead of a hard clamp. A hard
+  clamp has zero gradient outside the range, so a saturated score bin stops
+  learning; softmax needs no clamp against overflow (PyTorch subtracts the
+  row maximum). The soft cap is near the identity for small logits, keeps
+  FP16/AMP logits bounded after a resolution jump and keeps every bin
+  differentiable; a cap of 15 still spans a probability ratio of e^30
+  between bins, far beyond what a 10-bin EMD target needs.
+- Governor wiring: the governor already starts its clamp at
+  `stabilizers.logit_clamp` and adjusts it (thermal reset, breakout). It
+  now drives the model: `training/governance/logit_cap_sync.py` applies
+  `current_clamp` to models with `set_logit_cap` at the start of every
+  epoch (logged on change), so the `Clamp` column of `metrics.csv` is the
+  bound the model used. The governor temperature is not wired into the
+  EMD loss (validation scores at temperature 1; see owner questions).
+- `CombinedLoss.perc` is typed as an optional module (pyright).
+- Tests: `tests/unit/test_nima_logit_cap.py` (bounded, smooth, gradients
+  kept, cap 0, no hard clamp left, registry caps applied, forward bound,
+  governor sync).
 
 ### v16.9.161 - LPIPS Loss for Every Model with an LPIPS Target (R2-T5)
 

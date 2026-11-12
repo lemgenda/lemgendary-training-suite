@@ -30,9 +30,7 @@ _LLM_KEYS = {
 _KEYS = sorted(
     key
     for key, info in _REGISTRY.items()
-    if isinstance(info, dict)
-    and not key.startswith("_")
-    and key not in _OWN_OPTIMIZER | _LLM_KEYS
+    if isinstance(info, dict) and not key.startswith("_") and key not in _OWN_OPTIMIZER | _LLM_KEYS
 )
 
 
