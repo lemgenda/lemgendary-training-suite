@@ -23,6 +23,11 @@ from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS
 from training.context_data import RunSpec, rebuild_resumed_train_loader
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.governance.governor_setup import configured_data_fraction
+from training.governance.quality_score import (
+    anchor_is_comparable,
+    csv_row_quality,
+    payload_quality_scheme,
+)
 from training.hardware.probe import VramProbe, audit_hardware_vram
 from training.training.param_groups import (
     legacy_group_sources,
@@ -178,8 +183,34 @@ def calibrate_quality_anchor(spec: RunSpec, governor: Any) -> None:
         governor.best_quality = reset_to
 
 
+def _csv_maxima(
+    rows: list[dict[str, Any]], task_type: str, current_res: int, floors: tuple[float, float]
+) -> tuple[float, float]:
+    """Highest data fraction at ``current_res`` and highest quality over ``rows``.
+
+    ``floors`` holds the governor's current (fraction, best quality); the result never
+    falls below it.
+    """
+    max_frac, max_quality = floors
+    for r in rows:
+        try:
+            r_res = int(float(r.get("Res") or current_res))
+            r_frac = float(r.get("Data") or 0.0)
+        except (ValueError, TypeError) as row_err:
+            logger.debug("Skipping malformed metrics.csv row %r: %s", r, row_err)
+            continue
+        if r_res == current_res and r_frac > max_frac:
+            max_frac = r_frac
+        max_quality = max(max_quality, csv_row_quality(r, task_type) or 0.0)
+    return max_frac, max_quality
+
+
 def reconcile_metrics_csv(governor: Any, metrics_csv: Path | None, sample_fraction: float) -> None:
-    """Raise the governor's data fraction and best quality to what ``metrics.csv`` records."""
+    """Raise the governor's data fraction and best quality to what ``metrics.csv`` records.
+
+    Row quality comes from :func:`csv_row_quality`, which rescores restoration rows from
+    their PSNR/SSIM/LPIPS columns so rows written under an older score scale compare.
+    """
     if metrics_csv is None or not metrics_csv.exists():
         return
     try:
@@ -190,20 +221,16 @@ def reconcile_metrics_csv(governor: Any, metrics_csv: Path | None, sample_fracti
         return
     if not rows:
         return
-    curr_res_val = int(getattr(governor, "current_res", 256))
-    max_frac_at_res = float(getattr(governor, "current_fraction", sample_fraction))
-    max_quality_csv = float(getattr(governor, "best_quality", 0.0))
-    for raw_row in rows:
-        r = filter_metrics_row_for_fid_provenance(raw_row, metrics_csv.parent)
-        try:
-            r_res = int(float(r.get("Res") or curr_res_val))
-            r_frac = float(r.get("Data") or 0.0)
-            r_qual = float(r.get("Quality_Score") or 0.0)
-            if r_res == curr_res_val and r_frac > max_frac_at_res:
-                max_frac_at_res = r_frac
-            max_quality_csv = max(max_quality_csv, r_qual)
-        except (ValueError, TypeError) as row_err:
-            logger.debug("Skipping malformed metrics.csv row %r: %s", r, row_err)
+    rows = [filter_metrics_row_for_fid_provenance(r, metrics_csv.parent) for r in rows]
+    max_frac_at_res, max_quality_csv = _csv_maxima(
+        rows,
+        str(getattr(governor, "task_type", "")),
+        int(getattr(governor, "current_res", 256)),
+        (
+            float(getattr(governor, "current_fraction", sample_fraction)),
+            float(getattr(governor, "best_quality", 0.0)),
+        ),
+    )
     if max_frac_at_res > float(getattr(governor, "current_fraction", 0.0)):
         governor.current_fraction = min(1.0, max_frac_at_res)
     if max_quality_csv > float(getattr(governor, "best_quality", 0.0)):
@@ -307,6 +334,13 @@ def _restore_sota_best(loaded: dict, train: TrainState) -> None:
     """Carry the checkpoint's best quality score into the SOTA tracker."""
     if not hasattr(train.sota_tracker, "best_quality"):
         return
+    task_type = str(getattr(train.governor, "task_type", ""))
+    if not anchor_is_comparable(payload_quality_scheme(loaded), task_type):
+        logger.warning(
+            "Checkpoint best quality is on another score scale; the SOTA tracker starts "
+            "from the restored governor's best instead."
+        )
+        loaded = {}
     saved_best = (
         loaded.get("best_quality_score")
         or loaded.get("best_quality")

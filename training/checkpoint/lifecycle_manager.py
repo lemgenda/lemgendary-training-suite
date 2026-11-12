@@ -53,6 +53,11 @@ from training.governance.metrics import (
     is_lower_better,
     normalize_metric_name,
 )
+from training.governance.quality_score import (
+    anchor_is_comparable,
+    csv_row_quality,
+    payload_quality_scheme,
+)
 from training.model_card import build_model_readme
 from training.utils.paths import get_model_hub_dir, get_project_root
 
@@ -227,8 +232,11 @@ class CheckpointLifecycleManager:
         project_root: Path | None = None,
         sota_targets: dict[str, float] | None = None,
         min_progress_interval_sec: float = 900.0,  # 15 minutes
+        task_type: str = "",
     ) -> None:
         self.model_name = model_name
+        # Dataset type; selects the quality score scheme of best.pth and metrics.csv rows.
+        self.task_type = task_type
         self.root = (project_root or get_project_root()).resolve()
         self.sota_targets = sota_targets or {}
         self.min_progress_interval_sec = min_progress_interval_sec
@@ -269,7 +277,9 @@ class CheckpointLifecycleManager:
         if self.paths.best_path.exists():
             try:
                 best_data = safe_load_checkpoint(self.paths.best_path)
-                if isinstance(best_data, dict):
+                if isinstance(best_data, dict) and anchor_is_comparable(
+                    payload_quality_scheme(best_data), self.task_type
+                ):
                     saved_q = best_data.get("best_quality_score") or best_data.get("quality_score")
                     if saved_q is not None:
                         q_val = float(saved_q)
@@ -335,28 +345,17 @@ class CheckpointLifecycleManager:
             with open(self.paths.metrics_csv_path, encoding="utf-8", errors="ignore") as f:
                 reader = csv.DictReader(f)
                 for raw_row in reader:
-                    row = filter_metrics_row_for_fid_provenance(
-                        raw_row, self.paths.model_hub_dir
-                    )
+                    row = filter_metrics_row_for_fid_provenance(raw_row, self.paths.model_hub_dir)
                     self._absorb_quality_row(row)
                     self._absorb_vault_row(row)
         except OSError as exc:
             logger.debug("Failed parsing metrics.csv history for vault baselines: %s", exc)
 
     def _absorb_quality_row(self, row: dict[str, str]) -> None:
-        """Raise the quality score baseline from one metrics.csv row."""
-        for q_key in ["Quality", "Quality_Score", "quality_score"]:
-            if row.get(q_key):
-                try:
-                    q_val = float(row[q_key])
-                    self.tracking.best_quality_score = max(self.tracking.best_quality_score, q_val)
-                except ValueError as q_err:
-                    logger.debug(
-                        "Skipping non-numeric %s value %r in metrics.csv: %s",
-                        q_key,
-                        row[q_key],
-                        q_err,
-                    )
+        """Raise the quality score baseline from one metrics.csv row (current scale)."""
+        q_val = csv_row_quality(row, self.task_type)
+        if q_val is not None:
+            self.tracking.best_quality_score = max(self.tracking.best_quality_score, q_val)
 
     def _absorb_vault_row(self, row: dict[str, str]) -> None:
         """Update the SOTA target metric baselines from one metrics.csv row."""

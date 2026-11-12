@@ -7,7 +7,6 @@ knobs) so ``SmartTrainingGovernor.__init__`` only wires the groups together.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from typing import Any
 
 import torch
@@ -21,7 +20,7 @@ from training.governance.governor_groups import (
     LossWeights,
     RankShaping,
 )
-from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS, DEFAULT_METRIC_WEIGHTS
+from training.governance.quality_score import score_metrics
 from training.governance.sota import SotaTracker
 from training.governance.thermal import ThermalState
 
@@ -29,17 +28,6 @@ logger = logging.getLogger("lemtrain.governance.governor")
 
 # Tasks whose resolution ladder is capped by the GPU's VRAM.
 _VRAM_CAPPED_TASKS = ("restoration", "enhancement", "face", "parameter_prediction")
-
-# Score contribution of a lower-is-better SOTA target, by metric; others use 1 / target.
-_LOWER_IS_BETTER_SCORE: dict[str, Callable[[float], float]] = {
-    "fid": lambda v: 100.0 - v,
-    "lpips": lambda v: 1.0 - v,
-    "rank_margin": lambda v: 10.0 - v,
-    "max_drawdown": lambda v: max(0.0, 100.0 - v),
-    "tp_mae": lambda v: max(0.0, 50.0 - v),
-    "sl_mae": lambda v: max(0.0, 50.0 - v),
-    "dir_entropy": lambda v: max(0.0, 1.099 - v),
-}
 
 
 def resolve_task_type(model_info: dict[str, Any]) -> str:
@@ -295,16 +283,11 @@ def build_runtime(stab: dict[str, Any], min_temp: float) -> GovernorRuntime:
 
 
 def target_quality_score(sota_targets: dict[str, float], task_type: str) -> float:
-    """Combine the SOTA targets into the quality score the curriculum aims for."""
-    target_score = 0.0
-    for k, target_v in sota_targets.items():
-        weight = DEFAULT_METRIC_WEIGHTS.get(k, 1.0)
-        if DEFAULT_METRIC_DIRECTIONS.get(k, True):
-            target_score += target_v * weight
-        elif k in _LOWER_IS_BETTER_SCORE:
-            target_score += _LOWER_IS_BETTER_SCORE[k](target_v) * weight
-        else:
-            target_score += (1.0 / (target_v + 1e-6)) * weight
+    """Combine the SOTA targets into the quality score the curriculum aims for.
+
+    The same :func:`score_metrics` that scores each epoch scores the targets.
+    """
+    target_score = score_metrics(sota_targets, sota_targets, task_type)
     if target_score <= 0:
         return 1.0
     if target_score <= 1.0 and task_type == "quality":

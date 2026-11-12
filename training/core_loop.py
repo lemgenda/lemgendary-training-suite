@@ -37,6 +37,7 @@ from training.context_data import (
 from training.context_resume import LoaderState, TrainState, resume_from_checkpoint
 from training.export import export_all
 from training.governance import SmartTrainingGovernor, SotaTracker
+from training.governance.governor_setup import resolve_task_type as governor_task_type
 from training.governance.yolo_governor import run_governed_yolo_training
 from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
@@ -335,6 +336,8 @@ def resolve_run(args: argparse.Namespace) -> tuple[RunSpec, RunSetup]:
         model_name=model_key,
         project_root=project_root,
         sota_targets=model_info.get("sota_targets", {}),
+        # The governor's task type, so best.pth and the governor share one score scheme.
+        task_type=governor_task_type(model_info),
     )
     device_info = discover_device()
     policy = apply_hardware_policy(model_key, model_info, device_info, config)

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.151-STABLE`
+- **Version**: `v16.9.152-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,33 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.152 - One Quality Score Definition and the ROBOTS Restoration Formula
+
+- `training/governance/quality_score.py` (new): the only definition of
+  the scalar quality score, used both for the epoch score
+  (`TelemetryEngine.compute_quality_score`) and for the curriculum target
+  (`governor_setup.target_quality_score`). Before, the two kept their own
+  copies of the formula. Restoration, enhancement and face models now
+  score `PSNR + 20*SSIM - 20*LPIPS` (`ROBOTS.md`) on every epoch. FID was
+  measured every fifth epoch and added `(100 - FID)` only then, so the
+  score jumped by 60 to 90 points on FID epochs and `best.pth` followed
+  that cadence. FID now stays out of the score; it still gates
+  publication and triggers `vault_fid.pth` from its own column. Other
+  tasks keep the weighted sum of their SOTA targets.
+- Scale migration: governor state carries `quality_scheme`. A
+  restoration checkpoint without the tag was scored on the old scale
+  (about 8x larger), so its `best_quality`, quality history and the
+  SOTA tracker's and `best.pth`'s best scores are not reused (logged
+  warning). `metrics.csv` rows are rescored from their PSNR/SSIM/LPIPS
+  columns (`csv_row_quality`) in `reconcile_metrics_csv` and in the
+  lifecycle manager's baseline, so resumed runs compare on the new scale.
+  `CheckpointLifecycleManager` takes the governor's `task_type`.
+- Tests: `tests/unit/test_quality_score.py` (formula for the three task
+  types with and without FID, target equals the epoch formula, CSV
+  rescoring, anchor comparability, governor state round trip and
+  old-scale reset, CSV reconcile on the new scale; the audit 3.2.4
+  missing-target checks now run on a weighted task).
 
 ### v16.9.151 - Backbone/Head Optimizer Groups with Legacy Checkpoint Migration
 

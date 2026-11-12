@@ -14,14 +14,8 @@ import torch
 # ==============================================================================
 # Master handler for SOTA metric tracking, Quality Score math, and CSV validation
 # ==============================================================================
-from training.governance.metrics import (
-    DEFAULT_METRIC_DIRECTIONS,
-    DEFAULT_METRIC_WEIGHTS,
-)
+from training.governance.quality_score import score_metrics
 from training.utils.lazy_imports import load_mean_average_precision
-
-METRIC_WEIGHTS = DEFAULT_METRIC_WEIGHTS
-METRIC_DIRECTIONS = DEFAULT_METRIC_DIRECTIONS
 
 # --- 2026 Resilience: Extended Mathematical Governance (SSOT Delegation) ---
 logger = logging.getLogger("lemtrain.telemetry")
@@ -259,52 +253,20 @@ class TelemetryEngine:
             f.writelines(updated_rows)
 
     def compute_quality_score(self, curr_metrics, sota_targets, task_type):
-        """Dynamic Quality Score: Weighted average of the SOTA targets measured this epoch.
+        """Quality score of one epoch's metrics (see ``training.governance.quality_score``).
 
-        A target metric absent from ``curr_metrics`` (e.g. FID when the metric module is
-        unavailable or the epoch's FID pass was incomplete) contributes nothing. Before,
-        it was read as 0.0, which scored a lower-is-better metric as perfect (+100 for FID).
+        Restoration, enhancement and face models score ``PSNR + 20*SSIM - 20*LPIPS`` on
+        every epoch; FID stays out of the score. Other tasks use the weighted sum of the
+        SOTA targets measured this epoch; an absent target contributes nothing.
+        Returns ``(score, collapsed)``; ``collapsed`` flags a NaN or negative PLCC/SRCC
+        of a quality model (Metric Singularity and Polarity Shield).
         """
-        quality_score = 0.0
-
-        # --- 2026: Metric Singularity Shield & Live Polarity Shield (v1.2.2) ---
         if task_type == "quality":
             plcc_val = curr_metrics.get("plcc", 0.0)
             srcc_val = curr_metrics.get("srcc", 0.0)
             if np.isnan(plcc_val) or np.isnan(srcc_val) or plcc_val < 0.0 or srcc_val < 0.0:
-                return (
-                    0.0,
-                    True,
-                )  # Return score, and a flag indicating singularity or polarity collapse
-
-        for k in sota_targets:
-            if curr_metrics.get(k) is None:
-                continue
-            val = curr_metrics[k]
-            direction = METRIC_DIRECTIONS.get(k, True)
-            weight = METRIC_WEIGHTS.get(k, 1)
-
-            if direction:
-                quality_score += val * weight
-            else:
-                if k == "fid":
-                    quality_score += (100.0 - val) * weight
-                elif k == "lpips":
-                    quality_score += (1.0 - val) * weight
-                elif k == "rank_margin":
-                    quality_score += (10.0 - val) * weight
-                elif k == "max_drawdown":
-                    quality_score += max(0.0, 100.0 - val) * weight
-                elif k in ["tp_mae", "sl_mae"]:
-                    quality_score += max(0.0, 50.0 - val) * weight
-                # dir_entropy: lower is better. Max entropy for 3 classes = ln(3) ~= 1.099.
-                # Contribution is 0 at ln(3) (random) and rises as the model becomes confident.
-                elif k == "dir_entropy":
-                    quality_score += max(0.0, 1.099 - val) * weight
-                else:
-                    quality_score += (1.0 / (val + 1e-6)) * weight
-
-        return quality_score, False
+                return 0.0, True
+        return score_metrics(curr_metrics, sota_targets, task_type), False
 
     def calculate_miou(self, preds, targets):
         """2026 mIoU Integration for ParseNet."""
