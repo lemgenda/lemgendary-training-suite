@@ -11,6 +11,8 @@ import psutil
 import torch
 from torch import nn
 
+from training.hardware.device_memory import DeviceMemory, device_memory_for
+
 logger = logging.getLogger("lemtrain.hardware.probe")
 
 # Failure modes of an empirical forward/backward VRAM probe: CUDA/OOM/kernel errors
@@ -101,16 +103,20 @@ def _is_no_kernel_error(message: str) -> bool:
 # --------------------------------------------------------------------------- forex
 
 
-def _gpu0_free_gb() -> float:
-    """Free VRAM on GPU 0 in GB (0.0 without CUDA or when the query fails)."""
-    if not torch.cuda.is_available():
-        return 0.0
-    try:
-        free_vram_probe, _ = torch.cuda.mem_get_info(0)
-        return free_vram_probe / _GIB
-    except RuntimeError as mem_err:
-        logger.debug("torch.cuda.mem_get_info unavailable; assuming 0 GB free: %s", mem_err)
-        return 0.0
+class _DeviceReport(NamedTuple):
+    """Device name, free and total memory in GB (0.0 without a device budget)."""
+
+    name: str
+    free_gb: float
+    total_gb: float
+
+
+def _device_report(memory: DeviceMemory) -> _DeviceReport:
+    """Name and memory of the probed device, through its memory adapter."""
+    budget = memory.budget()
+    if budget is None:
+        return _DeviceReport(memory.device_name(), 0.0, 0.0)
+    return _DeviceReport(memory.device_name(), budget.free_gb, budget.total_gb)
 
 
 def _forex_tier(dyn_batch: int, vram_gb: float) -> int:
@@ -121,52 +127,42 @@ def _forex_tier(dyn_batch: int, vram_gb: float) -> int:
     return 16
 
 
-def _forex_auto_batch(vram_gb: float, mode: str) -> tuple[int, float]:
-    """Dynamic forex batch and the free VRAM (GB) it was sized from."""
-    gpu_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
-    if torch.cuda.is_available():
-        free_vram, _ = torch.cuda.mem_get_info(0)
-        free_gb = free_vram / _GIB
+def _forex_auto_batch(report: _DeviceReport, gpu_count: int, mode: str) -> int:
+    """Dynamic forex batch sized from the device's free memory."""
+    if report.free_gb > 0:
         # Compute dynamic batch: ~2.5MB activation footprint per multi-timeframe sample
-        # Maintain 30% safety margin for optimizer momentum, activations, and CUDA context
-        usable_bytes = free_vram * 0.70
+        # Maintain 30% safety margin for optimizer momentum, activations, and device context
+        usable_bytes = report.free_gb * _GIB * 0.70
         sample_bytes = 2.5 * 1024 * 1024
-        per_device = _forex_tier(int(usable_bytes / sample_bytes), vram_gb)
+        per_device = _forex_tier(int(usable_bytes / sample_bytes), report.total_gb)
     else:
-        free_gb = 0.0
         per_device = 16
 
     is_ddp = _is_ddp()
     final_batch = per_device * gpu_count if (gpu_count > 1 and not is_ddp) else per_device
     if mode == "val":
         final_batch *= 2
-    return final_batch, free_gb
+    return final_batch
 
 
-def _forex_batch(model_info: dict[str, Any], probe: VramProbe) -> int:
-    """Forex batch: the configured size, else sized from free VRAM."""
+def _forex_batch(model_info: dict[str, Any], probe: VramProbe, memory: DeviceMemory) -> int:
+    """Forex batch: the configured size, else sized from free device memory."""
     configured_batch = model_info.get("batch_size", "auto")
-    gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
-    vram_gb = (
-        (torch.cuda.get_device_properties(0).total_memory / _GIB)
-        if torch.cuda.is_available()
-        else 0.0
-    )
-    free_gb = _gpu0_free_gb()
+    report = _device_report(memory)
 
     if isinstance(configured_batch, int) and configured_batch > 0:
         final_batch = configured_batch if probe.mode == "train" else configured_batch * 2
     else:
-        final_batch, free_gb = _forex_auto_batch(vram_gb, probe.mode)
+        final_batch = _forex_auto_batch(report, memory.device_count(), probe.mode)
 
     symbols_str = " | ".join(probe.pairs) if probe.pairs else "ALL"
     fold_str = str(probe.fold) if probe.fold else "MAIN"
     logger.info(
         "Forex Dynamic Hardware Probe: %s (Free: %.1fGB / Total: %.1fGB) | Phase: %s | Batch: "
         "%d | Fold: %s | Symbols: %s",
-        gpu_name,
-        free_gb if torch.cuda.is_available() else 0.0,
-        vram_gb,
+        report.name,
+        report.free_gb,
+        report.total_gb,
         probe.mode.capitalize(),
         final_batch,
         fold_str,
@@ -192,9 +188,9 @@ def _llm_auto_batch(seq_len: int, free_gb: float, mode: str) -> int:
 
     Activation footprint is estimated at ~0.45 GB per 2048-token sample and scales
     linearly with the sequence length; 30% of free VRAM is kept as headroom.
-    Without CUDA (or a free-VRAM reading) the safe default is 2 (train) / 4 (val).
+    Without a device memory budget the safe default is 2 (train) / 4 (val).
     """
-    if not torch.cuda.is_available() or free_gb <= 0:
+    if free_gb <= 0:
         return 2 if mode == "train" else 4
     sample_gb = (seq_len / _LLM_REF_SEQ_LEN) * _LLM_GB_PER_REF_SAMPLE
     usable_gb = max(0.2, free_gb * 0.70)
@@ -203,29 +199,23 @@ def _llm_auto_batch(seq_len: int, free_gb: float, mode: str) -> int:
     return max(1, min(pow2_batch, _LLM_MAX_BATCH))
 
 
-def _llm_batch(model_info: dict[str, Any], probe: VramProbe) -> int:
-    """LLM batch: the configured size, else sized from free VRAM and context length."""
+def _llm_batch(model_info: dict[str, Any], probe: VramProbe, memory: DeviceMemory) -> int:
+    """LLM batch: the configured size, else sized from free device memory and context."""
     configured_batch = model_info.get("batch_size", "auto")
     seq_len = int(probe.res_override or model_info.get("input_size") or _LLM_REF_SEQ_LEN)
-    gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
-    vram_gb = (
-        (torch.cuda.get_device_properties(0).total_memory / _GIB)
-        if torch.cuda.is_available()
-        else 0.0
-    )
-    free_gb = _gpu0_free_gb()
+    report = _device_report(memory)
 
     if isinstance(configured_batch, int) and configured_batch > 0:
         final_batch = configured_batch if probe.mode == "train" else configured_batch * 2
     else:
-        final_batch = _llm_auto_batch(seq_len, free_gb, probe.mode)
+        final_batch = _llm_auto_batch(seq_len, report.free_gb, probe.mode)
 
     logger.info(
         "LLM Dynamic Hardware Probe: %s (Free: %.1fGB / Total: %.1fGB) | Mode: %s | "
         "Batch: %d | SeqLen: %d",
-        gpu_name,
-        free_gb,
-        vram_gb,
+        report.name,
+        report.free_gb,
+        report.total_gb,
         probe.mode.capitalize(),
         final_batch,
         seq_len,
@@ -248,18 +238,18 @@ def _is_restoration(model_key: str, model_info: dict[str, Any]) -> bool:
 
 
 def _cpu_fallback_batch(config: dict[str, Any]) -> int:
-    """Configured default batch size for non-CUDA devices (16 when "auto" or unset)."""
+    """Configured default batch size without a device memory budget (16 when "auto"/unset)."""
     fallback_val = config.get("defaults", {}).get("batch_size", 16)
     if isinstance(fallback_val, str) and fallback_val.lower() == "auto":
         return 16
     return int(fallback_val) if fallback_val is not None else 16
 
 
-def _preflight_cuda(cast_device: Any) -> None:
+def _preflight_device(cast_device: Any, memory: DeviceMemory) -> None:
     """Exit on fatal GPU faults (ECC, missing kernel image); re-raise anything else."""
     try:
         test_tensor = torch.ones(1, device=cast_device) + 1.0
-        torch.cuda.synchronize()
+        memory.synchronize()
         del test_tensor
     except Exception as exc:
         err_str = str(exc)
@@ -270,14 +260,6 @@ def _preflight_cuda(cast_device: Any) -> None:
             logger.critical("No CUDA kernel image available for active GPU architecture.")
             sys.exit(1)
         raise
-
-
-def _free_vram() -> tuple[int, float]:
-    """Free VRAM bytes on GPU 0 (incl. unused reserved cache) and its total size in GB."""
-    free_vram, total_vram = torch.cuda.mem_get_info(0)
-    vram_gb = total_vram / _GIB
-    unused_reserved = torch.cuda.memory_reserved(0) - torch.cuda.memory_allocated(0)
-    return free_vram + unused_reserved, vram_gb
 
 
 def _resolve_resolution(model_info: dict[str, Any], res_override: int | None) -> int:
@@ -318,7 +300,9 @@ def _backward_mean(output: Any) -> None:
         loss.backward()
 
 
-def _warmup_pass(model: nn.Module, shape: _ProbeShape, cast_device: Any) -> None:
+def _warmup_pass(
+    model: nn.Module, shape: _ProbeShape, cast_device: Any, memory: DeviceMemory
+) -> None:
     """One forward (and backward when training) pass to settle allocator and cuDNN state."""
     try:
         dummy = _dummy_input(shape, cast_device)
@@ -331,37 +315,45 @@ def _warmup_pass(model: nn.Module, shape: _ProbeShape, cast_device: Any) -> None
             _backward_mean(out)
             model.zero_grad(set_to_none=True)
         del dummy, out
-        torch.cuda.empty_cache()
+        memory.release_cache()
     except _PROBE_ERRORS as exc:
         if _is_no_kernel_error(str(exc)):
             raise
         logger.debug("Warmup pass non-fatal notification: %s", exc)
 
 
-def _measure_sample_vram(model: nn.Module, shape: _ProbeShape, cast_device: Any) -> float:
-    """Peak VRAM bytes of one sample, measured; falls back to a resolution-scaled formula."""
-    torch.cuda.reset_peak_memory_stats(0)
-    before_probe = torch.cuda.memory_allocated(0)
+def _measure_sample_vram(
+    model: nn.Module, shape: _ProbeShape, cast_device: Any, memory: DeviceMemory
+) -> float:
+    """Peak device bytes of one sample, measured; falls back to a resolution-scaled formula.
+
+    Backends without allocation statistics (DirectML) measure 0 and take the formula.
+    """
+    memory.reset_peak()
+    before_probe = memory.allocated()
     try:
         dummy_input = _dummy_input(shape, cast_device)
         if shape.mode == "train":
             model.train()
             output = model(dummy_input)
+            memory.observe()
             _backward_mean(output)
-            peak_probe = torch.cuda.max_memory_allocated(0)
+            memory.observe()
+            peak_probe = memory.peak_allocated()
             probe_multiplier = 1.6 if shape.is_restoration else 1.25
             sample_vram = (peak_probe - before_probe) * probe_multiplier
         else:
             model.eval()
             with torch.no_grad():
                 _ = model(dummy_input)
-            peak_probe = torch.cuda.max_memory_allocated(0)
+                memory.observe()
+            peak_probe = memory.peak_allocated()
             val_mult = 1.6 if shape.is_restoration else 1.15
             sample_vram = (peak_probe - before_probe) * val_mult
 
         del dummy_input
         model.zero_grad(set_to_none=True)
-        torch.cuda.empty_cache()
+        memory.release_cache()
 
         if sample_vram <= 0:
             raise ValueError("Probe failed to measure manifold memory footprint")
@@ -429,7 +421,10 @@ def _even_batch(batch: int) -> int:
 
 
 def _multi_gpu_batch(final_batch: int, model: nn.Module, shape: _ProbeShape, device: Any) -> int:
-    """Scale the batch for single-process multi-GPU (DataParallel or replicated) runs."""
+    """Scale the batch for single-process multi-GPU (DataParallel or replicated) runs.
+
+    DataParallel replication exists for CUDA (and ROCm) only; other backends count one.
+    """
     gpu_count = torch.cuda.device_count() if device.type == "cuda" else 1
     is_ddp = _is_ddp()
     is_dataparallel = isinstance(model, torch.nn.DataParallel) or (
@@ -491,48 +486,60 @@ def _check_bottleneck(final_batch: int, dynamic_batch: int, gpu_name: str, vram_
     )
 
 
-def _vision_batch(
-    model_key: str,
-    model_info: dict[str, Any],
-    config: dict[str, Any],
-    model: nn.Module,
-    probe: VramProbe,
-) -> int:
-    """Vision / restoration batch from an empirical VRAM probe (full 24-model coverage)."""
-    if probe.device.type != "cuda":
-        return _cpu_fallback_batch(config)
+@dataclass(frozen=True)
+class _VisionTarget:
+    """The model the vision probe measures, its registry entry and the run config."""
+
+    model_key: str
+    model_info: dict[str, Any]
+    config: dict[str, Any]
+    model: nn.Module
+
+
+def _vision_batch(target: _VisionTarget, probe: VramProbe, memory: DeviceMemory) -> int:
+    """Vision / restoration batch from an empirical device-memory probe (any GPU backend)."""
+    if memory.budget() is None:
+        return _cpu_fallback_batch(target.config)
 
     cast_device: Any = probe.device
-    _preflight_cuda(cast_device)
+    _preflight_device(cast_device, memory)
 
     # Cache purge before probe
     gc.collect()
-    torch.cuda.empty_cache()
+    memory.release_cache()
 
-    free_vram, vram_gb = _free_vram()
-    side = _resolve_resolution(model_info, probe.res_override)
-    shape = _ProbeShape(
-        model_key, probe.mode, side, side, _is_restoration(model_key, model_info), vram_gb
-    )
-    available_vram = free_vram * _safety_multiplier(shape)
+    budget = memory.budget()
+    if budget is None:
+        return _cpu_fallback_batch(target.config)
+    vram_gb = budget.total_gb
+    side = _resolve_resolution(target.model_info, probe.res_override)
+    is_restoration = _is_restoration(target.model_key, target.model_info)
+    shape = _ProbeShape(target.model_key, probe.mode, side, side, is_restoration, vram_gb)
+    available_vram = budget.free_bytes * _safety_multiplier(shape)
 
-    _warmup_pass(model, shape, cast_device)
-    dynamic_batch = int(available_vram / _measure_sample_vram(model, shape, cast_device))
+    _warmup_pass(target.model, shape, cast_device, memory)
+    sample_vram = _measure_sample_vram(target.model, shape, cast_device, memory)
+    dynamic_batch = int(available_vram / sample_vram)
 
     host = _host_ram()
-    final_batch = max(1, min(dynamic_batch, _pixel_cap(shape), _system_cap(shape, config, host)))
+    final_batch = max(
+        1, min(dynamic_batch, _pixel_cap(shape), _system_cap(shape, target.config, host))
+    )
     final_batch = _even_batch(final_batch)
 
-    gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
-    final_batch = _multi_gpu_batch(final_batch, model, shape, probe.device)
+    gpu_name = memory.device_name()
+    final_batch = _multi_gpu_batch(final_batch, target.model, shape, probe.device)
     final_batch = _restoration_vram_cap(final_batch, shape)
     final_batch = _host_val_guard(final_batch, shape, host)
     _check_bottleneck(final_batch, dynamic_batch, gpu_name, vram_gb)
 
     logger.info(
-        "Memory Probe: %s (%.1f GB) | %s @ %dpx | Batch: %d (Pixels: %.1fM) | Fraction: %.1f%%",
+        "Memory Probe: %s %s (%.1f GB%s) | %s @ %dpx | Batch: %d (Pixels: %.1fM) | "
+        "Fraction: %.1f%%",
+        memory.name,
         gpu_name,
         vram_gb,
+        "" if budget.measured else ", estimated",
         probe.mode.capitalize(),
         shape.h,
         final_batch,
@@ -550,12 +557,16 @@ def audit_hardware_vram(
     probe: VramProbe,
 ) -> int:
     """
-    Performs an empirical VRAM test at the specified resolution to determine
+    Performs an empirical device-memory test at the specified resolution to determine
     the optimal batch size within hardware memory safety bounds.
+
+    Device memory is read through :func:`training.hardware.device_memory.device_memory_for`
+    (CUDA/ROCm, XPU, MPS, DirectML; the CPU has no budget and gets the configured default).
     """
+    memory = device_memory_for(probe.device, config)
     is_forex = model_info.get("dataset_type") == "forex" or "forex" in model_key.lower()
     if is_forex:
-        return _forex_batch(model_info, probe)
+        return _forex_batch(model_info, probe, memory)
     if _is_llm(model_key, model_info):
-        return _llm_batch(model_info, probe)
-    return _vision_batch(model_key, model_info, config, model, probe)
+        return _llm_batch(model_info, probe, memory)
+    return _vision_batch(_VisionTarget(model_key, model_info, config, model), probe, memory)

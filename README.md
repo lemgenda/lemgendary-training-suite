@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.167-STABLE`
+- **Version**: `v16.9.168-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,35 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.168 - Device-Memory Refit on Every GPU Backend (R2-T4)
+
+- `training/hardware/device_memory.py` (new) is the one device-memory
+  adapter: a `DeviceMemory` protocol with implementations for CUDA (which
+  covers ROCm/HIP builds), XPU, MPS, DirectML and a CPU no-op. The VRAM
+  audit (`audit_hardware_vram`: vision, Forex and LLM paths) reads free and
+  total memory, peaks, cache release and device names through it instead
+  of `torch.cuda`, so the resolution-jump refit
+  (`refit_batch_for_resolution`), the resume clamp
+  (`context_resume._clamp_resumed_batch`, split out of
+  `_resync_train_loader`) and the start-up audit measure every GPU backend,
+  not only CUDA. All three keep the effective batch exact through the
+  curriculum's largest-divisor rule, which the OOM throttle shares.
+- Where free memory cannot be queried the adapter returns a documented,
+  logged estimate: MPS uses `min(recommended_max_memory -
+  current_allocated_memory, host available RAM)` and samples allocations
+  for its peak; DirectML reports nothing and assumes
+  `hardware.directml_assumed_free_gb` (default 2.0 GB), with the
+  per-sample cost from the probe's resolution formula; a failing CUDA/XPU
+  `mem_get_info` falls back to total minus reserved.
+- The CPU has no device budget: the refit and the resume clamp are no-ops
+  there (the resume clamp used to cut the restored batch to the configured
+  default on CPU).
+- OOM relief: `release_device_memory` and `is_out_of_memory` replace the
+  CUDA-only `release_cuda_memory`, `release_cuda_cache` and `is_oom_error`;
+  OOM messages of CUDA, ROCm, MPS, XPU and DirectML are recognised and
+  every present backend's cache is released.
+- Tests: `tests/unit/test_device_memory.py` (mocked backends).
 
 ### v16.9.167 - Generator State in Checkpoints and Resume-Exact Augmentation (R2-T8)
 

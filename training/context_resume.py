@@ -31,6 +31,7 @@ from training.governance.quality_score import (
     csv_row_quality,
     payload_quality_scheme,
 )
+from training.hardware.device_memory import device_memory_for
 from training.hardware.probe import VramProbe, audit_hardware_vram
 from training.training.param_groups import (
     legacy_group_sources,
@@ -258,37 +259,7 @@ def _resync_train_loader(spec: RunSpec, train: TrainState, data: LoaderState) ->
         train_ds.update_strategy(size=rec_res, fraction=rec_frac)
     elif hasattr(train_ds, "sample_fraction") and rec_frac is not None:
         train_ds.sample_fraction = rec_frac
-    # Re-audit the hardware safety limit for the restored resolution.
-    hw_safe_batch = audit_hardware_vram(
-        model_key=spec.model_key,
-        model_info=spec.model_info,
-        config=spec.config,
-        model=train.model,
-        probe=VramProbe(
-            device=spec.device,
-            res_override=rec_res,
-            mode="train",
-            sample_fraction=rec_frac if rec_frac is not None else 1.0,
-            fold=getattr(spec.args, "fold", None),
-            pairs=getattr(spec.args, "pairs", None) or spec.model_info.get("pairs"),
-        ),
-    )
-    restored_batch = int(getattr(governor, "current_batch", data.batch_size))
-    curr_batch = min(restored_batch, hw_safe_batch)
-    curriculum = getattr(governor, "curriculum", None)
-    if curr_batch != restored_batch and curriculum is not None:
-        # Same effective batch as before the resume: largest divisor within the budget.
-        curriculum.fit_batch_to_budget(hw_safe_batch)
-        curr_batch = int(curriculum.current_batch)
-    if curr_batch != restored_batch:
-        logger.warning(
-            "[RESUME CLAMP] Clamped restored batch %d -> %d to prevent "
-            "OOM on current hardware at res %s",
-            restored_batch,
-            curr_batch,
-            rec_res,
-        )
-
+    curr_batch = _clamp_resumed_batch(spec, train, (rec_res, rec_frac), data.batch_size)
     data.train_loader = rebuild_resumed_train_loader(spec, train_ds, data.train_loader, curr_batch)
     total_ds_samples = len(getattr(train_ds, "all_samples", [])) or len(train_ds)
     shown_frac = rec_frac if rec_frac is not None else 1.0
@@ -314,6 +285,54 @@ def _resync_train_loader(spec: RunSpec, train: TrainState, data: LoaderState) ->
         rec_res,
         shown_frac,
     )
+
+
+def _clamp_resumed_batch(
+    spec: RunSpec, train: TrainState, rung: tuple[Any, float | None], fallback_batch: int
+) -> int:
+    """The restored micro-batch, clamped to the device-memory budget of ``rung``.
+
+    ``rung`` is the restored ``(resolution, data fraction)``; ``fallback_batch`` is used
+    when the governor records no batch.
+
+    Every GPU backend is audited through its device-memory adapter; the CPU has no device
+    budget, so the restored batch is kept there. A clamp keeps the effective batch exact
+    (the curriculum's largest-divisor rule, shared with the refit and the OOM throttle).
+    """
+    governor = train.governor
+    rec_res, rec_frac = rung
+    restored_batch = int(getattr(governor, "current_batch", fallback_batch))
+    if device_memory_for(spec.device, spec.config).budget() is None:
+        return restored_batch
+    hw_safe_batch = audit_hardware_vram(
+        model_key=spec.model_key,
+        model_info=spec.model_info,
+        config=spec.config,
+        model=train.model,
+        probe=VramProbe(
+            device=spec.device,
+            res_override=rec_res,
+            mode="train",
+            sample_fraction=rec_frac if rec_frac is not None else 1.0,
+            fold=getattr(spec.args, "fold", None),
+            pairs=getattr(spec.args, "pairs", None) or spec.model_info.get("pairs"),
+        ),
+    )
+    curr_batch = min(restored_batch, hw_safe_batch)
+    curriculum = getattr(governor, "curriculum", None)
+    if curr_batch != restored_batch and curriculum is not None:
+        # Same effective batch as before the resume: largest divisor within the budget.
+        curriculum.fit_batch_to_budget(hw_safe_batch)
+        curr_batch = int(curriculum.current_batch)
+    if curr_batch != restored_batch:
+        logger.warning(
+            "[RESUME CLAMP] Clamped restored batch %d -> %d to prevent "
+            "OOM on current hardware at res %s",
+            restored_batch,
+            curr_batch,
+            rec_res,
+        )
+    return curr_batch
 
 
 def _restore_governor(

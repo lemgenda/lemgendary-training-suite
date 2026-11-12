@@ -1,6 +1,5 @@
 """Worker topology calculation and memory-leak-free DataLoader disposal."""
 
-import gc
 import logging
 import os
 import signal
@@ -10,6 +9,8 @@ from typing import Any
 
 import psutil
 import torch
+
+from training.hardware.device_memory import release_device_memory
 
 logger = logging.getLogger("lemtrain.workers")
 
@@ -236,18 +237,8 @@ def dispose_loader(loader: Any) -> None:
             except (OSError, RuntimeError) as exc:
                 logger.warning("Error closing dataset resources: %s", exc)
 
-    # Reclaim garbage and empty CUDA memory cache if available
-    release_cuda_memory("loader disposal")
-
-
-def release_cuda_memory(purpose: str) -> None:
-    """Collect garbage and empty the CUDA cache; a failed release is logged, not raised."""
-    gc.collect()
-    if torch.cuda.is_available():
-        try:
-            torch.cuda.empty_cache()
-        except RuntimeError as exc:
-            logger.debug("CUDA cache release failed during %s: %s", purpose, exc)
+    # Reclaim garbage and every present accelerator's allocator cache
+    release_device_memory("loader disposal")
 
 
 def dataloader_worker_init_fn(worker_id: int) -> None:

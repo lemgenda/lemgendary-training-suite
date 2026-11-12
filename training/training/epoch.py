@@ -16,15 +16,14 @@ from typing import Any
 import torch
 
 from training.data.resumable_sampler import resume_start_batch
+from training.hardware.device_memory import is_out_of_memory, release_device_memory
 from training.training.amp import GradClip, get_autocast_context, safe_backward
 from training.training.context import TrainingContext
 from training.training.step_progress import (
     BatchClock,
     batch_progress_line,
     is_main_process,
-    is_oom_error,
     progress_payload,
-    release_cuda_cache,
     resume_iteration,
 )
 from training.utils.tensors import to_device
@@ -185,7 +184,7 @@ class _TrainingPass:
             _, new_acc = ctx.governance.governor.handle_oom(current_batch=curr_b)
             ctx.data.accumulation_steps = new_acc
         else:
-            release_cuda_cache()
+            release_device_memory("train OOM relief")
         print(
             f"\n  [TRAIN WARNING] VRAM OOM intercepted on batch {batch_idx + 1}. Governor "
             "active mitigation applied.",
@@ -304,8 +303,8 @@ def train_one_epoch(
         unpacked = _unpack_batch(batch, ctx.hardware.device_info.device)
         try:
             raw_loss, grad_norm = run.step(unpacked, batch_idx)
-        except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
-            if not is_oom_error(oom_err):
+        except (torch.OutOfMemoryError, RuntimeError) as oom_err:
+            if not is_out_of_memory(oom_err):
                 raise
             run.relieve_oom(batch_idx)
             continue

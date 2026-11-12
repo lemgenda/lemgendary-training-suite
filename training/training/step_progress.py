@@ -1,12 +1,11 @@
 """Shared per-batch helpers for the training and validation loops.
 
-Out-of-memory detection and relief, rank-0 detection, the intra-epoch progress checkpoint
+Rank-0 detection, the intra-epoch progress checkpoint
 payload and the batch telemetry line are the same for both loops.
 """
 
 from __future__ import annotations
 
-import gc
 from dataclasses import dataclass
 from typing import Any
 
@@ -64,18 +63,6 @@ def resume_iteration(resume_state: Any, phase: str, handled: bool) -> int:
     if resume_state.is_intra_epoch and resume_state.phase == phase and resume_state.iteration > 0:
         return resume_state.iteration
     return 0
-
-
-def is_oom_error(err: BaseException) -> bool:
-    """Return True when ``err`` is a CUDA out-of-memory failure."""
-    return "out of memory" in str(err).lower() or isinstance(err, torch.cuda.OutOfMemoryError)
-
-
-def release_cuda_cache() -> None:
-    """Collect garbage and empty the CUDA cache when a GPU is present."""
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
 
 
 def is_main_process() -> bool:

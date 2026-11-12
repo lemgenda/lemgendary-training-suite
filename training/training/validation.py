@@ -17,6 +17,7 @@ from typing import Any
 import torch
 
 from training.data.resumable_sampler import resume_start_batch
+from training.hardware.device_memory import is_out_of_memory, release_device_memory
 from training.training.amp import get_autocast_context
 from training.training.context import TrainingContext
 from training.training.epoch import _unpack_batch
@@ -24,9 +25,7 @@ from training.training.step_progress import (
     BatchClock,
     batch_progress_line,
     is_main_process,
-    is_oom_error,
     progress_payload,
-    release_cuda_cache,
     resume_iteration,
 )
 from training.training.val_accumulators import ValAccumulators
@@ -100,11 +99,11 @@ class _ValidationPass:
     def guarded_forward(
         self, batch_idx: int, batch: tuple[Any, Any, Any]
     ) -> tuple[Any, Any] | None:
-        """Run :meth:`forward`; on CUDA out-of-memory recover and return None."""
+        """Run :meth:`forward`; on device out-of-memory recover and return None."""
         try:
             return self.forward(*batch)
-        except (torch.cuda.OutOfMemoryError, RuntimeError) as err:
-            if not is_oom_error(err):
+        except (torch.OutOfMemoryError, RuntimeError) as err:
+            if not is_out_of_memory(err):
                 raise
             self.relieve_oom(batch_idx)
             return None
@@ -114,7 +113,7 @@ class _ValidationPass:
         if hasattr(self.ctx.governance.governor, "handle_oom"):
             self.ctx.governance.governor.handle_oom()
         else:
-            release_cuda_cache()
+            release_device_memory("validation OOM relief")
         print(
             f"\n  [VAL WARNING] VRAM OOM intercepted on val batch {batch_idx + 1}. "
             "Cache evacuated and recovered.",

@@ -20,6 +20,7 @@ from collections.abc import Callable
 import torch
 from torch import nn
 
+from training.hardware.device_memory import device_memory_for
 from training.hardware.probe import VramProbe, audit_hardware_vram
 from training.training.context import TrainingContext
 
@@ -75,12 +76,14 @@ def _probe_preserving_state(model: nn.Module, resolution: int, probe: SafeBatchP
 def refit_batch_for_resolution(ctx: TrainingContext, probe: SafeBatchProbe | None = None) -> bool:
     """Shrink the governor's micro-batch to the VRAM-safe size of its current resolution.
 
-    Only measured budgets are applied: off CUDA the vision audit returns a configured
-    default rather than a measurement, so no probe runs and the batch is kept unless a
-    ``probe`` is injected. Returns True when the micro-batch changed.
+    Every GPU backend is probed through its device-memory adapter (CUDA/ROCm, XPU, MPS,
+    DirectML; estimated budgets are logged by the adapter). The CPU has no device memory
+    budget, so no probe runs there and the batch is kept unless a ``probe`` is injected.
+    Returns True when the micro-batch changed.
     """
     if probe is None:
-        if ctx.hardware.device_info.device.type != "cuda":
+        device = ctx.hardware.device_info.device
+        if device_memory_for(device, ctx.run.config).budget() is None:
             return False
         probe = probe_safe_batch(ctx)
     governor = ctx.governance.governor

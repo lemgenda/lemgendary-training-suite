@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from training.data.workers import release_cuda_memory
 from training.governance.epoch_audit import EpochAuditMixin
 from training.governance.governor_groups import GovernorSpec
 from training.governance.governor_setup import (
@@ -18,6 +17,7 @@ from training.governance.governor_setup import (
 from training.governance.governor_state import GovernorStateMixin
 from training.governance.metrics import MetricRegistry
 from training.governance.propulsion import PropulsionMixin
+from training.hardware.device_memory import release_device_memory
 from training.ratchet import (
     Rung,
     check_transition,
@@ -96,7 +96,7 @@ class SmartTrainingGovernor(EpochAuditMixin, PropulsionMixin, GovernorStateMixin
     def handle_oom(self, current_batch: int | None = None, min_batch: int = 1) -> tuple[int, int]:
         """Governor active on-the-fly OOM recovery intervention.
 
-        1. Immediately purges CUDA memory cache and triggers garbage collection.
+        1. Immediately purges the device allocator caches and triggers garbage collection.
         2. Throttles physical batch size and doubles accumulation steps to preserve effective batch.
         3. Locks spatial resolution ladder to prevent premature resolution jumps.
         4. Logs actionable diagnostic telemetry.
@@ -104,7 +104,7 @@ class SmartTrainingGovernor(EpochAuditMixin, PropulsionMixin, GovernorStateMixin
         Returns:
             Tuple of (new_batch, new_accumulation_steps).
         """
-        release_cuda_memory("OOM handling")
+        release_device_memory("OOM handling")
 
         if current_batch is not None and current_batch > 0:
             self.curriculum.current_batch = current_batch
