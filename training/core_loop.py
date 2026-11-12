@@ -23,7 +23,11 @@ from training.checkpoint import (
     CheckpointLifecycleManager,
     MetricVault,
 )
-from training.cli_args import add_clean_argument, add_timeframes_argument
+from training.cli_args import (
+    add_clean_argument,
+    add_override_frozen_argument,
+    add_timeframes_argument,
+)
 from training.cloud.session_deadline import DEADLINE_STATUS
 from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
@@ -54,6 +58,14 @@ from training.notebook_generator import (
 from training.parallel import build_parallel_strategy
 from training.registry.forex_risk import risk_per_trade
 from training.registry.task_type import resolve_task_type
+from training.run_settings.capture import (
+    SettingsInputs,
+    epoch_settings,
+    frozen_settings,
+    param_group_layout,
+)
+from training.run_settings.ledger import SettingsLedger
+from training.run_settings.policy import RunSettingsTracker
 from training.training import (
     DataComponents,
     GovernanceComponents,
@@ -139,6 +151,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
         parser,
         "Start training fresh from epoch 1, wiping local checkpoints and ignoring hub checkpoints",
     )
+    add_override_frozen_argument(parser)
     parser.add_argument(
         "--phase", type=int, default=1, help="Training Phase (e.g. Pre-training=1, Fine-tuning=2)"
     )
@@ -394,6 +407,26 @@ def build_model_stack(spec: RunSpec, total_epochs: int) -> tuple[TrainState, Any
     return train, parallel_strategy
 
 
+def track_run_settings(
+    spec: RunSpec, train: TrainState, total_epochs: int, run_folder: Path
+) -> RunSettingsTracker:
+    """The run's configured frozen and epoch settings; changes go to ``run_folder``'s ledger."""
+    inputs = SettingsInputs(
+        config=spec.config,
+        model_info=spec.model_info,
+        args=spec.args,
+        task_type=spec.task_type,
+        total_epochs=total_epochs,
+        model_class=type(train.raw_model).__name__,
+        param_groups=param_group_layout(train.optimizer.param_groups),
+    )
+    return RunSettingsTracker(
+        frozen_settings(inputs),
+        epoch_settings(inputs),
+        ledger=SettingsLedger.in_folder(run_folder),
+    )
+
+
 def build_data(spec: RunSpec, governor: Any, raw_model: Any, batch_size: int):
     """Build the datasets and loaders at the governor's data fraction.
 
@@ -429,6 +462,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     train, parallel_strategy = build_model_stack(spec, total_epochs)
     criterion = build_criterion(spec)
     batch_size = resolve_batch_size(spec, train.raw_model)
+    run_settings = track_run_settings(spec, train, total_epochs, setup.paths.export_dir)
 
     # Sentinels and governance.
     train.criterion = criterion
@@ -444,7 +478,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     if not args.clean:
         hub = setup.paths.models_hub
         metrics_csv = hub.metrics_csv if hub is not None else None
-        resume_state = resume_from_checkpoint(spec, train, data, metrics_csv)
+        resume_state = resume_from_checkpoint(spec, train, data, metrics_csv, run_settings)
     total_epochs = grant_resume_budget(args, resume_state, total_epochs)
 
     return TrainingContext(
@@ -484,6 +518,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         ),
         state=RunState(
             resume_state=resume_state,
+            run_settings=run_settings,
         ),
     )
 

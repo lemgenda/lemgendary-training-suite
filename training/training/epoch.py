@@ -16,6 +16,7 @@ from typing import Any
 import torch
 
 from training.cloud.session_deadline import SessionDeadlineReached
+from training.config.optimizer_settings import grad_clip_norm
 from training.data.resumable_sampler import resume_start_batch
 from training.hardware.device_memory import is_out_of_memory, release_device_memory
 from training.training.amp import GradClip, get_autocast_context, safe_backward
@@ -102,6 +103,8 @@ class _TrainingPass:
         self.autocast_ctx = get_autocast_context(
             ctx.hardware.policy, ctx.hardware.device_info.device
         )
+        # The epoch's gradient clip (``optimizer.grad_clip``, an epoch setting of the run).
+        self.max_grad_norm = grad_clip_norm(ctx.run.config)
         self.totals = _TrainTotals()
         start_time = time.time()
         ctx.models.optimizer.zero_grad(set_to_none=True)
@@ -173,7 +176,11 @@ class _TrainingPass:
                 loss=scaled_loss,
                 optimizer=ctx.models.optimizer,
                 scaler=ctx.models.scaler,
-                clip=GradClip(model=ctx.models.model, max_norm=1.0, should_unscale=is_update_step),
+                clip=GradClip(
+                    model=ctx.models.model,
+                    max_norm=self.max_grad_norm,
+                    should_unscale=is_update_step,
+                ),
             )
         return raw_loss, grad_norm
 

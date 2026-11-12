@@ -135,7 +135,9 @@ swa:
 # blocks of this many samples inside each shard instead of single samples;
 # 256 samples are one 25-75 MB sequential read and a shard still splits into
 # 12-40 blocks. 0 turns either off. Both stay deterministic, resumable and
-# nested; a resumed run keeps the settings recorded in its checkpoint.
+# nested. A resumed run finishes the interrupted epoch on the settings recorded
+# in its checkpoint and takes over changed ones from the next epoch
+# (training/run_settings, logged to settings_changes.jsonl).
 data:
   locality:
     window_shards: 4

@@ -56,6 +56,7 @@ from training.training.batch_budget import refit_batch_for_resolution
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
 from training.training.lr_scaling import scale_learning_rates
+from training.training.settings_switch import apply_due_settings
 from training.training.step_progress import any_rank, is_main_process, progress_payload
 from training.training.summary import TrainingSummary
 from training.training.swa import attach_swa
@@ -131,6 +132,11 @@ def _rebuild_loader_on_directive(ctx: TrainingContext, f_chg: bool, r_chg: bool)
             str(new_frac),
             curr_batch,
         )
+
+
+def _rebuild_loader_for_settings(ctx: TrainingContext) -> None:
+    """Redraw the train subset and rebuild the loader after an epoch-settings switch."""
+    _rebuild_loader_on_directive(ctx, f_chg=True, r_chg=False)
 
 
 def _apply_lr_multiplier(ctx: TrainingContext) -> None:
@@ -801,6 +807,8 @@ def _run_epochs(ctx: TrainingContext, loop: _LoopState, hooks: _Hooks) -> Traini
             return _deadline_summary(
                 ctx, loop, SessionDeadlineReached(loop.last_epoch_executed, "epoch", 0)
             )
+        # Settings changed since a resume take effect when their epoch starts (R4-C5).
+        apply_due_settings(ctx, epoch, _rebuild_loader_for_settings)
         try:
             cancelled = _run_epoch(ctx, loop, epoch, hooks)
         except SessionDeadlineReached as stop:

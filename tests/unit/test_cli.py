@@ -126,7 +126,19 @@ class TestLemTrainCLI(unittest.TestCase):
             mock.patch("training.cli.lemtrain.run_training", return_value=summary) as run,
         ):
             result = runner.invoke(
-                app, ["train", "m", "-e", "2", "--lr", "0.01", "--clean", "--parallel", "dp"]
+                app,
+                [
+                    "train",
+                    "m",
+                    "-e",
+                    "2",
+                    "--lr",
+                    "0.01",
+                    "--clean",
+                    "--override-frozen",
+                    "--parallel",
+                    "dp",
+                ],
             )
         self.assertEqual(result.exit_code, 0, result.output)
         run.assert_called_once_with(
@@ -137,6 +149,7 @@ class TestLemTrainCLI(unittest.TestCase):
             preset=None,
             env="local",
             clean=True,
+            override_frozen=True,
             auto_sync=False,
             parallel="dp",
         )

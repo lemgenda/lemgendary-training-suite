@@ -94,29 +94,38 @@ def _cli_batch_size(raw_batch: Any) -> int | None:
     return parsed_bs if parsed_bs > 0 else None
 
 
+def requested_batch_size(args: Any, model_info: dict[str, Any]) -> int | None:
+    """CLI batch size, else the model's configured one; ``None`` for ``auto`` (VRAM audit)."""
+    resolved_batch = _cli_batch_size(getattr(args, "batch_size", None))
+    if resolved_batch is not None:
+        return resolved_batch
+    cfg_batch = model_info.get("batch_size")
+    if isinstance(cfg_batch, bool):
+        return None
+    if isinstance(cfg_batch, int) and cfg_batch > 0:
+        return cfg_batch
+    if isinstance(cfg_batch, str) and cfg_batch.strip().isdigit() and int(cfg_batch) > 0:
+        return int(cfg_batch)
+    return None
+
+
 def resolve_batch_size(spec: RunSpec, raw_model: Any) -> int:
     """CLI batch size, else the model's configured one, else the VRAM audit's safe batch."""
-    resolved_batch = _cli_batch_size(spec.args.batch_size)
+    resolved_batch = requested_batch_size(spec.args, spec.model_info)
     if resolved_batch is None:
-        cfg_batch = spec.model_info.get("batch_size")
-        if isinstance(cfg_batch, int) and cfg_batch > 0:
-            resolved_batch = cfg_batch
-        elif isinstance(cfg_batch, str) and cfg_batch.strip().isdigit() and int(cfg_batch) > 0:
-            resolved_batch = int(cfg_batch)
-        else:
-            resolved_batch = audit_hardware_vram(
-                model_key=spec.model_key,
-                model_info=spec.model_info,
-                config=spec.config,
-                model=raw_model,
-                probe=VramProbe(
-                    device=spec.device,
-                    res_override=getattr(spec.args, "resolution", None),
-                    mode="train",
-                    fold=getattr(spec.args, "fold", None),
-                    pairs=getattr(spec.args, "pairs", None) or spec.model_info.get("pairs"),
-                ),
-            )
+        resolved_batch = audit_hardware_vram(
+            model_key=spec.model_key,
+            model_info=spec.model_info,
+            config=spec.config,
+            model=raw_model,
+            probe=VramProbe(
+                device=spec.device,
+                res_override=getattr(spec.args, "resolution", None),
+                mode="train",
+                fold=getattr(spec.args, "fold", None),
+                pairs=getattr(spec.args, "pairs", None) or spec.model_info.get("pairs"),
+            ),
+        )
 
     if not isinstance(resolved_batch, int) or resolved_batch <= 0:
         resolved_batch = 128 if spec.task_type == "forex" else 16

@@ -176,21 +176,38 @@ def _align_start_rung(curriculum: CurriculumState, task_type: str) -> None:
         curriculum.res_ladder = sorted(set(curriculum.res_ladder + [curriculum.current_res]))
 
 
+def configured_target_effective_batch(model_info: dict[str, Any], config: dict[str, Any]) -> int:
+    """The configured effective batch: ``optimization``, then ``curriculum``, then 24."""
+    opt = model_info.get("optimization") or {}
+    curriculum_cfg = model_info.get("curriculum") or {}
+    manifold_defaults = (config.get("governor") or {}).get("manifold") or {}
+    return int(
+        opt.get(
+            "target_effective_batch",
+            curriculum_cfg.get(
+                "target_effective_batch",
+                manifold_defaults.get("target_effective_batch", 24),
+            ),
+        )
+    )
+
+
+def configured_accumulation(model_info: dict[str, Any]) -> int | None:
+    """The configured gradient accumulation (``None``: derived from the effective batch)."""
+    configured_acc = model_info.get("accumulation_steps") or (
+        model_info.get("curriculum") or {}
+    ).get("accumulation_steps")
+    return None if configured_acc is None else max(1, int(configured_acc))
+
+
 def build_curriculum(
     model_info: dict[str, Any], config: dict[str, Any], task_type: str
 ) -> CurriculumState:
     """Build the starting rung, batch and resolution ladder of the curriculum."""
     opt = model_info.get("optimization", {})
     manifold_defaults = config.get("governor", {}).get("manifold", {})
-    curriculum_cfg = model_info.get("curriculum") or {}
     curriculum = CurriculumState()
-    curriculum.target_effective_batch = opt.get(
-        "target_effective_batch",
-        curriculum_cfg.get(
-            "target_effective_batch",
-            manifold_defaults.get("target_effective_batch", 24),
-        ),
-    )
+    curriculum.target_effective_batch = configured_target_effective_batch(model_info, config)
     curriculum.fraction_increment = opt.get(
         "fraction_increment",
         manifold_defaults.get("fraction_increment", 0.20),
@@ -198,11 +215,9 @@ def build_curriculum(
     curriculum.current_fraction = _initial_fraction(model_info, opt, manifold_defaults)
 
     curriculum.current_batch = _initial_batch(model_info)
-    configured_acc = model_info.get("accumulation_steps") or curriculum_cfg.get(
-        "accumulation_steps"
-    )
+    configured_acc = configured_accumulation(model_info)
     if configured_acc is not None:
-        curriculum.current_acc = max(1, int(configured_acc))
+        curriculum.current_acc = configured_acc
     else:
         curriculum.update_batch_and_accumulation(curriculum.current_batch)
     curriculum.current_res = _initial_resolution(model_info)

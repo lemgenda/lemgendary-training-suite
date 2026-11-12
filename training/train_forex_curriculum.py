@@ -14,7 +14,11 @@ from pathlib import Path
 
 import yaml
 
-from training.cli_args import add_clean_argument, add_timeframes_argument
+from training.cli_args import (
+    add_clean_argument,
+    add_override_frozen_argument,
+    add_timeframes_argument,
+)
 from training.platform_paths import kaggle_paths, on_kaggle, platform_paths
 from training.utils.paths import get_model_hub_dir
 
@@ -78,6 +82,7 @@ def _build_parser() -> argparse.ArgumentParser:
     add_clean_argument(
         parser, "Start curriculum fresh from fold 1 epoch 1, wiping all checkpoints and states"
     )
+    add_override_frozen_argument(parser)
     parser.add_argument(
         "--folds",
         type=int,
@@ -355,6 +360,8 @@ def _build_fold_command(cur: _Curriculum, fold: int, target_epoch: int) -> list[
 
     if getattr(args, "clean", False) and fold == cur.active_folds[0]:
         cmd.append("--clean")
+    if getattr(args, "override_frozen", False):
+        cmd.append("--override-frozen")
 
     env_type = (
         "kaggle"

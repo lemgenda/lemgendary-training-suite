@@ -43,6 +43,9 @@ class TrainRequest(BaseModel):
     preset: str | None = Field(None, description="Preset configuration name")
     env: str = Field("local", description="Target environment ('local', 'kaggle', 'colab')")
     clean: bool = Field(False, description="Wipe local checkpoints and start fresh")
+    override_frozen: bool = Field(
+        False, description="Resume although a frozen run setting changed (logged and recorded)"
+    )
     auto_sync: bool = Field(False, description="Auto sync checkpoints to cloud")
     parallel: str = Field("auto", description="Parallel strategy ('auto', 'single', 'dp', 'ddp')")
 

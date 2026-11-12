@@ -12,9 +12,8 @@ from typing import Any
 import torch
 import torch.distributed as dist
 
-from training.data.locality_resume import PAYLOAD_KEY as LOCALITY_PAYLOAD_KEY
-from training.data.locality_resume import locality_record
 from training.loss_emd import EMD_FORM_KEY
+from training.run_settings.record import PAYLOAD_KEY as RUN_SETTINGS_KEY
 from training.training.context import TrainingContext
 from training.utils.rng_state import rng_payload
 
@@ -131,14 +130,17 @@ def progress_payload(
         "scaler_state_dict": ctx.models.scaler.state_dict()
         if ctx.models.scaler is not None
         else None,
-        # Shard-locality settings the run trains with; a resume keeps them.
-        LOCALITY_PAYLOAD_KEY: locality_record(ctx.run.config),
         # EMD form of the quality loss, fixed for the run (a resume keeps it).
         EMD_FORM_KEY: getattr(ctx.models.criterion, "emd_form", None),
         # Python, NumPy, torch CPU and device generators of every rank (collective under
         # DDP); a resume continues from them.
         **rng_payload(),
     }
+    tracker = ctx.state.run_settings
+    if tracker is not None:
+        # Frozen settings (+ hash) and the epoch settings this epoch trains with; a resume
+        # finishes the epoch on them and switches to the configured ones next epoch.
+        payload[RUN_SETTINGS_KEY] = tracker.record(epoch).to_payload()
     payload.update(extra)
     return payload
 

@@ -27,6 +27,13 @@ class RunFlags:
     clean: Annotated[
         bool, typer.Option("--clean", help="Wipe local checkpoints and start fresh.")
     ] = False
+    override_frozen: Annotated[
+        bool,
+        typer.Option(
+            "--override-frozen",
+            help="Resume although a frozen run setting changed (logged and recorded).",
+        ),
+    ] = False
     auto_sync: Annotated[
         bool, typer.Option("--auto-sync", help="Enable cloud checkpoint synchronization.")
     ] = False

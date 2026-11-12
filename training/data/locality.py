@@ -30,9 +30,10 @@ section; a missing section or key takes the defaults below:
   ~25-75 MB (well above the kernel readahead window) and a shard still splits into
   ~12-40 blocks, so a 20 % fraction samples most shards instead of a few whole ones.
 
-A resumed run keeps the settings recorded in its checkpoint (see
-:mod:`training.data.locality_resume`), so changing them never reorders or swaps the
-samples of a run in progress.
+Every checkpoint records the settings in effect with the run's other epoch settings
+(:mod:`training.run_settings`). A resumed run finishes the interrupted epoch on the
+recorded settings, so its remaining batches replay the recorded order, and switches to
+the configured settings when the next epoch starts.
 
 This module is torch-free so the settings can be validated without the training stack.
 """

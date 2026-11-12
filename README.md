@@ -26,6 +26,50 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.187 - Resume Finishes the Epoch, New Settings Apply Next (R4-C5)
+
+- Owner decision: a paused run finishes the current epoch on the settings
+  it trained with, and the next epoch picks up the configured ones. New
+  package `training/run_settings/` (record, capture, policy, pinning,
+  ledger); `training/training/settings_switch.py` applies a switch.
+- Checkpoints record `run_settings`: `frozen` settings plus `frozen_sha`
+  (SHA-256 of their canonical JSON): model class, `kwargs` and param-group
+  layout, optimizer type, betas, eps and momentum, datasets and task type,
+  quality scheme, forex `evaluation.risk_per_trade`, NIMA
+  `stabilizers.emd_form`, the subset seed and the configured precision.
+  `epoch` settings: `data.locality`, batch (requested batch, effective
+  batch, accumulation), LR schedule (`scheduler` section, base LR, epoch
+  budget), weight decay, gradient clip and loader worker counts. The
+  `data_locality` key is no longer written.
+- Resume: a changed frozen setting raises `FrozenSettingsChanged` (the
+  message names the change, `--clean` and `--override-frozen`). New flag
+  `--override-frozen` (trainer, forex curriculum, `lemtrain train`, the
+  `/training/train` and `/gui/quick-train` job parameters) resumes anyway,
+  logs a warning and records it. The recorded epoch settings stay in
+  effect until the epoch after the checkpoint's, so a mid-epoch resume
+  replays the recorded batch order; the configured ones apply when that
+  epoch starts (at once for a resume at an epoch boundary). This replaces
+  pinning `data.locality` for the whole run.
+- Epoch switch: locality and loader changes rebuild the train subset and
+  loader; a batch size is taken only if `effective / batch` is an exact
+  accumulation, otherwise refused and logged; the scheduler is rebuilt from
+  the new LR schedule and fast-forwarded to the steps already taken (old
+  scheduler state is never combined with new parameters; a mid-epoch
+  resume loads the old state into the recorded schedule); weight decay
+  goes to the decaying param groups. Every change set is logged as
+  `[SETTINGS] epoch N: ...` and appended to
+  `LemGendaryModels/<model>/settings_changes.jsonl`.
+- Old checkpoints without the record: no frozen check (logged); the epoch
+  finishes on the recorded `data_locality` (or locality off), and the
+  configured settings apply from the next epoch. The NIMA `emd_form`
+  fallback for such checkpoints is unchanged.
+- New `optimizer.grad_clip` setting (default 1.0, the former fixed clip);
+  the `optimizer` section readers live in
+  `training/config/optimizer_settings.py`.
+- `TrainRequest` groups `clean` and `override_frozen` in `ResumeOptions`.
+- Tests: `tests/unit/test_run_settings.py`; `test_locality_resume.py` and
+  `test_cli.py` updated. `openapi.json` regenerated.
+
 ### v16.9.186 - NIMA Trains at Temperature 1 with the Paper EMD (R4-C4)
 
 - Quality (NIMA) models train at temperature 1 under a fixed logit soft cap

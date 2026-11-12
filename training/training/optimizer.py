@@ -23,6 +23,14 @@ from torch.optim.lr_scheduler import (
     StepLR,
 )
 
+from training.config.optimizer_settings import (
+    adam_betas,
+    base_learning_rate,
+    base_weight_decay,
+    optimizer_eps,
+    optimizer_type,
+    sgd_momentum,
+)
 from training.training.param_groups import build_param_groups
 
 logger = logging.getLogger("lemtrain.training.optimizer")
@@ -48,13 +56,6 @@ def paged_adamw_8bit() -> OptimizerFactory | None:
     return None
 
 
-def _betas(betas: Any) -> tuple[float, float]:
-    """Adam betas from config; the defaults unless it is a pair."""
-    if isinstance(betas, (list, tuple)) and len(betas) == 2:
-        return (float(betas[0]), float(betas[1]))
-    return (0.9, 0.999)
-
-
 def build_optimizer(
     model: torch.nn.Module,
     config: dict[str, Any],
@@ -66,25 +67,18 @@ def build_optimizer(
     Biases and normalization layers get no weight decay; head groups are tagged so the
     governor's ``head_lr_multiplier`` reaches them (see ``param_groups``).
     """
-    opt_config = config.get("optimizer", {})
-    if not isinstance(opt_config, dict):
-        opt_config = {}
-
-    opt_type = opt_config.get("type", "adamw").lower()
-    base_lr = float(lr if lr is not None else opt_config.get("lr", 1e-4))
-    base_wd = float(
-        weight_decay if weight_decay is not None else opt_config.get("weight_decay", 1e-2)
-    )
+    opt_type = optimizer_type(config)
+    base_lr = base_learning_rate(config, lr)
+    base_wd = base_weight_decay(config, weight_decay)
 
     param_groups = build_param_groups(model, base_wd)
-    beta_tuple = _betas(opt_config.get("betas", [0.9, 0.999]))
-    eps = float(opt_config.get("eps", 1e-8))
+    beta_tuple = adam_betas(config)
+    eps = optimizer_eps(config)
 
     if opt_type == "adam":
         return optim.Adam(param_groups, lr=base_lr, betas=beta_tuple, eps=eps)
     if opt_type == "sgd":
-        momentum = float(opt_config.get("momentum", 0.9))
-        return optim.SGD(param_groups, lr=base_lr, momentum=momentum)
+        return optim.SGD(param_groups, lr=base_lr, momentum=sgd_momentum(config))
     if opt_type == "rmsprop":
         return optim.RMSprop(param_groups, lr=base_lr, eps=eps)
 

@@ -22,7 +22,6 @@ from training.checkpoint import (
 from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS
 from training.context_data import RunSpec, rebuild_resumed_train_loader
 from training.data.locality import LocalityConfig
-from training.data.locality_resume import pin_resumed_locality
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.governance.governor_setup import configured_data_fraction
 from training.governance.measurement import drop_target_echoes
@@ -35,11 +34,16 @@ from training.hardware.device_memory import device_memory_for
 from training.hardware.probe import VramProbe, audit_hardware_vram
 from training.loss_emd import EMD_FORM_KEY, LEGACY_EMD_FORM
 from training.registry.forex_risk import risk_per_trade
+from training.run_settings.keys import LR_SCHEDULE
+from training.run_settings.pinning import pin_config_settings
+from training.run_settings.policy import FrozenPolicy, FrozenSettingsChanged, RunSettingsTracker
+from training.run_settings.record import canonical_json
 from training.training.param_groups import (
     legacy_group_sources,
     migrate_legacy_optimizer_state,
     migrate_scheduler_state,
 )
+from training.training.settings_switch import build_recorded_scheduler
 from training.utils.error_types import STATE_RESTORE_ERRORS
 from training.utils.model_payload import ModelPayloadError, model_payload_of
 from training.utils.rng_state import restore_rng_state
@@ -376,7 +380,7 @@ def _rebuild_for_locality(spec: RunSpec, data: LoaderState) -> None:
     data.train_loader = rebuild_resumed_train_loader(
         spec, train_ds, data.train_loader, data.batch_size
     )
-    logger.info("[LOCALITY] Train subset and loader rebuilt under the resumed run's settings.")
+    logger.info("[LOCALITY] Train subset and loader rebuilt under the recorded settings.")
 
 
 def _restore_sota_best(loaded: dict, train: TrainState) -> None:
@@ -410,7 +414,8 @@ def pin_resumed_emd_form(loaded: dict, criterion: Any) -> str | None:
     """Keep the quality loss on the checkpoint's EMD form; return the form now in use.
 
     The form is fixed for a run (``training.loss_emd``). A quality checkpoint without a
-    recorded form predates the option and trained with :data:`LEGACY_EMD_FORM`.
+    recorded form predates the option and trained with :data:`LEGACY_EMD_FORM`. Used for
+    checkpoints without a run-settings record; with one, the form is a frozen setting.
     """
     current = getattr(criterion, "emd_form", None)
     if current is None or getattr(criterion, "task_type", None) != "quality":
@@ -427,13 +432,52 @@ def pin_resumed_emd_form(loaded: dict, criterion: Any) -> str | None:
     return recorded
 
 
+def pin_recorded_settings(
+    spec: RunSpec, train: TrainState, loaded: dict, tracker: RunSettingsTracker
+) -> None:
+    """Check the frozen settings and put the checkpoint's epoch settings in effect.
+
+    The recorded settings stay in effect until the epoch after the checkpoint's; then the
+    epoch loop switches to the configured ones (``training.run_settings``). A scheduler
+    of another LR schedule is rebuilt from the recorded one, so the checkpoint's
+    scheduler state is loaded into the schedule it was saved from.
+
+    Raises:
+        FrozenSettingsChanged: a frozen setting changed without ``--override-frozen``.
+    """
+    configured_schedule = tracker.active.get(LR_SCHEDULE)
+    try:
+        pinned = tracker.resume(
+            loaded,
+            int(loaded.get("epoch", 0) or 0),
+            FrozenPolicy.from_args(spec.args),
+            parse_resume_state(loaded).is_intra_epoch,
+        )
+    except FrozenSettingsChanged as refused:
+        logger.error("[SETTINGS] %s", refused)
+        raise
+    pin_config_settings(spec.config, spec.args, pinned)
+    recorded_schedule = pinned.get(LR_SCHEDULE)
+    if recorded_schedule is not None and canonical_json(recorded_schedule) != canonical_json(
+        configured_schedule
+    ):
+        train.scheduler = build_recorded_scheduler(train.optimizer, recorded_schedule)
+
+
 def resume_from_checkpoint(
-    spec: RunSpec, train: TrainState, data: LoaderState, metrics_csv: Path | None
+    spec: RunSpec,
+    train: TrainState,
+    data: LoaderState,
+    metrics_csv: Path | None,
+    tracker: RunSettingsTracker,
 ):
     """Restore the best checkpoint into ``train`` and ``data``; return its resume state.
 
     Returns ``None`` when there is no usable checkpoint. ``data.train_loader`` is replaced
     when the restored curriculum changes the dataset or batch size.
+
+    Raises:
+        FrozenSettingsChanged: a frozen setting changed without ``--override-frozen``.
     """
     ckpt_candidate = select_resume_candidate(spec)
     if not (ckpt_candidate and ckpt_candidate.exists()):
@@ -442,13 +486,14 @@ def resume_from_checkpoint(
     if not loaded:
         return None
     built_with = LocalityConfig.from_config(spec.config)
-    pinned = pin_resumed_locality(spec.config, loaded)
+    pin_recorded_settings(spec, train, loaded, tracker)
     _restore_weights_and_optimizer(spec, loaded, train)
     resynced = _restore_governor(spec, loaded, train, data, metrics_csv)
-    if pinned != built_with and not resynced:
+    if LocalityConfig.from_config(spec.config) != built_with and not resynced:
         _rebuild_for_locality(spec, data)
     _restore_sota_best(loaded, train)
-    pin_resumed_emd_form(loaded, train.criterion)
+    if tracker.legacy_checkpoint:
+        pin_resumed_emd_form(loaded, train.criterion)
     # Last, so rebuilding the model, optimizer and loaders above cannot advance them.
     restore_rng_state(loaded)
     return parse_resume_state(loaded)
