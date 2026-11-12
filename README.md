@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.148-STABLE`
+- **Version**: `v16.9.149-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,27 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.149 - Warning-Free SWA and MT5 Tests
+
+- `tests/unit/test_swa.py`: the SWA tests built a bare SGD optimizer and
+  stepped `SWALR` with no optimizer step, so PyTorch warned that
+  `lr_scheduler.step()` ran before `optimizer.step()` (`swa.py:92`). In a
+  real run the engine always owns a main LR scheduler and runs optimizer
+  steps before `SwaPhase.end_epoch`, so production never hit it. A new
+  `_training_optimizer` helper builds the optimizer in that state (main
+  scheduler attached, one gradient-free step), and the warning is gone
+  without touching `swa.py`.
+- `tests/test_mt5_live_inference.py`: the module-level pipeline function
+  was named `test_*`, so pytest collected it and warned that it returned
+  a dict. It is now `run_multi_timeframe_live_pipeline`; the unittest
+  wrapper still runs it and asserts on its outputs.
+- The ONNX export keeps the TorchScript exporter (`dynamo=False`). The
+  `torch.export` exporter passes the suite's export tests on tiny models,
+  but nothing yet checks the exported graphs against onnxruntime for the
+  real architectures and the FP16, onnxsim and WebGPU steps after it, so
+  the switch is left to the owner. Its two DeprecationWarnings per export
+  remain.
 
 ### v16.9.148 - Byte-Offset WebDataset Reads and Bounded Shard Handles
 
