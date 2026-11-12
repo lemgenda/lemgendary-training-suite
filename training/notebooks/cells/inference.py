@@ -7,9 +7,13 @@ and ONNX FP16 embedded inference across vision and Forex time-series models.
 from typing import Any
 
 from training.cloud.variations import ONNX_FP16_SUFFIX, ONNX_FP32_SUFFIX, PT_SUFFIX
+from training.utils.model_payload import pt_load_source
 
 from ..registry import ModelNotebookMeta
 from .base import make_code_cell
+
+_PT_LOAD = ["    " + line for line in pt_load_source("model_path", "device")]
+"""The shared ``.pt`` loader, indented into the cells' ``try`` block."""
 
 
 def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
@@ -24,14 +28,22 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "try:\n",
             "    import kagglehub\n",
             f"    pt_dir = kagglehub.model_download('{pt_handle}')\n",
-            f"    model_path = os.path.join(pt_dir, '{stem}{PT_SUFFIX}') if pt_dir "
-            f"else '{stem}{PT_SUFFIX}'\n",
+            (
+                f"    model_path = os.path.join(pt_dir, '{stem}{PT_SUFFIX}') if pt_dir "
+                f"else '{stem}{PT_SUFFIX}'\n"
+            ),
             "    t_key = 'dG' + '9y' + 'Y2g='\n",
             "    torch = __import__(base64.b64decode(t_key).decode())\n",
             "    import numpy as np\n",
             "\n",
             "    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
-            "    model = torch.load(model_path, map_location=device)\n",
+            *_PT_LOAD,
+            "    if pt_model is None:\n",
+            (
+                "        raise RuntimeError('This .pt holds weights only: build the architecture "
+                "and load_state_dict(state).')\n"
+            ),
+            "    model = pt_model\n",
             "    if device.type == 'cuda' and torch.cuda.device_count() > 1:\n",
             "        model = torch.nn.DataParallel(model)\n",
             "    model.eval()\n",
@@ -55,15 +67,23 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "try:\n",
             "    import kagglehub\n",
             f"    pt_dir = kagglehub.model_download('{pt_handle}')\n",
-            f"    model_path = os.path.join(pt_dir, '{stem}{PT_SUFFIX}') if pt_dir "
-            f"else '{stem}{PT_SUFFIX}'\n",
+            (
+                f"    model_path = os.path.join(pt_dir, '{stem}{PT_SUFFIX}') if pt_dir "
+                f"else '{stem}{PT_SUFFIX}'\n"
+            ),
             "    t_key = 'dG' + '9y' + 'Y2g='\n",
             "    torch = __import__(base64.b64decode(t_key).decode())\n",
             "    from PIL import Image\n",
             "    import numpy as np\n",
             "\n",
             "    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
-            "    model = torch.load(model_path, map_location=device)\n",
+            *_PT_LOAD,
+            "    if pt_model is None:\n",
+            (
+                "        raise RuntimeError('This .pt holds weights only: build the architecture "
+                "and load_state_dict(state).')\n"
+            ),
+            "    model = pt_model\n",
             "    if device.type == 'cuda' and torch.cuda.device_count() > 1:\n",
             "        model = torch.nn.DataParallel(model)\n",
             "    model.eval()\n",

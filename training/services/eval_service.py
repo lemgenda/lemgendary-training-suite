@@ -14,6 +14,7 @@ from training.checkpoint.manager import safe_load_checkpoint
 from training.checkpoint.recovery import CheckpointRecoveryEngine
 from training.core_loop import build_training_context
 from training.training.validation import validate_one_epoch
+from training.utils.model_payload import model_payload_of
 from training.utils.paths import get_project_root
 
 
@@ -99,10 +100,9 @@ class EvaluationService:
                 ckpt_data = safe_load_checkpoint(
                     resolved_ckpt, map_location=ctx.hardware.device_info.device
                 )
-                if ckpt_data and "model_state" in ckpt_data:
-                    ctx.models.model.load_state_dict(ckpt_data["model_state"], strict=False)
-                elif ckpt_data and "state_dict" in ckpt_data:
-                    ctx.models.model.load_state_dict(ckpt_data["state_dict"], strict=False)
+                ctx.models.model.load_state_dict(
+                    model_payload_of(ckpt_data).state_dict, strict=False
+                )
         else:
             recovery_engine = CheckpointRecoveryEngine(
                 workspace_root=self.project_root.parent,
@@ -123,6 +123,7 @@ class EvaluationService:
                 ckpt_data = safe_load_checkpoint(
                     resolved_ckpt, map_location=ctx.hardware.device_info.device
                 )
-                if ckpt_data and "model_state" in ckpt_data:
-                    ctx.models.model.load_state_dict(ckpt_data["model_state"], strict=False)
+                ctx.models.model.load_state_dict(
+                    model_payload_of(ckpt_data).state_dict, strict=False
+                )
         return resolved_ckpt

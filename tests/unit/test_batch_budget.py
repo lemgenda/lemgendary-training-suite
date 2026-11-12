@@ -9,7 +9,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from tests.fixtures.training_context import fresh_governance
+from tests.fixtures.training_context import BUDGET_MODEL_INFO, fresh_governance
 from training.governance.curriculum import CurriculumState
 from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
@@ -24,14 +24,7 @@ from training.training import (
 )
 from training.training.batch_budget import refit_batch_for_resolution
 
-_MODEL_INFO = {
-    "name": "budget_model",
-    "dataset_type": "quality",
-    "input_size": 256,
-    "batch_size": 12,
-    "accumulation_steps": 2,
-    "optimization": {"res_ladder": [256, 384], "initial_fraction": 0.2},
-}
+_MODEL_INFO = BUDGET_MODEL_INFO
 
 
 class _BnNet(nn.Module):

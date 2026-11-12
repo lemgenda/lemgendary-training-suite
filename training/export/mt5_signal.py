@@ -20,6 +20,7 @@ from training.export.common import (
     load_checkpoint_weights,
 )
 from training.export.onnx_variants import ONNX_FP32_VARIANT, OnnxVariantWriter
+from training.utils.model_payload import ModelPayloadError, load_model_payload
 
 logger = logging.getLogger("lemtrain.export.mt5_signal")
 
@@ -129,15 +130,16 @@ def load_forex_checkpoint(
         raise ExportError("CKPT_NOT_FOUND", f"Checkpoint not found at {ckpt_file}")
     logger.info("Loading forex checkpoint from %s...", ckpt_file)
     try:
-        ckpt = torch.load(str(ckpt_file), map_location="cpu", weights_only=False)
-    except MODEL_IO_ERRORS as exc:
+        # The suite's own checkpoint or release file: trusted for full unpickling.
+        payload = load_model_payload(ckpt_file, map_location="cpu", trust_pickle=True)
+    except (*MODEL_IO_ERRORS, ModelPayloadError) as exc:
         raise ExportError("LOAD_FAILED", f"Could not load checkpoint {ckpt_file}: {exc}") from exc
 
-    raw_kwargs = ckpt.get("model_kwargs", {}) if isinstance(ckpt, dict) else {}
+    raw_kwargs = payload.raw.get("model_kwargs") or payload.metadata.get("model_kwargs") or {}
     model_kwargs: dict[str, Any] = dict(raw_kwargs)
     model_kwargs["active_timeframes"] = list(active_timeframes or DEFAULT_TIMEFRAMES)
     model = ForexPredictor(**model_kwargs)
-    load_checkpoint_weights(model, ckpt)
+    load_checkpoint_weights(model, payload.state_dict)
     model.eval()
     return model
 

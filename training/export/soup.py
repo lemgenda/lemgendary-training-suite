@@ -14,6 +14,7 @@ from typing import Any
 import torch
 
 from training.checkpoint.manager import safe_atomic_save
+from training.utils.model_payload import ModelPayloadError, load_model_payload
 
 logger = logging.getLogger("lemtrain.export.soup")
 
@@ -94,12 +95,13 @@ def create_pareto_model_soup(
     state_dicts: list[dict[str, torch.Tensor]] = []
 
     for p in valid_paths:
-        ckpt = torch.load(p, map_location="cpu", weights_only=False)
-        loaded_payloads.append(ckpt)
-        sd = ckpt.get("model_state") or ckpt.get("model_state_dict") or ckpt.get("state_dict")
-        if not isinstance(sd, dict):
-            raise KeyError(f"Checkpoint at {p} does not contain valid model_state dictionary.")
-        state_dicts.append(sd)
+        try:
+            # Vault checkpoints are the suite's own files: trusted for full unpickling.
+            payload = load_model_payload(p, map_location="cpu", trust_pickle=True)
+        except ModelPayloadError as exc:
+            raise KeyError(f"Checkpoint at {p} holds no model weights: {exc}") from exc
+        loaded_payloads.append(payload.raw)
+        state_dicts.append(payload.state_dict)
 
     coeffs = _normalize_weights(len(valid_paths), weights)
     blended_sd = blend_state_dicts(state_dicts, weights=coeffs)
@@ -112,6 +114,10 @@ def create_pareto_model_soup(
         "optimizer_state_dict",
         "scheduler_state",
         "scheduler_state_dict",
+        # A release donor's pickled module holds unblended weights.
+        "model",
+        "model_state_dict",
+        "state_dict",
     ):
         out_payload.pop(stale_key, None)
     out_payload["model_state"] = blended_sd

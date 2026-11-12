@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.168-STABLE`
+- **Version**: `v16.9.169-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,32 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.169 - One Loader for Release Payloads and Bare State Dicts (R2-T1 Follow-Up)
+
+- `training/utils/model_payload.py` (new) is the one loader of model
+  weight files: the release `.pt` dict (`model_state`, `model`,
+  `metadata`), training checkpoints, old bare state dicts (and the LLM
+  release `.pt`, still bare) and pickled modules. It loads with
+  `weights_only=True` first (the torch >= 2.6 default, safe for bare state
+  dicts) and unpickles in full only when the caller trusts the file
+  (`trust_pickle=True`); otherwise it raises `UntrustedPickleError`. The
+  pickled `model` is optional; consumers load `state_dict`.
+- Consumers moved to it: resume (`_restore_weights_and_optimizer`),
+  export (`_load_export_model`,
+  `load_checkpoint_weights`), MT5 (`load_forex_checkpoint`), the Pareto
+  soup (a release donor's stale pickled module is no longer copied into
+  the soup), `checkpoint_service.inspect_checkpoint` (a bare `.pt` reported
+  0 parameters), `eval_service` (a bare `.pt` silently evaluated random
+  weights), FID re-evaluation, `model_registry.load_state_dict_robust` and
+  `tools/judicial_audit.py`.
+- Generated code shares the policy through `pt_load_source`: the notebook
+  `.pt` inference cells (which called `torch.load` without `weights_only`
+  and failed on torch >= 2.6), the Kaggle README PyTorch FP32 snippet and
+  the model-card snippets. Generated notebooks are written at
+  preflight/export time; none are committed here.
+- Tests: `tests/unit/test_model_payload.py` (both formats in every
+  loader, the generated loader executed on both).
 
 ### v16.9.168 - Device-Memory Refit on Every GPU Backend (R2-T4)
 

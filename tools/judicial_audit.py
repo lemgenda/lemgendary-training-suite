@@ -22,6 +22,7 @@ from PIL import Image
 from torchvision import transforms
 
 from models.nima import NIMAModel
+from training.utils.model_payload import load_model_payload
 
 
 class SimpleDataset(torch.utils.data.Dataset):
@@ -63,6 +64,8 @@ class SimpleDataset(torch.utils.data.Dataset):
         img_path = self.dataset_dir / filename
         img = Image.open(img_path).convert("RGB")
         img_tensor = self.transform(img)
+        if not isinstance(img_tensor, torch.Tensor):
+            raise TypeError(f"transform returned {type(img_tensor).__name__}, not a tensor")
         return img_tensor, target_mean
 
 
@@ -82,16 +85,10 @@ def load_pytorch_model(model_path: str | Path, model_type: str, device: str) -> 
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
 
-    state_dict = torch.load(str(model_path), map_location=device, weights_only=False)
-    if isinstance(state_dict, dict):
-        if "state_dict" in state_dict:
-            state_dict = state_dict["state_dict"]
-        elif "model_state" in state_dict:
-            state_dict = state_dict["model_state"]
-        state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
-        model.load_state_dict(state_dict, strict=False)
-    elif isinstance(state_dict, torch.nn.Module):
-        model = state_dict
+    # The audited file is the suite's own release or checkpoint: trusted for unpickling.
+    payload = load_model_payload(model_path, map_location=device, trust_pickle=True)
+    state_dict = {k.removeprefix("module."): v for k, v in payload.state_dict.items()}
+    model.load_state_dict(state_dict, strict=False)
 
     model.to(device)
     model.eval()

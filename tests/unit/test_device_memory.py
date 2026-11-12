@@ -18,7 +18,7 @@ import pytest
 import torch
 from torch import nn
 
-from tests.fixtures.training_context import fresh_governance
+from tests.fixtures.training_context import BUDGET_MODEL_INFO, fresh_governance
 from training import context_resume
 from training.context_data import RunSpec
 from training.context_resume import TrainState, _clamp_resumed_batch
@@ -241,13 +241,7 @@ def test_cpu_audit_returns_the_configured_default() -> None:
 
 
 def _budget_ctx() -> Any:
-    model_info = {
-        "dataset_type": "quality",
-        "input_size": 256,
-        "batch_size": 12,
-        "accumulation_steps": 2,
-        "optimization": {"res_ladder": [256, 384], "initial_fraction": 0.2},
-    }
+    model_info = dict(BUDGET_MODEL_INFO)
     governance = fresh_governance(model_info)
     governance.governor.curriculum.current_res = 384
     return SimpleNamespace(

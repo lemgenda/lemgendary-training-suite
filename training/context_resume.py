@@ -39,6 +39,7 @@ from training.training.param_groups import (
     migrate_scheduler_state,
 )
 from training.utils.error_types import STATE_RESTORE_ERRORS
+from training.utils.model_payload import ModelPayloadError, model_payload_of
 from training.utils.rng_state import restore_rng_state
 
 logger = logging.getLogger("lemtrain.core_loop")
@@ -101,10 +102,14 @@ def select_resume_candidate(spec: RunSpec) -> Path | None:
 
 def _restore_weights_and_optimizer(spec: RunSpec, loaded: dict, train: TrainState) -> None:
     """Load model weights, then optimizer and scheduler state (unless ``--reset-scheduler``)."""
-    model_sd = (
-        loaded.get("model_state") or loaded.get("model_state_dict") or loaded.get("state_dict")
-    )
-    if isinstance(model_sd, dict):
+    try:
+        model_sd = model_payload_of(loaded).state_dict
+    except ModelPayloadError as payload_err:
+        logger.warning(
+            "Checkpoint holds no model weights (%s); keeping fresh weights.", payload_err
+        )
+        model_sd = None
+    if model_sd is not None:
         try:
             train.raw_model.load_state_dict(model_sd, strict=False)
         except STATE_RESTORE_ERRORS as model_err:

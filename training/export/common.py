@@ -11,6 +11,7 @@ import torch
 from torch import nn
 
 from models.nima import SoftmaxWrapper
+from training.utils.model_payload import model_payload_of
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export.common")
@@ -124,14 +125,10 @@ def unwrap_export_model(model: nn.Module) -> nn.Module:
 def load_checkpoint_weights(model: nn.Module, ckpt: Any) -> None:
     """Load a checkpoint's model state into ``model`` (non-strict, DDP ``module.`` stripped).
 
-    ``ckpt`` is a raw state dict or a dict holding it under ``model_state`` or
-    ``model_state_dict``.
+    ``ckpt`` is anything :func:`training.utils.model_payload.model_payload_of` accepts: a
+    release payload, a checkpoint, a bare state dict or a module.
     """
-    raw_state = (
-        ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
-        if isinstance(ckpt, dict)
-        else ckpt
-    )
+    raw_state = model_payload_of(ckpt).state_dict
     state_dict = {k.removeprefix("module."): v for k, v in raw_state.items()}
     model.load_state_dict(state_dict, strict=False)
 

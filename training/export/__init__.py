@@ -46,6 +46,7 @@ from training.export.validation import (
 from training.export.webgpu import export_webgpu_onnx
 from training.export.yolo_exporter import YOLOModelExporter
 from training.utils.fs import remove_tree
+from training.utils.model_payload import load_model_payload
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export")
@@ -101,8 +102,9 @@ def _load_export_model(
 
     if ckpt_file and ckpt_file.exists():
         logger.info("Loading weights from checkpoint: %s", ckpt_file)
-        ckpt = torch.load(str(ckpt_file), map_location="cpu", weights_only=False)
-        load_checkpoint_weights(model, ckpt)
+        # The suite's own checkpoint or release file: trusted for full unpickling.
+        payload = load_model_payload(ckpt_file, map_location="cpu", trust_pickle=True)
+        load_checkpoint_weights(model, payload.state_dict)
 
     model.eval()
     return wrap_quality_model(model, model_info)

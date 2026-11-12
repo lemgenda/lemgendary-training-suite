@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from training.utils.model_payload import pt_load_source
+
+_PT_LOAD = "".join(pt_load_source("model_path", "device"))
+"""Generated loader: release payload, checkpoint or bare state dict (one policy)."""
+_PT_LOAD_INDENTED = "".join("    " + line for line in pt_load_source("model_path", "device"))
+
 
 def _quality_usage(model_key: str, h: int, w: int) -> str:
     """Return the NIMA quality-scoring usage snippet."""
@@ -16,9 +22,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 2. Stealth Load (v16.0)
 model_path = "{model_key}_latest.pth"
-ckpt = torch.load(model_path, map_location=device, weights_only=False)
-state = ckpt.get('model_state', ckpt) if isinstance(ckpt, dict) else ckpt
-
+{_PT_LOAD}
 # 3. Initialization
 from models.nima import NIMAModel
 model = NIMAModel().to(device)
@@ -55,9 +59,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 2. Stealth Load (v16.0)
 model_path = "{model_key}_latest.pth"
-ckpt = torch.load(model_path, map_location=device, weights_only=False)
-state = ckpt.get('model_state', ckpt) if isinstance(ckpt, dict) else ckpt
-
+{_PT_LOAD}
 # 3. Initialization
 from models.factory import create_model
 model = create_model("{model_key}").to(device)
@@ -96,9 +98,7 @@ from models.forex_predictor import ForexPredictor
 model = ForexPredictor().to(device)
 model_path = "{model_key}_latest.pth"
 if os.path.exists(model_path):
-    ckpt = torch.load(model_path, map_location=device, weights_only=False)
-    state = ckpt.get('model_state', ckpt) if isinstance(ckpt, dict) else ckpt
-    model.load_state_dict(state)
+{_PT_LOAD_INDENTED}    model.load_state_dict(state)
 model.eval()
 
 # 3. Multi-Timeframe Sequence Inference [B, 168, 14]
