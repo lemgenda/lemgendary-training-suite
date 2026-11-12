@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 
 import torch
@@ -37,6 +38,26 @@ def distributed_rank_world() -> tuple[int, int]:
     if dist.is_available() and dist.is_initialized():
         return dist.get_rank(), dist.get_world_size()
     return 0, 1
+
+
+@dataclass
+class EpochOrder:
+    """How an epoch's sample order is drawn: seeded shuffle, shard windows or identity."""
+
+    shuffle: bool = True
+    seed: int = DEFAULT_SAMPLER_SEED
+    epoch: int = 0
+    shard_window: ShardWindow | None = None
+
+    def indices(self, num_samples: int) -> list[int]:
+        """The sample order of the current epoch over ``num_samples`` samples."""
+        if self.shuffle and self.shard_window is not None:
+            return self.shard_window.order(self.seed + self.epoch)
+        if self.shuffle:
+            generator = torch.Generator()
+            generator.manual_seed(self.seed + self.epoch)
+            return torch.randperm(num_samples, generator=generator).tolist()
+        return list(range(num_samples))
 
 
 class ResumableBatchSampler(Sampler[list[int]]):
@@ -61,13 +82,30 @@ class ResumableBatchSampler(Sampler[list[int]]):
             raise ValueError(f"batch_size must be positive, got {batch_size}")
         self.num_samples = int(num_samples)
         self.batch_size = int(batch_size)
-        self.shuffle = shuffle
         self.drop_last = drop_last
-        self.seed = int(seed)
+        self._order = EpochOrder(shuffle=shuffle, seed=int(seed))
         self._topology = distributed_rank_world()
-        self.epoch = 0
         self._start_batch = 0
-        self.shard_window: ShardWindow | None = None
+
+    @property
+    def shuffle(self) -> bool:
+        """Whether epochs are permuted (else the identity order)."""
+        return self._order.shuffle
+
+    @property
+    def seed(self) -> int:
+        """Base seed; epoch ``e`` draws its permutation from ``seed + e``."""
+        return self._order.seed
+
+    @property
+    def epoch(self) -> int:
+        """The epoch whose permutation the next iteration yields."""
+        return self._order.epoch
+
+    @property
+    def shard_window(self) -> ShardWindow | None:
+        """The shard-window ordering of shuffled epochs, if any."""
+        return self._order.shard_window
 
     @property
     def rank(self) -> int:
@@ -91,27 +129,18 @@ class ResumableBatchSampler(Sampler[list[int]]):
         """Order shuffled epochs by ``window`` (``None`` restores the uniform permutation)."""
         if window is not None and len(window.keys) != self.num_samples:
             raise ValueError(f"{len(window.keys)} shard keys for {self.num_samples} samples")
-        self.shard_window = window
+        self._order.shard_window = window
 
     def set_epoch(self, epoch: int) -> None:
         """Select the permutation of ``epoch``."""
-        self.epoch = int(epoch)
+        self._order.epoch = int(epoch)
 
     def set_start_batch(self, start_batch: int) -> None:
         """Begin the next iteration at ``start_batch`` (resets after that iteration)."""
         self._start_batch = max(0, int(start_batch))
 
-    def _epoch_order(self) -> list[int]:
-        if self.shuffle and self.shard_window is not None:
-            return self.shard_window.order(self.seed + self.epoch)
-        if self.shuffle:
-            generator = torch.Generator()
-            generator.manual_seed(self.seed + self.epoch)
-            return torch.randperm(self.num_samples, generator=generator).tolist()
-        return list(range(self.num_samples))
-
     def _rank_indices(self) -> list[int]:
-        indices = self._epoch_order()
+        indices = self._order.indices(self.num_samples)
         if self.world_size > 1 and indices:
             per_rank = math.ceil(len(indices) / self.world_size)
             total = per_rank * self.world_size

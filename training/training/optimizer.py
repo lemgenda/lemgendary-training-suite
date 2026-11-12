@@ -6,8 +6,10 @@ and instantiates modern schedulers with warmup and cosine decay.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import math
+from collections.abc import Callable
 from typing import Any
 
 import torch
@@ -25,10 +27,25 @@ from training.training.param_groups import build_param_groups
 
 logger = logging.getLogger("lemtrain.training.optimizer")
 
-try:
-    import bitsandbytes as bnb
-except ImportError:
-    bnb = None
+OptimizerFactory = Callable[..., optim.Optimizer]
+"""``(param_groups, lr=..., betas=..., eps=...) -> optimizer``."""
+
+
+def paged_adamw_8bit() -> OptimizerFactory | None:
+    """``bitsandbytes.optim.PagedAdamW8bit``, or None where bitsandbytes is not installed.
+
+    bitsandbytes is an optional, CUDA-oriented dependency (``requirements.txt``) that is
+    often absent on Windows and CPU hosts, so it is imported on demand rather than at
+    module import; the optimizer then falls back to ``torch.optim.AdamW``.
+    """
+    try:
+        bnb_optim = importlib.import_module("bitsandbytes.optim")
+    except ImportError:
+        return None
+    factory = getattr(bnb_optim, "PagedAdamW8bit", None)
+    if isinstance(factory, type) and issubclass(factory, optim.Optimizer):
+        return factory
+    return None
 
 
 def _betas(betas: Any) -> tuple[float, float]:
@@ -72,12 +89,13 @@ def build_optimizer(
         return optim.RMSprop(param_groups, lr=base_lr, eps=eps)
 
     # Use 8-bit Paged AdamW when bitsandbytes is available and CUDA is active
-    if (
-        opt_type in ("paged_adamw_8bit", "adamw_8bit")
-        or (opt_type == "adamw" and torch.cuda.is_available() and config.get("category") == "llm")
-    ) and bnb is not None:
+    wants_8bit = opt_type in ("paged_adamw_8bit", "adamw_8bit") or (
+        opt_type == "adamw" and torch.cuda.is_available() and config.get("category") == "llm"
+    )
+    paged_factory = paged_adamw_8bit() if wants_8bit else None
+    if paged_factory is not None:
         try:
-            return bnb.optim.PagedAdamW8bit(param_groups, lr=base_lr, betas=beta_tuple, eps=eps)
+            return paged_factory(param_groups, lr=base_lr, betas=beta_tuple, eps=eps)
         except (AttributeError, RuntimeError) as exc:
             logger.warning("Failed to initialize PagedAdamW8bit (%s); falling back.", exc)
 

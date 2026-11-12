@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.156-STABLE`
+- **Version**: `v16.9.157-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,24 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.157 - Sampler Order State and Optional bitsandbytes Adapter
+
+- `ResumableBatchSampler`: shuffle, seed, epoch and shard window are one
+  `EpochOrder` dataclass that also draws the epoch's sample order
+  (pylint R0902 fixed at the root, 6 instance attributes). `shuffle`,
+  `seed`, `epoch` and `shard_window` stay readable as properties;
+  behaviour is unchanged.
+- `training/training/optimizer.py`: the module-level
+  `import bitsandbytes` is replaced by `paged_adamw_8bit()`, a typed
+  optional-import adapter that imports `bitsandbytes.optim` on demand and
+  returns `PagedAdamW8bit` only when it is a `torch.optim.Optimizer`
+  subclass, else None (AdamW fallback as before). bitsandbytes stays an
+  optional dependency in `requirements.txt`; pyright is clean on Windows
+  hosts where it is absent, and importing the optimizer module no longer
+  loads bitsandbytes.
+- Tests: `tests/unit/test_optional_bnb.py` (absent, installed, fallback,
+  factory use).
 
 ### v16.9.156 - Exact-Divisor OOM Throttle
 
