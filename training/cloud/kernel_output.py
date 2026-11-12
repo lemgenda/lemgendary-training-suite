@@ -19,7 +19,7 @@ from typing import Any
 from training.cloud.model_pull import MergeReport, merge_downloaded_payload
 from training.cloud.session_deadline import DEADLINE_MARKER
 from training.cloud.variations import is_default_payload_file
-from training.notebooks.platform_paths import MODELS_FOLDER
+from training.platform_paths import MODELS_FOLDER
 
 logger = logging.getLogger("lemtrain.cloud.kernel_output")
 

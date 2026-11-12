@@ -16,7 +16,7 @@ from google.protobuf.message import DecodeError
 
 from training.export.common import ExportError
 from training.registry import ModelSpecification, get_model_registry
-from training.utils.paths import get_project_root
+from training.utils.paths import get_model_hub_dir
 
 logger = logging.getLogger("lemtrain.export.base")
 
@@ -93,7 +93,6 @@ class BaseModelExporter(ABC):
         if output_dir:
             dest = Path(output_dir).resolve()
         else:
-            root = get_project_root()
-            dest = (root.parent / "LemGendaryModels" / model_key).resolve()
+            dest = get_model_hub_dir(model_key)
         dest.mkdir(parents=True, exist_ok=True)
         return dest

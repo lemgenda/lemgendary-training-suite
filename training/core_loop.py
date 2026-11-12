@@ -73,7 +73,7 @@ from training.utils.interrupt import (
     install_signal_handlers,
 )
 from training.utils.logging import install_force_tty
-from training.utils.paths import bootstrap_sys_path, get_project_root
+from training.utils.paths import bootstrap_sys_path, get_model_hub_dir, get_project_root
 
 logger = logging.getLogger("lemtrain.core_loop")
 
@@ -209,9 +209,10 @@ def build_training_paths(project_root: Path, model_key: str) -> TrainingPaths:
     """Create the model's LemGendaryModels directories and return its artefact paths.
 
     The training suite is code-only; checkpoints, exports and metrics all go to
-    ``LemGendaryModels/<model_key>``.
+    ``LemGendaryModels/<model_key>`` under the one hub root (``get_models_hub_root``), which
+    on Kaggle is the kernel output, not the clone folder.
     """
-    models_hub_dir = (project_root.parent / "LemGendaryModels" / model_key).resolve()
+    models_hub_dir = get_model_hub_dir(model_key, project_root)
     models_hub_checkpoint_dir = models_hub_dir / "checkpoints"
     models_hub_dir.mkdir(parents=True, exist_ok=True)
     models_hub_checkpoint_dir.mkdir(parents=True, exist_ok=True)

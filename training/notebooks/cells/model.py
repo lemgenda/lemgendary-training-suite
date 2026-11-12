@@ -6,7 +6,8 @@ for prior checkpoints and metrics histories.
 
 from typing import Any
 
-from ..platform_paths import platform_paths
+from training.platform_paths import platform_paths
+
 from ..registry import ModelNotebookMeta
 from .base import make_code_cell
 

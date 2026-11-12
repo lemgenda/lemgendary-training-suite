@@ -40,7 +40,7 @@ from training.ecosystem import docs_url
 from training.registry import KaggleModelMetadata, ModelSpecification, get_model_registry
 from training.registry.kaggle_datasets import model_kaggle_dataset_urls
 from training.utils.model_payload import pt_load_source
-from training.utils.paths import get_workspace_root
+from training.utils.paths import get_model_hub_dir, get_workspace_root
 
 logger = logging.getLogger("lemtrain.cloud.metadata")
 
@@ -298,7 +298,7 @@ class KaggleMetadataService:
         if output_dir:
             base = Path(output_dir).resolve()
         else:
-            base = (get_workspace_root() / "LemGendaryModels" / model_key).resolve()
+            base = get_model_hub_dir(model_key, create=False)
         return base / METADATA_FILENAME
 
     def build(

@@ -15,8 +15,8 @@ writing the GitHub token to a file or a remote URL:
 from typing import Any
 
 from training.ecosystem import ENV_MANAGER_FOLDER, github_repo_url
+from training.platform_paths import SUITE_FOLDER, platform_paths
 
-from ..platform_paths import SUITE_FOLDER, platform_paths
 from .base import make_code_cell
 
 _ASKPASS_SCRIPT = (

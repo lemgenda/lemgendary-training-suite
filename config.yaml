@@ -82,10 +82,12 @@ fleet:
   sync_exit_timeout_sec: 300
 
 # --- Orchestration Paths ---
+# The models hub (LemGendaryModels) has one resolver, training.utils.paths.
+# get_models_hub_root: LEMGENDARY_WORKSPACE_ROOT (set by the Kaggle notebook to the
+# kernel output) or the suite's parent folder. paths.checkpoints_root / export_root
+# override it only when set here.
 paths:
   datasets_root: "../LemGendaryDatasets"
-  checkpoints_root: "../LemGendaryModels"
-  export_root: "../LemGendaryModels"
 
 # --- Training Defaults ---
 defaults:

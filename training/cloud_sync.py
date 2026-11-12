@@ -13,6 +13,7 @@ from training.cloud.git_hub import GitHubSyncManager
 from training.cloud.kaggle_hub import KaggleHubManager
 from training.cloud.manager import CloudSyncError
 from training.cloud.sync_threads import SYNC_THREADS, exit_timeout
+from training.platform_paths import on_kaggle
 
 logger = logging.getLogger("lemtrain.cloud_sync")
 
@@ -56,9 +57,7 @@ class CloudSyncManager:
     def sync(self) -> None:
         """Coordinate multi-target cloud synchronization."""
         logger.info("Starting Cloud Synchronization Phase (Epoch %d)...", self.epoch)
-        is_kaggle = bool(
-            os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.environ.get("KAGGLE_WORKING_DIR")
-        )
+        is_kaggle = on_kaggle()
 
         if is_kaggle:
             logger.info("Operating in Kaggle-Native mode. GitHub sync bypassed.")

@@ -1,7 +1,7 @@
 """Generated Kaggle notebook cells: token-free clone, epoch-based recovery, forex output.
 
 The recovery cell is executed against a temporary hub with a fake kagglehub; nothing reaches
-the network. Paths come from ``training.notebooks.platform_paths`` (patched to temp folders).
+the network. Paths come from ``training.platform_paths`` (patched to temp folders).
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ from training.notebooks.builders.kaggle import generate_training_notebook
 from training.notebooks.cells import model as model_cells
 from training.notebooks.cells.inference import build_pth_cell
 from training.notebooks.cells.repo import build_clone_cell
-from training.notebooks.platform_paths import PlatformPaths, platform_paths
 from training.notebooks.registry import load_registry, resolve_model_metadata
+from training.platform_paths import PlatformPaths, platform_paths
 from training.utils.model_payload import checkpoint_epoch
 
 _KEY = "nima_aesthetic_mobile"

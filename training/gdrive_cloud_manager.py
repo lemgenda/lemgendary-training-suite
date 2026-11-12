@@ -13,6 +13,7 @@ import yaml
 from training.cloud.credentials import resolve_gdrive_credentials
 from training.cloud.gdrive import DEFAULT_ROOT_FOLDER_ID, GDriveSyncManager
 from training.cloud.manager import CloudSyncError
+from training.utils.paths import get_model_hub_dir
 
 logger = logging.getLogger("lemtrain.gdrive_cloud_manager")
 
@@ -39,26 +40,13 @@ class GDriveCloudManager:
             "google_drive_folder_id", DEFAULT_ROOT_FOLDER_ID
         )
         resolved_token = resolve_gdrive_credentials(token)
-        self.suite_dir = Path(__file__).resolve().parent.parent
 
         self.gdrive_mgr = GDriveSyncManager(
             root_folder_id=self.folder_id,
             token=resolved_token,
         )
-        self.model_dir = self._resolve_model_dir()
+        self.model_dir = get_model_hub_dir(self.model_name, create=False)
         self.checkpoint_dir = self.model_dir / "checkpoints"
-
-    def _resolve_model_dir(self) -> Path:
-        candidates = [
-            Path("/kaggle/working/LemGendaryModels") / self.model_name,
-            Path("/content/LemGendaryModels") / self.model_name,
-            self.suite_dir.parent / "LemGendaryModels" / self.model_name,
-            self.suite_dir / "hub" / self.model_name,
-        ]
-        for cand in candidates:
-            if cand.exists() and cand.is_dir():
-                return cand.resolve()
-        return (self.suite_dir.parent / "LemGendaryModels" / self.model_name).resolve()
 
     def discover_artifacts(self) -> list[tuple[Path, str]]:
         """Discover valid artifacts for current model."""

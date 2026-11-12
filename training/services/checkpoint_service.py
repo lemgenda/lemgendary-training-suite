@@ -17,7 +17,7 @@ import yaml
 
 from training.checkpoint.manager import safe_load_checkpoint
 from training.utils.model_payload import ModelPayloadError, model_payload_of
-from training.utils.paths import get_project_root
+from training.utils.paths import get_models_hub_root, get_project_root
 
 logger = logging.getLogger("lemtrain.services.checkpoint_service")
 
@@ -84,7 +84,7 @@ class CheckpointService:
         self.checkpoints_root = self.project_root / "checkpoints"
 
         # Resolve configured external LemGendaryModels hub directory
-        hub_path = (self.project_root / ".." / "LemGendaryModels").resolve()
+        hub_path = get_models_hub_root(self.project_root)
         cfg_path = self.project_root / "config.yaml"
         if cfg_path.exists():
             try:

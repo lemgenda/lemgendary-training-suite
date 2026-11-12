@@ -10,10 +10,13 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import yaml
 
 from training.cli_args import add_clean_argument, add_timeframes_argument
+from training.platform_paths import kaggle_paths, on_kaggle, platform_paths
+from training.utils.paths import get_model_hub_dir
 
 logger = logging.getLogger("lemtrain.forex_curriculum")
 
@@ -25,8 +28,8 @@ KNOWN_PAIR_ANCHORS = {"EURUSD", "GBPUSD", "USDJPY", "XAUUSD"}
 
 def get_latest_epoch(model_key, project_root):
     """Dynamically reads the latest epoch from metrics.csv."""
-    metrics_path = os.path.abspath(
-        os.path.join(project_root, "..", "LemGendaryModels", model_key, "metrics.csv")
+    metrics_path = str(
+        get_model_hub_dir(model_key, Path(project_root), create=False) / "metrics.csv"
     )
     if not os.path.exists(metrics_path):
         return 0
@@ -108,11 +111,7 @@ def _forex_search_dirs(project_root: str) -> list[str]:
         os.path.abspath(os.path.join(project_root, "..", "LemGendaryDatasets")),
         os.path.abspath(os.path.join(project_root, "data")),
     ]
-    for mount in (
-        "/kaggle/input",
-        "/kaggle/working/LemGendaryDatasets",
-        "/content/drive/MyDrive/LemGendaryDatasets",
-    ):
+    for mount in (*kaggle_paths().dataset_roots, *platform_paths("colab").dataset_roots):
         if os.path.exists(mount):
             base_search_dirs.append(mount)
     return base_search_dirs
@@ -176,14 +175,15 @@ def _discover_year_dirs(resolved_roots: list[str]) -> set[str]:
         except OSError as exc:
             logger.debug("Cannot list forex root %s: %s", root, exc)
 
-    if os.path.exists("/kaggle/input") and len(all_year_dirs) < 8:
+    kaggle_input = kaggle_paths().input_dir
+    if os.path.exists(kaggle_input) and len(all_year_dirs) < 8:
         try:
-            for _, dirs, _ in os.walk("/kaggle/input"):
+            for _, dirs, _ in os.walk(kaggle_input):
                 for d in dirs:
                     if d.startswith("ForexUniverse") and not d.endswith(".zip"):
                         all_year_dirs.add(d)
         except OSError as exc:
-            logger.debug("Cannot walk /kaggle/input for forex year manifolds: %s", exc)
+            logger.debug("Cannot walk %s for forex year manifolds: %s", kaggle_input, exc)
     return all_year_dirs
 
 
@@ -358,8 +358,8 @@ def _build_fold_command(cur: _Curriculum, fold: int, target_epoch: int) -> list[
 
     env_type = (
         "kaggle"
-        if os.path.exists("/kaggle")
-        else ("colab" if os.path.exists("/content") else "local")
+        if on_kaggle()
+        else ("colab" if os.path.exists(platform_paths("colab").working_dir) else "local")
     )
     if env_type in ["kaggle", "colab"]:
         cmd.extend(["--env", env_type, "--auto_sync"])
@@ -442,9 +442,7 @@ def main():
     # 2026: Validate fold consistency across attached manifolds
     _validate_fold_consistency(project_root)
 
-    ckpt_dir = os.path.abspath(
-        os.path.join(project_root, "..", "LemGendaryModels", MODEL_KEY, "checkpoints")
-    )
+    ckpt_dir = str(get_model_hub_dir(MODEL_KEY, Path(project_root), create=False) / "checkpoints")
     os.makedirs(ckpt_dir, exist_ok=True)
 
     if getattr(args, "clean", False):

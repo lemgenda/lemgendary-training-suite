@@ -12,7 +12,7 @@ from torch import nn
 
 from models.nima import SoftmaxWrapper
 from training.utils.model_payload import model_payload_of
-from training.utils.paths import get_project_root
+from training.utils.paths import get_model_hub_dir, get_project_root
 
 logger = logging.getLogger("lemtrain.export.common")
 
@@ -39,9 +39,12 @@ def resolve_export_paths(
     model_filename = model_info.get("filename", model_key)
     base_name = f"LemGendary{model_filename}"
 
-    export_dir_rel = cfg.get("export_dir", "../LemGendaryModels")
-    production_dir = (root / export_dir_rel / model_key).resolve()
-    production_dir.mkdir(parents=True, exist_ok=True)
+    export_dir_rel = cfg.get("export_dir")
+    if export_dir_rel:
+        production_dir = (root / export_dir_rel / model_key).resolve()
+        production_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        production_dir = get_model_hub_dir(model_key, root)
 
     return base_name, production_dir
 

@@ -12,6 +12,7 @@ import torch
 from torch import nn
 
 from training.hardware.device_memory import DeviceMemory, device_memory_for
+from training.platform_paths import on_kaggle
 
 logger = logging.getLogger("lemtrain.hardware.probe")
 
@@ -381,9 +382,7 @@ def _pixel_cap(shape: _ProbeShape) -> int:
 
 def _host_ram() -> _HostRam:
     """Host RAM size and whether this is a Kaggle kernel."""
-    is_kaggle: bool = (
-        os.path.exists("/kaggle/working") or os.environ.get("KAGGLE_KERNEL_RUN_TYPE") is not None
-    )
+    is_kaggle = on_kaggle()
     try:
         return _HostRam(psutil.virtual_memory().total / _GIB, is_kaggle, True)
     except (OSError, RuntimeError) as exc:

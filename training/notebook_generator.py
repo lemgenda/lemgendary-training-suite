@@ -26,7 +26,7 @@ from training.notebooks.cells.env import (
     _build_env_var_lines,
     _load_runtime_env,
 )
-from training.utils.paths import get_project_root
+from training.utils.paths import get_models_hub_root, get_project_root
 from training.version import __version__
 
 logger = logging.getLogger("lemtrain.notebooks.notebook_generator")
@@ -91,7 +91,12 @@ def main(argv: list[str] | None = None) -> int:
     config = _load_config(project_root / "config.yaml")
     registry = load_registry(config, project_root)
 
-    default_export = str((project_root / config.get("export_dir", "../LemGendaryModels")).resolve())
+    configured_export = config.get("export_dir")
+    default_export = str(
+        (project_root / configured_export).resolve()
+        if configured_export
+        else get_models_hub_root(project_root)
+    )
     export_root = args.dir if args.dir else default_export
 
     models_to_gen: list[str] = []

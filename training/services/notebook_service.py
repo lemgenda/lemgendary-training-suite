@@ -17,7 +17,7 @@ from training.notebooks import (
     generate_usage_notebook,
     load_registry,
 )
-from training.utils.paths import get_project_root
+from training.utils.paths import get_models_hub_root, get_project_root
 
 
 class NotebookService:
@@ -28,7 +28,7 @@ class NotebookService:
 
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = project_root or get_project_root()
-        self.default_output_dir = (self.project_root / ".." / "LemGendaryModels").resolve()
+        self.default_output_dir = get_models_hub_root(self.project_root)
 
     def list_supported_models(self) -> list[str]:
         """Return list of model keys available for notebook synthesis."""

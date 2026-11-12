@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.175-STABLE`
+- **Version**: `v16.9.176-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,38 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.176 - One Models Hub Root, Also on Kaggle (R3-K3)
+
+- Critical fix: since v16.9.174 the notebook clones the suite to
+  `/kaggle/temp`, but training resolved the hub as
+  `<suite parent>/LemGendaryModels`, so checkpoints landed in
+  `/kaggle/temp` (not kernel output), recovery restored into
+  `/kaggle/working` and auto-sync uploaded from `/kaggle/working`. The hub
+  now has one resolver, `training.utils.paths.get_models_hub_root()`:
+  `LEMGENDARY_WORKSPACE_ROOT` (the notebook sets it to the kernel output)
+  or the suite's parent folder locally. The cwd and `KAGGLE_WORKING_DIR`
+  sniffing is gone. Training (`core_loop.build_training_paths`), the YOLO
+  governor, exporters (`export/base.py`, `export/common.py`), recovery,
+  GitHub and Google Drive sync, Kaggle model sync, staging, metadata,
+  model soup, checkpoint, sync and notebook services, the doc and hub
+  README generators, FID re-evaluation, the forex curriculum and
+  `tools/train_all.py` all use it.
+- `config.yaml` `paths.checkpoints_root` and `paths.export_root` are
+  removed (they duplicated the hub root and pointed into the clone folder
+  on Kaggle); a value set there still overrides the resolver.
+- K-SSOT-2: `training/platform_paths.py` (moved from
+  `training/notebooks/`) is the one place for the Kaggle and Colab folders
+  (`working_dir`, `checkout_dir`, `input_dir`, `dataset_roots`) and
+  `on_kaggle()` (`KAGGLE_KERNEL_RUN_TYPE`, `KAGGLE_WORKING_DIR` or the
+  working dir). Recovery, the manifold resolver, the hardware probe, cloud
+  sync, GitHub sync and the forex curriculum read it; no non-notebook
+  module hard-codes `/kaggle/...` any more.
+- `training/checkpoint_sync.py` (unused legacy, K-CK-6) is deleted.
+- Tests: `tests/unit/test_hub_root_kaggle.py` (a fake Kaggle layout whose
+  workspace root is not the suite's parent: training paths, exporters,
+  recovery, GitHub sync and soup share the hub; platform folders feed
+  recovery and the manifold resolver; Kaggle detection).
 
 ### v16.9.175 - Kaggle Kernel Bundle, Cancel-Aware Watch, Session Deadline
 

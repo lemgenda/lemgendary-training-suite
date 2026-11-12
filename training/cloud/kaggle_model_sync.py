@@ -42,7 +42,7 @@ from training.ecosystem import kaggle_owner
 from training.export.validation import IsolationReport, StrictIsolationValidator
 from training.registry import get_model_registry
 from training.utils.lazy_imports import load_variation_staging
-from training.utils.paths import get_workspace_root
+from training.utils.paths import get_models_hub_root
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_model_sync")
 
@@ -132,7 +132,7 @@ class KaggleModelSyncManager:
         if hub_root:
             self.hub_root = Path(hub_root).resolve()
         else:
-            self.hub_root = (get_workspace_root() / "LemGendaryModels").resolve()
+            self.hub_root = get_models_hub_root()
 
         self.registry = get_model_registry()
         self.metadata_service = KaggleMetadataService(owner_slug=self.username)

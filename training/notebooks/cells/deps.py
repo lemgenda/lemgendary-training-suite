@@ -6,7 +6,8 @@ from lemgendary-env-manager or lemgendary-training-suite.
 
 from typing import Any
 
-from ..platform_paths import SUITE_FOLDER, platform_paths
+from training.platform_paths import SUITE_FOLDER, platform_paths
+
 from .base import make_code_cell
 
 

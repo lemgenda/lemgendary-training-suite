@@ -32,7 +32,7 @@ from training.export.validation import (
 )
 from training.registry import ModelSpecification
 from training.utils.fs import remove_tree
-from training.utils.paths import get_workspace_root
+from training.utils.paths import get_model_hub_dir
 
 logger = logging.getLogger("lemtrain.export.staging")
 
@@ -214,7 +214,7 @@ class VariationStagingService:
         if base_dir:
             hub_dir = Path(base_dir).resolve()
         else:
-            hub_dir = (get_workspace_root() / "LemGendaryModels" / model_key).resolve()
+            hub_dir = get_model_hub_dir(model_key, create=False)
         hub_dir.mkdir(parents=True, exist_ok=True)
         return hub_dir
 

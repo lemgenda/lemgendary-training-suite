@@ -11,9 +11,9 @@ import yaml
 
 from training.cloud.session_deadline import DEADLINE_MARKER
 from training.ecosystem import kaggle_owner
+from training.platform_paths import platform_paths
 from training.utils.lazy_imports import load_cloud_module
 
-from ..platform_paths import platform_paths
 from ..registry import ModelNotebookMeta
 from .base import make_code_cell
 
