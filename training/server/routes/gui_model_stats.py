@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from training.cloud.variations import ONNX_FP16, ONNX_FP32, PYTORCH_FP32, variation_ready
+from training.export.validation import resolve_model_stem
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.governance.curriculum import (
     DEFAULT_FOREX_LADDER,
@@ -362,6 +364,16 @@ def _has_checkpoint(
     return best_ckpt is not None or len(model_ckpts) > 0 or weights_exist
 
 
+def _readiness_fields(model_key: str, hub_dir: Path) -> dict[str, bool]:
+    """Per-format flags: whether the model hub holds each exported binary."""
+    stem = resolve_model_stem(model_key)
+    return {
+        "pytorch_ready": variation_ready(hub_dir, PYTORCH_FP32, stem),
+        "onnx_fp32_ready": variation_ready(hub_dir, ONNX_FP32, stem),
+        "onnx_fp16_ready": variation_ready(hub_dir, ONNX_FP16, stem),
+    }
+
+
 def _metric_meta(ykey: str) -> tuple[bool, str]:
     """Return ``(lower_is_better, label)`` of one SOTA target key."""
     reg_entry = METRIC_REGISTRY.get(ykey)
@@ -659,6 +671,7 @@ def model_with_stats(
         {
             **_identity_fields(model_key, info),
             **_checkpoint_fields(model_ckpts, has_checkpoint),
+            **_readiness_fields(model_key, hub_dir),
             **_ladder_fields(kind, ladder, stats, progress),
             **sota,
             **_training_defaults(model_key, info, kind.is_forex),

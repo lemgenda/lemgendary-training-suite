@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.146"
+    "version": "16.9.147"
   },
   "paths": {
     "/api/health": {
@@ -2406,6 +2406,24 @@
           "checkpoint_exists": {
             "type": "boolean",
             "title": "Checkpoint Exists",
+            "default": false
+          },
+          "pytorch_ready": {
+            "type": "boolean",
+            "title": "Pytorch Ready",
+            "description": "The PyTorch FP32 binary (<Stem>.pt) exists in the model hub",
+            "default": false
+          },
+          "onnx_fp32_ready": {
+            "type": "boolean",
+            "title": "Onnx Fp32 Ready",
+            "description": "The ONNX FP32 graph (<Stem>_FP32.onnx) exists in the model hub",
+            "default": false
+          },
+          "onnx_fp16_ready": {
+            "type": "boolean",
+            "title": "Onnx Fp16 Ready",
+            "description": "The ONNX FP16 graph (<Stem>.onnx) exists in the model hub",
             "default": false
           },
           "preferred_parallel": {

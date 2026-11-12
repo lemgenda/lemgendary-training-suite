@@ -94,6 +94,15 @@ class ModelWithStats(BaseModel):
     data_fraction_completed: float = 0.0
     data_fraction_passed: bool = False
     checkpoint_exists: bool = False
+    pytorch_ready: bool = Field(
+        default=False, description="The PyTorch FP32 binary (<Stem>.pt) exists in the model hub"
+    )
+    onnx_fp32_ready: bool = Field(
+        default=False, description="The ONNX FP32 graph (<Stem>_FP32.onnx) exists in the model hub"
+    )
+    onnx_fp16_ready: bool = Field(
+        default=False, description="The ONNX FP16 graph (<Stem>.onnx) exists in the model hub"
+    )
     preferred_parallel: str = "single"
     epochs_completed: int = 0
     best_metric: float | str | None = None

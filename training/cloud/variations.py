@@ -14,6 +14,7 @@ this module instead of re-declaring handles or file names.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -51,3 +52,36 @@ def variation_files(variation: KaggleVariation, stem: str) -> list[str]:
     if variation is ONNX_FP32:
         return [f"{stem}_FP32.onnx", f"{stem}_FP32.onnx.data"]
     return []
+
+
+STAGED_FOLDERS: dict[str, str] = {
+    PYTORCH_FP32.key: "pytorch",
+    ONNX_FP32.key: "onnx_fp32",
+    ONNX_FP16.key: "onnx_fp16",
+}
+"""Variation key -> ``dist/kaggle`` folder the export stager and recovery sync write to.
+
+Kaggle downloads use ``payload_dir`` instead; readers check both.
+"""
+
+
+def variation_dirs(hub_dir: Path, variation: KaggleVariation) -> list[Path]:
+    """Folders of a model hub dir that may hold ``variation``'s binaries.
+
+    The hub root, its ``checkpoints/`` folder and the variation's ``dist/kaggle``
+    folders (the downloaded ``payload_dir`` and the staged folder name).
+    """
+    dist = hub_dir / "dist" / "kaggle"
+    dirs = [hub_dir, hub_dir / "checkpoints", dist / variation.payload_dir]
+    staged = STAGED_FOLDERS.get(variation.key)
+    if staged and staged != variation.payload_dir:
+        dirs.append(dist / staged)
+    return dirs
+
+
+def variation_ready(hub_dir: Path, variation: KaggleVariation, stem: str) -> bool:
+    """Whether ``variation``'s main binary (``variation_files``' first) exists for ``stem``."""
+    files = variation_files(variation, stem)
+    if not files:
+        return False
+    return any((folder / files[0]).is_file() for folder in variation_dirs(hub_dir, variation))

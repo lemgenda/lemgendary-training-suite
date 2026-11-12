@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.146-STABLE`
+- **Version**: `v16.9.147-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,21 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.147 - Per-Format Readiness Flags in Model Stats
+
+- `training/server/routes/gui_schemas.py`, `gui_model_stats.py`:
+  `ModelWithStats` gains `pytorch_ready`, `onnx_fp32_ready` and
+  `onnx_fp16_ready`, true when `<Stem>.pt`, `<Stem>_FP32.onnx` or
+  `<Stem>.onnx` exists in the model hub dir, its `checkpoints/` or the
+  variation's `dist/kaggle` folder. The stem comes from
+  `resolve_model_stem`; the GUI variation badges read these flags.
+- `training/cloud/variations.py`: `STAGED_FOLDERS`, `variation_dirs` and
+  `variation_ready` are the single place that knows where variation
+  binaries live; `training/export/validation.py` uses `STAGED_FOLDERS`
+  instead of its own legacy folder map.
+- `openapi.json` regenerated with `tools/export_openapi.py`.
+- Tests: `test_model_readiness.py`.
 
 ### v16.9.146 - Cross-Platform Bootstrap, DDP Backend and Process Cleanup
 

@@ -20,6 +20,7 @@ from training.cloud.variations import (
     ONNX_FP32,
     PYTORCH_DEFAULT,
     PYTORCH_FP32,
+    STAGED_FOLDERS,
     VARIATIONS,
 )
 from training.registry import ModelSpecification, get_model_registry
@@ -319,14 +320,9 @@ class StrictIsolationValidator:
                 ):
                     var_dir = model_hub_dir
                 else:
-                    legacy_mapping = {
-                        PYTORCH_FP32.key: dist_kaggle / "pytorch",
-                        ONNX_FP32.key: dist_kaggle / "onnx_fp32",
-                        ONNX_FP16.key: dist_kaggle / "onnx_fp16",
-                    }
-                    fallback_dir = legacy_mapping.get(variation.key)
-                    if fallback_dir and fallback_dir.exists():
-                        var_dir = fallback_dir
+                    staged = STAGED_FOLDERS.get(variation.key)
+                    if staged and (dist_kaggle / staged).exists():
+                        var_dir = dist_kaggle / staged
 
             var_rep = self.validate_variation(variation.key, var_dir, model_key)
             overall_report.variations[variation.key] = var_rep
