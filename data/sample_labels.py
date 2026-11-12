@@ -9,7 +9,11 @@ same targets:
 * FFA-Net: up to 50 five-value YOLO boxes.
 
 Landmark coordinates a label does not carry are set to :data:`LANDMARK_ABSENT`; the face
-detection loss masks them out instead of training towards made-up points.
+detection loss masks them out instead of training towards made-up points. A box-only label
+(5 YOLO values, or a JSON object without landmarks) and a label whose 10 landmark values are
+all zero (the placeholder the dataset compiler writes for faces without landmarks, not real
+points at the image corner) both count as absent, as on the datasets side
+(``face_landmarks`` strategy, datasets v16.9.93).
 """
 
 from __future__ import annotations
@@ -89,12 +93,31 @@ def authenticity_distribution(mean_score: float) -> torch.Tensor:
     return torch.tensor(peaks, dtype=torch.float32)
 
 
+LANDMARK_VALUES = FACE_TARGET_LEN - FACE_LANDMARK_SLICE.start
+"""Landmark coordinates of one face (5 points, x and y)."""
+
+
+def present_landmarks(landmarks: Sequence[float] | None) -> list[float] | None:
+    """The first 10 landmark values, or None when the label carries no real landmarks.
+
+    Fewer than 10 values (a box-only label) and 10 values that are all zero (the compiler's
+    placeholder for a face without landmarks) are absent.
+    """
+    if landmarks is None or len(landmarks) < LANDMARK_VALUES:
+        return None
+    values = [float(v) for v in landmarks[:LANDMARK_VALUES]]
+    if all(v == 0.0 for v in values):
+        return None
+    return values
+
+
 def _face_target(box: Sequence[float], landmarks: Sequence[float] | None) -> torch.Tensor:
     target = torch.full((FACE_TARGET_LEN,), LANDMARK_ABSENT, dtype=torch.float32)
     target[0] = 1.0
     target[FACE_BOX_SLICE] = torch.tensor(list(box[:4]), dtype=torch.float32)
-    if landmarks is not None and len(landmarks) >= 10:
-        target[FACE_LANDMARK_SLICE] = torch.tensor(list(landmarks[:10]), dtype=torch.float32)
+    present = present_landmarks(landmarks)
+    if present is not None:
+        target[FACE_LANDMARK_SLICE] = torch.tensor(present, dtype=torch.float32)
     return target
 
 
@@ -106,7 +129,8 @@ def empty_face_target() -> torch.Tensor:
 def face_target_from_text(text: str | None) -> torch.Tensor | None:
     """Face target from the first YOLO line ``cls cx cy w h [10 landmark values]``.
 
-    ``None`` when no line has a class and a box.
+    ``None`` when no line has a class and a box. A box-only line (5 values) or all-zero
+    landmark values give :data:`LANDMARK_ABSENT` landmarks.
     """
     for line in (text or "").splitlines():
         values = _floats(line)
@@ -117,7 +141,10 @@ def face_target_from_text(text: str | None) -> torch.Tensor | None:
 
 
 def face_target_from_json(meta: Any) -> torch.Tensor | None:
-    """Face target from a JSON sidecar's first object with ``bbox_cxcywh_normalized``."""
+    """Face target from a JSON sidecar's first object with ``bbox_cxcywh_normalized``.
+
+    Missing or all-zero landmarks give :data:`LANDMARK_ABSENT` landmarks.
+    """
     objects = meta.get("objects") if isinstance(meta, Mapping) else None
     if not isinstance(objects, Sequence):
         return None

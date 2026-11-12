@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.179-STABLE`
+- **Version**: `v16.9.180-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,18 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.180 - All-Zero Face Landmarks Are Absent
+
+- Face detection targets (`data/sample_labels.py`, used by directory and
+  container samples): a YOLO `.txt` line whose 10 landmark values are all
+  zero, and a JSON object whose landmarks are all zero (flat or point
+  pairs), now give `LANDMARK_ABSENT` landmarks (masked in the loss)
+  instead of five real points at the image corner. Box-only lines (5
+  values) and objects without landmarks were already absent. Matches the
+  datasets side (`face_landmarks` strategy, datasets v16.9.93).
+- Tests: `tests/unit/test_face_landmarks_absent.py` (text and JSON:
+  all-zero, box-only or missing, and real points kept).
 
 ### v16.9.179 - Generator State per DDP Rank, Self-Describing .pt Exports (R3-K3)
 
