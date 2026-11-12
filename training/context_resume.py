@@ -24,6 +24,11 @@ from training.context_data import RunSpec, rebuild_resumed_train_loader
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.governance.governor_setup import configured_data_fraction
 from training.hardware.probe import VramProbe, audit_hardware_vram
+from training.training.param_groups import (
+    legacy_group_sources,
+    migrate_legacy_optimizer_state,
+    migrate_scheduler_state,
+)
 from training.utils.error_types import STATE_RESTORE_ERRORS
 
 logger = logging.getLogger("lemtrain.core_loop")
@@ -99,12 +104,13 @@ def _restore_weights_and_optimizer(spec: RunSpec, loaded: dict, train: TrainStat
             )
     opt_state = loaded.get("optimizer_state") or loaded.get("optimizer_state_dict")
     if isinstance(opt_state, dict):
-        try:
-            train.optimizer.load_state_dict(opt_state)
-        except STATE_RESTORE_ERRORS as opt_err:
-            logger.warning("Optimizer state could not be loaded cleanly: %s", opt_err)
+        restore_optimizer_state(train, opt_state)
     _restore_scaler(loaded, train.scaler)
     sched_state = loaded.get("scheduler_state") or loaded.get("scheduler_state_dict")
+    if isinstance(sched_state, dict):
+        sched_state = migrate_scheduler_state(
+            sched_state, legacy_group_sources(train.raw_model, train.optimizer)
+        )
     if getattr(spec.args, "reset_scheduler", False):
         logger.info(
             "--reset-scheduler set: ignoring checkpoint scheduler state "
@@ -115,6 +121,29 @@ def _restore_weights_and_optimizer(spec: RunSpec, loaded: dict, train: TrainStat
             train.scheduler.load_state_dict(sched_state)
         except STATE_RESTORE_ERRORS as sched_err:
             logger.warning("Scheduler state could not be loaded cleanly: %s", sched_err)
+
+
+def restore_optimizer_state(train: TrainState, opt_state: dict) -> None:
+    """Load ``opt_state``, migrating a pre-split two-group state to backbone/head groups."""
+    migrated = migrate_legacy_optimizer_state(train.raw_model, train.optimizer, opt_state)
+    if migrated is None:
+        saved_groups = opt_state.get("param_groups")
+        logger.warning(
+            "Optimizer state has %s param groups that do not match the %d groups of this "
+            "model; keeping fresh optimizer state (moments restart, weights are restored).",
+            len(saved_groups) if isinstance(saved_groups, list) else "no",
+            len(train.optimizer.param_groups),
+        )
+        return
+    if migrated is not opt_state:
+        logger.info(
+            "Migrated legacy decay/no-decay optimizer state to %d backbone/head groups.",
+            len(train.optimizer.param_groups),
+        )
+    try:
+        train.optimizer.load_state_dict(migrated)
+    except STATE_RESTORE_ERRORS as opt_err:
+        logger.warning("Optimizer state could not be loaded cleanly: %s", opt_err)
 
 
 def _restore_scaler(loaded: dict, scaler: Any) -> None:

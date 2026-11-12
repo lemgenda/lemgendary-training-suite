@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.150-STABLE`
+- **Version**: `v16.9.151-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,30 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.151 - Backbone/Head Optimizer Groups with Legacy Checkpoint Migration
+
+- `training/training/param_groups.py` (new): the optimizer gets up to
+  four param groups (backbone decay, backbone no-decay, head decay, head
+  no-decay), tagged `group: "backbone"` or `group: "head"`. The governor's
+  `head_lr_multiplier` (head jolts, backbone cooling) was applied by
+  `lr_scaling.scale_learning_rates` only to `head` groups, and none
+  existed, so it never took effect. The head is named by a model's
+  `head_param_prefixes` attribute, else it is the last top-level child
+  with trainable parameters (when there are at least two such children).
+- `training/training/optimizer.py`: `build_optimizer` uses
+  `build_param_groups`; group 0 is still the backbone decay group.
+- `training/context_resume.py`: `restore_optimizer_state` migrates a
+  checkpoint written with the old two-group layout. Each parameter keeps
+  its Adam moments and step, and each new group takes the
+  hyperparameters of the group it came from. The scheduler's per-group
+  lists (`base_lrs`, `_last_lr`, ...) are widened the same way, so the LR
+  curve continues. A state that does not match the model's layout keeps
+  the fresh optimizer and logs a warning (weights are still restored).
+- Tests: `tests/unit/test_param_groups.py` (partition and tags, declared
+  head, single-block models, head multiplier surviving cosine steps,
+  legacy state and schedule migration, mismatch fallback with warning).
+  `test_training_engine` now expects the four groups.
 
 ### v16.9.150 - Rung Entry Fraction and VRAM Refit on Resolution Jumps
 

@@ -71,9 +71,11 @@ class TestTrainingEngine(unittest.TestCase):
             "scheduler": {"type": "cosine", "min_lr": 1e-6},
         }
         optimizer = build_optimizer(model, config)
-        self.assertEqual(len(optimizer.param_groups), 2)
-        self.assertEqual(optimizer.param_groups[0]["weight_decay"], 0.05)
-        self.assertEqual(optimizer.param_groups[1]["weight_decay"], 0.0)
+        # Backbone decay/no-decay, then head decay/no-decay (the last child is the head).
+        self.assertEqual(
+            [(g["group"], g["weight_decay"]) for g in optimizer.param_groups],
+            [("backbone", 0.05), ("backbone", 0.0), ("head", 0.05), ("head", 0.0)],
+        )
 
         scheduler = build_scheduler(optimizer, config, total_epochs=10)
         self.assertIsNotNone(scheduler)

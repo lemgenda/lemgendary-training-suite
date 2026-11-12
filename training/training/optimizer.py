@@ -21,36 +21,14 @@ from torch.optim.lr_scheduler import (
     StepLR,
 )
 
+from training.training.param_groups import build_param_groups
+
 logger = logging.getLogger("lemtrain.training.optimizer")
 
 try:
     import bitsandbytes as bnb
 except ImportError:
     bnb = None
-
-
-def _param_groups(model: torch.nn.Module, base_wd: float) -> list[dict[str, Any]]:
-    """Decay group (weights) and no-decay group (biases, norms, 1-D params)."""
-    decay_params: list[torch.nn.Parameter] = []
-    no_decay_params: list[torch.nn.Parameter] = []
-
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue
-        if (
-            param.ndim <= 1
-            or name.endswith(".bias")
-            or "norm" in name.lower()
-            or "bn" in name.lower()
-        ):
-            no_decay_params.append(param)
-        else:
-            decay_params.append(param)
-
-    return [
-        {"params": decay_params, "weight_decay": base_wd},
-        {"params": no_decay_params, "weight_decay": 0.0},
-    ]
 
 
 def _betas(betas: Any) -> tuple[float, float]:
@@ -66,7 +44,11 @@ def build_optimizer(
     lr: float | None = None,
     weight_decay: float | None = None,
 ) -> torch.optim.Optimizer:
-    """Build optimizer with decoupled weight decay for biases and normalization layers."""
+    """Build the optimizer over backbone/head x decay/no-decay param groups.
+
+    Biases and normalization layers get no weight decay; head groups are tagged so the
+    governor's ``head_lr_multiplier`` reaches them (see ``param_groups``).
+    """
     opt_config = config.get("optimizer", {})
     if not isinstance(opt_config, dict):
         opt_config = {}
@@ -77,7 +59,7 @@ def build_optimizer(
         weight_decay if weight_decay is not None else opt_config.get("weight_decay", 1e-2)
     )
 
-    param_groups = _param_groups(model, base_wd)
+    param_groups = build_param_groups(model, base_wd)
     beta_tuple = _betas(opt_config.get("betas", [0.9, 0.999]))
     eps = float(opt_config.get("eps", 1e-8))
 
