@@ -101,14 +101,16 @@ class CurriculumState:
         return False
 
     def throttle_on_oom(self, min_batch: int = 1) -> tuple[int, int]:
-        """Halve physical batch size and double gradient accumulation on OOM.
+        """Halve the micro-batch budget on OOM, keeping the effective batch exactly.
 
-        Preserves target effective batch while drastically dropping peak activation memory.
-        Returns (new_batch, new_acc).
+        Uses the same exact-divisor rule as the resolution-jump refit and the resume
+        clamp (:meth:`fit_batch_to_budget`): the new micro-batch is the largest divisor
+        of ``current_batch * current_acc`` within half the old micro-batch (never below
+        ``min_batch``), so ``batch * accumulation`` is unchanged. Returns
+        ``(new_batch, new_acc)``.
         """
         old_batch = self.current_batch
-        new_batch = max(min_batch, self.current_batch // 2)
-        self.update_batch_and_accumulation(new_batch)
+        self.fit_batch_to_budget(max(min_batch, self.current_batch // 2))
         logger.warning(
             "Curriculum OOM Throttling: batch size reduced %d -> %d, accumulation adjusted to %d "
             "(effective batch=%d)",

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.155-STABLE`
+- **Version**: `v16.9.156-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,25 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.156 - Exact-Divisor OOM Throttle
+
+- `CurriculumState.throttle_on_oom` (mid-epoch OOM path through
+  `SmartTrainingGovernor.handle_oom`) now goes through
+  `fit_batch_to_budget`, the exact-divisor rule already used by the
+  resolution-jump refit (`training/training/batch_budget.py`) and the
+  resume clamp: the micro-batch becomes the largest divisor of
+  `batch * accumulation` within half the old micro-batch (never below
+  `min_batch`), so the effective batch stays exactly equal. It used to
+  round `target_effective_batch / batch`, which drifted the effective
+  batch (e.g. 7 x 1 became 3 x 2).
+- The rule stays on `CurriculumState` rather than in `batch_budget`:
+  `training.governance` cannot import `training.training` (which imports
+  the governor) without a cycle; `batch_budget` calls the same method.
+- `openapi.json` regenerated (`python -m tools.export_openapi`); it
+  still carried 16.9.154 after the v16.9.155 bump.
+- Tests: `tests/unit/test_batch_budget.py` (exact splits including prime
+  effective batches, `min_batch`, governor `handle_oom`).
 
 ### v16.9.155 - Single Task-Type Resolver (SSOT)
 

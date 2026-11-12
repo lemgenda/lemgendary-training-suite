@@ -127,3 +127,42 @@ def test_refit_without_measurement_keeps_batch(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path, _BnNet())
     assert not refit_batch_for_resolution(ctx)
     assert (ctx.governance.governor.current_batch, ctx.governance.governor.current_acc) == (12, 2)
+
+
+@pytest.mark.parametrize(
+    ("batch", "accum", "expected"),
+    [
+        (16, 1, (8, 2)),  # even split: plain halving
+        (12, 2, (6, 4)),
+        (6, 4, (3, 8)),
+        (3, 8, (1, 24)),
+        (7, 1, (1, 7)),  # prime effective batch: no split between 1 and 7
+        (10, 3, (5, 6)),
+        (1, 24, (1, 24)),  # already minimal: unchanged
+    ],
+)
+def test_oom_throttle_keeps_effective_batch_exact(
+    batch: int, accum: int, expected: tuple[int, int]
+) -> None:
+    """The OOM throttle uses the refit/resume exact-divisor rule, not rounding.
+
+    ``target_effective_batch`` is deliberately off (5): the old rounding against it
+    drifted the effective batch, the exact split keeps ``batch * accum``.
+    """
+    state = CurriculumState(current_batch=batch, current_acc=accum, target_effective_batch=5)
+    assert state.throttle_on_oom() == expected
+    assert state.current_batch * state.current_acc == batch * accum
+
+
+def test_oom_throttle_respects_min_batch() -> None:
+    """``min_batch`` bounds the halved budget; the split stays exact."""
+    state = CurriculumState(current_batch=16, current_acc=3)
+    assert state.throttle_on_oom(min_batch=12) == (12, 4)
+
+
+def test_governor_oom_keeps_loader_effective_batch(tmp_path: Path) -> None:
+    """``handle_oom`` (mid-epoch OOM path) halves the micro-batch with an exact split."""
+    ctx = _ctx(tmp_path, _BnNet())
+    governor = ctx.governance.governor
+    assert governor.handle_oom(current_batch=12) == (6, 4)
+    assert governor.current_batch * governor.current_acc == 24
