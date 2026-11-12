@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.180-STABLE`
+- **Version**: `v16.9.181-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,13 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.181 - Shared Kaggle Test Home Fixture (R3-K3)
+
+- `tests/conftest.py` `kaggle_home` (fake `Path.home()`, Kaggle variables
+  cleared) is shared by `test_kaggle_auth.py` and
+  `test_kaggle_secrets_cleanup.py`, which duplicated it (pylint
+  duplicate-code, env-manager validate lint gate).
 
 ### v16.9.180 - All-Zero Face Landmarks Are Absent
 

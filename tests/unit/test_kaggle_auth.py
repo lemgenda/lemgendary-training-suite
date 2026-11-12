@@ -28,21 +28,13 @@ from training.server.app import create_app
 
 _ACCESS = "KGAT_fake0123456789"
 _LEGACY = "0123456789abcdef0123456789abcdef"
-_KAGGLE_VARS = ("KAGGLE_USERNAME", "KAGGLE_KEY", "KAGGLE_API_TOKEN")
 
 
 @pytest.fixture(autouse=True, name="isolated_home")
-def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A fake home folder and no Kaggle variables in the environment."""
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    for name in _KAGGLE_VARS:
-        # setenv records the original state, so exported credentials are undone afterwards.
-        monkeypatch.setenv(name, "unset")
-        monkeypatch.delenv(name)
-    monkeypatch.setattr(credentials, "load_kaggle_users", lambda users_file=None: [])
-    return home
+def _isolated_home(kaggle_home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A fake home folder, an empty vault and no Kaggle variables in the environment."""
+    monkeypatch.setattr(credentials, "load_kaggle_users", list)
+    return kaggle_home
 
 
 def _http_error(status: int) -> requests.HTTPError:

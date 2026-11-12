@@ -39,3 +39,20 @@ def fake_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     yield workspace
     ecosystem.clear_cache()
     task_resolution.clear_cache()
+
+
+KAGGLE_CREDENTIAL_VARS = ("KAGGLE_USERNAME", "KAGGLE_KEY", "KAGGLE_API_TOKEN")
+"""Environment variables the Kaggle credential resolver reads and exports."""
+
+
+@pytest.fixture(name="kaggle_home")
+def fixture_kaggle_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A fake home folder (``Path.home()``) and no Kaggle variables in the environment."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    for name in KAGGLE_CREDENTIAL_VARS:
+        # setenv records the original state, so exported credentials are undone afterwards.
+        monkeypatch.setenv(name, "unset")
+        monkeypatch.delenv(name)
+    return home

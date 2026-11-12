@@ -23,7 +23,6 @@ from training.notebooks.cells.secrets import build_secrets_cell
 
 _ACCESS = "KGAT_fake0123456789"
 _OTHER = "KGAT_other0123456789"
-_KAGGLE_VARS = ("KAGGLE_USERNAME", "KAGGLE_KEY", "KAGGLE_API_TOKEN")
 _ACCOUNTS = [
     {"username": "default-user", "token": _ACCESS, "is_default": True},
     {"username": "second-user", "token": _OTHER, "is_default": False},
@@ -31,18 +30,12 @@ _ACCOUNTS = [
 
 
 @pytest.fixture(autouse=True, name="isolated_home")
-def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def _isolated_home(kaggle_home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A fake home folder, the fixture vault and no Kaggle variables in the environment."""
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    for name in _KAGGLE_VARS:
-        monkeypatch.setenv(name, "unset")
-        monkeypatch.delenv(name)
     monkeypatch.setattr(credentials, "load_kaggle_users", lambda: [dict(a) for a in _ACCOUNTS])
     monkeypatch.setattr(kaggle_accounts, "load_kaggle_users", lambda: [dict(a) for a in _ACCOUNTS])
     monkeypatch.setattr(credentials, "load_secrets_yaml_registry", list)
-    return home
+    return kaggle_home
 
 
 def test_override_user_never_takes_another_accounts_token(
