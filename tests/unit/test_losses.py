@@ -2,10 +2,13 @@
 
 import torch
 
+from data.sample_labels import LANDMARK_ABSENT
 from training.losses import (
     MULTITASK_HEAD_TO_INDEX,
     CombinedLoss,
+    _face_detection_loss,
     _resolve_task_index_tensor,
+    autocast_device_type,
 )
 
 
@@ -75,3 +78,29 @@ def test_combined_loss_multitask_restoration_forward() -> None:
     loss_none = loss_fn(preds, targets, None)
     assert isinstance(loss_none, torch.Tensor)
     assert not torch.isnan(loss_none)
+
+
+def test_face_detection_loss_masks_absent_landmarks() -> None:
+    """Box-only face labels (landmarks ``LANDMARK_ABSENT``) add no landmark loss."""
+    p_bbox = torch.full((2, 4), 0.5)
+    p_conf = torch.full((2, 1), 0.9)
+    p_landm = torch.full((2, 10), 0.5)
+    box_only = torch.tensor([[1.0, 0.5, 0.5, 0.5, 0.5] + [LANDMARK_ABSENT] * 10] * 2)
+    with_landmarks = box_only.clone()
+    with_landmarks[:, 5:] = 0.5
+
+    loss_box_only = _face_detection_loss((p_bbox, p_conf, p_landm), box_only)
+    loss_exact = _face_detection_loss((p_bbox, p_conf, p_landm), with_landmarks)
+    assert torch.allclose(loss_box_only, loss_exact)
+
+    far_landmarks = with_landmarks.clone()
+    far_landmarks[:, 5:] = 0.0
+    assert _face_detection_loss((p_bbox, p_conf, p_landm), far_landmarks) > loss_exact
+
+
+def test_autocast_device_type_follows_tensor_device() -> None:
+    """Autocast regions use the tensor's device type (CPU, MPS, XPU), CUDA only on CUDA."""
+    assert autocast_device_type(torch.device("cpu")) == "cpu"
+    assert autocast_device_type(torch.device("cuda", 0)) == "cuda"
+    assert autocast_device_type(torch.device("mps")) == "mps"
+    assert autocast_device_type(torch.device("meta")) == "cpu"

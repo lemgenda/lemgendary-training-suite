@@ -10,6 +10,7 @@ from PIL import Image, ImageFile
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from data.container_targets import ContainerTargetsMixin
 from data.dataset_containers import DatasetContainerMixin
 from data.dataset_sources import DatasetSourcesMixin
 from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
@@ -58,7 +59,13 @@ def _load_nima_scores(idx_path, scores):
         logger.debug("Failed loading NIMA index from %s: %s", idx_path, nima_err)
 
 
-class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, DatasetTargetsMixin):
+class MultiTaskDataset(
+    Dataset,
+    DatasetSourcesMixin,
+    DatasetContainerMixin,
+    ContainerTargetsMixin,
+    DatasetTargetsMixin,
+):
     """
     Nuclear-Hardened Universal Dataset (v16.0).
     Implements Fallback Shields, LANCZOS scaling, and stratified distribution analytics.

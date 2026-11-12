@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.142-STABLE`
+- **Version**: `v16.9.143-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,44 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.143 - Container Targets for Every Task
+
+- `data/container_targets.py` (new): per-task builders for container
+  (WebDataset, Parquet, MDS, LitData) samples, mixed into `MultiTaskDataset`
+  as `ContainerTargetsMixin`. Both shard layouts decode: labels in the
+  `.json` sidecar (published manifolds) and `.txt` label sidecars with
+  lossless `.mask.webp` masks (current compiler output).
+  - Quality (NIMA): the 10-bin distribution comes from a list, a
+    whitespace-separated `.txt` label or the `nima_scores` JSON. Before, a
+    `.txt` label gave an all-zero target.
+  - Segmentation (ParseNet): the mask member is decoded and cropped with the
+    image's seed; a sample without a mask raises instead of training on
+    zeros.
+  - Face detection (RetinaFace): `[conf, box, 10 landmarks]` from a YOLO
+    label or the JSON `objects` list. Labels without landmarks set them to
+    `LANDMARK_ABSENT` (-1).
+  - Parameter prediction (UPN v2): synthetic degradation with random
+    parameters, as in directory mode.
+  - Restoration: an unpaired sample is never an identity pair; the input is
+    a synthesised degradation (film damage for `film_restorer`). UltraZoom's
+    input is the aligned target crop downscaled by 2 (antialiased bicubic)
+    instead of a full-size copy.
+  - Classification: numeric label, digit text or `classes.txt` entry.
+  - A task without a builder raises `RuntimeError`; missing labels warn once
+    per dataset.
+- `data/sample_labels.py` (new): label parsing shared by directory and
+  container samples (NIMA distribution, face target, FFA-Net boxes).
+- `data/dataset_targets.py`: directory mode uses the shared parsers. A
+  box-only face label is now a positive face with absent landmarks.
+- `data/dataset_containers.py`: decodes the sample and hands it to the task
+  builder; `sync_dummy` shapes cover face detection and classification.
+- `training/losses.py`: the face loss leaves `LANDMARK_ABSENT` coordinates
+  out of the landmark term. Autocast regions use the tensor's device type
+  instead of a hardcoded `cuda` (audit 3.4.3).
+- `tests/unit/test_container_targets.py` (new): target shape and value tests
+  for all 23 registry models in both shard layouts, on tiny synthetic CPU
+  shards, plus routing checks for Forex, YOLOv8n and the instruction LLM.
 
 ### v16.9.142 - Chat-Template Prompt Masking
 

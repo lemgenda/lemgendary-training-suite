@@ -21,6 +21,13 @@ from PIL import Image
 from torchvision import transforms
 
 from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
+from data.sample_labels import (
+    authenticity_distribution,
+    empty_face_target,
+    face_target_from_text,
+    ffanet_boxes,
+    quality_scores,
+)
 from training.data.degrade import (
     apply_film_degradation,
     apply_synthetic_degradation,
@@ -47,8 +54,8 @@ _MULTITASK_HEADS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("parsenet", "face_pars"), "face_parser"),
 )
 
-_MAX_FFANET_BOXES = 50
-_MAX_MASK_CLASS = 18
+MAX_MASK_CLASS = 18
+"""Highest parsing-mask class id; larger mask values are clamped to it."""
 
 
 def multitask_head(fname: str) -> str:
@@ -197,7 +204,7 @@ class DatasetTargetsMixin:
         mask = self.pipes.mask_transform(mask)
         mask_tensor = torch.from_numpy(np.array(mask)).long()
         # Clamp so garbage dataset masks cannot crash NLLLoss2d.
-        return torch.clamp(mask_tensor, 0, _MAX_MASK_CLASS)
+        return torch.clamp(mask_tensor, 0, MAX_MASK_CLASS)
 
     def label_path(self, sample: DirectorySample) -> str:
         """Return the sample's ``labels/<name>.txt`` path."""
@@ -227,18 +234,8 @@ class DatasetTargetsMixin:
         return img_tensor, sample.target_tensor, sample.task_str
 
     def _ffanet_boxes(self, sample: DirectorySample):
-        """Read up to 50 five-value boxes from the label file, zero-padded."""
-        bboxes = []
-        for line in read_lines(self.label_path(sample)):
-            parts = line.strip().split()
-            if len(parts) >= 5:
-                bboxes.append([float(x) for x in parts[:5]])
-
-        bboxes_tensor = torch.zeros((_MAX_FFANET_BOXES, 5), dtype=torch.float32)
-        if bboxes:
-            num_boxes = min(len(bboxes), _MAX_FFANET_BOXES)
-            bboxes_tensor[:num_boxes] = torch.tensor(bboxes[:num_boxes], dtype=torch.float32)
-        return bboxes_tensor
+        """Up to 50 five-value boxes from the label file, zero-padded."""
+        return ffanet_boxes(read_text(self.label_path(sample)))
 
     def parameter_item(self, sample: DirectorySample):
         """Degrade the clean image with random parameters; the target is the parameters."""
@@ -256,25 +253,15 @@ class DatasetTargetsMixin:
     def quality_item(self, sample: DirectorySample):
         """NIMA items: a 10-bin score distribution from the label file or the NIMA index."""
         if self.spec.model_key == "nima_authenticity":
-            # 'real' peaks at bin 10 (class 1); 'shutterstock' peaks at bin 1 (class 0).
             n_score = self.catalog.nima_scores.get(os.path.splitext(sample.paths.fname)[0], 0.0)
-            if n_score > 5.0:
-                score = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9]
-            else:
-                score = [0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-            return sample.img_tensor, torch.tensor(score, dtype=torch.float32), "quality"
+            return sample.img_tensor, authenticity_distribution(n_score), "quality"
 
         label_path = self.label_path(sample)
-        try:
-            text = read_text(label_path)
-            if text is not None:
-                score = [float(x) for x in text.split()]
-                if len(score) < 10:
-                    score = score + [0.0] * (10 - len(score))
-                return sample.img_tensor, torch.tensor(score[:10], dtype=torch.float32), "quality"
-        except (ValueError, TypeError) as lbl_err:
-            logger.debug("Invalid quality label in %s: %s", label_path, lbl_err)
-        return sample.img_tensor, torch.zeros(10), "quality"
+        scores = quality_scores(read_text(label_path))
+        if scores is None:
+            logger.debug("No quality distribution in %s", label_path)
+            scores = torch.zeros(10)
+        return sample.img_tensor, scores, "quality"
 
     def classification_item(self, sample: DirectorySample):
         """Class index from the label file, a numeric parent folder or ``classes.txt``."""
@@ -315,19 +302,16 @@ class DatasetTargetsMixin:
         return sample.img_tensor, self.load_mask(sample), "segmentation"
 
     def face_detection_item(self, sample: DirectorySample):
-        """Face detection: confidence plus box and landmark coordinates (15 values)."""
-        target = torch.zeros(15, dtype=torch.float32)
-        label_path = self.label_path(sample)
-        try:
-            text = read_text(label_path)
-            parts = text.split() if text is not None else []
-            if len(parts) >= 15:
-                target[0] = 1.0  # confidence
-                for i in range(14):
-                    target[i + 1] = float(parts[i + 1])
-        except (ValueError, TypeError) as fd_err:
-            logger.debug("Invalid face detection label in %s: %s", label_path, fd_err)
-        return sample.img_tensor, target, "face_detection"
+        """Face detection: confidence plus box and landmark coordinates (15 values).
+
+        A box-only label yields a positive face whose landmarks are marked absent.
+        """
+        target = face_target_from_text(read_text(self.label_path(sample)))
+        return (
+            sample.img_tensor,
+            target if target is not None else empty_face_target(),
+            ("face_detection"),
+        )
 
     def task_item(self, sample: DirectorySample):
         """Dispatch ``sample`` to its task type's builder."""

@@ -12,11 +12,14 @@ import torch.nn.functional as F
 from torch import nn
 
 from data.dataset_targets import multitask_head
+from data.sample_labels import FACE_BOX_SLICE, FACE_LANDMARK_SLICE, LANDMARK_ABSENT
 from training.utils.lazy_imports import load_lpips_metric, load_optional
 
 LearnedPerceptualImagePatchSimilarity = load_optional(load_lpips_metric)
 
 logger = logging.getLogger("lemtrain.losses")
+
+_AUTOCAST_DEVICE_TYPES = ("cuda", "mps", "cpu", "xpu")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Forex Dual Loss
@@ -28,17 +31,17 @@ logger = logging.getLogger("lemtrain.losses")
 # ─────────────────────────────────────────────────────────────────────────────
 
 MULTITASK_HEAD_NAMES: tuple[str, ...] = (
-    "denoise",        # 0
-    "deblur",         # 1
-    "derain",         # 2
+    "denoise",  # 0
+    "deblur",  # 1
+    "derain",  # 2
     "dehaze_indoor",  # 3
-    "dehaze_outdoor", # 4
-    "lowlight",       # 5
-    "exposure",       # 6
-    "superres",       # 7
-    "vintage",        # 8
+    "dehaze_outdoor",  # 4
+    "lowlight",  # 5
+    "exposure",  # 6
+    "superres",  # 7
+    "vintage",  # 8
     "face_restorer",  # 9
-    "face_parser",    # 10
+    "face_parser",  # 10
 )
 
 MULTITASK_HEAD_TO_INDEX: dict[str, int] = {
@@ -353,22 +356,32 @@ def _pairwise_rank_loss(p_eval: torch.Tensor, t_eval: torch.Tensor, margin: floa
     return (rank_loss * mask).sum() / torch.clamp(mask.sum(), min=1.0)
 
 
+def autocast_device_type(device: torch.device) -> str:
+    """``torch.autocast`` device type of ``device`` (``cpu`` for unsupported backends)."""
+    return device.type if device.type in _AUTOCAST_DEVICE_TYPES else "cpu"
+
+
 def _face_detection_loss(pred: Any, target: torch.Tensor) -> torch.Tensor:
-    """Confidence BCE plus bbox (x2) and landmark Huber losses on positive anchors."""
+    """Confidence BCE plus bbox (x2) and landmark Huber losses on positive anchors.
+
+    Landmark coordinates marked ``LANDMARK_ABSENT`` (box-only labels) are left out of the
+    landmark loss instead of pulling predictions towards made-up points.
+    """
     p_bbox, p_conf, p_landm = pred
     t_conf = target[:, 0:1]
 
-    with torch.autocast(device_type="cuda", enabled=False):
+    with torch.autocast(device_type=autocast_device_type(p_conf.device), enabled=False):
         loss_conf = F.binary_cross_entropy(p_conf.float(), t_conf.float())
 
-    pos_mask = t_conf > 0.5
-    if pos_mask.sum() > 0:
-        pos = pos_mask.squeeze(-1)
-        loss_bbox = F.smooth_l1_loss(p_bbox[pos], target[:, 1:5][pos])
-        loss_landm = F.smooth_l1_loss(p_landm[pos], target[:, 5:15][pos])
-    else:
-        loss_bbox = torch.tensor(0.0, device=p_bbox.device)
-        loss_landm = torch.tensor(0.0, device=p_landm.device)
+    pos = (t_conf > 0.5).squeeze(-1)
+    loss_bbox = torch.tensor(0.0, device=p_bbox.device)
+    loss_landm = torch.tensor(0.0, device=p_landm.device)
+    if pos.any():
+        loss_bbox = F.smooth_l1_loss(p_bbox[pos], target[:, FACE_BOX_SLICE][pos])
+        t_landm = target[:, FACE_LANDMARK_SLICE][pos]
+        present = t_landm > LANDMARK_ABSENT / 2.0
+        if present.any():
+            loss_landm = F.smooth_l1_loss(p_landm[pos][present], t_landm[present])
 
     return loss_conf + loss_bbox * 2.0 + loss_landm * 1.0
 
@@ -471,7 +484,9 @@ class CombinedLoss(nn.Module):
 
                     def forward(self, x, y):
                         """Return the LPIPS distance between ``x`` and ``y`` under autocast."""
-                        with torch.autocast(device_type="cuda", enabled=True):
+                        with torch.autocast(
+                            device_type=autocast_device_type(x.device), enabled=x.is_cuda
+                        ):
                             return self.perc(x, y)
 
                 if LearnedPerceptualImagePatchSimilarity is None:

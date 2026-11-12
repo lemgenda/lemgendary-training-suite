@@ -10,43 +10,18 @@ import io
 import logging
 import os
 import random
+from collections.abc import Callable
+from typing import Any
 
 import torch
 from PIL import Image
 
+from data.container_targets import SUPER_RESOLUTION_MODELS, DecodedSample
 from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
+from data.sample_labels import FACE_TARGET_LEN
 from training.data.containers import resolve_container_reader
-from training.data.degrade import (
-    synthesize_degradation,
-)
 
 logger = logging.getLogger("lemtrain.dataset")
-
-
-def _class_index_from_file(classes_file: str, label: str) -> int:
-    """Return ``label``'s line index in ``classes_file`` (0 when absent or unreadable)."""
-    class_idx = 0
-    if os.path.exists(classes_file):
-        try:
-            with open(classes_file, "r", encoding="utf-8") as cf:
-                c_lines = [line.strip() for line in cf if line.strip()]
-            if label in c_lines:
-                class_idx = c_lines.index(label)
-        except (OSError, UnicodeDecodeError) as exc:
-            logger.warning(
-                "Could not read %s; using class index 0 for %r: %s",
-                classes_file,
-                label,
-                exc,
-            )
-    return class_idx
-
-
-def _quality_scores(label) -> torch.Tensor:
-    """The first ten NIMA bins of a list label; zeros for scalar or missing labels."""
-    if isinstance(label, (list, tuple)) and len(label) >= 10:
-        return torch.tensor(label[:10], dtype=torch.float32)
-    return torch.zeros(10, dtype=torch.float32)
 
 
 class DatasetContainerMixin:
@@ -57,6 +32,9 @@ class DatasetContainerMixin:
     spec: ModelSpec
     catalog: SampleCatalog
     pipes: TransformSet
+    # Provided by ``ContainerTargetsMixin``.
+    container_task_item: Callable[[DecodedSample], tuple]
+    seeded_transform: Callable[[Any, int], Any]
 
     def load_container_samples(self, loaded_paths: set) -> None:
         """Attempt container-format loading when no directory images are found.
@@ -98,92 +76,49 @@ class DatasetContainerMixin:
                     )
 
     def getitem_container(self, ds_name: str, idx: int):
-        """Fetch and decode a sample from a ContainerReader-backed dataset."""
+        """Fetch, decode and build the task triple of a ContainerReader-backed sample."""
         reader = self.catalog.container_readers[ds_name]
         try:
             sample = reader[idx]
         except (IndexError, OSError, RuntimeError) as exc:
-            logger.debug("Container read failed for %s[%d]: %s", ds_name, idx, exc)
+            logger.warning("Container read failed for %s[%d]: %s", ds_name, idx, exc)
             return self.sync_dummy()
 
-        # Decode image bytes.
         try:
             img = Image.open(io.BytesIO(sample.image_bytes)).convert("RGB")
         except (OSError, ValueError) as dec_err:
-            logger.debug("Image decode failed for %s[%d]: %s", ds_name, idx, dec_err)
-            img = Image.new("RGB", self.opts.size, (128, 128, 128))
+            logger.warning(
+                "Image decode failed for %s[%d]; substituting neutral gray: %s",
+                ds_name,
+                idx,
+                dec_err,
+            )
+            img = Image.new("RGB", (self.opts.size[1], self.opts.size[0]), (128, 128, 128))
 
-        # Decode target bytes if present.
         target_img = None
         if sample.target_bytes:
             try:
                 target_img = Image.open(io.BytesIO(sample.target_bytes)).convert("RGB")
             except (OSError, ValueError) as tdec_err:
-                logger.debug("Target decode failed for %s[%d]: %s", ds_name, idx, tdec_err)
+                logger.warning("Target decode failed for %s[%d]: %s", ds_name, idx, tdec_err)
 
         seed = random.randint(0, 2**32 - 1)
-        img_tensor = self._seeded_transform(img, seed)
-        task_type = self.spec.task_type
-
-        if task_type in ("restoration", "enhancement", "face"):
-            sample_name = getattr(sample, "name", "")
-            return self._container_restoration_item(
-                img, target_img, img_tensor, seed, sample_name=sample_name
-            )
-        if task_type == "quality":
-            return img_tensor, _quality_scores(sample.label), "quality"
-        if task_type == "classification":
-            class_idx = self._container_class_index(ds_name, sample.label)
-            return img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
-        return img_tensor, torch.zeros(1), task_type
-
-    def _seeded_transform(self, img, seed: int):
-        """Apply ``pipes.transform`` after reseeding so paired crops and flips align."""
-        random.seed(seed)
-        torch.manual_seed(seed)
-        return self.pipes.transform(img)
-
-    def _container_restoration_item(
-        self, img, target_img, img_tensor, seed: int, sample_name: str = ""
-    ):
-        """Restoration triple: decoded target, a synthesized degradation or the input itself."""
-        model_info = self.spec.unified_models.get(self.spec.model_key, {})
-        needs_syn = getattr(self, "needs_synthesis", False) or model_info.get(
-            "needs_synthesis", False
+        decoded = DecodedSample(
+            ds_name=ds_name,
+            sample=sample,
+            img=img,
+            target_img=target_img,
+            img_tensor=self.seeded_transform(img, seed),
+            seed=seed,
         )
-
-        if target_img is not None:
-            target_tensor = self._seeded_transform(target_img, seed)
-        elif needs_syn or self.spec.task_type in ("restoration", "face"):
-            # Clean container sample: synthesize realistic input degradation on-the-fly
-            clean_target = img
-            degraded_input = synthesize_degradation(clean_target)
-            target_tensor = self._seeded_transform(clean_target, seed)
-            img_tensor = self._seeded_transform(degraded_input, seed)
-        else:
-            target_tensor = self._seeded_transform(img, seed)
-
-        if self.spec.model_key == "professional_multitask_restoration" and sample_name:
-            from data.dataset_targets import multitask_head
-            return img_tensor, target_tensor, multitask_head(sample_name)
-        return img_tensor, target_tensor, self.spec.task_type
-
-    def _container_class_index(self, ds_name: str, label) -> int:
-        """Class index from a numeric label, a digit string or a ``classes.txt`` entry."""
-        if isinstance(label, (int, float)):
-            return int(label)
-        if not isinstance(label, str):
-            return 0
-        if label.isdigit():
-            return int(label)
-        classes_file = os.path.join(self.catalog.path_cache.get(ds_name) or "", "classes.txt")
-        return _class_index_from_file(classes_file, label)
+        return self.container_task_item(decoded)
 
     def sync_dummy(self):
         """Zero-filled sample with the model's input and target shapes, used in sync mode."""
         # 1. Determine input shape
-        if self.spec.model_key == "ultrazoom":
-            in_shape = (3, self.opts.size[0] // 2, self.opts.size[1] // 2)
+        scale = SUPER_RESOLUTION_MODELS.get(self.spec.model_key)
+        if scale:
+            in_shape = (3, self.opts.size[0] // scale, self.opts.size[1] // scale)
         else:
             in_shape = (3, self.opts.size[0], self.opts.size[1])
 
@@ -200,6 +135,11 @@ class DatasetContainerMixin:
         elif self.spec.task_type == "segmentation":
             target_shape = (self.opts.size[0], self.opts.size[1])
             task_str = "segmentation"
+        elif self.spec.task_type == "face_detection":
+            target_shape = (FACE_TARGET_LEN,)
+            task_str = "face_detection"
+        elif self.spec.task_type == "classification":
+            return torch.zeros(in_shape), torch.tensor(0, dtype=torch.long), "classification"
         else:
             target_shape = (1,)
             task_str = self.spec.task_type
