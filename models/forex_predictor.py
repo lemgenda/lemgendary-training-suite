@@ -419,6 +419,9 @@ class ForexPredictor(nn.Module):
         pairs:             Optional subset of pairs for pair-embedding sizing.
     """
 
+    head_param_prefixes: tuple[str, ...] = ("direction_head.", "magnitude_head.")
+    """Direction classifier and TP/SL magnitude regressor."""
+
     # Children registered by name in ``__init__`` (see ``_forex_layers``); the names are
     # the checkpoint ``state_dict`` prefixes.
     pair_embed: nn.Embedding

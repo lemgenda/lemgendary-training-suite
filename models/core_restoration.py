@@ -215,6 +215,9 @@ class NAFNetConfig:
 class NAFNet(nn.Module):
     """Real NAFNet Architecture for Denoising/Deblurring"""
 
+    head_param_prefixes: tuple[str, ...] = ("ending.",)
+    """Output projection (``ending``) of the U-shaped NAFNet."""
+
     def __init__(self, *, config: NAFNetConfig | None = None, **kwargs):
         """Build from ``config``, or from its fields given as flat ``model_kwargs`` keywords."""
         super().__init__()
@@ -444,6 +447,9 @@ class YOLOv8AnchorBasedHead(nn.Module):
 class BranchedFFANet(nn.Module):
     """Multi-Task FFANet Architecture for Dehazing + Detection"""
 
+    head_param_prefixes: tuple[str, ...] = ("conv2.", "detection_head.")
+    """Restoration output projection and the auxiliary detection head."""
+
     def __init__(self, gps=3, blocks=3, num_classes=80, **kwargs):
         super().__init__()
         dim = 32
@@ -511,6 +517,9 @@ class CSFF(nn.Module):
 class MPRNetProxy(nn.Module):
     """Cross-Stage Progressive Network Proxy for Deraining"""
 
+    head_param_prefixes: tuple[str, ...] = ("stage2_dec.",)
+    """Final-stage decoder that emits the restored image."""
+
     def __init__(self, in_c=3, out_c=3, channels=32, **kwargs):
         super().__init__()
         self.stage1_enc = nn.Sequential(nn.Conv2d(in_c, channels, 3, 1, 1), nn.ReLU())
@@ -535,6 +544,9 @@ class MPRNetProxy(nn.Module):
 
 class MIRNetProxy(nn.Module):
     """Multi-Scale Residual Network Proxy for Low-Light/Exposure"""
+
+    head_param_prefixes: tuple[str, ...] = ("outro.",)
+    """Output projection after selective kernel feature fusion."""
 
     def __init__(self, in_c=3, out_c=3, width=32, **kwargs):
         super().__init__()
@@ -598,6 +610,9 @@ class GenericRestorationModel(nn.Module):
 class UltraZoomModel(nn.Module):
     """Real Super-Resolution Model (ESPCN based)."""
 
+    head_param_prefixes: tuple[str, ...] = ("body.2.",)
+    """Last convolution before the pixel-shuffle upsampler."""
+
     def __init__(self, scale_factor=2, **kwargs):
         super().__init__()
         self.scale_factor = scale_factor
@@ -617,6 +632,9 @@ class UltraZoomModel(nn.Module):
 
 class UniversalFilmRestorer(nn.Module):
     """Autoencoder-style film restorer using Residual Dense Blocks."""
+
+    head_param_prefixes: tuple[str, ...] = ("decoder.4.",)
+    """Output convolution of the decoder."""
 
     def __init__(self, **kwargs):
         super().__init__()
@@ -656,6 +674,9 @@ class UPNv2Model(nn.Module):
       - theta ∈ [0, π]  — degradation orientation/angle
       - conf  ∈ [0, 1]  — confidence/severity
     """
+
+    head_param_prefixes: tuple[str, ...] = ("fc.",)
+    """Parameter regression layer on the pretrained backbone."""
 
     def __init__(self, backbone="mobilenet_v3_small", **kwargs):
         super().__init__()

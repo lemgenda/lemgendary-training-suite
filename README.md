@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.159-STABLE`
+- **Version**: `v16.9.160-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,37 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.160 - Explicit Head Parameters for Every Architecture (R2-T3)
+
+- Every registered architecture declares `head_param_prefixes` on its
+  model class (the single source; `head_lr_multiplier` applies to it),
+  following the usual discriminative fine-tuning split: the layers added
+  on a pretrained backbone, or the output layers of a net trained from
+  scratch, form the head.
+  - Transfer-learned classifiers and regressors: NIMA (MobileNet,
+    EfficientNetV2, Swin V2) `classifier.` plus a learnable `gem_pool.`;
+    `UniversalClassifier`/`AuthenticityScorer` `backbone.classifier.`;
+    UPN v2 `fc.`.
+  - Detection: RetinaFace `bbox_head.`, `conf_head.`, `landmark_head.`
+    (the fallback picked only the landmark head).
+  - Restoration output projections: NAFNet `ending.` (the fallback picked
+    `middle_blks`, the bottleneck), MPRNet `stage2_dec.`, MIRNet `outro.`,
+    UltraZoom `body.2.` (last conv before pixel shuffle), Film restorer
+    `decoder.4.`, CodeFormer and ParseNet `unet.final.` (the fallback
+    found no head, one top-level module), FFA-Net `conv2.` plus its
+    `detection_head.`.
+  - Multitask: `classifier.` and `heads.`; Forex: `direction_head.` and
+    `magnitude_head.` (the fallback picked only the magnitude head).
+  - Causal LLM: the trainable `lm_head` of a full fine-tune; with LoRA the
+    base model is frozen and the adapters train as one group (no head).
+    YOLO keeps the Ultralytics optimizer.
+- The last-top-level-module rule remains only for unknown models and now
+  logs a warning.
+- Tests: `tests/unit/test_head_prefixes.py` builds every registry model and
+  checks that each declared prefix matches trainable parameters and that
+  the head and backbone groups are non-empty; LLM full fine-tune and LoRA
+  cases and the logged fallback.
 
 ### v16.9.159 - Shard-Locality Sampling On by Default (R2-T2)
 

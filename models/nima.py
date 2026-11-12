@@ -90,6 +90,11 @@ class NIMAModel(nn.Module):
         # 2026 Resilience: Dynamic Temperature Handle
         self.softmax_temp = nn.Parameter(torch.tensor(1.0), requires_grad=False)
 
+    @property
+    def head_param_prefixes(self) -> tuple[str, ...]:
+        """Layers added on the ImageNet backbone: the score head and a learnable GeM power."""
+        return ("gem_pool.", "classifier.") if hasattr(self, "gem_pool") else ("classifier.",)
+
     def set_temp(self, temp):
         """Update sharpening manifold (Called by Governor)."""
         self.softmax_temp.data = torch.tensor(temp).to(self.softmax_temp.device)
@@ -145,6 +150,12 @@ class AuthenticityScorer(nn.Module):
             self.backbone.classifier[1] = nn.Linear(in_features, num_classes)
         if pooling == "gem":
             self.gem_pool = GeMPooling()
+
+    @property
+    def head_param_prefixes(self) -> tuple[str, ...]:
+        """The replaced classifier layer and a learnable GeM power on the pretrained backbone."""
+        head = ("backbone.classifier.",)
+        return ("gem_pool.", *head) if hasattr(self, "gem_pool") else head
 
     def forward(self, x):
         """Return clamped class logits using the configured pooling."""

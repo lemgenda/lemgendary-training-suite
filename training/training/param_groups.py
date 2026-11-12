@@ -8,8 +8,13 @@ decay and a no-decay group with no head tag, so every head multiplier was a no-o
 :func:`build_param_groups` splits the trainable parameters into up to four groups, in
 this order: backbone decay, backbone no-decay, head decay, head no-decay (empty head
 groups are left out). The head is named by the model's ``head_param_prefixes``
-attribute when it has one; otherwise it is the last top-level child module that holds
-trainable parameters, provided the model has at least two such children.
+attribute, which every registered architecture declares (R2-T3: classifier/regression
+layers of transfer-learned NIMA/EfficientNet/MobileNet/Swin models, detection heads of
+RetinaFace, output projections of the restoration nets, task heads of the multitask and
+Forex models, ``lm_head`` of a fully fine-tuned LLM; an empty tuple means no separable
+head, e.g. LoRA). An unknown model without the attribute falls back to its last
+top-level child module that holds trainable parameters (when it has at least two such
+children), and the fallback is logged.
 
 Checkpoints written before the split hold the two legacy groups.
 :func:`migrate_legacy_optimizer_state` maps their per-parameter state (Adam moments,
@@ -63,7 +68,14 @@ def head_prefixes(model: nn.Module) -> tuple[str, ...]:
         for name, child in model.named_children()
         if any(p.requires_grad for p in child.parameters())
     ]
-    return (f"{children[-1]}.",) if len(children) >= 2 else ()
+    fallback = (f"{children[-1]}.",) if len(children) >= 2 else ()
+    logger.warning(
+        "%s declares no %s; using the last top-level module as the head: %s",
+        type(model).__name__,
+        HEAD_PREFIXES_ATTR,
+        fallback or "none (single module)",
+    )
+    return fallback
 
 
 def _is_head(name: str, prefixes: Sequence[str]) -> bool:

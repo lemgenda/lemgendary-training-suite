@@ -132,6 +132,24 @@ class GenericCausalLLM(nn.Module):
             )
             self._init_mock_model()
 
+    @property
+    def head_param_prefixes(self) -> tuple[str, ...]:
+        """The trainable ``lm_head`` output projection; empty under LoRA.
+
+        A full fine-tune gives the vocabulary projection its own head LR. With LoRA the
+        base model (``lm_head`` included) is frozen and the low-rank adapters train as one
+        group, so there is no separate head; a tied ``lm_head`` is reported under its
+        embedding name and is not split off either.
+        """
+        prefixes: list[str] = []
+        for name, param in self.named_parameters():
+            if not param.requires_grad or "lm_head" not in name.split("."):
+                continue
+            prefix = name[: name.index("lm_head") + len("lm_head")] + "."
+            if prefix not in prefixes:
+                prefixes.append(prefix)
+        return tuple(prefixes)
+
     def _inject_lora(self, lora: dict, load_in_4bit: bool, target_modules: list) -> None:
         """Wrap ``self.model`` in a LoRA adapter (``lora``: r, lora_alpha, lora_dropout)."""
         try:
