@@ -12,6 +12,7 @@ from training.cloud.gdrive import GDriveSyncManager
 from training.cloud.git_hub import GitHubSyncManager
 from training.cloud.kaggle_hub import KaggleHubManager
 from training.cloud.manager import CloudSyncError
+from training.cloud.sync_threads import SYNC_THREADS, exit_timeout
 
 logger = logging.getLogger("lemtrain.cloud_sync")
 
@@ -131,4 +132,5 @@ def trigger_cloud_sync(
             with _sync_lock:
                 manager.sync()
 
-        threading.Thread(target=_worker, daemon=False).start()
+        # Daemon thread with a bounded, logged wait at exit (training/cloud/sync_threads.py).
+        SYNC_THREADS.start(_worker, f"cloud-sync-{model_name}-e{epoch}", exit_timeout(config))

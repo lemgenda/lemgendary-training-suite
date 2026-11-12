@@ -61,6 +61,9 @@ fleet:
   google_drive_folder_url: "https://drive.google.com/drive/folders/142G7B9ONfUkXAhVkPeN4NeJ3YXU0UmJX?usp=drive_link"
   google_drive_sync: true
   google_drive_token_file: ".GOOGLE_DRIVE"
+  # Seconds a finished or interrupted run waits at exit for pending background
+  # uploads before abandoning them (logged); see training/cloud/sync_threads.py.
+  sync_exit_timeout_sec: 300
 
 # --- Orchestration Paths ---
 paths:

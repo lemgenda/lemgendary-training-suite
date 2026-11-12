@@ -34,7 +34,8 @@ class LoaderPlacement:
 class WorkerOverrides:
     """Worker settings that replace the hardware topology defaults; ``None`` keeps the default.
 
-    Validation loaders never keep workers alive, so they ignore ``persistent_workers``.
+    Both loaders honour ``persistent_workers``; without an override the validation loader
+    keeps its workers alive under the same RAM gate as the train loader.
     """
 
     num_workers: int | None = None
@@ -198,7 +199,15 @@ def build_val_loader(
             _dataset_len(dataset), batch_size, shuffle=False, drop_last=False
         ),
         "num_workers": workers,
-        "persistent_workers": False,
+        # Validation runs every epoch over a dataset that is never resized, so its workers
+        # are kept alive instead of re-spawned (and the dataset re-pickled) each epoch, when
+        # the host has the RAM for it (the train loader's persistent-worker gate).
+        "persistent_workers": workers > 0
+        and (
+            topology.persistent_workers
+            if over.persistent_workers is None
+            else over.persistent_workers
+        ),
         "pin_memory": pin,
     }
 

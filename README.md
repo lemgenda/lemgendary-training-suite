@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.164-STABLE`
+- **Version**: `v16.9.165-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,24 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.165 - Persistent Validation Workers and Bounded Upload Wait at Exit (R2-T9)
+
+- Validation loader: `persistent_workers` is on when it has workers and
+  the host passes the train loader's RAM gate (>= 16 GB, >= 3 GB free),
+  and follows a `WorkerOverrides.persistent_workers` override. Validation
+  runs every epoch over a dataset that is never resized, so re-spawning
+  its workers (and re-pickling the dataset under the Windows/macOS spawn
+  start method) every epoch was pure overhead; the RAM gate bounds the
+  cost of keeping them resident.
+- Cloud sync: uploads ran on non-daemon threads, so interpreter shutdown
+  waited for a stalled upload without limit and logged nothing; a plain
+  daemon thread would instead be killed mid-upload silently.
+  `training/cloud/sync_threads.py` (new) runs uploads on daemon threads
+  and an `atexit` handler joins the pending ones with one shared deadline
+  (`fleet.sync_exit_timeout_sec`, default 300 s, in `config.yaml`),
+  logging which finished and which were abandoned.
+- Tests: `tests/unit/test_sync_threads_and_val_workers.py`.
 
 ### v16.9.164 - Honest Forex Validation Metrics and Unmeasured Epochs (R2-T10)
 
