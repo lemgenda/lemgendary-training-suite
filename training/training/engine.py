@@ -21,6 +21,7 @@ from training.checkpoint import CheckpointLifecycleManager, ExportSource, safe_a
 from training.cloud_sync import trigger_cloud_sync
 from training.data import rebuild_train_loader
 from training.data.loaders import LoaderPlacement, TrainLoaderOptions, WorkerOverrides
+from training.data.resumable_sampler import loader_batch_size, set_loader_epoch
 from training.epoch_budget import (
     EpochAction,
     EpochBudgetConfig,
@@ -68,7 +69,7 @@ def _rebuild_loader_on_directive(ctx: TrainingContext, f_chg: bool, r_chg: bool)
             fraction=new_frac if f_chg else None,
             stress=stress_val,
         )
-        fallback_batch = ctx.data.train_loader.batch_size or 16
+        fallback_batch = loader_batch_size(ctx.data.train_loader, 16)
         curr_batch = int(
             getattr(ctx.governance.governor.curriculum, "current_batch", fallback_batch)
         )
@@ -275,11 +276,8 @@ def _train_phase(
             flush=True,
         )
 
-    # Reseed sampler epoch if supported (e.g. RowGroupAwareSampler)
-    sampler = getattr(ctx.data.train_loader, "sampler", None)
-    set_epoch_fn = getattr(sampler, "set_epoch", None)
-    if callable(set_epoch_fn):
-        set_epoch_fn(epoch)
+    # Reseed the epoch permutation (ResumableBatchSampler, RowGroupAwareSampler, ...)
+    set_loader_epoch(ctx.data.train_loader, epoch)
 
     # 2. Train one epoch
     return train_one_epoch(ctx, epoch, cancel_check=hooks.cancel_check)

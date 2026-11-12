@@ -29,6 +29,7 @@ from training.data.loaders import (
     ValLoaderOptions,
     WorkerOverrides,
 )
+from training.data.resumable_sampler import ResumableBatchSampler
 from training.hardware.probe import VramProbe, audit_hardware_vram
 
 logger = logging.getLogger("lemtrain.core_loop")
@@ -75,10 +76,8 @@ def build_instruction_train_loader(
     """Build the instruction-tuning train loader with dynamic-padding collation."""
     return DataLoader(
         dataset=dataset,
-        batch_size=batch_size,
-        shuffle=True,
+        batch_sampler=ResumableBatchSampler(len(dataset), batch_size, shuffle=True),
         collate_fn=collate_instruction_batch,
-        drop_last=False,
     )
 
 

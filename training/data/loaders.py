@@ -2,15 +2,14 @@
 
 import dataclasses
 import logging
-import os
+from collections.abc import Sized
 from dataclasses import dataclass
 from typing import Any
 
 import torch
-import torch.distributed as dist
 from torch.utils.data import DataLoader, Dataset, Sampler
-from torch.utils.data.distributed import DistributedSampler
 
+from training.data.resumable_sampler import ResumableBatchSampler
 from training.data.workers import (
     UserWorkerCounts,
     compute_worker_topology,
@@ -75,6 +74,13 @@ def _positive_batch_size(batch_size: Any, fallback: int) -> int:
     return batch_size
 
 
+def _dataset_len(dataset: Dataset[Any]) -> int:
+    """Sample count of a map-style dataset (batch samplers need one)."""
+    if not isinstance(dataset, Sized):
+        raise TypeError(f"{type(dataset).__name__} has no length; pass an explicit sampler.")
+    return len(dataset)
+
+
 def _placement_device(placement: LoaderPlacement) -> torch.device:
     return placement.device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -110,11 +116,9 @@ def build_train_loader(
         persistent = False
 
     kwargs: dict[str, Any] = {
-        "batch_size": batch_size,
         "num_workers": workers,
         "persistent_workers": persistent,
         "pin_memory": pin,
-        "drop_last": opts.drop_last,
     }
 
     if workers > 0:
@@ -124,12 +128,15 @@ def build_train_loader(
         kwargs["collate_fn"] = opts.collate_fn
 
     if opts.sampler is not None:
-        kwargs["sampler"] = opts.sampler
-    # Automatically use DistributedSampler when running multi-GPU DDP
-    elif dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1:
-        kwargs["sampler"] = DistributedSampler(dataset, shuffle=opts.shuffle)
+        kwargs.update(sampler=opts.sampler, batch_size=batch_size, drop_last=opts.drop_last)
     else:
-        kwargs["shuffle"] = opts.shuffle
+        # Epoch-seeded and resumable; shards across DDP ranks like DistributedSampler.
+        kwargs["batch_sampler"] = ResumableBatchSampler(
+            _dataset_len(dataset),
+            batch_size,
+            shuffle=opts.shuffle,
+            drop_last=opts.drop_last,
+        )
 
     if workers > 0:
         kwargs["prefetch_factor"] = over.prefetch_factor or topology.prefetch_factor or 4
@@ -170,17 +177,14 @@ def build_val_loader(
     pin = topology.pin_memory if over.pin_memory is None else over.pin_memory
 
     kwargs: dict[str, Any] = {
-        "batch_size": batch_size,
-        "shuffle": False,
+        # In order, resumable, sharded across DDP ranks like DistributedSampler.
+        "batch_sampler": ResumableBatchSampler(
+            _dataset_len(dataset), batch_size, shuffle=False, drop_last=False
+        ),
         "num_workers": workers,
         "persistent_workers": False,
         "pin_memory": pin,
-        "drop_last": False,
     }
-
-    world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    if world_size > 1:
-        kwargs["sampler"] = DistributedSampler(dataset, shuffle=False)
 
     if workers > 0:
         kwargs["worker_init_fn"] = dataloader_worker_init_fn

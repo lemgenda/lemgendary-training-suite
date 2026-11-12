@@ -430,6 +430,8 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
 
     data, val_loader, test_loader = build_data(spec, train.governor, train.raw_model, batch_size)
 
+    # Created before the resume so the checkpoint's loss scale can be restored into it.
+    train.scaler = create_grad_scaler(setup.policy)
     resume_state = None
     if not args.clean:
         hub = setup.paths.models_hub
@@ -444,7 +446,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             optimizer=train.optimizer,
             scheduler=train.scheduler,
             criterion=criterion,
-            scaler=create_grad_scaler(setup.policy),
+            scaler=train.scaler,
             raw_model=train.raw_model,
             parallel_strategy=parallel_strategy,
         ),

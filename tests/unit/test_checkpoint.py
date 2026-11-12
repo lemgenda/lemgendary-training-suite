@@ -31,6 +31,15 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.root)
 
+    def isolated_project_root(self) -> Path:
+        """Project root nested in the temp dir, so the models hub resolves inside it.
+
+        ``get_models_hub_root`` prefers ``<root>.parent / "LemGendaryModels"``; for a root
+        directly under the system temp dir that is a hub shared by every test run, whose
+        stale checkpoints made results depend on earlier runs.
+        """
+        return self.root / "suite"
+
     def test_atomic_save_and_load(self) -> None:
         """Verify atomic checkpoint save writes a payload that loads back unchanged."""
         ckpt_path = self.root / "model_checkpoint.pth"
@@ -177,7 +186,7 @@ class TestCheckpointSubsystem(unittest.TestCase):
         """Verify the checkpoint lifecycle manager saves, rotates and resolves checkpoints."""
         mgr = CheckpointLifecycleManager(
             model_name="test_model",
-            project_root=self.root,
+            project_root=self.isolated_project_root(),
             sota_targets={"psnr": 30.0, "ssim": 0.90},
             min_progress_interval_sec=0.0,  # Zero for deterministic test evaluation
         )
@@ -255,7 +264,7 @@ class TestCheckpointSubsystem(unittest.TestCase):
         """Verify vault metric directions and alias matching for forex metrics."""
         mgr = CheckpointLifecycleManager(
             model_name="forex_test",
-            project_root=self.root,
+            project_root=self.isolated_project_root(),
             sota_targets={
                 "dir_acc": 58.5,
                 "max_drawdown": 12.0,

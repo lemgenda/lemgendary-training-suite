@@ -39,6 +39,7 @@ class TrainState:
     scheduler: Any
     governor: Any
     sota_tracker: Any
+    scaler: Any = None
 
 
 @dataclass
@@ -102,6 +103,7 @@ def _restore_weights_and_optimizer(spec: RunSpec, loaded: dict, train: TrainStat
             train.optimizer.load_state_dict(opt_state)
         except STATE_RESTORE_ERRORS as opt_err:
             logger.warning("Optimizer state could not be loaded cleanly: %s", opt_err)
+    _restore_scaler(loaded, train.scaler)
     sched_state = loaded.get("scheduler_state") or loaded.get("scheduler_state_dict")
     if getattr(spec.args, "reset_scheduler", False):
         logger.info(
@@ -113,6 +115,17 @@ def _restore_weights_and_optimizer(spec: RunSpec, loaded: dict, train: TrainStat
             train.scheduler.load_state_dict(sched_state)
         except STATE_RESTORE_ERRORS as sched_err:
             logger.warning("Scheduler state could not be loaded cleanly: %s", sched_err)
+
+
+def _restore_scaler(loaded: dict, scaler: Any) -> None:
+    """Restore the AMP ``GradScaler`` loss scale saved with the checkpoint, if any."""
+    scaler_state = loaded.get("scaler_state_dict") or loaded.get("scaler")
+    if scaler is None or not isinstance(scaler_state, dict) or not scaler_state:
+        return
+    try:
+        scaler.load_state_dict(scaler_state)
+    except STATE_RESTORE_ERRORS as scaler_err:
+        logger.warning("GradScaler state could not be loaded cleanly: %s", scaler_err)
 
 
 def calibrate_quality_anchor(spec: RunSpec, governor: Any) -> None:

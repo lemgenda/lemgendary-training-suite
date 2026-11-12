@@ -101,6 +101,10 @@ def progress_payload(
         "governor_state": ctx.governance.governor.get_state()
         if hasattr(ctx.governance.governor, "get_state")
         else None,
+        # AMP loss scale; without it a resumed fp16 run restarts at 65536 and skips steps.
+        "scaler_state_dict": ctx.models.scaler.state_dict()
+        if ctx.models.scaler is not None
+        else None,
     }
     payload.update(extra)
     return payload

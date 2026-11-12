@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.144-STABLE`
+- **Version**: `v16.9.145-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,30 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.145 - Deterministic Mid-Epoch Resume and GradScaler State
+
+- `training/data/resumable_sampler.py` (new): `ResumableBatchSampler`
+  draws each epoch's permutation from `seed + epoch` (seed 42), shards it
+  per DDP rank like `DistributedSampler`, and can start at batch K. The
+  train, validation and instruction loaders batch through it, so a resumed
+  epoch keeps the interrupted run's sample order and slices the index list
+  instead of loading and discarding every finished batch.
+- `training/training/epoch.py`, `validation.py`, `engine.py`: resume through
+  `resume_start_batch`; `skip_resumed` stays as the fallback for loaders
+  with their own sampler (Forex row groups). Batch size is read with
+  `loader_batch_size`, since `loader.batch_size` is `None` under a batch
+  sampler.
+- `training/training/step_progress.py`, `training/context_resume.py`,
+  `training/core_loop.py`: the AMP `GradScaler` state is saved in progress
+  checkpoints and restored on resume. The scaler is now created before the
+  resume, so a resumed fp16 run keeps its loss scale instead of restarting
+  at 65536.
+- `tests/unit/test_checkpoint.py`: lifecycle tests use a project root nested
+  in their temp dir. A root directly under the system temp dir resolved the
+  shared `%TEMP%/LemGendaryModels` hub, whose stale checkpoints made the
+  best-checkpoint assertion depend on earlier runs.
+- Tests: `test_resumable_sampler.py`, `test_scaler_resume.py`.
 
 ### v16.9.144 - Governor LR Scaling, LPIPS and Quality Score Fixes
 

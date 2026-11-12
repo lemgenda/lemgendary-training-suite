@@ -16,6 +16,7 @@ from typing import Any
 
 import torch
 
+from training.data.resumable_sampler import resume_start_batch
 from training.training.amp import get_autocast_context
 from training.training.context import TrainingContext
 from training.training.epoch import _unpack_batch
@@ -55,9 +56,7 @@ class _ValidationPass:
         self.step_count = 0
         start_time = time.time()
         num_batches = (
-            len(self.loader)
-            if self.loader is not None and hasattr(self.loader, "__len__")
-            else 0
+            len(self.loader) if self.loader is not None and hasattr(self.loader, "__len__") else 0
         )
         self.clock = BatchClock(num_batches, start_time, time.time())
 
@@ -85,9 +84,7 @@ class _ValidationPass:
     def forward(self, inputs: Any, targets: Any, task_idx: Any) -> tuple[Any, Any]:
         """Return ``(preds, loss)`` for one batch under autocast."""
         ctx = self.ctx
-        autocast_ctx = get_autocast_context(
-            ctx.hardware.policy, ctx.hardware.device_info.device
-        )
+        autocast_ctx = get_autocast_context(ctx.hardware.policy, ctx.hardware.device_info.device)
         with autocast_ctx:
             eval_step_fn = getattr(ctx.models.model, "eval_step", None)
             if callable(eval_step_fn):
@@ -225,7 +222,8 @@ def validate_one_epoch(
         torch.cuda.empty_cache()
 
     with torch.no_grad():
-        for batch_idx, batch in enumerate(target_loader):
+        first_batch = resume_start_batch(target_loader, run.clock.resume_step)
+        for batch_idx, batch in enumerate(target_loader, start=first_batch):
             if run.clock.skip_resumed(batch_idx, "VAL BATCH", "validation"):
                 continue
             if cancel_check is not None and cancel_check():

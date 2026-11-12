@@ -15,6 +15,7 @@ from typing import Any
 
 import torch
 
+from training.data.resumable_sampler import resume_start_batch
 from training.training.amp import GradClip, get_autocast_context, safe_backward
 from training.training.context import TrainingContext
 from training.training.step_progress import (
@@ -293,7 +294,8 @@ def train_one_epoch(
     run = _TrainingPass(ctx, epoch)
     run.resume()
 
-    for batch_idx, batch in enumerate(ctx.data.train_loader):
+    first_batch = resume_start_batch(ctx.data.train_loader, run.clock.resume_step)
+    for batch_idx, batch in enumerate(ctx.data.train_loader, start=first_batch):
         if run.clock.skip_resumed(batch_idx, "BATCH", "training"):
             continue
         if cancel_check is not None and cancel_check():
