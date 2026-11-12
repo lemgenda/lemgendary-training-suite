@@ -13,11 +13,16 @@ from torch import nn
 
 from data.dataset_targets import multitask_head
 from data.sample_labels import FACE_BOX_SLICE, FACE_LANDMARK_SLICE, LANDMARK_ABSENT
+from training.governance.quality_score import RESTORATION_QS_TASKS
 from training.utils.lazy_imports import load_lpips_metric, load_optional
 
 LearnedPerceptualImagePatchSimilarity = load_optional(load_lpips_metric)
 
 logger = logging.getLogger("lemtrain.losses")
+
+PERCEPTUAL_TASKS = RESTORATION_QS_TASKS
+"""Image-to-image dataset types that can carry the LPIPS loss term (restoration,
+enhancement, face): the tasks scored with ``PSNR + 20*SSIM - 20*LPIPS``."""
 
 _AUTOCAST_DEVICE_TYPES = ("cuda", "mps", "cpu", "xpu")
 
@@ -464,7 +469,7 @@ class CombinedLoss(nn.Module):
             ),
         )
 
-        if self.task_type in ["restoration", "enhancement"] and use_perc:
+        if self.task_type in PERCEPTUAL_TASKS and use_perc:
             try:
                 # Reclaim memory before loading the heavy perceptual engine
                 gc.collect()
@@ -643,4 +648,7 @@ class CombinedLoss(nn.Module):
         ):
             return _face_detection_loss(pred, target)
 
+        if self.perc is not None and isinstance(pred, torch.Tensor):
+            # Image-to-image face restoration: pixel MSE plus the LPIPS term.
+            return self.criteria.mse(pred, target) + self._perceptual_loss(pred, target, None)
         return self.criteria.mse(pred, target)

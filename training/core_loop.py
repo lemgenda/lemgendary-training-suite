@@ -253,9 +253,15 @@ def clean_previous_run(paths: TrainingPaths, model_key: str) -> None:
                 logger.warning("Clean run could not remove %s: %s", clean_target, unlink_err)
 
 
-def uses_perceptual_loss(loss_fn_name: str) -> bool:
-    """True when the registry ``loss_fn`` names an LPIPS term (e.g. ``l1_lpips``)."""
-    return "lpips" in loss_fn_name.lower()
+def uses_perceptual_loss(model_info: dict[str, Any]) -> bool:
+    """Whether the model trains with the LPIPS loss term (owner decision R2-T5).
+
+    On for every model whose registry ``sota_targets`` include LPIPS (the registry is the
+    single source), and for a ``loss_fn`` that names an LPIPS term (e.g. ``l1_lpips``).
+    """
+    targets = model_info.get("sota_targets") or {}
+    loss_fn_name = str(model_info.get("loss_fn") or "").lower()
+    return "lpips" in targets or "lpips" in loss_fn_name
 
 
 def build_criterion(spec: RunSpec):
@@ -271,7 +277,7 @@ def build_criterion(spec: RunSpec):
         criterion = CombinedLoss(
             task_type=spec.task_type,
             stabilizers=spec.model_info.get("stabilizers"),
-            use_perc=uses_perceptual_loss(loss_fn_name),
+            use_perc=uses_perceptual_loss(spec.model_info),
         )
     criterion.to(spec.device)
     return criterion

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.160-STABLE`
+- **Version**: `v16.9.161-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,23 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.161 - LPIPS Loss for Every Model with an LPIPS Target (R2-T5)
+
+- Owner decision: the LPIPS loss term is on for every model whose registry
+  `sota_targets` include LPIPS (the registry is the single source), and
+  still for a `loss_fn` that names an LPIPS term.
+  `training.core_loop.uses_perceptual_loss` now takes the model's registry
+  entry. Newly on: FFA-Net indoor/outdoor, MPRNet, NAFNet deblur/denoise,
+  the multitask restorer (its per-task `task_lpips_weights`), UltraZoom
+  and CodeFormer.
+- `CombinedLoss`: the perceptual engine is built for every image-to-image
+  task (`PERCEPTUAL_TASKS` = restoration, enhancement, face, the tasks the
+  restoration quality score covers); face restoration (CodeFormer, MSE
+  base) adds the LPIPS term to its pixel loss.
+- Tests: `tests/unit/test_losses.py` checks the rule, the whole registry
+  (on exactly where LPIPS is a target, and only for image-to-image tasks)
+  and the face term.
 
 ### v16.9.160 - Explicit Head Parameters for Every Architecture (R2-T3)
 

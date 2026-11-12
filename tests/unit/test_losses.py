@@ -1,11 +1,16 @@
 """Tests for multitask restoration loss handling and task routing."""
 
+from pathlib import Path
+
+import pytest
 import torch
+import yaml
 
 from data.sample_labels import LANDMARK_ABSENT
 from training.core_loop import uses_perceptual_loss
 from training.losses import (
     MULTITASK_HEAD_TO_INDEX,
+    PERCEPTUAL_TASKS,
     CombinedLoss,
     _face_detection_loss,
     _resolve_task_index_tensor,
@@ -107,9 +112,42 @@ def test_autocast_device_type_follows_tensor_device() -> None:
     assert autocast_device_type(torch.device("meta")) == "cpu"
 
 
-def test_perceptual_loss_follows_registry_loss_fn() -> None:
-    """Only ``loss_fn`` names with an LPIPS term enable the perceptual loss (audit 3.2.3)."""
-    assert uses_perceptual_loss("l1_lpips")
-    assert uses_perceptual_loss("L1_LPIPS")
-    assert not uses_perceptual_loss("l1")
-    assert not uses_perceptual_loss("")
+def test_perceptual_loss_follows_registry_lpips_targets() -> None:
+    """LPIPS SOTA targets or an LPIPS ``loss_fn`` enable the perceptual loss (R2-T5)."""
+    assert uses_perceptual_loss({"loss_fn": "L1_LPIPS"})
+    assert uses_perceptual_loss({"loss_fn": "l1", "sota_targets": {"psnr": 30.0, "lpips": 0.1}})
+    assert not uses_perceptual_loss({"loss_fn": "l1", "sota_targets": {"psnr": 30.0}})
+    assert not uses_perceptual_loss({})
+
+
+def test_every_registry_model_with_lpips_targets_trains_with_lpips() -> None:
+    """Across the registry, the LPIPS term is on exactly where LPIPS is a SOTA target."""
+    root = Path(__file__).resolve().parents[2]
+    registry = yaml.safe_load((root / "unified_models_v2.yaml").read_text(encoding="utf-8"))
+    entries = {k: v for k, v in registry.items() if isinstance(v, dict) and "sota_targets" in v}
+    with_lpips = {k for k, v in entries.items() if "lpips" in (v.get("sota_targets") or {})}
+    assert with_lpips, "the registry has no LPIPS targets"
+    for key, info in entries.items():
+        assert uses_perceptual_loss(info) == (
+            key in with_lpips or "lpips" in str(info.get("loss_fn") or "").lower()
+        ), key
+        if key in with_lpips:
+            assert info.get("dataset_type") in PERCEPTUAL_TASKS, key
+
+
+class _UnitPerc(torch.nn.Module):
+    """LPIPS stand-in returning 1 per sample."""
+
+    def forward(self, x: torch.Tensor, _y: torch.Tensor) -> torch.Tensor:
+        """One unit of distance per sample."""
+        return torch.ones(x.shape[0], device=x.device)
+
+
+def test_face_restoration_adds_the_lpips_term() -> None:
+    """A face model (MSE base) adds the perceptual term when it is on."""
+    criterion = CombinedLoss(task_type="face")
+    pred = torch.zeros(2, 3, 8, 8)
+    target = torch.zeros(2, 3, 8, 8)
+    assert float(criterion(pred, target)) == 0.0
+    criterion.perc = _UnitPerc()
+    assert float(criterion(pred, target)) == pytest.approx(0.025)
