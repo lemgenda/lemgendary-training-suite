@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.147-STABLE`
+- **Version**: `v16.9.148-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,36 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.148 - Byte-Offset WebDataset Reads and Bounded Shard Handles
+
+- `training/data/containers/tar_offsets.py` (new): `scan_tar_members`
+  records `(name, offset, size)` of every regular member of an
+  uncompressed shard. `ShardOffsetCache` keeps the tables in
+  `.shard_offsets.json` next to the shards, or in a temp-dir fallback
+  when the shard folder is read-only (Kaggle `/kaggle/input`). An entry
+  is reused only while the shard's size and mtime match and every member
+  lies inside the file; otherwise the shard is rescanned.
+- `training/data/containers/webdataset.py`: uncompressed shards are read
+  with one `seek` and one `read` per member instead of
+  `tarfile.extractfile(name)`, whose reverse linear name scan ran two to
+  five times per sample, and whose first use read every header of the
+  shard in each worker after every loader rebuild. Compressed shards keep
+  the `tarfile` path. A short read (shard changed after indexing) raises
+  `OSError` and drops the handle. Samples, bytes and `__getitem__`/`len`
+  are unchanged, so `ResumableBatchSampler` resume is unaffected.
+- `training/data/containers/handle_pool.py` (new): `HandlePool` keeps at
+  most `max_open_handles` (default 16) shard handles per process,
+  closing the least recently used one. Handles are never pickled; a
+  forked worker closes inherited handles; a collected reader closes its
+  handles.
+- JSON sidecar labels: a falsy label (class `0`, score `0.0`) no longer
+  falls through to the next key and gets lost. A text sidecar label still
+  takes precedence over the JSON one.
+- Measured on four 5,000-member shards (CPU, warm page cache): 188.6 us
+  per sample with `tarfile` reads vs 29.7 us with offset reads; index
+  build 314 ms by header scan vs 132 ms from the cache.
+- Tests: `test_webdataset_offsets.py`.
 
 ### v16.9.147 - Per-Format Readiness Flags in Model Stats
 
