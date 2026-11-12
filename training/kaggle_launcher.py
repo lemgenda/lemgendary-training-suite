@@ -8,17 +8,24 @@ from pathlib import Path
 from typing import Any
 
 from training.cloud.errors import KAGGLE_API_ERRORS
+from training.cloud.kernel_bundle import BundleRequest, KernelBundleError
+from training.cloud.kernel_launch import KernelLaunchError, launch_kernel
+from training.ecosystem import kaggle_accelerator
 from training.kaggle_accounts import (
     fetch_user_kernels,
     get_registered_models,
     match_model_from_slug,
 )
-from training.kaggle_cloud_manager import create_cloud_kernel_bundle, get_kernel_slug
 from training.kaggle_stream import AutoPull, stream_kernel_logs
 
-DEFAULT_ACCELERATOR = "NvidiaTeslaT4"
-# Legacy or non-specific machine shapes that are replaced by ``DEFAULT_ACCELERATOR``.
+# Legacy or non-specific machine shapes that are replaced by the default accelerator's shape.
 _GENERIC_SHAPES = ["gpu", "none", "cpu"]
+
+
+def _default_machine_shape() -> str:
+    """Machine shape of the ecosystem default accelerator (``""`` for CPU)."""
+    return kaggle_accelerator().machine_shape or ""
+
 
 _GPU_ABORT = (
     "    print('[ERROR] [CRITICAL] NO GPU DETECTED! Training aborted to preserve "
@@ -106,7 +113,7 @@ def _prepare_kernel_metadata(kernel_dir: Path) -> dict[str, Any]:
         raw_shape = str(meta_data.get("machine_shape", "")).strip()
         # Normalize legacy/non-specific shapes ('Gpu', empty) to an explicit accelerator
         if not raw_shape or raw_shape.lower() in _GENERIC_SHAPES:
-            meta_data["machine_shape"] = DEFAULT_ACCELERATOR
+            meta_data["machine_shape"] = _default_machine_shape()
         meta_file.write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
     except (OSError, ValueError, TypeError) as meta_err:
         # ValueError: JSONDecodeError; TypeError: non-object JSON.
@@ -149,13 +156,9 @@ def _relaunch_kernel(api: Any, selected_slug: str) -> bool:
             meta_data = _prepare_kernel_metadata(Path(td))
             _patch_notebook_sentinels(Path(td))
 
-            chosen_acc = (
-                meta_data.get("machine_shape", DEFAULT_ACCELERATOR)
-                if meta_data
-                else DEFAULT_ACCELERATOR
-            )
-            if str(chosen_acc).lower() in _GENERIC_SHAPES:
-                chosen_acc = DEFAULT_ACCELERATOR
+            chosen_acc = str(meta_data.get("machine_shape") or _default_machine_shape())
+            if chosen_acc.lower() in _GENERIC_SHAPES:
+                chosen_acc = _default_machine_shape()
             print(
                 "[LAUNCH] Pushing kernel bundle to trigger execution on Kaggle "
                 f"GPU ({chosen_acc})..."
@@ -193,19 +196,20 @@ def _deploy_new_model(api: Any, username: str) -> tuple[str | None, str | None]:
     if not (m_choice.isdigit() and 1 <= int(m_choice) <= len(models)):
         return None, None
     target_model = models[int(m_choice) - 1]
-    kernel_dir = create_cloud_kernel_bundle(target_model, username, gpu="T4")
-    selected_slug = get_kernel_slug(target_model, username)
-    print(
-        f"[LAUNCH] Pushing bundle for '{target_model}' to Kaggle GPU (Dual T4: {selected_slug})..."
-    )
+    return _launch_generated(api, username, target_model)
+
+
+def _launch_generated(api: Any, username: str, model_key: str) -> tuple[str | None, str | None]:
+    """Push the model's generated kernel bundle; return its handle and the model."""
+    print(f"[LAUNCH] Building and pushing the kernel bundle of '{model_key}'...")
     try:
-        api.kernels_push(str(kernel_dir), acc=DEFAULT_ACCELERATOR)
-        print(f"[SUCCESS] Kernel '{selected_slug}' pushed and queued on Kaggle GPU!")
-    except KAGGLE_API_ERRORS as push_err:
+        launch = launch_kernel(api, BundleRequest(model_key, kernel_owner=username))
+    except (KernelBundleError, KernelLaunchError, *KAGGLE_API_ERRORS) as push_err:
         print(f"[ERROR] Failed to push kernel: {push_err}")
         input("\nPress Enter to continue...")
         return None, None
-    return selected_slug, target_model
+    print(f"[SUCCESS] Kernel '{launch.handle}' pushed (version {launch.version_number}).")
+    return launch.handle, model_key
 
 
 def interactive_train_launcher(api: Any, username: str) -> None:
@@ -244,5 +248,5 @@ def interactive_train_launcher(api: Any, username: str) -> None:
         if selected_slug:
             # Train mode: pull checkpoints of the target model as epochs finish
             pull = AutoPull(target_model, username) if target_model else None
-            stream_kernel_logs(api, selected_slug, poll_interval=5, pull=pull)
+            stream_kernel_logs(api, selected_slug, pull=pull)
             input("\nPress Enter to return to notebooks list...")

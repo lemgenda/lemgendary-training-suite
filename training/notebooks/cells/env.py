@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from training.cloud.session_deadline import SESSION_START_ENV
+
 from .base import make_code_cell
 
 _RUNTIME_ENV_FALLBACK: dict[str, str] = {
@@ -88,7 +90,9 @@ def build_sentinel_cell(target: str = "kaggle") -> dict[str, Any]:
         accel_str = "GPU T4 x2 (30GB total VRAM) [Recommended]"
         source = (
             [
-                "import os, sys, subprocess\n",
+                "import os, sys, subprocess, time\n",
+                "# Session start for the training loop's deadline guard (first run only)\n",
+                f"os.environ.setdefault({SESSION_START_ENV!r}, str(time.time()))\n",
                 "# Runtime environment (LemGendary env-manager SSOT)\n",
             ]
             + env_lines

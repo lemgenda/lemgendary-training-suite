@@ -70,6 +70,41 @@ def is_main_process() -> bool:
     return not (dist.is_available() and dist.is_initialized() and dist.get_rank() != 0)
 
 
+DDP_DECISION_EVERY = 25
+"""Under DDP the ranks agree on a stop or save decision only every this many steps."""
+
+
+def world_size() -> int:
+    """Processes of the initialised process group (1 without one)."""
+    return dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1
+
+
+def any_rank(flag: bool, device: torch.device) -> bool:
+    """True when ``flag`` is true on any rank (a collective call under DDP)."""
+    if world_size() <= 1:
+        return flag
+    agreed = torch.tensor([1 if flag else 0], device=device)
+    dist.all_reduce(agreed, op=dist.ReduceOp.MAX)
+    return bool(agreed.item())
+
+
+def decision_step(step: int) -> bool:
+    """Whether ``step`` is a step the ranks agree on (every step without DDP)."""
+    return world_size() <= 1 or step % DDP_DECISION_EVERY == 0
+
+
+def deadline_reached(ctx: TrainingContext, step: int) -> bool:
+    """Whether the Kaggle session deadline passed, agreed by all ranks at ``step``.
+
+    Every rank calls this on every step; under DDP only decision steps make the collective
+    call, so no rank stops alone.
+    """
+    deadline = ctx.state.session_deadline
+    if deadline is None or not decision_step(step):
+        return False
+    return any_rank(deadline.expired(), ctx.hardware.device_info.device)
+
+
 def progress_payload(
     ctx: TrainingContext,
     epoch: int,

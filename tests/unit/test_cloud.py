@@ -1,7 +1,6 @@
 """Unit tests for cloud subsystem: credentials, git, kaggle, and gdrive bit-exact parity."""
 
 import os
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,7 +15,6 @@ from training.cloud.credentials import (
 )
 from training.cloud.gdrive import GDriveSyncManager, compute_file_sha256
 from training.cloud.git_hub import GitHubSyncManager
-from training.cloud.kaggle_hub import KaggleHubManager
 from training.cloud.manager import CloudSyncError
 
 
@@ -76,22 +74,6 @@ class TestGitHubSyncManager(unittest.TestCase):
             self.assertEqual(health["provider"], "github")
             self.assertTrue(health["hub_root_exists"])
             self.assertEqual(health["hub_repo"], "testuser/lemgendary-pretrained-models")
-
-
-class TestKaggleHubManager(unittest.TestCase):
-    """Tests for KaggleHubManager bundle creation (auto-sync: test_kaggle_autosync.py)."""
-
-    def test_create_cloud_kernel_bundle(self) -> None:
-        """Verify the Kaggle cloud kernel bundle contains metadata and the training script."""
-        mgr = KaggleHubManager(username="tester")
-        bundle_dir = mgr.create_cloud_kernel_bundle("test_model", gpu="T4")
-        try:
-            self.assertTrue(bundle_dir.exists())
-            self.assertTrue((bundle_dir / "kernel-metadata.json").exists())
-            self.assertTrue((bundle_dir / "train_cloud.py").exists())
-        finally:
-            if bundle_dir.exists():
-                shutil.rmtree(bundle_dir)
 
 
 class TestGDriveBitExactParity(unittest.TestCase):

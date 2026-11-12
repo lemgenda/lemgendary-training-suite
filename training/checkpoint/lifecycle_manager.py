@@ -376,6 +376,20 @@ class CheckpointLifecycleManager:
                 if _is_improvement(val, self.tracking.vault_bests.get(target_key), lower_better):
                     self.tracking.vault_bests[target_key] = val
 
+    def progress_due(self, step: int, total_steps: int) -> bool:
+        """Whether a progress checkpoint at ``step`` of ``total_steps`` passes the guardrails.
+
+        The phase fraction must lie in [0.02, 0.98] and ``min_progress_interval_sec`` must
+        have passed since the last save.
+        """
+        if total_steps <= 0:
+            return False
+        progress_fraction = step / float(total_steps)
+        if progress_fraction < 0.02 or progress_fraction > 0.98:
+            return False
+        elapsed = time.time() - self.tracking.last_progress_save_time
+        return elapsed >= self.min_progress_interval_sec
+
     def check_and_save_progress(
         self,
         epoch: int,
@@ -386,28 +400,33 @@ class CheckpointLifecycleManager:
     ) -> bool:
         """Evaluate and conditionally persist progress.pth checkpoint.
 
-        Guardrails:
+        Guardrails (:meth:`progress_due`):
         1. At least min_progress_interval_sec (15 min) elapsed since last progress save.
         2. Progress within current phase is bounded:
            0.02 <= (step / total_steps) <= 0.98.
         Avoids saving during initial warmup (<2%) or immediately before epoch completion (>98%).
+        :meth:`save_progress_now` skips both (the session deadline stop saves wherever it is).
         """
+        if not self.progress_due(step, total_steps):
+            return False
+        return self.save_progress_now(epoch, phase, step, total_steps, payload_builder)
+
+    def save_progress_now(
+        self,
+        epoch: int,
+        phase: str,
+        step: int,
+        total_steps: int,
+        payload_builder: Callable[[], dict[str, Any]],
+    ) -> bool:
+        """Persist progress.pth now (rank 0 only), without the :meth:`progress_due` guardrails."""
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return False
         if total_steps <= 0:
             return False
 
         progress_fraction = step / float(total_steps)
-
-        # Progress checkpoint bounds enforcement: save across 2% to 98% of phase
-        # Avoids saving during initial warmup (<2%) or immediately before latest.pth (>98%)
-        if progress_fraction < 0.02 or progress_fraction > 0.98:
-            return False
-
         now = time.time()
-        elapsed = now - self.tracking.last_progress_save_time
-        if elapsed < self.min_progress_interval_sec:
-            return False
 
         # Build payload and write atomically
         payload = payload_builder()

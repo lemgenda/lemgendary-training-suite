@@ -15,6 +15,7 @@ from typing import Any
 
 import torch
 
+from training.cloud.session_deadline import SessionDeadlineReached
 from training.data.resumable_sampler import resume_start_batch
 from training.hardware.device_memory import is_out_of_memory, release_device_memory
 from training.training.amp import GradClip, get_autocast_context, safe_backward
@@ -22,6 +23,7 @@ from training.training.context import TrainingContext
 from training.training.step_progress import (
     BatchClock,
     batch_progress_line,
+    deadline_reached,
     is_main_process,
     progress_payload,
     resume_iteration,
@@ -203,13 +205,15 @@ class _TrainingPass:
             ctx.models.optimizer.step()
         ctx.models.optimizer.zero_grad(set_to_none=True)
 
-    def save_progress(self, batch_idx: int) -> None:
-        """Offer an intra-epoch progress checkpoint to the lifecycle manager."""
+    def save_progress(self, batch_idx: int, force: bool = False) -> None:
+        """Offer an intra-epoch progress checkpoint to the lifecycle manager (``force``: save)."""
         ctx = self.ctx
         if ctx.governance.lifecycle_manager is None:
             return
         raw_m = ctx.models.raw_model if ctx.models.raw_model is not None else ctx.models.model
-        ctx.governance.lifecycle_manager.check_and_save_progress(
+        manager = ctx.governance.lifecycle_manager
+        save = manager.save_progress_now if force else manager.check_and_save_progress
+        save(
             epoch=self.epoch,
             phase="train",
             step=batch_idx + 1,
@@ -322,5 +326,8 @@ def train_one_epoch(
 
         run.save_progress(batch_idx)
         run.log(batch_idx, raw_loss)
+        if deadline_reached(ctx, batch_idx + 1):
+            run.save_progress(batch_idx, force=True)
+            raise SessionDeadlineReached(epoch, "train", batch_idx + 1)
 
     return run.finish()

@@ -50,6 +50,17 @@ governor:
     above: 600.0
     reset_to: 555.0
 
+# --- Kaggle session deadline (training/cloud/session_deadline.py) ---
+# A Kaggle session ends after limit_hours. Training stops margin_minutes earlier,
+# saves progress.pth (generator states included), syncs pytorch/default to the Hub
+# and writes LemGendaryModels/<model>/session_deadline.json. auto_resume lets the
+# GUI job push a new kernel version after such a stop (at most max_resumes times).
+kaggle_session:
+  limit_hours: 12
+  margin_minutes: 30
+  auto_resume: false
+  max_resumes: 3
+
 # --- Fleet & Synchronization (Task 12.3) ---
 fleet:
   auto_sync: true

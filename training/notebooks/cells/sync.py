@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from training.cloud.session_deadline import DEADLINE_MARKER
 from training.ecosystem import kaggle_owner
 from training.utils.lazy_imports import load_cloud_module
 
@@ -532,4 +533,23 @@ def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str
         "\n",
         "print(f'[COMPLETED] Fleet publishing completed successfully for {model_key}.')\n",
     ]
-    return make_code_cell(source)
+    return make_code_cell(_skip_after_deadline(source, local_path))
+
+
+def _skip_after_deadline(source: list[str], local_path: str) -> list[str]:
+    """Guard the publish steps: a run stopped at its session deadline publishes no release.
+
+    The deadline stop already synced ``pytorch/default``; the next session resumes it.
+    """
+    start = next(i for i, line in enumerate(source) if "[PUBLISH]" in line)
+    marker = f"{local_path}/{DEADLINE_MARKER}"
+    guard = [
+        f"if os.path.exists({marker!r}):\n",
+        (
+            "    print('[DEADLINE] Session deadline stop: progress is on the Hub; release "
+            "publish skipped until training finishes.')\n"
+        ),
+        "else:\n",
+    ]
+    body = [f"    {line}" if line.strip() else line for line in source[start:]]
+    return source[:start] + guard + body

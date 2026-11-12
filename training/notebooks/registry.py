@@ -103,18 +103,13 @@ def _dataset_slug(config: dict[str, Any] | None, pascal_name: str, default: str)
 
 
 def _kaggle_username(model_key: str) -> str:
-    """Kaggle username from credentials, else the configured owner."""
-    try:
-        credentials = load_cloud_module("credentials")
-        user_cred, _ = credentials.resolve_kaggle_credentials()
-        return user_cred or kaggle_owner()
-    except (ImportError, OSError, ValueError) as exc:
-        logger.warning(
-            "Kaggle credential resolution failed for %s; using configured username: %s",
-            model_key,
-            exc,
-        )
-        return kaggle_owner()
+    """Owner of the model's Kaggle handles: ``ecosystem.kaggle_owner`` on every machine.
+
+    Generation never reads the local credentials, so two machines render the same handles
+    (K-NB-8).
+    """
+    logger.debug("Kaggle handles of %s use the ecosystem owner", model_key)
+    return kaggle_owner()
 
 
 def _variation_handles(k_username: str, k_slug: str) -> dict[str, str]:

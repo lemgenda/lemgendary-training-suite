@@ -16,6 +16,7 @@ from typing import Any
 
 import torch
 
+from training.cloud.session_deadline import SessionDeadlineReached
 from training.data.resumable_sampler import resume_start_batch
 from training.hardware.device_memory import is_out_of_memory, release_device_memory
 from training.training.amp import get_autocast_context
@@ -24,6 +25,7 @@ from training.training.epoch import _unpack_batch
 from training.training.step_progress import (
     BatchClock,
     batch_progress_line,
+    deadline_reached,
     is_main_process,
     progress_payload,
     resume_iteration,
@@ -120,8 +122,8 @@ class _ValidationPass:
             flush=True,
         )
 
-    def save_progress(self) -> None:
-        """Offer an intra-epoch progress checkpoint to the lifecycle manager."""
+    def save_progress(self, force: bool = False) -> None:
+        """Offer an intra-epoch progress checkpoint to the lifecycle manager (``force``: save)."""
         ctx = self.ctx
         if ctx.governance.lifecycle_manager is None:
             return
@@ -130,7 +132,9 @@ class _ValidationPass:
             if ctx.data.val_loader is not None and hasattr(ctx.data.val_loader, "__len__")
             else 0
         )
-        ctx.governance.lifecycle_manager.check_and_save_progress(
+        manager = ctx.governance.lifecycle_manager
+        save = manager.save_progress_now if force else manager.check_and_save_progress
+        save(
             epoch=self.epoch,
             phase="val",
             step=self.step_count,
@@ -241,5 +245,8 @@ def validate_one_epoch(
             view = run.batch_view(preds, unpacked[1], unpacked[0])
             for update in BATCH_METRICS:
                 update(run.acc, view)
+            if loader is None and deadline_reached(ctx, batch_idx + 1):
+                run.save_progress(force=True)
+                raise SessionDeadlineReached(epoch, "val", run.step_count)
 
     return summarize(ctx, run.acc, run.step_count, time.time() - run.clock.start_time)

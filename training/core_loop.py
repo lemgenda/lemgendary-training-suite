@@ -24,6 +24,7 @@ from training.checkpoint import (
     MetricVault,
 )
 from training.cli_args import add_clean_argument, add_timeframes_argument
+from training.cloud.session_deadline import DEADLINE_STATUS
 from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
 from training.context_data import (
@@ -502,6 +503,10 @@ def main(raw_args: list[str] | None = None) -> None:
             f"[SUCCESS] Training completed at epoch {summary.final_epoch} "
             f"with status: {summary.status}"
         )
+
+        if summary.status == DEADLINE_STATUS:
+            # Progress is saved and synced; the next session resumes it. No release export.
+            return
 
         # Post-training export
         export_all(

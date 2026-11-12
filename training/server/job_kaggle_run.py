@@ -1,32 +1,44 @@
-"""Kaggle kernel training and monitoring job executors."""
+"""Kaggle kernel training and monitoring job executors.
+
+``kaggle_train`` builds the kernel bundle (the generated training notebook plus
+``kernel-metadata.json``, :mod:`training.cloud.kernel_bundle`), pushes it, watches the session
+(:mod:`training.cloud.kernel_watch`) and, when it completes, merges the kernel output's
+checkpoints and metrics into ``LemGendaryModels/<model>``. ``kaggle_monitor`` watches an
+existing kernel without pushing.
+"""
 
 from __future__ import annotations
 
 import logging
-import subprocess
-import sys
 import threading
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from training.cloud.credentials import resolve_kaggle_credentials
-from training.cloud.errors import KAGGLE_API_ERRORS
+from training.cloud.errors import KAGGLE_API_ERRORS, kagglehub_errors
+from training.cloud.hub_versions import kaggle_version_lookup
 from training.cloud.kaggle_client import KaggleAuthError, authenticated_kaggle_api
-from training.cloud.kaggle_hub import KaggleHubManager
-from training.kaggle_cloud_manager import pull_kaggle_artifacts
-from training.kaggle_stream import fetch_new_log_lines, is_epoch_milestone
+from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+from training.cloud.kernel_bundle import BundleRequest, model_kernel_handle
+from training.cloud.kernel_launch import launch_kernel
+from training.cloud.kernel_output import retrieve_kernel_output
+from training.cloud.kernel_status import CANCELLED_STATUSES, COMPLETE, QUEUED, PollBackoff
+from training.cloud.kernel_watch import KernelWatcher, WatchHooks, WatchResult
+from training.cloud.session_deadline import load_session_config
 from training.server.state import ServerState
 
 logger = logging.getLogger("lemtrain.server.jobs")
 
+DEFAULT_POLL_SECONDS = 30
+"""First status poll interval; it backs off to :data:`MAX_POLL_SECONDS` while unchanged."""
+MAX_POLL_SECONDS = 300
 
-# pull_kaggle_artifacts reports most failures itself; RuntimeError covers a missing kagglehub SDK.
-_PULL_ERRORS: tuple[type[Exception], ...] = (RuntimeError, *KAGGLE_API_ERRORS)
 
-_TERMINAL_STATUSES = ("COMPLETE", "ERROR", "CANCELACK")
+def _pull_errors() -> tuple[type[Exception], ...]:
+    # RuntimeError: kagglehub SDK missing (raised by pull_variation).
+    return (RuntimeError, *kagglehub_errors())
 
 
 def _authenticated_api(user: str, key: str, failure_hint: str) -> Any:
@@ -43,7 +55,7 @@ def _authenticated_api(user: str, key: str, failure_hint: str) -> Any:
 
 @dataclass(frozen=True)
 class _KernelWatch:
-    """One job's telemetry stream of one Kaggle kernel."""
+    """One job's watch of one Kaggle kernel."""
 
     job_id: str
     model_key: str
@@ -51,7 +63,6 @@ class _KernelWatch:
     api: Any
     kernel_slug: str
     auto_pull: bool
-    milestone_message: str
 
 
 class KaggleRunJobsMixin:
@@ -62,123 +73,93 @@ class KaggleRunJobsMixin:
     state: ServerState
     _broadcast_log: Callable[[str, str], None]
 
-    def _push_kernel(self, job_id: str, api: Any, kernel_dir: Path, kernel_slug: str) -> None:
-        """Push the kernel bundle with the Python SDK, falling back to the Kaggle CLI."""
+    def _hub_sync(self, user: str) -> KaggleModelSyncManager:
+        return KaggleModelSyncManager(username=user)
+
+    def _pull_newer(self, watch: _KernelWatch) -> None:
+        """Pull ``pytorch/default`` when the Hub has a newer version than the last pull."""
         try:
-            api.kernels_push(str(kernel_dir))
-            self._broadcast_log(job_id, f"[KAGGLE] Kernel successfully pushed: {kernel_slug}")
-        except KAGGLE_API_ERRORS as sdk_err:
-            self._broadcast_log(
-                job_id, f"[WARN] Python SDK push notice: {sdk_err}. Trying CLI fallback..."
+            version = self._hub_sync(watch.user).pull_default_if_newer(
+                watch.model_key, kaggle_version_lookup(watch.api)
             )
-            cflags = (
-                getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-                if sys.platform == "win32"
-                else 0
-            )
-            res = subprocess.run(
-                ["kaggle", "kernels", "push", "-p", str(kernel_dir)],
-                capture_output=True,
-                check=False,
-                text=True,
-                timeout=60,
-                creationflags=cflags,
-            )
-            if res.returncode == 0:
-                self._broadcast_log(job_id, f"[KAGGLE] CLI push succeeded: {res.stdout.strip()}")
-            else:
-                raise RuntimeError(f"CLI push failed: {res.stderr.strip()}") from sdk_err
-
-    def _poll_kernel_status(self, watch: _KernelWatch, last_status: str) -> str:
-        """Return the kernel's cloud status (``last_status`` when the poll fails)."""
-        try:
-            st = watch.api.kernels_status(watch.kernel_slug)
-            status_val = str(getattr(st, "status", st)).rsplit(".", maxsplit=1)[-1].upper()
-            if status_val != last_status:
-                self._broadcast_log(
-                    watch.job_id,
-                    f"[{time.strftime('%H:%M:%S')}] [KAGGLE STATUS] Cloud status: {status_val}",
-                )
-        except KAGGLE_API_ERRORS as exc:
-            logger.debug(
-                "Kaggle status poll failed for %s; keeping %s: %s",
-                watch.kernel_slug,
-                last_status,
-                exc,
-            )
-            return last_status
-        return status_val
-
-    def _pull_artifacts(self, watch: _KernelWatch, notice: str) -> bool:
-        """Pull the model artifacts; on failure log ``notice: <error>`` and return False."""
-        try:
-            pull_kaggle_artifacts(watch.model_key, username=watch.user)
-        except _PULL_ERRORS as pull_err:
-            self._broadcast_log(watch.job_id, f"{notice}: {pull_err}")
-            return False
-        return True
-
-    def _stream_kernel_logs(self, watch: _KernelWatch, printed_lines_count: int) -> int:
-        """Broadcast new kernel log lines; return the new printed line count."""
-        try:
-            new_lines, printed_lines_count = fetch_new_log_lines(
-                watch.api, watch.kernel_slug, printed_lines_count
-            )
-            for line in new_lines:
-                self._broadcast_log(watch.job_id, line)
-                if watch.auto_pull and watch.model_key and is_epoch_milestone(line):
-                    self._broadcast_log(watch.job_id, watch.milestone_message)
-                    self._pull_artifacts(watch, "[WARN] Auto-pull notice")
-        except KAGGLE_API_ERRORS as exc:
-            logger.debug(
-                "Kaggle log poll failed for %s; retrying next interval: %s", watch.kernel_slug, exc
-            )
-        return printed_lines_count
-
-    def _watch_kernel(
-        self,
-        watch: _KernelWatch,
-        last_status: str,
-        poll_interval: Any,
-        cancel_event: threading.Event,
-    ) -> str | None:
-        """Stream the kernel until a terminal status (returned) or cancellation (None)."""
-        printed_lines_count = 0
-        while not cancel_event.is_set():
-            last_status = self._poll_kernel_status(watch, last_status)
-            printed_lines_count = self._stream_kernel_logs(watch, printed_lines_count)
-            if last_status in _TERMINAL_STATUSES:
-                return last_status
-            time.sleep(poll_interval)
-        return None
-
-    def _finish_kaggle_training(self, watch: _KernelWatch, status_val: str) -> None:
-        """Record the end of a Kaggle training job (pulling final artifacts on success)."""
-        job_id, model_key = watch.job_id, watch.model_key
-        if status_val != "COMPLETE":
-            self.state.update_job_status(
-                job_id=job_id,
-                status="failed",
-                error_message=f"Kaggle kernel halted with status: {status_val}",
-            )
-            self._broadcast_log(job_id, f"[ERROR] Kaggle cloud job ended with status: {status_val}")
+        except _pull_errors() as exc:
+            self._broadcast_log(watch.job_id, f"[WARN] Auto-pull notice: {exc}")
             return
-        if watch.auto_pull:
+        if version is not None:
             self._broadcast_log(
-                job_id,
-                f"[SYNC] Cloud execution complete. Pulling final artifacts for {model_key}...",
+                watch.job_id,
+                f"[AUTO-PULL] Hub version {version} of {watch.model_key} merged locally.",
             )
-            if self._pull_artifacts(watch, "[WARN] Artifact pull notice"):
-                self._broadcast_log(
-                    job_id, f"[SUCCESS] Final artifacts saved to LemGendaryModels/{model_key}!"
-                )
+
+    def _watch(
+        self, watch: _KernelWatch, params: dict[str, Any], cancel_event: threading.Event
+    ) -> WatchResult:
+        poll = max(5, int(params.get("poll_interval") or DEFAULT_POLL_SECONDS))
+        hooks = WatchHooks(
+            emit=lambda line: self._broadcast_log(watch.job_id, line),
+            cancelled=cancel_event.is_set,
+            sleep=cancel_event.wait,
+            on_poll=(lambda: self._pull_newer(watch))
+            if watch.auto_pull and watch.model_key
+            else None,
+        )
+        backoff = PollBackoff(initial=poll, maximum=max(poll, MAX_POLL_SECONDS))
+        return KernelWatcher(watch.api, watch.kernel_slug, backoff, hooks).watch(QUEUED)
+
+    def _retrieve_output(self, watch: _KernelWatch) -> bool:
+        """Merge the kernel output's checkpoints and metrics; True after a deadline stop."""
+        hub_root = self._hub_sync(watch.user).hub_root
+        try:
+            output = retrieve_kernel_output(watch.api, watch.kernel_slug, watch.model_key, hub_root)
+        except KAGGLE_API_ERRORS as exc:
+            self._broadcast_log(watch.job_id, f"[WARN] Kernel output retrieval notice: {exc}")
+            return False
+        self._broadcast_log(
+            watch.job_id,
+            f"[SYNC] Kernel output merged into LemGendaryModels/{watch.model_key}: "
+            f"{len(output.report.written)} written, {len(output.report.kept)} newer local "
+            f"kept (deadline stop: {output.deadline_stop}).",
+        )
+        if watch.auto_pull:
+            self._pull_newer(watch)
+        return output.deadline_stop
+
+    def _fail(self, watch: _KernelWatch, result: WatchResult) -> None:
+        """Record a kernel that ended cancelled or with an error."""
+        status = result.status or ""
+        metrics = {"kaggle_status": status, "kernel_slug": watch.kernel_slug}
+        if status in CANCELLED_STATUSES:
+            self.state.update_job_status(
+                job_id=watch.job_id,
+                status="cancelled",
+                error_message=f"Kaggle kernel was cancelled ({status})",
+                metrics=metrics,
+            )
+            self._broadcast_log(watch.job_id, f"[CANCEL] Kaggle kernel cancelled: {status}")
+            return
+        detail = f": {result.failure}" if result.failure else ""
         self.state.update_job_status(
-            job_id=job_id,
-            status="completed",
-            metrics={"kaggle_status": "COMPLETE", "kernel_slug": watch.kernel_slug},
+            job_id=watch.job_id,
+            status="failed",
+            error_message=f"Kaggle kernel ended with status {status}{detail}",
+            metrics=metrics,
+        )
+        self._broadcast_log(watch.job_id, f"[ERROR] Kaggle kernel ended: {status}{detail}")
+
+    def _complete(self, watch: _KernelWatch, extra: dict[str, Any] | None = None) -> None:
+        """Record a completed kernel."""
+        metrics = {"kaggle_status": COMPLETE, "kernel_slug": watch.kernel_slug, **(extra or {})}
+        self.state.update_job_status(job_id=watch.job_id, status="completed", metrics=metrics)
+        self._broadcast_log(watch.job_id, f"[SUCCESS] Kaggle kernel completed: {watch.kernel_slug}")
+
+    def _detach(self, watch: _KernelWatch) -> None:
+        self.state.update_job_status(
+            job_id=watch.job_id, status="cancelled", error_message="Cancelled by user request"
         )
         self._broadcast_log(
-            job_id, f"[SUCCESS] Kaggle training completed successfully for {model_key}!"
+            watch.job_id,
+            f"[CANCEL] Telemetry detached from {watch.kernel_slug}; the kernel may keep "
+            "running on Kaggle.",
         )
 
     def execute_kaggle_training(
@@ -188,81 +169,53 @@ class KaggleRunJobsMixin:
         params: dict[str, Any],
         cancel_event: threading.Event,
     ) -> None:
-        """Launch training on Kaggle Cloud, stream telemetry, and auto-pull checkpoints."""
-        gpu = params.get("gpu", "T4")
-        auto_pull = params.get("auto_pull", True)
+        """Push the model's kernel bundle, watch the session and merge its output."""
+        user, key = resolve_kaggle_credentials()
+        accelerator = params.get("accelerator")
+        self._broadcast_log(
+            job_id, f"[KAGGLE] Authenticating as '{user}' (accelerator: {accelerator or 'default'})"
+        )
+        api = _authenticated_api(user, key, ". Please configure the Kaggle API token.")
+        chain = load_session_config(self.project_root)
+        resumes = 0
+        while True:
+            watch = self._launch(job_id, model_key, user, api, params)
+            result = self._watch(watch, params, cancel_event)
+            if result.status is None:
+                self._detach(watch)
+                return
+            if result.status != COMPLETE:
+                self._fail(watch, result)
+                return
+            deadline_stop = self._retrieve_output(watch)
+            if not (deadline_stop and chain.auto_resume and resumes < chain.max_resumes):
+                self._complete(watch, {"deadline_stop": deadline_stop, "resumes": resumes})
+                return
+            resumes += 1
+            self._broadcast_log(
+                job_id,
+                f"[CHAIN] Session stopped at its deadline; pushing resume session "
+                f"{resumes}/{chain.max_resumes} (kaggle_session.auto_resume).",
+            )
 
-        user, key = resolve_kaggle_credentials(
-            override_user=params.get("username"), override_key=params.get("key")
-        )
-        self._broadcast_log(
-            job_id, f"[KAGGLE] Authenticating Kaggle API for user: '{user}' (Accelerator: {gpu})..."
-        )
-        api = _authenticated_api(user, key, ". Please configure Kaggle username and API key.")
-
-        mgr = KaggleHubManager(username=user, key=key)
-        kernel_slug = mgr.get_kernel_slug(model_key)
-        self._broadcast_log(
-            job_id, f"[KAGGLE] Packaging standalone kernel bundle for {model_key}..."
-        )
-        kernel_dir = mgr.create_cloud_kernel_bundle(model_key, gpu=gpu)
-        self._broadcast_log(
-            job_id, f"[KAGGLE] Deploying kernel bundle {kernel_slug} to Kaggle Cloud..."
-        )
-        self._push_kernel(job_id, api, kernel_dir, kernel_slug)
-
-        self._broadcast_log(
-            job_id,
-            f"[KAGGLE] Telemetry connected. Monitoring {kernel_slug} (Auto-pull: {auto_pull})...",
-        )
-        watch = _KernelWatch(
-            job_id,
-            model_key,
-            user,
+    def _launch(
+        self, job_id: str, model_key: str, user: str, api: Any, params: dict[str, Any]
+    ) -> _KernelWatch:
+        """Push the model's kernel bundle and return the watch of the new session."""
+        launch = launch_kernel(
             api,
-            kernel_slug,
-            auto_pull,
-            f"[AUTO-PULL] Epoch milestone detected in logs. Syncing artifacts for {model_key}...",
+            BundleRequest(model_key, kernel_owner=user, accelerator_id=params.get("accelerator")),
         )
-        status_val = self._watch_kernel(
-            watch, "QUEUED", params.get("poll_interval", 5), cancel_event
+        self._broadcast_log(
+            job_id,
+            f"[KAGGLE] Kernel pushed: {launch.handle} (version {launch.version_number}, "
+            f"machine shape {launch.metadata.get('machine_shape', 'CPU')}, "
+            f"datasets {launch.metadata['dataset_sources']}, "
+            f"models {launch.metadata['model_sources']})",
         )
-        if status_val is not None:
-            self._finish_kaggle_training(watch, status_val)
-            return
-
-        if cancel_event.is_set():
-            self.state.update_job_status(
-                job_id=job_id, status="cancelled", error_message="Cancelled by user request"
-            )
-            self._broadcast_log(
-                job_id,
-                (
-                    f"[CANCEL] Telemetry stream detached for {kernel_slug}. Remote kernel may "
-                    "continue running on Kaggle."
-                ),
-            )
-
-    def _finish_kaggle_monitor(self, watch: _KernelWatch, status_val: str) -> None:
-        """Record the end of a Kaggle monitor job (pulling final artifacts when asked)."""
-        job_id, model_key = watch.job_id, watch.model_key
-        if status_val == "COMPLETE" and watch.auto_pull and model_key:
-            self._broadcast_log(
-                job_id,
-                f"[SYNC] Cloud run completed. Pulling final artifacts for {model_key}...",
-            )
-            if self._pull_artifacts(watch, "[WARN] Pull notice"):
-                self._broadcast_log(
-                    job_id,
-                    f"[SUCCESS] Final artifacts saved to LemGendaryModels/{model_key}!",
-                )
-
-        self.state.update_job_status(
-            job_id=job_id,
-            status="completed" if status_val == "COMPLETE" else "failed",
-            metrics={"kaggle_status": status_val, "kernel_slug": watch.kernel_slug},
+        return _KernelWatch(
+            job_id, model_key, user, api, launch.handle, bool(params.get("auto_pull", True))
         )
-        self._broadcast_log(job_id, f"[TERMINAL] Job ended with status: {status_val}")
 
     def execute_kaggle_monitor(
         self,
@@ -271,39 +224,26 @@ class KaggleRunJobsMixin:
         params: dict[str, Any],
         cancel_event: threading.Event,
     ) -> None:
-        """Stream live logs from an existing or active Kaggle kernel without pushing."""
-        kernel_slug = params.get("kernel_slug")
-
-        user, key = resolve_kaggle_credentials(
-            override_user=params.get("username"), override_key=params.get("key")
-        )
-        if not kernel_slug:
-            mgr = KaggleHubManager(username=user)
-            kernel_slug = mgr.get_kernel_slug(model_key)
-
-        self._broadcast_log(
-            job_id, f"[KAGGLE] Connecting to telemetry stream for '{kernel_slug}'..."
-        )
+        """Watch an existing Kaggle kernel without pushing."""
+        user, key = resolve_kaggle_credentials()
+        kernel_slug = params.get("kernel_slug") or model_kernel_handle(user, model_key)
+        self._broadcast_log(job_id, f"[KAGGLE] Connecting to kernel '{kernel_slug}'...")
         api = _authenticated_api(user, key, "")
-
         watch = _KernelWatch(
             job_id,
-            model_key,
+            params.get("model") or "",
             user,
             api,
             kernel_slug,
-            params.get("auto_pull", False),
-            f"[AUTO-PULL] Checkpoint milestone detected. Syncing {model_key}...",
+            bool(params.get("auto_pull", False)),
         )
-        status_val = self._watch_kernel(
-            watch, "UNKNOWN", params.get("poll_interval", 5), cancel_event
-        )
-        if status_val is not None:
-            self._finish_kaggle_monitor(watch, status_val)
+        result = self._watch(watch, params, cancel_event)
+        if result.status is None:
+            self._detach(watch)
             return
-
-        if cancel_event.is_set():
-            self.state.update_job_status(
-                job_id=job_id, status="cancelled", error_message="Cancelled by user request"
-            )
-            self._broadcast_log(job_id, "[CANCEL] Disconnected from telemetry stream.")
+        if result.status != COMPLETE:
+            self._fail(watch, result)
+            return
+        if watch.auto_pull and watch.model_key:
+            self._retrieve_output(watch)
+        self._complete(watch)

@@ -1,0 +1,144 @@
+"""Kaggle session deadline: stop cleanly before the platform kills the session (K-CK-2).
+
+A Kaggle session ends after ``kaggle_session.limit_hours`` (12 h). The training loop asks
+:class:`SessionDeadline` whether the deadline (limit minus ``margin_minutes``) has passed;
+when it has, the loop saves ``progress.pth`` wherever it is (generator states included),
+syncs the ``pytorch/default`` payload to the Hub, writes :data:`DEADLINE_MARKER` into the
+model folder and ends with status ``session_deadline``.
+
+The session start is ``LEMGENDARY_SESSION_START`` (seconds since the epoch), which the
+notebook's first cell exports; without it the training process start counts (later than the
+real session start, so the margin should cover the notebook set-up).
+
+``auto_resume`` (default off) lets the watcher of a GUI-launched kernel push a new kernel
+version when a session ended at its deadline, at most ``max_resumes`` times per job.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+logger = logging.getLogger("lemtrain.cloud.session_deadline")
+
+SESSION_START_ENV = "LEMGENDARY_SESSION_START"
+"""Session start (seconds since the epoch) exported by the notebook's first cell."""
+DEADLINE_MARKER = "session_deadline.json"
+"""Written into ``LemGendaryModels/<model>`` when a run stopped at its session deadline."""
+CONFIG_SECTION = "kaggle_session"
+DEADLINE_STATUS = "session_deadline"
+"""``TrainingSummary.status`` / ``stop_reason`` of a run stopped at its deadline."""
+
+
+@dataclass(frozen=True)
+class SessionDeadlineConfig:
+    """The ``kaggle_session`` section of ``config.yaml``."""
+
+    limit_hours: float = 12.0
+    margin_minutes: float = 30.0
+    auto_resume: bool = False
+    max_resumes: int = 3
+
+    @classmethod
+    def from_config(cls, config: Mapping[str, Any] | None) -> SessionDeadlineConfig:
+        """Read and validate ``config['kaggle_session']`` (missing keys keep the defaults)."""
+        raw = (config or {}).get(CONFIG_SECTION) or {}
+        defaults = cls()
+        settings = cls(
+            limit_hours=float(raw.get("limit_hours", defaults.limit_hours)),
+            margin_minutes=float(raw.get("margin_minutes", defaults.margin_minutes)),
+            auto_resume=raw.get("auto_resume", defaults.auto_resume),
+            max_resumes=raw.get("max_resumes", defaults.max_resumes),
+        )
+        if settings.limit_hours <= 0 or settings.margin_minutes < 0:
+            raise ValueError(f"{CONFIG_SECTION}: limit_hours must be > 0, margin_minutes >= 0")
+        if settings.margin_minutes * 60 >= settings.limit_hours * 3600:
+            raise ValueError(f"{CONFIG_SECTION}: margin_minutes must be below limit_hours")
+        if not isinstance(settings.auto_resume, bool):
+            raise TypeError(f"{CONFIG_SECTION}.auto_resume must be true or false")
+        if not isinstance(settings.max_resumes, int) or settings.max_resumes < 0:
+            raise ValueError(f"{CONFIG_SECTION}.max_resumes must be an integer >= 0")
+        return settings
+
+
+@dataclass(frozen=True)
+class SessionDeadline:
+    """The moment (``time.time`` scale) after which training must stop."""
+
+    stop_at: float
+    clock: Callable[[], float] = time.time
+
+    def expired(self) -> bool:
+        """Whether the stop time has passed."""
+        return self.clock() >= self.stop_at
+
+    def remaining(self) -> float:
+        """Seconds left before the stop time (negative once passed)."""
+        return self.stop_at - self.clock()
+
+
+def session_deadline(
+    config: Mapping[str, Any] | None,
+    env: str,
+    environ: Mapping[str, str] = os.environ,
+    clock: Callable[[], float] = time.time,
+) -> SessionDeadline | None:
+    """The deadline of a Kaggle run (``env == "kaggle"``); None on every other platform."""
+    if env != "kaggle":
+        return None
+    settings = SessionDeadlineConfig.from_config(config)
+    raw_start = environ.get(SESSION_START_ENV, "")
+    try:
+        start = float(raw_start) if raw_start else clock()
+    except ValueError:
+        logger.warning("Ignoring malformed %s=%r; using now", SESSION_START_ENV, raw_start)
+        start = clock()
+    stop_at = start + settings.limit_hours * 3600 - settings.margin_minutes * 60
+    logger.info(
+        "Kaggle session deadline in %.1f min (limit %.1f h, margin %.0f min)",
+        (stop_at - clock()) / 60,
+        settings.limit_hours,
+        settings.margin_minutes,
+    )
+    return SessionDeadline(stop_at=stop_at, clock=clock)
+
+
+class SessionDeadlineReached(RuntimeError):
+    """Raised inside an epoch when the session deadline passed (progress already saved)."""
+
+    def __init__(self, epoch: int, phase: str, step: int) -> None:
+        super().__init__(f"Kaggle session deadline reached at epoch {epoch} ({phase} {step})")
+        self.epoch = epoch
+        self.phase = phase
+        self.step = step
+
+
+def write_deadline_marker(model_dir: Path, epoch: int, phase: str, step: int) -> Path:
+    """Record in ``model_dir`` that the run stopped at its deadline (read by the watchers)."""
+    model_dir.mkdir(parents=True, exist_ok=True)
+    marker = model_dir / DEADLINE_MARKER
+    marker.write_text(
+        json.dumps(
+            {"epoch": epoch, "phase": phase, "step": step, "stopped_at": time.time()}, indent=2
+        ),
+        encoding="utf-8",
+    )
+    return marker
+
+
+def load_session_config(project_root: Path) -> SessionDeadlineConfig:
+    """``kaggle_session`` of ``<project_root>/config.yaml`` (defaults when absent)."""
+    config_path = project_root / "config.yaml"
+    if not config_path.is_file():
+        return SessionDeadlineConfig()
+    with config_path.open(encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+    return SessionDeadlineConfig.from_config(raw if isinstance(raw, dict) else {})

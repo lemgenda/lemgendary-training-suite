@@ -19,6 +19,12 @@ from torch.utils.data.distributed import DistributedSampler
 
 from data.forex_sampler import RowGroupAwareSampler
 from training.checkpoint import CheckpointLifecycleManager, ExportSource, safe_atomic_save
+from training.cloud.session_deadline import (
+    DEADLINE_STATUS,
+    SessionDeadlineReached,
+    session_deadline,
+    write_deadline_marker,
+)
 from training.cloud.sync_policy import KaggleSyncPolicy
 from training.cloud_sync import trigger_cloud_sync
 from training.data import rebuild_train_loader
@@ -50,7 +56,7 @@ from training.training.batch_budget import refit_batch_for_resolution
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
 from training.training.lr_scaling import scale_learning_rates
-from training.training.step_progress import progress_payload
+from training.training.step_progress import any_rank, is_main_process, progress_payload
 from training.training.summary import TrainingSummary
 from training.training.swa import attach_swa
 from training.training.validation import validate_one_epoch
@@ -227,6 +233,9 @@ def _prepare_run(ctx: TrainingContext, start_epoch: int) -> None:
         )
 
     ctx.governance.swa = attach_swa(ctx)
+    ctx.state.session_deadline = session_deadline(
+        ctx.run.config, str(getattr(ctx.run.args, "env", "local"))
+    )
 
 
 def _cancelled_summary(ctx: TrainingContext, loop: _LoopState, final_epoch: int) -> TrainingSummary:
@@ -238,6 +247,45 @@ def _cancelled_summary(ctx: TrainingContext, loop: _LoopState, final_epoch: int)
         total_time=time.time() - loop.started_at,
         status="cancelled",
     )
+
+
+def _deadline_summary(
+    ctx: TrainingContext, loop: _LoopState, stop: SessionDeadlineReached
+) -> TrainingSummary:
+    """End the run at the Kaggle session deadline: marker, synchronous Hub sync, summary.
+
+    ``progress.pth`` (generator states included) was saved where the loop stopped, or
+    ``latest.pth`` covers a stop at an epoch boundary. The final sync is not throttled and
+    waits, so the payload is on the Hub before the session ends.
+    """
+    print(
+        f"\n[DEADLINE] Kaggle session deadline reached for {ctx.model_name} at epoch "
+        f"{stop.epoch} ({stop.phase} {stop.step}); progress saved, syncing and stopping.",
+        flush=True,
+    )
+    if is_main_process():
+        write_deadline_marker(ctx.run.paths.export_dir, stop.epoch, stop.phase, stop.step)
+        if getattr(ctx.run.args, "auto_sync", False):
+            try:
+                trigger_cloud_sync(ctx.model_name, stop.epoch, ctx.run.config, wait=True)
+            except CLOUD_SYNC_START_ERRORS as sync_err:
+                logger.warning("Deadline cloud sync failed at epoch %d: %s", stop.epoch, sync_err)
+    return TrainingSummary(
+        model_name=ctx.model_name,
+        final_epoch=loop.last_epoch_executed,
+        best_metrics=loop.best_metrics,
+        total_time=time.time() - loop.started_at,
+        status=DEADLINE_STATUS,
+        stop_reason=DEADLINE_STATUS,
+    )
+
+
+def _deadline_before_epoch(ctx: TrainingContext) -> bool:
+    """Whether the session deadline passed before an epoch starts (agreed by all ranks)."""
+    deadline = ctx.state.session_deadline
+    if deadline is None:
+        return False
+    return any_rank(deadline.expired(), ctx.hardware.device_info.device)
 
 
 def _resumed_val_train_metrics(ctx: TrainingContext, epoch: int) -> dict[str, float]:
@@ -738,6 +786,31 @@ def _run_epoch(
     return None
 
 
+def _run_epochs(ctx: TrainingContext, loop: _LoopState, hooks: _Hooks) -> TrainingSummary | None:
+    """Run epochs until the budget policy stops; return a summary when the run ends early.
+
+    An early end is a user cancellation or the Kaggle session deadline (checked before each
+    epoch and, through :class:`SessionDeadlineReached`, inside it).
+    """
+    epoch = loop.start_epoch
+    while loop.stop_reason is None:
+        if hooks.cancelled():
+            print(f"[CANCEL] Training aborted at epoch {epoch} by user cancellation.", flush=True)
+            return _cancelled_summary(ctx, loop, max(0, epoch - 1))
+        if _deadline_before_epoch(ctx):
+            return _deadline_summary(
+                ctx, loop, SessionDeadlineReached(loop.last_epoch_executed, "epoch", 0)
+            )
+        try:
+            cancelled = _run_epoch(ctx, loop, epoch, hooks)
+        except SessionDeadlineReached as stop:
+            return _deadline_summary(ctx, loop, stop)
+        if cancelled is not None:
+            return cancelled
+        epoch += 1
+    return None
+
+
 def run_training(
     ctx: TrainingContext,
     on_epoch_end: Callable[[int, dict[str, float]], None] | None = None,
@@ -775,15 +848,9 @@ def run_training(
         ),
     )
 
-    epoch = start_epoch
-    while loop.stop_reason is None:
-        if hooks.cancelled():
-            print(f"[CANCEL] Training aborted at epoch {epoch} by user cancellation.", flush=True)
-            return _cancelled_summary(ctx, loop, max(0, epoch - 1))
-        cancelled = _run_epoch(ctx, loop, epoch, hooks)
-        if cancelled is not None:
-            return cancelled
-        epoch += 1
+    early_end = _run_epochs(ctx, loop, hooks)
+    if early_end is not None:
+        return early_end
 
     if ctx.governance.swa is not None:
         ctx.governance.swa.finish(ctx, loop.last_epoch_executed)

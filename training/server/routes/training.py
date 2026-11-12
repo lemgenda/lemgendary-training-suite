@@ -16,6 +16,8 @@ from training.cloud.kaggle_client import (
     probe_kaggle_auth,
 )
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+from training.cloud.kernel_bundle import KernelBundleError, checked_accelerator
+from training.ecosystem import kaggle_accelerator, kaggle_accelerators
 from training.kaggle_accounts import fetch_user_kernels
 from training.registry.model_specs import get_model_registry
 from training.utils.paths import get_project_root
@@ -124,6 +126,11 @@ _UNKNOWN_MODEL: dict[int | str, dict[str, Any]] = {
 }
 
 
+_BAD_ACCELERATOR: dict[int | str, dict[str, Any]] = {
+    422: {"description": "Unknown or retired Kaggle accelerator"}
+}
+
+
 def _require_registered_model(model_key: str) -> None:
     """Reject a model key the registry does not know (404) before any job or file is created."""
     if get_model_registry().get_model(model_key) is None:
@@ -134,9 +141,23 @@ class KaggleTrainRequest(BaseModel):
     """Payload for launching Kaggle cloud training."""
 
     model: str = Field(..., description="Target model key")
-    gpu: str = Field("T4", description="Kaggle accelerator ('T4', 'P100', 'None')")
-    auto_pull: bool = Field(True, description="Auto-pull checkpoints to LemGendaryModels per epoch")
-    poll_interval: int = Field(5, description="Telemetry poll interval in seconds")
+    accelerator: str | None = Field(
+        None,
+        description=(
+            "Kaggle accelerator id from GET /api/training/kaggle/accelerators "
+            "(default: the ecosystem default accelerator)"
+        ),
+    )
+    auto_pull: bool = Field(
+        True,
+        description=(
+            "Pull pytorch/default whenever the Hub has a newer version, and merge the "
+            "kernel output when the session completes"
+        ),
+    )
+    poll_interval: int = Field(
+        30, ge=5, description="First status poll interval in seconds (backs off to 300 s)"
+    )
 
 
 class KaggleMonitorRequest(BaseModel):
@@ -144,8 +165,12 @@ class KaggleMonitorRequest(BaseModel):
 
     kernel_slug: str = Field(..., description="Kaggle kernel slug (e.g. username/kernel-slug)")
     model: str | None = Field(None, description="Optional associated model key for auto-pull")
-    auto_pull: bool = Field(False, description="Enable auto-pull on epoch completion")
-    poll_interval: int = Field(5, description="Telemetry poll interval in seconds")
+    auto_pull: bool = Field(
+        False, description="Pull pytorch/default whenever the Hub has a newer version"
+    )
+    poll_interval: int = Field(
+        30, ge=5, description="First status poll interval in seconds (backs off to 300 s)"
+    )
 
 
 class KagglePullRequest(BaseModel):
@@ -201,17 +226,43 @@ def list_kaggle_kernels(limit: int = 20) -> list[dict[str, Any]]:
     return fetch_user_kernels(api, user, limit=limit)
 
 
-@router.post("/kaggle/train", responses=_UNKNOWN_MODEL)
+@router.get("/kaggle/accelerators")
+def list_kaggle_accelerators() -> dict[str, Any]:
+    """Kaggle session types from the ecosystem file (SSOT), without retired machine shapes.
+
+    ``id`` is what ``POST /kaggle/train`` takes as ``accelerator``; ``label`` is the picker
+    text; ``machine_shape`` is null for CPU.
+    """
+    usable = []
+    for acc in kaggle_accelerators():
+        try:
+            checked_accelerator(acc.id)
+        except KernelBundleError as exc:
+            logger.info("Kaggle accelerator %s not offered: %s", acc.id, exc)
+            continue
+        usable.append(
+            {"id": acc.id, "label": acc.label, "kind": acc.kind, "machine_shape": acc.machine_shape}
+        )
+    return {"default": kaggle_accelerator().id, "accelerators": usable}
+
+
+@router.post("/kaggle/train", responses=_UNKNOWN_MODEL | _BAD_ACCELERATOR)
 def launch_kaggle_train(payload: KaggleTrainRequest, request: Request) -> dict[str, Any]:
-    """Enqueue and launch Kaggle cloud training with live WebSocket telemetry."""
+    """Enqueue Kaggle cloud training: push the generated notebook kernel and watch it."""
     _require_registered_model(payload.model)
+    try:
+        accelerator = checked_accelerator(payload.accelerator)
+    except KernelBundleError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     manager = request.app.state.job_manager
     params = payload.model_dump()
     job_id = manager.submit_job(job_type="kaggle_train", model_key=payload.model, params=params)
     return {
         "job_id": job_id,
         "status": "pending",
-        "message": f"Kaggle Cloud training queued for {payload.model} (GPU: {payload.gpu})",
+        "message": (
+            f"Kaggle Cloud training queued for {payload.model} (accelerator: {accelerator.label})"
+        ),
         "model": payload.model,
     }
 

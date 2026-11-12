@@ -21,11 +21,13 @@ import yaml
 
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS, kagglehub_errors
+from training.cloud.hub_versions import VersionLookup
 from training.cloud.kaggle_api_sync import KaggleApiSyncService
 from training.cloud.kaggle_client import KaggleAuthError
 from training.cloud.metadata_generator import KaggleMetadataService
 from training.cloud.model_metadata import METADATA_FILENAME
 from training.cloud.model_pull import merge_downloaded_payload
+from training.cloud.sync_manifest import SyncManifest
 from training.cloud.variations import (
     CHECKPOINTS_DIR,
     ONNX_FP16,
@@ -387,12 +389,13 @@ class KaggleModelSyncManager:
         model_key: str,
         variation: str,
         force_download: bool = False,
+        version: int | None = None,
     ) -> bool:
         """Download one variation into a temporary folder and merge it into the hub folder.
 
         Local files are never deleted. ``force_download`` overwrites only the files being
         pulled; without it, newer local checkpoints (by stored epoch) are kept. See
-        :mod:`training.cloud.model_pull`.
+        :mod:`training.cloud.model_pull`. ``version`` pins the Hub version (default latest).
         """
         if variation not in VARIATION_BY_KEY:
             raise ValueError(
@@ -400,6 +403,8 @@ class KaggleModelSyncManager:
             )
 
         handle = self.get_handle(model_key, variation)
+        if version is not None:
+            handle = f"{handle}/{int(version)}"
         dest_dir = self.pull_destination(model_key, variation)
 
         try:
@@ -426,6 +431,25 @@ class KaggleModelSyncManager:
             )
         logger.info("Pulled %s: wrote %s; kept newer local %s", handle, report.written, report.kept)
         return True
+
+    def pull_default_if_newer(self, model_key: str, versions: VersionLookup) -> int | None:
+        """Pull ``pytorch/default`` only when the Hub has a version newer than the last pull.
+
+        The last merged version is kept in the model folder's ``.kaggle_sync.json``
+        (:class:`training.cloud.sync_manifest.SyncManifest`). Returns the version pulled, or
+        None when the Hub has nothing newer (no download happens then).
+        """
+        key = PYTORCH_DEFAULT.key
+        latest = versions(self.get_handle(model_key, key))
+        manifest = SyncManifest(self.get_model_dir(model_key))
+        known = manifest.pulled_version(key)
+        if latest is None or (known is not None and latest <= known):
+            return None
+        if not self.pull_variation(model_key, key, version=latest):
+            return None
+        manifest.record_pull(key, latest)
+        manifest.save()
+        return latest
 
     def pull_model(self, model_key: str, force_download: bool = False) -> bool:
         """Download all 4 variations of a model from Kaggle Models Hub."""

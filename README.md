@@ -16,15 +16,86 @@
 
 ## Current Status
 
-- **Version**: `v16.9.174-STABLE`
+- **Version**: `v16.9.175-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
   Ecosystem Ready
 - **Verified Models**: 24+ production architectures, multi-platform execution
-  (Local, Kaggle T4x2/P100, Google Colab)
+  (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.175 - Kaggle Kernel Bundle, Cancel-Aware Watch, Session Deadline
+
+- `training/cloud/kernel_bundle.py` (new) is the one kernel bundle
+  builder (K-NB-1, K-GUI-1). A bundle is the generated training notebook
+  plus `kernel-metadata.json`: `id` `<user>/<registry slug>-training`, a
+  title that slugifies to it, `kernel_type` notebook, `language` python,
+  `is_private` and `enable_internet` true, `enable_gpu` / `enable_tpu`
+  and `machine_shape` from the ecosystem accelerator table
+  (`kaggle_accelerator(id)`; retired shapes are rejected), the model's
+  manifold `dataset_sources` from the registry and, when the Hub has
+  one, `model_sources` = `<owner>/<slug>/pytorch/default/<latest>`. The
+  notebook comes from `builders.kaggle.build_training_notebook`, the same
+  generator as the notebook files, so GUI- and notebook-launched training
+  run the same cells. The legacy key `accelerator` (ignored by Kaggle)
+  and P100 are gone.
+- `training/cloud/kernel_launch.py` (new) builds the bundle in a temporary
+  folder and pushes it with the authenticated `KaggleApi` (no CLI
+  subprocess fallback). Used by the GUI `kaggle_train` job,
+  `lemtrain kaggle launch`, `kaggle_cloud_manager --action launch` and
+  the interactive launcher. The script kernel that ran
+  `python -m training.core_loop` without the suite
+  (`ModuleNotFoundError` on Kaggle), `KaggleHubManager.
+  create_cloud_kernel_bundle` / `get_kernel_slug` and the tracked
+  `cloud_jobs/` folder are deleted (K-GUI-4).
+- `lemtrain kaggle` (new): `accelerators`, `bundle MODEL --out DIR`,
+  `launch MODEL`, `status MODEL`.
+- API: `GET /api/training/kaggle/accelerators` lists the ecosystem
+  accelerators (`id`, `label`, `kind`, `machine_shape`, plus `default`).
+  `POST /api/training/kaggle/train` takes `accelerator` (an id from that
+  list; 422 for an unknown or retired one) instead of `gpu`;
+  `poll_interval` defaults to 30 s.
+- Status names (`training/cloud/kernel_status.py`) are the
+  `KernelWorkerStatus` members; `CANCEL_REQUESTED` and
+  `CANCEL_ACKNOWLEDGED` are terminal (the old `CANCELACK` never matched),
+  and a cancelled kernel ends the GUI job as `cancelled` (K-GUI-3).
+- One watch loop (`training/cloud/kernel_watch.py`) for the GUI job and
+  the terminal monitor: one status call and one log call per poll, with
+  backoff from the poll interval to 300 s while the status is unchanged.
+  Auto-pull no longer re-pulls all four variations on every epoch log
+  line: `KaggleModelSyncManager.pull_default_if_newer` pulls
+  `pytorch/default` only when the Hub version is newer than the one last
+  merged, recorded in `<model>/.kaggle_sync.json` (K-GUI-5). When a
+  session completes, the kernel output's checkpoints, `README.md` and
+  `metrics.csv` are downloaded (`kernels_output`) and merged by stored
+  epoch (`training/cloud/kernel_output.py`).
+- Notebook handles use `ecosystem.kaggle_owner` on every machine; the
+  notebook generator no longer resolves local credentials (K-NB-8).
+- Kaggle session deadline (K-CK-2, `training/cloud/session_deadline.py`,
+  `config.yaml` `kaggle_session`: `limit_hours` 12, `margin_minutes` 30,
+  `auto_resume` false, `max_resumes` 3). The notebook's first cell
+  exports `LEMGENDARY_SESSION_START`; on `--env kaggle` the training and
+  validation loops check the deadline every step (under DDP the ranks
+  agree every 25 steps through one `all_reduce`, so no rank stops alone)
+  and before each epoch. At the deadline the loop force-saves
+  `progress.pth` (generator states included), writes
+  `LemGendaryModels/<model>/session_deadline.json`, runs the final Hub
+  sync synchronously and ends with status `session_deadline`; no release
+  export runs and the notebook's publish cell skips the release. The GUI
+  job reads the marker from the kernel output and, only with
+  `kaggle_session.auto_resume: true`, pushes a new kernel version (up to
+  `max_resumes`) that resumes from the Hub. The kernel output (checkpoints,
+  metrics, marker) is merged on every completed GUI-launched session.
+- `CheckpointLifecycleManager.progress_due` (new) holds the progress
+  guardrails; `check_and_save_progress(force=True)` skips them.
+- Tests: `tests/unit/test_kaggle_kernel_bundle.py` (a bundle for each of
+  the 23 registry models, pushed through the installed kaggle
+  `kernels_push` with a recording HTTP client; status enum; backoff;
+  cancel; output merge; Hub-version pulls; the GUI job) and
+  `tests/unit/test_session_deadline.py` (settings, the stop check, the
+  publish guard, the resume chain on and off).
 
 ### v16.9.174 - Token-Free Notebook Clone Outside the Kernel Output (R3-K1)
 
