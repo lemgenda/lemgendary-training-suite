@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 import training.notebook_generator as legacy
-from training.ecosystem import TRAINING_SERVICE, ecosystem, kaggle_owner
+from training.ecosystem import TRAINING_SERVICE, ecosystem
 from training.notebooks import (
     ModelNotebookMeta,
     generate_colab_inference_notebook,
@@ -45,11 +45,11 @@ from training.notebooks.cells.model import (
     build_stealth_cell,
 )
 from training.notebooks.cells.repo import build_clone_cell
+from training.notebooks.cells.secrets import build_secrets_cell
 from training.notebooks.cells.sync import (
     build_continuous_sync_cell,
     build_fuse_mount_cell,
     build_push_cell,
-    build_secrets_cell,
     build_training_cell,
 )
 from training.utils.paths import get_project_root
@@ -151,10 +151,11 @@ class TestNotebookSubsystem(unittest.TestCase):
             with self.subTest(cell=name):
                 self._assert_code_cell(cell, needle)
 
-        # The fallback Kaggle owner is substituted from ecosystem.json at generation time.
+        # The secrets cells export a KGAT_ token through KAGGLE_API_TOKEN, never kaggle.json.
         for platform in ("kaggle", "colab"):
             source = "".join(build_secrets_cell(platform)["source"])
-            self.assertIn(f"k_user = {kaggle_owner()!r}", source)
+            self.assertIn("os.environ['KAGGLE_API_TOKEN'] = kaggle_token", source)
+            self.assertNotIn("kaggle.json", source)
 
     def test_backward_compatibility_shim(self) -> None:
         """Verify that training.notebook_generator re-exports all expected functions."""

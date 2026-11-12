@@ -1,4 +1,4 @@
-"""Kaggle account registry and kernel and model lookups.
+"""Kaggle vault accounts and kernel and model lookups.
 
 Authentication lives in :mod:`training.cloud.kaggle_client`.
 """
@@ -12,78 +12,22 @@ from typing import Any
 
 import yaml
 
-from training.cloud.credentials import load_kaggle_users as load_vault_users
-from training.cloud.credentials import parse_kaggle_users_text
+from training.cloud.credentials import load_kaggle_users
 from training.cloud.errors import KAGGLE_API_ERRORS
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_monitor")
 
 
-def find_kaggle_users_file(explicit_path: Path | None = None) -> Path | None:
-    """
-    Locates the .kaggle_users credentials registry file.
-    Searches explicit path, local suite directory, working directory, and sibling directories.
-    """
-    if explicit_path and explicit_path.exists():
-        return explicit_path
+def vault_accounts() -> list[dict[str, str]]:
+    """Kaggle accounts (``username``, ``token``) of the ``.secrets.yaml`` vault, default first.
 
-    candidates = [
-        Path.cwd() / ".kaggle_users",
-        Path(__file__).resolve().parent.parent / ".kaggle_users",
-        Path.cwd().parent / "lemgendary-training-suite" / ".kaggle_users",
-        Path(__file__).resolve().parent.parent.parent
-        / "lemgendary-training-suite"
-        / ".kaggle_users",
+    The vault (managed by the environment manager) is the only account registry; the legacy
+    ``.kaggle_users`` file is neither read nor written (K-AUTH-4).
+    """
+    return [
+        {"username": str(a.get("username", "")), "token": str(a.get("token", ""))}
+        for a in load_kaggle_users()
     ]
-
-    for candidate in candidates:
-        if candidate.exists() and candidate.is_file():
-            return candidate
-
-    return Path(__file__).resolve().parent.parent / ".kaggle_users"
-
-
-def load_kaggle_users(users_file: Path | None = None) -> tuple[list[dict[str, str]], Path]:
-    """
-    Parses configured Kaggle user accounts, prioritizing .secrets.yaml.
-    """
-    vault_accounts = load_vault_users(users_file)
-    if vault_accounts:
-        target_file = find_kaggle_users_file(users_file) or (Path.cwd() / ".kaggle_users")
-        clean_accounts = [
-            {"username": str(a.get("username", "")), "token": str(a.get("token", ""))}
-            for a in vault_accounts
-        ]
-        return clean_accounts, target_file
-
-    target_file = find_kaggle_users_file(users_file)
-    accounts: list[dict[str, str]] = []
-
-    if target_file and target_file.exists():
-        try:
-            content = target_file.read_text(encoding="utf-8")
-            accounts.extend(
-                {"username": user, "token": token}
-                for user, token in parse_kaggle_users_text(content)
-            )
-        except OSError as e:
-            print(f"[WARN] Failed to read users registry at {target_file}: {e}")
-
-    return accounts, target_file or (Path.cwd() / ".kaggle_users")
-
-
-def save_kaggle_user(users_file: Path, username: str, token: str) -> bool:
-    """
-    Appends a new user account definition to the .kaggle_users file.
-    """
-    try:
-        users_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(users_file, "a", encoding="utf-8") as f:
-            f.write(f"\nKAGGLE_USERNAME={username}, KAGGLE_API_TOKEN={token};")
-        return True
-    except OSError as e:
-        print(f"[ERROR] Failed to save user to {users_file}: {e}")
-        return False
 
 
 def fetch_user_kernels(api: Any, username: str, limit: int = 20) -> list[dict[str, Any]]:

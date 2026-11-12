@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from pathlib import Path
 from typing import Any
 
@@ -60,31 +59,13 @@ def load_secrets_yaml_registry() -> list[dict[str, Any]]:
     return []
 
 
-def find_kaggle_users_file(explicit_path: Path | None = None) -> Path | None:
-    """Locate the .kaggle_users registry file across project hierarchies."""
-    if explicit_path and explicit_path.exists() and explicit_path.is_file():
-        return explicit_path
+def load_kaggle_users() -> list[dict[str, Any]]:
+    """Kaggle accounts of the ``.secrets.yaml`` vault (default account first).
 
-    project_root = get_project_root()
-    candidates = [
-        Path.cwd() / ".kaggle_users",
-        project_root / ".kaggle_users",
-        project_root.parent / ".kaggle_users",
-    ]
-
-    for candidate in candidates:
-        if candidate.exists() and candidate.is_file():
-            return candidate
-
-    default_target = project_root / ".kaggle_users"
-    return default_target if default_target.exists() else None
-
-
-def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, Any]]:
-    """Parse configured Kaggle user accounts from .secrets.yaml."""
+    The vault is the only account registry; the legacy ``.kaggle_users`` and ``.kaggle_token``
+    files are no longer read (K-AUTH-4).
+    """
     accounts: list[dict[str, Any]] = []
-
-    # 1. Primary: load from .secrets.yaml
     secrets = load_secrets_yaml_registry()
     if secrets:
         kaggle_secrets = [s for s in secrets if str(s.get("service", "")).lower() == "kaggle"]
@@ -106,39 +87,7 @@ def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, Any]]:
             if accounts:
                 return accounts
 
-    # 2. Fallback: parse .kaggle_users dotfile if provided or present
-    target_file = find_kaggle_users_file(users_file)
-    if target_file and target_file.exists():
-        try:
-            content = target_file.read_text(encoding="utf-8")
-            owner = kaggle_owner()
-            accounts.extend(
-                {"username": user, "token": token, "is_default": user == owner}
-                for user, token in parse_kaggle_users_text(content)
-            )
-            accounts.sort(key=lambda a: not a.get("is_default", False))
-        except OSError as e:
-            logger.warning("Could not read .kaggle_users at %s: %s", target_file, e)
-
     return accounts
-
-
-def parse_kaggle_users_text(content: str) -> list[tuple[str, str]]:
-    """Parse ``.kaggle_users`` text into (username, token) pairs.
-
-    Expected format per line: ``KAGGLE_USERNAME=<user>, KAGGLE_API_TOKEN=<token>;``.
-    Blank lines and ``#`` comments are skipped.
-    """
-    pairs: list[tuple[str, str]] = []
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        m_user = re.search(r"KAGGLE_USERNAME=([^,;\s]+)", line)
-        m_token = re.search(r"KAGGLE_API_TOKEN=([^,;\s]+)", line)
-        if m_user and m_token:
-            pairs.append((m_user.group(1).strip(), m_token.group(1).strip()))
-    return pairs
 
 
 def _fill_from_kaggle_json(k_user: str, k_key: str) -> tuple[str, str]:
@@ -195,12 +144,11 @@ def _env_token() -> str:
 
 
 def _token_file_key(k_key: str) -> str:
-    """Fall back to ``~/.kaggle/access_token`` (``.txt``), then the project ``.kaggle_token``.
+    """Fall back to ``~/.kaggle/access_token`` (or ``access_token.txt``).
 
     Tokens are returned unchanged: a ``KGAT_`` token is an access token, never a legacy key.
     """
     candidates = [Path.home() / ".kaggle" / name for name in _ACCESS_TOKEN_FILES]
-    candidates.append(get_project_root() / ".kaggle_token")
     for candidate in candidates:
         if k_key:
             break
@@ -229,6 +177,15 @@ def export_kaggle_credentials(k_user: str, k_key: str) -> None:
         os.environ.pop("KAGGLE_API_TOKEN", None)
 
 
+def _vault_account(accounts: list[dict[str, Any]], user: str) -> dict[str, Any] | None:
+    """The vault entry of ``user`` (the default account when ``user`` is empty)."""
+    if not accounts:
+        return None
+    if user:
+        return next((a for a in accounts if a.get("username") == user), None)
+    return next((a for a in accounts if a.get("is_default")), accounts[0])
+
+
 def resolve_kaggle_credentials(
     override_user: str | None = None,
     override_key: str | None = None,
@@ -239,8 +196,11 @@ def resolve_kaggle_credentials(
     2. Ecosystem .secrets.yaml vault (default active Kaggle secret)
     3. Environment variables (``KAGGLE_USERNAME``; ``KAGGLE_API_TOKEN``, then ``KAGGLE_KEY``)
     4. User home ``~/.kaggle/kaggle.json``
-    5. ``~/.kaggle/access_token`` (or ``access_token.txt``), then the project ``.kaggle_token``
+    5. ``~/.kaggle/access_token`` (or ``access_token.txt``)
     6. The ecosystem Kaggle owner (``identity.kaggle_owner`` in ``ecosystem.json``)
+
+    A vault token is taken only together with its own account: an ``override_user`` without a
+    key uses that user's vault entry, never the default account's token (K-AUTH-4).
 
     The token is returned exactly as stored (``KGAT_`` prefix kept). Nothing is written to
     disk; see :func:`export_kaggle_credentials` for the environment variables set.
@@ -249,14 +209,11 @@ def resolve_kaggle_credentials(
     k_key = override_key or ""
 
     # Ecosystem .secrets.yaml registry check
-    if not (k_user and k_key):
-        accounts = load_kaggle_users()
-        if accounts:
-            default_acc = next((a for a in accounts if a.get("is_default")), accounts[0])
-            if not k_user:
-                k_user = default_acc.get("username", "")
-            if not k_key:
-                k_key = default_acc.get("token", "")
+    if not k_key:
+        account = _vault_account(load_kaggle_users(), k_user)
+        if account is not None:
+            k_user = k_user or str(account.get("username", ""))
+            k_key = str(account.get("token", ""))
 
     # Environment variables fallback
     if not k_user:

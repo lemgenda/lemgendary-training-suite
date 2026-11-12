@@ -46,9 +46,13 @@ def download_and_extract_dataset(ds_name, data_dir, source_ref=None):
     return False
 
 
-def _inject_kaggle_token(username):
-    """Export Kaggle credentials (prevents 403 errors)."""
-    resolve_kaggle_credentials(override_user=username)
+def _export_kaggle_credentials():
+    """Export the vault / environment / ``access_token`` credential (prevents 403 errors).
+
+    No user override: the dataset owner is not the credential's account, and pairing the
+    owner name with another account's token gave mismatched credentials (K-AUTH-4).
+    """
+    resolve_kaggle_credentials()
 
 
 def _kaggle_slug(username, ds_name, ref):
@@ -90,7 +94,7 @@ def _handle_kaggle(ds_name, data_dir, ref):
         # The Kaggle account owning the manifolds comes from the shared ecosystem file.
         username = kaggle_owner()
 
-        _inject_kaggle_token(username)
+        _export_kaggle_credentials()
         slug = _kaggle_slug(username, ds_name, ref)
 
         print(f"   -> Pulling: {slug}")

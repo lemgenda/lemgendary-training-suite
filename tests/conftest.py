@@ -7,6 +7,8 @@ owner and the docs URL come from the fixture (deliberately different from the re
 proves the code reads the file instead of literals).
 ``LEMGENDARY_TASK_TAXONOMY_FILE`` is unset, so the datasets task taxonomy is looked up in the empty
 workspace; tests that need it point the variable at ``tests/fixtures/task_taxonomy.json``.
+The ``.secrets.yaml`` vault reader returns no records, so no test can read the real vault next
+to the checkout (tests that need accounts patch it with fixture records).
 """
 
 from collections.abc import Iterator
@@ -15,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from training import ecosystem
+from training.cloud import credentials
 from training.data import task_resolution
 from training.ecosystem import ECOSYSTEM_FILE_ENV
 from training.utils.paths import WORKSPACE_ROOT_ENV
@@ -30,6 +33,7 @@ def fake_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     monkeypatch.setenv(WORKSPACE_ROOT_ENV, str(workspace))
     monkeypatch.setenv(ECOSYSTEM_FILE_ENV, str(ECOSYSTEM_FIXTURE))
     monkeypatch.delenv(task_resolution.TASK_TAXONOMY_ENV, raising=False)
+    monkeypatch.setattr(credentials, "load_secrets_yaml_registry", list)
     ecosystem.clear_cache()
     task_resolution.clear_cache()
     yield workspace

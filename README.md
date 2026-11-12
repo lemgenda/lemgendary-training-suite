@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.177-STABLE`
+- **Version**: `v16.9.178-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,33 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.178 - Vault-Only Kaggle Accounts, Plain Secrets Cell (R3-K3)
+
+- K-AUTH-4: the legacy `.kaggle_users` registry and the project
+  `.kaggle_token` file are no longer read or written.
+  `credentials.load_kaggle_users()` returns the `.secrets.yaml` vault
+  accounts only (`find_kaggle_users_file` and `parse_kaggle_users_text`
+  are deleted); the resolver order is vault, environment, `kaggle.json`,
+  `~/.kaggle/access_token`. An override user without a key takes its own
+  vault entry, never the default account's token (no mismatched pair).
+- `training/kaggle_accounts.py`: `vault_accounts()` replaces
+  `load_kaggle_users` / `find_kaggle_users_file` / `save_kaggle_user`;
+  `python -m training.kaggle_monitor` lists the vault accounts and takes
+  session-only credentials (nothing saved; `--users_file` removed).
+- `data/data_utils.py` exports the resolved credential without forcing
+  the dataset owner as the user (`_export_kaggle_credentials`).
+- K-NB-6, K-AUTH-3: the notebook secrets cell
+  (`training/notebooks/cells/secrets.py`, moved out of `cells/sync.py`)
+  uses a plain `from kaggle_secrets import UserSecretsClient` (Colab:
+  `google.colab.userdata`), catches only the client's missing-secret
+  errors, exports the `KAGGLE_API_TOKEN` secret only when it is a `KGAT_`
+  token (legacy keys are refused) and never writes `kaggle.json`. The
+  `KAGGLE_KEY` / `KAGGLE_USERNAME` secrets are no longer read.
+- Tests: `tests/unit/test_kaggle_secrets_cleanup.py` (vault-only accounts,
+  override user, the generated Kaggle and Colab cells run against fake
+  secrets clients); `tests/conftest.py` stubs the vault reader so no test
+  can read a real `.secrets.yaml` next to the checkout.
 
 ### v16.9.177 - One Kaggle Push Policy, Variation Enum (R3-K3)
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from training.cloud.credentials import (
-    find_kaggle_users_file,
     load_kaggle_users,
     mask_secret,
     resolve_gdrive_credentials,
@@ -56,7 +55,6 @@ __all__ = [
     "VariationPushResult",
     "VariationSection",
     "compute_file_sha256",
-    "find_kaggle_users_file",
     "generate_kaggle_metadata",
     "git_hub_sync",
     "load_kaggle_users",

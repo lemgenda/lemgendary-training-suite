@@ -21,7 +21,7 @@ from ..cells.env import build_sentinel_cell
 from ..cells.inference import build_onnx_fp16_cell, build_onnx_fp32_cell, build_pth_cell
 from ..cells.model import build_hub_prep_cell
 from ..cells.repo import build_clone_cell
-from ..cells.sync import build_secrets_cell
+from ..cells.secrets import build_secrets_cell
 from ..registry import (
     ModelNotebookMeta,
     load_registry,

@@ -23,11 +23,11 @@ from .model import (
     build_stealth_cell,
 )
 from .repo import build_clone_cell
+from .secrets import build_secrets_cell
 from .sync import (
     build_continuous_sync_cell,
     build_fuse_mount_cell,
     build_push_cell,
-    build_secrets_cell,
     build_training_cell,
 )
 
