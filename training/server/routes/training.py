@@ -17,6 +17,7 @@ from training.cloud.kaggle_client import (
 )
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 from training.cloud.kernel_bundle import KernelBundleError, checked_accelerator
+from training.cloud.session_deadline import load_session_config
 from training.cloud.variations import ALL_VARIATIONS, VariationChoice, VariationKey
 from training.ecosystem import kaggle_accelerator, kaggle_accelerators
 from training.kaggle_accounts import fetch_user_kernels
@@ -163,6 +164,21 @@ class KaggleTrainRequest(BaseModel):
     poll_interval: int = Field(
         30, ge=5, description="First status poll interval in seconds (backs off to 300 s)"
     )
+    auto_resume: bool | None = Field(
+        None,
+        description=(
+            "Push a new kernel version when a session stops at its Kaggle deadline "
+            "(default: kaggle_session.auto_resume of config.yaml)"
+        ),
+    )
+    max_resumes: int | None = Field(
+        None,
+        ge=0,
+        description=(
+            "Most resume sessions this job pushes (default: kaggle_session.max_resumes of "
+            "config.yaml)"
+        ),
+    )
 
 
 class KaggleMonitorRequest(BaseModel):
@@ -248,14 +264,22 @@ def list_kaggle_accelerators() -> dict[str, Any]:
 
 @router.post("/kaggle/train", responses=_UNKNOWN_MODEL | _BAD_ACCELERATOR)
 def launch_kaggle_train(payload: KaggleTrainRequest, request: Request) -> dict[str, Any]:
-    """Enqueue Kaggle cloud training: push the generated notebook kernel and watch it."""
+    """Enqueue Kaggle cloud training: push the generated notebook kernel and watch it.
+
+    ``auto_resume`` / ``max_resumes`` default to ``kaggle_session`` of ``config.yaml``; the job
+    records the effective values.
+    """
     _require_registered_model(payload.model)
     try:
         accelerator = checked_accelerator(payload.accelerator)
     except KernelBundleError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     manager = request.app.state.job_manager
+    chain = load_session_config(manager.project_root).with_chain(
+        payload.auto_resume, payload.max_resumes
+    )
     params = payload.model_dump()
+    params.update(auto_resume=chain.auto_resume, max_resumes=chain.max_resumes)
     job_id = manager.submit_job(job_type="kaggle_train", model_key=payload.model, params=params)
     return {
         "job_id": job_id,

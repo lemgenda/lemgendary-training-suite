@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.181-STABLE`
+- **Version**: `v16.9.182-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,24 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.182 - Per-Job Kaggle Auto-Resume Options
+
+- `POST /api/training/kaggle/train` takes `auto_resume` (bool) and
+  `max_resumes` (int >= 0), both optional. Left out, they default to
+  `kaggle_session.auto_resume` / `max_resumes` of `config.yaml` (the one
+  source of the defaults); given, they override it for that job only.
+  The job params record the effective values; bad values answer 422.
+- `SessionDeadlineConfig.with_chain` (new) applies the overrides and
+  validates them with the config rule (`check_chain`); the GUI job's
+  resume chain reads the job params through it.
+- `limit_hours` stays config-only: the kernel reads it from the bundled
+  `config.yaml`, so a per-job value would need a notebook change.
+- `openapi.json` regenerated (`python -m tools.export_openapi`).
+- Tests: `tests/unit/test_kaggle_train_route.py` (config defaults,
+  overrides, 422 cases; job queue replaced by a recorder),
+  `tests/unit/test_session_deadline.py` (overrides, chain follows the
+  job values).
 
 ### v16.9.181 - Shared Kaggle Test Home Fixture (R3-K3)
 

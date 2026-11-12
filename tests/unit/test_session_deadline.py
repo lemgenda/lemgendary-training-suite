@@ -117,3 +117,31 @@ def test_gui_chain_resumes_up_to_the_limit(tmp_path: Path, monkeypatch: pytest.M
     api, jobs = _run_chain(tmp_path, monkeypatch, auto_resume=True)
     assert len(api.pushed) == 3
     assert jobs.statuses[-1]["metrics"]["resumes"] == 2
+
+
+def test_per_job_chain_overrides_config() -> None:
+    """None keeps the config value; explicit values override it and are validated."""
+    settings = SessionDeadlineConfig.from_config({"kaggle_session": {"max_resumes": 2}})
+    assert settings.with_chain() == settings
+    resumed = settings.with_chain(auto_resume=True, max_resumes=5)
+    assert (resumed.auto_resume, resumed.max_resumes) == (True, 5)
+    assert settings.with_chain(auto_resume=False, max_resumes=0).max_resumes == 0
+    with pytest.raises(ValueError):
+        settings.with_chain(max_resumes=-1)
+
+
+def test_gui_chain_follows_job_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Request values beat the config: auto_resume on with one resume pushes two sessions."""
+    project = tmp_path / "project"
+    project.mkdir()
+    api = _DeadlineKaggle()
+    monkeypatch.setattr(job_kaggle_run, "resolve_kaggle_credentials", lambda: ("u", "KGAT_x"))
+    monkeypatch.setattr(job_kaggle_run, "authenticated_kaggle_api", lambda _u, _k: api)
+    jobs = _RecordingJobs(tmp_path / "hub")
+    jobs.project_root = project
+    event = threading.Event()
+    monkeypatch.setattr(event, "wait", lambda _s=None: False)
+    params = {"auto_pull": False, "auto_resume": True, "max_resumes": 1}
+    jobs.execute_kaggle_training("job", "codeformer", params, event)
+    assert len(api.pushed) == 2
+    assert jobs.statuses[-1]["metrics"]["resumes"] == 1

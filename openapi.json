@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.181"
+    "version": "16.9.182"
   },
   "paths": {
     "/api/health": {
@@ -1130,7 +1130,7 @@
           "training"
         ],
         "summary": "Launch Kaggle Train",
-        "description": "Enqueue Kaggle cloud training: push the generated notebook kernel and watch it.",
+        "description": "Enqueue Kaggle cloud training: push the generated notebook kernel and watch it.\n\n``auto_resume`` / ``max_resumes`` default to ``kaggle_session`` of ``config.yaml``; the job\nrecords the effective values.",
         "operationId": "launch_kaggle_train_api_training_kaggle_train_post",
         "requestBody": {
           "content": {
@@ -2090,6 +2090,31 @@
             "title": "Poll Interval",
             "description": "First status poll interval in seconds (backs off to 300 s)",
             "default": 30
+          },
+          "auto_resume": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Resume",
+            "description": "Push a new kernel version when a session stops at its Kaggle deadline (default: kaggle_session.auto_resume of config.yaml)"
+          },
+          "max_resumes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Resumes",
+            "description": "Most resume sessions this job pushes (default: kaggle_session.max_resumes of config.yaml)"
           }
         },
         "type": "object",

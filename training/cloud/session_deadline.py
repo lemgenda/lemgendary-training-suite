@@ -11,7 +11,9 @@ notebook's first cell exports; without it the training process start counts (lat
 real session start, so the margin should cover the notebook set-up).
 
 ``auto_resume`` (default off) lets the watcher of a GUI-launched kernel push a new kernel
-version when a session ended at its deadline, at most ``max_resumes`` times per job.
+version when a session ended at its deadline, at most ``max_resumes`` times per job. The
+config values are the defaults; ``POST /api/training/kaggle/train`` may override both per job
+(:meth:`SessionDeadlineConfig.with_chain`).
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ import logging
 import os
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -62,10 +64,30 @@ class SessionDeadlineConfig:
             raise ValueError(f"{CONFIG_SECTION}: limit_hours must be > 0, margin_minutes >= 0")
         if settings.margin_minutes * 60 >= settings.limit_hours * 3600:
             raise ValueError(f"{CONFIG_SECTION}: margin_minutes must be below limit_hours")
-        if not isinstance(settings.auto_resume, bool):
+        settings.check_chain()
+        return settings
+
+    def check_chain(self) -> None:
+        """Validate the resume-chain settings (``auto_resume``, ``max_resumes``)."""
+        if not isinstance(self.auto_resume, bool):
             raise TypeError(f"{CONFIG_SECTION}.auto_resume must be true or false")
-        if not isinstance(settings.max_resumes, int) or settings.max_resumes < 0:
+        if (
+            isinstance(self.max_resumes, bool)
+            or not isinstance(self.max_resumes, int)
+            or self.max_resumes < 0
+        ):
             raise ValueError(f"{CONFIG_SECTION}.max_resumes must be an integer >= 0")
+
+    def with_chain(
+        self, auto_resume: bool | None = None, max_resumes: int | None = None
+    ) -> SessionDeadlineConfig:
+        """These settings with the per-job resume-chain overrides (None keeps the value)."""
+        settings = replace(
+            self,
+            auto_resume=self.auto_resume if auto_resume is None else auto_resume,
+            max_resumes=self.max_resumes if max_resumes is None else max_resumes,
+        )
+        settings.check_chain()
         return settings
 
 

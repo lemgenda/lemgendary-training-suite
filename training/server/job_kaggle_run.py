@@ -176,7 +176,9 @@ class KaggleRunJobsMixin:
             job_id, f"[KAGGLE] Authenticating as '{user}' (accelerator: {accelerator or 'default'})"
         )
         api = _authenticated_api(user, key, ". Please configure the Kaggle API token.")
-        chain = load_session_config(self.project_root)
+        chain = load_session_config(self.project_root).with_chain(
+            params.get("auto_resume"), params.get("max_resumes")
+        )
         resumes = 0
         while True:
             watch = self._launch(job_id, model_key, user, api, params)
@@ -195,7 +197,7 @@ class KaggleRunJobsMixin:
             self._broadcast_log(
                 job_id,
                 f"[CHAIN] Session stopped at its deadline; pushing resume session "
-                f"{resumes}/{chain.max_resumes} (kaggle_session.auto_resume).",
+                f"{resumes}/{chain.max_resumes} (auto_resume).",
             )
 
     def _launch(
