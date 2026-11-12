@@ -19,8 +19,9 @@ hardware:
   # Override here ONLY if you need to force a specific cap on this machine.
   # cudnn_workspace_cap_val: 4
   # cudnn_workspace_cap_train: 16
-  # directml_assumed_free_gb: 2.0  # DirectML reports no device memory; the VRAM refit
-  #   assumes this much is free (training/hardware/device_memory.py, default 2.0).
+  # directml_assumed_free_gb: 2.0  # DirectML free memory override. Unset (default): the
+  #   DXGI per-process budget minus usage (integrated GPUs capped by host RAM), else 0.8 x
+  #   dedicated VRAM, else 2.0 GB (training/hardware/device_memory.py). Set wins over all.
   enable_expandable_segments: true
   num_workers: auto  # Dynamically managed by train.py: 0 on Windows, 4 on Kaggle/Colab
   val_num_workers: auto  # Independent validation workers: 0 on Windows, 1-2 on Kaggle/Colab

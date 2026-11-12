@@ -26,6 +26,30 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.188 - DirectML Free Memory from the DXGI Budget (R4-C6)
+
+- DirectML free memory is read, not assumed. New module
+  `training/hardware/dxgi_memory.py` calls
+  `IDXGIAdapter3::QueryVideoMemoryInfo` through stdlib `ctypes` (Windows
+  only): free = LOCAL budget minus current usage, total = budget,
+  `measured=True`, read again on every `budget()` call (start-up,
+  resolution jump, resume).
+- The adapter is matched to the torch-directml device by name
+  (`torch_directml.device_name(i)` equals the DXGI description); an
+  ambiguous or unmatched name takes the smallest budget (logged). Software
+  adapters are skipped. Integrated GPUs (dedicated memory under 1 GiB, or a
+  budget above dedicated plus shared memory) are capped by available host
+  RAM.
+- Fallback chain: DXGI budget, then 0.8 x the adapter's dedicated video
+  memory (`measured=False`), then 2.0 GB. An explicitly set
+  `hardware.directml_assumed_free_gb` wins over everything; it stays
+  commented out in `config.yaml`. On other platforms DXGI is skipped.
+- `DirectMLMemory` depends on an `AdapterReader` callable;
+  `device_name()` reports the torch-directml name when available.
+- Tests: `tests/unit/test_directml_memory.py` (mocked reader; one
+  structural check of the real query on Windows); `test_device_memory.py`
+  updated.
+
 ### v16.9.187 - Resume Finishes the Epoch, New Settings Apply Next (R4-C5)
 
 - Owner decision: a paused run finishes the current epoch on the settings

@@ -14,9 +14,13 @@ directly, so the same refit runs on every backend:
   available RAM)``. MPS has no peak statistic: the probe samples the allocation at its
   observation points (:meth:`DeviceMemory.observe`).
 * ``dml``: DirectML (``torch-directml``, device type ``privateuseone``) reports no memory
-  at all; the budget is the conservative ``hardware.directml_assumed_free_gb`` (default
-  :data:`DIRECTML_ASSUMED_FREE_GB`) and the per-sample cost falls back to the probe's
-  resolution-scaled formula.
+  itself. The budget is read on every call through a chain: an explicitly set
+  ``hardware.directml_assumed_free_gb`` wins; else the DXGI per-process budget of the
+  adapter (:mod:`training.hardware.dxgi_memory`, Windows): ``budget - current usage``,
+  capped by host available RAM on an integrated (unified-memory) GPU, measured; else
+  :data:`DIRECTML_DEDICATED_FRACTION` of the adapter's dedicated video memory (estimate);
+  else :data:`DIRECTML_ASSUMED_FREE_GB`. The per-sample cost falls back to the probe's
+  resolution-scaled formula (no allocation statistics).
 * ``cpu``: no device budget; every operation is a no-op.
 
 Every estimate (any budget that is not a direct free-memory reading, including a CUDA or
@@ -26,18 +30,32 @@ XPU query that failed) is logged when it is taken.
 from __future__ import annotations
 
 import gc
+import importlib
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 import psutil
 import torch
 
+from training.hardware.dxgi_memory import (
+    AdapterMemory,
+    AdapterReader,
+    candidate_adapters,
+    default_adapter_reader,
+    is_unified_memory,
+)
+
 logger = logging.getLogger("lemtrain.hardware.device_memory")
 
 DIRECTML_ASSUMED_FREE_GB = 2.0
-"""DirectML budget when ``hardware.directml_assumed_free_gb`` is unset: the smallest VRAM
-of the DirectX 12 GPUs the suite targets, so the refit never overcommits an unknown card."""
+"""DirectML budget when neither DXGI nor the adapter description answers and
+``hardware.directml_assumed_free_gb`` is unset: the smallest VRAM of the DirectX 12 GPUs
+the suite targets, so the refit never overcommits an unknown card."""
+
+DIRECTML_DEDICATED_FRACTION = 0.8
+"""Share of the adapter's dedicated video memory assumed free when DXGI has no budget."""
 
 _GIB = 1024**3
 
@@ -261,24 +279,124 @@ class MpsMemory(DeviceMemory):
         return self._peak
 
 
+def directml_device_name(index: int) -> str | None:
+    """``torch_directml.device_name(index)``, or ``None`` without torch-directml (logged)."""
+    try:
+        torch_directml = importlib.import_module("torch_directml")
+        return str(torch_directml.device_name(index))
+    except (ImportError, AttributeError, RuntimeError) as exc:
+        logger.debug("[VRAM] torch-directml device name unavailable: %s", exc)
+        return None
+
+
 class DirectMLMemory(DeviceMemory):
-    """DirectML devices: no memory query exists, so the budget is a configured estimate."""
+    """DirectML devices: free memory from the DXGI budget, else a logged estimate.
+
+    ``override_free_gb`` (an explicitly set ``hardware.directml_assumed_free_gb``) wins over
+    every reading. ``read_adapters`` reads the adapters' video memory (``None`` skips DXGI,
+    as on every platform but Windows); ``name_of`` maps the device index to its torch-directml
+    name, which selects the DXGI adapter.
+    """
 
     name = "dml"
 
-    def __init__(self, assumed_free_gb: float = DIRECTML_ASSUMED_FREE_GB) -> None:
-        self.assumed_free_bytes = int(max(0.0, float(assumed_free_gb)) * _GIB)
+    def __init__(
+        self,
+        index: int = 0,
+        *,
+        override_free_gb: float | None = None,
+        read_adapters: AdapterReader | None = None,
+        name_of: Callable[[int], str | None] = directml_device_name,
+    ) -> None:
+        self.index = index
+        self.override_free_bytes = (
+            int(override_free_gb * _GIB) if override_free_gb is not None else None
+        )
+        self._read_adapters = read_adapters
+        self._name_of = name_of
 
     def budget(self) -> MemoryBudget | None:
-        logger.info(
-            "[VRAM] DirectML reports no device memory; assuming %.2f GB free "
-            "(hardware.directml_assumed_free_gb).",
-            self.assumed_free_bytes / _GIB,
+        if self.override_free_bytes is not None:
+            logger.info(
+                "[VRAM] DirectML: hardware.directml_assumed_free_gb is set; assuming %.2f GB free.",
+                self.override_free_bytes / _GIB,
+            )
+            return MemoryBudget(self.override_free_bytes, self.override_free_bytes, False)
+        candidates = self._candidates()
+        return (
+            self._dxgi_budget(candidates)
+            or self._dedicated_estimate(candidates)
+            or self._assumed_default()
         )
-        return MemoryBudget(self.assumed_free_bytes, self.assumed_free_bytes, measured=False)
+
+    def _candidates(self) -> list[AdapterMemory]:
+        """The DXGI adapters that may be this device (empty when DXGI is unavailable)."""
+        if self._read_adapters is None:
+            return []
+        try:
+            adapters = self._read_adapters()
+        except (OSError, AttributeError, ValueError) as exc:
+            logger.warning("[VRAM] DirectML: DXGI query failed (%s); estimating.", exc)
+            return []
+        return candidate_adapters(adapters, self._name_of(self.index))
+
+    @staticmethod
+    def _dxgi_budget(candidates: list[AdapterMemory]) -> MemoryBudget | None:
+        """``budget - usage`` of the candidate with the smallest DXGI budget (measured)."""
+        budgeted = [
+            (adapter, adapter.budget_bytes)
+            for adapter in candidates
+            if adapter.budget_bytes is not None
+        ]
+        if not budgeted:
+            return None
+        adapter, total = min(budgeted, key=lambda item: item[1])
+        usage = adapter.usage_bytes or 0
+        free = max(0, total - usage)
+        unified = is_unified_memory(adapter)
+        if unified:
+            free = min(free, int(psutil.virtual_memory().available))
+        logger.info(
+            "[VRAM] DirectML %s: DXGI budget %.2f GB, in use %.2f GB, free %.2f GB%s.",
+            adapter.name,
+            total / _GIB,
+            usage / _GIB,
+            free / _GIB,
+            " (integrated GPU, capped by host available RAM)" if unified else "",
+        )
+        return MemoryBudget(free, total, measured=True)
+
+    @staticmethod
+    def _dedicated_estimate(candidates: list[AdapterMemory]) -> MemoryBudget | None:
+        """:data:`DIRECTML_DEDICATED_FRACTION` of the smallest dedicated memory (estimate)."""
+        sized = [adapter for adapter in candidates if adapter.dedicated_bytes > 0]
+        if not sized:
+            return None
+        adapter = min(sized, key=lambda item: item.dedicated_bytes)
+        free = int(adapter.dedicated_bytes * DIRECTML_DEDICATED_FRACTION)
+        logger.info(
+            "[VRAM] DirectML %s: no DXGI budget; assuming %.2f GB free (%.0f%% of %.2f GB "
+            "dedicated video memory).",
+            adapter.name,
+            free / _GIB,
+            DIRECTML_DEDICATED_FRACTION * 100,
+            adapter.dedicated_bytes / _GIB,
+        )
+        return MemoryBudget(free, adapter.dedicated_bytes, measured=False)
+
+    @staticmethod
+    def _assumed_default() -> MemoryBudget:
+        """The documented :data:`DIRECTML_ASSUMED_FREE_GB` (estimate)."""
+        free = int(DIRECTML_ASSUMED_FREE_GB * _GIB)
+        logger.info(
+            "[VRAM] DirectML reports no device memory and DXGI did not answer; assuming "
+            "%.2f GB free (default; hardware.directml_assumed_free_gb overrides).",
+            free / _GIB,
+        )
+        return MemoryBudget(free, free, measured=False)
 
     def device_name(self) -> str:
-        return "Microsoft DirectML"
+        return self._name_of(self.index) or "Microsoft DirectML"
 
     def device_count(self) -> int:
         return 1
@@ -335,13 +453,13 @@ class CpuMemory(DeviceMemory):
         return 0
 
 
-def directml_assumed_free_gb(config: dict[str, Any] | None) -> float:
-    """``hardware.directml_assumed_free_gb`` from ``config``, else the documented default."""
+def directml_free_gb_override(config: dict[str, Any] | None) -> float | None:
+    """An explicitly set positive ``hardware.directml_assumed_free_gb``, else ``None``."""
     hardware = (config or {}).get("hardware") or {}
     value = hardware.get("directml_assumed_free_gb") if isinstance(hardware, dict) else None
-    return (
-        float(value) if isinstance(value, (int, float)) and value > 0 else DIRECTML_ASSUMED_FREE_GB
-    )
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return float(value)
 
 
 def device_memory_for(device: torch.device, config: dict[str, Any] | None = None) -> DeviceMemory:
@@ -354,7 +472,11 @@ def device_memory_for(device: torch.device, config: dict[str, Any] | None = None
     if device.type == "mps" and torch.backends.mps.is_available():
         return MpsMemory()
     if device.type in ("dml", "privateuseone"):
-        return DirectMLMemory(directml_assumed_free_gb(config))
+        return DirectMLMemory(
+            index,
+            override_free_gb=directml_free_gb_override(config),
+            read_adapters=default_adapter_reader(),
+        )
     return CpuMemory()
 
 

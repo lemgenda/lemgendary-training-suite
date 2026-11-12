@@ -180,8 +180,11 @@ def test_mps_peak_is_sampled_at_observation_points(monkeypatch: pytest.MonkeyPat
     assert memory.peak_allocated() == 3 * GIB
 
 
-def test_directml_budget_from_config_or_default(caplog: pytest.LogCaptureFixture) -> None:
-    """DirectML has no query: the configured or documented default estimate, logged."""
+def test_directml_budget_from_config_or_default(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Without DXGI: the configured or documented default estimate, logged."""
+    monkeypatch.setattr(device_memory, "default_adapter_reader", lambda: None)
     config = {"hardware": {"directml_assumed_free_gb": 6}}
     with caplog.at_level(logging.INFO, logger="lemtrain.hardware.device_memory"):
         configured = device_memory_for(torch.device("privateuseone"), config).budget()
