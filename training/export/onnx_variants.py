@@ -15,6 +15,7 @@ File suffixes come from :mod:`training.cloud.variations` and the sidecar rule fr
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -109,13 +110,16 @@ class OnnxVariantWriter:
     graph is captured from a half-precision copy of the model with the same spec, so both
     variants share their input names and dynamic axes. The caller's model is never cast.
     ``fp32_io`` keeps FP32 inputs and outputs on reduced-precision variants (see
-    :class:`Float32Io`).
+    :class:`Float32Io`). ``finalizers`` maps a variant key to a step run on the written file
+    (e.g. the MT5 IR stamp of the Forex FP16 artefact), so a model family adapts its release
+    files without changing the writer.
     """
 
     model: nn.Module
     inputs: tuple[torch.Tensor, ...]
     graph: OnnxGraphSpec
     fp32_io: bool = False
+    finalizers: Mapping[str, Callable[[Path], None]] = field(default_factory=dict)
     _verified: VerifiedProgram | None = field(default=None, init=False, repr=False)
 
     def verified(self) -> VerifiedProgram:
@@ -140,6 +144,9 @@ class OnnxVariantWriter:
         """Export ``variant`` to ``path``; returns ``{key: path}`` plus ``{data_key: sidecar}``."""
         logger.info("Exporting %s ONNX graph to %s", variant.key, path)
         sidecar = save_program(self._program(variant), path, variant.layout)
+        finalize = self.finalizers.get(variant.key)
+        if finalize is not None:
+            finalize(path)
         files = {variant.key: path}
         if sidecar is not None:
             files[variant.data_key] = sidecar

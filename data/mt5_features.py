@@ -288,7 +288,7 @@ def generate_labels(
         US500/USTEC/GER40/USOIL: index-specific pip sizes
         Others: 0.0001 pip size
     """
-    pip_size = _pip_size(pair)
+    pip_size = pair_pip_size(pair)
 
     # Per-pair average spread in pips for realistic label economics
     spread_pips = PAIR_SPREADS_PIPS.get(pair, 2.0)
@@ -324,7 +324,7 @@ def generate_labels(
     return df
 
 
-def _pip_size(pair: str) -> float:
+def pair_pip_size(pair: str) -> float:
     """Price change of one pip for ``pair``."""
     if any(x in pair for x in ["JPY"]):
         return 0.01

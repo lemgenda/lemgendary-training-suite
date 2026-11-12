@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.184-STABLE`
+- **Version**: `v16.9.185-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,42 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.185 - MT5 Artefact Loads in ONNX Runtime 1.17, MQL5 Expert Advisor (R4-C1)
+
+- MetaTrader 5 (build 4230 and later) bundles ONNX Runtime 1.17, which reads
+  opsets up to 20 but IR versions only up to 9; `torch.onnx.export` with onnx
+  1.23 stamps IR 10, so MT5 refused the model. Opset 18 is kept.
+- `training/export/mt5_compat.py` (new): `make_mt5_compatible` rewrites the
+  MT5 artefact as one file with embedded weights (`OnnxCreate` cannot read
+  an `.onnx.data` sidecar) and stamps IR 9 after `ir9_blockers` finds no IR
+  10 feature (local functions, overloads, 4/2-bit or 8-bit float types,
+  custom domains, opset above 20); the exporter's per-node metadata (an IR 10
+  field) is dropped, then `onnx.checker.check_model(full_check=True)` runs.
+- `OnnxVariantWriter.finalizers` (new, per variant key) runs a step on a
+  written file. `forex_variant_writer` finalizes the FP16 `<Stem>.onnx`
+  (FP32 I/O, the EA's model) and the new `MT5_FP32_VARIANT`;
+  `export_forex_onnx_from_model` now writes that single-file FP32 IR 9 graph
+  (it wrote the FP32 sidecar layout MT5 cannot load). The release
+  `<Stem>_FP32.onnx` + `.onnx.data` is unchanged.
+- MQL5 Expert Advisor: `training/export/mql5_ea.py` (new) renders it from the
+  registry (`python -m export.mt5_signal --mode mql5_ea`, was `mql5_stub`):
+  `CTrade` orders, `OnnxCreate` / `OnnxSetInputShape` / `OnnxSetOutputShape`
+  (batch 1: one `[1, lookback, features]` float matrix per timeframe, the
+  int64 pair index, outputs `[1, 3]` and `[1, 2]`), `OnnxRun`, softmax and
+  confidence gate, risk-based lot size, the pair index and model-unit price
+  per symbol, and `RiskPct` from `evaluation.risk_per_trade`. The MQL4
+  `OrderSend(..., OP_BUY, ...)` stub is gone. `BuildFeatures` must still be
+  ported from `data/mt5_features.py`; until then the EA places no trade.
+  `data.mt5_features.pair_pip_size` is public (was `_pip_size`);
+  `DIRECTION_LABELS` moved to `training/export/mt5_signal.py`.
+- `tools/mt5_ort_check.py` (new): runs a model under a separate interpreter
+  with `onnxruntime==1.17.3` and `numpy<2` (one venv cannot hold two ONNX
+  Runtime releases); setup and manual check in its docstring.
+- Tests: `tests/unit/test_mt5_onnx_compat.py` (IR 9, opset 18, single file,
+  FP32 I/O, checker, refusals, EA source); the ORT 1.17.3 load and parity
+  test runs when `LEMTRAIN_MT5_ORT_PYTHON` names that interpreter (passed
+  here against a scratch venv).
 
 ### v16.9.184 - Forex Risk per Trade Registry Setting (R4-C3)
 

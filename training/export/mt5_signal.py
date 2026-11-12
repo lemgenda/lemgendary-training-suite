@@ -19,13 +19,24 @@ from training.export.common import (
     OnnxGraphSpec,
     load_checkpoint_weights,
 )
-from training.export.onnx_variants import ONNX_FP32_VARIANT, OnnxVariantWriter
+from training.export.mt5_compat import make_mt5_compatible
+from training.export.onnx_variants import ONNX_FP16_VARIANT, OnnxVariant, OnnxVariantWriter
+from training.export.onnx_weights import WeightLayout
 from training.utils.model_payload import ModelPayloadError, load_model_payload
 
 logger = logging.getLogger("lemtrain.export.mt5_signal")
 
 DEFAULT_TIMEFRAMES: tuple[int, ...] = (1, 5, 15, 60, 240, 1440)
 FOREX_OUTPUT_NAMES: tuple[str, ...] = ("direction_logits", "magnitude")
+DIRECTION_LABELS: dict[int, str] = {0: "SELL", 1: "HOLD", 2: "BUY"}
+"""Direction class of each ``direction_logits`` index (``data.mt5_features.generate_labels``)."""
+MT5_FP32_VARIANT = OnnxVariant("onnx_mt5_fp32", torch.float32, WeightLayout.EMBEDDED, ".onnx")
+"""FP32 graph as one MT5 file (embedded weights, IR 9): :func:`export_forex_onnx_from_model`."""
+MT5_VARIANT_KEYS: tuple[str, ...] = (ONNX_FP16_VARIANT.key, MT5_FP32_VARIANT.key)
+"""Variants written as MT5 artefacts (:func:`training.export.mt5_compat.make_mt5_compatible`).
+
+The release FP16 ``<Stem>.onnx`` (FP32 I/O, embedded weights) is the EA's model; the release
+FP32 ``<Stem>_FP32.onnx`` keeps its sidecar for other runtimes and is not MT5-loadable."""
 _SAMPLE_BATCH = 2
 """Export sample batch: ``torch.export`` specialises an axis whose sample size is 1."""
 
@@ -95,9 +106,18 @@ def forex_variant_writer(
     active_timeframes: list[int] | None = None,
     opset: int = DEFAULT_ONNX_OPSET,
 ) -> OnnxVariantWriter:
-    """Variant writer for a ForexPredictor; reduced-precision variants keep FP32 I/O for MT5."""
+    """Variant writer for a ForexPredictor; reduced-precision variants keep FP32 I/O for MT5.
+
+    The MT5 variants (:data:`MT5_VARIANT_KEYS`) are rewritten as single-file IR 9 graphs.
+    """
     fx = forex_onnx_graph(model, active_timeframes, opset)
-    return OnnxVariantWriter(fx.module, fx.inputs, fx.graph, fp32_io=True)
+    return OnnxVariantWriter(
+        fx.module,
+        fx.inputs,
+        fx.graph,
+        fp32_io=True,
+        finalizers=dict.fromkeys(MT5_VARIANT_KEYS, make_mt5_compatible),
+    )
 
 
 def export_forex_onnx_from_model(
@@ -106,13 +126,12 @@ def export_forex_onnx_from_model(
     active_timeframes: list[int] | None = None,
     opset: int = DEFAULT_ONNX_OPSET,
 ) -> Path:
-    """Export an in-memory ForexPredictor to an MT5-compatible FP32 ONNX graph (+ sidecar)."""
+    """Export an in-memory ForexPredictor to one MT5-loadable FP32 ONNX file (IR 9, embedded)."""
     out_file = Path(out_path).resolve()
     out_file.parent.mkdir(parents=True, exist_ok=True)
-    fx = forex_onnx_graph(model, active_timeframes, opset)
     logger.info("Exporting Forex ONNX model to %s (opset=%d)...", out_file, opset)
     try:
-        OnnxVariantWriter(fx.module, fx.inputs, fx.graph).write(ONNX_FP32_VARIANT, out_file)
+        forex_variant_writer(model, active_timeframes, opset).write(MT5_FP32_VARIANT, out_file)
     except EXPORT_ERRORS as exc:
         err_msg = f"Forex ONNX export failed: {exc}"
         logger.error(err_msg)
