@@ -9,6 +9,11 @@ would have trained on.
 
 Under DDP every rank takes its strided share of the (padded) permutation, matching
 ``DistributedSampler``.
+
+After :meth:`ResumableBatchSampler.set_shard_window` the epoch permutation is the
+shard-window order of :func:`training.data.locality.shard_window_order` instead of a
+uniform one, so the ranks read the same few shards at a time; it is drawn from
+``seed + epoch`` too.
 """
 
 from __future__ import annotations
@@ -20,6 +25,8 @@ from typing import Any
 import torch
 import torch.distributed as dist
 from torch.utils.data import Sampler
+
+from training.data.locality import ShardWindow
 
 DEFAULT_SAMPLER_SEED = 42
 """Base seed of the epoch permutations (the Forex row-group sampler uses the same)."""
@@ -57,9 +64,34 @@ class ResumableBatchSampler(Sampler[list[int]]):
         self.shuffle = shuffle
         self.drop_last = drop_last
         self.seed = int(seed)
-        self.rank, self.world_size = distributed_rank_world()
+        self._topology = distributed_rank_world()
         self.epoch = 0
         self._start_batch = 0
+        self.shard_window: ShardWindow | None = None
+
+    @property
+    def rank(self) -> int:
+        """This process's DDP rank (0 without a process group)."""
+        return self._topology[0]
+
+    @rank.setter
+    def rank(self, rank: int) -> None:
+        self._topology = (int(rank), self._topology[1])
+
+    @property
+    def world_size(self) -> int:
+        """DDP world size (1 without a process group)."""
+        return self._topology[1]
+
+    @world_size.setter
+    def world_size(self, world_size: int) -> None:
+        self._topology = (self._topology[0], int(world_size))
+
+    def set_shard_window(self, window: ShardWindow | None) -> None:
+        """Order shuffled epochs by ``window`` (``None`` restores the uniform permutation)."""
+        if window is not None and len(window.keys) != self.num_samples:
+            raise ValueError(f"{len(window.keys)} shard keys for {self.num_samples} samples")
+        self.shard_window = window
 
     def set_epoch(self, epoch: int) -> None:
         """Select the permutation of ``epoch``."""
@@ -69,13 +101,17 @@ class ResumableBatchSampler(Sampler[list[int]]):
         """Begin the next iteration at ``start_batch`` (resets after that iteration)."""
         self._start_batch = max(0, int(start_batch))
 
-    def _rank_indices(self) -> list[int]:
+    def _epoch_order(self) -> list[int]:
+        if self.shuffle and self.shard_window is not None:
+            return self.shard_window.order(self.seed + self.epoch)
         if self.shuffle:
             generator = torch.Generator()
             generator.manual_seed(self.seed + self.epoch)
-            indices = torch.randperm(self.num_samples, generator=generator).tolist()
-        else:
-            indices = list(range(self.num_samples))
+            return torch.randperm(self.num_samples, generator=generator).tolist()
+        return list(range(self.num_samples))
+
+    def _rank_indices(self) -> list[int]:
+        indices = self._epoch_order()
         if self.world_size > 1 and indices:
             per_rank = math.ceil(len(indices) / self.world_size)
             total = per_rank * self.world_size

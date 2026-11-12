@@ -2,13 +2,14 @@
 
 import dataclasses
 import logging
-from collections.abc import Sized
+from collections.abc import Sequence, Sized
 from dataclasses import dataclass
 from typing import Any
 
 import torch
 from torch.utils.data import DataLoader, Dataset, Sampler
 
+from training.data.locality import LocalityConfig, ShardWindow
 from training.data.resumable_sampler import ResumableBatchSampler
 from training.data.workers import (
     UserWorkerCounts,
@@ -81,6 +82,22 @@ def _dataset_len(dataset: Dataset[Any]) -> int:
     return len(dataset)
 
 
+def _shard_window(
+    dataset: Dataset[Any], placement: LoaderPlacement, shuffle: bool
+) -> ShardWindow | None:
+    """Shard window of the train batch sampler (``None`` when off or unsupported).
+
+    The window applies when ``data.locality.window_shards`` is positive, the loader
+    shuffles and the dataset reports the shard of each sample (``sample_shard_keys``).
+    """
+    window = LocalityConfig.from_config(placement.config).window_shards
+    shard_keys = getattr(dataset, "sample_shard_keys", None)
+    if window <= 0 or not shuffle or not callable(shard_keys):
+        return None
+    keys = shard_keys()
+    return ShardWindow(tuple(keys), window) if isinstance(keys, Sequence) else None
+
+
 def _placement_device(placement: LoaderPlacement) -> torch.device:
     return placement.device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -131,12 +148,11 @@ def build_train_loader(
         kwargs.update(sampler=opts.sampler, batch_size=batch_size, drop_last=opts.drop_last)
     else:
         # Epoch-seeded and resumable; shards across DDP ranks like DistributedSampler.
-        kwargs["batch_sampler"] = ResumableBatchSampler(
-            _dataset_len(dataset),
-            batch_size,
-            shuffle=opts.shuffle,
-            drop_last=opts.drop_last,
+        batch_sampler = ResumableBatchSampler(
+            _dataset_len(dataset), batch_size, shuffle=opts.shuffle, drop_last=opts.drop_last
         )
+        batch_sampler.set_shard_window(_shard_window(dataset, placement, opts.shuffle))
+        kwargs["batch_sampler"] = batch_sampler
 
     if workers > 0:
         kwargs["prefetch_factor"] = over.prefetch_factor or topology.prefetch_factor or 4

@@ -10,7 +10,7 @@ import io
 import logging
 import os
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import torch
@@ -22,6 +22,9 @@ from data.sample_labels import FACE_TARGET_LEN
 from training.data.containers import resolve_container_reader
 
 logger = logging.getLogger("lemtrain.dataset")
+
+ShardKey = tuple[str, str | None]
+"""``(ds_name, shard path)`` of a sample; ``None`` when it has no shard."""
 
 
 class DatasetContainerMixin:
@@ -74,6 +77,26 @@ class DatasetContainerMixin:
                         f"[CONTAINER] Notice: Container reader for '{ds_name}' "
                         f"({self.opts.split} split): {exc}"
                     )
+
+    def shard_keys_for(self, samples: Sequence[tuple]) -> list[ShardKey]:
+        """Shard of each ``(ds_name, sample_id)``, for locality-aware orderings.
+
+        Container samples whose reader reports shards (``shard_of``) map to
+        ``(ds_name, shard)``; every other sample of a dataset (loose files, directory
+        images, readers without shards) shares the key ``(ds_name, None)``.
+        """
+        keys: list[ShardKey] = []
+        for ds_name, sample_id in samples:
+            shard_of = getattr(self.catalog.container_readers.get(ds_name), "shard_of", None)
+            shard = (
+                shard_of(sample_id) if callable(shard_of) and isinstance(sample_id, int) else None
+            )
+            keys.append((ds_name, None if shard is None else str(shard)))
+        return keys
+
+    def sample_shard_keys(self) -> list[ShardKey]:
+        """Shard of each active sample, in loader index order."""
+        return self.shard_keys_for(self.catalog.samples)
 
     def getitem_container(self, ds_name: str, idx: int):
         """Fetch, decode and build the task triple of a ContainerReader-backed sample."""

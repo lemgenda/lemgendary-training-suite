@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.153-STABLE`
+- **Version**: `v16.9.154-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,37 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.154 - Shard-Window Sampling and Block-Wise Curriculum Fractions (Opt-In)
+
+- `training/data/locality.py` (new, audit 7.1.3): `LocalityConfig`
+  reads the optional `data.locality` section (`window_shards`,
+  `fraction_block_size`, both default 0 = off). `shard_window_order`
+  shuffles the shards for the epoch and the samples inside windows of
+  `window_shards` shards, so the workers read a few tar shards at a time
+  instead of seeking across all of them (50 shards x 1000 samples,
+  window 4: 3.9 shards per 16-sample batch instead of 13.8, and 3.9
+  shards per 1000 consecutive samples instead of all 50).
+  `block_fraction_subset` builds a curriculum fraction from shuffled
+  contiguous blocks inside each shard; the block order is fixed, so the
+  subsets stay nested across fraction steps (Monotonic Ratchet).
+- `ResumableBatchSampler.set_shard_window`: with a `ShardWindow` the
+  epoch order is the shard-window order drawn from `seed + epoch`, so it
+  stays deterministic, splits across DDP ranks and resumes mid-epoch at
+  batch K exactly like the uniform order. `rank` and `world_size` are now
+  properties over one topology pair.
+- `build_train_loader` sets the window when `window_shards > 0`, the
+  loader shuffles and the dataset reports shards.
+  `MultiTaskDataset.shard_keys_for` / `sample_shard_keys` map samples to
+  `(ds_name, shard)` through `WebDatasetReader.shard_of`; other samples
+  share `(ds_name, None)`. `_apply_sample_fraction` uses the block subset
+  when `fraction_block_size > 0`.
+- `config.yaml`: new `data.locality` section, both values 0, so training
+  order and subsets are unchanged until the owner turns them on.
+- Tests: `tests/unit/test_shard_locality.py` (config validation, window
+  permutation and shard spread, epoch seeding, resume, DDP coverage, key
+  validation, nested shard-local blocks, loader wiring, WebDataset shard
+  keys and block fractions).
 
 ### v16.9.153 - Zero-Rebuild Curriculum Transitions Pinned by a Test
 
