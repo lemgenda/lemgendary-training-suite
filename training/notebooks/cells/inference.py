@@ -6,6 +6,8 @@ and ONNX FP16 embedded inference across vision and Forex time-series models.
 
 from typing import Any
 
+from training.cloud.variations import ONNX_FP16_SUFFIX, ONNX_FP32_SUFFIX, PT_SUFFIX
+
 from ..registry import ModelNotebookMeta
 from .base import make_code_cell
 
@@ -22,7 +24,8 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "try:\n",
             "    import kagglehub\n",
             f"    pt_dir = kagglehub.model_download('{pt_handle}')\n",
-            f"    model_path = os.path.join(pt_dir, '{stem}.pt') if pt_dir else '{stem}.pt'\n",
+            f"    model_path = os.path.join(pt_dir, '{stem}{PT_SUFFIX}') if pt_dir "
+            f"else '{stem}{PT_SUFFIX}'\n",
             "    t_key = 'dG' + '9y' + 'Y2g='\n",
             "    torch = __import__(base64.b64decode(t_key).decode())\n",
             "    import numpy as np\n",
@@ -52,7 +55,8 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "try:\n",
             "    import kagglehub\n",
             f"    pt_dir = kagglehub.model_download('{pt_handle}')\n",
-            f"    model_path = os.path.join(pt_dir, '{stem}.pt') if pt_dir else '{stem}.pt'\n",
+            f"    model_path = os.path.join(pt_dir, '{stem}{PT_SUFFIX}') if pt_dir "
+            f"else '{stem}{PT_SUFFIX}'\n",
             "    t_key = 'dG' + '9y' + 'Y2g='\n",
             "    torch = __import__(base64.b64decode(t_key).decode())\n",
             "    from PIL import Image\n",
@@ -93,8 +97,9 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
             (
-                f"    onnx_path = os.path.join(onnx_dir, '{stem}_FP32.onnx') if onnx_dir else "
-                f"'{stem}_FP32.onnx'\n"
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}{ONNX_FP32_SUFFIX}') "
+                "if onnx_dir else "
+                f"'{stem}{ONNX_FP32_SUFFIX}'\n"
             ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
@@ -118,8 +123,9 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
             (
-                f"    onnx_path = os.path.join(onnx_dir, '{stem}_FP32.onnx') if onnx_dir else "
-                f"'{stem}_FP32.onnx'\n"
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}{ONNX_FP32_SUFFIX}') "
+                "if onnx_dir else "
+                f"'{stem}{ONNX_FP32_SUFFIX}'\n"
             ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
@@ -152,8 +158,9 @@ def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
             (
-                f"    onnx_path = os.path.join(onnx_dir, '{stem}.onnx') if onnx_dir else "
-                f"'{stem}.onnx'\n"
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}{ONNX_FP16_SUFFIX}') "
+                "if onnx_dir else "
+                f"'{stem}{ONNX_FP16_SUFFIX}'\n"
             ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
@@ -177,8 +184,9 @@ def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
             (
-                f"    onnx_path = os.path.join(onnx_dir, '{stem}.onnx') if onnx_dir else "
-                f"'{stem}.onnx'\n"
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}{ONNX_FP16_SUFFIX}') "
+                "if onnx_dir else "
+                f"'{stem}{ONNX_FP16_SUFFIX}'\n"
             ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",

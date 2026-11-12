@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.165-STABLE`
+- **Version**: `v16.9.166-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,15 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.166 - Inference Notebook Cells Use the Release File Names (R2-T1 Follow-Up)
+
+- `training/notebooks/cells/inference.py` builds the `.pt`, `_FP32.onnx`
+  and FP16 `.onnx` file names from `PT_SUFFIX`, `ONNX_FP32_SUFFIX` and
+  `ONNX_FP16_SUFFIX` in `training/cloud/variations.py` (the single source)
+  instead of hardcoding them. Generated notebooks are written into the
+  model hub at preflight/export time (none are committed here); their
+  text is unchanged because the constants hold the same names.
 
 ### v16.9.165 - Persistent Validation Workers and Bounded Upload Wait at Exit (R2-T9)
 
