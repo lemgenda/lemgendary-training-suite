@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.171-STABLE`
+- **Version**: `v16.9.172-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,41 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.172 - Isolated, Throttled Per-Epoch Kaggle Sync and Merged Editors (R3-K1)
+
+- The per-epoch Kaggle auto-sync (`--env kaggle --auto_sync`) goes
+  through `KaggleModelSyncManager.push_variation(..., "pytorch/default")`:
+  `KaggleHubManager.sync` uploads only the isolated payload
+  (`checkpoints/*.pth`, `README.md`, `metrics.csv`) instead of the whole
+  model folder (notebooks, `dist/`, stray `.pt`, `history.csv`), with the
+  epoch in the version notes. A failed upload raises `CloudSyncError`
+  (K-MDL-2).
+- The handle uses the registry slug (`kaggle_metadata.slug`, SSOT).
+  `KaggleHubManager.get_handle` is deleted with its `nima-aesthetic` ->
+  `nima-aesthetics` rewrite, which created duplicate Kaggle models such as
+  `nima-aesthetics-mobile` (K-MDL-3). The unused (and never applied)
+  `fleet.kaggle_slug_prefix` / `kaggle_slug_suffix` keys are removed.
+- Throttle (`training/cloud/sync_policy.py`, `KaggleSyncPolicy`):
+  `fleet.kaggle_sync_every_epochs` (default 5, 0 = cadence off) and
+  `fleet.kaggle_sync_on_best` (default true). The training engine and the
+  YOLO curriculum sync consult it; the final sync of a run is not
+  throttled.
+- Model editors: the collaborators come from `kaggle.collaborators` in
+  the ecosystem file and are merged into the existing editor binding
+  (existing editors are kept; nothing is written when all are present).
+  The hard-coded list that replaced the binding is gone (K-AUTH-6).
+- `training/ecosystem.py` reads `identity.github_url`, the project folders
+  and the `kaggle` section (collaborators, accelerators with id, label,
+  kind and machine shape, default accelerator, retired machine shapes)
+  with readers matching `env_manager.ecosystem`: `kaggle_collaborators()`,
+  `kaggle_accelerators()`, `kaggle_accelerator()`,
+  `kaggle_retired_machine_shapes()`, `github_url()`,
+  `github_repo_url(folder)`. The test fixture carries the new sections.
+- `training.training.engine.maybe_trigger_cloud_sync` (was private) takes
+  the epoch's new-best flag.
+- Tests: `tests/unit/test_kaggle_autosync.py`, new cases in
+  `tests/unit/test_ecosystem.py`.
 
 ### v16.9.171 - Kaggle Pulls Merge Into the Hub Folder Without Losing Local Work (R3-K1)
 

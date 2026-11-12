@@ -53,8 +53,11 @@ governor:
 # --- Fleet & Synchronization (Task 12.3) ---
 fleet:
   auto_sync: true
-  kaggle_slug_prefix: ""  # Default prefix for Kaggle Model slugs
-  kaggle_slug_suffix: ""  # Standardized suffix for model checkpoints
+  # Per-epoch Kaggle auto-sync throttle (training/cloud/sync_policy.py): upload the
+  # isolated pytorch/default payload every N epochs (0: never on cadence) and on a
+  # new best epoch. The final sync at the end of a run always uploads.
+  kaggle_sync_every_epochs: 5
+  kaggle_sync_on_best: true
   force_kaggle_sync: false  # Trigger Kaggle Model upload even on local machine
   retry_attempts: 3
   model_hub_repo: "https://github.com/lemgenda/lemgendary-pretrained-models.git"

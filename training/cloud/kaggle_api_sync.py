@@ -20,6 +20,7 @@ from training.cloud.errors import KAGGLE_API_ERRORS
 from training.cloud.kaggle_client import authenticated_kaggle_api
 from training.cloud.model_metadata import ModelMetadata
 from training.cloud.variations import VARIATIONS, KaggleVariation
+from training.ecosystem import kaggle_collaborators
 from training.utils.lazy_imports import load_kaggle_iam
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_api_sync")
@@ -74,6 +75,28 @@ def _editor_principals(iam: Any, editors: list[str]) -> list[Any]:
     return principals
 
 
+def _model_resource_id(iam: Any, security: Any, model_id: Any) -> Any:
+    """IAM resource id of the Kaggle model ``model_id``."""
+    res_id = iam.KaggleResourceId()
+    res_id.type = security.KaggleResourceType.KAGGLE_RESOURCE_TYPE_MODELS
+    res_id.id = model_id
+    return res_id
+
+
+def _write_policy(iam: Any, iam_svc: Any, res_id: Any, policy: Any) -> None:
+    """Store ``policy`` on the resource ``res_id``."""
+    s_req = iam.SetIamPolicyRequest()
+    s_req.resource_id = res_id
+    s_req.policy = policy
+    iam_svc.set_iam_policy(s_req)
+
+
+def _member_user_name(member: Any) -> str:
+    """User name of an IAM principal ('' for a group or other principal kind)."""
+    user = getattr(member, "user", None)
+    return str(getattr(user, "user_name", "") or "") if user is not None else ""
+
+
 def _editor_binding(iam: Any, existing_bindings: list[Any]) -> Any:
     """The editor-role binding in ``existing_bindings``, appended when missing."""
     canonical_role_enum = iam.CanonicalRole
@@ -124,7 +147,7 @@ class KaggleApiSyncService:
             if variation.key in metadata.variations:
                 self._sync_variation(api, metadata, variation, full_model_ref, results)
 
-        self._sync_collaborators(api, full_model_ref, results)
+        self.sync_collaborators(api, full_model_ref, results)
         return results
 
     def _sync_variation(
@@ -176,25 +199,29 @@ class KaggleApiSyncService:
                     )
                     results["variations"][var_key] = "deferred"
 
-    def _sync_collaborators(
+    def sync_collaborators(
         self, api: KaggleApi, full_model_ref: str, results: dict[str, Any]
     ) -> None:
-        """Give the default editors the editor role on the model (Kaggle IAM API)."""
-        # Synchronize default collaborators (editors) via Kaggle IAM API
-        default_editors = ["lemgenda", "shyning123", "kuznetsovr"]
+        """Merge the configured collaborators into the model's editor role (Kaggle IAM API).
+
+        The list is ``kaggle.collaborators`` in the ecosystem file (SSOT). Existing editors
+        are kept; an empty list changes nothing.
+        """
+        editors = list(kaggle_collaborators())
+        if not editors:
+            results["collaborators"] = []
+            return
         try:
             iam, security = load_kaggle_iam()
 
             m_obj = api.model_get(full_model_ref)
             if hasattr(m_obj, "id") and m_obj.id:
                 with api.build_kaggle_client() as kaggle_client:
-                    self._set_editor_policy(
-                        kaggle_client, (iam, security), m_obj.id, default_editors
+                    merged = self.set_editor_policy(
+                        kaggle_client, (iam, security), m_obj.id, editors
                     )
-                    logger.info(
-                        "Synchronized collaborators for %s: %s", full_model_ref, default_editors
-                    )
-                    results["collaborators"] = default_editors
+                    logger.info("Synchronized collaborators for %s: %s", full_model_ref, merged)
+                    results["collaborators"] = merged
         except (*KAGGLE_API_ERRORS, ImportError, AttributeError) as iam_err:
             logger.warning(
                 "Collaborator synchronization skipped or failed for %s: %s", full_model_ref, iam_err
@@ -202,30 +229,30 @@ class KaggleApiSyncService:
             results["collaborators_error"] = str(iam_err)
 
     @staticmethod
-    def _set_editor_policy(
+    def set_editor_policy(
         kaggle_client: Any, modules: tuple[Any, Any], model_id: Any, editors: list[str]
-    ) -> None:
-        """Replace the members of the model's editor binding with ``editors``."""
+    ) -> list[str]:
+        """Add ``editors`` to the model's editor binding; return all editor user names.
+
+        Members already bound (users or groups) are kept; the policy is written only when a
+        name is missing.
+        """
         iam, security = modules
-        resource_type_enum = security.KaggleResourceType
         iam_svc = kaggle_client.security.iam_client
+        res_id = _model_resource_id(iam, security, model_id)
         g_req = iam.GetIamPolicyRequest()
-        res_id = iam.KaggleResourceId()
-        res_id.type = resource_type_enum.KAGGLE_RESOURCE_TYPE_MODELS
-        res_id.id = model_id
         g_req.resource_id = res_id
-        current_policy = iam_svc.get_iam_policy(g_req)
+        policy = iam_svc.get_iam_policy(g_req)
 
-        principals = _editor_principals(iam, editors)
-        existing_bindings: list[Any] = (
-            list(current_policy.bindings) if current_policy.bindings is not None else []
-        )
-        editor_binding = _editor_binding(iam, existing_bindings)
+        bindings: list[Any] = list(policy.bindings) if policy.bindings is not None else []
+        editor_binding = _editor_binding(iam, bindings)
+        members = list(getattr(editor_binding, "members", None) or [])
+        names = [name for name in (_member_user_name(m) for m in members) if name]
+        missing = [name for name in editors if name not in names]
+        if not missing:
+            return names
 
-        current_policy.bindings = existing_bindings
-        editor_binding.members = principals
-
-        s_req = iam.SetIamPolicyRequest()
-        s_req.resource_id = res_id
-        s_req.policy = current_policy
-        iam_svc.set_iam_policy(s_req)
+        editor_binding.members = members + _editor_principals(iam, missing)
+        policy.bindings = bindings
+        _write_policy(iam, iam_svc, res_id, policy)
+        return names + missing

@@ -19,6 +19,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from data.forex_sampler import RowGroupAwareSampler
 from training.checkpoint import CheckpointLifecycleManager, ExportSource, safe_atomic_save
+from training.cloud.sync_policy import KaggleSyncPolicy
 from training.cloud_sync import trigger_cloud_sync
 from training.data import rebuild_train_loader
 from training.data.loaders import LoaderPlacement, TrainLoaderOptions, WorkerOverrides
@@ -547,14 +548,22 @@ def _save_checkpoints(
     )
 
 
-def _maybe_trigger_cloud_sync(ctx: TrainingContext, epoch: int) -> None:
-    """Trigger the Kaggle auto-sync when it is configured."""
+def maybe_trigger_cloud_sync(ctx: TrainingContext, epoch: int, is_best: bool) -> None:
+    """Trigger the Kaggle auto-sync when it is configured and the throttle allows it.
+
+    The throttle (``fleet.kaggle_sync_every_epochs`` / ``fleet.kaggle_sync_on_best``) is
+    :class:`training.cloud.sync_policy.KaggleSyncPolicy`.
+    """
     args = ctx.run.args
-    if getattr(args, "auto_sync", False) and getattr(args, "env", "local") == "kaggle":
-        try:
-            trigger_cloud_sync(ctx.model_name, epoch, ctx.run.config)
-        except CLOUD_SYNC_START_ERRORS as sync_err:
-            logger.warning("Automated cloud sync trigger failed at epoch %d: %s", epoch, sync_err)
+    if not (getattr(args, "auto_sync", False) and getattr(args, "env", "local") == "kaggle"):
+        return
+    if not KaggleSyncPolicy.from_config(ctx.run.config).should_sync(epoch, is_best):
+        logger.debug("Kaggle auto-sync throttled at epoch %d", epoch)
+        return
+    try:
+        trigger_cloud_sync(ctx.model_name, epoch, ctx.run.config)
+    except CLOUD_SYNC_START_ERRORS as sync_err:
+        logger.warning("Automated cloud sync trigger failed at epoch %d: %s", epoch, sync_err)
 
 
 def _notify_epoch_end(epoch: int, score: _EpochScore, hooks: _Hooks) -> bool:
@@ -718,7 +727,7 @@ def _run_epoch(
     # resume)
     _save_checkpoints(ctx, epoch, score, loop.best_metrics)
     # 9. Cloud sync trigger if configured
-    _maybe_trigger_cloud_sync(ctx, epoch)
+    maybe_trigger_cloud_sync(ctx, epoch, score.is_best)
     # 10. External telemetry callback
     if _notify_epoch_end(epoch, score, hooks):
         return _cancelled_summary(ctx, loop, epoch)

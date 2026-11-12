@@ -3,29 +3,77 @@
   "identity": {
     "docs_url": "https://docs.fixture.example/hub/",
     "kaggle_owner": "fixture-owner",
-    "bind_host": "127.0.0.1"
+    "bind_host": "127.0.0.1",
+    "github_url": "https://git.fixture.example/fixture-org/"
   },
   "services": [
     {
       "id": "env-manager",
-      "aliases": ["env-manager", "lemgendary-env-manager", "env"],
+      "aliases": [
+        "env-manager",
+        "lemgendary-env-manager",
+        "env"
+      ],
       "project": "lemgendary-env-manager",
       "port": 18000,
       "health_path": "/api/health"
     },
     {
       "id": "dataset-compiler",
-      "aliases": ["dataset-compiler", "lemgendary-datasets", "datasets"],
+      "aliases": [
+        "dataset-compiler",
+        "lemgendary-datasets",
+        "datasets"
+      ],
       "project": "lemgendary-datasets",
       "port": 18100,
       "health_path": "/api/health"
     },
     {
       "id": "training-suite",
-      "aliases": ["training-suite", "lemgendary-training-suite", "training"],
+      "aliases": [
+        "training-suite",
+        "lemgendary-training-suite",
+        "training"
+      ],
       "project": "lemgendary-training-suite",
       "port": 18200,
       "health_path": "/api/health"
     }
-  ]
+  ],
+  "projects": [
+    {
+      "folder": "lemgendary-env-manager"
+    },
+    {
+      "folder": "lemgendary-datasets"
+    },
+    {
+      "folder": "lemgendary-training-suite"
+    }
+  ],
+  "kaggle": {
+    "collaborators": [
+      "fixture-editor-a",
+      "fixture-editor-b"
+    ],
+    "default_accelerator": "gpu-fixture",
+    "accelerators": [
+      {
+        "id": "cpu",
+        "label": "CPU",
+        "kind": "cpu",
+        "machine_shape": null
+      },
+      {
+        "id": "gpu-fixture",
+        "label": "GPU Fixture",
+        "kind": "gpu",
+        "machine_shape": "FixtureGpuShape"
+      }
+    ],
+    "retired_machine_shapes": [
+      "FixtureRetiredShape"
+    ]
+  }
 }

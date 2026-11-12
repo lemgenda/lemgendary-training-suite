@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from training.cloud.sync_policy import KaggleSyncPolicy
 from training.cloud_sync import trigger_cloud_sync
 from training.telemetry import TelemetryEngine
 from training.utils.error_types import CLOUD_SYNC_START_ERRORS
@@ -175,6 +176,7 @@ class YoloHubSync:
         if (
             getattr(self.args, "auto_sync", False)
             and getattr(self.args, "env", "local") == "kaggle"
+            and KaggleSyncPolicy.from_config(self.config).should_sync(global_epoch, False)
         ):
             try:
                 trigger_cloud_sync("yolov8n", global_epoch, self.config)

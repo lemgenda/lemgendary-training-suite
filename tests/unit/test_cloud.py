@@ -79,17 +79,7 @@ class TestGitHubSyncManager(unittest.TestCase):
 
 
 class TestKaggleHubManager(unittest.TestCase):
-    """Tests for KaggleHubManager handle and bundle creation."""
-
-    def test_handle_generation(self) -> None:
-        """Verify Kaggle model handles are built as user/slug/framework/variation."""
-        mgr = KaggleHubManager(username="tester")
-        handle = mgr.get_handle("mirnet_exposure")
-        self.assertEqual(handle, "tester/mirnet-exposure/pytorch/default")
-
-        # NIMA aesthetic normalization
-        nima_handle = mgr.get_handle("nima_aesthetic")
-        self.assertEqual(nima_handle, "tester/nima-aesthetics/pytorch/default")
+    """Tests for KaggleHubManager bundle creation (auto-sync: test_kaggle_autosync.py)."""
 
     def test_create_cloud_kernel_bundle(self) -> None:
         """Verify the Kaggle cloud kernel bundle contains metadata and the training script."""
