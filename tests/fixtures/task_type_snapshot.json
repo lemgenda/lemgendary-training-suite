@@ -1,0 +1,117 @@
+{
+  "ai_helper_lemgend": {
+    "governor": "text_instruction",
+    "run": "text_instruction",
+    "score": "text_instruction"
+  },
+  "codeformer": {
+    "governor": "face",
+    "run": "face",
+    "score": "face"
+  },
+  "ffanet_indoor": {
+    "governor": "restoration",
+    "run": "restoration",
+    "score": "restoration"
+  },
+  "ffanet_outdoor": {
+    "governor": "restoration",
+    "run": "restoration",
+    "score": "restoration"
+  },
+  "film_restorer": {
+    "governor": "restoration",
+    "run": "restoration",
+    "score": "restoration"
+  },
+  "forex_predictor": {
+    "governor": "forex",
+    "run": "forex",
+    "score": "forex"
+  },
+  "mirnet_exposure": {
+    "governor": "restoration",
+    "run": "restoration",
+    "score": "restoration"
+  },
+  "mirnet_lowlight": {
+    "governor": "restoration",
+    "run": "restoration",
+    "score": "restoration"
+  },
+  "mprnet_deraining": {
+    "governor": "restoration",
+    "run": "restoration",
+    "score": "restoration"
+  },
+  "nafnet_debluring": {
+    "governor": "restoration",
+    "run": "restoration",
+    "score": "restoration"
+  },
+  "nafnet_denoising": {
+    "governor": "restoration",
+    "run": "restoration",
+    "score": "restoration"
+  },
+  "nima_aesthetic_efficientnet": {
+    "governor": "quality",
+    "run": "quality",
+    "score": "quality"
+  },
+  "nima_aesthetic_mobile": {
+    "governor": "quality",
+    "run": "quality",
+    "score": "quality"
+  },
+  "nima_aesthetic_pro": {
+    "governor": "quality",
+    "run": "quality",
+    "score": "quality"
+  },
+  "nima_authenticity": {
+    "governor": "quality",
+    "run": "quality",
+    "score": "quality"
+  },
+  "nima_technical": {
+    "governor": "quality",
+    "run": "quality",
+    "score": "quality"
+  },
+  "parsenet": {
+    "governor": "segmentation",
+    "run": "segmentation",
+    "score": "segmentation"
+  },
+  "professional_multitask_restoration": {
+    "governor": "restoration",
+    "run": "restoration",
+    "score": "restoration"
+  },
+  "retinaface": {
+    "governor": "face_detection",
+    "run": "face_detection",
+    "score": "face_detection"
+  },
+  "ultrazoom": {
+    "governor": "restoration",
+    "run": "restoration",
+    "score": "restoration"
+  },
+  "universal_nsfw_classification": {
+    "governor": "classification",
+    "run": "classification",
+    "score": "classification"
+  },
+  "upn_v2": {
+    "governor": "parameter_prediction",
+    "run": "parameter_prediction",
+    "score": "parameter_prediction"
+  },
+  "yolov8n": {
+    "governor": "detection",
+    "run": "detection",
+    "score": "['detection', 'classification', 'pose']"
+  }
+}

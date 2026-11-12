@@ -14,7 +14,6 @@ from training.governance.governor_setup import (
     build_sota,
     build_thermal,
     build_tuning,
-    resolve_task_type,
 )
 from training.governance.governor_state import GovernorStateMixin
 from training.governance.metrics import MetricRegistry
@@ -23,6 +22,7 @@ from training.ratchet import (
     Rung,
     check_transition,
 )
+from training.registry.task_type import resolve_task_type
 
 logger = logging.getLogger("lemtrain.governance.governor")
 

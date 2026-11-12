@@ -30,12 +30,6 @@ logger = logging.getLogger("lemtrain.governance.governor")
 _VRAM_CAPPED_TASKS = ("restoration", "enhancement", "face", "parameter_prediction")
 
 
-def resolve_task_type(model_info: dict[str, Any]) -> str:
-    """Return the dataset type (first entry when it is a list)."""
-    raw_task = model_info.get("dataset_type", "quality")
-    return raw_task[0] if isinstance(raw_task, list) else str(raw_task)
-
-
 def _trains_on_full_data(model_info: dict[str, Any]) -> bool:
     """Return True for forex and LLM models, which always train on the whole dataset."""
     return is_forex_model(model_info=model_info) or _is_llm_model(model_info)

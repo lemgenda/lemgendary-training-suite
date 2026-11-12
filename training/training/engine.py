@@ -40,6 +40,7 @@ from training.ratchet import (
     executed_rung,
     top_resolution_reached,
 )
+from training.registry.task_type import resolve_task_type
 from training.telemetry import EpochLosses, EpochRow, ForexRowTag, TelemetryEngine
 from training.training.batch_budget import refit_batch_for_resolution
 from training.training.context import TrainingContext
@@ -298,7 +299,7 @@ def _score_epoch(
     train_loss = float(combined_metrics.get("train_loss", 0.0))
 
     is_forex = _is_forex(ctx)
-    task_type_str = "forex" if is_forex else str(ctx.run.model_info.get("dataset_type", "image"))
+    task_type_str = resolve_task_type(ctx.run.model_info)
     sota_targets = ctx.run.model_info.get("sota_targets", {})
 
     if "quality_score" in combined_metrics:

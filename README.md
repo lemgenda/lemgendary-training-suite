@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.154-STABLE`
+- **Version**: `v16.9.155-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,23 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.155 - Single Task-Type Resolver (SSOT)
+
+- `training/registry/task_type.py` (new): `resolve_task_type` is the one
+  resolver of a registry entry's task type: `task_type`, then
+  `dataset_type`, then `category` (first non-empty wins, a list resolves
+  to its first entry), `restoration` when none is declared.
+- The run spec and checkpoint lifecycle (`core_loop`), the governor
+  (`governor_setup`/`governor`) and the epoch quality scorer
+  (`training/training/engine.py`) all call it; the three private
+  resolvers are gone. Outputs are identical for every registry model.
+  The only representational change: the scorer used to stringify YOLO's
+  list-valued `dataset_type` (`"['detection', ...]"`); it now gets
+  `detection`, which scores identically.
+- Tests: `tests/unit/test_task_type_resolver.py` checks every registry
+  model key against `tests/fixtures/task_type_snapshot.json`, captured
+  from the three old resolvers before the merge, plus field precedence.
 
 ### v16.9.154 - Shard-Window Sampling and Block-Wise Curriculum Fractions (Opt-In)
 
