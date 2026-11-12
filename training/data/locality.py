@@ -14,13 +14,25 @@ shards open. Two orderings keep reads local while staying deterministic:
   instead of a few samples from every shard, and the subsets stay nested: a larger
   fraction is a prefix extension of a smaller one (Monotonic Ratchet).
 
-Both are off by default (``0``), which keeps the uniform per-sample orderings. The
-settings live in the optional ``data.locality`` config section:
+Both are on by default (owner decision R2-T2). ``0`` turns one off and keeps the
+uniform per-sample ordering. The settings live in the ``data.locality`` config
+section; a missing section or key takes the defaults below:
 
-* ``window_shards`` (int >= 0, default 0): shards per shuffle window of the train
-  sampler; ``0`` keeps the uniform epoch permutation.
-* ``fraction_block_size`` (int >= 0, default 0): samples per block of the curriculum
-  fraction subset; ``0`` keeps the per-sample subset.
+* ``window_shards`` (int >= 0, default :data:`DEFAULT_WINDOW_SHARDS` = 4): shards per
+  shuffle window of the train sampler; ``0`` keeps the uniform epoch permutation.
+  Four shards of the compiler's 1 GB WebDataset shards keep a ~4 GB working set,
+  which fits the page cache of a Kaggle or Colab host while every batch still mixes
+  four shards.
+* ``fraction_block_size`` (int >= 0, default :data:`DEFAULT_FRACTION_BLOCK_SIZE` =
+  256): samples per block of the curriculum fraction subset; ``0`` keeps the
+  per-sample subset. A 1 GB shard of WebP input/target pairs (~100-300 KB per pair)
+  holds roughly 3,000-10,000 samples, so a 256-sample block is one sequential read of
+  ~25-75 MB (well above the kernel readahead window) and a shard still splits into
+  ~12-40 blocks, so a 20 % fraction samples most shards instead of a few whole ones.
+
+A resumed run keeps the settings recorded in its checkpoint (see
+:mod:`training.data.locality_resume`), so changing them never reorders or swaps the
+samples of a run in progress.
 
 This module is torch-free so the settings can be validated without the training stack.
 """
@@ -36,6 +48,10 @@ CONFIG_SECTION = "data"
 LOCALITY_KEY = "locality"
 FRACTION_SEED = 42
 """Seed of the curriculum subset order (the per-sample subset uses the same)."""
+DEFAULT_WINDOW_SHARDS = 4
+"""Shards per shuffle window when ``data.locality.window_shards`` is not set."""
+DEFAULT_FRACTION_BLOCK_SIZE = 256
+"""Samples per subset block when ``data.locality.fraction_block_size`` is not set."""
 
 T = TypeVar("T")
 
@@ -44,8 +60,8 @@ T = TypeVar("T")
 class LocalityConfig:
     """Validated ``data.locality`` settings (see the module docstring)."""
 
-    window_shards: int = 0
-    fraction_block_size: int = 0
+    window_shards: int = DEFAULT_WINDOW_SHARDS
+    fraction_block_size: int = DEFAULT_FRACTION_BLOCK_SIZE
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any] | None) -> LocalityConfig:
@@ -64,13 +80,35 @@ class LocalityConfig:
                 f"'{CONFIG_SECTION}.{LOCALITY_KEY}' must be a mapping, got {type(section).__name__}"
             )
         return cls(
-            window_shards=_non_negative_int(section, "window_shards"),
-            fraction_block_size=_non_negative_int(section, "fraction_block_size"),
+            window_shards=_non_negative_int(section, "window_shards", DEFAULT_WINDOW_SHARDS),
+            fraction_block_size=_non_negative_int(
+                section, "fraction_block_size", DEFAULT_FRACTION_BLOCK_SIZE
+            ),
         )
 
+    def as_dict(self) -> dict[str, int]:
+        """The settings as a ``data.locality`` section."""
+        return {
+            "window_shards": self.window_shards,
+            "fraction_block_size": self.fraction_block_size,
+        }
 
-def _non_negative_int(section: Mapping[str, Any], key: str) -> int:
-    raw = section.get(key, 0)
+    @classmethod
+    def from_section(cls, section: Mapping[str, Any]) -> LocalityConfig:
+        """Build the settings from a ``data.locality`` section (e.g. a checkpoint record)."""
+        return cls.from_config({CONFIG_SECTION: {LOCALITY_KEY: dict(section)}})
+
+    def pin(self, config: dict[str, Any]) -> None:
+        """Write these settings into ``config`` in place, so every reader of it sees them."""
+        data = config.get(CONFIG_SECTION)
+        if not isinstance(data, dict):
+            data = {}
+            config[CONFIG_SECTION] = data
+        data[LOCALITY_KEY] = self.as_dict()
+
+
+def _non_negative_int(section: Mapping[str, Any], key: str, default: int) -> int:
+    raw = section.get(key, default)
     name = f"'{CONFIG_SECTION}.{LOCALITY_KEY}.{key}'"
     if isinstance(raw, bool) or not isinstance(raw, int):
         raise TypeError(f"{name} must be an integer, got {raw!r}")

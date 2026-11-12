@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.158-STABLE`
+- **Version**: `v16.9.159-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,31 @@
   (Local, Kaggle T4x2/P100, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.159 - Shard-Locality Sampling On by Default (R2-T2)
+
+- Owner decision: `data.locality` is on by default. `window_shards: 4`
+  (four of the compiler's 1 GB WebDataset shards, a ~4 GB working set that
+  fits a Kaggle/Colab page cache while every batch still mixes four shards)
+  and `fraction_block_size: 256` (a shard of WebP input/target pairs holds
+  ~3,000-10,000 samples, so a block is one 25-75 MB sequential read, well
+  above the kernel readahead window, and a shard still splits into 12-40
+  blocks, so a 20 % fraction samples most shards instead of a few whole
+  ones). The defaults live in `training/data/locality.py`
+  (`DEFAULT_WINDOW_SHARDS`, `DEFAULT_FRACTION_BLOCK_SIZE`) and
+  `config.yaml` states the same values; a test keeps them equal.
+- Resume safety (`training/data/locality_resume.py`, new): every checkpoint
+  payload records the settings in effect (`data_locality`). A resume pins
+  the recorded settings into the run's config before the train subset and
+  loader are rebuilt, so a run never changes its epoch order or curriculum
+  subset mid-run. A checkpoint without the record (written before this
+  release) resumes with locality off, the order it was trained with, and
+  logs a warning; changed settings are logged and the recorded ones win.
+  New settings apply to a fresh run (`--clean`). Determinism (seed +
+  epoch), DDP sharding and mid-epoch resume are unchanged.
+- Tests: `tests/unit/test_locality_resume.py` (config defaults, record
+  round trip, legacy and changed checkpoints, missing section, malformed
+  record); `test_shard_locality.py` checks the on-by-default settings.
 
 ### v16.9.158 - torch.export ONNX Exporter and the Three Release Variants
 

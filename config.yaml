@@ -105,16 +105,20 @@ swa:
   bn_update_batches: null
 
 # --- Shard Locality (training/data/locality.py) ---
-# Off by default (0). `window_shards`: the train sampler shuffles the shards
-# each epoch and the samples inside windows of this many shards, so workers
-# read a few WebDataset shards at a time (page cache, readahead) instead of
-# seeking across all of them. `fraction_block_size`: a curriculum fraction
-# takes shuffled contiguous blocks of this many samples inside each shard
-# instead of single samples. Both stay deterministic, resumable and nested.
+# On by default (owner decision; defaults in training/data/locality.py).
+# `window_shards`: the train sampler shuffles the shards each epoch and the
+# samples inside windows of this many shards, so workers read a few
+# WebDataset shards at a time (page cache, readahead) instead of seeking
+# across all of them; 4 x 1 GB shards fit a Kaggle/Colab page cache.
+# `fraction_block_size`: a curriculum fraction takes shuffled contiguous
+# blocks of this many samples inside each shard instead of single samples;
+# 256 samples are one 25-75 MB sequential read and a shard still splits into
+# 12-40 blocks. 0 turns either off. Both stay deterministic, resumable and
+# nested; a resumed run keeps the settings recorded in its checkpoint.
 data:
   locality:
-    window_shards: 0
-    fraction_block_size: 0
+    window_shards: 4
+    fraction_block_size: 256
 
 # --- Execution Matrix ---
 execution:

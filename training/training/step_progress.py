@@ -13,6 +13,8 @@ from typing import Any
 import torch
 import torch.distributed as dist
 
+from training.data.locality_resume import PAYLOAD_KEY as LOCALITY_PAYLOAD_KEY
+from training.data.locality_resume import locality_record
 from training.training.context import TrainingContext
 
 
@@ -105,6 +107,8 @@ def progress_payload(
         "scaler_state_dict": ctx.models.scaler.state_dict()
         if ctx.models.scaler is not None
         else None,
+        # Shard-locality settings the run trains with; a resume keeps them.
+        LOCALITY_PAYLOAD_KEY: locality_record(ctx.run.config),
     }
     payload.update(extra)
     return payload

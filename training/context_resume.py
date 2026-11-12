@@ -21,6 +21,8 @@ from training.checkpoint import (
 )
 from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS
 from training.context_data import RunSpec, rebuild_resumed_train_loader
+from training.data.locality import LocalityConfig
+from training.data.locality_resume import pin_resumed_locality
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.governance.governor_setup import configured_data_fraction
 from training.governance.quality_score import (
@@ -312,15 +314,18 @@ def _resync_train_loader(spec: RunSpec, train: TrainState, data: LoaderState) ->
 
 def _restore_governor(
     spec: RunSpec, loaded: dict, train: TrainState, data: LoaderState, metrics_csv: Path | None
-) -> None:
-    """Restore the governor's curriculum state and resynchronize the train loader with it."""
+) -> bool:
+    """Restore the governor's curriculum state and resynchronize the train loader with it.
+
+    Returns whether the train dataset and loader were rebuilt.
+    """
     governor = train.governor
     gov_state = dict(loaded.get("governor_state") or {})
     ckpt_epoch = int(loaded.get("epoch", 0) or 0)
     if ckpt_epoch > 0:
         gov_state["epoch_count"] = max(int(gov_state.get("epoch_count", 0) or 0), ckpt_epoch)
     if not hasattr(governor, "load_state"):
-        return
+        return False
     try:
         governor.load_state(gov_state)
         calibrate_quality_anchor(spec, governor)
@@ -328,6 +333,19 @@ def _restore_governor(
         _resync_train_loader(spec, train, data)
     except STATE_RESTORE_ERRORS as gov_err:
         logger.warning("Governor state could not be loaded cleanly: %s", gov_err)
+        return False
+    return True
+
+
+def _rebuild_for_locality(spec: RunSpec, data: LoaderState) -> None:
+    """Rebuild the train subset and loader under the pinned ``data.locality`` settings."""
+    train_ds = data.train_ds
+    if hasattr(train_ds, "update_strategy"):
+        train_ds.update_strategy(fraction=data.sample_fraction)
+    data.train_loader = rebuild_resumed_train_loader(
+        spec, train_ds, data.train_loader, data.batch_size
+    )
+    logger.info("[LOCALITY] Train subset and loader rebuilt under the resumed run's settings.")
 
 
 def _restore_sota_best(loaded: dict, train: TrainState) -> None:
@@ -370,7 +388,11 @@ def resume_from_checkpoint(
     loaded = safe_load_checkpoint(ckpt_candidate, map_location=spec.device)
     if not loaded:
         return None
+    built_with = LocalityConfig.from_config(spec.config)
+    pinned = pin_resumed_locality(spec.config, loaded)
     _restore_weights_and_optimizer(spec, loaded, train)
-    _restore_governor(spec, loaded, train, data, metrics_csv)
+    resynced = _restore_governor(spec, loaded, train, data, metrics_csv)
+    if pinned != built_with and not resynced:
+        _rebuild_for_locality(spec, data)
     _restore_sota_best(loaded, train)
     return parse_resume_state(loaded)

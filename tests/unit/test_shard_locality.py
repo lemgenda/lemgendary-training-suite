@@ -19,6 +19,8 @@ from training.data.loaders import (
     build_train_loader,
 )
 from training.data.locality import (
+    DEFAULT_FRACTION_BLOCK_SIZE,
+    DEFAULT_WINDOW_SHARDS,
     LocalityConfig,
     ShardWindow,
     block_fraction_subset,
@@ -49,9 +51,14 @@ def _order(sampler: ResumableBatchSampler) -> list[int]:
     return [i for batch in sampler for i in batch]
 
 
-def test_config_defaults_off_and_validates() -> None:
-    """Missing sections mean off; bad values are rejected."""
-    assert LocalityConfig.from_config(None) == LocalityConfig(0, 0)
+def test_config_defaults_on_and_validates() -> None:
+    """Missing sections take the on-by-default settings; bad values are rejected."""
+    assert LocalityConfig.from_config(None) == LocalityConfig(
+        DEFAULT_WINDOW_SHARDS, DEFAULT_FRACTION_BLOCK_SIZE
+    )
+    assert LocalityConfig.from_config({"data": {"locality": {"window_shards": 0}}}) == (
+        LocalityConfig(0, DEFAULT_FRACTION_BLOCK_SIZE)
+    )
     assert (
         LocalityConfig.from_config({"data": {"locality": {"window_shards": 4}}}).window_shards == 4
     )
