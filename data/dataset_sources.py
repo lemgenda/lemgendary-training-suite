@@ -96,6 +96,31 @@ def _list_images(scan_dir):
     return files
 
 
+def real_manifold_path(path: str) -> str:
+    """Real path of a manifold folder (symlinks resolved); aliases share it."""
+    return os.path.realpath(path)
+
+
+def claim_manifold(loaded: set[str], ds_name: str, ds_path: str) -> bool:
+    """Record ``ds_path`` as loaded; False when its real path is loaded already.
+
+    On Kaggle the data cell links several alias names (``UpnV2``, ``LemGendizedUpnV2``)
+    to one attached folder, and a ``...KaggleReady`` name falls back to the same attached
+    manifold. Each real folder is loaded once, so no sample is counted twice.
+    """
+    real = real_manifold_path(ds_path)
+    if real in loaded:
+        logger.info(
+            "Dataset '%s' (%s) is the already loaded manifold %s; not loading it twice.",
+            ds_name,
+            ds_path,
+            real,
+        )
+        return False
+    loaded.add(real)
+    return True
+
+
 def _has_any(path, subdirs):
     """True when any of ``subdirs`` exists under ``path`` (checked in order)."""
     return any(os.path.exists(os.path.join(path, sub)) for sub in subdirs)
@@ -185,12 +210,11 @@ class DatasetSourcesMixin:
         dataset_names = _dataset_names(
             self._raw_dataset_names(), _dataset_suffix(self.opts.env, config)
         )
-        loaded_paths = set()
+        loaded_paths: set[str] = set()
         for ds_name in dataset_names:
             ds_path = self.get_dataset_path(ds_name)
-            if ds_path is None or ds_path in loaded_paths:
+            if ds_path is None or not claim_manifold(loaded_paths, ds_name, ds_path):
                 continue
-            loaded_paths.add(ds_path)
             self.catalog.path_cache[ds_name] = ds_path
             scan_dir = self._scan_dir(ds_path)
             if not scan_dir or not os.path.exists(scan_dir):
@@ -248,8 +272,9 @@ class DatasetSourcesMixin:
                 print(f"  -> {m_path}")
         for m_path in attached_manifolds:
             m_str = str(m_path)
-            loaded_paths.add(m_str)
             ds_key = m_path.name
+            if not claim_manifold(loaded_paths, ds_key, m_str):
+                continue
             self.catalog.path_cache[ds_key] = m_str
             for sub in ["images", "targets", "shards", "train", "val"]:
                 sub_dir = (

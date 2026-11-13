@@ -16,6 +16,7 @@ import torch
 from PIL import Image
 
 from data.container_targets import SUPER_RESOLUTION_MODELS, DecodedSample
+from data.dataset_sources import claim_manifold, real_manifold_path
 from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
 from data.sample_labels import FACE_TARGET_LEN
 from training.data.containers import resolve_container_reader
@@ -41,13 +42,18 @@ class DatasetContainerMixin:
     def load_container_samples(self, loaded_paths: set) -> None:
         """Attempt container-format loading when no directory images are found.
 
-        Iterates over already-resolved dataset paths and uses ``resolve_container_reader``
+        ``loaded_paths`` holds the real paths of the discovered manifolds. Iterates over
+        already-resolved dataset paths (one reader per real folder, so alias names never
+        count a manifold twice) and uses ``resolve_container_reader``
         to detect WebDataset, Parquet, MDS, or LitData layouts. Builds a synthetic
         ``all_samples`` index as ``(ds_name, int_index)`` tuples and stores an active
         ``ContainerReader`` per dataset in ``self.catalog.container_readers``.
         """
+        opened: set[str] = set()
         for ds_name, ds_path in self.catalog.path_cache.items():
-            if ds_path is None or ds_path not in loaded_paths:
+            if ds_path is None or real_manifold_path(ds_path) not in loaded_paths:
+                continue
+            if not claim_manifold(opened, ds_name, ds_path):
                 continue
             try:
                 reader = resolve_container_reader(ds_path, split=self.opts.split)

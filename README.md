@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.215-STABLE`
+- **Version**: `v16.9.216-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,19 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.216 - Dataset Discovery Loads Each Manifold Once
+
+- **Bug**: on Kaggle the data cell links alias names (`UpnV2`,
+  `LemGendizedUpnV2`) to the attached folder, and the `...KaggleReady` name
+  falls back to that same attached manifold. Discovery compared path strings,
+  so `LemGendizedUpnV2` and `LemGendizedUpnV2KaggleReady` each opened a
+  reader: every train and validation sample was in the epoch twice (2,699,430
+  train entries for 1,349,715 samples).
+- Discovery and the container loader now compare real paths (symlinks
+  resolved) and load each real folder once, logging the skipped alias.
+- Tests: symlink aliases plus the KaggleReady name give one reader, two
+  spellings of one folder count once, distinct manifolds are all loaded.
 
 ### v16.9.215 - Fast WebDataset Open: Shipped Shard Index And One Shared Scan
 
