@@ -146,13 +146,19 @@ def _exit_gate_lines(meta: ModelNotebookMeta, target: str) -> list[str]:
     ]
 
 
+def _env_text(env: dict[str, str]) -> str:
+    """``NAME=value`` pairs of ``env`` for a launch log line."""
+    return " ".join(f"{name}={value}" for name, value in env.items())
+
+
 def build_training_cell(
     meta: ModelNotebookMeta, target: str = "kaggle", options: LaunchOptions = DEFAULT_LAUNCH
 ) -> dict[str, Any]:
     """Build process janitor and training coordinator launch code cell.
 
-    ``options`` add trainer switches (``--override-frozen``) to every launch path. The cell
-    ends with the trainer exit gate (:func:`_exit_gate_lines`).
+    ``options`` add trainer switches (``--override-frozen``) and the session window override
+    (environment variables the trainer's session deadline reads) to every launch path. The
+    cell ends with the trainer exit gate (:func:`_exit_gate_lines`).
     """
     default_dir = platform_paths(target).suite_dir
     suite_candidates = [default_dir]
@@ -193,6 +199,12 @@ def build_training_cell(
         cmd_dispatch += [
             f"cmd += {flags!r}\n",
             f"print('[LAUNCH] Trainer switches: {' '.join(flags)}')\n",
+        ]
+    session_env = options.trainer_environment()
+    if session_env:
+        cmd_dispatch += [
+            f"os.environ.update({session_env!r})\n",
+            f"print({'[LAUNCH] Session window override: ' + _env_text(session_env)!r})\n",
         ]
 
     if target == "kaggle":

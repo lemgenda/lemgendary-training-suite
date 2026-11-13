@@ -22,6 +22,7 @@ from ..cells.inference import build_onnx_fp16_cell, build_onnx_fp32_cell, build_
 from ..cells.model import build_hub_prep_cell
 from ..cells.repo import build_clone_cell
 from ..cells.secrets import build_secrets_cell
+from ..git_ref import DEFAULT_GIT_REFS, GitRefs
 from ..registry import (
     ModelNotebookMeta,
     load_registry,
@@ -237,9 +238,12 @@ def resolve_training_target(
 
 
 def training_preamble_cells(
-    meta: ModelNotebookMeta, platform: str, edition: str
+    meta: ModelNotebookMeta, platform: str, edition: str, refs: GitRefs = DEFAULT_GIT_REFS
 ) -> list[dict[str, Any]]:
-    """Return the title and sections 1-5 (sentinel, secrets, clone, install, hub pull)."""
+    """Return the title and sections 1-5 (sentinel, secrets, clone, install, hub pull).
+
+    ``refs`` are the git refs the clone cell checks out (default ``main``).
+    """
     return [
         make_markdown_cell(
             [
@@ -263,7 +267,7 @@ def training_preamble_cells(
         make_markdown_cell(["## 2. Cloud Auth & Secrets\n"]),
         build_secrets_cell(platform),
         make_markdown_cell(["## 3. Repository Synchronization\n"]),
-        build_clone_cell(platform),
+        build_clone_cell(platform, refs),
         make_markdown_cell(["## 4. Environment & Dependency Installation\n"]),
         build_install_cell(platform),
         make_markdown_cell(["## 5. SOTA Hub Synchronization (Pull)\n"]),

@@ -9,7 +9,11 @@ writing the GitHub token to a file or a remote URL:
 * the origin URL is reset to the plain URL on every run (older notebooks stored the token
   in it), and the helper folder is deleted afterwards;
 * on Kaggle the checkouts live in ``/kaggle/temp``, outside ``/kaggle/working``, so no
-  ``.git`` folder is ever saved as kernel output.
+  ``.git`` folder is ever saved as kernel output;
+* each repository is fetched at one ref (:class:`~training.notebooks.git_ref.GitRefs`,
+  default ``main``): ``git fetch --depth 1 origin <ref>`` then ``git reset --hard
+  FETCH_HEAD``, which works for a branch, a tag and a full commit SHA alike. The refs are
+  validated before they are written into the cell, and git gets them as list arguments.
 """
 
 from typing import Any
@@ -17,6 +21,7 @@ from typing import Any
 from training.ecosystem import ENV_MANAGER_FOLDER, github_repo_url
 from training.platform_paths import SUITE_FOLDER, platform_paths
 
+from ..git_ref import DEFAULT_GIT_REFS, GitRefs
 from .base import make_code_cell
 
 _ASKPASS_SCRIPT = (
@@ -26,14 +31,16 @@ _ASKPASS_SCRIPT = (
 """``GIT_ASKPASS`` helper: user name for the user prompt, the token from the environment."""
 
 
-def build_clone_cell(target: str = "kaggle") -> dict[str, Any]:
-    """Build the git clone and environment synchronization code cell."""
+def build_clone_cell(target: str = "kaggle", refs: GitRefs = DEFAULT_GIT_REFS) -> dict[str, Any]:
+    """Build the git clone and environment synchronization code cell at ``refs``."""
     paths = platform_paths(target)
     secret_ui_action = "Kaggle Add-ons -> Secrets" if target == "kaggle" else "Colab Secrets"
     source = [
         "import os, shutil, stat, subprocess, sys, tempfile\n",
         f"suite_url = {github_repo_url(SUITE_FOLDER)!r}\n",
         f"env_mgr_url = {github_repo_url(ENV_MANAGER_FOLDER)!r}\n",
+        f"suite_ref = {refs.suite!r}\n",
+        f"env_mgr_ref = {refs.env_manager_ref!r}\n",
         f"checkout_dir = {paths.checkout_dir!r}\n",
         f"suite_path = {paths.suite_dir!r}\n",
         f"env_mgr_path = {paths.env_mgr_dir!r}\n",
@@ -68,32 +75,41 @@ def build_clone_cell(target: str = "kaggle") -> dict[str, Any]:
             "capture_output=True, text=True)\n"
         ),
         "\n",
-        "def _sync_repo(url, path, marker):\n",
+        "def _sync_repo(url, path, marker, ref):\n",
         "    valid = os.path.isdir(os.path.join(path, '.git')) and os.path.exists(\n",
         "        os.path.join(path, marker))\n",
         "    if not valid:\n",
         "        if os.path.exists(path):\n",
         "            shutil.rmtree(path)\n",
-        "        res = _git(['clone', '--depth', '1', url, path])\n",
-        "        if res.returncode != 0:\n",
-        "            return f'clone failed: {res.stderr.strip()}'\n",
+        "        init = _git(['init', '--quiet', path])\n",
+        "        if init.returncode != 0:\n",
+        "            return f'init failed: {init.stderr.strip()}'\n",
+        "        add = _git(['remote', 'add', 'origin', url], cwd=path)\n",
+        "        if add.returncode != 0:\n",
+        "            return f'remote add failed: {add.stderr.strip()}'\n",
         "    # Reset the origin to the plain URL (older notebooks stored the token in it).\n",
-        "    _git(['remote', 'set-url', 'origin', url], cwd=path)\n",
-        "    if valid:\n",
-        "        fetch = _git(['fetch', '--depth', '1', 'origin'], cwd=path)\n",
-        "        if fetch.returncode != 0:\n",
-        "            return f'fetch failed: {fetch.stderr.strip()}'\n",
-        "        reset = _git(['reset', '--hard', 'origin/main'], cwd=path)\n",
-        "        if reset.returncode != 0:\n",
-        "            return f'reset failed: {reset.stderr.strip()}'\n",
+        "    seturl = _git(['remote', 'set-url', 'origin', url], cwd=path)\n",
+        "    if seturl.returncode != 0:\n",
+        "        return f'remote set-url failed: {seturl.stderr.strip()}'\n",
+        "    # One ref (branch, tag or full commit SHA), fetched shallow and checked out.\n",
+        "    fetch = _git(['fetch', '--depth', '1', 'origin', ref], cwd=path)\n",
+        "    if fetch.returncode != 0:\n",
+        "        return f'fetch of {ref} failed: {fetch.stderr.strip()}'\n",
+        "    reset = _git(['reset', '--hard', 'FETCH_HEAD'], cwd=path)\n",
+        "    if reset.returncode != 0:\n",
+        "        return f'reset to {ref} failed: {reset.stderr.strip()}'\n",
+        "    head = _git(['rev-parse', '--short', 'HEAD'], cwd=path)\n",
+        "    if head.returncode != 0:\n",
+        "        return f'rev-parse after {ref} failed: {head.stderr.strip()}'\n",
+        "    print(f'[GIT] {url} at {ref} ({head.stdout.strip()})')\n",
         "    return None\n",
         "\n",
         "try:\n",
         (
             "    suite_error = _sync_repo(suite_url, suite_path, "
-            "os.path.join('training', 'train.py'))\n"
+            "os.path.join('training', 'train.py'), suite_ref)\n"
         ),
-        "    env_mgr_error = _sync_repo(env_mgr_url, env_mgr_path, 'ecosystem')\n",
+        ("    env_mgr_error = _sync_repo(env_mgr_url, env_mgr_path, 'ecosystem', env_mgr_ref)\n"),
         "finally:\n",
         "    try:\n",
         "        shutil.rmtree(askpass_dir)\n",

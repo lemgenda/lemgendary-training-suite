@@ -35,6 +35,7 @@ from training.cloud.kernel_output import (
 from training.cloud.kernel_status import CANCELLED_STATUSES, COMPLETE, QUEUED, PollBackoff
 from training.cloud.kernel_watch import KernelWatcher, WatchHooks, WatchResult
 from training.cloud.session_deadline import load_session_config
+from training.notebooks.launch_options import LaunchOptions
 from training.server.state import ServerState
 
 logger = logging.getLogger("lemtrain.server.jobs")
@@ -246,7 +247,7 @@ class KaggleRunJobsMixin:
                 model_key,
                 kernel_owner=user,
                 accelerator_id=params.get("accelerator"),
-                override_frozen=bool(params.get("override_frozen", False)),
+                launch=LaunchOptions.from_params(params),
             ),
         )
         self._broadcast_log(

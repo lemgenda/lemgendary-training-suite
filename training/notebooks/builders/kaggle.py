@@ -27,10 +27,11 @@ def training_cells(
 ) -> list[dict[str, Any]]:
     """The cells of the Kaggle training notebook of ``meta`` (no file is written).
 
-    ``options`` are the trainer switches of the launch (all off by default).
+    ``options`` are the launch options: clone refs, trainer switches and session window
+    (defaults: ``main``, no switches, ``config.yaml``'s ``kaggle_session``).
     """
     return [
-        *training_preamble_cells(meta, "kaggle", "Nuclear-Hardened"),
+        *training_preamble_cells(meta, "kaggle", "Nuclear-Hardened", options.git_refs),
         make_markdown_cell(["## 6. Multi-Path Data Resolution\n"]),
         build_symlink_cell(meta, "kaggle"),
         make_markdown_cell(["## 7. Checkpoint & Metric Recovery\n"]),

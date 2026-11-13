@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.209-STABLE`
+- **Version**: `v16.9.210-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,42 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.210 - Kaggle Launches Choose The Clone Ref And Session Window
+
+- **Clone ref**: a Kaggle kernel always cloned the suite and the env-manager
+  at `main`, so a test of fix-branch code ran old code (a private test kernel
+  failed with `ModuleNotFoundError: training.utils.model_payload`). New
+  options `--git-ref` (suite, and env-manager by default) and
+  `--env-manager-ref` choose a branch, tag or full commit SHA. The clone cell
+  now runs `git fetch --depth 1 origin <ref>` and `git reset --hard
+  FETCH_HEAD` for each repository, checks every git exit code, and prints
+  the commit it checked out (`[GIT] <url> at <ref> (<sha>)`). The default
+  stays `main`.
+- **Injection safety**: `training/notebooks/git_ref.py` validates every ref
+  before it is written into the notebook: letters, digits, `.`, `_`, `/` and
+  `-` only, a letter or digit first (so no git option), at most 200
+  characters, and none of `..`, `//`, `@{`, `/.`, a trailing `/`, `.` or
+  `.lock`. Git gets the ref as one list argument, never through a shell.
+- **Session window**: `--limit-hours` and `--margin-minutes` override
+  `kaggle_session.limit_hours` / `margin_minutes` of `config.yaml` for one
+  kernel. The training cell exports `LEMGENDARY_SESSION_LIMIT_HOURS` /
+  `LEMGENDARY_SESSION_MARGIN_MINUTES` before it starts the trainer, and the
+  session deadline prefers them. A malformed or inconsistent value stops the
+  run with an error. Without the options nothing is exported.
+- One `LaunchOptions` (clone refs, `--override-frozen`, session window)
+  reaches the notebook: `BundleRequest.launch` (replaces
+  `BundleRequest.override_frozen`), `lemtrain kaggle bundle|launch`,
+  `python -m training.kaggle_cloud_manager --action launch` and
+  `POST /api/training/kaggle/train` (optional `git_ref`, `env_manager_ref`,
+  `limit_hours`, `margin_minutes`; invalid values answer 422 before a job is
+  created). The flag names and help texts are defined once in
+  `training/cli_args.py`. `openapi.json` regenerated.
+- New `tests/unit/test_kaggle_launch_ref_session.py`: ref validation, the
+  generated clone and training cell source (defaults unchanged, options
+  present, valid Python), the deadline reading the exported window, every
+  launch path, and the generated clone helper run against a local git
+  repository at a branch, a commit SHA and `main`.
 
 ### v16.9.209 - No Silent Error Swallowing In Notebook Cells And Helpers
 

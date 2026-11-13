@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.209"
+    "version": "16.9.210"
   },
   "paths": {
     "/api/health": {
@@ -1130,7 +1130,7 @@
           "training"
         ],
         "summary": "Launch Kaggle Train",
-        "description": "Enqueue Kaggle cloud training: push the generated notebook kernel and watch it.\n\n``auto_resume`` / ``max_resumes`` default to ``kaggle_session`` of ``config.yaml``; the job\nrecords the effective values.",
+        "description": "Enqueue Kaggle cloud training: push the generated notebook kernel and watch it.\n\n``auto_resume`` / ``max_resumes`` default to ``kaggle_session`` of ``config.yaml``; the job\nrecords the effective values. ``git_ref`` / ``env_manager_ref`` (default ``main``) and\n``limit_hours`` / ``margin_minutes`` (default ``kaggle_session``) are written into the\npushed notebook; invalid values are refused with 422 before any job is created.",
         "operationId": "launch_kaggle_train_api_training_kaggle_train_post",
         "requestBody": {
           "content": {
@@ -1159,7 +1159,7 @@
             "description": "Model key not found in registry"
           },
           "422": {
-            "description": "Unknown or retired Kaggle accelerator"
+            "description": "Unknown or retired Kaggle accelerator, invalid git ref or invalid session window"
           }
         }
       }
@@ -2071,6 +2071,56 @@
             "title": "Override Frozen",
             "description": "Pass --override-frozen to the kernel's trainer: resume although a frozen run setting changed (logged and recorded)",
             "default": false
+          },
+          "git_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Ref",
+            "description": "Branch, tag or full commit SHA the kernel clones the training suite at (default: main)"
+          },
+          "env_manager_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env Manager Ref",
+            "description": "Ref the kernel clones the env-manager at (default: the git_ref value)"
+          },
+          "limit_hours": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Hours",
+            "description": "Session limit in hours for this kernel (default: kaggle_session.limit_hours)"
+          },
+          "margin_minutes": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Minutes",
+            "description": "Minutes before the limit the trainer stops (default: kaggle_session.margin_minutes)"
           },
           "accelerator": {
             "anyOf": [

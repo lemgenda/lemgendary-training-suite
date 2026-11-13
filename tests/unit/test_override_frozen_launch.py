@@ -55,7 +55,7 @@ def test_training_cell_appends_the_switch_only_when_requested(model_key: str) ->
 @pytest.mark.parametrize("override", [False, True])
 def test_bundle_notebook_follows_the_request(tmp_path: Path, override: bool) -> None:
     """``BundleRequest.override_frozen`` reaches the bundled notebook."""
-    request = BundleRequest("codeformer", "pusher", override_frozen=override)
+    request = BundleRequest("codeformer", "pusher", launch=LaunchOptions(override_frozen=override))
     bundle = build_kernel_bundle(request, tmp_path, _REGISTRY)
     assert (_SWITCH_LINE in _notebook_text(bundle.directory)) is override
 
@@ -90,19 +90,27 @@ class _Jobs(job_kaggle_run.KaggleRunJobsMixin):
         self._broadcast_log = lambda _job, _line: None
 
 
-@pytest.mark.usefixtures("kaggle_home")
-def test_gui_job_forwards_the_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``POST /kaggle/train`` ``override_frozen`` reaches the pushed notebook (default off)."""
-    assert KaggleTrainRequest.model_validate({"model": "codeformer"}).override_frozen is False
+def run_gui_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_key: str, params: dict[str, Any]
+) -> str:
+    """Run the GUI Kaggle job with ``params`` against a fake API; the pushed notebook text."""
     api = _PushRecorder()
     monkeypatch.setattr(job_kaggle_run, "resolve_kaggle_credentials", lambda: ("u", "KGAT_x"))
     monkeypatch.setattr(job_kaggle_run, "authenticated_kaggle_api", lambda _u, _k: api)
     monkeypatch.setattr(kernel_launch, "kaggle_version_lookup", lambda _api: lambda _h: None)
     event = threading.Event()
     monkeypatch.setattr(event, "wait", lambda _s=None: False)
+    _Jobs(tmp_path).execute_kaggle_training("job", model_key, params, event)
+    return api.notebooks[0]
+
+
+@pytest.mark.usefixtures("kaggle_home")
+def test_gui_job_forwards_the_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``POST /kaggle/train`` ``override_frozen`` reaches the pushed notebook (default off)."""
+    assert KaggleTrainRequest.model_validate({"model": "codeformer"}).override_frozen is False
     params = {"accelerator": None, "auto_pull": False, "override_frozen": True}
-    _Jobs(tmp_path).execute_kaggle_training("job", "codeformer", params, event)
-    assert _SWITCH_LINE in api.notebooks[0]
+    notebook = run_gui_job(tmp_path, monkeypatch, "codeformer", params)
+    assert _SWITCH_LINE in notebook
 
 
 @pytest.mark.usefixtures("kaggle_home")
@@ -128,4 +136,4 @@ def test_cloud_manager_launch_option(
     command = ["kaggle_cloud_manager", "--action", "launch", "--model", "codeformer", *argv]
     monkeypatch.setattr(sys, "argv", command)
     kaggle_cloud_manager.main()
-    assert calls[0]["override_frozen"] is expected
+    assert calls[0]["options"].override_frozen is expected

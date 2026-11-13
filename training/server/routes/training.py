@@ -21,6 +21,7 @@ from training.cloud.session_deadline import load_session_config
 from training.cloud.variations import ALL_VARIATIONS, VariationChoice, VariationKey
 from training.ecosystem import kaggle_accelerator, kaggle_accelerators
 from training.kaggle_accounts import fetch_user_kernels
+from training.notebooks.launch_options import LaunchOptions
 from training.registry.model_specs import get_model_registry
 from training.utils.paths import get_project_root
 
@@ -136,7 +137,11 @@ _UNKNOWN_MODEL: dict[int | str, dict[str, Any]] = {
 
 
 _BAD_ACCELERATOR: dict[int | str, dict[str, Any]] = {
-    422: {"description": "Unknown or retired Kaggle accelerator"}
+    422: {
+        "description": (
+            "Unknown or retired Kaggle accelerator, invalid git ref or invalid session window"
+        )
+    }
 }
 
 
@@ -155,6 +160,28 @@ class KaggleTrainRequest(BaseModel):
         description=(
             "Pass --override-frozen to the kernel's trainer: resume although a frozen run "
             "setting changed (logged and recorded)"
+        ),
+    )
+    git_ref: str | None = Field(
+        None,
+        description=(
+            "Branch, tag or full commit SHA the kernel clones the training suite at (default: main)"
+        ),
+    )
+    env_manager_ref: str | None = Field(
+        None,
+        description="Ref the kernel clones the env-manager at (default: the git_ref value)",
+    )
+    limit_hours: float | None = Field(
+        None,
+        gt=0,
+        description="Session limit in hours for this kernel (default: kaggle_session.limit_hours)",
+    )
+    margin_minutes: float | None = Field(
+        None,
+        ge=0,
+        description=(
+            "Minutes before the limit the trainer stops (default: kaggle_session.margin_minutes)"
         ),
     )
     accelerator: str | None = Field(
@@ -277,12 +304,15 @@ def launch_kaggle_train(payload: KaggleTrainRequest, request: Request) -> dict[s
     """Enqueue Kaggle cloud training: push the generated notebook kernel and watch it.
 
     ``auto_resume`` / ``max_resumes`` default to ``kaggle_session`` of ``config.yaml``; the job
-    records the effective values.
+    records the effective values. ``git_ref`` / ``env_manager_ref`` (default ``main``) and
+    ``limit_hours`` / ``margin_minutes`` (default ``kaggle_session``) are written into the
+    pushed notebook; invalid values are refused with 422 before any job is created.
     """
     _require_registered_model(payload.model)
     try:
         accelerator = checked_accelerator(payload.accelerator)
-    except KernelBundleError as exc:
+        LaunchOptions.from_params(payload.model_dump())
+    except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     manager = request.app.state.job_manager
     chain = load_session_config(manager.project_root).with_chain(

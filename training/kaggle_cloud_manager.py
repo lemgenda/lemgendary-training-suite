@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from typing import Any
 
-from training.cli_args import add_override_frozen_argument
+from training.cli_args import add_kaggle_launch_arguments, add_override_frozen_argument
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
 from training.cloud.kaggle_client import KaggleAuthError, authenticated_kaggle_api
@@ -17,6 +18,7 @@ from training.cloud.kernel_status import status_name
 from training.cloud.variations import ALL_VARIATIONS, VARIATION_BY_KEY
 from training.ecosystem import kaggle_accelerators
 from training.kaggle_stream import stream_kernel_logs
+from training.notebooks.launch_options import DEFAULT_LAUNCH, LaunchOptions
 
 logger = logging.getLogger("lemtrain.kaggle_cloud_manager")
 
@@ -32,15 +34,16 @@ def launch_kaggle_training(
     username: str | None = None,
     key: str | None = None,
     accelerator: str | None = None,
-    override_frozen: bool = False,
+    options: LaunchOptions = DEFAULT_LAUNCH,
 ) -> KernelLaunch:
     """Push the model's generated kernel bundle (notebook plus metadata) to Kaggle.
 
-    ``override_frozen`` passes ``--override-frozen`` to the kernel's trainer.
+    ``options`` are the notebook launch options (clone refs, ``--override-frozen``, session
+    window); the defaults clone ``main`` and keep ``config.yaml``'s ``kaggle_session``.
     """
     api, user = _authenticated_api(username, key)
     request = BundleRequest(
-        model_name, kernel_owner=user, accelerator_id=accelerator, override_frozen=override_frozen
+        model_name, kernel_owner=user, accelerator_id=accelerator, launch=options
     )
     launch = launch_kernel(api, request)
     logger.info("Kernel %s pushed (version %s)", launch.handle, launch.version_number)
@@ -101,6 +104,22 @@ def push_kaggle_model(
     return res.success
 
 
+def _launch_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> LaunchOptions:
+    """The launch options of the parsed arguments; invalid values end in a usage error."""
+    try:
+        return LaunchOptions.from_values(
+            args.override_frozen,
+            args.git_ref,
+            args.env_manager_ref,
+            args.limit_hours,
+            args.margin_minutes,
+        )
+    except ValueError as exc:
+        parser.print_usage(sys.stderr)
+        sys.stderr.write(f"{parser.prog}: error: {exc}\n")
+        raise SystemExit(2) from exc
+
+
 def main() -> None:
     """CLI entry point for Kaggle cloud management."""
     parser = argparse.ArgumentParser(description="LemGendary Headless Kaggle Cloud Engine")
@@ -147,6 +166,7 @@ def main() -> None:
         help="Hub root for pulled artifacts (pull only; default: sibling LemGendaryModels)",
     )
     add_override_frozen_argument(parser)
+    add_kaggle_launch_arguments(parser)
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -162,7 +182,7 @@ def main() -> None:
             username=args.username,
             key=args.key,
             accelerator=args.accelerator,
-            override_frozen=args.override_frozen,
+            options=_launch_options(parser, args),
         )
     elif args.action in ("monitor", "monitor_interactive"):
         monitor_kaggle_training(args.model, username=args.username)

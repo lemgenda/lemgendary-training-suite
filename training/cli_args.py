@@ -1,4 +1,4 @@
-"""Command-line arguments shared by the trainer and the forex curriculum orchestrator."""
+"""Command-line arguments shared by the trainer, the forex orchestrator and Kaggle launches."""
 
 from __future__ import annotations
 
@@ -42,4 +42,41 @@ def add_timeframes_argument(parser: argparse.ArgumentParser, help_text: str) -> 
         nargs="+",
         default=None,
         help=help_text,
+    )
+
+
+GIT_REF_FLAG = "--git-ref"
+"""Kaggle launch option: suite (and default env-manager) ref the notebook clones."""
+ENV_MANAGER_REF_FLAG = "--env-manager-ref"
+"""Kaggle launch option: env-manager ref when it differs from ``--git-ref``."""
+LIMIT_HOURS_FLAG = "--limit-hours"
+"""Kaggle launch option: session limit overriding ``kaggle_session.limit_hours``."""
+MARGIN_MINUTES_FLAG = "--margin-minutes"
+"""Kaggle launch option: stop margin overriding ``kaggle_session.margin_minutes``."""
+
+GIT_REF_HELP = "Branch, tag or full commit SHA the kernel clones the suite at (default: main)."
+ENV_MANAGER_REF_HELP = "Ref the kernel clones the env-manager at (default: the --git-ref value)."
+LIMIT_HOURS_HELP = (
+    "Session limit in hours for this kernel (default: kaggle_session of config.yaml)."
+)
+MARGIN_MINUTES_HELP = (
+    "Minutes before the limit the trainer stops (default: kaggle_session of config.yaml)."
+)
+
+
+def add_kaggle_launch_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the clone ref and session window options of a Kaggle launch (all default off)."""
+    parser.add_argument(GIT_REF_FLAG, dest="git_ref", default=None, help=GIT_REF_HELP)
+    parser.add_argument(
+        ENV_MANAGER_REF_FLAG, dest="env_manager_ref", default=None, help=ENV_MANAGER_REF_HELP
+    )
+    parser.add_argument(
+        LIMIT_HOURS_FLAG, dest="limit_hours", type=float, default=None, help=LIMIT_HOURS_HELP
+    )
+    parser.add_argument(
+        MARGIN_MINUTES_FLAG,
+        dest="margin_minutes",
+        type=float,
+        default=None,
+        help=MARGIN_MINUTES_HELP,
     )

@@ -14,6 +14,11 @@ real session start, so the margin should cover the notebook set-up).
 version when a session ended at its deadline, at most ``max_resumes`` times per job. The
 config values are the defaults; ``POST /api/training/kaggle/train`` may override both per job
 (:meth:`SessionDeadlineConfig.with_chain`).
+
+A launch may also override the session window (``limit_hours``, ``margin_minutes``) for one
+kernel, for example a short test session: :class:`SessionWindowOverride` is written into the
+generated notebook as :data:`LIMIT_HOURS_ENV` / :data:`MARGIN_MINUTES_ENV`, and
+:func:`session_deadline` prefers them to ``config.yaml``.
 """
 
 from __future__ import annotations
@@ -35,6 +40,10 @@ SESSION_START_ENV = "LEMGENDARY_SESSION_START"
 """Session start (seconds since the epoch) exported by the notebook's first cell."""
 DEADLINE_MARKER = "session_deadline.json"
 """Written into ``LemGendaryModels/<model>`` when a run stopped at its session deadline."""
+LIMIT_HOURS_ENV = "LEMGENDARY_SESSION_LIMIT_HOURS"
+"""Per-launch ``limit_hours`` override exported by the generated training cell."""
+MARGIN_MINUTES_ENV = "LEMGENDARY_SESSION_MARGIN_MINUTES"
+"""Per-launch ``margin_minutes`` override exported by the generated training cell."""
 CONFIG_SECTION = "kaggle_session"
 DEADLINE_STATUS = "session_deadline"
 """``TrainingSummary.status`` / ``stop_reason`` of a run stopped at its deadline."""
@@ -60,11 +69,29 @@ class SessionDeadlineConfig:
             auto_resume=raw.get("auto_resume", defaults.auto_resume),
             max_resumes=raw.get("max_resumes", defaults.max_resumes),
         )
-        if settings.limit_hours <= 0 or settings.margin_minutes < 0:
-            raise ValueError(f"{CONFIG_SECTION}: limit_hours must be > 0, margin_minutes >= 0")
-        if settings.margin_minutes * 60 >= settings.limit_hours * 3600:
-            raise ValueError(f"{CONFIG_SECTION}: margin_minutes must be below limit_hours")
+        settings.check_window()
         settings.check_chain()
+        return settings
+
+    def check_window(self) -> None:
+        """Validate the session window (``limit_hours``, ``margin_minutes``)."""
+        if self.limit_hours <= 0 or self.margin_minutes < 0:
+            raise ValueError(f"{CONFIG_SECTION}: limit_hours must be > 0, margin_minutes >= 0")
+        if self.margin_minutes * 60 >= self.limit_hours * 3600:
+            raise ValueError(f"{CONFIG_SECTION}: margin_minutes must be below limit_hours")
+
+    def with_window(self, override: SessionWindowOverride) -> SessionDeadlineConfig:
+        """These settings with a per-launch window override (None fields keep the value)."""
+        settings = replace(
+            self,
+            limit_hours=(
+                self.limit_hours if override.limit_hours is None else override.limit_hours
+            ),
+            margin_minutes=(
+                self.margin_minutes if override.margin_minutes is None else override.margin_minutes
+            ),
+        )
+        settings.check_window()
         return settings
 
     def check_chain(self) -> None:
@@ -89,6 +116,59 @@ class SessionDeadlineConfig:
         )
         settings.check_chain()
         return settings
+
+
+def _env_float(environ: Mapping[str, str], name: str) -> float | None:
+    """``environ[name]`` as a float (None when unset); a malformed value is an error."""
+    raw = environ.get(name, "")
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name}={raw!r} is not a number") from exc
+
+
+@dataclass(frozen=True)
+class SessionWindowOverride:
+    """Per-launch session window; None fields keep ``config.yaml``'s ``kaggle_session``."""
+
+    limit_hours: float | None = None
+    margin_minutes: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.limit_hours is not None and self.limit_hours <= 0:
+            raise ValueError("Session limit_hours override must be > 0")
+        if self.margin_minutes is not None and self.margin_minutes < 0:
+            raise ValueError("Session margin_minutes override must be >= 0")
+        if (
+            self.limit_hours is not None
+            and self.margin_minutes is not None
+            and self.margin_minutes * 60 >= self.limit_hours * 3600
+        ):
+            raise ValueError("Session margin_minutes override must be below limit_hours")
+
+    @property
+    def active(self) -> bool:
+        """Whether any field overrides the configuration."""
+        return self.limit_hours is not None or self.margin_minutes is not None
+
+    def environment(self) -> dict[str, str]:
+        """The environment variables carrying this override into the trainer process."""
+        env: dict[str, str] = {}
+        if self.limit_hours is not None:
+            env[LIMIT_HOURS_ENV] = repr(float(self.limit_hours))
+        if self.margin_minutes is not None:
+            env[MARGIN_MINUTES_ENV] = repr(float(self.margin_minutes))
+        return env
+
+    @classmethod
+    def from_environ(cls, environ: Mapping[str, str]) -> SessionWindowOverride:
+        """The override exported by the generated notebook (empty when none)."""
+        return cls(
+            limit_hours=_env_float(environ, LIMIT_HOURS_ENV),
+            margin_minutes=_env_float(environ, MARGIN_MINUTES_ENV),
+        )
 
 
 @dataclass(frozen=True)
@@ -116,7 +196,10 @@ def session_deadline(
     """The deadline of a Kaggle run (``env == "kaggle"``); None on every other platform."""
     if env != "kaggle":
         return None
-    settings = SessionDeadlineConfig.from_config(config)
+    override = SessionWindowOverride.from_environ(environ)
+    settings = SessionDeadlineConfig.from_config(config).with_window(override)
+    if override.active:
+        logger.info("Kaggle session window overridden by the launch: %s", override)
     raw_start = environ.get(SESSION_START_ENV, "")
     try:
         start = float(raw_start) if raw_start else clock()
