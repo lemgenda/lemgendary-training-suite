@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.212-STABLE`
+- **Version**: `v16.9.213-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,31 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.213 - Cloud Notebooks Install The cu126 Torch Build
+
+- **Live run finding**: the dependency cell named the `cu126` index, but
+  the manifest it installs (the env-manager `requirements-training.txt`)
+  pins `torch==2.15.0` and `torchvision==0.29.2` for the owner's host
+  (`cu134`). The `cu126` index has no such wheels (newest: torch `2.14.1`,
+  torchvision `0.29.1`, torchaudio `2.11.0`), and it was only an extra
+  index, so pip installed the CUDA 13 build from PyPI. The cell's
+  `torch 2.11.0+cu130` line was the stale in-process module (fixed in
+  v16.9.212).
+- New `training/notebooks/torch_build.py` is the one place that names the
+  cloud torch build: `CLOUD_CUDA_BUILD` (`cu126` index, `torch==2.14.1+cu126`,
+  `torchvision==0.29.1+cu126`, `torchaudio==2.11.0+cu126`) for the T4
+  (sm_75) of Kaggle and Colab.
+- On a CUDA host the dependency cell installs those pins from that index
+  alone (`--index-url`), then installs the manifest without its torch
+  family, constrained (`-c`) to the same builds, so no PyPI wheel replaces
+  them. Other accelerators install as before. The hardware sentinel no
+  longer hardcodes its own torch build in a remedy line.
+- Checked with a Linux / Python 3.13 `pip --dry-run`: the manifest
+  resolves to the three `+cu126` wheels.
+- Tests: the generated cell, executed with a recorded pip, installs the
+  pins from the build index only and the manifest without the torch family
+  under the build constraints.
 
 ### v16.9.212 - Notebook Cells Run Torch Code In A Fresh Interpreter
 

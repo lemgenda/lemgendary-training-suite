@@ -10,6 +10,7 @@ from typing import Any
 
 from training.platform_paths import SUITE_FOLDER, platform_paths
 
+from ..torch_build import CLOUD_CUDA_BUILD, TORCH_FAMILY
 from .base import make_code_cell
 
 _SECRETS_PLACE = {"kaggle": "Kaggle Secrets", "colab": "Colab Secrets"}
@@ -32,14 +33,14 @@ def _req_candidates(target: str) -> list[str]:
 
 
 _ACCELERATOR_LINES = [
-    "import os, sys, subprocess, platform, shutil\n",
+    "import os, sys, subprocess, platform, shutil, tempfile\n",
     "print('[ENV] Probing hardware accelerator...')\n",
     "\n",
     "torch_index = 'https://download.pytorch.org/whl/cpu'\n",
     "accel_type = 'cpu'\n",
     "if shutil.which('nvidia-smi'):\n",
-    "    torch_index = 'https://download.pytorch.org/whl/cu126'\n",
-    "    accel_type = 'cuda_cu126'\n",
+    f"    torch_index = {CLOUD_CUDA_BUILD.index_url!r}\n",
+    f"    accel_type = {CLOUD_CUDA_BUILD.accelerator!r}\n",
     "elif shutil.which('rocm-smi'):\n",
     "    torch_index = 'https://download.pytorch.org/whl/rocm6.1'\n",
     "    accel_type = 'rocm6.1'\n",
@@ -89,17 +90,58 @@ _TORCH_VERSION_PROBE_LINES = [
 ]
 
 
+_TORCH_BUILD_LINES = [
+    "    install_req, constraint_args = req_path, []\n",
+    "    if torch_pins:\n",
+    "        # The torch family comes from the build's own index only; the manifest's torch\n",
+    "        # pins name the host build, so they are dropped and the rest is constrained.\n",
+    "        print(f'[ENV] Torch build: {torch_pins}')\n",
+    "        torch_res = subprocess.run(\n",
+    "            [sys.executable, '-m', 'pip', 'install', '-q', '--index-url', torch_index,\n",
+    "             *torch_pins], capture_output=True, text=True)\n",
+    "        if torch_res.returncode != 0:\n",
+    "            print('[WARNING] Torch build installation finished with non-zero exit code.')\n",
+    "            print(torch_res.stderr[-2000:])\n",
+    "        pin_dir = tempfile.mkdtemp(prefix='lemgendary-pins-')\n",
+    "        install_req = os.path.join(pin_dir, 'requirements-without-torch.txt')\n",
+    "        constraints = os.path.join(pin_dir, 'torch-constraints.txt')\n",
+    "        with open(req_path, encoding='utf-8') as src:\n",
+    "            req_lines = src.readlines()\n",
+    "        with open(install_req, 'w', encoding='utf-8') as dst:\n",
+    "            for line in req_lines:\n",
+    "                name = line.split('#')[0].strip()\n",
+    "                for sep in '=<>!~;[ ':\n",
+    "                    name = name.split(sep)[0]\n",
+    "                if name.lower() not in torch_family:\n",
+    "                    dst.write(line)\n",
+    "        with open(constraints, 'w', encoding='utf-8') as fh:\n",
+    "            fh.write(''.join(pin + chr(10) for pin in torch_pins))\n",
+    "        constraint_args = ['-c', constraints]\n",
+]
+
+
 def _install_lines(target: str) -> list[str]:
-    """Install the requirement manifest against the accelerator's torch index."""
+    """Install the requirement manifest against the accelerator's torch index.
+
+    On the CUDA index of :data:`CLOUD_CUDA_BUILD` the torch family is installed first from
+    that index alone (:data:`_TORCH_BUILD_LINES`), then the manifest without it, constrained
+    to those builds so no PyPI wheel replaces them.
+    """
     upgrade = "'--upgrade', 'kaggle>=2.2.5', " if target == "kaggle" else ""
     return [
+        f"torch_family = {TORCH_FAMILY!r}\n",
+        (
+            f"torch_pins = {list(CLOUD_CUDA_BUILD.pins)!r} "
+            f"if torch_index == {CLOUD_CUDA_BUILD.index_url!r} else []\n"
+        ),
         "if req_path:\n",
         "    print(f'[ENV] Manifest: {req_path}')\n",
+        *_TORCH_BUILD_LINES,
         "    res = subprocess.run(\n",
         f"        [sys.executable, '-m', 'pip', 'install', '-q', {upgrade}\n",
         "         '--extra-index-url', torch_index,\n",
         "         '--upgrade-strategy', 'only-if-needed',\n",
-        "         '-r', req_path],\n",
+        "         *constraint_args, '-r', install_req],\n",
         "        capture_output=True, text=True)\n",
         "    if res.returncode == 0:\n",
         "        print('[OK] Environment Ready.')\n",
