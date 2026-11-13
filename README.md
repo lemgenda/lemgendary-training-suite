@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.203-STABLE`
+- **Version**: `v16.9.204-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,19 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.204 - Imports No Longer Load The Kaggle Package
+
+- The `kaggle` package authenticates when it is imported and printed its
+  "Authentication required" sign-in help without credentials. The chain was
+  `training.export` (and the `lemtrain` CLI, `training.cloud`) importing the
+  `training.cloud` package, whose `kaggle_api_sync` imported `KaggleApi` at
+  module load for type annotations only. That import is now type-checking
+  only; the client still comes from `authenticated_kaggle_api` on first use.
+- New `tests/unit/test_kaggle_lazy_import.py` imports `training.model_card`,
+  `training.export`, `training.cli.lemtrain`, `training.cloud` and
+  `training.cloud.kaggle_api_sync` in a fresh interpreter each and checks
+  that `kaggle` is not in `sys.modules`.
 
 ### v16.9.203 - Class Ids Stay Below The Ignore Target
 

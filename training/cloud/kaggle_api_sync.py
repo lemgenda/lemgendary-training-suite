@@ -3,6 +3,10 @@
 Interacts directly with the Kaggle Models REST API via the kaggle package to create or update
 the model-level metadata and model-instance-level variation metadata (overview, usage,
 license, etc.).
+
+The ``kaggle`` package authenticates (and prints its sign-in help) when it is imported, so
+``KaggleApi`` is imported only for type checking; the client comes from
+:func:`training.cloud.kaggle_client.authenticated_kaggle_api` on first use.
 """
 
 from __future__ import annotations
@@ -11,9 +15,7 @@ import json
 import logging
 import tempfile
 from pathlib import Path
-from typing import Any
-
-from kaggle.api.kaggle_api_extended import KaggleApi
+from typing import TYPE_CHECKING, Any
 
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
@@ -22,6 +24,9 @@ from training.cloud.model_metadata import ModelMetadata
 from training.cloud.variations import VARIATIONS, KaggleVariation
 from training.ecosystem import kaggle_collaborators
 from training.utils.lazy_imports import load_kaggle_iam
+
+if TYPE_CHECKING:
+    from kaggle.api.kaggle_api_extended import KaggleApi
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_api_sync")
 
