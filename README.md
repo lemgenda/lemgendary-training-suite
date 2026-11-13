@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.214-STABLE`
+- **Version**: `v16.9.215-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,37 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.215 - Fast WebDataset Open: Shipped Shard Index And One Shared Scan
+
+- **Bug**: Kaggle run 3 of `upn_v2` spent 48 minutes opening the train split
+  (1,349,715 samples, 270 shards on `/kaggle/input`) and trained 0 steps.
+  `WebDatasetReader` read every tar member header (about 4 million small
+  random reads on network storage), on both DDP ranks at once. The offset
+  cache did not help: the hidden `.shard_offsets.json` is skipped by Kaggle
+  dataset uploads, and a copied cache was rejected because the shard
+  modification times change on upload.
+- The shard index is now `shard_offsets.json` (no leading dot) in each shard
+  folder, written there whenever the folder is writable, so a manifold opened
+  once locally ships its index with the next upload. An entry is used when the
+  shard size matches and either the modification time matches or the tar
+  headers of its first, middle and last member agree with it (three reads).
+- A read-only shard folder keeps its scan cache under the suite's
+  `.cache/shard_offsets` (session-only `/kaggle/temp` on Kaggle;
+  `LEMGENDARY_SHARD_CACHE_DIR` overrides it).
+- Shards still missing an index are scanned once, under a file lock per shard
+  folder: the first process (one DDP rank) builds, the others wait and load the
+  saved index. A probe shard decides the scan threads: latency-bound storage
+  scans on 16 threads, a local disk stays on one.
+- Local measurements (synthetic, 540,000 members): with 0.5 ms emulated read
+  latency (40 shards, 48,000 members) one open went from 100.7 s to 10.6 s, two
+  concurrent processes from 102 s wall (both scanning) to 15.9 s (one scans).
+  An open after an upload (new shard mtimes, shipped index) went from a full
+  rescan (16.1 s) to 3.9 s.
+- `filelock` is a declared dependency (already installed with torch).
+- Tests: shipped index used after an upload without a scan, a same-size shard
+  with other headers rescanned, only missing shards scanned, two concurrent
+  readers scan each shard once, cache folder fallback.
 
 ### v16.9.214 - The lemtrain Console Script Finds The tools Package
 

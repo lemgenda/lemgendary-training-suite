@@ -1,4 +1,4 @@
-"""Byte-offset tables of uncompressed tar shards and their persistent cache.
+"""Byte-offset tables of uncompressed tar shards: scanning and header spot checks.
 
 ``tarfile.extractfile(name)`` resolves ``name`` with a reverse linear scan over every
 member of the archive, and the first lookup on a fresh handle reads every tar header of
@@ -8,33 +8,27 @@ worker, per shard, after every loader rebuild.
 
 An uncompressed tar stores each member's payload contiguously at ``TarInfo.offset_data``.
 :func:`scan_tar_members` records ``(name, offset, size)`` for every regular member once;
-readers then fetch a payload with one ``seek`` and one ``read``. :class:`ShardOffsetCache`
-persists the tables next to the shards (or in a temp-dir fallback when the shard folder is
-read-only, as on Kaggle's ``/kaggle/input``), keyed by shard file name and invalidated by
-the shard's size and modification time.
+readers then fetch a payload with one ``seek`` and one ``read``. The tables are stored by
+:mod:`training.data.containers.shard_tables` and loaded by
+:mod:`training.data.containers.member_tables`.
+
+A full scan reads every member header, one small random read per member: about 4 million
+reads for a 1.3 million sample manifold, which took 48 minutes on Kaggle's network-backed
+``/kaggle/input``. :func:`headers_match` checks a stored table against the shard with
+three header reads instead.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
-import os
 import tarfile
-import tempfile
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 logger = logging.getLogger("lemtrain.containers.tar_offsets")
 
-CACHE_FILENAME = ".shard_offsets.json"
-"""Cache file written into the shard directory."""
-
-CACHE_VERSION = 1
-"""Bumped whenever the cache layout changes; other versions are ignored."""
-
-FALLBACK_CACHE_DIRNAME = "lemgendary_shard_offsets"
-"""Folder under the system temp dir used when the shard directory is not writable."""
+HEADER_SIZE = tarfile.BLOCKSIZE
+"""Size of one tar header block; a member's header ends where its payload starts."""
 
 
 class MemberRef(NamedTuple):
@@ -45,10 +39,17 @@ class MemberRef(NamedTuple):
     size: int
 
 
-def shard_fingerprint(path: Path) -> list[int]:
-    """``[size, mtime_ns]`` of ``path``; a change in either invalidates its cached table."""
+class ShardStat(NamedTuple):
+    """Size and modification time of a shard file (a stored table's validity key)."""
+
+    size: int
+    mtime_ns: int
+
+
+def shard_stat(path: Path) -> ShardStat:
+    """``ShardStat`` of ``path``; a change in either field means the shard changed."""
     stat = path.stat()
-    return [int(stat.st_size), int(stat.st_mtime_ns)]
+    return ShardStat(int(stat.st_size), int(stat.st_mtime_ns))
 
 
 def scan_tar_members(path: Path) -> list[MemberRef] | None:
@@ -75,139 +76,44 @@ def scan_tar_members(path: Path) -> list[MemberRef] | None:
     return refs
 
 
-def _fallback_cache_path(shard_dir: Path) -> Path:
-    """Temp-dir cache path unique to ``shard_dir``."""
-    digest = hashlib.sha1(str(shard_dir).encode("utf-8")).hexdigest()
-    return Path(tempfile.gettempdir()) / FALLBACK_CACHE_DIRNAME / f"{digest}.json"
+def _spot_check_refs(refs: list[MemberRef]) -> list[MemberRef]:
+    """First, middle and last member of a table (fewer for short tables)."""
+    if not refs:
+        return []
+    picks = {0, len(refs) // 2, len(refs) - 1}
+    return [refs[i] for i in sorted(picks)]
 
 
-def _valid_table(raw: Any, shard_size: int) -> list[MemberRef] | None:
-    """Decode a cached member table; ``None`` when malformed or past the shard's end."""
-    if not isinstance(raw, list):
-        return None
-    refs: list[MemberRef] = []
-    for item in raw:
-        if not (isinstance(item, list) and len(item) == 3):
-            return None
-        name, offset, size = item
-        if not (isinstance(name, str) and isinstance(offset, int) and isinstance(size, int)):
-            return None
-        if offset < 0 or size < 0 or offset + size > shard_size:
-            return None
-        refs.append(MemberRef(name, offset, size))
-    return refs
+def _header_matches(header: bytes, ref: MemberRef) -> bool:
+    """Whether the tar header block right before ``ref``'s payload describes ``ref``.
 
-
-class ShardOffsetCache:
-    """Persistent member tables of the shards in one directory."""
-
-    def __init__(self, shard_dir: Path) -> None:
-        self.shard_dir = shard_dir
-        self._entries: dict[str, dict[str, Any]] = {}
-        self._dirty = False
-        self._load()
-
-    def candidate_paths(self) -> tuple[Path, Path]:
-        """Primary (next to the shards) and fallback (temp dir) cache locations."""
-        return self.shard_dir / CACHE_FILENAME, _fallback_cache_path(self.shard_dir)
-
-    def _load(self) -> None:
-        for path in self.candidate_paths():
-            if not path.is_file():
-                continue
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError, ValueError) as exc:
-                logger.warning("Ignoring unreadable shard offset cache %s: %s", path, exc)
-                continue
-            if not isinstance(data, dict) or data.get("version") != CACHE_VERSION:
-                logger.info("Ignoring shard offset cache %s with another layout version.", path)
-                continue
-            shards = data.get("shards")
-            if isinstance(shards, dict):
-                self._entries = shards
-                return
-
-    def members(self, shard: Path) -> list[MemberRef] | None:
-        """Cached table of ``shard``, or ``None`` when missing or stale."""
-        entry = self._entries.get(shard.name)
-        if not isinstance(entry, dict):
-            return None
-        fingerprint = shard_fingerprint(shard)
-        if entry.get("fingerprint") != fingerprint:
-            logger.info("Shard %s changed since it was indexed; rescanning its headers.", shard)
-            return None
-        table = _valid_table(entry.get("members"), fingerprint[0])
-        if table is None:
-            logger.warning("Shard offset cache entry for %s is malformed; rescanning.", shard)
-        return table
-
-    def store(self, shard: Path, members: list[MemberRef]) -> None:
-        """Record ``shard``'s freshly scanned table (written by :meth:`save`)."""
-        self._entries[shard.name] = {
-            "fingerprint": shard_fingerprint(shard),
-            "members": [list(ref) for ref in members],
-        }
-        self._dirty = True
-
-    def save(self) -> Path | None:
-        """Write the tables if anything changed; return the file written, if any."""
-        if not self._dirty:
-            return None
-        for name in [n for n in self._entries if not (self.shard_dir / n).is_file()]:
-            del self._entries[name]
-        payload = json.dumps(
-            {"version": CACHE_VERSION, "shards": self._entries}, separators=(",", ":")
-        )
-        for path in self.candidate_paths():
-            tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                tmp.write_text(payload, encoding="utf-8")
-                os.replace(tmp, path)
-            except OSError as exc:
-                logger.debug("Could not write shard offset cache %s: %s", path, exc)
-                _discard(tmp)
-                continue
-            self._dirty = False
-            return path
-        logger.warning(
-            "Shard offset cache for %s could not be written; headers are rescanned next run.",
-            self.shard_dir,
-        )
-        return None
-
-
-def _discard(path: Path) -> None:
-    """Remove a leftover temp file, logging when that fails."""
-    try:
-        path.unlink(missing_ok=True)
-    except OSError as exc:
-        logger.debug("Could not remove temp file %s: %s", path, exc)
-
-
-def load_member_tables(shards: list[Path]) -> dict[Path, list[MemberRef] | None]:
-    """Member tables of ``shards`` from the cache, scanning (and caching) the rest.
-
-    A ``None`` table marks a shard that must be read through ``tarfile``. Shards that
-    fail to open are left out and logged.
+    A long name lives in a preceding PAX or GNU record, so the block's own name field may
+    hold only its start: the name must be a non-empty prefix of ``ref.name``.
     """
-    caches: dict[Path, ShardOffsetCache] = {}
-    tables: dict[Path, list[MemberRef] | None] = {}
-    for shard in shards:
-        cache = caches.get(shard.parent)
-        if cache is None:
-            cache = caches[shard.parent] = ShardOffsetCache(shard.parent)
-        try:
-            table = cache.members(shard)
-            if table is None:
-                table = scan_tar_members(shard)
-                if table is not None:
-                    cache.store(shard, table)
-        except (OSError, tarfile.TarError, EOFError) as exc:
-            logger.warning("Failed opening tar file %s: %s", shard, exc)
-            continue
-        tables[shard] = table
-    for cache in caches.values():
-        cache.save()
-    return tables
+    try:
+        info = tarfile.TarInfo.frombuf(header, "utf-8", "surrogateescape")
+    except tarfile.HeaderError as exc:
+        logger.debug("No valid tar header before member %s: %s", ref.name, exc)
+        return False
+    return info.size == ref.size and bool(info.name) and ref.name.startswith(info.name)
+
+
+def headers_match(path: Path, refs: list[MemberRef]) -> bool:
+    """Whether the shard's headers agree with ``refs`` at the first, middle and last member.
+
+    Three 512-byte reads; any mismatch, short read or I/O error means the table does not
+    describe this shard.
+    """
+    try:
+        with open(path, "rb") as handle:
+            for ref in _spot_check_refs(refs):
+                if ref.offset < HEADER_SIZE:
+                    return False
+                handle.seek(ref.offset - HEADER_SIZE)
+                header = handle.read(HEADER_SIZE)
+                if len(header) != HEADER_SIZE or not _header_matches(header, ref):
+                    return False
+    except OSError as exc:
+        logger.warning("Could not check the tar headers of %s: %s", path, exc)
+        return False
+    return True

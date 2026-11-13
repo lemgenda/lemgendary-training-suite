@@ -1,7 +1,8 @@
 """WebDataset container reader for sharded tar archives.
 
 Uncompressed shards are read by byte offset: the member tables come from
-:mod:`training.data.containers.tar_offsets` (cached across runs) and every payload is one
+:mod:`training.data.containers.member_tables` (a shipped shard index or the scan cache,
+else one scan shared by every process) and every payload is one
 ``seek`` plus one ``read`` on a binary handle from a bounded per-worker
 :class:`~training.data.containers.handle_pool.HandlePool`. Compressed shards keep the
 ``tarfile`` path, with their handles bounded by the same kind of pool.
@@ -23,7 +24,8 @@ from typing import IO, Any
 
 from training.data.containers.base import JSON_ERROR_KEY, JSON_METADATA_KEY, Sample
 from training.data.containers.handle_pool import DEFAULT_MAX_OPEN_HANDLES, HandlePool
-from training.data.containers.tar_offsets import MemberRef, load_member_tables
+from training.data.containers.member_tables import load_member_tables
+from training.data.containers.tar_offsets import MemberRef
 
 logger = logging.getLogger("lemtrain.containers.webdataset")
 
@@ -367,7 +369,7 @@ class WebDatasetReader:
             )
 
     def _index_shards(self) -> None:
-        """Index every shard: cached or scanned offsets, else names for compressed shards."""
+        """Index every shard: stored or scanned offsets, else names for compressed shards."""
         tables = load_member_tables(self.tar_files)
         for t_path in self.tar_files:
             if t_path not in tables:

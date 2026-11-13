@@ -12,6 +12,8 @@ Kaggle account lookup and ``get_secret`` both use) returns no records, so no tes
 real vault next to the checkout or mount its tokens into ``os.environ`` (tests that need accounts
 patch it with fixture records). The GitHub and Google Drive token variables are unset, so
 ``get_secret`` sees only what a test sets itself.
+``LEMGENDARY_SHARD_CACHE_DIR`` points at a per-test folder, so WebDataset scan caches and
+index locks never land in the checkout's ``.cache``.
 """
 
 from collections.abc import Iterator
@@ -22,6 +24,7 @@ import pytest
 from training import ecosystem
 from training.config import secrets as secrets_vault
 from training.data import task_resolution
+from training.data.containers.shard_tables import SHARD_CACHE_DIR_ENV
 from training.ecosystem import ECOSYSTEM_FILE_ENV
 from training.utils.paths import WORKSPACE_ROOT_ENV
 
@@ -43,6 +46,7 @@ def fake_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     workspace.mkdir()
     monkeypatch.setenv(WORKSPACE_ROOT_ENV, str(workspace))
     monkeypatch.setenv(ECOSYSTEM_FILE_ENV, str(ECOSYSTEM_FIXTURE))
+    monkeypatch.setenv(SHARD_CACHE_DIR_ENV, str(tmp_path / "shard_cache"))
     monkeypatch.delenv(task_resolution.TASK_TAXONOMY_ENV, raising=False)
     monkeypatch.setattr(secrets_vault, "load_secrets_records", _no_vault_records)
     for name in TOKEN_SECRET_VARS:

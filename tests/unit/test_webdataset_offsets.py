@@ -7,19 +7,20 @@ import json
 import os
 import pickle
 import tarfile
+import threading
 from pathlib import Path
 from typing import Literal
 
 import pytest
 
-from training.data.containers import tar_offsets
+from training.data.containers import shard_tables, tar_offsets
 from training.data.containers.handle_pool import HandlePool
-from training.data.containers.tar_offsets import (
-    CACHE_FILENAME,
-    MemberRef,
-    ShardOffsetCache,
-    scan_tar_members,
+from training.data.containers.shard_tables import (
+    SHIPPED_INDEX_FILENAME,
+    ShardTableStore,
+    shard_cache_dir,
 )
+from training.data.containers.tar_offsets import MemberRef, scan_tar_members
 from training.data.containers.webdataset import MODE_OFFSET, MODE_TARFILE, WebDatasetReader
 
 Members = list[tuple[str, bytes]]
@@ -123,7 +124,7 @@ def test_cache_is_reused_and_invalidated_by_shard_change(
     """A fresh cache skips the header scan; a changed shard is rescanned."""
     shard = _write_shard(tmp_path / "shards" / "shard-00000.data", _published_layout(0, 3))
     WebDatasetReader(tmp_path).close()
-    assert (shard.parent / CACHE_FILENAME).is_file()
+    assert (shard.parent / SHIPPED_INDEX_FILENAME).is_file()
 
     scans: list[Path] = []
     real_scan = tar_offsets.scan_tar_members
@@ -150,47 +151,183 @@ def test_cache_is_reused_and_invalidated_by_shard_change(
         rebuilt.close()
 
 
+def _store(shard_dir: Path) -> ShardTableStore:
+    return ShardTableStore(shard_dir, shard_cache_dir())
+
+
 def test_malformed_cache_falls_back_to_scan(tmp_path: Path) -> None:
-    """An unreadable cache file is ignored and rebuilt from a scan."""
+    """An unreadable shard index is ignored and rebuilt from a scan."""
     shard = _write_shard(tmp_path / "shards" / "shard-00000.data", _published_layout(0, 2))
-    (shard.parent / CACHE_FILENAME).write_text("{not json", encoding="utf-8")
+    (shard.parent / SHIPPED_INDEX_FILENAME).write_text("{not json", encoding="utf-8")
     reader = WebDatasetReader(tmp_path)
     try:
         assert len(reader) == 2
     finally:
         reader.close()
-    entry = ShardOffsetCache(shard.parent).members(shard)
+    entry = _store(shard.parent).members(shard)
     assert entry is not None and len(entry) == 6
 
 
 def test_out_of_range_cache_entry_is_rejected(tmp_path: Path) -> None:
-    """A cached member past the shard's end invalidates the entry."""
+    """A stored member past the shard's end invalidates the entry."""
     shard = _write_shard(tmp_path / "shards" / "shard-00000.data", _published_layout(0, 2))
-    cache = ShardOffsetCache(shard.parent)
-    cache.store(shard, [MemberRef("x.webp", shard.stat().st_size, 10)])
-    cache.save()
-    assert ShardOffsetCache(shard.parent).members(shard) is None
+    store = _store(shard.parent)
+    store.store(shard, [MemberRef("x.webp", shard.stat().st_size, 10)])
+    store.save()
+    assert _store(shard.parent).members(shard) is None
 
 
-def test_read_only_shard_dir_uses_temp_cache(
+def test_read_only_shard_dir_uses_the_cache_folder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An unwritable shard directory caches in the temp-dir fallback."""
+    """An unwritable shard directory keeps its scan cache in the writable cache folder."""
     shard = _write_shard(tmp_path / "shards" / "shard-00000.data", _published_layout(0, 2))
-    fallback = tmp_path / "fallback" / "cache.json"
-    monkeypatch.setattr(tar_offsets, "_fallback_cache_path", lambda _dir: fallback)
     real_write = Path.write_text
 
-    def refuse_primary(self: Path, *args, **kwargs):
+    def refuse_shard_dir(self: Path, *args, **kwargs):
         if self.parent == shard.parent:
             raise PermissionError("read-only shard directory")
         return real_write(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "write_text", refuse_primary)
-    cache = ShardOffsetCache(shard.parent)
-    cache.store(shard, scan_tar_members(shard) or [])
-    assert cache.save() == fallback
-    assert ShardOffsetCache(shard.parent).members(shard) is not None
+    monkeypatch.setattr(Path, "write_text", refuse_shard_dir)
+    store = _store(shard.parent)
+    store.store(shard, scan_tar_members(shard) or [])
+    written = store.save()
+    assert written == store.cache_path
+    assert store.cache_path.parent == shard_cache_dir()
+    assert not (shard.parent / SHIPPED_INDEX_FILENAME).exists()
+    assert _store(shard.parent).members(shard) is not None
+
+
+def _counting_scans(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """Record every header scan from now on."""
+    scans: list[Path] = []
+    real_scan = tar_offsets.scan_tar_members
+
+    def counting_scan(path: Path):
+        scans.append(path)
+        return real_scan(path)
+
+    monkeypatch.setattr(tar_offsets, "scan_tar_members", counting_scan)
+    return scans
+
+
+def _uploaded(shard: Path) -> None:
+    """Give ``shard`` a new modification time, as an upload and download do."""
+    stat = shard.stat()
+    os.utime(shard, ns=(stat.st_atime_ns, stat.st_mtime_ns + 7_000_000_000))
+
+
+def test_shipped_index_is_used_after_an_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A shipped index with new shard mtimes but matching sizes and headers needs no scan."""
+    shard_dir = tmp_path / "shards" / "train"
+    shards = [
+        _write_shard(shard_dir / f"shard-{i:05d}.data", _published_layout(i, 4)) for i in range(3)
+    ]
+    WebDatasetReader(tmp_path).close()
+    for shard in shards:
+        _uploaded(shard)
+    scans = _counting_scans(monkeypatch)
+    reader = WebDatasetReader(tmp_path)
+    try:
+        assert not scans, "a valid shipped index must not rescan tar headers"
+        assert len(reader) == 12
+        last = reader.index_map[-1]
+        assert reader[11].image_bytes == _reference_bytes(shards[2], _ref_name(last[2]))
+    finally:
+        reader.close()
+
+
+def test_shipped_index_with_wrong_headers_is_rescanned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A same-size shard whose headers disagree with the shipped index is rescanned."""
+    shard = _write_shard(tmp_path / "shards" / "shard-00000.data", _published_layout(0, 3))
+    WebDatasetReader(tmp_path).close()
+    size = shard.stat().st_size
+    renamed = [(name.replace("s00_", "r00_"), data) for name, data in _published_layout(0, 3)]
+    _write_shard(shard, renamed)
+    assert shard.stat().st_size == size
+    _uploaded(shard)
+    scans = _counting_scans(monkeypatch)
+    reader = WebDatasetReader(tmp_path)
+    try:
+        assert scans == [shard]
+        assert reader[0].metadata["member"].startswith("r00_")
+    finally:
+        reader.close()
+
+
+def test_only_shards_missing_from_the_index_are_scanned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A shard added after the index was written is the only one scanned."""
+    for i in range(2):
+        _write_shard(tmp_path / "shards" / f"shard-{i:05d}.data", _published_layout(i, 2))
+    WebDatasetReader(tmp_path).close()
+    added = _write_shard(tmp_path / "shards" / "shard-00002.data", _published_layout(2, 2))
+    scans = _counting_scans(monkeypatch)
+    reader = WebDatasetReader(tmp_path)
+    try:
+        assert scans == [added]
+        assert len(reader) == 6
+    finally:
+        reader.close()
+
+
+def test_concurrent_readers_scan_each_shard_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two readers opening at once (two DDP ranks): one scans, the other waits and loads."""
+    shard_dir = tmp_path / "shards" / "train"
+    for i in range(4):
+        _write_shard(shard_dir / f"shard-{i:05d}.data", _published_layout(i, 3))
+    scans: list[Path] = []
+    first_scan = threading.Event()
+    release = threading.Event()
+    real_scan = tar_offsets.scan_tar_members
+
+    def slow_scan(path: Path):
+        scans.append(path)
+        first_scan.set()
+        release.wait(timeout=30)
+        return real_scan(path)
+
+    monkeypatch.setattr(tar_offsets, "scan_tar_members", slow_scan)
+    lengths: list[int] = []
+
+    def open_reader() -> None:
+        reader = WebDatasetReader(tmp_path)
+        lengths.append(len(reader))
+        reader.close()
+
+    builder = threading.Thread(target=open_reader)
+    builder.start()
+    assert first_scan.wait(timeout=30)
+    waiter = threading.Thread(target=open_reader)
+    waiter.start()
+    waiter.join(timeout=0.5)
+    assert waiter.is_alive(), "the second reader must wait for the index build"
+    release.set()
+    builder.join(timeout=30)
+    waiter.join(timeout=30)
+    assert lengths == [12, 12]
+    assert sorted(scans) == sorted(shard_dir.glob("*.data"))
+
+
+def test_cache_folder_falls_back_when_the_override_is_unusable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An override that cannot be created gives way to the next writable cache folder."""
+    blocker = tmp_path / "not_a_folder"
+    blocker.write_text("x", encoding="utf-8")
+    monkeypatch.setenv(shard_tables.SHARD_CACHE_DIR_ENV, str(blocker / "cache"))
+    monkeypatch.setattr(shard_tables, "get_project_root", lambda: tmp_path / "suite")
+    folder = shard_cache_dir()
+    assert folder == tmp_path / "suite" / ".cache" / shard_tables.CACHE_DIRNAME
+    assert folder.is_dir()
 
 
 def test_stale_offsets_fail_loudly_and_drop_the_handle(tmp_path: Path) -> None:
