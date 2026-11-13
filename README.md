@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.216-STABLE`
+- **Version**: `v16.9.217-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,17 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.217 - Notebook Sync Skips Read-Only Manifold Folders
+
+- **Bug**: every training process logged `Failed syncing manifold notebook ...
+  [Errno 30] Read-only file system` for each generated notebook, because the
+  `LemGendaryDatasets` folders on Kaggle link to the read-only `/kaggle/input`.
+- A manifold folder without write access (or a write refused with `EROFS`) is
+  skipped with one info record per folder and process; other write errors are
+  still warnings.
+- Tests: writable folders get the notebooks, a read-only folder and an `EROFS`
+  write give one info record and no warnings.
 
 ### v16.9.216 - Dataset Discovery Loads Each Manifold Once
 

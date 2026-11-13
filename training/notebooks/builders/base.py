@@ -4,6 +4,7 @@ Handles JSON encoding, validation, atomic file persistence, and automatic distri
 to sibling LemGendaryDatasets manifolds and workspace training directories.
 """
 
+import errno
 import json
 import logging
 import os
@@ -120,7 +121,10 @@ def sync_manifold_notebooks(
             ds_dir = datasets_hub_root / m_folder
             if ds_dir.exists() and ds_dir not in synced_dirs:
                 synced_dirs.add(ds_dir)
-                _write_notebook(ds_dir / filename, json_str)
+                if os.access(ds_dir, os.W_OK):
+                    _write_notebook(ds_dir / filename, json_str)
+                else:
+                    _report_read_only(ds_dir)
 
 
 def _target_candidates(model_key: str, ds_list: list[str]) -> list[str]:
@@ -154,13 +158,36 @@ def _manifold_folder_names(target_folder: str) -> list[str]:
     ]
 
 
+_REPORTED_READ_ONLY: set[Path] = set()
+"""Read-only manifold folders already reported by this process (one notice per folder)."""
+
+
+def _report_read_only(ds_dir: Path) -> None:
+    """Say once per folder that a read-only manifold (a Kaggle input) gets no notebooks."""
+    real = ds_dir.resolve()
+    if real in _REPORTED_READ_ONLY:
+        return
+    _REPORTED_READ_ONLY.add(real)
+    logger.info(
+        "Dataset folder %s is read-only (an attached input); its notebooks are not synced.",
+        ds_dir,
+    )
+
+
 def _write_notebook(ds_output_path: Path, json_str: str) -> None:
-    """Write the notebook JSON into a manifold directory (failures are logged)."""
+    """Write the notebook JSON into a manifold directory (failures are logged).
+
+    A read-only file system (a folder ``os.access`` could not tell apart) is reported once
+    per folder, like a folder found read-only beforehand.
+    """
     try:
         with open(ds_output_path, "w", encoding="utf-8") as f:
             f.write(json_str)
         print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
     except OSError as exc:
+        if exc.errno == errno.EROFS:
+            _report_read_only(ds_output_path.parent)
+            return
         logger.warning("Failed syncing manifold notebook to %s: %s", ds_output_path, exc)
 
 
