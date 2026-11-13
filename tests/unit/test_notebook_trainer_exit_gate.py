@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import json
 import runpy
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import training.cloud as cloud_package
 from training.cloud.session_deadline import DEADLINE_MARKER
 from training.cloud.trainer_exit import (
     TRAINER_OK_EXIT_CODE,
@@ -30,6 +32,7 @@ from training.platform_paths import PlatformPaths
 from training.run_settings.refusal import RESUME_REFUSAL_RECORD
 
 _KEY = "nima_aesthetic_mobile"
+_MISSING_EXPORT = "no_such_export"
 _REFUSAL_TEXT = "Frozen settings changed: batch_size"
 
 
@@ -151,3 +154,35 @@ def test_completed_training_passes(
     """Exit 0 without the marker passes."""
     _run_cell(suite, "colab", 0)
     assert "[OK] Training finished with exit code 0." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "module", ["training.cloud.trainer_exit", "training.cloud.session_deadline"]
+)
+def test_gate_imports_stay_off_the_export_stack(module: str) -> None:
+    """The gate's imports load neither torchvision nor the model factory (live run R4-D5).
+
+    The notebook kernel process imported the preinstalled torch in the hardware sentinel
+    before the dependency cell installed another build, so importing torchvision there
+    fails (``operator torchvision::nms does not exist``). A fresh interpreter shows what
+    importing the gate module really loads.
+    """
+    probe = (
+        f"import sys, {module}\n"
+        "heavy = [m for m in ('torchvision', 'models.factory', 'training.export') "
+        "if m in sys.modules]\n"
+        "print(','.join(heavy))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == ""
+
+
+def test_cloud_package_exports_resolve_lazily() -> None:
+    """``training.cloud`` still exports its public names, imported on first access."""
+    assert set(cloud_package.__all__) <= set(dir(cloud_package))
+    for name in cloud_package.__all__:
+        assert getattr(cloud_package, name) is not None
+    with pytest.raises(AttributeError):
+        getattr(cloud_package, _MISSING_EXPORT)

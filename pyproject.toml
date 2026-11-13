@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lemgendary-training-suite"
-version = "16.9.210"
+version = "16.9.211"
 description = "Industrial-grade Deep Learning Training Suite for Vision, Restoration, and Financial Time-Series"
 readme = "README.md"
 requires-python = ">=3.10"

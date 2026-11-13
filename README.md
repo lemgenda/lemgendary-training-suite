@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.210-STABLE`
+- **Version**: `v16.9.211-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,26 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.211 - Trainer Exit Gate No Longer Imports Torchvision
+
+- **Live run finding**: the private test kernel stopped cleanly at its
+  session deadline (`[DEADLINE]`, `session_deadline.json`), but the exit
+  gate in the training cell then failed with `RuntimeError: operator
+  torchvision::nms does not exist`. The gate imports
+  `training.cloud.trainer_exit` in the notebook's own kernel process, and
+  the `training.cloud` package imported its whole export stack
+  (`kaggle_model_sync` -> `training.export` -> `models.factory` ->
+  torchvision). That kernel process loaded the preinstalled torch in the
+  hardware sentinel before the dependency cell installed another build, so
+  torchvision no longer matches it.
+- `training/cloud/__init__.py` now resolves its exports lazily (PEP 562
+  `__getattr__`, typed imports under `TYPE_CHECKING`): the public names are
+  unchanged, and importing a light submodule loads only that submodule.
+- Tests: a fresh interpreter importing `training.cloud.trainer_exit` or
+  `training.cloud.session_deadline` loads neither torchvision,
+  `models.factory` nor `training.export`; every `training.cloud` export
+  still resolves.
 
 ### v16.9.210 - Kaggle Launches Choose The Clone Ref And Session Window
 
