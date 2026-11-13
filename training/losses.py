@@ -382,7 +382,10 @@ def _classification_loss(
 
 
 def _face_detection_loss(pred: Any, target: torch.Tensor) -> torch.Tensor:
-    """Confidence BCE plus bbox (x2) and landmark Huber losses on positive anchors.
+    """Confidence BCE plus bbox (x2) and landmark Huber losses on positive samples.
+
+    The model regresses one normalized box per image (no priors), so a positive sample
+    is an image whose target confidence is 1; there is no anchor IoU matching.
 
     Landmark coordinates marked ``LANDMARK_ABSENT`` (box-only labels) are left out of the
     landmark loss instead of pulling predictions towards made-up points.

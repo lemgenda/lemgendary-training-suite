@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.206-STABLE`
+- **Version**: `v16.9.207-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,30 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.207 - RetinaFace Box Range Check After The Label Rebuild
+
+- The LemGendizedRetinaFace labels were rebuilt from the SFHQ 110-point
+  landmarks: one face per image with a tight WIDER-style box (median
+  w 0.55 x h 0.65 of the image; the old boxes were about 0.86 x 0.97).
+- Checked the model against the new boxes: the suite's RetinaFace
+  (`RetinaFaceMobileNet`) has no prior boxes. One globally pooled head
+  regresses a single normalized `cx cy w h` box, one confidence and five
+  landmarks per image, so there are no `min_sizes`, `steps` or matching IoU
+  thresholds to size, and the 640 px training resolution does not limit the
+  box sizes it can learn. No registry change is needed. The loss weights
+  stay confidence 1, box 2, landmarks 1 (smooth L1 on normalized
+  coordinates); the loss docstring no longer speaks of anchors.
+- New `tests/unit/test_retinaface_box_range.py` encodes synthetic boxes in
+  the rebuilt and the old size range, checks that every one is a positive
+  box target (coverage 1.0 at the 0.35 reference IoU) and that the box loss
+  separates exact from shifted boxes, and guards that neither the registry
+  entry nor the model defines priors (a future anchor head needs a real
+  coverage check).
+- **RetinaFace metrics recorded before the label rebuild are not comparable**
+  with new runs: the box targets are about 0.31-0.57 of the old box area and
+  every image now holds exactly one face. Treat earlier `map_*` values and
+  checkpoints' best scores as a different task.
 
 ### v16.9.206 - Training Notebooks Stop On A Failed Trainer
 
